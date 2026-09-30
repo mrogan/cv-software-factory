@@ -1,5 +1,9 @@
 # Software Factory
 
+[![check](https://github.com/mrogan/cv-software-factory/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/mrogan/cv-software-factory/actions/workflows/check.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mrogan/cv-software-factory/badge)](https://scorecard.dev/viewer/?uri=github.com/mrogan/cv-software-factory)
+[![release](https://img.shields.io/github/v/release/mrogan/cv-software-factory)](https://github.com/mrogan/cv-software-factory/releases)
+
 AI agents and deterministic gates that look after a live web app. They notice problems, write fixes, prove the fixes are safe, ship them as canaries and check that they worked. No person writes the fixes; people own the rules.
 
 I'm Martin Rogan. This is my portfolio: a working system you can open and judge for yourself, rather than a description of what I can do. [Why it exists and what it has to prove](docs/INTENT.md).
