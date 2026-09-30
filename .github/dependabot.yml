@@ -7,6 +7,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Node's own types follow the Node version in mise.toml, which moves by hand.
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
     cooldown:
       default-days: 3
     commit-message:
@@ -39,6 +43,10 @@ updates:
       - /deploy/base/postgres
     schedule:
       interval: weekly
+    ignore:
+      # The build image's Node matches mise.toml's; a new major is a deliberate change, not a weekly bump.
+      - dependency-name: node
+        update-types: [version-update:semver-major]
     cooldown:
       default-days: 3
     commit-message:

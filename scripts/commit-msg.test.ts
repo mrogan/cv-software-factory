@@ -35,15 +35,12 @@ describe('commit messages', () => {
     );
   });
 
-  it('asks for a lower-case subject without a full stop', () => {
-    expect(problems('fix: Close the popover.')).toEqual([
-      'start the subject in lower case',
-      'leave the full stop off the subject',
-    ]);
+  it('asks for the full stop to be left off the subject', () => {
+    expect(problems('fix: close the popover.')).toEqual(['leave the full stop off the subject']);
   });
 
-  it('allows an acronym at the start of the subject', () => {
-    expect(problems('fix: CSP blocks the fonts')).toEqual([]);
+  it("accepts Dependabot's capitalised subjects", () => {
+    expect(problems('chore(deps): Bump pino from 10.3.1 to 10.4.0')).toEqual([]);
   });
 
   it('limits the first line to 100 characters', () => {

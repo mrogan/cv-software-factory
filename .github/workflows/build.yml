@@ -85,7 +85,7 @@ jobs:
         with:
           install_args: kustomize
       - name: Pin the new digest
-        working-directory: deploy/overlays/local
+        working-directory: deploy/overlays/local/console-image
         run: kustomize edit set image "console=$IMAGE@$DIGEST"
       - name: Push the branch and open or update the pull request
         run: |

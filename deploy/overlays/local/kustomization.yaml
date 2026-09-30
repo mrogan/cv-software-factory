@@ -5,10 +5,9 @@ resources:
   - ../../base
   - console-ingress.yaml
 
-# The console image CI built last. The build workflow opens a pull request to move it on.
-images:
-  - name: console
-    newName: ghcr.io/mrogan/cv-software-factory/console
+components:
+  # The console image CI built last, pinned by digest. The build workflow edits only this file, in a pull request.
+  - console-image
 
 patches:
   - target:
