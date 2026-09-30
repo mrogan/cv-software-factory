@@ -2,6 +2,7 @@
 #
 # Argo CD deploys only what is in git, so a new image reaches the local cluster through a pull request that pins
 # its digest in deploy/overlays/local. There is one such pull request at a time, always for the latest build.
+# GitHub holds the checks on a pull request a workflow opened until Martin approves them there.
 name: build
 
 on:
@@ -74,7 +75,6 @@ jobs:
     permissions:
       contents: write # move the deploy branch and commit to it
       pull-requests: write # open or update its pull request
-      actions: write # dispatch the required checks on it
     env:
       BRANCH: deploy/console-local
       FILE: deploy/overlays/local/console-image/kustomization.yaml
@@ -124,7 +124,3 @@ jobs:
           else
             gh pr create --head "$BRANCH" --title "$title" --body "$body"
           fi
-      - name: Run the required checks on it
-        run: |
-          gh workflow run check.yml --ref "$BRANCH"
-          gh workflow run pr-title.yml --ref "$BRANCH"
