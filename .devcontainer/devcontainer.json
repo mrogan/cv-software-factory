@@ -1,0 +1,15 @@
+{
+  "name": "Software Factory",
+  "build": { "dockerfile": "Dockerfile" },
+  "features": {
+    // k3d runs the local cluster in Docker, so the container needs its own Docker daemon.
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "postCreateCommand": "mise trust && mise install && pnpm install",
+  "forwardPorts": [8080],
+  "customizations": {
+    "vscode": {
+      "extensions": ["biomejs.biome", "vitest.explorer", "editorconfig.editorconfig"]
+    }
+  }
+}

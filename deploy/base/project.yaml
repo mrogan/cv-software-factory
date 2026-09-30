@@ -1,0 +1,23 @@
+# What the factory's Applications may deploy, and from where: this repository and the chart repositories it pins.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: software-factory
+  namespace: argocd
+spec:
+  description: The factory, its telemetry and its database.
+  sourceRepos:
+    - https://github.com/mrogan/cv-software-factory.git
+    - https://open-telemetry.github.io/opentelemetry-helm-charts
+    - https://prometheus-community.github.io/helm-charts
+    - https://grafana-community.github.io/helm-charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: telemetry
+    - server: https://kubernetes.default.svc
+      namespace: factory
+  clusterResourceWhitelist:
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding

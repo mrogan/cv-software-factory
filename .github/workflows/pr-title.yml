@@ -1,0 +1,32 @@
+# Pull requests are squash-merged, so the title becomes the commit on main: it must be a Conventional Commit.
+name: pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  title:
+    name: pull request title
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: node
+      - name: Check the title
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # From the event on a pull request; looked up by branch when another workflow dispatched this one.
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [ -z "$TITLE" ]; then TITLE=$(gh pr view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json title --jq .title); fi
+          node scripts/commit-msg.ts --title "$TITLE"

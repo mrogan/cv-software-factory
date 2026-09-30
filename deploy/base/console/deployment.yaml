@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: console
+spec:
+  replicas: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: console
+          # Each profile pins the image by digest (kustomize `images:`), so a deploy is always a commit.
+          image: console
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.telemetry:4318
+            - name: OTEL_SERVICE_NAME
+              value: console
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace=software-factory
+            # Every 15s rather than the default minute, so rates settle quickly (and canary analysis, later, too).
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "15000"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

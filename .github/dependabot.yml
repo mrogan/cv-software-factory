@@ -1,0 +1,54 @@
+# Weekly dependency updates, each as a pull request through the same checks as any other change.
+# The cooldown waits a few days after a release before proposing it: most malicious releases are pulled within hours.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      opentelemetry:
+        patterns: ['@opentelemetry/*']
+      fonts:
+        patterns: ['@fontsource/*', '@fontsource-variable/*']
+      tooling:
+        dependency-type: development
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directories:
+      - /apps/console
+      - /.devcontainer
+      - /deploy/base/postgres
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: devcontainers
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope

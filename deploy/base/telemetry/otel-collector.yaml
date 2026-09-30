@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector
+  namespace: argocd
+spec:
+  project: software-factory
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: telemetry
+  sources:
+    - repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+      chart: opentelemetry-collector
+      targetRevision: 0.174.0
+      helm:
+        releaseName: otel-collector
+        valueFiles:
+          - $values/deploy/base/telemetry/values/otel-collector.yaml
+    - repoURL: https://github.com/mrogan/cv-software-factory.git
+      targetRevision: main
+      ref: values
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

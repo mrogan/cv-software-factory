@@ -1,0 +1,57 @@
+# One OTLP endpoint for every service in the cluster. Traces go to Tempo, metrics to Prometheus, logs to Loki.
+fullnameOverride: otel-collector
+mode: deployment
+image:
+  repository: otel/opentelemetry-collector-k8s
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+ports:
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false
+
+config:
+  receivers:
+    jaeger: null
+    zipkin: null
+    prometheus: null
+  exporters:
+    otlp_http/tempo:
+      endpoint: http://tempo:4318
+    otlp_http/prometheus:
+      endpoint: http://prometheus-server/api/v1/otlp
+    otlp_http/loki:
+      endpoint: http://loki:3100/otlp
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        exporters: [otlp_http/tempo]
+      metrics:
+        receivers: [otlp]
+        exporters: [otlp_http/prometheus]
+      logs:
+        receivers: [otlp]
+        exporters: [otlp_http/loki]
+
+# The restricted Pod Security Standard, which the telemetry namespace enforces.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]

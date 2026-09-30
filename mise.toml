@@ -1,0 +1,8 @@
+# The whole toolchain at pinned versions: `mise install` sets up a laptop, and CI and the dev container use the same file.
+[tools]
+node = "24.21.0"
+pnpm = "12.8.1"
+kubectl = "1.37.1"
+k3d = "5.9.0"
+helm = "4.3.0"
+kustomize = "5.8.2"

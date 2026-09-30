@@ -1,0 +1,9 @@
+# Everything every profile runs. Profiles add to it in deploy/overlays/<profile>.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces.yaml
+  - project.yaml
+  - telemetry
+  - postgres
+  - console

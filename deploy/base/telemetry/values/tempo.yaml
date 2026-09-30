@@ -1,0 +1,33 @@
+# Tempo in monolithic mode, taking traces over OTLP.
+tempo:
+  reportingEnabled: false
+  retention: 72h
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+  # The restricted Pod Security Standard, which the telemetry namespace enforces.
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+persistence:
+  enabled: true
+  size: 4Gi
+# Pod-level, despite the chart's name for it.
+securityContext:
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault

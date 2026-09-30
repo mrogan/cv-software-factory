@@ -1,0 +1,110 @@
+# Builds the console image on main and pushes it to GHCR, then proposes deploying it.
+#
+# Argo CD deploys only what is in git, so a new image reaches the local cluster through a pull request that pins
+# its digest in deploy/overlays/local. There is one such pull request at a time, always for the latest build.
+name: build
+
+on:
+  push:
+    branches: [main]
+    # Only what goes into the image. Merging the deploy pull request must not build again.
+    paths:
+      - apps/console/**
+      - docs/design/system/tokens.css
+      - docs/design/system/mark/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/build.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}/console
+
+jobs:
+  image:
+    name: build and push
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Laptops are arm64; cloud nodes are amd64.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/console/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          build-args: GIT_COMMIT=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=Software Factory console
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-pr:
+    name: propose deploying it
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # push the deploy branch
+      pull-requests: write # open or update its pull request
+      actions: write # dispatch the required checks on it
+    env:
+      BRANCH: deploy/console-local
+      DIGEST: ${{ needs.image.outputs.digest }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: kustomize
+      - name: Pin the new digest
+        working-directory: deploy/overlays/local
+        run: kustomize edit set image "console=$IMAGE@$DIGEST"
+      - name: Push the branch and open or update the pull request
+        run: |
+          short=${GITHUB_SHA::7}
+          title="chore(deploy): run console $short on the local cluster"
+          body="Pins the console image built from $GITHUB_SHA ($IMAGE@$DIGEST) in \`deploy/overlays/local\`. Argo CD deploys it once this is merged.
+
+          Opened by the [build workflow]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). A newer build replaces this pull request's change."
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch --create "$BRANCH"
+          git commit --all --message "$title"
+          git push --force origin "$BRANCH"
+          if gh pr view "$BRANCH" --json state --jq .state | grep -q OPEN; then
+            gh pr edit "$BRANCH" --title "$title" --body "$body"
+          else
+            gh pr create --head "$BRANCH" --title "$title" --body "$body"
+          fi
+      - name: Run the required checks on it
+        run: |
+          gh workflow run check.yml --ref "$BRANCH"
+          gh workflow run pr-title.yml --ref "$BRANCH"

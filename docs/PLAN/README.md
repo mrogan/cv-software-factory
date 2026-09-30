@@ -1,0 +1,19 @@
+# Delivery plan
+
+The plan is a sequence of milestones. Each one ends with something demonstrable, and the next one does not start until the current one's exit criteria are met.
+
+Only the current milestone is detailed, because each one is likely to change the next. When a milestone starts, it gets its own file here with tasks and exit criteria; until then it is a line in the table below. When a milestone finishes, update the spec and this table with anything learned.
+
+| # | Milestone | Outcome | Status |
+|---|---|---|---|
+| 1 | [Foundations](M01-FOUNDATIONS.md) | Public `cv-software-factory` repo with exemplary hygiene; `make up` runs a local Kubernetes cluster with GitOps and telemetry, deploying a console skeleton built by CI | **In progress** |
+| 2 | The World's Worst Website | App with ≥ 20 seeded defects, OpenTelemetry, report widget; answer key with fingerprints in `cv-software-factory-private`; published as `cv-worlds-worst-website` from one clean first commit; deployed locally by Argo CD | |
+| 3 | Event store and console skeleton | Event schema with versioning; the console renders work items and the scrubbable timeline from hand-written fixture events; live updates over server-sent events | |
+| 4 | Sensing and triage | Probes, crawler, telemetry alerts and reports produce deduplicated tickets with evidence and screenshots; triage runs on a Jev question set with an evaluation fixture set; gateway with record and replay from the first model call | |
+| 5 | Fixing | GitHub App, agent runners, planner, coder and reviewer; code-owner review required on `main`; the App opens the deploy and release pull requests, so workflows lose the right to open (and approve) them; CI gates in `cv-worlds-worst-website`; one seeded defect fixed and merged with no human code, at Supervised autonomy | |
+| 6 | Shipping safely | Signed images, admission control, canary with traffic generator, verification, ticket close or reopen, scoreboard; a bad change is rolled back automatically | |
+| 7 | Replay site | First public deliverable: curated recordings on GitHub Pages, README with GIF, `make demo` running on cassettes | |
+| 8 | Guardrails and admin | Every guardrail tested; stop the line, "Needs you", autonomy levels, audit log; improvements requested and shipped from the console | |
+| 9 | Visitor features | Inject a defect menu within the 20-minute target, red-team harness, report widget through triage; visitor limits and budget | |
+| 10 | Live on DigitalOcean | Terraform, visitor access keys and usage view, Guarded autonomy, reset to baseline | |
+| 11 | Interview on AWS | Terraform for EKS, Bedrock adapter, weekly apply, smoke-test and destroy job; recorded walkthrough | |

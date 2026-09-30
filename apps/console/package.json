@@ -1,0 +1,21 @@
+{
+  "name": "@software-factory/console",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The factory's web UI. For now, a skeleton that proves the delivery path.",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --import ./src/telemetry.ts src/server.ts",
+    "start": "node --import ./src/telemetry.ts src/server.ts"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
+    "@opentelemetry/instrumentation": "^0.222.0",
+    "@opentelemetry/instrumentation-http": "^0.222.0",
+    "@opentelemetry/instrumentation-pino": "^0.68.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
+    "pino": "^10.3.1"
+  }
+}

@@ -1,0 +1,10 @@
+# Only what the image needs; everything else stays out of the build context.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/console/package.json
+!apps/console/src
+!apps/console/public
+!docs/design/system/tokens.css
+!docs/design/system/mark/icon.svg

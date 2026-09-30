@@ -1,0 +1,16 @@
+# The local cluster: one k3s node in a container. `make up` creates it; `make down` deletes it.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: software-factory
+servers: 1
+agents: 0
+image: rancher/k3s:v1.37.1-k3s1
+ports:
+  # k3s's Traefik ingress, so http://console.localhost:8080 and friends reach the cluster.
+  - port: 127.0.0.1:8080:80
+    nodeFilters: [loadbalancer]
+options:
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: false

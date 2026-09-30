@@ -1,0 +1,23 @@
+# The rules of the line are human-owned (spec section 6, guardrail 1).
+# Review by a code owner is not yet required: see the README's "How changes land".
+
+/.github/                    @mrogan
+/deploy/                     @mrogan
+/scripts/github-settings.ts  @mrogan
+
+# Gate configuration
+/Makefile                    @mrogan
+/mise.toml                   @mrogan
+/lefthook.yml                @mrogan
+/biome.json                  @mrogan
+/tsconfig.base.json          @mrogan
+/vitest.config.ts            @mrogan
+/scripts/commit-msg.ts       @mrogan
+
+# Intent, specification and reference material
+/docs/INTENT.md              @mrogan
+/docs/SPECIFICATION.md       @mrogan
+/docs/design/                @mrogan
+/docs/architecture/          @mrogan
+/SECURITY.md                 @mrogan
+/LICENSE                     @mrogan

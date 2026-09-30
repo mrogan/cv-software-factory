@@ -1,0 +1,16 @@
+# Git hooks: the same checks as CI, run early. `pnpm install` installs them.
+pre-commit:
+  parallel: true
+  jobs:
+    - name: format and lint
+      glob: '*.{ts,js,json,jsonc,css}'
+      run: pnpm exec biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+    - name: type-check
+      glob: '*.ts'
+      run: pnpm exec tsc
+
+commit-msg:
+  jobs:
+    - name: conventional commit
+      run: node scripts/commit-msg.ts {1}

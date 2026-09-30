@@ -1,0 +1,342 @@
+/* Shared styles for the architecture pages, built on the Paper & Ink design system (../design/system).
+   Colours are role tokens only, so the Paper and Ink switch needs no redraw. */
+
+/* ---- Base ---------------------------------------------------------------------------- */
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
+html {
+  background: var(--bg);
+  color-scheme: light;
+}
+html[data-theme="ink"] {
+  color-scheme: dark;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px / 1.55 var(--font-sans);
+  letter-spacing: -0.1px;
+  -webkit-font-smoothing: antialiased;
+  padding: 28px clamp(16px, 3vw, 40px) 0;
+}
+a {
+  color: var(--signal);
+  text-underline-offset: 3px;
+}
+a:hover {
+  color: var(--signal-hover);
+}
+button {
+  font: inherit;
+  color: inherit;
+}
+:focus-visible {
+  outline: var(--stroke-rule) solid var(--signal);
+  outline-offset: 3px;
+}
+.wrap {
+  max-width: 1560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ---- Header -------------------------------------------------------------------------- */
+header.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 32px;
+}
+.eyebrow {
+  font: 500 10.5px / 1 var(--font-mono);
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.eyebrow a {
+  color: inherit;
+  text-decoration: none;
+}
+.eyebrow a:hover {
+  color: var(--text);
+}
+h1 {
+  margin: 10px 0 0;
+  font: 400 clamp(34px, 4.4vw, 54px) / 1 var(--font-display);
+  letter-spacing: -1px;
+  text-wrap: balance;
+}
+h1 em {
+  color: var(--text-muted);
+}
+.lede {
+  margin: 12px 0 0;
+  max-width: 72ch;
+  color: var(--text-2);
+}
+
+/* ---- Panels and controls ------------------------------------------------------------- */
+.stage {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.scroll {
+  overflow-x: auto;
+}
+aside {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  padding: 22px;
+}
+.card h2 {
+  margin: 6px 0 10px;
+  font: 400 30px / 1.08 var(--font-display);
+  text-wrap: balance;
+}
+.card p {
+  margin: 0 0 10px;
+  color: var(--text-2);
+}
+.tag {
+  font: 500 10.5px / 1.4 var(--font-mono);
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.btn {
+  min-height: 40px;
+  min-width: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn:hover {
+  border-color: var(--text-muted);
+}
+.btn.primary {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: var(--on-signal);
+  font-weight: 500;
+}
+.btn.primary:hover {
+  background: var(--signal-hover);
+}
+.linkbtn {
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: 32px;
+  color: var(--signal);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--raised);
+}
+.seg button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.seg button[aria-pressed="true"],
+.seg button[aria-selected="true"] {
+  background: var(--text);
+  color: var(--on-inverse);
+}
+
+/* ---- Diagram ------------------------------------------------------------------------- */
+/* Flows are told apart by line shape first and colour second (design system principle 4).
+   Only denied carries the warm colour: it is the one a person should look at. */
+.f-work {
+  --flow: var(--signal);
+  --dash: none;
+}
+.f-model {
+  --flow: var(--signal);
+  --dash: 7 4;
+}
+.f-runtime {
+  --flow: var(--text-muted);
+  --dash: none;
+}
+.f-event {
+  --flow: var(--text-muted);
+  --dash: 0.5 4.5;
+}
+.f-denied {
+  --flow: var(--attn);
+  --dash: 5 5;
+}
+.f-idle {
+  --flow: var(--line-strong);
+  --dash: none;
+}
+
+.edge {
+  fill: none;
+  stroke: var(--flow);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    stroke 0.3s,
+    opacity 0.3s;
+}
+.edge.on {
+  stroke-width: 2;
+  stroke-dasharray: var(--dash);
+}
+.arrow {
+  fill: none;
+  stroke: var(--flow);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.flowdot {
+  fill: var(--flow);
+}
+.flowlab text {
+  fill: var(--flow);
+  font: 500 11px var(--font-mono);
+}
+.flowlab rect {
+  fill: var(--bg);
+  stroke: var(--flow);
+  stroke-width: 0.8;
+  stroke-opacity: 0.6;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 4px 8px 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.swatch {
+  width: 26px;
+  height: 8px;
+  flex: none;
+}
+.swatch line {
+  stroke: var(--flow);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: var(--dash);
+}
+
+.band {
+  fill: var(--bg);
+  stroke: var(--line-strong);
+  stroke-dasharray: 4 5;
+}
+.band-label {
+  fill: var(--text-muted);
+  font: 10.5px var(--font-mono);
+  letter-spacing: 1px;
+}
+.node {
+  cursor: pointer;
+  transition: opacity 0.3s;
+}
+.node .box {
+  fill: var(--raised);
+  stroke: var(--line-strong);
+  stroke-width: 1.2;
+  transition: stroke 0.3s;
+}
+.node:hover .box {
+  stroke: var(--text-muted);
+}
+.node.on .box {
+  stroke: var(--signal);
+  stroke-width: 1.8;
+}
+.node.on.denied .box {
+  stroke: var(--attn);
+}
+.node.sel .box {
+  stroke: var(--text);
+  stroke-width: 2.4;
+}
+.node .name {
+  fill: var(--text);
+  font: 500 13.5px var(--font-sans);
+}
+.node .sub {
+  fill: var(--text-muted);
+  font: 10.5px var(--font-mono);
+}
+
+/* ---- Footer -------------------------------------------------------------------------- */
+footer.foot {
+  margin-top: 32px;
+  border-top: 1px solid var(--line);
+  padding: 20px 0 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+footer.foot .left,
+footer.foot .right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+footer.foot .left a {
+  color: var(--text-2);
+}
+footer.foot .seg button {
+  min-height: 30px;
+  font: 11px / 1 var(--font-mono);
+  letter-spacing: 0.6px;
+}

@@ -1,0 +1,13 @@
+# Postgres as a plain StatefulSet: the event store and work queue from milestone 3. Nothing uses it yet.
+# Its password is the Secret `postgres`, created by `make up` and never committed.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: factory
+labels:
+  - pairs:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/part-of: software-factory
+    includeSelectors: true
+resources:
+  - statefulset.yaml
+  - service.yaml

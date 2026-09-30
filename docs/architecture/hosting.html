@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en" data-theme="paper">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hosting · Software Factory · Martin Rogan</title>
+<meta name="description" content="Where the factory runs: four profiles, one set of manifests, and what each costs.">
+<link rel="icon" href="../design/system/mark/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../design/system/tokens.css">
+<link rel="stylesheet" href="architecture.css">
+<style>
+/* ---- Profile timeline ---------------------------------------------------------------- */
+.timeline { display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap; }
+.tl { position: relative; flex: 1 1 640px; min-width: 0; padding: 0 8px; }
+.tl .rail, .tl .fill { position: absolute; left: 28px; top: 19px; height: 4px; border-radius: 2px; }
+.tl .rail { right: 28px; background: var(--line-strong); }
+.tl .fill { background: var(--signal); transition: width 0.35s var(--motion-ease); }
+.stops { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stop { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 14px 6px 8px; border: 0; background: transparent; color: var(--text-2); cursor: pointer; border-radius: var(--radius-card); }
+.stop .dot { width: 14px; height: 14px; border-radius: 7px; background: var(--bg); border: 2px solid var(--line-strong); margin-bottom: 6px; transition: all 0.25s; }
+.stop.done .dot { background: var(--signal); border-color: var(--signal); }
+.stop[aria-selected="true"] .dot { width: 22px; height: 22px; border-radius: 11px; background: var(--text); border-color: var(--text); margin-top: -4px; margin-bottom: 2px; }
+.stop small { font: 10.5px var(--font-mono); letter-spacing: 0.8px; color: var(--text-muted); text-transform: uppercase; }
+.stop b { font: 400 23px/1.1 var(--font-display); color: var(--text); }
+.stop .price { font: 12px var(--font-mono); color: var(--text); font-variant-numeric: tabular-nums; }
+.stop .who { font-size: 12px; color: var(--text-muted); }
+.cmpbtn { flex: 0 0 auto; align-self: center; min-height: 56px; padding: 8px 18px; text-align: left; border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: transparent; color: var(--text-2); font-size: 14px; cursor: pointer; }
+.cmpbtn:hover { border-color: var(--text-muted); }
+.cmpbtn small { display: block; font: 10.5px var(--font-mono); letter-spacing: 0.8px; color: var(--text-muted); text-transform: uppercase; }
+.cmpbtn[aria-selected="true"] { border-color: var(--signal); background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--signal); }
+
+/* ---- Diagram and cards --------------------------------------------------------------- */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; align-items: start; }
+@media (max-width: 1150px) { .main { grid-template-columns: 1fr; } }
+.flows { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 6px; }
+.flows span.l { font-size: 12px; color: var(--text-muted); margin-right: 4px; }
+.flow { min-height: 36px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); background: transparent; color: var(--text-2); font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+.flow:hover { border-color: var(--text-muted); }
+.flow[aria-pressed="true"] { background: var(--text); color: var(--on-inverse); border-color: var(--text); }
+.flow[aria-pressed="true"] .swatch { --flow: var(--on-inverse); }
+svg#dia { display: block; width: 100%; min-width: 900px; height: auto; }
+.zone { fill: var(--bg); stroke: var(--line-strong); stroke-dasharray: 4 5; }
+.zone.cluster { fill: var(--surface); }
+.zone.group { fill: var(--bg); stroke: var(--line); stroke-dasharray: none; }
+.deco-label { fill: var(--text-muted); font: 10px var(--font-mono); letter-spacing: 0.6px; }
+.deco-rail { fill: var(--line-strong); }
+.deco-fill { fill: var(--signal); }
+.deco-ch { fill: var(--surface); stroke: var(--line-strong); stroke-width: 2; }
+.deco-ch.done { fill: var(--signal); stroke: none; }
+.deco-ch.here { fill: var(--text); stroke: none; }
+.deco-here { fill: var(--text); }
+.deco-event { fill: var(--text-2); font: 11px var(--font-mono); }
+table.cost { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+table.cost td { padding: 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--text-2); }
+table.cost td:last-child { text-align: right; font: 12.5px var(--font-mono); color: var(--text); white-space: nowrap; padding-left: 12px; }
+table.cost tr.total td { border-bottom: 0; padding-top: 10px; color: var(--text); font-weight: 500; }
+table.cost tr.total td:last-child { font-size: 14px; font-weight: 500; }
+.card h3 { margin: 0 0 10px; font: 500 10.5px var(--font-mono); letter-spacing: 1.2px; color: var(--text-muted); text-transform: uppercase; }
+.note { font-size: 12.5px; color: var(--text-muted); margin-top: 8px; }
+ul.pc { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 14px; }
+ul.pc li { padding-left: 18px; position: relative; color: var(--text-2); }
+ul.pc li::before { content: ''; position: absolute; left: 2px; top: 9px; width: 7px; height: 7px; border-radius: 4px; }
+ul.pc.good li::before { background: var(--ok); }
+ul.pc.bad li::before { background: transparent; border: 1.5px solid var(--attn); }
+.card.sel { box-shadow: inset var(--stroke-rule) 0 0 var(--signal); }
+
+/* ---- Compare ------------------------------------------------------------------------- */
+.compare { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-panel); padding: 8px 12px; overflow-x: auto; }
+table.cmp { width: 100%; min-width: 900px; border-collapse: collapse; font-size: 14px; }
+table.cmp th, table.cmp td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.cmp thead th { font: 400 23px/1.1 var(--font-display); }
+table.cmp thead th small { display: block; font: 10.5px var(--font-mono); letter-spacing: 1px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
+table.cmp tbody th { font: 500 11px var(--font-mono); letter-spacing: 1px; color: var(--text-muted); text-transform: uppercase; width: 150px; }
+table.cmp td { color: var(--text-2); }
+.dots { letter-spacing: 2px; color: var(--signal); font-size: 13px; }
+.dots .off { color: var(--line-strong); }
+footer.foot .sources { flex-basis: 100%; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top"><div>
+    <div class="eyebrow"><a href="../AGENTS.md">Software Factory</a> · architecture</div>
+    <h1>Where the factory lives <em>· four profiles, one set of manifests</em></h1>
+    <p class="lede">The factory is delivered as four profiles, in order, each for a different audience. Local, DigitalOcean and AWS run the same cluster from the same manifests; only a few adapters change. Pick a profile, play a flow, and click any box for why it sits where it does.</p>
+  </div></header>
+
+  <div class="timeline">
+    <div class="tl">
+      <div class="rail"></div><div class="fill" id="tlfill"></div>
+      <div class="stops" role="tablist" aria-label="Profile">
+        <button type="button" class="stop" role="tab" id="s-local" aria-selected="true"><span class="dot"></span><small>1 · build</small><b>Local</b><span class="price">$0</span><span class="who">Martin, and anyone who clones</span></button>
+        <button type="button" class="stop" role="tab" id="s-pages" aria-selected="false"><span class="dot"></span><small>2 · first public</small><b>Replay site</b><span class="price">$0</span><span class="who">Recruiters · 1 minute</span></button>
+        <button type="button" class="stop" role="tab" id="s-do" aria-selected="false"><span class="dot"></span><small>3 · always on</small><b>DigitalOcean</b><span class="price">≈ $51 / month</span><span class="who">Engineers · 10–30 minutes</span></button>
+        <button type="button" class="stop" role="tab" id="s-aws" aria-selected="false"><span class="dot"></span><small>4 · on demand</small><b>AWS</b><span class="price">≈ $4–5 / day</span><span class="who">Interviewers · an hour</span></button>
+      </div>
+    </div>
+    <button type="button" class="cmpbtn" role="tab" id="s-compare" aria-selected="false"><small>Side by side</small>Compare profiles</button>
+  </div>
+
+  <div class="main" id="optView">
+    <section class="stage" aria-label="Placement diagram">
+      <div class="flows" role="group" aria-label="Show a flow">
+        <span class="l">Show</span>
+        <button type="button" class="flow" data-f="all" aria-pressed="true">Everything</button>
+        <button type="button" class="flow" data-f="visit" aria-pressed="false"><svg class="swatch f-runtime" viewBox="0 0 26 8" aria-hidden="true"><line x1="2" y1="4" x2="24" y2="4"/></svg>A visitor arrives</button>
+        <button type="button" class="flow" data-f="change" aria-pressed="false"><svg class="swatch f-work" viewBox="0 0 26 8" aria-hidden="true"><line x1="2" y1="4" x2="24" y2="4"/></svg>A fix ships</button>
+        <button type="button" class="flow" data-f="watch" aria-pressed="false"><svg class="swatch f-event" viewBox="0 0 26 8" aria-hidden="true"><line x1="2" y1="4" x2="24" y2="4"/></svg>Watching the app</button>
+        <button type="button" class="flow" data-f="model" aria-pressed="false"><svg class="swatch f-model" viewBox="0 0 26 8" aria-hidden="true"><line x1="2" y1="4" x2="24" y2="4"/></svg>Model calls</button>
+      </div>
+      <div class="scroll">
+        <svg id="dia" viewBox="0 0 1100 620" role="img" aria-labelledby="diaT">
+          <title id="diaT">Where each part of the factory and app runs in this profile</title>
+          <defs id="defs"></defs>
+          <g id="boxes"></g><g id="deco"></g><g id="edges"></g><g id="dotsL"></g><g id="nodes"></g><g id="labels"></g>
+        </svg>
+      </div>
+    </section>
+
+    <aside>
+      <div class="card sel" id="selCard" hidden>
+        <div class="tag" id="selWhere"></div>
+        <h2 id="selTitle"></h2>
+        <p id="selNote"></p>
+        <button type="button" class="linkbtn" id="selClose">← Back to the profile</button>
+      </div>
+      <div class="card" id="sumCard">
+        <div class="tag" id="sumTag"></div>
+        <h2 id="sumTitle"></h2>
+        <p id="sumText"></p>
+        <p id="flowText" style="color:var(--text)" hidden></p>
+      </div>
+      <div class="card">
+        <h3 id="costHead">Cost</h3>
+        <table class="cost" id="costTable"></table>
+        <div class="note" id="costNote"></div>
+      </div>
+      <div class="card">
+        <h3>Good</h3>
+        <ul class="pc good" id="pros"></ul>
+        <h3 style="margin-top:16px">Watch out</h3>
+        <ul class="pc bad" id="cons"></ul>
+      </div>
+    </aside>
+  </div>
+
+  <div id="cmpView" hidden>
+    <div class="compare">
+      <table class="cmp">
+        <thead><tr><th></th>
+          <th><small>1 · local</small>Laptop, k3d</th>
+          <th><small>2 · pages</small>Replay site</th>
+          <th><small>3 · do</small>DigitalOcean</th>
+          <th><small>4 · aws</small>AWS on demand</th></tr></thead>
+        <tbody>
+          <tr><th>Audience</th><td>Martin; anyone who clones and runs <code>make demo</code></td><td>Recruiters, one minute</td><td>Engineers, 10–30 minutes, with a visitor key</td><td>Interviewers, walked through live</td></tr>
+          <tr><th>Cost</th><td>$0, plus model usage when recording</td><td>$0</td><td>≈ $51 a month, plus capped model usage</td><td>≈ $4–5 per day it exists; ≈ $1 a month for the weekly check</td></tr>
+          <tr><th>Always up</th><td>When the laptop is on</td><td>Yes, nothing to go down</td><td>Yes</td><td>Only when stood up</td></tr>
+          <tr><th>Live work</th><td>Yes</td><td>No, curated recordings</td><td>Yes, including visitor actions</td><td>Yes, from the seeded baseline</td></tr>
+          <tr><th>Models</th><td>Replay from cassettes; record on a miss</td><td>None</td><td>Anthropic API and Jev via the gateway</td><td>Bedrock via an IAM role, no keys</td></tr>
+          <tr><th>Edge</th><td>localhost</td><td>GitHub Pages</td><td>Cloudflare Tunnel, no load balancer</td><td>Cloudflare Tunnel (an ALB is an optional extra)</td></tr>
+          <tr><th>Setup effort</th><td><span class="dots">●●<span class="off">●●●</span></span></td><td><span class="dots">●<span class="off">●●●●</span></span></td><td><span class="dots">●●●<span class="off">●●</span></span></td><td><span class="dots">●●●●<span class="off">●</span></span></td></tr>
+          <tr><th>What it proves</th><td>The full loop works and anyone can run it</td><td>The console tells the story with no backend</td><td>It runs unattended, in public, within budget</td><td>The same system in the shape enterprises run</td></tr>
+          <tr><th>Portable because</th><td colspan="4">One CI pipeline pushes signed images to GHCR. One set of manifests, with a Kustomize overlay per profile. Argo CD in each cluster pulls its own overlay. Only the edge, model provider and cluster flavour change.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <div class="left">
+      <span>Prices checked September 2026, before VAT, and will drift. Model usage is extra everywhere and capped by the gateway.</span>
+      <a href="wiring.html">How the parts connect</a>
+      <a href="../design/system/index.html">Design system</a>
+    </div>
+    <div class="right">
+      <div class="seg" role="group" aria-label="Theme"><button type="button" data-theme-set="paper">PAPER</button><button type="button" data-theme-set="ink">INK</button></div>
+      <div class="seg" role="group" aria-label="Motion"><button type="button" data-motion="on">MOTION</button><button type="button" data-motion="off">STILL</button></div>
+    </div>
+    <span class="sources">Sources: <a href="https://www.digitalocean.com/pricing/kubernetes">DigitalOcean Kubernetes</a> · <a href="https://www.digitalocean.com/pricing/droplets">DigitalOcean Droplets</a> · <a href="https://aws.amazon.com/eks/pricing/">AWS EKS pricing</a> · <a href="https://cloudburn.io/blog/amazon-eks-pricing">CloudBurn EKS breakdown</a> · <a href="https://elevata.io/en/claude-sonnet-5-default-model-aws-bedrock">Sonnet 5 on Bedrock</a> · <a href="https://stackvaluelab.com/hetzner-cx-cax-unavailable/">Hetzner CX/CAX availability</a> · <a href="https://github.com/resources/insights/2026-pricing-changes-for-github-actions">GitHub Actions 2026 pricing</a></span>
+  </footer>
+</div>
+
+<script>
+(()=> {
+const NS='http://www.w3.org/2000/svg';
+// Each flow is drawn as a flow kind from architecture.css.
+const KIND={visit:'runtime',change:'work',watch:'event',model:'model'};
+const H=44;
+const ROW=[132,192,252,312,372,432,492];
+
+/* ---------- shared cluster layout for local, do and aws ---------- */
+function clusterStage(o){
+  const boxes=[
+   {kind:'gh',x:200,y:40,w:260,h:230,label:'GITHUB · free for public repos'},
+   {kind:'ext',x:200,y:300,w:260,h:110,label:o.modelsBox},
+   {kind:'ext',x:200,y:440,w:260,h:110,label:o.edgeBox},
+   {kind:o.outerKind,x:490,y:40,w:595,h:560,label:o.outer},
+   {kind:'k8s',x:505,y:70,w:565,h:518,label:o.cluster},
+   {kind:'grp',x:520,y:104,w:260,h:472,label:'APP + DELIVERY'},
+   {kind:'grp',x:795,y:104,w:260,h:472,label:'FACTORY + CONSOLE'}];
+  const app=[
+   ['ingress','Ingress',o.ingressSub,o.ingressNote],
+   ['app','App · baseline + canary','World’s Worst Website','Two versions side by side during a rollout. Argo Rollouts sets the traffic split on the ingress.'],
+   ['argo','Argo CD + Rollouts','pulls its overlay','Pulls this profile’s Kustomize overlay from git and images from GHCR by digest. Nothing pushes into the cluster.'],
+   ['kyverno','Admission control','verify signatures','Refuses any image not signed by the release workflow. Kyverno by default.'],
+   ['otel','OTel collector','traces · metrics · logs','The one interface for telemetry, so storage can change without touching the app.'],
+   ['telem','Prometheus · Loki · Tempo','with Grafana (optional)',o.telemNote],
+   ['probes','Probes + traffic','Playwright · synthetic','Journeys and a crawler against the site, plus a traffic generator so canary analysis has enough samples within minutes.']];
+  const fdy=[
+   ['console','Console','renders events at t',o.consoleNote],
+   ['orch','Orchestrator','queue · caps · injector','Postgres-backed queue and workers. Runs agent jobs and the defect injector, and enforces concurrency, time and spend caps.'],
+   ['agents','Agent jobs','sandboxed · per task','Kubernetes jobs in a locked-down namespace: no production secrets, network policy allowing only GitHub, the gateway and the package mirror, resource quotas so they can’t starve the site.'],
+   ['gateway','LLM gateway',o.gatewaySub,o.gatewayNote],
+   [o.slot[0],o.slot[1],o.slot[2],o.slot[3]],
+   ['events','Event store','Postgres · append-only','Every step as an event with captured artifacts. The console, audit log and replay exports all come from here.'],
+   ['score','Scoreboard','reads the answer key','Matches tickets to defect fingerprints. The only thing that can read the private answer key.']];
+  const nodes=[
+   {id:'people',x:20,y:78,w:150,t:o.people[0],s:o.people[1],n:o.people[2]},
+   {id:'repos',x:220,y:72,w:220,t:'Public repos',s:'factory · worst website',n:'cv-software-factory and cv-worlds-worst-website. Code, manifests with one overlay per profile, specs and curated event logs. Rulesets, CODEOWNERS and secret scanning.'},
+   {id:'actions',x:220,y:132,w:220,t:'Actions',s:'one pipeline · hosted runners',n:'Builds, tests and scans once, for every profile. GitHub-hosted runners are free for public repos, and there are no self-hosted runners.'},
+   {id:'ghcr',x:220,y:196,w:220,t:'GHCR',s:'signed images · free',n:'Every profile pulls the same images, signed keylessly by the release workflow’s OIDC identity.'},
+   {id:'models',x:220,y:340,w:220,t:o.models[0],s:o.models[1],n:o.models[2]},
+   {id:'edge',x:220,y:480,w:220,t:o.edge[0],s:o.edge[1],n:o.edge[2]}];
+  app.forEach((a,i)=>nodes.push({id:a[0],x:535,y:ROW[i],w:230,t:a[1],s:a[2],n:a[3]}));
+  fdy.forEach((a,i)=>nodes.push({id:a[0],x:810,y:ROW[i],w:230,t:a[1],s:a[2],n:a[3]}));
+  const edges=[
+   {f:'visit',d:'M95 122 V502 H218',l:o.visitLabel},
+   {f:'visit',d:'M440 502 H482 V154 H533',l:o.edgeLabel,lt:0.55},
+   {f:'visit',d:'M650 176 V190',l:''},
+   {f:'visit',d:'M765 154 H808',l:''},
+   {f:'change',d:'M810 274 H788 V98 H442',l:'open PR'},
+   {f:'change',d:'M330 116 V130',l:''},
+   {f:'change',d:'M330 176 V194',l:'push + sign',lp:[338,186,'start']},
+   {f:'change',d:'M535 274 H512 V84 H442',l:'pull overlay',lt:0.9},
+   {f:'watch',d:'M650 416 V430',l:''},
+   {f:'watch',d:'M765 444 H792 V284 H808',l:'triage, read-only',lt:0.6},
+   {f:'watch',d:'M1040 214 H1052 V454 H1042',l:'events',lt:0.5},
+   {f:'watch',d:'M810 464 H802 V168 H808',l:''},
+   {f:'model',d:'M1040 334 H1062 V592 H470 V362 H442',l:o.modelLabel,lt:0.55},
+   {f:'model',d:'M925 356 V370',l:''}];
+  return {boxes,nodes,edges,deco:null};
+}
+
+const STAGES={
+ local:{tag:'Profile 1 · build',title:'Local, on k3d',
+  text:'Everything runs in a k3d cluster on Martin’s laptop; only GitHub is remote. The same cluster with the gateway in replay mode is the demo profile, run by make demo: anyone who clones gets the full loop with no API key.',
+  flowText:{visit:'The browser reaches the cluster on localhost; the ingress routes to the site and the console.',change:'An agent opens a PR through the GitHub App. Actions builds, tests, signs and pushes to GHCR. Argo CD in the local cluster pulls the new overlay.',watch:'OTel feeds Prometheus, Loki and Tempo. Triage reads them read-only. Every step lands in the event store, which the console renders.',model:'The gateway answers from cassettes. On a miss it records a real call to the Anthropic API; CI fails on a miss.'},
+  costHead:'Cost',
+  cost:[['k3d cluster on the laptop','$0'],['GitHub: public repos, hosted runners, GHCR','$0'],['Models in replay mode','$0'],['Models when recording new responses','usage']],
+  total:'$0 + recording',
+  costNote:'Cassettes make development loops fast and nearly free. An 8 GB laptop allocation runs the stack with one or two agent jobs at a time.',
+  pros:['Fast feedback: watch agents work where they run','make demo gives cloners the full loop with no key','Same manifests as DigitalOcean and AWS','Nothing public until it’s ready'],
+  cons:['Only visible to people who clone it','Agent sandboxes share your laptop, so keep the cluster in a VM with no access to your files','Cassettes go stale when prompts change'],
+  build:()=>clusterStage({outer:'MARTIN’S LAPTOP',outerKind:'laptop',cluster:'k3d · PROFILES local AND demo',modelsBox:'MODELS · replay first',edgeBox:'EDGE',
+   people:['You','browser','Martin while building, or anyone running make demo.'],
+   models:['Claude API','only on a cassette miss','In replay mode no call leaves the laptop. Development falls through to record on a miss.'],
+   edge:['localhost','no tunnel needed','The k3d load balancer exposes the ingress on a local port.'],
+   ingressSub:'Traefik (k3d)',ingressNote:'Traefik ships with k3d. Argo Rollouts drives its weighted routing for canaries.',
+   telemNote:'Full stack locally, with short retention to save memory.',
+   consoleNote:'Same console as everywhere else. On the laptop it is also where you watch agents work in real time.',
+   gatewaySub:'record · replay',gatewayNote:'Replay by default, falling through to record on a miss. Holds the API key for recording.',
+   slot:['slot','Cassettes','recorded responses','Recorded model responses, keyed by a hash of model, messages and tools. Committed to the repo, redacted, never secrets.'],
+   visitLabel:'localhost',edgeLabel:'port',modelLabel:'record on a miss'})
+ },
+ pages:{tag:'Profile 2 · first public',title:'Replay site on GitHub Pages',
+  text:'The console, built statically, playing curated recordings of real work items. No backend, no API key, nothing to go down. The landing page auto-plays the latest fix as a time-lapse, and visitors scrub through it.',
+  flowText:{visit:'The browser loads the static console and the event log files from GitHub Pages. Everything else happens in the browser.',change:'A curated work item is exported from the event store, redacted, committed with its screenshots, and Actions rebuilds the site.'},
+  costHead:'Cost',
+  cost:[['GitHub Pages','$0'],['Actions build','$0']],
+  total:'$0',
+  costNote:'Event logs are public, so they use the redacted view each event gets when it is written.',
+  pros:['The first public deliverable, and it never goes down','Recruiters see a real fix in one minute','Same console code as the live instance: the UI is a pure function of events','Doubles as a test fixture for the console'],
+  cons:['No live actions: visitors can’t inject or red-team here','Only as current as the last export','Schema changes need upcasters so old recordings keep playing'],
+  build:()=>({
+   boxes:[
+    {kind:'gh',x:200,y:40,w:560,h:250,label:'GITHUB · free'},
+    {kind:'laptop',x:800,y:40,w:285,h:250,label:'ANY INSTANCE · local, do or aws'},
+    {kind:'k8s',x:200,y:330,w:885,h:270,label:'IN THE VISITOR’S BROWSER'}],
+   nodes:[
+    {id:'people',x:20,y:78,w:150,t:'Recruiters',s:'one minute',n:'They open the link from the CV or README. No key needed.'},
+    {id:'repos',x:220,y:72,w:220,t:'cv-software-factory repo',s:'curated event logs',n:'Exported work items, with their screenshots, committed like any other change.'},
+    {id:'actions',x:220,y:152,w:220,t:'Actions',s:'build static console',n:'Builds the same console code in static mode and publishes it.'},
+    {id:'pages',x:520,y:152,w:220,t:'GitHub Pages',s:'replay site',n:'Static hosting, free for public repos.'},
+    {id:'events',x:830,y:72,w:225,t:'Event store',s:'real work items',n:'Where the recordings come from: any instance that did the real work.'},
+    {id:'export',x:830,y:152,w:225,t:'make export',s:'curate · redact',n:'Picks work items, uses each event’s redacted public view, and bundles the captured screenshots.'},
+    {id:'sconsole',x:220,y:360,w:300,t:'Static console',s:'same code · t = any',n:'Renders events up to the scrubber’s time t, exactly as the live console does at t = now.'},
+    {id:'files',x:560,y:360,w:240,t:'Event log files',s:'JSON + screenshots',n:'Versioned; upcasters keep old recordings replaying after schema changes.'},
+    {id:'nobackend',x:840,y:360,w:225,t:'No backend',s:'nothing to go down',n:'No API, no database, no key. The whole demo is static files.'}],
+   edges:[
+    {f:'visit',d:'M170 100 H185 V26 H630 V150',l:'HTTPS'},
+    {f:'visit',d:'M630 196 V358',l:'download'},
+    {f:'visit',d:'M560 382 H522',l:''},
+    {f:'change',d:'M942 116 V150',l:''},
+    {f:'change',d:'M830 174 H790 V94 H442',l:'commit export',lt:0.5},
+    {f:'change',d:'M330 116 V150',l:''},
+    {f:'change',d:'M440 174 H518',l:'deploy',lp:[479,140]}],
+   deco:'scrubber'})
+ },
+ do:{tag:'Profile 3 · always on',title:'DigitalOcean, one Kubernetes node',
+  text:'The live instance: managed Kubernetes with a free control plane and a single 8 GB node running the app, telemetry and the factory, each in its own namespace. Cloudflare Tunnel replaces a load balancer. Public instances run Guarded, so visitor-triggered work completes unattended.',
+  flowText:{visit:'Browser → Cloudflare → tunnel connector in the cluster → ingress. No load balancer, no open ports.',change:'An agent job opens a PR. Actions tests, signs and pushes to GHCR. Argo CD pulls the do overlay.',watch:'Telemetry stays in-cluster. Triage reads it read-only; every step is written to the event store.',model:'The gateway holds the only Anthropic API key and enforces daily, monthly, per-task and visitor caps.'},
+  costHead:'Monthly cost, always on',
+  cost:[['DOKS control plane','$0'],['1 × Basic node, 4 vCPU / 8 GB','$48'],['Block storage for Postgres and telemetry (≈ 30 GB)','≈ $3'],['Cloudflare Tunnel and DNS','$0'],['GitHub, GHCR, Actions','$0']],
+  total:'≈ $51',
+  costNote:'Plus capped model usage. A 4 GB node is too small once agent jobs run in-cluster. Alternative: one Hetzner CPX32 VM with k3s at €35.49; the cheaper CX plans are currently unavailable.',
+  pros:['Real managed Kubernetes, close to EKS, for a fraction of the cost','Nothing to remember to switch off','No load balancer or open ports thanks to the tunnel','Visitor keys, visitor actions and red-teaming all live'],
+  cons:['One node: agents, telemetry and the site share it, so quotas and priorities matter','No high availability','Must enforce visitor spend caps, since it runs unattended'],
+  build:()=>clusterStage({outer:'DIGITALOCEAN · always on',outerKind:'vm',cluster:'DOKS · ONE 8 GB NODE · profile do',modelsBox:'ANTHROPIC',edgeBox:'CLOUDFLARE · free',
+   people:['Visitors + Martin','access key · admin','Engineers arrive with a key from the CV; Martin signs in as admin.'],
+   models:['Claude API','Sonnet · Haiku','Called only from the gateway. Sonnet 5 costs $2 / $10 per million tokens.'],
+   edge:['Cloudflare Tunnel','DNS · TLS · no open ports','The cluster connects outwards to Cloudflare, so there is no load balancer and nothing listening on the internet.'],
+   ingressSub:'tunnel connector',ingressNote:'A tunnel connector pod receives traffic from Cloudflare and hands it to the ingress, which routes the site and the console and sets canary weights.',
+   telemNote:'In-cluster with short retention. Could move to a managed free tier to save memory, behind the same OTel collector.',
+   consoleNote:'The live console for visitors, with admin mode for Martin. Visitor actions are enforced on the server.',
+   gatewaySub:'live · caps',gatewayNote:'Live mode, with daily, monthly, per-task and visitor budgets. At a cap, agents stop and the console says so.',
+   slot:['slot','Visitor keys + limits','rate limits · budget','Access keys, per-key usage and rate limits, and the separate daily visitor spend budget.'],
+   visitLabel:'HTTPS',edgeLabel:'tunnel',modelLabel:'API key in gateway'})
+ },
+ aws:{tag:'Profile 4 · on demand',title:'AWS, stood up for interviews',
+  text:'Terraform creates an EKS cluster with a single node, Argo CD pulls the aws overlay, and the gateway reaches Bedrock through an IAM role. It always starts from the seeded baseline and is destroyed afterwards. A weekly job applies it, smoke-tests it and destroys it, so it is known to work on the day.',
+  flowText:{visit:'Browser → Cloudflare → tunnel connector → ingress, as on DigitalOcean. An ALB is an optional extra for authenticity.',change:'Identical to the other profiles: same pipeline, same images from GHCR, a different overlay.',watch:'Telemetry in-cluster; CloudWatch receives only control-plane logs.',model:'The gateway uses EKS Pod Identity to call Bedrock. No API key exists anywhere.'},
+  costHead:'Cost while it exists',
+  cost:[['EKS control plane','$0.10 / h'],['1 × t4g.large node (2 vCPU, 8 GB)','≈ $0.07 / h'],['EBS, public IPv4, CloudWatch','≈ $0.02 / h'],['Cloudflare Tunnel instead of a load balancer','$0'],['Bedrock','usage']],
+  total:'≈ $4–5 / day',
+  costNote:'Torn down, it costs a few cents for Terraform state. The weekly apply, smoke test and destroy takes about an hour: roughly $1 a month. Bedrock Sonnet 5 is $2 / $10 per million tokens globally, about 10% more on regional endpoints.',
+  pros:['The architecture enterprise interviewers expect: IAM, OIDC, Pod Identity, Bedrock with no keys','Always fresh: starts from the seeded baseline','Can’t rot: the weekly job proves it still works','Costs almost nothing when it isn’t needed'],
+  cons:['About 15–20 minutes to create, so start it before the interview','Easy to leave running: the destroy must be one command and ideally scheduled','Bedrock model access must be enabled in the region first'],
+  build:()=>clusterStage({outer:'AWS · on demand · Terraform',outerKind:'aws',cluster:'EKS · ONE NODE · profile aws',modelsBox:'AWS BEDROCK',edgeBox:'CLOUDFLARE · free',
+   people:['Interviewer + Martin','walked through live','Martin drives the admin console; the interviewer watches or takes a visitor key.'],
+   models:['Bedrock','Claude · IAM only','Reached through an IAM role assumed by the gateway’s pod. There is no API key to leak.'],
+   edge:['Cloudflare Tunnel','or an optional ALB','The same tunnel as DigitalOcean keeps the cost down. An Application Load Balancer adds about $16 a month pro rata if you want the AWS-native path on show.'],
+   ingressSub:'tunnel connector',ingressNote:'Same as DigitalOcean. Swapping to the AWS Load Balancer Controller is an overlay change.',
+   telemNote:'In-cluster, as elsewhere. CloudWatch gets only control-plane logs to keep the bill predictable.',
+   consoleNote:'The same console, stood up fresh with the seeded baseline, so every interview starts from the same place.',
+   gatewaySub:'live · IAM',gatewayNote:'Live mode against Bedrock, using EKS Pod Identity. Same budgets as the other profiles.',
+   slot:['slot','Pod Identity','IAM role for the gateway','Only the gateway’s service account can assume the Bedrock role. Agent jobs get no AWS permissions at all.'],
+   visitLabel:'HTTPS',edgeLabel:'tunnel',modelLabel:'IAM role'})
+ }
+};
+const ORDER=['local','pages','do','aws'];
+
+const $=id=>document.getElementById(id);
+const svg=$('dia');
+const el=(tag,a,p)=>{const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;};
+const defs=$('defs');
+['idle','work','model','runtime','event'].forEach(k=>{
+  const m=el('marker',{id:'ar-'+k,viewBox:'0 0 10 10',refX:'9',refY:'5',markerWidth:'9',markerHeight:'9',markerUnits:'userSpaceOnUse',orient:'auto-start-reverse'},defs);
+  el('path',{class:'arrow f-'+k,d:'M3 1.5L9 5L3 8.5'},m);
+});
+// Where a box sits: outer places (GitHub, a laptop, a cloud) are dashed; the cluster is shaded; groups inside it are plain.
+const ZONE={k8s:'zone cluster',grp:'zone group'};
+
+let cur='local', flow='all', data=null, edgeEls=[], sel=null;
+// Still when the visitor asks for less motion, or picks STILL in the footer.
+let still=new URLSearchParams(location.search).get('motion')==='off'||matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function drawScrubberDeco(){
+  const g=$('deco');
+  const x0=250,x1=1040,y=470;
+  el('text',{class:'deco-label',x:220,y:440},g).textContent='THE SCRUBBER · drag through one work item';
+  el('rect',{class:'deco-rail',x:x0,y:y-2,width:x1-x0,height:4,rx:2},g);
+  const ch=['Signal','Ticket','Spec','PR','Gates','Review','Canary','Verified'];
+  const head=5;
+  el('rect',{class:'deco-fill',x:x0,y:y-2,width:(x1-x0)*head/(ch.length-1),height:4,rx:2},g);
+  ch.forEach((c,i)=>{
+    const x=x0+(x1-x0)*i/(ch.length-1);
+    el('circle',{class:'deco-ch'+(i<head?' done':i===head?' here':''),cx:x,cy:y,r:i===head?8:5},g);
+    el('text',{class:i===head?'deco-label deco-here':'deco-label',x:x,y:y+26,'text-anchor':'middle'},g).textContent=c.toUpperCase();
+  });
+  el('text',{class:'deco-event',x:x0,y:y+62},g).textContent='T+16:04 · review.posted · reviewer · "Agent review posted as a check run"';
+}
+
+function draw(){
+  data=STAGES[cur].build();
+  ['boxes','deco','edges','dotsL','nodes','labels'].forEach(id=>$(id).textContent='');
+  data.boxes.forEach(b=>{
+    el('rect',{class:ZONE[b.kind]||'zone',x:b.x,y:b.y,width:b.w,height:b.h,rx:b.kind==='grp'?6:8},$('boxes'));
+    el('text',{class:'band-label',x:b.x+12,y:b.y+16},$('boxes')).textContent=b.label;
+  });
+  if(data.deco==='scrubber')drawScrubberDeco();
+  edgeEls=data.edges.map(E=>({E,p:el('path',{d:E.d,class:'edge f-idle','marker-end':'url(#ar-idle)'},$('edges'))}));
+  data.nodes.forEach(N=>{
+    const g=el('g',{class:'node',tabindex:'0',role:'button','aria-label':N.t+(N.s?': '+N.s:''),'data-id':N.id},$('nodes'));
+    el('rect',{class:'box',x:N.x,y:N.y,width:N.w,height:H,rx:6},g);
+    el('text',{class:'name',x:N.x+N.w/2,y:N.y+19,'text-anchor':'middle'},g).textContent=N.t;
+    el('text',{class:'sub',x:N.x+N.w/2,y:N.y+35,'text-anchor':'middle'},g).textContent=N.s;
+    const open=()=>showSel(N);
+    g.addEventListener('click',open);
+    g.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();open();}});
+  });
+  const avail=new Set(data.edges.map(e=>e.f));
+  document.querySelectorAll('.flow').forEach(b=>{const f=b.dataset.f;b.hidden=f!=='all'&&!avail.has(f);});
+  if(flow!=='all'&&!avail.has(flow)){flow='all';document.querySelectorAll('.flow').forEach(x=>x.setAttribute('aria-pressed',x.dataset.f==='all'?'true':'false'));}
+  paint();
+}
+
+// The nodes an edge starts and ends on.
+function ends(p){
+  const len=p.getTotalLength();
+  return [p.getPointAtLength(0),p.getPointAtLength(len)].map(pt=>
+    data.nodes.find(N=>pt.x>=N.x-4&&pt.x<=N.x+N.w+4&&pt.y>=N.y-4&&pt.y<=N.y+H+4)).filter(Boolean).map(N=>N.id);
+}
+function paint(){
+  $('labels').textContent='';$('dotsL').textContent='';
+  // As on the wiring page: boxes a chosen flow touches get a bold border, the rest step back.
+  const lit=new Set();
+  if(flow!=='all')edgeEls.forEach(({E,p})=>{if(E.f===flow)ends(p).forEach(id=>lit.add(id));});
+  svg.querySelectorAll('#nodes .node').forEach(g=>{
+    const id=g.dataset.id, on=lit.has(id);
+    g.classList.toggle('on',on);
+    g.classList.toggle('sel',id===sel);
+    g.setAttribute('opacity',flow==='all'||on||id===sel?'1':'0.32');
+  });
+  edgeEls.forEach(({E,p})=>{
+    const on=flow==='all'||E.f===flow, kind=KIND[E.f];
+    p.setAttribute('class','edge '+(on?'on f-'+kind:'f-idle'));
+    p.setAttribute('opacity',on?(flow==='all'?'0.8':'1'):'0.35');
+    p.setAttribute('marker-end','url(#ar-'+(on?kind:'idle')+')');
+    if(on&&flow!=='all'){
+      const len=p.getTotalLength();
+      if(E.l){
+        const pt=E.lp?{x:E.lp[0],y:E.lp[1]}:p.getPointAtLength(len*(E.lt||0.5));
+        const g=el('g',{class:'flowlab f-'+kind},$('labels'));
+        const t=el('text',{x:pt.x,y:pt.y+4,'text-anchor':E.lp&&E.lp[2]?E.lp[2]:'middle'},g);t.textContent=E.l;
+        const bb=t.getBBox();
+        g.insertBefore(el('rect',{x:bb.x-6,y:bb.y-3,width:bb.width+12,height:bb.height+6,rx:4}),t);
+      }
+      if(!still&&len>40){
+        const dur=Math.max(1.2,len/150), stop=((len-12)/len).toFixed(3);
+        for(let i=0;i<2;i++){const c=el('circle',{class:'flowdot f-'+kind,r:'3.2'},$('dotsL'));el('animateMotion',{dur:dur+'s',repeatCount:'indefinite',begin:(i*dur/2)+'s',path:E.d,keyPoints:'0;'+stop,keyTimes:'0;1',calcMode:'linear'},c);}
+      }
+    }
+  });
+}
+
+function showSummary(){
+  const O=STAGES[cur];
+  $('sumTag').textContent=O.tag;$('sumTitle').textContent=O.title;$('sumText').textContent=O.text;
+  const ft=$('flowText');
+  if(flow==='all'||!O.flowText[flow]){ft.hidden=true;}else{ft.hidden=false;ft.textContent=O.flowText[flow];}
+  $('costHead').textContent=O.costHead;
+  const tb=$('costTable');tb.textContent='';
+  O.cost.forEach(([a,b])=>{const tr=document.createElement('tr');tr.innerHTML='<td></td><td></td>';tr.children[0].textContent=a;tr.children[1].textContent=b;tb.appendChild(tr);});
+  const tr=document.createElement('tr');tr.className='total';tr.innerHTML='<td>Total, before model usage</td><td></td>';tr.children[1].textContent=O.total;tb.appendChild(tr);
+  $('costNote').textContent=O.costNote;
+  const fill=(id,arr)=>{const u=$(id);u.textContent='';arr.forEach(x=>{const li=document.createElement('li');li.textContent=x;u.appendChild(li);});};
+  fill('pros',O.pros);fill('cons',O.cons);
+}
+function showSel(N){
+  sel=N.id;
+  const box=data.boxes.slice().reverse().find(b=>N.x>=b.x&&N.x<=b.x+b.w&&N.y>=b.y&&N.y<=b.y+b.h);
+  $('selWhere').textContent=box?box.label:'On the internet';
+  $('selTitle').textContent=N.t;$('selNote').textContent=N.n;$('selCard').hidden=false;
+  paint();
+}
+$('selClose').onclick=()=>{sel=null;$('selCard').hidden=true;paint();};
+
+function setStage(k){
+  const cmp=k==='compare';
+  ORDER.forEach((x,i)=>{const b=$('s-'+x);b.setAttribute('aria-selected',x===k?'true':'false');b.classList.toggle('done',!cmp&&i<ORDER.indexOf(k));});
+  $('s-compare').setAttribute('aria-selected',cmp?'true':'false');
+  $('optView').hidden=cmp;$('cmpView').hidden=!cmp;
+  if(cmp)return;
+  cur=k;sel=null;$('selCard').hidden=true;
+  draw();showSummary();
+}
+/* keep the fill aligned with the stop centres */
+function alignFill(){
+  const sel=document.querySelector('.stop[aria-selected="true"]')||$('s-aws');
+  const tl=document.querySelector('.tl').getBoundingClientRect();
+  const first=$('s-local').querySelector('.dot').getBoundingClientRect();
+  const d=sel.querySelector('.dot').getBoundingClientRect();
+  const rail=document.querySelector('.tl .rail');
+  const last=$('s-aws').querySelector('.dot').getBoundingClientRect();
+  const x0=first.left+first.width/2-tl.left, x1=last.left+last.width/2-tl.left;
+  rail.style.left=x0+'px';rail.style.right=(tl.width-x1)+'px';
+  const cy=first.top+first.height/2-tl.top-2;rail.style.top=cy+'px';$('tlfill').style.top=cy+'px';
+  const f=$('tlfill');f.style.left=x0+'px';f.style.width=Math.max(0,d.left+d.width/2-tl.left-x0)+'px';
+}
+ORDER.forEach(k=>$('s-'+k).onclick=()=>{setStage(k);requestAnimationFrame(alignFill);});
+$('s-compare').onclick=()=>{setStage('compare');requestAnimationFrame(alignFill);};
+document.querySelectorAll('.stops .stop').forEach((b,i,all)=>b.addEventListener('keydown',ev=>{
+  if(ev.key==='ArrowRight'){ev.preventDefault();const n=all[Math.min(all.length-1,i+1)];n.focus();n.click();}
+  if(ev.key==='ArrowLeft'){ev.preventDefault();const n=all[Math.max(0,i-1)];n.focus();n.click();}
+}));
+document.querySelectorAll('.flow').forEach(b=>b.onclick=()=>{
+  flow=b.dataset.f;
+  document.querySelectorAll('.flow').forEach(x=>x.setAttribute('aria-pressed',x===b?'true':'false'));
+  paint();showSummary();
+});
+window.addEventListener('resize',alignFill);
+
+/* ---------- theme and motion ---------- */
+// Paper always comes first; Ink and motion are choices made on the page, not remembered.
+function setTheme(t){
+  document.documentElement.dataset.theme=t;
+  document.querySelectorAll('[data-theme-set]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.themeSet===t)));
+}
+function setMotion(on){
+  still=!on;
+  document.querySelectorAll('[data-motion]').forEach(b=>b.setAttribute('aria-pressed',String((b.dataset.motion==='on')===on)));
+}
+document.querySelectorAll('[data-theme-set]').forEach(b=>b.onclick=()=>setTheme(b.dataset.themeSet));
+document.querySelectorAll('[data-motion]').forEach(b=>b.onclick=()=>{setMotion(b.dataset.motion==='on');paint();});
+setTheme(new URLSearchParams(location.search).get('theme')==='ink'?'ink':'paper');
+setMotion(!still);
+
+setStage('local');requestAnimationFrame(alignFill);
+})();
+</script>
+</body>
+</html>

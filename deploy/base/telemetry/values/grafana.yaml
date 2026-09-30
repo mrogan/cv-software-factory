@@ -1,0 +1,65 @@
+# Grafana, with the three stores wired together: from a log line to its trace, and from a trace to its logs.
+# The admin password lives only in the cluster: `make up` creates this Secret, so nothing random is rendered
+# (Argo CD would see a new password on every sync).
+admin:
+  existingSecret: grafana-admin
+
+testFramework:
+  enabled: false
+
+grafana.ini:
+  analytics:
+    reporting_enabled: false
+    check_for_updates: false
+    check_for_plugin_updates: false
+  news:
+    news_feed_enabled: false
+
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    searchNamespace: telemetry
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        url: http://prometheus-server
+        isDefault: true
+        jsonData:
+          # How often services push metrics; Grafana sizes $__rate_interval from it.
+          timeInterval: 15s
+      - name: Loki
+        uid: loki
+        type: loki
+        url: http://loki:3100
+        jsonData:
+          derivedFields:
+            - name: Trace
+              matcherType: label
+              matcherRegex: trace_id
+              datasourceUid: tempo
+              url: $${__value.raw}
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        url: http://tempo:3200
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+            filterByTraceID: true
+            spanStartTimeShift: -5m
+            spanEndTimeShift: 5m
+          serviceMap:
+            datasourceUid: prometheus
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi

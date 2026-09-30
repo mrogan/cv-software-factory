@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tempo
+  namespace: argocd
+spec:
+  project: software-factory
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: telemetry
+  sources:
+    - repoURL: https://grafana-community.github.io/helm-charts
+      chart: tempo
+      targetRevision: 3.1.0
+      helm:
+        releaseName: tempo
+        valueFiles:
+          - $values/deploy/base/telemetry/values/tempo.yaml
+    - repoURL: https://github.com/mrogan/cv-software-factory.git
+      targetRevision: main
+      ref: values
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

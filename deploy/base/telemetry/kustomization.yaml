@@ -1,0 +1,20 @@
+# The telemetry stack, as Argo CD Applications of the upstream charts at pinned versions.
+# The console sends OTLP to the collector, which fans out: traces to Tempo, metrics to Prometheus, logs to Loki.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - otel-collector.yaml
+  - prometheus.yaml
+  - loki.yaml
+  - tempo.yaml
+  - grafana.yaml
+configMapGenerator:
+  # Picked up by Grafana's dashboard sidecar, which watches for the grafana_dashboard label.
+  - name: dashboards
+    namespace: telemetry
+    files:
+      - dashboards/console.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"

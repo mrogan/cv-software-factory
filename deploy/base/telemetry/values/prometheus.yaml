@@ -1,0 +1,48 @@
+# Prometheus takes the collector's metrics over OTLP, and still scrapes the cluster itself.
+alertmanager:
+  enabled: false
+kube-state-metrics:
+  enabled: false
+prometheus-node-exporter:
+  enabled: false
+prometheus-pushgateway:
+  enabled: false
+
+# The restricted Pod Security Standard, which the telemetry namespace enforces.
+configmapReload:
+  prometheus:
+    containerSecurityContext: &restricted
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+
+server:
+  securityContext:
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: 65534
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext: *restricted
+  extraFlags:
+    - web.enable-lifecycle
+    - web.enable-otlp-receiver
+  retention: 7d
+  persistentVolume:
+    size: 4Gi
+  tsdb:
+    # OTLP batches can arrive a little out of order.
+    out_of_order_time_window: 30m
+  otlp:
+    promote_resource_attributes:
+      - service.namespace
+      - service.version
+      - deployment.environment.name
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi

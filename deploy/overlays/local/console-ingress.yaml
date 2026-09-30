@@ -1,0 +1,19 @@
+# Local only: the console at http://console.localhost:8080. Public profiles are reached through a tunnel instead.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: console
+  namespace: factory
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: console.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: console
+                port:
+                  name: http
