@@ -4,11 +4,9 @@ name: pr-title
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
-  workflow_dispatch:
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   title:
@@ -24,9 +22,5 @@ jobs:
           install_args: node
       - name: Check the title
         env:
-          GH_TOKEN: ${{ github.token }}
-          # From the event on a pull request; looked up by branch when another workflow dispatched this one.
           TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          if [ -z "$TITLE" ]; then TITLE=$(gh pr view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json title --jq .title); fi
-          node scripts/commit-msg.ts --title "$TITLE"
+        run: node scripts/commit-msg.ts --title "$TITLE"

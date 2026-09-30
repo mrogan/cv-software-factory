@@ -1,11 +1,9 @@
 # The required checks on every pull request.
 name: check
 
+# Pull requests that workflows open (deploy, release) run these too, once Martin approves the runs on the pull request.
 on:
   pull_request:
-  # Pull requests opened by other workflows don't trigger `pull_request` (GitHub's rule for GITHUB_TOKEN),
-  # so build.yml and release.yml dispatch this workflow on their branches instead.
-  workflow_dispatch:
 
 permissions:
   contents: read
