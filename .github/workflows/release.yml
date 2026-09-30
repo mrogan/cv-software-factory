@@ -28,7 +28,8 @@ jobs:
         if: steps.release.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          PR: ${{ steps.release.outputs.pr }}
         run: |
+          BRANCH=$(jq -r .headBranchName <<< "$PR")
           gh workflow run check.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
           gh workflow run pr-title.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"

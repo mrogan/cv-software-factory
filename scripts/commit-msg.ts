@@ -31,7 +31,6 @@ export function problems(message: string): string[] {
   if (!(TYPES as readonly string[]).includes(type)) {
     found.push(`"${type}" is not a type we use; choose one of ${TYPES.join(', ')}`);
   }
-  if (/^[A-Z][a-z]/.test(subject)) found.push('start the subject in lower case');
   if (subject.endsWith('.')) found.push('leave the full stop off the subject');
   if (header.length > MAX_HEADER)
     found.push(`keep the first line to ${MAX_HEADER} characters (it is ${header.length})`);
