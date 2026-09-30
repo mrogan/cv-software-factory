@@ -65,11 +65,17 @@ Update the spec, `COMPONENTS.md` and `docs/AGENTS.md` wherever reality differs. 
 
 ## Exit criteria
 
-- [ ] `cv-software-factory` is on GitHub with every hygiene item in spec section 9 that applies at this stage; CI is green; the ruleset blocks a direct push to `main`.
-- [ ] On a fresh clone, `mise install && make up` gives a running cluster in under 10 minutes; `make check` passes; `make down` leaves nothing behind.
-- [ ] The console skeleton is running in the cluster from a CI-built GHCR image, and `/version` shows the commit it was built from.
-- [ ] Its traces, metrics and logs are visible in Grafana.
-- [ ] The first Scorecard result is recorded (no target yet).
+- [x] `cv-software-factory` is on GitHub with every hygiene item in spec section 9 that applies at this stage; CI is green; the ruleset blocks a direct push to `main`.
+- [x] On a fresh clone, `mise install && make up` gives a running cluster in under 10 minutes; `make check` passes; `make down` leaves nothing behind.
+- [x] The console skeleton is running in the cluster from a CI-built GHCR image, and `/version` shows the commit it was built from.
+- [x] Its traces, metrics and logs are visible in Grafana.
+- [x] The first Scorecard result is recorded (no target yet).
+
+## Results
+
+- **Fresh clone to a running cluster:** about four minutes on an M-series laptop with OrbStack, most of it image pulls.
+- **First Scorecard: 6.7** (30 September 2026, commit `b0243b0`). The zeros belong to a repository a few hours old: Code-Review (every pull request is Martin's until the factory's GitHub App arrives in milestone 5), Maintained (under 90 days old), CII-Best-Practices, Fuzzing and Contributors. Security-Policy and Branch-Protection score 4 and are worth raising. Signed-Releases waits for image signing in milestone 6.
+- **Learned:** pull requests that workflows open run their checks only after a person approves the runs, and only those runs satisfy the ruleset's required checks. The deploy commit goes through GitHub's API so that GitHub signs it, because `main` accepts only signed commits.
 
 ## Out of scope
 

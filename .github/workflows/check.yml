@@ -2,8 +2,11 @@
 name: check
 
 # Pull requests that workflows open (deploy, release) run these too, once Martin approves the runs on the pull request.
+# They also run on main after each merge, which is what the README's badge reports.
 on:
   pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read

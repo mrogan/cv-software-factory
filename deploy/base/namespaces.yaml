@@ -3,6 +3,8 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: factory
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1" # before the Applications that deploy into it
   labels:
     pod-security.kubernetes.io/enforce: restricted
 ---
@@ -10,5 +12,7 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: telemetry
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
   labels:
     pod-security.kubernetes.io/enforce: restricted
