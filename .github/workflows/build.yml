@@ -72,33 +72,53 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      contents: write # push the deploy branch
+      contents: write # move the deploy branch and commit to it
       pull-requests: write # open or update its pull request
       actions: write # dispatch the required checks on it
     env:
       BRANCH: deploy/console-local
+      FILE: deploy/overlays/local/console-image/kustomization.yaml
       DIGEST: ${{ needs.image.outputs.digest }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
           install_args: kustomize
       - name: Pin the new digest
         working-directory: deploy/overlays/local/console-image
         run: kustomize edit set image "console=$IMAGE@$DIGEST"
-      - name: Push the branch and open or update the pull request
+      # Committed through the API rather than pushed, so GitHub signs it: main accepts only signed commits.
+      - name: Commit it to the deploy branch
         run: |
-          short=${GITHUB_SHA::7}
-          title="chore(deploy): run console $short on the local cluster"
+          base=$(git rev-parse HEAD)
+          refs="repos/$GITHUB_REPOSITORY/git/refs"
+          if gh api "$refs/heads/$BRANCH" >/dev/null 2>&1; then
+            gh api --method PATCH "$refs/heads/$BRANCH" -f sha="$base" -F force=true >/dev/null
+          else
+            gh api --method POST "$refs" -f ref="refs/heads/$BRANCH" -f sha="$base" >/dev/null
+          fi
+          jq --null-input \
+            --arg repo "$GITHUB_REPOSITORY" --arg branch "$BRANCH" --arg head "$base" \
+            --arg headline "chore(deploy): run console ${GITHUB_SHA::7} on the local cluster" \
+            --arg path "$FILE" --arg contents "$(base64 --wrap=0 "$FILE")" \
+            '{
+              query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              variables: { input: {
+                branch: { repositoryNameWithOwner: $repo, branchName: $branch },
+                expectedHeadOid: $head,
+                message: { headline: $headline },
+                fileChanges: { additions: [{ path: $path, contents: $contents }] }
+              } }
+            }' | gh api graphql --input - --jq .data.createCommitOnBranch.commit.oid
+      - name: Open or update the pull request
+        run: |
+          title="chore(deploy): run console ${GITHUB_SHA::7} on the local cluster"
           body="Pins the console image built from $GITHUB_SHA ($IMAGE@$DIGEST) in \`deploy/overlays/local\`. Argo CD deploys it once this is merged.
 
           Opened by the [build workflow]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). A newer build replaces this pull request's change."
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git switch --create "$BRANCH"
-          git commit --all --message "$title"
-          git push --force origin "$BRANCH"
           if gh pr view "$BRANCH" --json state --jq .state | grep -q OPEN; then
             gh pr edit "$BRANCH" --title "$title" --body "$body"
           else
