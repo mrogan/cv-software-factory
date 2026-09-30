@@ -4,6 +4,8 @@ kind: AppProject
 metadata:
   name: software-factory
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1" # before the Applications that reference it
 spec:
   description: The factory, its telemetry and its database.
   sourceRepos:
