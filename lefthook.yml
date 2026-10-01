@@ -1,4 +1,8 @@
 # Git hooks: the same checks as CI, run early. `pnpm install` installs them.
+
+# Quiet when everything passes; a failure prints what failed and why.
+output: [failure]
+
 pre-commit:
   parallel: true
   jobs:

@@ -107,6 +107,12 @@ What the milestone taught, and where each lesson now lives.
 - `docs/design/system/build.ts` gained `--check` and passes strict type-checking; its output is unchanged. The design system's README documents the flag.
 - Biome leaves `docs/` alone: its formatter would have rewritten the design system and the architecture pages.
 
+**Settled at the close**
+
+- The repositories stay on Martin's personal account, so there is no merge queue; `main` keeps requiring up-to-date branches, and the extra click is accepted.
+- `SECURITY.md` links straight to the private report form, the one thing Scorecard's Security-Policy check found missing.
+- Git hooks print nothing when they pass.
+
 **Left open:** see the [backlog](BACKLOG.md).
 
 ## Out of scope
