@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/mrogan/cv-software-factory/compare/v0.1.0...v0.1.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* **deploy:** make up waits until everything is deployed ([#13](https://github.com/mrogan/cv-software-factory/issues/13)) ([ad58072](https://github.com/mrogan/cv-software-factory/commit/ad58072921376573e9bbe946cf260cd685e11a65))
+
 ## 0.1.0 (2026-09-30)
 
 
