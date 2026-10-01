@@ -10,7 +10,7 @@ Everything you write here is public and part of the demo. Write for a thoughtful
 
 ```sh
 mise install && pnpm install   # the pinned toolchain, dependencies and git hooks
-make check                     # what CI requires: lint, types, tests, design tokens
+make check                     # what CI requires: lint, types, tests, design tokens, manifests
 pnpm dev                       # the console on :8080, restarting on change
 make up / make status / make down
 ```

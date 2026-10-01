@@ -4,6 +4,12 @@
 /.github/                    @mrogan
 /deploy/                     @mrogan
 /scripts/github-settings.ts  @mrogan
+/AGENTS.md                   @mrogan
+
+# What ships, and what may be installed
+/apps/console/Dockerfile     @mrogan
+/pnpm-workspace.yaml         @mrogan
+/release-please-config.json  @mrogan
 
 # Gate configuration
 /Makefile                    @mrogan
