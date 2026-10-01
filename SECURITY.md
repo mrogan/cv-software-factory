@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please report it privately through GitHub: the repository's **Security** tab, then **Report a vulnerability**. Don't open a public issue.
+Please report it privately through GitHub: [open a private report](https://github.com/mrogan/cv-software-factory/security/advisories/new), or use the repository's **Security** tab, then **Report a vulnerability**. Don't open a public issue.
 
 I'll acknowledge a report within five working days and keep you updated until it is resolved. This is a one-person project, so please allow reasonable time for a fix before disclosing publicly. I'm glad to credit you in the advisory.
 

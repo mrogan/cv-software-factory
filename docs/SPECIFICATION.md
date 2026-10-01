@@ -241,6 +241,7 @@ Small judgements about untrusted text use TypeSafe's Jev model rather than a gen
 | `aws` | EKS, on demand | Interviews; always from seeded baseline |
 
 - **One CI pipeline** builds, tests, signs and pushes images to GHCR. **One set of manifests**, with a Kustomize overlay per profile. Argo CD in each cluster pulls its overlay.
+- Each overlay pins its images by digest. A new image is deployed by merging the pull request that moves the pin (ADR 0005).
 - Public profiles are reached through Cloudflare Tunnel: no load balancer and no open ports.
 - Cloud infrastructure is Terraform, tagged, and removable with one command.
 - A weekly scheduled job applies the AWS profile, smoke-tests it and destroys it, so it is known to work on the day it is needed.
@@ -261,9 +262,9 @@ Public repos must be exemplary:
 - A README for a hiring manager first: what it is, a GIF, the replay link, a one-minute architecture overview, `make demo`.
 - Owned by the `mrogan` GitHub account. MIT `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, issue and PR templates.
 - Formatter, linter and type-checker enforced by pre-commit and CI; `.editorconfig`; a dev container.
-- Conventional Commits; squash-merged PRs linking ticket and evidence; semantic releases with generated changelog; automated dependency updates; committed lockfiles.
+- Conventional Commits; squash-merged PRs linking ticket and evidence; semantic releases with generated changelog; automated dependency updates; committed lockfiles. New dependency releases wait a day before they can be installed, install scripts run only when allowed by name, and a release with weaker provenance than its predecessor is refused.
 - Agent work authored by the factory's GitHub App identity. Agent PRs follow a template: problem, evidence, change, tests, risk, rollout.
-- Supply chain: branch rulesets on `main` (PRs only, required checks, linear history, CODEOWNERS for protected paths); secret scanning and push protection; Actions pinned by SHA with minimal `permissions`; `pull_request` never `pull_request_target` for untrusted code; OIDC for cloud access; OpenSSF Scorecard ≥ 8.
+- Supply chain: branch rulesets on `main` (PRs only, required checks, linear and signed history, CODEOWNERS for protected paths); secret scanning and push protection; Actions pinned by SHA with minimal `permissions`; `pull_request` never `pull_request_target` for untrusted code; OIDC for cloud access; OpenSSF Scorecard ≥ 8.
 - Only true badges: CI, coverage, Scorecard, release. No clutter.
 
 ## 10. Success

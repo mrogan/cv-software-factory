@@ -75,7 +75,45 @@ Update the spec, `COMPONENTS.md` and `docs/AGENTS.md` wherever reality differs. 
 
 - **Fresh clone to a running cluster:** about four minutes on an M-series laptop with OrbStack, most of it image pulls.
 - **First Scorecard: 6.7** (30 September 2026, commit `b0243b0`). The zeros belong to a repository a few hours old: Code-Review (every pull request is Martin's until the factory's GitHub App arrives in milestone 5), Maintained (under 90 days old), CII-Best-Practices, Fuzzing and Contributors. Security-Policy and Branch-Protection score 4 and are worth raising. Signed-Releases waits for image signing in milestone 6.
-- **Learned:** pull requests that workflows open run their checks only after a person approves the runs, and only those runs satisfy the ruleset's required checks. The deploy commit goes through GitHub's API so that GitHub signs it, because `main` accepts only signed commits.
+
+## Retrospective
+
+What the milestone taught, and where each lesson now lives.
+
+**Decided**
+
+- Images reach a cluster through pull requests that pin their digests: [ADR 0005](../architecture/adr/0005-images-deploy-through-pull-requests.md), and spec section 8.
+- `main` accepts only signed commits, which the plan did not ask for: spec section 9. GitHub signs squash merges itself, so it costs people nothing; a workflow has to commit through GitHub's API.
+- Every workload runs under the restricted Pod Security Standard, the telemetry charts included: `deploy/base/namespaces.yaml`.
+- The skeleton lists the eight stages as words and leaves the stations out, to keep a content security policy with no inline styles. The cost of that is in the [backlog](BACKLOG.md).
+
+**Learned about GitHub**
+
+- A pull request opened by a workflow gets its checks only after a person approves the runs, and only runs tied to the pull request satisfy required checks. Dispatching the checks on the branch looked right and counted for nothing. Recorded in ADR 0005 and `AGENTS.md`; the factory's GitHub App removes the approval in milestone 5.
+- Letting workflows open pull requests also lets them approve them. Harmless while no review is required; milestone 5 withdraws it (plan table).
+- Dependabot capitalises its titles, proposes Node majors, and treats a closed pull request as a refusal. The title check, `dependabot.yml` and `AGENTS.md` now allow for each.
+- release-please proposes 1.0.0 from a manifest at 0.0.0, and every release rebuilt the image until the build stopped watching the root `package.json`.
+
+**Learned about the stack**
+
+- The Grafana, Loki and Tempo charts now live in the `grafana-community` repository; the `grafana` one is deprecated.
+- An Argo CD Application reads healthy before it has deployed anything, so `make up` waits for sync before health.
+- A Secret a chart generates at random never settles under Argo CD, which renders without the cluster. `make up` creates the Postgres and Grafana passwords instead, and nothing secret is in git.
+- pnpm 12 refuses new releases, install scripts and provenance downgrades by default or by one setting. It caught one real downgrade on the first install: `pnpm-workspace.yaml` and spec section 9.
+- Metrics pushed once a minute leave a one-minute rate window empty. The console exports every 15 seconds.
+
+**Changed in reference material**
+
+- `docs/design/system/build.ts` gained `--check` and passes strict type-checking; its output is unchanged. The design system's README documents the flag.
+- Biome leaves `docs/` alone: its formatter would have rewritten the design system and the architecture pages.
+
+**Settled at the close**
+
+- The repositories stay on Martin's personal account, so there is no merge queue; `main` keeps requiring up-to-date branches, and the extra click is accepted.
+- `SECURITY.md` links straight to the private report form, the one thing Scorecard's Security-Policy check found missing.
+- Git hooks print nothing when they pass.
+
+**Left open:** see the [backlog](BACKLOG.md).
 
 ## Out of scope
 

@@ -2,12 +2,25 @@
 
 The plan is a sequence of milestones. Each one ends with something demonstrable, and the next one does not start until the current one's exit criteria are met.
 
-Only the current milestone is detailed, because each one is likely to change the next. When a milestone starts, it gets its own file here with tasks and exit criteria; until then it is a line in the table below. When a milestone finishes, update the spec and this table with anything learned.
+Only the current milestone is detailed, because each one is likely to change the next. When a milestone starts, it gets its own file here with tasks and exit criteria; until then it is a line in the table below.
+
+## Starting and finishing a milestone
+
+**Starting:** write its file, and take whatever fits from the [backlog](BACKLOG.md) and [open questions](../OPEN-QUESTIONS.md) into it.
+
+**Finishing:** end its file with a retrospective of what was learned, and give each lesson a home:
+
+- a major decision becomes an ADR;
+- something that is now simply true goes in the spec, `COMPONENTS.md` or `AGENTS.md`;
+- a decision that needs Martin goes in the open questions;
+- anything else worth keeping goes in the backlog.
+
+Then update the table below.
 
 | # | Milestone | Outcome | Status |
 |---|---|---|---|
-| 1 | [Foundations](M01-FOUNDATIONS.md) | Public `cv-software-factory` repo with exemplary hygiene; `make up` runs a local Kubernetes cluster with GitOps and telemetry, deploying a console skeleton built by CI | **In progress** |
-| 2 | The World's Worst Website | App with ≥ 20 seeded defects, OpenTelemetry, report widget; answer key with fingerprints in `cv-software-factory-private`; published as `cv-worlds-worst-website` from one clean first commit; deployed locally by Argo CD | |
+| 1 | [Foundations](M01-FOUNDATIONS.md) | Public `cv-software-factory` repo with exemplary hygiene; `make up` runs a local Kubernetes cluster with GitOps and telemetry, deploying a console skeleton built by CI | Done |
+| 2 | The World's Worst Website | App with ≥ 20 seeded defects, OpenTelemetry, report widget; answer key with fingerprints in `cv-software-factory-private`; published as `cv-worlds-worst-website` from one clean first commit; deployed locally by Argo CD | **Next** |
 | 3 | Event store and console skeleton | Event schema with versioning; the console renders work items and the scrubbable timeline from hand-written fixture events; live updates over server-sent events | |
 | 4 | Sensing and triage | Probes, crawler, telemetry alerts and reports produce deduplicated tickets with evidence and screenshots; triage runs on a Jev question set with an evaluation fixture set; gateway with record and replay from the first model call | |
 | 5 | Fixing | GitHub App, agent runners, planner, coder and reviewer; code-owner review required on `main`; the App opens the deploy and release pull requests, so workflows lose the right to open (and approve) them; CI gates in `cv-worlds-worst-website`; one seeded defect fixed and merged with no human code, at Supervised autonomy | |

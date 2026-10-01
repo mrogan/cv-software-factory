@@ -10,7 +10,7 @@ Agents keep these current, in the same PR as the change that affects them.
 | [`SPECIFICATION.md`](SPECIFICATION.md) | What we are building. The source of truth. |
 | [`TERMS.md`](TERMS.md) | Agreed words. Use them. |
 | [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) | Unsettled decisions. Don't assume an answer; ask. |
-| [`PLAN/`](PLAN/README.md) | Delivery milestones; only the current one is detailed. |
+| [`PLAN/`](PLAN/README.md) | Delivery milestones; only the current one is detailed. Its [`BACKLOG.md`](PLAN/BACKLOG.md) holds follow-ups with no milestone yet. |
 | [`COMPONENTS.md`](COMPONENTS.md) | Which part does what, and what it is built with in v1. |
 | [`TYPESAFE.md`](TYPESAFE.md) | How the factory uses TypeSafe's Jev for typed judgements. |
 

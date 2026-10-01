@@ -46,7 +46,7 @@ Each component lists its v1 choice and, where useful, what it might grow into. L
 
 | Component | Purpose | v1 | Later |
 |---|---|---|---|
-| **Repositories and rulesets** | Single path for change | PR-only `main`, squash merges, required checks, linear and signed history, CODEOWNERS on workflows, policy and test config; Actions pinned by SHA. Applied by `scripts/github-settings.ts` | Merge queue |
+| **Repositories and rulesets** | Single path for change | PR-only `main`, squash merges, required checks, linear and signed history, CODEOWNERS on workflows, policy and test config; Actions pinned by SHA. Applied by `scripts/github-settings.ts` | |
 | **Approval routing** | Sends risky changes to a human | Risk tags: test loosening, dependency change, security headers, out-of-scope files. Behaviour depends on autonomy level (spec 4.3) | |
 | **CI pipeline** | Deterministic gates (spec 4.1) | GitHub Actions on GitHub-hosted runners. Target under 3 minutes: lint, format, type-check, unit, integration, e2e journeys against a throwaway k3d cluster in the runner, axe on changed pages, secrets scan | Visual regression, performance budgets, DAST, load tests |
 | **Test integrity** | Stops agents weakening tests to get green | Flags deleted or edited tests, falling assertion counts, and acceptance criteria without a tagged test | Mutation score on changed code (Stryker) |
