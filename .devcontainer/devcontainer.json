@@ -3,7 +3,7 @@
   "build": { "dockerfile": "Dockerfile" },
   "features": {
     // k3d runs the local cluster in Docker, so the container needs its own Docker daemon.
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {}
   },
   "postCreateCommand": "mise trust && mise install && pnpm install",
   "forwardPorts": [8080],
