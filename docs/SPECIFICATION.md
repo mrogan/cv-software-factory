@@ -241,7 +241,7 @@ Small judgements about untrusted text use TypeSafe's Jev model rather than a gen
 | `aws` | EKS, on demand | Interviews; always from seeded baseline |
 
 - **One CI pipeline** builds, tests, signs and pushes images to GHCR. **One set of manifests**, with a Kustomize overlay per profile. Argo CD in each cluster pulls its overlay.
-- Each overlay pins its images by digest. A new image is deployed by merging the pull request that moves the pin (ADR 0005).
+- Each repository pins the images it builds by digest, per profile. A new image is deployed by merging the pull request that moves its pin, in the repository that built it (ADR 0005).
 - Public profiles are reached through Cloudflare Tunnel: no load balancer and no open ports.
 - Cloud infrastructure is Terraform, tagged, and removable with one command.
 - A weekly scheduled job applies the AWS profile, smoke-tests it and destroys it, so it is known to work on the day it is needed.
