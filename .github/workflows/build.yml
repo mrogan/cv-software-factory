@@ -8,12 +8,12 @@ name: build
 on:
   push:
     branches: [main]
-    # Only what goes into the image. Merging the deploy pull request must not build again.
+    # Only what goes into the image. Merging the deploy pull request must not build again, and nor must a release:
+    # it changes only the root package.json's version. The image's dependencies come from the lockfile.
     paths:
       - apps/console/**
       - docs/design/system/tokens.css
       - docs/design/system/mark/**
-      - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
       - .github/workflows/build.yml
