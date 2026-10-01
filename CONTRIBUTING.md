@@ -25,7 +25,7 @@ The toolchain is pinned in `mise.toml`, so one command installs it:
 ```sh
 mise install
 pnpm install
-make check    # lint, type-check, tests, design tokens
+make check    # lint, type-check, tests, design tokens, manifests
 ```
 
 Or open the repository in its dev container.

@@ -36,11 +36,13 @@ up: ## Create the local cluster; Argo CD then deploys everything from main
 down: ## Delete the local cluster, and everything in it
 	k3d cluster delete $(CLUSTER)
 
-check: ## Lint, type-check, test, and check the design tokens are built and readable
+check: ## Lint, type-check, test, check the design tokens are built and readable, and render the manifests
 	pnpm exec biome ci
 	pnpm exec tsc
 	pnpm exec vitest run
 	node docs/design/system/build.ts --check
+	@# Argo CD renders each profile's overlay from main, so one that doesn't render must not get there.
+	@for overlay in deploy/overlays/*/; do kustomize build $$overlay >/dev/null || exit 1; done
 
 status: ## Show what is running, and where to open it
 	@if ! k3d cluster list $(CLUSTER) >/dev/null 2>&1; then echo "No cluster. Run 'make up'."; else \
