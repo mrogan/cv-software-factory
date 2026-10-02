@@ -1,4 +1,8 @@
 # OpenSSF Scorecard: an outside measure of the repository's supply-chain hygiene, published to scorecard.dev.
+#
+# Shared: cv-worlds-worst-website calls this workflow at a pinned commit, and it scores the repository that calls it.
+# The calling job grants the permissions listed on the job below. Scorecard refuses to publish from a workflow
+# with anything but these steps, so keep it this small.
 name: scorecard
 
 on:
@@ -7,6 +11,7 @@ on:
   schedule:
     - cron: '23 6 * * 1'
   branch_protection_rule:
+  workflow_call:
 
 permissions: {}
 

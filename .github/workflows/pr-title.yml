@@ -1,9 +1,13 @@
 # Pull requests are squash-merged, so the title becomes the commit on main: it must be a Conventional Commit.
+#
+# Shared: cv-worlds-worst-website calls this workflow at a pinned commit, so both repositories keep one rule,
+# and the rule stays out of reach of anything that can write to the app's repository.
 name: pr-title
 
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
+  workflow_call:
 
 permissions:
   contents: read
@@ -16,6 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # This workflow's own repository and commit, which is not the caller's when it is called from elsewhere.
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: |
+            mise.toml
+            scripts/commit-msg.ts
+          sparse-checkout-cone-mode: false
           persist-credentials: false
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
