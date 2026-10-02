@@ -1,21 +1,27 @@
 /**
- * Applies the repository's GitHub settings, so they are reviewable like code and reproducible. Safe to run again.
+ * Applies the public repositories' GitHub settings, so they are reviewable like code and reproducible. Both get
+ * the same ruleset and security settings; only the checks each requires differ. Safe to run again.
  *
- *     node scripts/github-settings.ts [owner/repo]    # default mrogan/cv-software-factory
+ *     node scripts/github-settings.ts                  # every repository below
+ *     node scripts/github-settings.ts <owner/repo>     # one of them
  *
  * Needs the GitHub CLI, signed in as an admin of the repository.
  */
 import { execFileSync } from 'node:child_process';
 
-const repo = process.argv[2] ?? 'mrogan/cv-software-factory';
+/**
+ * Each repository, and the jobs that must pass before anything merges into its main. A job in a shared workflow
+ * reports as "<calling job> / <job>".
+ */
+const REPOSITORIES: Record<string, string[]> = {
+  'mrogan/cv-software-factory': ['lint, types, tests', 'image builds', 'pull request title'],
+  'mrogan/cv-worlds-worst-website': ['lint, types, tests', 'image builds', 'title / pull request title'],
+};
 
 /** GitHub Actions, as the app that reports check runs. */
 const GITHUB_ACTIONS = 15368;
 
-/** The jobs that must pass before anything merges into main. */
-const REQUIRED_CHECKS = ['lint, types, tests', 'image builds', 'pull request title'];
-
-const RULESET = {
+const ruleset = (requiredChecks: string[]) => ({
   name: 'main',
   target: 'branch',
   enforcement: 'active',
@@ -45,11 +51,13 @@ const RULESET = {
       parameters: {
         strict_required_status_checks_policy: true,
         do_not_enforce_on_create: false,
-        required_status_checks: REQUIRED_CHECKS.map((context) => ({ context, integration_id: GITHUB_ACTIONS })),
+        required_status_checks: requiredChecks.map((context) => ({ context, integration_id: GITHUB_ACTIONS })),
       },
     },
   ],
-};
+});
+
+let repo = '';
 
 function gh(method: string, path: string, body?: unknown): string {
   const args = ['api', '--method', method, `repos/${repo}${path}`, '-H', 'X-GitHub-Api-Version: 2022-11-28'];
@@ -62,62 +70,70 @@ function step(what: string, apply: () => unknown): void {
   console.log(`  ✓ ${what}`);
 }
 
-console.log(`Applying settings to ${repo}`);
+const [only] = process.argv.slice(2);
+if (only && !REPOSITORIES[only]) {
+  console.error(`${only} is not one of ours. Choose from: ${Object.keys(REPOSITORIES).join(', ')}`);
+  process.exit(1);
+}
 
-step('squash merges only, titled from the pull request; branches deleted after merge', () =>
-  gh('PATCH', '', {
-    has_wiki: false,
-    has_projects: false,
-    allow_squash_merge: true,
-    allow_merge_commit: false,
-    allow_rebase_merge: false,
-    squash_merge_commit_title: 'PR_TITLE',
-    squash_merge_commit_message: 'PR_BODY',
-    delete_branch_on_merge: true,
-    allow_auto_merge: true,
-    allow_update_branch: true,
-  }),
-);
+for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
+  if (only && name !== only) continue;
+  repo = name;
+  console.log(`Applying settings to ${repo}`);
 
-step('secret scanning with push protection', () =>
-  gh('PATCH', '', {
-    security_and_analysis: {
-      secret_scanning: { status: 'enabled' },
-      secret_scanning_push_protection: { status: 'enabled' },
-    },
-  }),
-);
+  step('squash merges only, titled from the pull request; branches deleted after merge', () =>
+    gh('PATCH', '', {
+      has_wiki: false,
+      has_projects: false,
+      allow_squash_merge: true,
+      allow_merge_commit: false,
+      allow_rebase_merge: false,
+      squash_merge_commit_title: 'PR_TITLE',
+      squash_merge_commit_message: 'PR_BODY',
+      delete_branch_on_merge: true,
+      allow_auto_merge: true,
+      allow_update_branch: true,
+    }),
+  );
 
-step('Dependabot alerts and security updates', () => {
-  gh('PUT', '/vulnerability-alerts');
-  gh('PUT', '/automated-security-fixes');
-});
+  step('secret scanning with push protection', () =>
+    gh('PATCH', '', {
+      security_and_analysis: {
+        secret_scanning: { status: 'enabled' },
+        secret_scanning_push_protection: { status: 'enabled' },
+      },
+    }),
+  );
 
-step('private vulnerability reporting', () => gh('PUT', '/private-vulnerability-reporting'));
+  step('Dependabot alerts and security updates', () => {
+    gh('PUT', '/vulnerability-alerts');
+    gh('PUT', '/automated-security-fixes');
+  });
 
-step('Actions must be pinned to a full commit SHA', () =>
-  gh('PUT', '/actions/permissions', { enabled: true, allowed_actions: 'all', sha_pinning_required: true }),
-);
+  step('private vulnerability reporting', () => gh('PUT', '/private-vulnerability-reporting'));
 
-// Workflows start read-only and ask for more per job. They may open pull requests (the deploy and release
-// pull requests), which is what "approve" also grants; no review is counted from them.
-step('workflow tokens read-only by default; workflows may open pull requests', () =>
-  gh('PUT', '/actions/permissions/workflow', {
-    default_workflow_permissions: 'read',
-    can_approve_pull_request_reviews: true,
-  }),
-);
+  step('Actions must be pinned to a full commit SHA', () =>
+    gh('PUT', '/actions/permissions', { enabled: true, allowed_actions: 'all', sha_pinning_required: true }),
+  );
 
-step("first-time contributors' workflows wait for approval", () =>
-  gh('PUT', '/actions/permissions/fork-pr-contributor-approval', { approval_policy: 'first_time_contributors' }),
-);
+  // Workflows start read-only and ask for more per job. They may open pull requests (the deploy and release
+  // pull requests), which is what "approve" also grants; no review is counted from them.
+  step('workflow tokens read-only by default; workflows may open pull requests', () =>
+    gh('PUT', '/actions/permissions/workflow', {
+      default_workflow_permissions: 'read',
+      can_approve_pull_request_reviews: true,
+    }),
+  );
 
-step(
-  `ruleset "${RULESET.name}": pull requests only, ${REQUIRED_CHECKS.length} required checks, linear and signed`,
-  () => {
+  step("first-time contributors' workflows wait for approval", () =>
+    gh('PUT', '/actions/permissions/fork-pr-contributor-approval', { approval_policy: 'first_time_contributors' }),
+  );
+
+  const rules = ruleset(requiredChecks);
+  step(`ruleset "${rules.name}": pull requests only, linear and signed; requires ${requiredChecks.join('; ')}`, () => {
     const existing = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
-    const id = existing.find((r) => r.name === RULESET.name)?.id;
-    if (id) gh('PUT', `/rulesets/${id}`, RULESET);
-    else gh('POST', '/rulesets', RULESET);
-  },
-);
+    const id = existing.find((r) => r.name === rules.name)?.id;
+    if (id) gh('PUT', `/rulesets/${id}`, rules);
+    else gh('POST', '/rulesets', rules);
+  });
+}
