@@ -44,11 +44,12 @@ Development happens on Martin's laptop first (section 8).
 A deliberately bad, funny, small web app that gives the factory real work.
 
 - A few pages and at least one backend API: home, product list, product detail, search, about, contact form.
-- A **"Report a problem"** widget on every page.
+- A **"Report a problem"** widget on every page. A report is one structured log record: the app holds no credential and does not know the factory exists. Report text is untrusted and is never shown back on any page.
 - Instrumented with **OpenTelemetry**: traces, metrics (rate, errors, latency per route) and structured logs. Health and version endpoints, so canary and baseline can be told apart.
 - Runs as a container; two versions can run side by side.
-- No real user data, no secrets, safe to expose publicly.
+- No real user data, no secrets, safe to expose publicly. The catalogue is a SQLite database built into the image and opened read-only, so the app needs no other service.
 - TypeScript on Node *(default)*.
+- It is an earnest bad shop, not an ugly one: the comedy is in the copy, and the pages are tidy enough that a defect stands out as a defect.
 
 ### 3.1 Seeded defects
 
@@ -61,12 +62,15 @@ A deliberately bad, funny, small web app that gives the factory real work.
   - **Accessibility:** missing alt text, poor contrast, unlabelled fields
   - **Security hygiene:** missing security headers, verbose error pages. Benign only; no vulnerable dependencies.
   - **Observability:** a route that logs nothing, a metric with a wrong label
-- The app's public history starts from a clean first commit already containing the defects. No names, comments, tests or TODOs hint at them.
+- Every defect is fixable alone, benign, and out of the way of the line: none touches the health or version endpoints, the report endpoint or start-up, or stops telemetry leaving the pod.
+- The app's public history starts from a clean first commit already containing the defects. No names, comments, tests or TODOs hint at them, and no public repository lists them.
+- The app is written correctly in the private repository, and each defect is a patch kept beside it. The first commit is the correct app with every patch applied (ADR 0006).
 - A **reset** restores the app to the seeded baseline through a normal PR.
 
 ### 3.2 Answer key and scoreboard
 
-- The **answer key** lists every seeded and injectable defect with category, location, symptom and a **fingerprint** (route + symptom class, or page + text span for content).
+- The **answer key** lists every seeded and injectable defect with category, difficulty, location, symptom, a **fingerprint** (route + symptom class, or page + text span for content) and the sense expected to notice it. Symptom classes come from a short closed list that tickets share, so matching needs no judgement.
+- Every entry is proved by a test in the private repository: the defect is there, alone it shows the symptom its entry says and no other entry's, and fingerprints are unique.
 - The answer key is private. Agents cannot read it; only the scoreboard service can.
 - The **scoreboard** matches tickets to fingerprints deterministically. The console shows three figures: found, verified fixed, and median time to verified fix. It also records false positives, which are published with the results (section 10.2).
 
@@ -253,9 +257,11 @@ Small judgements about untrusted text use TypeSafe's Jev model rather than a gen
 |---|---|---|
 | `cv-software-factory` | Public | Orchestrator, agents, gateway, gates, console, infrastructure, docs |
 | `cv-worlds-worst-website` | Public | The app, its tests, workflows and manifests |
-| `cv-software-factory-private` | Private | Answer key, injector catalogue, environment settings |
+| `cv-software-factory-private` | Private | The correct app, the defect patches, answer key, injector catalogue, environment settings |
 
-Nothing from the private repo is ever copied into a public repo, a visitor-visible log or an agent's context.
+Nothing from the private repo is ever copied into a public repo, a visitor-visible log or an agent's context. The one exception happens once: the private repo publishes the app's first commit, after a check that the tree gives no defect away. From then on the app changes only in its public repo.
+
+The gates the two public repos share (the pull request title check, CodeQL and Scorecard) live in `cv-software-factory` and are called from the app's repo at a pinned commit, and one script applies the same ruleset and security settings to both. An agent that can write to the app's repo cannot loosen them.
 
 Public repos must be exemplary:
 
