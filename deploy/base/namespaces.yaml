@@ -16,3 +16,13 @@ metadata:
     argocd.argoproj.io/sync-wave: "-1"
   labels:
     pod-security.kubernetes.io/enforce: restricted
+---
+# The World's Worst Website. Its own repository deploys into this namespace and nowhere else (website/project.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: website
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    pod-security.kubernetes.io/enforce: restricted

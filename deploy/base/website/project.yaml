@@ -1,0 +1,27 @@
+# The fence around the app's repository. Agents write to that repository (from milestone 5), so a change there
+# must not be able to reach anything but the app: only these kinds, only in the website namespace, and nothing
+# cluster-scoped. The namespace itself, and this project, belong to the factory's repository.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: website
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1" # before the Application that references it
+spec:
+  description: The World's Worst Website, deployed from its own repository.
+  sourceRepos:
+    - https://github.com/mrogan/cv-worlds-worst-website.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: website
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ConfigMap
+    - group: networking.k8s.io
+      kind: Ingress

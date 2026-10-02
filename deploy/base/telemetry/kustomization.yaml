@@ -1,5 +1,5 @@
 # The telemetry stack, as Argo CD Applications of the upstream charts at pinned versions.
-# The console sends OTLP to the collector, which fans out: traces to Tempo, metrics to Prometheus, logs to Loki.
+# The console and the app send OTLP to the collector, which fans out: traces to Tempo, metrics to Prometheus, logs to Loki.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -14,6 +14,7 @@ configMapGenerator:
     namespace: telemetry
     files:
       - dashboards/console.json
+      - dashboards/website.json
     options:
       disableNameSuffixHash: true
       labels:
