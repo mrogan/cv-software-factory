@@ -13,6 +13,13 @@ The words we use, so docs, code, UI and commits stay consistent. Standard indust
 | **Needs you** | inbox, approvals, queue | Work waiting on Martin, and the console panel that lists it. |
 | **work item** | job, task, run | One piece of work through the line (a defect fix, injected defect, improvement or red-team attack), from its first event to its last. |
 | **milestone** | stage, phase, step | One unit of the delivery plan in `PLAN/`. |
+| **the app** | the site, the shop (in factory docs) | The World's Worst Website, the web app the factory looks after. "The shop" is what the app calls itself to its visitors: Mossop's Practical Sundries. |
+| **defect** | bug, issue, fault | Something wrong with the app that the factory should find and fix. A **seeded** defect was in the app's first commit; an **injected** one arrives later, through the injector. |
+| **answer key** | defect list, catalogue | The private list of every seeded and injectable defect: category, difficulty, location, symptom, fingerprint and expected sense. Only the scoreboard reads it. |
+| **fingerprint** | signature, ID | What identifies a defect from outside: a route and a symptom class, or, for content, a page and the exact text that is wrong. The scoreboard matches a ticket to the answer key by fingerprint alone. |
+| **symptom class** | error type | One of a short closed list of ways a defect shows itself, such as `broken-link` or `slow-response`. The answer key and tickets share the list. |
+| **sense** | detector, monitor | One of the five ways the factory notices a defect: probe, crawler, metrics, logs or a report. |
+| **seeded baseline** | initial state, golden copy | The app's tree as first published: the correct app with every seeded defect applied. Reset restores it. |
 | **TypeSafe** | | The company and API that serve Jev. |
 | **Jev** | classifier, LLM | TypeSafe's model for typed judgements: it answers Choice, Score and Noul questions with probabilities and never generates text. |
 | **question set** | prompt | A versioned group of Jev questions, such as `triage/v1`, kept as code. |

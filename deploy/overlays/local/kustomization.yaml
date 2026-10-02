@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - ../../base
   - console-ingress.yaml
+  - website.yaml
 
 components:
   # The console image CI built last, pinned by digest. The build workflow edits only this file, in a pull request.

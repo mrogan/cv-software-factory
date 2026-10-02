@@ -1,0 +1,20 @@
+# The World's Worst Website on the local cluster: Argo CD deploys the local overlay in the app's own repository,
+# which pins the image its CI built (ADR 0005).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: website
+  namespace: argocd
+spec:
+  project: website
+  source:
+    repoURL: https://github.com/mrogan/cv-worlds-worst-website.git
+    targetRevision: main
+    path: deploy/overlays/local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: website
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

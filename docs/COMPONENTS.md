@@ -11,7 +11,7 @@ Each component lists its v1 choice and, where useful, what it might grow into. L
 | **GitHub** | Source of truth and deterministic gates | No model judgement decides anything here |
 | **Factory** | Where agents think, and the console | The only plane with model access |
 | **Runtime** | Runs the app, telemetry and delivery tooling | Pulls from git; nothing pushes to it |
-| **Private** | Answer key, injector catalogue, environment settings | Never reachable by agents |
+| **Private** | The correct app, defect patches, answer key, injector catalogue, environment settings | Never reachable by agents |
 
 ## Factory plane
 
@@ -46,7 +46,8 @@ Each component lists its v1 choice and, where useful, what it might grow into. L
 
 | Component | Purpose | v1 | Later |
 |---|---|---|---|
-| **Repositories and rulesets** | Single path for change | PR-only `main`, squash merges, required checks, linear and signed history, CODEOWNERS on workflows, policy and test config; Actions pinned by SHA. Applied by `scripts/github-settings.ts` | |
+| **Repositories and rulesets** | Single path for change | PR-only `main`, squash merges, required checks, linear and signed history, CODEOWNERS on workflows, policy and test config; Actions pinned by SHA. Applied to both public repositories by `scripts/github-settings.ts` | |
+| **Shared gates** | One rule for both public repositories, out of the app repository's reach | The title check, CodeQL and Scorecard are reusable workflows here, called from the app's repository at a pinned commit | |
 | **Approval routing** | Sends risky changes to a human | Risk tags: test loosening, dependency change, security headers, out-of-scope files. Behaviour depends on autonomy level (spec 4.3) | |
 | **CI pipeline** | Deterministic gates (spec 4.1) | GitHub Actions on GitHub-hosted runners. Target under 3 minutes: lint, format, type-check, unit, integration, e2e journeys against a throwaway k3d cluster in the runner, axe on changed pages, secrets scan | Visual regression, performance budgets, DAST, load tests |
 | **Test integrity** | Stops agents weakening tests to get green | Flags deleted or edited tests, falling assertion counts, and acceptance criteria without a tagged test | Mutation score on changed code (Stryker) |
@@ -59,14 +60,14 @@ Each component lists its v1 choice and, where useful, what it might grow into. L
 |---|---|---|---|
 | **Ingress** | Public entry to `do` and `aws` | Cloudflare Tunnel: no load balancer, no open ports | |
 | **Registry** | Signed images, referenced by digest | GHCR, shared by every profile | ECR on `aws` |
-| **GitOps** | Cluster state reconciled from git | Argo CD app of apps, one Kustomize overlay per profile. Each overlay pins image digests; CI opens a pull request to move them | Promotion pull requests from the factory's GitHub App |
+| **GitOps** | Cluster state reconciled from git | Argo CD app of apps, one Kustomize overlay per profile. Each overlay pins image digests; CI opens a pull request to move them. The app deploys from its own repository through its own Argo CD project: a few namespaced kinds, in the `website` namespace, and nothing else | Promotion pull requests from the factory's GitHub App |
 | **Admission control** | Refuses unsigned images | Kyverno image verification | |
 | **Progressive delivery** | Canary against baseline; automatic promote or roll back | Argo Rollouts with short steps (for example 20% then 100%), analysed on error rate, latency and probe results | More steps, business metrics |
 | **Traffic generator** | Gives canary analysis enough samples within minutes | Small load job hitting key journeys | |
 | **Feature flags** | Ship improvements switched off; kill switch without rollback | OpenFeature with flagd | |
 | **Telemetry** | Metrics, logs, traces and SLOs | OpenTelemetry SDK and collector → Prometheus, Loki, Tempo, Grafana, all over OTLP; upstream charts at pinned versions | CloudWatch on `aws` |
 | **Probes and crawler** | Synthetic journeys and site checks; screenshots for the event store | Playwright on a schedule; same journeys as CI e2e | |
-| **The app** | The World's Worst Website (spec 3) | TypeScript on Node, baseline and canary side by side | |
+| **The app** | The World's Worst Website (spec 3) | TypeScript on Node, pages rendered on the server, no framework. Catalogue in SQLite (`node:sqlite`), built into the image and read-only. Baseline and canary side by side, each with its own data | |
 
 ## What changes per profile
 
