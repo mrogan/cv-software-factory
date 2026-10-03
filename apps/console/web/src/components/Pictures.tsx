@@ -171,7 +171,7 @@ function Unchanged({ pages }: { pages: Screenshot[] }) {
     <div className="unchanged">
       <span className="thumbs" aria-hidden="true">
         {pages.map((page) => (
-          <img key={page.hash} src={url(page.hash)} alt="" loading="lazy" decoding="async" />
+          <img key={page.hash} src={url(page.hash)} alt="" loading="lazy" />
         ))}
       </span>
       <span>No visible change: {plural(pages.length, 'page')} match the version before, 0.0% of pixels</span>
