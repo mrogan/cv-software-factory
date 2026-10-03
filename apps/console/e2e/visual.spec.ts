@@ -1,10 +1,12 @@
 /**
  * Visual regression, in the pinned Playwright image (`make e2e`; UPDATE=1 rewrites the snapshots) with motion off
  * and t fixed: every station in every state in both themes, and the line, one card per picture and the sheet at
- * all three widths.
+ * all three widths. Milestone 4's states come from its test data: a card for each new picture and outcome, the line
+ * with tickets waiting and with a spend cap, Triage's panel, a ticket's and a quarantined report's sheets, and an
+ * empty store for real events.
  */
 import { STAGES as KINDS } from '@software-factory/events';
-import { consoleUrl, expect, ready, THEMES, test, WIDTHS } from './support.ts';
+import { consoleUrl, emptyStore, expect, fixtureUrl, ready, THEMES, test, WIDTHS } from './support.ts';
 
 /** The station kit's states (the design system's README); its module defines an element, so Node cannot load it. */
 const STATUSES = ['idle', 'working', 'returning', 'passing', 'blocked', 'failed'] as const;
@@ -88,3 +90,101 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
     });
   });
 }
+
+/** Milestone 4's states, from the test data: one card for each new picture and outcome. */
+const SENSING = {
+  'waiting-screenshot': '1001',
+  'every-page': '1002',
+  'http-redirects': '1003',
+  'http-headers': '1004',
+  'browser-console': '1005',
+  accessibility: '1006',
+  quarantined: '1007',
+  parked: '1008',
+  discarded: '1009',
+  'report-ticket': '1010',
+};
+
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, sensing and triage`, () => {
+    test.use({ viewport });
+
+    for (const [state, item] of Object.entries(SENSING)) {
+      test(`a card: ${state}`, async ({ page }) => {
+        await page.goto(fixtureUrl({ item }));
+        await ready(page);
+        const card = page.locator('.card[data-place="centre"]');
+        await card.scrollIntoViewIfNeeded();
+        await card.evaluate((el) =>
+          Promise.all(
+            [...el.querySelectorAll('img')].map((img) => {
+              img.loading = 'eager';
+              return img.decode();
+            }),
+          ),
+        );
+        await expect(card).toHaveScreenshot(`m04-card-${state}-${width}.png`);
+      });
+    }
+
+    for (const at of ['afternoon', 'capped'] as const) {
+      test(`the line, ${at}`, async ({ page }) => {
+        await page.goto(fixtureUrl({ at }));
+        await ready(page);
+        // The header and any notice with the line: a spend cap is said in all three.
+        await expect(page).toHaveScreenshot(`m04-line-${at}-${width}.png`, {
+          clip: { x: 0, y: 0, width: viewport.width, height: width === 'phone' ? 760 : 700 },
+        });
+      });
+    }
+
+    test('Triage’s panel, after the cap cleared', async ({ page }) => {
+      await page.goto(fixtureUrl({ at: 'cleared' }));
+      await ready(page);
+      await page.getByRole('button', { name: /^Triage:/ }).click();
+      const panel = page.getByRole('dialog', { name: 'Triage' });
+      await expect(panel).toHaveScreenshot(`m04-triage-panel-${width}.png`);
+    });
+
+    for (const [name, item] of [
+      ['ticket', '1000'],
+      ['quarantined', '1007'],
+    ] as const) {
+      test(`a sheet: ${name}`, async ({ page }) => {
+        await page.goto(fixtureUrl({ item, sheet: true }));
+        await page.getByRole('dialog').first().waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        await page.waitForLoadState('networkidle');
+        await expect(page).toHaveScreenshot(`m04-sheet-${name}-${width}.png`);
+      });
+    }
+
+    test('an empty store for real events', async ({ page }) => {
+      await emptyStore(page, 'real');
+      await page.goto(consoleUrl());
+      await page.getByText('Watching, nothing yet').waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await expect(page).toHaveScreenshot(`m04-empty-real-${width}.png`, { fullPage: true });
+    });
+  });
+}
+
+test.describe('the line in Ink, sensing and triage', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('a spend cap reached', async ({ page }) => {
+    await page.goto(fixtureUrl({ at: 'capped', theme: 'ink' }));
+    await ready(page);
+    await expect(page).toHaveScreenshot('m04-line-capped-ink.png', {
+      clip: { x: 0, y: 0, width: WIDTHS.desktop.width, height: 700 },
+    });
+  });
+
+  test('a ticket’s sheet', async ({ page }) => {
+    await page.goto(fixtureUrl({ item: '1000', sheet: true, theme: 'ink' }));
+    await page.getByRole('dialog').first().waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForLoadState('networkidle');
+    await expect(page).toHaveScreenshot('m04-sheet-ticket-ink.png');
+  });
+});

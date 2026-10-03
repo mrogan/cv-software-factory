@@ -214,6 +214,11 @@
   background: transparent;
   border: 1px dashed var(--line-strong);
 }
+/* Queued for a stage that has not taken it: a solid outline, unlike a skipped stage's dashed one. */
+.prog i.q {
+  background: transparent;
+  border: 1px solid var(--text-muted);
+}
 .prog i.n {
   background: var(--signal);
 }

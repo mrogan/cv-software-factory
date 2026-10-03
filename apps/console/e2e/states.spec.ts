@@ -4,7 +4,7 @@
  */
 import { AxeBuilder } from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { consoleUrl, expect, test } from './support.ts';
+import { consoleUrl, emptyStore, expect, test } from './support.ts';
 
 const noFindings = async (page: Page) =>
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag22aa']).analyze()).violations).toEqual([]);
@@ -30,12 +30,23 @@ test('when the factory can’t be reached, the console says so and keeps trying'
 });
 
 test('an empty store keeps the idle line, and says where the work will appear', async ({ page }) => {
-  await page.route('**/api/events?after=0', (route) => route.fulfill({ json: [] }));
-  await page.route('**/api/events/stream*', () => {});
+  await emptyStore(page, null);
   await page.goto(consoleUrl());
   await expect(page.getByText('Nothing yet')).toBeVisible();
   await expect(page.locator('header .status')).toHaveText('Line not started');
   await expect(page.getByRole('button', { name: /^Sense: idle, none/ })).toBeVisible();
+  await noFindings(page);
+});
+
+test('an empty store for real events says the senses are watching, and sends nobody to the samples', async ({
+  page,
+}) => {
+  await emptyStore(page, 'real');
+  await page.goto(consoleUrl());
+  await expect(page.getByText('Watching, nothing yet')).toBeVisible();
+  await expect(page.getByText('The first tickets usually appear within fifteen minutes.')).toBeVisible();
+  await expect(page.getByText('make samples won’t load into it')).toBeVisible();
+  await expect(page.getByText('Nothing yet', { exact: true })).toHaveCount(0);
   await noFindings(page);
 });
 

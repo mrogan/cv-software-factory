@@ -153,6 +153,28 @@ describe('the console server', () => {
     expect(await resumed).toEqual(['30', '31']);
   });
 
+  it('says first on every stream what the store holds, as a message that is not an event', async () => {
+    const first = (kind: Feed['kind']) =>
+      new Promise<string>((resolve, reject) => {
+        feed.kind = kind;
+        const req = request(`${base}/api/events/stream?after=0`, (res) => {
+          let buffer = '';
+          res.on('data', (chunk: Buffer) => {
+            buffer += chunk.toString();
+            const message = buffer.split('\n\n').find((part) => part.startsWith('event:'));
+            if (message) {
+              req.destroy();
+              resolve(message);
+            }
+          });
+        });
+        req.on('error', reject);
+        req.end();
+      });
+    expect(await first('real')).toBe('event: store\ndata: {"kind":"real"}');
+    expect(await first(null)).toBe('event: store\ndata: {"kind":null}');
+  });
+
   it('serves an artifact a public event refers to, with its recorded type, for good', async () => {
     const res = await fetch(`${base}/artifacts/${screenshot}`);
     expect(res.status).toBe(200);

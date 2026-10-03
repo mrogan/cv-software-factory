@@ -2,10 +2,12 @@
  * The sheet: one work item in full, raised from the bottom of the screen over most of it. It holds focus while it
  * is open and gives it back when it closes; previous and next step between work items, and the reel follows.
  */
+
+import type { Sense } from '@software-factory/events';
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { duration, money, percent, sinceStart, tokens, when } from '../format.ts';
-import type { Chapter, Sheet as SheetData } from '../projection/index.ts';
-import { kindName, OutcomeWord } from './Card.tsx';
+import { capital, clock, duration, money, percent, sinceStart, tokens, when } from '../format.ts';
+import type { AgentRow, Chapter, Picture as PictureData, Sheet as SheetData, Sighting } from '../projection/index.ts';
+import { kindName, ONGOING, OutcomeWord } from './Card.tsx';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { LogoMark } from './Logos.tsx';
 import { Picture, Shot } from './Pictures.tsx';
@@ -24,7 +26,7 @@ const MODEL_NAME: Record<string, string> = {
   'claude-haiku-4-5': 'Claude Haiku 4.5',
 };
 
-const SOURCE: Record<string, string> = {
+const SOURCE: Record<PictureData['type'], string> = {
   wipe: 'Playwright screenshots, taken when the signal fired and after rollout. The marks are drawn from the elements the probe checked.',
   screenshot: 'A Playwright screenshot, taken when the signal fired.',
   metric: 'Prometheus, kept in the event at verify, so the graph outlives the metrics’ retention.',
@@ -34,9 +36,58 @@ const SOURCE: Record<string, string> = {
   rollback: 'Argo Rollouts’ analysis run, with the series it compared.',
   refusal: 'The mechanism’s own output, stored with the event when it refused.',
   judgement: 'The Jev request in the event: question set, model version and every answer with its probability.',
+  quarantine:
+    'The Jev request in the event, and the threshold in the factory’s policy that quarantines a report. The report’s text is not in it.',
+  suggestion: 'The Jev request in the event, and the factory’s own screenshot of the page the report named.',
   spec: 'The planner’s spec, as it waits for Martin.',
+  pages: 'The crawler’s screenshots of the pages it crawled, each marked where its check looked.',
+  http: 'The sense’s own request, and what came back, kept in the event.',
+  console: 'The browser’s console, as Playwright recorded it, beside its screenshot of the page.',
+  accessibility: 'axe, run in the browser by the sense, with the boxes of the elements it named.',
   none: '',
 };
+
+const SENSE_NAME: Record<Sense, string> = {
+  probe: 'Probes',
+  crawler: 'Crawler',
+  metrics: 'Metrics',
+  logs: 'Logs',
+  report: 'Reports',
+};
+
+/** What each sense captures, for an evidence block's caption and its source line. */
+const CAPTURED: Record<Sense, [caption: string, source: string]> = {
+  probe: ['Probe', 'Playwright'],
+  crawler: ['Crawler', 'the crawler’s request'],
+  metrics: ['Metrics · alert', 'the series behind Prometheus’s alert'],
+  logs: ['Log watcher', 'Loki'],
+  report: ['Report', 'the widget'],
+};
+
+const KIND_OF: Partial<Record<PictureData['type'], string>> = {
+  screenshot: 'screenshot',
+  pages: 'every page',
+  http: 'HTTP',
+  console: 'console',
+  accessibility: 'axe',
+  logs: 'new pattern',
+  metric: '',
+};
+
+/** The provider that served a row's calls, as the events name it. */
+const PROVIDER: Record<AgentRow['provider'], string> = {
+  typesafe: 'TypeSafe',
+  anthropic: 'Anthropic',
+  bedrock: 'Amazon Bedrock',
+};
+
+/** "Jev 1.13.0 · TypeSafe", "Claude Opus 5.5 · Anthropic". */
+const modelName = (row: AgentRow) =>
+  `${row.provider === 'typesafe' ? `Jev ${row.model.replace(/^jev-/, '')}` : (MODEL_NAME[row.model] ?? row.model)} · ${PROVIDER[row.provider]}`;
+
+/** A list in words: "a, b and c". */
+const listed = (words: string[]) =>
+  words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : (words[0] ?? '');
 
 const SIDE_NAME: Record<string, string> = {
   broken: 'Signal',
@@ -109,7 +160,8 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
     }
   };
 
-  const ongoing = card.outcome === 'in-progress' || card.outcome === 'needs-you' || card.outcome === 'held';
+  const ongoing = ONGOING.has(card.outcome);
+  const released = Boolean(card.versions.to || card.versions.from);
   const versions = card.versions.rolledBack
     ? `${card.versions.to} · rolled back to ${card.versions.from}`
     : card.versions.onCanary
@@ -117,6 +169,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
       : card.versions.to
         ? `${card.versions.from ?? '—'} → ${card.versions.to}`
         : 'No release';
+  const bySense = sheet.senseEvidence.length > 1;
   const total = sheet.agents.reduce((sum, a) => sum + a.cost, 0);
 
   return (
@@ -184,19 +237,49 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                   real shop, with this sample’s change made in a copy that went nowhere.
                 </p>
               )}
-              {sheet.report && (
-                <p className="report withheld">
-                  A visitor’s report from {sheet.report.page}. Its text is shown only to the visitor who sent it and to
-                  Martin; what triage made of it is below.
-                </p>
-              )}
+              {sheet.report &&
+                (sheet.report.quarantined ? (
+                  <p className="report withheld">
+                    A visitor’s report from {sheet.report.page}. It gave orders to the system, so it is quarantined. Its
+                    text is kept, and shown only to Martin and to the visitor who sent it.
+                  </p>
+                ) : (
+                  <p className="report withheld">
+                    A visitor’s report from {sheet.report.page}. Its text is shown only to the visitor who sent it and
+                    to Martin; what triage made of it is below.
+                  </p>
+                ))}
               <Section
                 title="How it went"
                 help="Step through the stages. The console shows only what had happened by then: replay and the live view are the same code."
               >
                 <Replay chapters={sheet.chapters} motion={motion} key={card.number} />
               </Section>
-              {card.picture.type !== 'spec' && card.picture.type !== 'none' && (
+              {bySense && (
+                <Section
+                  title="Evidence"
+                  help="Captured when it happened, because the sources expire. One block for each sense, the first time it saw the problem."
+                >
+                  <div className="captures by-sense">
+                    {sheet.senseEvidence.map((block) => (
+                      <figure key={block.sense}>
+                        <Picture picture={block.picture} interactive={false} />
+                        <figcaption>
+                          <span>
+                            {CAPTURED[block.sense][0]}
+                            {KIND_OF[block.picture.type] ? ` · ${KIND_OF[block.picture.type]}` : ''}
+                          </span>
+                          <span className="mono">{clock(block.at)}</span>
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                  <Source>
+                    Each sense’s own capture: {listed(sheet.senseEvidence.map((block) => CAPTURED[block.sense][1]))}.
+                  </Source>
+                </Section>
+              )}
+              {!bySense && card.picture.type !== 'spec' && card.picture.type !== 'none' && (
                 <Section title="Evidence" help="Captured when it happened, because the sources expire.">
                   <div className="evidence-big">
                     <Picture picture={card.picture} interactive />
@@ -205,12 +288,13 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                   {sheet.captures.length > 1 && (
                     <div className="captures">
                       {sheet.captures.map((capture) => (
-                        <figure key={`${capture.shot.hash}-${capture.at}`}>
+                        <figure key={`${capture.shot.hash}-${capture.shot.route}-${capture.at}`}>
                           <div className="vis">
-                            <Shot shot={capture.shot} />
+                            <Shot shot={capture.shot} numbered={card.picture.type === 'pages'} />
                           </div>
                           <figcaption>
-                            <span>{SIDE_NAME[capture.side]}</span>
+                            {/* Every page's screenshot is named by its page; the others by when in the story. */}
+                            <span>{card.picture.type === 'pages' ? capture.shot.route : SIDE_NAME[capture.side]}</span>
                             <span className="mono">{sinceStart(capture.at - card.startedAt)}</span>
                           </figcaption>
                         </figure>
@@ -279,16 +363,29 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
             <aside className="sheet-side">
               <dl className="facts-dl">
                 <Fact name="Work item">#{card.number}</Fact>
-                <Fact name="Found by">{sheet.facts.foundBy}</Fact>
-                <Fact name="Version">{versions}</Fact>
-                <Fact name="Pull request">{card.pullRequest ? `#${card.pullRequest}` : '—'}</Fact>
+                {sheet.facts.ticket && (
+                  <>
+                    <Fact name="Ticket">
+                      {sheet.facts.ticket.category} · {sheet.facts.ticket.severity}
+                    </Fact>
+                    <Fact name="Fingerprint">{sheet.facts.ticket.fingerprint}</Fact>
+                  </>
+                )}
+                {!sheet.seenBy && <Fact name="Found by">{sheet.facts.foundBy}</Fact>}
+                {!released && card.seenOn ? (
+                  <Fact name="Seen on">{card.seenOn}</Fact>
+                ) : (
+                  <Fact name="Version">{versions}</Fact>
+                )}
+                {card.pullRequest && <Fact name="Pull request">#{card.pullRequest}</Fact>}
                 <Fact name="Started">{when(card.startedAt)}</Fact>
                 <Fact name={ongoing ? 'So far' : 'Start to finish'}>{duration(card.durationMs)}</Fact>
-                <Fact name="Model spend">{money(card.spend)}</Fact>
+                <Fact name="Model spend">{card.calls ? money(card.spend) : 'none'}</Fact>
                 <Fact name="Code written by humans">
                   {sheet.facts.humanLines} {sheet.facts.humanLines === 1 ? 'line' : 'lines'}
                 </Fact>
               </dl>
+              {sheet.seenBy && <SeenBy rows={sheet.seenBy} />}
               <div className="side-card">
                 <h3>Agents and models</h3>
                 {sheet.agents.length ? (
@@ -309,10 +406,12 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                               <LogoMark name={a.provider === 'typesafe' ? 'jev' : 'anthropic'} />
                               <span>
                                 {AGENT_NAME[a.agent] ?? a.agent}
-                                <small>
-                                  {a.provider === 'typesafe' ? `Jev ${a.model}` : (MODEL_NAME[a.model] ?? a.model)}
-                                  {a.settings && ` · ${a.settings}`}
-                                </small>
+                                <small>{modelName(a)}</small>
+                                {a.details.map((line) => (
+                                  <small key={line} className="mono">
+                                    {line}
+                                  </small>
+                                ))}
                               </span>
                             </div>
                           </td>
@@ -340,7 +439,9 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                     </tfoot>
                   </table>
                 ) : (
-                  <p className="help">No model was called.</p>
+                  <p className="help">
+                    <b>No model was called.</b> {sheet.noModel}
+                  </p>
                 )}
                 <Source>The gateway’s log of every call. On the replay site the same calls come from cassettes.</Source>
               </div>
@@ -357,7 +458,9 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                     ))}
                   </div>
                 ) : (
-                  <p className="help">No pull request, so no gates ran.</p>
+                  <p className="help">
+                    {ongoing ? 'No pull request yet, so no gates have run.' : 'No pull request, so no gates ran.'}
+                  </p>
                 )}
                 {card.outcome === 'rolled-back' && (
                   <p className="help gates-note">Every gate passed. The canary caught what tests could not.</p>
@@ -368,6 +471,31 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
         </div>
       </section>
     </>
+  );
+}
+
+/** Who saw a ticket's problem: every sense, in the order they first saw it, and those that haven't yet. */
+function SeenBy({ rows }: { rows: Sighting[] }) {
+  return (
+    <div className="side-card seen-by">
+      <h3>Seen by</h3>
+      <ul>
+        {rows.map((row) => (
+          <li key={row.sense} className={row.at === undefined ? 'unseen' : ''}>
+            <span className="label">{SENSE_NAME[row.sense]}</span>
+            <span>
+              {row.check ? capital(row.check) : 'None yet'}
+              {(row.opened || row.added) && <small>{row.opened ? 'opened the ticket' : row.added}</small>}
+            </span>
+            <span className="mono">{row.at !== undefined ? clock(row.at) : ''}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="help">
+        Each sense adds its evidence the first time it sees the problem. After that the inbox counts it, so nothing here
+        repeats.
+      </p>
+    </div>
   );
 }
 
@@ -487,7 +615,7 @@ function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) 
             <button
               key={`${c.label}-${c.at}`}
               type="button"
-              className={`ch tone-${c.tone} ${i === at ? 'here' : ''} ${i < at ? 'done' : ''} ${i % 2 ? 'odd' : ''}`}
+              className={`ch tone-${c.tone} ${i === at ? 'here' : ''} ${i < at ? 'done' : ''} ${i % 2 ? 'odd' : ''} ${c.waiting ? 'waiting' : ''}`}
               style={{ left: `${c.position}%` }}
               aria-label={`${sinceStart(c.at - start)}, ${c.label.toLowerCase()}`}
               aria-current={i === at ? 'step' : undefined}
