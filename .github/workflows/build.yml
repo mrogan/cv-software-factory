@@ -39,7 +39,10 @@ env:
   BROWSER_IMAGE: ghcr.io/${{ github.repository }}/factory-browser
 
 jobs:
-  # Which images this push changes: each is built only when something that goes into it changed (or on a manual run).
+  # Which images to build: each one whose inputs changed since the commit its last deploy pull request pinned. Not
+  # since the previous push: the build group keeps one run waiting and cancels it when a newer one queues, and a run
+  # can fail, so a change seen only by a run that never finished would never be built. A change built but not yet
+  # deployed is built again with the next one, and its deploy pull request moves to the newer digest.
   changes:
     name: which images changed
     runs-on: ubuntu-24.04
@@ -55,21 +58,25 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - id: which
-        env:
-          BEFORE: ${{ github.event.before }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            echo "console=true" >> "$GITHUB_OUTPUT"
-            echo "factory=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
           # What each image copies in (the Dockerfiles and their .dockerignore files say the same), and what they share.
           shared='^(packages/events/|packages/store/|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.github/workflows/build\.yml)'
           console="$shared|^(apps/console/|docs/design/system/(tokens\.css|station\.ts|mark/))"
           factory="$shared|^(apps/factory/|packages/triage/|policy/)"
-          echo "console=$(echo "$changed" | grep -Eq "$console" && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "factory=$(echo "$changed" | grep -Eq "$factory" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          # $1: the output, $2: the deploy commits' subject, $3: the image's inputs.
+          decide() {
+            # The squash-merged deploy pull request's subject names the commit it deployed, such as "run console 1f14f44".
+            deployed=$(git log --format=%s -1 --grep "^chore(deploy): $2 [0-9a-f]\{7,40\} " | sed -E "s/^chore\(deploy\): $2 ([0-9a-f]+) .*/\1/")
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ -z "$deployed" ] || ! git cat-file -e "$deployed^{commit}" 2>/dev/null; then
+              echo "$1=true" >> "$GITHUB_OUTPUT"
+            elif git diff --name-only "$deployed" "$GITHUB_SHA" | grep -Eq "$3"; then
+              echo "$1=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$1=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          decide console 'run console' "$console"
+          decide factory 'run the factory' "$factory"
 
   image:
     name: build and push
