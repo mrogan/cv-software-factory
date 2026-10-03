@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DiskArtifacts, EventWriter } from '@software-factory/store';
@@ -184,6 +184,21 @@ describe('the gateway', () => {
     expect(readdirSync(live.dir)).toEqual([]);
     await recording.database.end();
     await live.database.end();
+  });
+
+  it('answers a paid call whose cassette cannot be written, and still reports the cap it reached', async () => {
+    fake.inputTokens = MILLION;
+    const h = await harness({ mode: 'record', policy: { dayUsd: 0.01, monthUsd: null, workItemUsd: 2 } });
+    chmodSync(h.dir, 0o500);
+    try {
+      const judged = await h.gateway.judge(request());
+      expect(judged.source).toBe('provider');
+      expect(await h.lineEvents()).toMatchObject([{ type: 'spend.capped', cap: 'day' }]);
+      expect(h.captured.text()).toContain('the cassette could not be written');
+    } finally {
+      chmodSync(h.dir, 0o700);
+      await h.database.end();
+    }
   });
 
   it('replays only, and says so once, when it has no key', async () => {

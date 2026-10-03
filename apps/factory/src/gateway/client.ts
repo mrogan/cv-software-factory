@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { GatewayUnavailable } from './errors.ts';
 import type { Judgement, JudgeRequest } from './gateway.ts';
 import type { SpendReport } from './spend.ts';
-import { answer } from './typesafe.ts';
+import { answer, LONGEST_CALL_MS } from './typesafe.ts';
 import { errorFromResponse } from './wire.ts';
 
 const judgement = z.object({
@@ -24,7 +24,10 @@ const judgement = z.object({
 export interface ClientOptions {
   /** The gateway's address, such as `http://gateway:8080`. */
   url: string;
-  /** For one request, retries inside the gateway included. */
+  /**
+   * For one request, retries inside the gateway included. By default, longer than the gateway can spend retrying,
+   * so the client never gives up on a call the gateway goes on to pay for.
+   */
   timeoutMs?: number;
   fetch?: typeof fetch;
 }
@@ -34,7 +37,7 @@ export class GatewayClient {
   readonly #timeoutMs: number;
   readonly #fetch: typeof fetch;
 
-  constructor({ url, timeoutMs = 60_000, fetch: send = fetch }: ClientOptions) {
+  constructor({ url, timeoutMs = LONGEST_CALL_MS + 30_000, fetch: send = fetch }: ClientOptions) {
     this.#url = url.replace(/\/$/, '');
     this.#timeoutMs = timeoutMs;
     this.#fetch = send;

@@ -151,18 +151,24 @@ export class Gateway {
         response,
         costOf(sent.model, usage),
       );
-      // The call is paid for and counted by now, so a cassette that cannot be written is the caller's to hear of.
-      if (mode !== 'live') {
-        cassettes.record({
-          key,
-          provider: PROVIDER,
-          model: sent.model,
-          recordedAt: this.#clock().toISOString(),
-          request: sent,
-          response: body,
-        });
-      }
+      // The call is paid for, counted and answered by now: a cassette that cannot be written loses a replay, not the
+      // answer, so it is logged and the caller still gets what it paid for, and a cap it reached is still reported.
       await spend.reconcile();
+      if (mode !== 'live') {
+        try {
+          cassettes.record({
+            key,
+            provider: PROVIDER,
+            model: sent.model,
+            recordedAt: this.#clock().toISOString(),
+            request: sent,
+            response: body,
+          });
+        } catch (error) {
+          const reason = error instanceof Error && 'code' in error ? String(error.code) : 'unknown';
+          this.#options.log.warn({ cassette: key, reason }, 'the cassette could not be written');
+        }
+      }
       return judgement;
     } catch (error) {
       const outcome = refusal(error);

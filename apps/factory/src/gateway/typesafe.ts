@@ -131,6 +131,11 @@ export interface TypeSafeOptions {
 export const DEFAULT_URL = 'https://api.typesafe.ai';
 const BACKOFF_MS = 500;
 const MAX_WAIT_MS = 30_000;
+const ATTEMPT_MS = 10_000;
+const RETRIES = 3;
+
+/** The longest one call can take with the default settings: every attempt timing out, and the longest wait between. */
+export const LONGEST_CALL_MS = (RETRIES + 1) * ATTEMPT_MS + RETRIES * MAX_WAIT_MS;
 
 /** How long a `Retry-After` header asks for, in milliseconds: it is a number of seconds, or an HTTP date. */
 export function retryAfterMs(header: string | null, now: number): number | undefined {
@@ -152,8 +157,8 @@ export class TypeSafe {
     this.#apiKey = options.apiKey;
     this.#options = {
       baseUrl: DEFAULT_URL,
-      timeoutMs: 10_000,
-      maxRetries: 3,
+      timeoutMs: ATTEMPT_MS,
+      maxRetries: RETRIES,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       random: Math.random,
       now: Date.now,
