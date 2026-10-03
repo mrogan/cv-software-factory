@@ -126,7 +126,9 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
     case 'release.rolled-back':
       return { label: 'ROLLED BACK', tone: 'attn' };
     case 'verification.finished':
-      return { label: event.payload.outcome === 'cleared' ? 'VERIFIED' : 'REOPENED', tone: 'ok' };
+      return event.payload.outcome === 'cleared'
+        ? { label: 'VERIFIED', tone: 'ok' }
+        : { label: 'REOPENED', tone: 'attn' };
     case 'action.refused':
       return { label: 'REFUSED', tone: 'attn' };
     case 'work-item.closed':

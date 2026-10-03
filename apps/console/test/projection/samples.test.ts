@@ -116,6 +116,18 @@ describe('a sheet', () => {
     expect(site('VERIFIED')).toBe('fixed');
   });
 
+  it('draws a verification that found the problem still there as reopened, in the warm colour', () => {
+    const chapter = (events: typeof SAMPLES, label: string) =>
+      projectSheet(events, '1296', END)?.chapters.find((c) => c.label === label);
+    expect(chapter(SAMPLES, 'VERIFIED')?.tone).toBe('ok');
+    const persisted = SAMPLES.map((event) =>
+      event.work_item === '1296' && event.type === 'verification.finished'
+        ? { ...event, payload: { ...event.payload, outcome: 'persists' as const } }
+        : event,
+    );
+    expect(chapter(persisted, 'REOPENED')?.tone).toBe('attn');
+  });
+
   it('totals each agent’s calls, tokens and cost', () => {
     const sheet = projectSheet(SAMPLES, '1296', END);
     expect(sheet?.agents.map((a) => a.agent)).toEqual(['triage', 'planner', 'coder', 'reviewer']);
