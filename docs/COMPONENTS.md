@@ -77,6 +77,7 @@ Each component lists its v1 choice and, where useful, what it might grow into. L
 |---|---|---|---|---|---|
 | Cluster | k3d | k3d | none | DOKS, one node | EKS |
 | Models | Anthropic API and Jev, or replay | Replay only | none | Anthropic API and Jev | Bedrock and Jev |
+| Model spend cap, across every provider | $20 a day | none: replay costs nothing | none | $20 a day, $100 a month | $20 a day, $100 a month |
 | Artifacts | Local disk | Local disk | Bundled files | Spaces | S3 |
 | Visitor actions | Off | Off | Off | On | On |
 
