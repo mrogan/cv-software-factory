@@ -8,8 +8,8 @@ import { type Judge, judgeReport, type ReportDecision } from '@software-factory/
 import { REPORTS as POLICY } from '../../../policy/triage.ts';
 import { type EvalReport, REPORTS } from './reports.ts';
 
-/** A probability this close to its threshold could cross it on another day: Jev drifts by up to about 0.16. */
-export const MARGIN = 0.15;
+/** A probability this close to its threshold could cross it on another day: Jev drifted by up to 0.16, with room. */
+export const MARGIN = 0.2;
 
 /** A stand-in for the page's screenshot: the evaluation reads passages, never pixels. */
 const SCREENSHOT: Screenshot = {

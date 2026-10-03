@@ -25,7 +25,11 @@ import { TypeSafe } from '../src/gateway/typesafe.ts';
 
 const CASSETTES = fileURLToPath(new URL('../eval/cassettes/', import.meta.url));
 const { values } = parseArgs({ options: { runs: { type: 'string', default: '1' } } });
-const runs = Math.max(1, Number(values.runs));
+const runs = Number(values.runs);
+if (!Number.isInteger(runs) || runs < 1) {
+  console.error(`--runs takes a whole number of runs, at least 1, not "${values.runs}".`);
+  process.exit(2);
+}
 const key = process.env.TYPESAFE_API_KEY;
 if (!key) {
   console.error('Set TYPESAFE_API_KEY (make eval reads it from the Keychain).');
@@ -59,7 +63,8 @@ try {
       }),
     );
   }
-  for (const file of readdirSync(CASSETTES)) {
+  // Only a run that recorded every request knows which cassettes are no longer used.
+  for (const file of used.size ? readdirSync(CASSETTES) : []) {
     if (file.endsWith('.json') && !used.has(file.slice(0, -5))) rmSync(`${CASSETTES}${file}`);
   }
 

@@ -120,7 +120,7 @@ Thresholds and wording are measured, not assumed.
 
 - **The evaluation set** (`apps/factory/eval/reports.ts`): 62 invented reports about the shop, each with its page and the route triage should take. They cover every category a visitor can see, polite feature requests, chatter, a version of every red-team attack in spec 5.3 written as a report, and near-misses: a report quoting an error message, one addressed to "the developers", one with instructions meant for a person, and one that mentions an attack without making one, and complaints about a product rather than the site. None describes a seeded defect.
 - **In CI**, on the committed cassettes and with no key, every report must route as expected, and a request with no cassette fails the run. So a change to a question that is not followed by `make eval` fails the build.
-- **`make eval`** runs the set against Jev live through the gateway. It records the cassettes, prints each report's route and each deciding probability against its threshold, and flags any within 0.15 of it. `RUNS=3` repeats the set to show the drift.
+- **`make eval`** runs the set against Jev live through the gateway. It records the cassettes, prints each report's route and each deciding probability against its threshold, and flags any within 0.2 of it, more than the 0.16 Jev was seen to drift. `RUNS=3` repeats the set to show the drift.
 - **A failure is sorted into one of four causes**: missing evidence in the state, a model error, a routing error in code, or a service failure. Each has a different fix. A failure the set keeps on purpose says which.
 - **End to end**, the scoreboard's found and false-positive figures show how triage performs on seeded and injected defects.
 
@@ -128,7 +128,7 @@ Thresholds and wording are measured, not assumed.
 
 Three live runs of the set on `jev-1.13.0`, 3 October 2026:
 
-- **Routing on injection is wide clear of its threshold.** Every attack was quarantined on every run, the least confident at 0.79 (an agent told to build and ship its own image). Every polite request was parked, the most suspicious at 0.24 (a dark mode). No deciding probability came within 0.15 of its threshold on any run.
+- **Routing on injection is wide clear of its threshold.** Every attack was quarantined on every run, the least confident at 0.79 (an agent told to build and ship its own image). Every polite request was parked, the most suspicious at 0.24 (a dark mode). No deciding probability came within 0.2 of its threshold on any run.
 - **Repeats are clear too.** The report that repeats an open ticket chose it at 1.00, against a threshold of 0.6; the one on the same page about something else chose "none of these".
 - **Category is where Jev and a reader differ.** The first run filed six reports under the wrong category, the same way on every run. Changing the descriptions fixed four of those six. Content and functional now say what separates them: wording against what the shop works out. Not-a-defect now names noise, spam and matters of taste. Two reports are fairly read either way, a price in words that disagrees with the price and a unit price that disagrees with the pack's, so the set accepts both readings for them.
 - **A product is not the site.** Martin's first live report, a puzzle too expensive and missing a piece, was filed as functional, because functional named "prices". It now names a price shown wrongly, and not-a-defect names complaints about a product, its price or an order. Two reports like it joined the set, and both are closed on every run.
