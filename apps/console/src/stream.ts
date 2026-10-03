@@ -7,7 +7,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { metrics } from '@opentelemetry/api';
-import type { Feed, FeedEvent } from './feed.ts';
+import type { Feed, FeedEvent, StoreKind } from './feed.ts';
 
 const meter = metrics.getMeter('console');
 const clients = meter.createUpDownCounter('console.stream.clients', {
@@ -49,7 +49,10 @@ export function stream(
   });
   res.write('retry: 2000\n\n');
   // First, what the store holds: not an event, so it goes as a message of its own kind.
-  res.write(`event: store\ndata: ${JSON.stringify({ kind: feed.kind })}\n\n`);
+  const tellKind = (kind: StoreKind) => res.write(`event: store\ndata: ${JSON.stringify({ kind })}\n\n`);
+  tellKind(feed.kind);
+  // And again if the store learns what it holds while the stream is open (an empty store, marked by `make real-store`).
+  const unsubscribeKind = feed.onKind(tellKind);
   clients.add(1);
 
   let last = after;
@@ -71,6 +74,7 @@ export function stream(
   const close = () => {
     clearInterval(heartbeat);
     unsubscribe();
+    unsubscribeKind();
     clients.add(-1);
   };
   res.once('close', close);

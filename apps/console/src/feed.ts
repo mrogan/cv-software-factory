@@ -28,7 +28,25 @@ export type StoreKind = 'sample' | 'real' | null;
 
 export class Feed {
   /** What the store holds, as it last said. The stream tells each browser first thing, so an empty store is described rightly. */
-  kind: StoreKind = null;
+  #kind: StoreKind = null;
+  readonly #kindListeners = new Set<(kind: StoreKind) => void>();
+
+  get kind(): StoreKind {
+    return this.#kind;
+  }
+
+  /** Records what the store holds, and tells every stream when it changes. */
+  set kind(kind: StoreKind) {
+    if (kind === this.#kind) return;
+    this.#kind = kind;
+    for (const listener of this.#kindListeners) listener(kind);
+  }
+
+  /** Calls back whenever the store's kind changes, until unsubscribed. */
+  onKind(listener: (kind: StoreKind) => void): () => void {
+    this.#kindListeners.add(listener);
+    return () => this.#kindListeners.delete(listener);
+  }
 
   readonly #events: FeedEvent[] = [];
   readonly #listeners = new Set<Listener>();
@@ -96,7 +114,8 @@ export async function storeFeed(sql: Sql): Promise<Feed> {
     reading = (async () => {
       do {
         again = false;
-        // The kind is decided once, by `make real-store` or the first event, and never changes after.
+        // The kind is decided once, by `make real-store` or the first event, and never changes after. Until then it
+        // is asked again on every read: `make real-store` notifies, so the console hears of it with no event.
         if (feed.kind === null) feed.kind = await storeKind(sql);
         for (;;) {
           const page = await readPublic(sql, feed.lastSeq);
