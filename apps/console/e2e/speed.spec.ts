@@ -4,7 +4,14 @@
  */
 import { consoleUrl, expect, test } from './support.ts';
 
-test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+const cluster = process.env.CONSOLE_URL;
+
+test.use({
+  viewport: { width: 390, height: 844 },
+  isMobile: true,
+  hasTouch: true,
+  ...(cluster && { baseURL: cluster }),
+});
 
 test('draws the first meaningful view within two seconds on a throttled phone', async ({ page, baseURL }) => {
   const cdp = await page.context().newCDPSession(page);
@@ -17,8 +24,8 @@ test('draws the first meaningful view within two seconds on a throttled phone', 
     uploadThroughput: (750 * 1024) / 8,
   });
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
-  const base = process.env.CONSOLE_URL ?? baseURL;
-  await page.goto(`${base}${process.env.CONSOLE_URL ? '/' : consoleUrl({ motion: true })}`);
+  // The cluster shows the time as it is; the test server, the samples' last moment.
+  await page.goto(cluster ? `${baseURL}/` : consoleUrl({ motion: true }));
   const firstView = await page.waitForFunction(() => performance.getEntriesByName('sf:first-view')[0]?.startTime);
   const ms = Number(await firstView.jsonValue());
   console.log(`First meaningful view after ${Math.round(ms)} ms`);
