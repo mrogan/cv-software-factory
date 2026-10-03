@@ -1,5 +1,5 @@
 /** A defect the logs noticed: searches left no log record, so a slow one could not be followed. */
-import { commitFor, digestFor, Item, JEV, jevCassette, traceFor, triageAnswers } from '../build.ts';
+import { commitFor, digestFor, Item, traceFor } from '../build.ts';
 
 const trace = traceFor('1265/before');
 const after = [traceFor('1265/after/1'), traceFor('1265/after/2')];
@@ -15,30 +15,24 @@ export default new Item('1265', '2026-09-29T14:10:00+01:00')
     check: 'a log record for every request',
     route: '/search',
     version: 'v0.8.4',
-    evidence: {
-      kind: 'logs',
-      route: '/search',
-      version: 'v0.8.4',
-      requests: 214,
-      lines: [],
-      trace: {
-        id: trace,
-        spans: [
-          { name: 'GET /search', offsetMs: 0, durationMs: 41 },
-          { name: 'catalogue.search', offsetMs: 6, durationMs: 12 },
-          { name: 'render search', offsetMs: 19, durationMs: 18 },
-        ],
+    symptom: 'missing-log',
+    evidence: [
+      {
+        kind: 'logs',
+        route: '/search',
+        version: 'v0.8.4',
+        requests: 214,
+        lines: [],
+        trace: {
+          id: trace,
+          spans: [
+            { name: 'GET /search', offsetMs: 0, durationMs: 41 },
+            { name: 'catalogue.search', offsetMs: 6, durationMs: 12 },
+            { name: 'render search', offsetMs: 19, durationMs: 18 },
+          ],
+        },
       },
-    },
-  })
-  .at('0:30', 'judgement.made', 'triage', 'Triage: observability (0.91), degraded, no instructions (0.00)', {
-    ...JEV,
-    state: { signal: { route: '/search', check: 'a log record for every request' } },
-    answers: triageAnswers('observability', 0.91, [0.04, 0.17, 0.71, 0.08], 0.002),
-    route: 'ticket',
-    costUsd: 0.0009,
-    durationMs: 94,
-    cassette: jevCassette('1265'),
+    ],
   })
   .at('0:31', 'ticket.opened', 'triage', 'Ticket #1265: observability, degraded', {
     title: 'Searches leave no log record',

@@ -20,21 +20,26 @@ const route = z
   .string()
   .regex(/^\/[^\s]*$/, 'a path, such as /products/:slug')
   .max(200);
+/** A route, or `*` for a symptom found on every page the senses checked. */
+const routeOrEvery = z.union([route, z.literal('*')]);
+/** A work item's number, as the store gives it. */
+const workItem = z.string().regex(/^[1-9]\d{0,8}$/, 'a work item number, such as 1288');
 /** The app's version, as `/version` reports it: a release such as v0.9.3, or a commit. */
 const appVersion = z.string().regex(/^(v\d+\.\d+\.\d+|[0-9a-f]{7,40})$/, 'a version such as v0.9.3, or a commit');
 const pullRequest = z.number().int().positive();
 const stage = z.enum(V.STAGES);
 const severities = z.strictObject({ critical: count, high: count, medium: count, low: count });
 
-/** Where on a screenshot the probe looked: a problem it found, or the thing as it should be. */
-const box = z.strictObject({
+/** Where on a page something is, in CSS pixels from the top left of the screenshot. */
+const rect = {
   x: z.number().nonnegative(),
   y: z.number().nonnegative(),
   width: z.number().positive(),
   height: z.number().positive(),
-  kind: z.enum(['problem', 'fix']),
-  label: text(48).optional(),
-});
+};
+
+/** Where on a screenshot the probe looked: a problem it found, or the thing as it should be. */
+const box = z.strictObject({ ...rect, kind: z.enum(['problem', 'fix']), label: text(48).optional() });
 
 /** An artifact is named by the SHA-256 of its contents. The console serves it with the type recorded here. */
 export const artifactRef = z.discriminatedUnion('kind', [
@@ -58,7 +63,10 @@ export const artifactRef = z.discriminatedUnion('kind', [
   }),
 ]);
 
-/** Evidence small enough to keep in the event itself: a metric series, or log lines and the trace they link to. */
+/**
+ * Evidence small enough to keep in the event itself: a metric series; log lines and the trace they link to; an HTTP
+ * exchange; what a browser's console said; or what an accessibility check found.
+ */
 export const evidence = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('metric'),
@@ -96,6 +104,52 @@ export const evidence = z.discriminatedUnion('kind', [
       })
       .optional(),
   }),
+  z.strictObject({
+    kind: z.literal('http'),
+    method: z.enum(['GET', 'HEAD', 'POST']),
+    /** The path asked for, with any query the sense chose. Never a visitor's: senses make their own requests. */
+    url: z
+      .string()
+      .regex(/^\/[^\s]*$/, 'a path, such as /products?page=2')
+      .max(300),
+    /** Null when no response came. */
+    status: z.number().int().min(100).max(599).nullable(),
+    /** The headers the check looked at, by lower-case name, each null when absent. */
+    headers: z.record(z.string().regex(/^[a-z0-9-]+$/), z.string().max(300).nullable()),
+    timings: z.strictObject({ firstByteMs: count, totalMs: count }),
+    /** Each redirect followed on the way, in order. */
+    redirects: z.array(z.strictObject({ status: z.number().int().min(300).max(399), location: text(300) })).max(20),
+  }),
+  z.strictObject({
+    kind: z.literal('console'),
+    route,
+    version: appVersion,
+    messages: z
+      .array(z.strictObject({ level: z.enum(['error', 'warning']), text: text(300), source: text(300).optional() }))
+      .min(1)
+      .max(20),
+  }),
+  z.strictObject({
+    kind: z.literal('accessibility'),
+    route,
+    version: appVersion,
+    findings: z
+      .array(
+        z.strictObject({
+          /** axe's rule, such as `image-alt`. */
+          rule: slug,
+          impact: z.enum(['minor', 'moderate', 'serious', 'critical']),
+          help: text(200),
+          /** The elements concerned, and where they are on the signal's screenshot when they are in view. */
+          elements: z
+            .array(z.strictObject({ selector: text(300), box: z.strictObject(rect).optional() }))
+            .min(1)
+            .max(10),
+        }),
+      )
+      .min(1)
+      .max(20),
+  }),
 ]);
 
 /** One answer from Jev (TYPESAFE.md): a label, a level on a rubric, or the probability of yes. Never free text. */
@@ -123,6 +177,19 @@ const answer = z.discriminatedUnion('type', [
  * The text is absent from an event read back from a public record, such as an event-log file.
  */
 const report = z.strictObject({ page: route, text: z.string().min(1).max(2000).optional() });
+
+/** An open ticket offered to triage as one a report might repeat: described from its typed fields, never a report. */
+const candidate = z.strictObject({
+  /** The label the question gives it. */
+  key: slug,
+  workItem,
+  title: text(120),
+  category: z.enum(V.DEFECT_CATEGORIES),
+  symptom: z.enum(V.SYMPTOM_CLASSES).optional(),
+});
+
+/** A passage of a page's text, as the factory read the page itself, offered as the one a content report is about. */
+const passage = z.strictObject({ key: slug, text: text(200) });
 
 /** A canary against its baseline, on the same measure. */
 const versus = <T extends z.ZodType>(value: T) => z.strictObject({ canary: value, baseline: value });
@@ -155,37 +222,57 @@ export const PAYLOADS = {
     story: text(1200),
   }),
   'work-item.closed': z.strictObject({
-    outcome: z.enum(['verified', 'rolled-back', 'no-change']),
+    /** How it ended. Triage ends a report it quarantines or discards; anything else ends after the line. */
+    outcome: z.enum(['verified', 'rolled-back', 'no-change', 'quarantined', 'discarded']),
     reason: text(200),
   }),
 
   'defect.injected': z.strictObject({ choice: text(80), version: appVersion, pullRequest }),
   'attack.launched': z.strictObject({ attack: text(120), expected: text(120) }),
 
+  /**
+   * What a sense found, or what a visitor reported. A sense's signal names the symptom class it saw; a report's
+   * is for triage to judge. On an open ticket, the first signal from each sense adds its evidence.
+   */
   'signal.received': z.strictObject({
     sense: z.enum(V.SENSES),
     check: text(80),
-    route,
+    route: routeOrEvery,
     version: appVersion,
+    symptom: z.enum(V.SYMPTOM_CLASSES).optional(),
     report: report.optional(),
-    evidence: evidence.optional(),
+    evidence: z.array(evidence).max(8).optional(),
   }),
-  'judgement.made': z.strictObject({
-    questionSet: z.string().regex(/^[a-z-]+\/v\d+$/),
-    model: z.string().regex(/^jev-\d+\.\d+\.\d+$/),
-    state: z.strictObject({ report: report.optional(), signal: z.strictObject({ route, check: text(80) }).optional() }),
-    answers: z.array(answer).min(1).max(20),
-    route: z.enum(['ticket', 'park', 'quarantine', 'discard']),
-    costUsd: usd,
-    durationMs: count,
-    cassette: sha256,
-  }),
+  /**
+   * One request to Jev about a report: what it was asked and answered. The request that routes the report records
+   * where it went; one that only chooses a content report's passage from its page has no route.
+   */
+  'judgement.made': z
+    .strictObject({
+      questionSet: z.string().regex(/^[a-z-]+\/v\d+$/),
+      model: z.string().regex(/^jev-\d+\.\d+\.\d+$/),
+      state: z.strictObject({
+        report,
+        /** The open tickets on the same page it was offered, besides "none of these". */
+        candidates: z.array(candidate).max(10).optional(),
+        passages: z.array(passage).max(40).optional(),
+      }),
+      answers: z.array(answer).min(1).max(20),
+      route: z.enum(V.TRIAGE_ROUTES).optional(),
+      /** The open ticket a repeat joined. */
+      joined: workItem.optional(),
+      costUsd: usd,
+      durationMs: count,
+      cassette: sha256,
+    })
+    .refine((j) => (j.route === 'repeat') === (j.joined !== undefined), 'a repeat names the ticket it joined'),
   'ticket.opened': z.strictObject({
     title: text(120),
     category: z.enum(V.DEFECT_CATEGORIES),
-    severity: z.enum(['cosmetic', 'degraded', 'broken']),
+    severity: z.enum(V.SEVERITIES),
     fingerprint: z.union([
-      z.strictObject({ route, class: z.enum(V.SYMPTOM_CLASSES) }),
+      z.strictObject({ route: routeOrEvery, class: z.enum(V.SYMPTOM_CLASSES) }),
+      /** For content: the page, and the passage of its text that is wrong, as the factory read it. */
       z.strictObject({ page: route, text: text(200) }),
     ]),
     traces: z.array(traceId).max(10),
@@ -335,16 +422,21 @@ export const PAYLOADS = {
 
   'line.started': z.strictObject({ autonomy: z.enum(V.AUTONOMY) }),
   'line.stopped': z.strictObject({ reason: text(200) }),
+  /** Model spend reached a cap (guardrail 7): the gateway refuses calls until it resets. */
+  'spend.capped': z.strictObject({
+    cap: z.enum(['day', 'month']),
+    limitUsd: usd,
+    spentUsd: usd,
+    resets: timestamp,
+  }),
+  'spend.cleared': z.strictObject({ cap: z.enum(['day', 'month']) }),
 } satisfies { [K in EventType]: z.ZodType };
 
 /** The envelope of an event about to be appended: everything but `seq` and `public`, which the store adds. */
 export const newEvent = z.strictObject({
   id: z.uuid(),
   ts: timestamp,
-  work_item: z
-    .string()
-    .regex(/^[1-9]\d{0,8}$/, 'a work item number, such as 1288')
-    .nullable(),
+  work_item: workItem.nullable(),
   type: z.enum(Object.keys(VERSIONS) as [EventType, ...EventType[]]),
   version: z.number().int().positive(),
   actor: z.enum(V.ACTORS),
@@ -354,6 +446,36 @@ export const newEvent = z.strictObject({
 });
 
 export type Validated = { ok: true } | { ok: false; problems: string[] };
+
+/**
+ * A signal as a sense leaves it in the inbox: what `signal.received` will say if triage makes an event of it, when
+ * the sense saw it, and its artifacts.
+ */
+export const inboxSignal = z
+  .intersection(
+    PAYLOADS['signal.received'],
+    z.object({
+      observedAt: timestamp,
+      /** What the sense saw, in a line, for the event's summary. A report has none: its text is never a summary. */
+      summary: text(200).optional(),
+      artifacts: z.array(artifactRef).max(10),
+    }),
+  )
+  .superRefine((signal, context) => {
+    // A report is its text: one without any is nothing to judge, and nothing to answer.
+    if (signal.sense === 'report' && !signal.report?.text) {
+      context.addIssue({ code: 'custom', path: ['report', 'text'], message: 'a report needs its text' });
+    }
+    if (signal.sense !== 'report' && signal.report) {
+      context.addIssue({ code: 'custom', path: ['report'], message: 'only a report carries a report' });
+    }
+  });
+
+/** Checks a signal before it goes in the inbox, so a sense cannot leave triage something it would refuse. */
+export function validateSignal(input: unknown): Validated {
+  const result = inboxSignal.safeParse(input);
+  return result.success ? { ok: true } : { ok: false, problems: problemsOf(result.error) };
+}
 
 /** Checks an event's envelope and payload against the current version of its type. */
 export function validate(input: unknown): Validated {

@@ -141,7 +141,7 @@ test.describe('the sheet', () => {
     await expect(page.locator('.site-head')).toContainText('BROKEN · v0.9.4');
     await expect(page.locator('.event.now')).toContainText('The home journey saw a price of £-6.00');
     await page.getByRole('button', { name: 'Next step' }).click();
-    await expect(page.locator('.event.now')).toContainText('Triage');
+    await expect(page.locator('.event.now')).toContainText('Ticket #1296');
   });
 });
 

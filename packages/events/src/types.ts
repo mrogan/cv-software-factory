@@ -3,7 +3,7 @@
  * cannot drift; everything here is erased at runtime, so the browser can import it freely.
  */
 import type { z } from 'zod';
-import type { artifactRef, evidence, PAYLOADS } from './schemas.ts';
+import type { artifactRef, evidence, inboxSignal, PAYLOADS } from './schemas.ts';
 import type { EventType } from './versions.ts';
 import type { Actor } from './vocabulary.ts';
 
@@ -12,6 +12,8 @@ export type { EventType } from './versions.ts';
 export type ArtifactRef = z.infer<typeof artifactRef>;
 export type Screenshot = Extract<ArtifactRef, { kind: 'screenshot' }>;
 export type Evidence = z.infer<typeof evidence>;
+/** A signal as a sense leaves it in the inbox (schemas.ts). */
+export type InboxSignal = z.infer<typeof inboxSignal>;
 
 /**
  * A payload at its type's current version. A public view has the same shape: what it leaves out (report text, a

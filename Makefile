@@ -15,10 +15,10 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down check status e2e samples
+.PHONY: help up down check status e2e samples real-store
 
 help: ## List the targets
-	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-8s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-10s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 up: ## Create the local cluster; Argo CD then deploys everything from main (or REVISION=<branch>)
 	@docker info >/dev/null 2>&1 || { echo "Docker isn't running. Start OrbStack (or another runtime) and try again."; exit 1; }
@@ -77,6 +77,22 @@ samples: node_modules ## Load the sample work items into the cluster's store, wi
 		PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory PGUSER=factory_writer \
 		PGPASSWORD="$$($(KUBECTL) -n factory get secret postgres-writer -o jsonpath='{.data.password}' | base64 -d)" \
 		ARTIFACTS_DIR=packages/samples/log/artifacts node apps/factory/src/cli.ts events load packages/samples/log
+	@echo "  Console  http://console.localhost:8080"
+
+real-store: node_modules ## Replace the cluster's store with an empty one for real events (FORCE=1 if it holds some)
+	@# As the database's owner, through a port-forward: only the owner may drop the schema.
+	@$(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
+		trap 'kill $$forward' EXIT; sleep 2; \
+		PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory PGUSER=factory \
+		PGPASSWORD="$$($(KUBECTL) -n factory get secret postgres -o jsonpath='{.data.password}' | base64 -d)" \
+		node packages/store/src/real-store.ts $(if $(FORCE),--force)
+	@# The samples' screenshots go too, and the console starts again from an empty history.
+	@$(KUBECTL) -n factory delete pod artifacts-copier --ignore-not-found --wait >/dev/null
+	@$(KUBECTL) apply -f deploy/k3d/artifacts-copier.yaml >/dev/null
+	@$(KUBECTL) -n factory wait pod/artifacts-copier --for=condition=Ready --timeout=2m >/dev/null
+	@$(KUBECTL) -n factory exec artifacts-copier -- find /var/lib/factory/artifacts -mindepth 1 -delete
+	@$(KUBECTL) -n factory delete pod artifacts-copier --wait=false >/dev/null
+	@$(KUBECTL) -n factory rollout restart deployment/console >/dev/null
 	@echo "  Console  http://console.localhost:8080"
 
 # The factory command runs on the host, so loading the samples needs the dependencies: installed on first use, and

@@ -497,8 +497,9 @@ const QUESTION: Record<string, string> = {
   injection: 'Instructions for a system?',
 };
 
-const ROUTE: Record<PayloadOf<'judgement.made'>['route'], string> = {
+const ROUTE: Record<NonNullable<PayloadOf<'judgement.made'>['route']>, string> = {
   ticket: 'a ticket',
+  repeat: 'added to the open ticket it repeats',
   park: 'parked for Martin',
   quarantine: 'quarantined',
   discard: 'closed, no ticket',
@@ -509,7 +510,7 @@ type Answer = PayloadOf<'judgement.made'>['answers'][number];
 /** One typed answer as words and the probability behind them. */
 export function answerOf(answer: Answer): { text: string; p: number } {
   if (answer.type === 'choice') {
-    return { text: answer.answer.replaceAll('_', ' '), p: answer.probabilities[answer.answer] ?? 0 };
+    return { text: answer.answer.replaceAll(/[_-]/g, ' '), p: answer.probabilities[answer.answer] ?? 0 };
   }
   if (answer.type === 'score') {
     const level = Math.max(0, Math.min(answer.levels.length - 1, Math.round(answer.expected)));
@@ -548,9 +549,11 @@ function JudgementPicture({ page, judgement }: Extract<PictureData, { type: 'jud
               );
             })}
           </div>
-          <div className="routing">
-            Routing: <b>{ROUTE[judgement.route]}.</b> A report’s text is untrusted: no generative agent ever reads it.
-          </div>
+          {judgement.route && (
+            <div className="routing">
+              Routing: <b>{ROUTE[judgement.route]}.</b> A report’s text is untrusted: no generative agent ever reads it.
+            </div>
+          )}
         </div>
       </div>
     </div>

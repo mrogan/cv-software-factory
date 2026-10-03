@@ -95,7 +95,6 @@ describe('a sheet', () => {
       'INJECT',
       'ON SITE',
       'SIGNAL',
-      'TRIAGE',
       'TICKET',
       'SPEC',
       'PR',
@@ -136,7 +135,7 @@ describe('a sheet', () => {
 
   it('totals each agent’s calls, tokens and cost', () => {
     const sheet = projectSheet(SAMPLES, '1296', END);
-    expect(sheet?.agents.map((a) => a.agent)).toEqual(['triage', 'planner', 'coder', 'reviewer']);
+    expect(sheet?.agents.map((a) => a.agent)).toEqual(['planner', 'coder', 'reviewer']);
     const total = sheet?.agents.reduce((sum, a) => sum + a.cost, 0) ?? 0;
     expect(total).toBeCloseTo(sheet?.card.spend ?? 0, 6);
     expect(sheet?.facts).toEqual({ foundBy: 'Probe · home journey', humanLines: 0 });
