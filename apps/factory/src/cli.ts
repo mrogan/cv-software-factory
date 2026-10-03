@@ -6,13 +6,14 @@
  *     factory <group> <command> [options]
  */
 import * as events from './commands/events.ts';
+import * as gateway from './commands/gateway.ts';
 
 interface Group {
   USAGE: string;
   run(args: string[]): Promise<number>;
 }
 
-const GROUPS: Record<string, Group> = { events };
+const GROUPS: Record<string, Group> = { events, gateway };
 
 const [name, ...args] = process.argv.slice(2);
 const group = name ? GROUPS[name] : undefined;
