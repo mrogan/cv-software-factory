@@ -149,7 +149,7 @@ const run = (command: string, args: string[]) =>
   execFileSync(command, args, { cwd: work, stdio: ['ignore', 'ignore', 'inherit'] });
 
 if (values.app) {
-  cpSync(values.app, work, { recursive: true, filter: (path) => !/node_modules|\.git$/.test(path) });
+  cpSync(values.app, work, { recursive: true, filter: (path) => !/(^|\/)(node_modules|\.git)$/.test(path) });
 } else {
   run('git', ['clone', '--quiet', '--filter=blob:none', APP.repository, '.']);
   run('git', ['checkout', '--quiet', APP.commit]);
