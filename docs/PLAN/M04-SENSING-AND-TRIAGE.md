@@ -162,6 +162,19 @@ In the private repository, a script reads an exported event log of tickets and p
 - [ ] `make stop-the-line` stops triage taking work, and starting the line again resumes from the inbox, losing nothing.
 - [ ] Martin has watched the factory sense and triage in the console, on a laptop and a phone, and approved it against the bar in `INTENT.md`.
 
+## Results
+
+A first count, taken 15 minutes after `make real-store` on the local cluster, with no reports, by the private repository's `workshop/count.ts`:
+
+| Measure | Result |
+|---|---|
+| Seeded defects matched | 12 of 24 |
+| Tickets that match no defect | 10 of 22 |
+| Defects with two or more tickets | none |
+| Tickets with a screenshot | 21 of 22 (the log watcher's has no page to show) |
+
+The count after an hour of sensing, and each unmatched ticket with its cause, follow once Martin has reviewed the checks.
+
 ## Out of scope
 
 - The planner, the coder, the reviewer and the GitHub App (milestone 5), and with them mirroring tickets to GitHub Issues and the Anthropic adapter.
