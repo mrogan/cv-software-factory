@@ -230,6 +230,14 @@ async function within<T>(ms: number, work: Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * What the browser says about how the page reached it rather than about the page's own code: served over plain
+ * HTTP, a header that only works over HTTPS is ignored, and Chromium says so as an error. On the local cluster that
+ * is every page, and no change to the app would quiet it, so it is not the app's error.
+ */
+export const aboutTheConnection = (text: string) =>
+  /origin was untrustworthy|potentially trustworthy|insecure context|secure context/i.test(text);
+
 /** Listens to a page for what a visitor would suffer without being asked about it. */
 function watching(page: Page, origin: string) {
   const consoleErrors: Array<{ level: 'error'; text: string; source?: string; page: string }> = [];
@@ -239,6 +247,7 @@ function watching(page: Page, origin: string) {
   const onConsole = (message: { type(): string; text(): string; location(): { url: string; lineNumber: number } }) => {
     // The browser also reports each failed request here; those are found below, with more to say about them.
     if (message.type() !== 'error' || message.text().startsWith('Failed to load resource')) return;
+    if (aboutTheConnection(message.text())) return;
     const { url, lineNumber } = message.location();
     consoleErrors.push({
       level: 'error',
