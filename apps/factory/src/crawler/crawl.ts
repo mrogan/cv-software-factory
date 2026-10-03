@@ -5,9 +5,11 @@
  * it holds once its scripts have run, and what axe finds wrong with it. This module gathers; judging is in
  * `judge.ts`.
  */
+
 import { AxeBuilder } from '@axe-core/playwright';
 import type { SymptomClass } from '@software-factory/events';
 import type { BrowserContext, Page } from 'playwright';
+import { aboutTheConnection } from '../senses/browser.ts';
 import { type Exchange, exchange, pathOf } from '../senses/http.ts';
 
 /** How a resource was reached: a link to follow, an image on a page, or a script, stylesheet or icon. */
@@ -125,6 +127,7 @@ async function browse(context: BrowserContext, url: string, path: string) {
   page.on('console', (message) => {
     // The browser also reports each failed request here; the crawl asks for those itself, and says more of them.
     if (message.type() !== 'error' || message.text().startsWith('Failed to load resource')) return;
+    if (aboutTheConnection(message.text())) return;
     const { url: source, lineNumber } = message.location();
     messages.push({
       text: message.text().trim().slice(0, 300),
