@@ -22,7 +22,17 @@ export default defineConfig({
             'packages/*/test/database/**/*.test.ts',
             'apps/factory/test/**/*.test.ts',
           ],
+          exclude: ['apps/factory/test/browser/**'],
           globalSetup: ['packages/store/test/postgres.ts'],
+        },
+      },
+      {
+        // Needs Chromium, so it runs in the pinned Playwright image (`make e2e`, and CI's browser job), not in `make check`.
+        extends: true,
+        test: {
+          name: 'browser',
+          include: ['apps/factory/test/browser/**/*.test.ts'],
+          fileParallelism: false,
         },
       },
     ],
