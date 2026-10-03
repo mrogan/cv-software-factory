@@ -1,0 +1,110 @@
+# The probes: a shopper's journeys against the app, every few minutes and at once on a new version. They also serve the page
+# reader that triage uses. Chromium runs without its own sandbox, which the restricted Pod Security Standard would refuse
+# it; the pod's fences (network policy, non-root, no capabilities) hold instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: probes
+  labels: &labels
+    app.kubernetes.io/name: probes
+    app.kubernetes.io/part-of: software-factory
+    app.kubernetes.io/component: worker
+  annotations:
+    # After Postgres (wave 0) and the migrations (wave 1), with the console.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # one at a time: the volumes are ReadWriteOnce, and two workers must not run the same loop
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: probes
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: probes
+          # Each profile pins the image by digest (kustomize `images:`), so a deploy is always a commit.
+          image: factory-browser
+          args:
+            - --import
+            - ./src/telemetry.ts
+            - src/cli.ts
+            - probes
+            - run
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.telemetry:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "probes"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=software-factory"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "15000"
+            # The event store, as the factory's writer: it appends and reads.
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              value: factory
+            - name: PGUSER
+              value: factory_writer
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-writer
+                  key: password
+            - name: APP_URL
+              value: http://website.website
+            - name: ARTIFACTS_DIR
+              value: /var/lib/factory/artifacts
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: shm
+              mountPath: /dev/shm
+            # Screenshots go here, for the console to serve.
+            - name: artifacts
+              mountPath: /var/lib/factory/artifacts
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: shm
+          # Chromium keeps shared memory here, and the default 64Mi is too small for a page.
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: artifacts

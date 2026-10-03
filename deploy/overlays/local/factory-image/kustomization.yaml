@@ -1,0 +1,6 @@
+# The factory images CI built last, pinned by digest, and with them the workers that run them (deploy/base/factory).
+# Empty until the first build: the build workflow's deploy pull request adds the workers and pins both images in one
+# change, so the cluster never has workers without an image to run. After that it moves only the two digests.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+images: []

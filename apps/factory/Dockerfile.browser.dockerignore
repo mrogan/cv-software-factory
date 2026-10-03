@@ -1,0 +1,14 @@
+# Only what the image needs; everything else stays out of the build context.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/factory/package.json
+!apps/factory/src
+!packages/events/package.json
+!packages/events/src
+!packages/store/package.json
+!packages/store/src
+!packages/triage/package.json
+!packages/triage/src
+!policy
