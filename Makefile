@@ -10,15 +10,21 @@ PLAYWRIGHT := mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af
 # before it merges; the charts' values and the app's repository are still read from main.
 REVISION ?= main
 
+# $(call as-writer,command): run a command on the host as the factory's writer, through a port-forward to Postgres.
+as-writer = $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
+	trap 'kill $$forward' EXIT; sleep 2; \
+	PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory PGUSER=factory_writer \
+	PGPASSWORD="$$($(KUBECTL) -n factory get secret postgres-writer -o jsonpath='{.data.password}' | base64 -d)" $(1)
+
 # $(call secret,namespace,name,data): create a Secret unless it exists.
 secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null && \
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down check status e2e samples real-store
+.PHONY: help up down check status e2e samples real-store stop-the-line start-the-line
 
 help: ## List the targets
-	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-10s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 up: ## Create the local cluster; Argo CD then deploys everything from main (or REVISION=<branch>)
 	@docker info >/dev/null 2>&1 || { echo "Docker isn't running. Start OrbStack (or another runtime) and try again."; exit 1; }
@@ -72,11 +78,7 @@ samples: node_modules ## Load the sample work items into the cluster's store, wi
 		$(KUBECTL) -n factory exec -i artifacts-copier -- tar -C /var/lib/factory/artifacts -xf -
 	@$(KUBECTL) -n factory delete pod artifacts-copier --wait=false >/dev/null
 	@# Then the events, as the factory's writer, through a port-forward to Postgres.
-	@$(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
-		trap 'kill $$forward' EXIT; sleep 2; \
-		PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory PGUSER=factory_writer \
-		PGPASSWORD="$$($(KUBECTL) -n factory get secret postgres-writer -o jsonpath='{.data.password}' | base64 -d)" \
-		ARTIFACTS_DIR=packages/samples/log/artifacts node apps/factory/src/cli.ts events load packages/samples/log
+	@$(call as-writer,ARTIFACTS_DIR=packages/samples/log/artifacts node apps/factory/src/cli.ts events load packages/samples/log)
 	@echo "  Console  http://console.localhost:8080"
 
 real-store: node_modules ## Replace the cluster's store with an empty one for real events (FORCE=1 if it holds some)
@@ -94,6 +96,12 @@ real-store: node_modules ## Replace the cluster's store with an empty one for re
 	@$(KUBECTL) -n factory delete pod artifacts-copier --wait=false >/dev/null
 	@$(KUBECTL) -n factory rollout restart deployment/console >/dev/null
 	@echo "  Console  http://console.localhost:8080"
+
+stop-the-line: node_modules ## Stop the line: workers finish what they hold and take nothing new (REASON="...")
+	@$(call as-writer,node apps/factory/src/cli.ts line stop $(if $(REASON),--reason "$(REASON)"))
+
+start-the-line: node_modules ## Start the line again; workers take what waited in the inbox
+	@$(call as-writer,node apps/factory/src/cli.ts line start)
 
 # The factory command runs on the host, so loading the samples needs the dependencies: installed on first use, and
 # again when the lockfile changes.

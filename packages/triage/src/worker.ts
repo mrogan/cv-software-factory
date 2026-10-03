@@ -1,0 +1,234 @@
+/**
+ * The triage worker: takes each signal from the inbox once and decides what it becomes.
+ *
+ * - A sense's signal with a fingerprint no open ticket has opens a work item with its ticket.
+ * - One on an open ticket adds its evidence the first time each sense sees it; after that the inbox counts it,
+ *   with no event, so the event count grows with tickets, not with the minutes a defect stays unfixed.
+ * - Every report becomes events, judged by Jev: a new ticket, a repeat that joins an open one, or a work item
+ *   that says it was quarantined, parked or discarded.
+ *
+ * One worker decides at a time (it holds an advisory lock), so two signals with the same new fingerprint cannot
+ * open two tickets. It takes nothing while the line is stopped, or while the gateway is waiting on a spend cap.
+ */
+import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/events';
+import { type EventWriter, nextWorkItem } from '@software-factory/store';
+import type { Sql } from 'postgres';
+import { INBOX } from '../../../policy/triage.ts';
+import { idsFor, reportEvents, senseEvidence, senseTicket } from './events.ts';
+import { type Judge, JudgeWaiting } from './judge.ts';
+import type { Candidate } from './questions.ts';
+import { judgeReport, type PageReader } from './reports.ts';
+import { pathOf } from './scrub.ts';
+
+/** What triage made of a signal, as the inbox records it. */
+export type Outcome = 'opened' | 'evidence' | 'counted' | 'report';
+
+export interface Logger {
+  info(fields: object, message: string): void;
+  warn(fields: object, message: string): void;
+}
+
+export interface TriageOptions {
+  /** As the factory's writer. */
+  sql: Sql;
+  events: EventWriter;
+  judge: Judge;
+  read: PageReader;
+  log: Logger;
+  now?: () => Date;
+  /** Told of each signal triaged, with how long it waited in the inbox. */
+  onTriaged?: (outcome: Outcome, signal: InboxSignal, waitedSeconds: number) => void;
+}
+
+interface Taken {
+  id: string;
+  sense: string;
+  signal: InboxSignal;
+  attempts: number;
+  received_at: Date;
+}
+
+type Ticket = { workItem: string } & Pick<PayloadOf<'ticket.opened'>, 'title' | 'category' | 'fingerprint'>;
+
+export type Took = Outcome | 'idle' | 'stopped' | 'waiting' | 'failed';
+
+export class Triage {
+  readonly #o: Required<Omit<TriageOptions, 'onTriaged'>> & Pick<TriageOptions, 'onTriaged'>;
+  #pausedUntil = 0;
+
+  constructor(options: TriageOptions) {
+    this.#o = { now: () => new Date(), ...options };
+  }
+
+  /** Takes one signal, if the line is running and one is waiting, and triages it. */
+  async takeOne(): Promise<Took> {
+    const now = this.#o.now();
+    if (now.getTime() < this.#pausedUntil) return 'waiting';
+    if (await lineStopped(this.#o.sql)) return 'stopped';
+    const taken = await this.#claim();
+    if (!taken) return 'idle';
+    const log = { signal: taken.id, sense: taken.sense, attempt: taken.attempts };
+    try {
+      const { outcome, workItem } = await this.#triage(taken);
+      await this.#o.sql`update inbox set triaged_at = ${now}, outcome = ${outcome}, work_item = ${workItem},
+                        failure = null where id = ${taken.id}`;
+      const waited = (now.getTime() - taken.received_at.getTime()) / 1000;
+      this.#o.log.info({ ...log, outcome, workItem }, 'triaged a signal');
+      this.#o.onTriaged?.(outcome, taken.signal, waited);
+      return outcome;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      if (error instanceof JudgeWaiting) {
+        // Not the signal's fault: it keeps its attempt, and nothing is taken until the gateway can answer.
+        this.#pausedUntil = error.until.getTime();
+        await this.#o.sql`update inbox set attempts = attempts - 1, failure = ${reason}, not_before = ${error.until}
+                          where id = ${taken.id}`;
+        this.#o.log.warn({ ...log, until: error.until.toISOString(), reason }, 'triage is waiting for the gateway');
+        return 'waiting';
+      }
+      const retry = new Date(now.getTime() + 2 ** taken.attempts * 15_000);
+      await this.#o.sql`update inbox set failure = ${reason}, not_before = ${retry} where id = ${taken.id}`;
+      const last = taken.attempts >= INBOX.attempts;
+      this.#o.log.warn({ ...log, reason, last }, last ? 'a signal failed for the last time' : 'a signal failed');
+      return 'failed';
+    }
+  }
+
+  /**
+   * Triages until aborted: woken by a new signal or a new event (the line starting again), and every half a minute
+   * for signals waiting to be tried again. Only one worker runs at a time.
+   */
+  async run(abort: AbortSignal): Promise<void> {
+    const { sql } = this.#o;
+    const lock = await sql.reserve();
+    try {
+      await lock`select pg_advisory_lock(hashtext('triage'))`;
+      let wake = Promise.withResolvers<void>();
+      const nudge = () => wake.resolve();
+      const listening = await Promise.all([sql.listen('inbox', nudge), sql.listen('events', nudge)]);
+      abort.addEventListener('abort', nudge);
+      while (!abort.aborted) {
+        const took = await this.takeOne();
+        if (took === 'idle' || took === 'stopped' || took === 'waiting') {
+          const pause = took === 'waiting' ? Math.max(1000, this.#pausedUntil - Date.now()) : 30_000;
+          const timer = setTimeout(nudge, Math.min(pause, 30_000));
+          await wake.promise;
+          clearTimeout(timer);
+          wake = Promise.withResolvers<void>();
+        }
+      }
+      await Promise.all(listening.map((l) => l.unlisten()));
+    } finally {
+      await lock`select pg_advisory_unlock(hashtext('triage'))`.catch(() => {});
+      lock.release();
+    }
+  }
+
+  /** Holds the oldest waiting signal for a while, so another worker leaves it alone, and counts the attempt. */
+  async #claim(): Promise<Taken | undefined> {
+    const [row] = await this.#o.sql<Taken[]>`
+      update inbox set attempts = attempts + 1,
+                       not_before = clock_timestamp() + make_interval(secs => ${INBOX.leaseSeconds})
+      where id = (select id from inbox
+                  where triaged_at is null and not_before <= clock_timestamp() and attempts < ${INBOX.attempts}
+                  order by received_at limit 1 for update skip locked)
+      returning id, sense, signal, attempts, received_at`;
+    return row;
+  }
+
+  async #triage(taken: Taken): Promise<{ outcome: Outcome; workItem: string }> {
+    const { sql, events } = this.#o;
+    const now = this.#o.now();
+    const signal = taken.signal;
+
+    // Its events may have been appended before a crash stopped the inbox hearing of it.
+    const [done] = await sql<{ work_item: string; type: string }[]>`
+      select work_item, type from events where id = ${idsFor(taken.id)()}`;
+    if (done) {
+      const outcome = signal.sense === 'report' ? 'report' : done.type === 'work-item.opened' ? 'opened' : 'evidence';
+      return { outcome, workItem: done.work_item };
+    }
+
+    const tickets = await openTickets(sql);
+    if (signal.sense === 'report') {
+      const page = pathOf(signal.report?.page ?? signal.route);
+      const candidates = tickets.filter((ticket) => onPage(ticket, signal.route, page)).slice(0, 10);
+      const decision = await judgeReport(
+        { page, text: signal.report?.text ?? '', route: signal.route },
+        candidates.map(candidateOf),
+        this.#o.judge,
+        this.#o.read,
+      );
+      // One fingerprint, one ticket: a new ticket that matches an open one joins it instead.
+      const fingerprint = decision.fingerprint;
+      const same = fingerprint && tickets.find((ticket) => sameFingerprint(ticket.fingerprint, fingerprint));
+      if (decision.routed.route === 'ticket' && same) {
+        decision.routed = { route: 'repeat', joined: same.workItem };
+        const first = decision.judgements[0];
+        if (first) decision.judgements[0] = { ...first, route: 'repeat', joined: same.workItem };
+      }
+      const workItem = decision.routed.route === 'repeat' ? decision.routed.joined : await nextWorkItem(sql);
+      await events.append(reportEvents(signal, taken.id, workItem, decision, now));
+      return { outcome: 'report', workItem };
+    }
+
+    const fingerprint = { route: signal.route, class: signal.symptom as SymptomClass };
+    const ticket = tickets.find((open) => sameFingerprint(open.fingerprint, fingerprint));
+    if (!ticket) {
+      const workItem = await nextWorkItem(sql);
+      await events.append(senseTicket(signal, taken.id, workItem, now));
+      return { outcome: 'opened', workItem };
+    }
+    const [seen] = await sql`select 1 from events where work_item = ${ticket.workItem}
+                             and type = 'signal.received' and payload->>'sense' = ${signal.sense} limit 1`;
+    if (seen) return { outcome: 'counted', workItem: ticket.workItem };
+    await events.append(senseEvidence(signal, taken.id, ticket.workItem, now));
+    return { outcome: 'evidence', workItem: ticket.workItem };
+  }
+}
+
+/** Whether the line is stopped: the last of `line.started` and `line.stopped` decides. */
+export async function lineStopped(sql: Sql): Promise<boolean> {
+  const [last] = await sql<{ type: string }[]>`
+    select type from events where type in ('line.started', 'line.stopped') order by seq desc limit 1`;
+  return last?.type === 'line.stopped';
+}
+
+/** Tickets whose work item has not closed. Tickets close only when a fix is verified (milestone 6). */
+export async function openTickets(sql: Sql): Promise<Ticket[]> {
+  const rows = await sql<{ work_item: string; payload: PayloadOf<'ticket.opened'> }[]>`
+    select t.work_item, t.payload from events t
+    where t.type = 'ticket.opened'
+      and not exists (select 1 from events c where c.work_item = t.work_item and c.type = 'work-item.closed')
+    order by t.seq desc`;
+  return rows.map(({ work_item, payload }) => ({
+    workItem: work_item,
+    title: payload.title,
+    category: payload.category,
+    fingerprint: payload.fingerprint,
+  }));
+}
+
+type Fingerprint = PayloadOf<'ticket.opened'>['fingerprint'];
+
+/** The same problem: the same class on the same route, or on every route; or the same passage of the same page. */
+export function sameFingerprint(open: Fingerprint, found: Fingerprint): boolean {
+  if ('class' in open && 'class' in found) {
+    return open.class === found.class && (open.route === found.route || open.route === '*');
+  }
+  if ('page' in open && 'page' in found) return open.page === found.page && open.text === found.text;
+  return false;
+}
+
+/** Whether a report sent from a page could be about this ticket. */
+const onPage = (ticket: Ticket, route: string, page: string) =>
+  'class' in ticket.fingerprint
+    ? ticket.fingerprint.route === route || ticket.fingerprint.route === '*'
+    : ticket.fingerprint.page === page;
+
+const candidateOf = (ticket: Ticket): Candidate => ({
+  workItem: ticket.workItem,
+  title: ticket.title,
+  category: ticket.category,
+  symptom: 'class' in ticket.fingerprint ? ticket.fingerprint.class : undefined,
+});

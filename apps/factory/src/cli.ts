@@ -7,13 +7,14 @@
  */
 import * as events from './commands/events.ts';
 import * as gateway from './commands/gateway.ts';
+import * as line from './commands/line.ts';
 
 interface Group {
   USAGE: string;
   run(args: string[]): Promise<number>;
 }
 
-const GROUPS: Record<string, Group> = { events, gateway };
+const GROUPS: Record<string, Group> = { events, gateway, line };
 
 const [name, ...args] = process.argv.slice(2);
 const group = name ? GROUPS[name] : undefined;

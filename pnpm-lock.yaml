@@ -316,6 +316,18 @@ importers:
         specifier: ^3.4.9
         version: 3.4.9
 
+  packages/triage:
+    dependencies:
+      '@software-factory/events':
+        specifier: workspace:*
+        version: link:../events
+      '@software-factory/store':
+        specifier: workspace:*
+        version: link:../store
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
+
 packages:
 
   '@axe-core/playwright@4.13.0':
