@@ -3,9 +3,10 @@ import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import type { RawEvent } from '@software-factory/events';
-import { DiskArtifacts } from '@software-factory/store';
+import { type ArtifactStore, DiskArtifacts } from '@software-factory/store';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { Feed } from '../src/feed.ts';
@@ -177,5 +178,61 @@ describe('the console server', () => {
     const res = await fetch(`${base}/api/events`, { method: 'POST' });
     expect(res.status).toBe(405);
     expect(res.headers.get('allow')).toBe('GET, HEAD');
+  });
+});
+
+describe('an artifact that goes wrong partway', () => {
+  /** A console whose store hands out `body` for any artifact, as if it were a large file. */
+  async function consoleWith(body: Readable): Promise<{ url: string; close: () => Promise<void> }> {
+    const store: ArtifactStore = {
+      put: () => Promise.reject(new Error('read-only')),
+      size: async () => 1_000_000,
+      open: async () => body,
+    };
+    const app = createServer(createApp({ commit: COMMIT, site: loadSite(fakeBuild()), feed, artifacts: store }));
+    await new Promise<void>((resolve) => app.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
+    return {
+      url,
+      close: () => {
+        app.closeAllConnections();
+        return new Promise<void>((resolve) => app.close(() => resolve()));
+      },
+    };
+  }
+
+  it('closes the file when the browser stops loading it', async () => {
+    const body = new Readable({ read() {} });
+    body.push(Buffer.alloc(1024));
+    const { url, close } = await consoleWith(body);
+    await new Promise<void>((resolve) => {
+      const req = request(`${url}/artifacts/${screenshot}`, (res) => res.once('data', () => req.destroy()));
+      req.on('error', () => {}).on('close', () => resolve());
+      req.end();
+    });
+    await expect.poll(() => body.destroyed).toBe(true);
+    await close();
+  });
+
+  it('ends the response, not the console, when a read fails', async () => {
+    const body = new Readable({
+      read() {
+        this.destroy(Object.assign(new Error('i/o error'), { code: 'EIO' }));
+      },
+    });
+    const { url, close } = await consoleWith(body);
+    const cut = await new Promise<boolean>((resolve) => {
+      request(`${url}/artifacts/${screenshot}`, (res) => {
+        res
+          .on('data', () => {})
+          .on('error', () => resolve(true))
+          .on('end', () => resolve(false));
+      })
+        .on('error', () => resolve(true))
+        .end();
+    });
+    expect(cut).toBe(true);
+    expect((await fetch(`${url}/health`)).status).toBe(200);
+    await close();
   });
 });

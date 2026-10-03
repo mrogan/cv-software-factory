@@ -3,6 +3,7 @@
  * `/health` and `/version`.
  */
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
+import { pipeline } from 'node:stream';
 import { brotliCompress, constants, gzip } from 'node:zlib';
 import type { ArtifactStore } from '@software-factory/store';
 import { isHash } from '@software-factory/store';
@@ -114,6 +115,7 @@ async function artifact(req: IncomingMessage, res: ServerResponse, feed: Feed, s
   const type = isHash(hash) ? feed.artifactType(hash) : undefined;
   const [size, body] = type ? await Promise.all([store.size(hash), store.open(hash)]) : [null, null];
   if (!type || size === null || !body) {
+    body?.destroy();
     return send(req, res, 404, 'text/plain; charset=utf-8', 'No such artifact.\n');
   }
   res.writeHead(200, {
@@ -128,7 +130,12 @@ async function artifact(req: IncomingMessage, res: ServerResponse, feed: Feed, s
     res.end();
     return;
   }
-  body.pipe(res);
+  // A browser that stops loading partway (a card flicked past, a tab closed) leaves the file to be closed, and a
+  // read can fail: pipeline closes the file either way, and a failed read ends this response, not the server.
+  pipeline(body, res, (error) => {
+    if (error && error.code !== 'ERR_STREAM_PREMATURE_CLOSE')
+      log.warn({ err: error, hash }, 'An artifact failed to send');
+  });
 }
 
 function serve(req: IncomingMessage, res: ServerResponse, file: File, cacheControl: string): void {
