@@ -17,10 +17,11 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DiskArtifacts, sendSignal } from '@software-factory/store';
+import { DiskArtifacts } from '@software-factory/store';
 import postgres from 'postgres';
 import { Crawler } from '../crawler/index.ts';
 import { log } from '../log.ts';
+import { inbox } from '../outbox.ts';
 import { versionOf } from '../senses/http.ts';
 import { SenseRunner } from '../senses/runner.ts';
 
@@ -80,7 +81,7 @@ async function loop(sense: Crawler, app: string): Promise<number> {
     sense,
     log,
     version: () => versionOf(app),
-    send: async (signal) => void (await sendSignal(sql, signal)),
+    send: inbox(sql).send,
     every: number('CRAWL_INTERVAL', 300) * 1000,
   });
   const stop = runner.start(number('VERSION_POLL', 15) * 1000);

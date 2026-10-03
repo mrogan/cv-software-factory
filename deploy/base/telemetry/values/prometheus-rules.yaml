@@ -1,0 +1,29 @@
+# Generated from policy/objectives.ts by apps/factory/src/alerts/rules.ts. Do not edit it: change the policy, then
+# run `node apps/factory/src/alerts/rules.ts`. `make check` fails when this file is out of date.
+serverFiles:
+  alerting_rules.yml:
+    groups:
+      - name: objectives
+        rules:
+          - alert: RouteErrorRatioAboveObjective
+            expr: "((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", http_route!=\"\", http_response_status_code=~\"5..\"}[15m])) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", http_route!=\"\"}[15m]))) > 0.05) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", http_route!=\"\"}[15m])) >= 20)"
+            for: 2m
+            labels:
+              route: "{{ $labels.http_route }}"
+              symptom: "server-error"
+              objective: "error-ratio"
+            annotations:
+              summary: "{{ $labels.http_route }}: more than 5% of requests answered with a 5xx status"
+              description: "Over 15 minutes, with at least 20 requests."
+              threshold: "0.05"
+          - alert: RouteLatencyAboveObjective
+            expr: "((histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", http_route!=\"\"}[15m])))) > 1) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", http_route!=\"\"}[15m])) >= 20)"
+            for: 2m
+            labels:
+              route: "{{ $labels.http_route }}"
+              symptom: "slow-response"
+              objective: "latency"
+            annotations:
+              summary: "{{ $labels.http_route }}: p95 latency above 1 s"
+              description: "Over 15 minutes, with at least 20 requests."
+              threshold: "1"
