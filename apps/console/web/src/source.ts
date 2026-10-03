@@ -18,9 +18,16 @@ export type Connection =
   /** The events could not be read at all; the console keeps trying. */
   | 'failed';
 
+/**
+ * What the store holds, as the server says when the stream opens: samples, real events, or neither decided yet.
+ * Undefined until it has said. A recording says nothing: its events speak for themselves.
+ */
+export type StoreKind = 'sample' | 'real' | null;
+
 export interface Source {
   events: PublicEvent[];
   connection: Connection;
+  store: StoreKind | undefined;
   /** Events written by a newer factory than this console, which it leaves out rather than guess at. */
   newer: { type: string; version: number }[];
 }
@@ -67,7 +74,7 @@ function merge(held: PublicEvent[], incoming: RawEvent[]): { events: PublicEvent
 }
 
 export function useEvents(from: Origin): Source {
-  const [source, setSource] = useState<Source>({ events: [], connection: 'loading', newer: [] });
+  const [source, setSource] = useState<Source>({ events: [], connection: 'loading', newer: [], store: undefined });
   // Events arriving together (a load of hundreds, say) are drawn once a frame, not once each.
   const pending = useRef<RawEvent[]>([]);
   const frame = useRef(0);
@@ -95,7 +102,7 @@ export function useEvents(from: Origin): Source {
         .then((text) => {
           if (closed) return;
           const { events, newer } = merge([], parseLog(text));
-          setSource({ events, newer, connection: 'recorded' });
+          setSource({ events, newer, connection: 'recorded', store: null });
         })
         .catch(() => set('failed'));
       return () => {
@@ -112,6 +119,11 @@ export function useEvents(from: Origin): Source {
     const follow = () => {
       stream = new EventSource(`/api/events/stream?after=${last}`);
       stream.onopen = () => set('live');
+      // The server's first word on a stream is the store's kind: not an event, so the schema needn't carry it.
+      stream.addEventListener('store', (message) => {
+        const { kind } = JSON.parse((message as MessageEvent<string>).data) as { kind: StoreKind };
+        if (!closed) setSource((current) => (current.store === kind ? current : { ...current, store: kind }));
+      });
       stream.onerror = () => {
         set('reconnecting');
         if (stream?.readyState !== EventSource.CLOSED) return;
@@ -134,7 +146,7 @@ export function useEvents(from: Origin): Source {
           const { events, newer } = merge([], raws);
           // Everything read, understood or not: the stream must not send a newer factory's events again.
           last = raws.at(-1)?.seq ?? 0;
-          setSource({ events, newer, connection: 'live' });
+          setSource((current) => ({ ...current, events, newer, connection: 'live' }));
           follow();
         })
         .catch(() => {

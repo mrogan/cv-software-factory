@@ -40,6 +40,15 @@ export function LineStatus({ line, connection }: { line: LineState; connection: 
       </>
     );
   }
+  // A spend cap is a guardrail at work: the header says it first, by the ember ring that asks a person to look.
+  if (line.capped) {
+    return (
+      <>
+        <span className="dot tone-attn ring" aria-hidden="true" />
+        Line running · <b className="capped">spend cap reached</b>
+      </>
+    );
+  }
   return (
     <>
       <span className="dot tone-ok blink" aria-hidden="true" />

@@ -9,7 +9,7 @@ const card = (number: string) => view.cards.find((c) => c.number === number);
 describe('the samples, projected', () => {
   it('show every outcome', () => {
     expect(new Set(view.cards.map((c) => c.outcome))).toEqual(
-      new Set(['verified', 'rolled-back', 'held', 'closed', 'needs-you', 'in-progress']),
+      new Set(['verified', 'rolled-back', 'held', 'closed', 'no-ticket', 'needs-you', 'in-progress']),
     );
   });
 
@@ -138,7 +138,11 @@ describe('a sheet', () => {
     expect(sheet?.agents.map((a) => a.agent)).toEqual(['planner', 'coder', 'reviewer']);
     const total = sheet?.agents.reduce((sum, a) => sum + a.cost, 0) ?? 0;
     expect(total).toBeCloseTo(sheet?.card.spend ?? 0, 6);
-    expect(sheet?.facts).toEqual({ foundBy: 'Probe · home journey', humanLines: 0 });
+    expect(sheet?.facts).toEqual({
+      foundBy: 'Probe · home journey',
+      humanLines: 0,
+      ticket: { category: 'functional', severity: 'broken', fingerprint: '/ · wrong-result' },
+    });
   });
 
   it('lists the gates of the latest attempt', () => {
@@ -148,7 +152,7 @@ describe('a sheet', () => {
   });
 
   it('withholds a visitor’s report, saying where it came from', () => {
-    expect(projectSheet(SAMPLES, '1268', END)?.report).toEqual({ page: '/contact' });
+    expect(projectSheet(SAMPLES, '1268', END)?.report).toEqual({ page: '/contact', quarantined: false });
   });
 
   it('compares every page with the version before', () => {

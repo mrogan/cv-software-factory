@@ -3,9 +3,9 @@
  * newer factory, and samples standing in for real work. An empty store is shown where the reel would be.
  */
 import { useRef } from 'react';
-import { clock } from '../format.ts';
-import type { View } from '../projection/index.ts';
-import type { Source } from '../source.ts';
+import { clock, dayLabel, money } from '../format.ts';
+import type { CapSpell, View } from '../projection/index.ts';
+import type { Source, StoreKind } from '../source.ts';
 
 export function States({ source, view }: { source: Source; view: View }) {
   const { connection, newer } = source;
@@ -39,6 +39,7 @@ export function States({ source, view }: { source: Source; view: View }) {
             : 'Reloading the page fetches the newer console.'}
         </p>
       )}
+      {view.header.capped && <SpendCap spell={view.header.capped} />}
       {view.sample && (
         <p className="notice">
           <span className="label">Samples</span>
@@ -50,8 +51,64 @@ export function States({ source, view }: { source: Source; view: View }) {
   );
 }
 
-/** Where the reel would be, when the store holds no work at all. */
-export function EmptyReel() {
+/** When the gateway refuses model calls until a cap resets: in UTC, as the caps are kept, and where the viewer is. */
+function resetsAt(spell: CapSpell): string {
+  const reset = new Date(spell.resets);
+  const midnight = reset.getUTCHours() === 0 && reset.getUTCMinutes() === 0;
+  if (spell.cap === 'day' && midnight) return `until midnight UTC (${clock(spell.resets)} here)`;
+  return `until ${dayLabel(spell.resets)}, ${clock(spell.resets)}`;
+}
+
+/**
+ * A spend cap reached: how much, until when, and that nothing is lost. A guardrail is shown, not hidden; and the
+ * senses' tickets still open, because they call no model.
+ */
+function SpendCap({ spell }: { spell: CapSpell }) {
+  const period = spell.cap === 'day' ? 'today’s' : 'this month’s';
+  return (
+    <p className="notice">
+      <span className="label attn">Spend cap</span>
+      <span>
+        The factory has spent {money(spell.spentUsd)} of {period} {money(spell.limitUsd)} on models, so the gateway
+        refuses every model call {resetsAt(spell)}. Reports wait in the inbox and none is lost. The senses keep
+        watching, and their tickets still open, because they call no model.
+      </span>
+    </p>
+  );
+}
+
+/**
+ * Where the reel would be, when the store holds no work at all. A store for real events says the senses are
+ * watching and when to expect the first card; any other sends someone running it themselves to the samples.
+ */
+export function EmptyReel({ store }: { store: StoreKind | undefined }) {
+  if (store === 'real') {
+    return (
+      <section className="history" aria-labelledby="history-title">
+        <div className="history-head">
+          <div>
+            <h2 id="history-title">The shop, change by change</h2>
+          </div>
+        </div>
+        <div className="empty-reel">
+          <span className="label">Watching, nothing yet</span>
+          <p>
+            This store holds the factory’s own work, and nothing has needed a ticket yet. The probes and the crawler
+            check the shop every few minutes, and the moment the app changes. A check that fails twice in a row becomes
+            a signal, and triage turns it into a card here.
+          </p>
+          <p>
+            A check that passes writes nothing, so an empty reel means the senses have found nothing wrong yet. The
+            first tickets usually appear within fifteen minutes.
+          </p>
+          <p className="help">
+            Running it yourself? This is a store for real events, so <code>make samples</code> won’t load into it.{' '}
+            <code>make status</code> shows the senses running.
+          </p>
+        </div>
+      </section>
+    );
+  }
   return (
     <section className="history" aria-labelledby="history-title">
       <div className="history-head">
