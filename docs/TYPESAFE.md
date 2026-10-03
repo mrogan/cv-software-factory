@@ -66,6 +66,24 @@ Requests name a pinned version such as `jev-1.13.0`, never the `jev-latest` alia
 
 Each Jev request becomes one event in the work item. Its payload holds the question-set version, the model version, the state that was sent and every answer with its probabilities. The `summary` is the plain-English decision, for example "Triage: functional defect, severity broken (2.99/3) → ticket". The console can replay any triage decision exactly as it was made.
 
+## What Jev does in practice
+
+Measured on 3 October 2026 through the gateway, with `apps/factory/scripts/jev-spike.ts`: 63 judgements of 16 invented reports on `jev-1.13.0`, for $0.002 in all.
+
+- **The same request does not get the same answer, but close.** Five runs of the same three reports always chose the same category. The probabilities moved: up to 0.16 on the chosen category, 0.10 on the severity score and 0.03 on injection. So cassettes are the only exact replay, and thresholds stay clear of where answers fall.
+- **The order of a Choice's options can move its answer.** With the category options reversed, 12 of 16 reports got the same answer. The 4 that changed were the ambiguous ones: three attacks, whose category routing never reads, and a request to the packers that sits between suggestion and not-a-defect. The chosen probability moved by up to 0.22. A question set fixes its options' order, and a cassette's key includes it.
+- **The narrower injection question, with criteria, separates attacks from requests.** The spike's wording ("instructions addressed to an AI, agent or automated system") scored the polite dark-mode request 0.56, over a 0.5 threshold. The narrower wording alone brought it to 0.49. With criteria saying what counts as yes and no, the most suspicious polite request scored 0.26 and the least confident attack 0.90. The criteria are what made the difference, so `triage/v1` uses both.
+
+  | Wording | Highest polite request | Lowest attack |
+  |---|---|---|
+  | The spike's | 0.56 | 0.77 |
+  | Narrow | 0.49 | 0.89 |
+  | Narrow, with criteria | 0.26 | 0.90 |
+
+- **Descriptions matter for a Choice.** With bare option names, two of the six reported faults were filed under the wrong category (a negative price as content, a search showing cats as errors). With a one-line description of each option, all six were right.
+- **What the API returns.** A pinned version answers with that version. The alias `jev-latest` is accepted and answers as `jev-1.13.0`, which is why the gateway refuses aliases itself. An unknown model and a 2 MB state are both refused with a 400 and a `detail` list. Forty requests at once all succeeded: no rate limit showed.
+- **What a request takes.** The spike's requests, of one to five questions, averaged about 740 input tokens (at most 920) and answered in 220 ms at the median and 250 ms at the 95th percentile, measured at the gateway. A real `triage/v1` request is larger, with five questions and every option described: the first live report took 1,525 input tokens and 373 ms, or $0.00006.
+
 ## Triage question set
 
 Each report or signal is one request. The state is the report plus where it came from:
