@@ -219,7 +219,7 @@ Each seam sits behind an interface, so a pivot means a new adapter, not a rewrit
 | Runtime               | Kubernetes with Argo CD and Argo Rollouts                                           |
 | Telemetry             | OpenTelemetry collector → Prometheus, Loki, Tempo, Grafana                          |
 | Probes and crawler    | Playwright                                                                          |
-| Console               | Web app reading the event store, live via server-sent events                        |
+| Console               | React and Vite (ADR 0007), reading the event store, live via server-sent events     |
 
 ### 7.1 Recorded model responses
 

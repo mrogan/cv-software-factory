@@ -134,7 +134,7 @@ Under Stop the line, every station shows `blocked` and the belt stops.
 
 ### Porting it into the app
 
-`station.js` is dependency-free and works in any framework that renders custom elements. It is a classic script (so design pages open from disk); in the app, port it to a TypeScript module or a framework component, and keep the drawing, the state table above and the reduced-motion rules. Worth a visual-regression snapshot per kind × state in both themes (96 images) and an axe check on the line.
+`station.js` is dependency-free and works in any framework that renders custom elements. It is a classic script (so design pages open from disk); in the app, port it to a TypeScript module that stays a custom element, used from the console's React code as it is (ADR 0007), and keep the drawing, the state table above and the reduced-motion rules. Worth a visual-regression snapshot per kind × state in both themes (96 images) and an axe check on the line.
 
 ## The reel and the sheet
 
@@ -224,7 +224,6 @@ Each panel does one job:
 
 ## Not decided yet
 
-- **Frontend framework.** The console is web only. The station stays a custom element, so it works whichever framework is chosen.
 - **Mark sign-off.** The MR monogram is a proposal until Martin approves it.
 - **Social card and README header,** built from the mark once it is approved.
 - **Empty, loading and error states,** toasts, and the audit log's table.

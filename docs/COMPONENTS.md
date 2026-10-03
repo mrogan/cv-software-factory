@@ -25,7 +25,7 @@ Each component lists its v1 choice and, where useful, what it might grow into. L
 | **Scoreboard** | Matches tickets to answer-key fingerprints | Separate service; the only component that can read the answer key | |
 | **Defect injector** | Opens regression PRs from the private catalogue | Job triggered by Martin, schedule or visitor menu | |
 | **Red-team harness** | Runs curated attacks against real mechanisms and records the refusals | Job that launches an adversarial agent or scripted action per attack | |
-| **Console** | The UI for visitors and admin (spec 5) | Web app reading the event store, live via server-sent events; static build for the replay site | |
+| **Console** | The UI for visitors and admin (spec 5) | React 19 single-page app built by Vite 8 (ADR 0007), served by a Node server that relays the event store live over server-sent events; the same build, fed from files, is the replay site | |
 | **Visitor access** | Keys, usage tracking, rate limits, visitor budget (spec 5.6) | Part of the console backend; keys in Postgres | |
 
 ### Factory GitHub App permissions
