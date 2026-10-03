@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/mrogan/cv-software-factory/compare/v0.2.0...v0.3.0) (2026-10-03)
+
+
+### Features
+
+* **deploy:** run the console against the event store on the local cluster ([#31](https://github.com/mrogan/cv-software-factory/issues/31)) ([574f10c](https://github.com/mrogan/cv-software-factory/commit/574f10ce56daf387a2594a47119ab5037dec7fed))
+* the event store and the console, fed from samples ([#30](https://github.com/mrogan/cv-software-factory/issues/30)) ([bc0bf88](https://github.com/mrogan/cv-software-factory/commit/bc0bf88d1f6f22f838ac1c3a94c072cf00a2376f))
+
 ## [0.2.0](https://github.com/mrogan/cv-software-factory/compare/v0.1.1...v0.2.0) (2026-10-02)
 
 
