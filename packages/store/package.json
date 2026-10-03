@@ -1,0 +1,17 @@
+{
+  "name": "@software-factory/store",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The event store in Postgres, append-only by mechanism, and the content-addressed artifact store.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "migrate": "node src/migrate.ts"
+  },
+  "dependencies": {
+    "@software-factory/events": "workspace:*",
+    "postgres": "^3.4.9"
+  }
+}

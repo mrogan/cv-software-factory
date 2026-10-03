@@ -1,5 +1,6 @@
 packages:
   - apps/*
+  - packages/*
 
 # Supply chain. pnpm already waits a day before installing a new release (minimumReleaseAge) and runs no
 # dependency's install scripts unless allowed here.

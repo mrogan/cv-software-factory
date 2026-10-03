@@ -1,0 +1,49 @@
+/**
+ * Upcasting: reading an older event as the current version of its type. A stored event is never rewritten; each
+ * read passes it through one upcaster per version until it is current.
+ *
+ * Plain functions with no dependencies, so the browser can upcast an event-log file as the server upcasts the store.
+ */
+import type { PublicEvent } from './types.ts';
+import { type EventType, VERSIONS } from './versions.ts';
+
+/** Turns a payload at one version into the next. It also receives public views, so it must not need what they leave out. */
+export type Upcaster = (payload: Record<string, unknown>) => Record<string, unknown>;
+
+export interface Catalogue {
+  /** Each type's current version. */
+  versions: Record<string, number>;
+  /** For each type, the upcaster from version n to n + 1, keyed by n. */
+  upcasters: Record<string, Record<number, Upcaster>>;
+}
+
+/** No type has an older version yet: version 1 may change freely until milestone 4 appends the first real event. */
+export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {};
+
+export const CATALOGUE: Catalogue = { versions: VERSIONS, upcasters: UPCASTERS };
+
+/** An event as it might arrive from a store or a file written by another version of the factory. */
+export interface RawEvent {
+  type: string;
+  version: number;
+  payload: unknown;
+}
+
+export type Upcast =
+  | { ok: true; event: PublicEvent }
+  /** Written by a newer factory than this one: a type it doesn't know, or a version beyond the current one. */
+  | { ok: false; reason: 'unknown-type' | 'newer-version'; type: string; version: number };
+
+export function upcast(event: RawEvent, catalogue: Catalogue = CATALOGUE): Upcast {
+  const { type, version } = event;
+  const current = Object.hasOwn(catalogue.versions, type) ? catalogue.versions[type] : undefined;
+  if (current === undefined) return { ok: false, reason: 'unknown-type', type, version };
+  if (version > current) return { ok: false, reason: 'newer-version', type, version };
+  let payload = event.payload as Record<string, unknown>;
+  for (let from = version; from < current; from++) {
+    const step = catalogue.upcasters[type]?.[from];
+    if (!step) throw new Error(`No upcaster for ${type} from version ${from} to ${from + 1}`);
+    payload = step(payload);
+  }
+  return { ok: true, event: { ...event, version: current, payload } as unknown as PublicEvent };
+}
