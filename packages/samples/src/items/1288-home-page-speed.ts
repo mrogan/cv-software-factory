@@ -72,26 +72,52 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
     ],
   })
   .gates('9:30', { pullRequest: 1290 })
-  .calls('reviewer', '12:00', '13:40', { calls: 2, input: 44_000, output: 2_300, cached: 0.5 })
-  .at('13:50', 'review.submitted', 'reviewer', 'Approved', {
+  .calls('reviewer', '12:00', '13:40', { calls: 2, input: 44_000, output: 2_600, cached: 0.5 })
+  .at('13:50', 'review.submitted', 'reviewer', 'Changes requested: last week’s selection could outlast the week', {
+    pullRequest: 1290,
+    verdict: 'changes-requested',
+    comments: 1,
+    note: 'Kept for an hour from the first visit, last week’s sundries could still show at ten to one on a Monday morning. Keep the selection until the week turns instead.',
+  })
+  .at('13:51', 'work.returned', 'factory', 'Review sent #1288 back to Build: keep the selection until the week turns', {
+    from: 'review',
+    to: 'build',
+    reason: 'The reviewer asked for the selection to change when the week does, not an hour after the first visit',
+  })
+  .calls('coder', '14:00', '17:00', { calls: 8, input: 210_000, output: 4_600, cached: 0.88 })
+  .at('17:10', 'pull-request.pushed', 'coder', 'Second attempt on PR #1290: kept until the week turns', {
+    number: 1290,
+    title: 'perf(home): choose this week’s sundries once a week',
+    branch: 'factory/1288-home-page-speed',
+    attempt: 2,
+    testsFirst: true,
+    files: [
+      { path: 'src/pages/home.ts', added: 14, removed: 6 },
+      { path: 'src/shop.ts', added: 25, removed: 2 },
+      { path: 'test/home.test.ts', added: 48, removed: 0 },
+    ],
+  })
+  .gates('17:15', { pullRequest: 1290, attempt: 2 })
+  .calls('reviewer', '19:45', '20:20', { calls: 1, input: 23_000, output: 900, cached: 0.6 })
+  .at('20:30', 'review.submitted', 'reviewer', 'Approved', {
     pullRequest: 1290,
     verdict: 'approved',
     comments: 0,
-    note: 'The selection still changes on Monday morning; the test pins the clock to prove it.',
+    note: 'The selection now turns at midnight on Monday; the test pins the clock either side of it.',
   })
-  .at('14:00', 'pull-request.merged', 'factory', 'PR #1290 merged: low risk, so no one needed to approve it', {
+  .at('20:40', 'pull-request.merged', 'factory', 'PR #1290 merged: low risk, so no one needed to approve it', {
     number: 1290,
     commit: commitFor('1288/merge'),
     by: 'factory',
   })
-  .at('16:10', 'release.started', 'rollouts', 'v0.9.3 signed and admitted; canary at 25%', {
+  .at('22:00', 'release.started', 'rollouts', 'v0.9.3 signed and admitted; canary at 25%', {
     version: 'v0.9.3',
     previous: 'v0.9.2',
     digest: digestFor('v0.9.3'),
     signed: true,
     admitted: true,
   })
-  .at('17:40', 'canary.stepped', 'rollouts', 'Canary at 25%: p99 92 ms against 702 ms on the baseline', {
+  .at('23:30', 'canary.stepped', 'rollouts', 'Canary at 25%: p99 92 ms against 702 ms on the baseline', {
     version: 'v0.9.3',
     weight: 25,
     analysis: {
@@ -100,8 +126,8 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
       journeys: { canary: [24, 24], baseline: [24, 24] },
     },
   })
-  .at('19:30', 'release.promoted', 'rollouts', 'v0.9.3 promoted to 100%', { version: 'v0.9.3', previous: 'v0.9.2' })
-  .verify('50:00', 'p95 on / under its objective for 30 minutes, and every page unchanged', {
+  .at('25:20', 'release.promoted', 'rollouts', 'v0.9.3 promoted to 100%', { version: 'v0.9.3', previous: 'v0.9.2' })
+  .verify('56:00', 'p95 on / under its objective for 30 minutes, and every page unchanged', {
     check: 'p95 under 300 ms on / for 30 minutes',
     against: 'v0.9.2',
     version: 'v0.9.3',
@@ -113,17 +139,17 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
       start: '2026-10-02T12:35:00.000Z',
       stepSeconds: 180,
       values: P95,
-      marker: { index: 16, label: 'v0.9.3 canary' },
+      marker: { index: 18, label: 'v0.9.3 canary' },
     },
   })
-  .at('50:01', 'work-item.closed', 'factory', 'Closed: verified', {
+  .at('56:01', 'work-item.closed', 'factory', 'Closed: verified', {
     outcome: 'verified',
     reason: 'p95 is under the objective, and no page changed',
   })
-  .at('50:02', 'work-item.summarised', 'factory', 'Summary written', {
+  .at('56:02', 'work-item.summarised', 'factory', 'Summary written', {
     title: 'The home page chose this week’s sundries on every visit',
     description:
-      'The home page now keeps “This week’s sundries” for an hour. p95 fell from 640 ms to 85 ms, and every page looks the same.',
+      'The home page now chooses “This week’s sundries” once a week, not on every visit. p95 fell from 640 ms to 85 ms, and every page looks the same.',
     story:
-      'The home page’s p95 latency had sat at 640 ms against a 300 ms objective. The trace showed most of it spent choosing “This week’s sundries”, which changes once a week but was worked out on every visit. The coder wrote a timing test first, then kept the selection for an hour. p95 is now 85 ms, and no page changed by a pixel.',
+      'The home page’s p95 latency had sat at 640 ms against a 300 ms objective. The trace showed most of it spent choosing “This week’s sundries”, which changes once a week but was worked out on every visit. The coder wrote a timing test first, then kept the selection for an hour. The reviewer sent that back: last week’s selection could outlast the week by most of an hour. The second attempt keeps it until the week turns. p95 is now 85 ms, and no page changed by a pixel.',
   });
