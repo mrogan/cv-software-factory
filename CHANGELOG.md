@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/mrogan/cv-software-factory/compare/v0.3.0...v0.3.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* **console:** decode page thumbnails with the frame that draws them ([#35](https://github.com/mrogan/cv-software-factory/issues/35)) ([1f14f44](https://github.com/mrogan/cv-software-factory/commit/1f14f44604bfe052d21207104e4b63377136fac3))
+* **samples:** make samples installs what it needs on a fresh clone ([#34](https://github.com/mrogan/cv-software-factory/issues/34)) ([224338c](https://github.com/mrogan/cv-software-factory/commit/224338c3a5a1e4d2928dc499ca0d0ea36266268d))
+
 ## [0.3.0](https://github.com/mrogan/cv-software-factory/compare/v0.2.0...v0.3.0) (2026-10-03)
 
 
