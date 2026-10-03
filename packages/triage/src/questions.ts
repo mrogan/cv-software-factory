@@ -28,9 +28,11 @@ export type ReportState = {
 };
 
 const CATEGORY: Record<ReportCategory, string> = {
-  content: 'The words on the page are wrong: a typo, a wrong date or fact, placeholder text, or names that disagree',
+  content:
+    'The wording on the page is wrong: a typo, a wrong date or fact, placeholder text, or product names that disagree. Not prices, stock or results, which the shop works out',
   navigation: 'Getting around is broken: a link that leads nowhere, an image that will not load, endless redirects',
-  functional: 'A feature does the wrong thing: wrong results or prices, refusing valid input, pages that skip items',
+  functional:
+    'A feature of the site works something out wrongly: wrong results, a price shown wrongly, wrong totals or stock, refusing valid input, pages that skip items',
   errors: 'Something fails with an error: an error page, a server error, or the page breaking in the browser',
   performance: 'Something is too slow, or a page is far heavier than it needs to be',
   accessibility:
@@ -39,7 +41,7 @@ const CATEGORY: Record<ReportCategory, string> = {
   observability: 'The site’s own logs or monitoring are missing or wrong',
   suggestion: 'A request for something new or different, such as a feature or a change of design, not a fault',
   'not-a-defect':
-    'Nothing is wrong with the site: praise, chatter, a test, a question, or a complaint about something it does correctly',
+    'Nothing is wrong with the site: praise, chatter, noise, spam, a test, a question, a matter of taste, a complaint about a product itself, its price or an order, or a remark about something that works as it should',
 };
 
 const SYMPTOM: Record<SymptomClass, string> = {
