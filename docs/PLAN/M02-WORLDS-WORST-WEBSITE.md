@@ -113,14 +113,52 @@ Update the spec, `COMPONENTS.md`, `TERMS.md` (answer key, fingerprint, seeded ba
 
 ## Exit criteria
 
-- [ ] Martin has read every page of the shop and approved it: it is funny, and it is bad in the ways intended and no others.
-- [ ] The answer key holds at least 20 defects across at least six categories, each with a unique fingerprint, and the private repository's CI proves every one (task 6).
-- [ ] `cv-worlds-worst-website` is public, its history starts from one commit, its CI is green, and it has the same ruleset and security settings as this repository, with the shared workflows called at a pinned SHA.
-- [ ] Nothing in either public repository names or hints at a defect.
-- [ ] On a fresh clone, `make up` still finishes in under 10 minutes and the app answers at `http://website.localhost:8080`, deployed by Argo CD from a CI-built image; `/version` shows the commit.
-- [ ] The app's traces, per-route metrics and logs are in Grafana, and during a deploy the old and new versions can be told apart.
-- [ ] A report sent from the widget appears in Loki as one structured record.
-- [ ] The app's first Scorecard result is recorded.
+- [x] Martin has read every page of the shop and approved it: it is funny, and it is bad in the ways intended and no others.
+- [x] The answer key holds at least 20 defects across at least six categories, each with a unique fingerprint, and the private repository's CI proves every one (task 6).
+- [x] `cv-worlds-worst-website` is public, its history starts from one commit, its CI is green, and it has the same ruleset and security settings as this repository, with the shared workflows called at a pinned SHA.
+- [x] Nothing in either public repository names or hints at a defect.
+- [x] On a fresh clone, `make up` still finishes in under 10 minutes and the app answers at `http://website.localhost:8080`, deployed by Argo CD from a CI-built image; `/version` shows the commit.
+- [x] The app's traces, per-route metrics and logs are in Grafana, and during a deploy the old and new versions can be told apart.
+- [x] A report sent from the widget appears in Loki as one structured record.
+- [x] The app's first Scorecard result is recorded.
+
+## Results
+
+- **The answer key:** 24 defects across all eight categories, each with a unique fingerprint, with every one of the five senses expected to notice at least two. The private repository's CI runs 77 proofs on every pull request.
+- **The app:** 30 products, eight routes for pages and four for the API, 266 tests in the correct app. The published tree keeps 188 of them: each defect's patch removes the tests it would fail.
+- **Fresh clone to a running cluster, app included:** under two minutes on an M-series laptop with OrbStack and the images already pulled; milestone 1's four minutes was mostly pulls, and the app adds one small image.
+- **First Scorecard for the app: 6.2** (2 October 2026, commit `7d3353a`). The same shape as the factory's first: the zeros belong to a repository a few hours old (Maintained, Code-Review, Contributors) or wait for history (SAST), and Branch-Protection scores 4 for the reason in the backlog.
+- **Not yet seen:** two versions of the app side by side. Every signal carries the commit as its version, and the dashboard splits requests by it, but only one version has run so far.
+
+## Retrospective
+
+What the milestone taught, and where each lesson now lives.
+
+**Decided**
+
+- The app is written correctly in private and each defect is a patch: [ADR 0006](../architecture/adr/0006-correct-app-and-defect-patches.md), and spec sections 3.1 and 3.2.
+- The app's Argo CD project allows four kinds of resource, not every namespaced kind as this plan said: `deploy/base/website/project.yaml`. A kind is added when the app needs it, which is where a reviewer will see it.
+- A defect that shows on every route is fingerprinted with the route `*`, and the scoreboard will have to match it on any route. Recorded with the closed list of symptom classes in the private repository; milestone 4's tickets share that list.
+- The shop's brief is published with the app, as `docs/BRIEF.md`, so that anything written there later (by a person or an agent) has the voice to write in.
+- The proofs also hold each defect, applied alone, to the app's own checks. The plan asked that only of all of them together; the injector will need it of each.
+
+**Learned about GitHub**
+
+- A called workflow can read its own repository and commit from `job.workflow_repository` and `job.workflow_sha`, so the shared title check runs the factory's script, not the caller's copy: `.github/workflows/pr-title.yml`.
+- A job in a called workflow reports as "calling job / job", so the two repositories require differently named checks: `scripts/github-settings.ts`.
+- Scorecard publishes from a called workflow, provided the called one keeps to the steps Scorecard allows.
+- The ruleset can only be applied after the first push: it requires pull requests, and the first commit is not one.
+- Every merge that changes the image opens a deploy pull request, a base-image bump from Dependabot included. Each is one more approval and merge for Martin until the factory's GitHub App arrives in milestone 5.
+
+**Learned about the stack**
+
+- The HTTP instrumentation labels request metrics with a route only if the server tells it one. The app sets it per request, which is the only reason per-route figures exist.
+- `node:sqlite` needed no flag and no dependency, and a database built into the image runs on a read-only filesystem.
+- A test that starts a server and also waits on a synchronous child process starves that server. The proofs lost telemetry this way on a slower machine until the checks ran alongside.
+- `git apply` inside a repository silently skips paths outside the current directory. The private repository's tools run git where it cannot see the repository around it.
+- pnpm will not run in a tree whose `node_modules` is a symbolic link, so each proof installs from the store: a second or two each.
+
+**Left open:** see the [backlog](BACKLOG.md).
 
 ## Out of scope
 

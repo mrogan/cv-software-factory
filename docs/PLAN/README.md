@@ -20,7 +20,7 @@ Then update the table below.
 | # | Milestone | Outcome | Status |
 |---|---|---|---|
 | 1 | [Foundations](M01-FOUNDATIONS.md) | Public `cv-software-factory` repo with exemplary hygiene; `make up` runs a local Kubernetes cluster with GitOps and telemetry, deploying a console skeleton built by CI | Done |
-| 2 | [The World's Worst Website](M02-WORLDS-WORST-WEBSITE.md) | App with ≥ 20 seeded defects, OpenTelemetry, report widget; answer key with fingerprints in `cv-software-factory-private`; published as `cv-worlds-worst-website` from one clean first commit; deployed locally by Argo CD | **In progress** |
+| 2 | [The World's Worst Website](M02-WORLDS-WORST-WEBSITE.md) | App with ≥ 20 seeded defects, OpenTelemetry, report widget; answer key with fingerprints in `cv-software-factory-private`; published as `cv-worlds-worst-website` from one clean first commit; deployed locally by Argo CD | Done |
 | 3 | Event store and console skeleton | Event schema with versioning; the console renders work items and the scrubbable timeline from hand-written fixture events; live updates over server-sent events | |
 | 4 | Sensing and triage | Probes, crawler, telemetry alerts and reports produce deduplicated tickets with evidence and screenshots; triage runs on a Jev question set with an evaluation fixture set; gateway with record and replay from the first model call | |
 | 5 | Fixing | GitHub App, agent runners, planner, coder and reviewer; code-owner review required on `main`; the App opens the deploy and release pull requests, so workflows lose the right to open (and approve) them; CI gates in `cv-worlds-worst-website`; one seeded defect fixed and merged with no human code, at Supervised autonomy | |
