@@ -137,12 +137,21 @@ export async function startShop(...faults: Fault[]): Promise<Shop> {
       };
       return send(res, 200, JSON.stringify(body), 'application/json');
     }
+    if (path === '/about') {
+      // Sixty sentences, one repeated, and one that runs on past any limit.
+      const sentences = Array.from({ length: 60 }, (_, i) => `Sentence number ${i} is here.`);
+      return send(
+        res,
+        200,
+        page('About', `<p>${sentences.join(' ')} Sentence number 0 is here. ${'Long '.repeat(80)}end.</p>`),
+      );
+    }
     if (path === '/loop') {
       res.writeHead(302, { location: '/loop' });
       return res.end();
     }
     if (path === '/') {
-      const extra = `${has('link-404') ? '<li><a href="/about">About us</a></li>' : ''}${has('link-loop') ? '<li><a href="/loop">Offers</a></li>' : ''}`;
+      const extra = `${has('link-404') ? '<li><a href="/missing">Lost property</a></li>' : ''}${has('link-loop') ? '<li><a href="/loop">Offers</a></li>' : ''}`;
       const departments = DEPARTMENTS.map((d) => `<li><a href="/departments/${d}">${d}</a></li>`).join('');
       const script = has('console-error') ? '<script>throw new Error("boom")</script>' : '';
       return send(res, 200, page('Welcome', `<ul>${departments}${extra}</ul><p>${script}Good day.</p>`));

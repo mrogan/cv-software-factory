@@ -44,6 +44,8 @@ export interface Observation {
 /** One sense: something that can run all its checks against the app, and says what each found. */
 export interface Sense {
   readonly name: 'probe' | 'crawler';
-  /** Runs every check once against the app, which is at `version`. A check's trouble is reported, never thrown. */
-  pass(version: string): Promise<Observation[]>;
+  /** Runs every check once against the app, which is at `version`, except those in `skip`. A check's trouble is reported, never thrown. */
+  pass(version: string, skip?: ReadonlySet<string>): Promise<Observation[]>;
+  /** Checks that may run only so often, by name, in milliseconds. */
+  readonly intervals?: Readonly<Record<string, number>>;
 }

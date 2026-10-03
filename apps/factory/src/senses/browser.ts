@@ -30,6 +30,8 @@ export interface BrowserCheck<Shared> {
   id: string;
   /** The route as the app names it, such as `/products/:slug`. */
   route: string;
+  /** At most this often, in milliseconds, except at once on a new version. For a check with a cost, such as one that sends a message. */
+  every?: number;
   /** Null when the check passed. It throws when it could not tell. */
   run(context: CheckContext<Shared>): Promise<Finding | null>;
 }
@@ -57,13 +59,34 @@ export class BrowserSense<Shared> implements Sense {
     this.name = options.name;
   }
 
-  async pass(version: string): Promise<Observation[]> {
+  /** How often the checks that are limited may run, by check. */
+  get intervals(): Record<string, number> {
+    return Object.fromEntries(this.options.checks.flatMap((c) => (c.every ? [[c.id, c.every]] : [])));
+  }
+
+  /** Runs `work` on a page of its own, in a context of its own, which is closed after. */
+  async withPage<T>(work: (page: Page) => Promise<T>): Promise<T> {
+    this.browser ??= await (this.options.launch ?? (() => chromium.launch()))();
+    const context = await this.browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
+    try {
+      const page = await context.newPage();
+      page.setDefaultTimeout(10_000);
+      return await work(page);
+    } finally {
+      await context.close();
+    }
+  }
+
+  async pass(version: string, skip: ReadonlySet<string> = new Set()): Promise<Observation[]> {
     this.browser ??= await (this.options.launch ?? (() => chromium.launch()))();
     const context = await this.browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
     const shared = this.options.shared();
     const observations: Observation[] = [];
     try {
-      for (const check of this.options.checks) observations.push(...(await this.look(check, context, version, shared)));
+      for (const check of this.options.checks) {
+        if (skip.has(check.id)) continue;
+        observations.push(...(await this.look(check, context, version, shared)));
+      }
     } finally {
       await context.close();
     }
@@ -160,7 +183,7 @@ export class BrowserSense<Shared> implements Sense {
     return observations;
   }
 
-  /** Keeps the proof of a finding: a screenshot of the page it was seen on, and what was expected and seen. */
+  /** Keeps the proof of a finding: a screenshot of the page it was seen on. */
   private async keep(page: Page, found: Finding, route: string, version: string, at?: string): Promise<ArtifactRef[]> {
     const { store } = this.options;
     const artifacts: ArtifactRef[] = [];
@@ -188,14 +211,6 @@ export class BrowserSense<Shared> implements Sense {
     } catch (error) {
       this.options.log.warn({ err: String(error), route }, 'no screenshot of a finding');
     }
-    const text = Buffer.from(`${found.message}\n`);
-    artifacts.push({
-      kind: 'file',
-      hash: await store.put(text),
-      type: 'text/plain',
-      size: text.byteLength,
-      name: 'finding.txt',
-    });
     return artifacts;
   }
 }

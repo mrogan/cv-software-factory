@@ -70,6 +70,7 @@ describe('a check that fails', () => {
       route: '/things',
       version: V1,
       symptom: 'wrong-result',
+      summary: 'It was wrong.',
       observedAt: '2026-10-03T12:05:00.000Z',
       artifacts: [],
     });
@@ -113,6 +114,41 @@ describe('a check that fails', () => {
     await after(5 * MINUTE);
     expect(sent[0]?.evidence).toHaveLength(8);
     expect(validateSignal(sent[0])).toEqual({ ok: true });
+  });
+});
+
+describe('a check that may run only so often', () => {
+  /** A sense with one limited check, which counts the runs it was asked to do. */
+  function limited() {
+    const asked: Array<string[]> = [];
+    const sense: Sense = {
+      name: 'probe',
+      intervals: { one: 60 * MINUTE },
+      async pass(_version, skip = new Set()) {
+        asked.push(skip.has('one') ? [] : ['one']);
+        return skip.has('one') ? [] : [{ check: 'one', route: '/things', finding: null, artifacts: [] }];
+      },
+    };
+    return { sense, asked };
+  }
+
+  it('is left out of the runs in between', async () => {
+    const { sense, asked } = limited();
+    const { runner, after } = setup(sense);
+    await runner.tick();
+    await after(5 * MINUTE);
+    await after(50 * MINUTE);
+    await after(5 * MINUTE);
+    expect(asked).toEqual([['one'], [], [], ['one']]);
+  });
+
+  it('runs at once on a new version', async () => {
+    const { sense, asked } = limited();
+    const { runner, state, after } = setup(sense);
+    await runner.tick();
+    state.version = V2;
+    await after(15_000);
+    expect(asked).toEqual([['one'], ['one']]);
   });
 });
 

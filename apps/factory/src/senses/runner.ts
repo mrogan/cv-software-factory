@@ -48,6 +48,8 @@ export class SenseRunner {
   /** The version the last complete run saw, and when the last run, complete or not, began. */
   private probedVersion: string | undefined;
   private lastRunAt: number | undefined;
+  /** When each limited check last ran. */
+  private readonly ranAt = new Map<string, number>();
   private busy = false;
 
   constructor(options: RunnerOptions) {
@@ -79,7 +81,8 @@ export class SenseRunner {
     const started = this.now();
     this.lastRunAt = started;
     try {
-      const observations = await sense.pass(version);
+      const observations = await sense.pass(version, this.skipped(reason, started));
+      for (const { check } of observations) this.ranAt.set(check.split('/')[0] ?? check, started);
       const after = await this.options.version().catch(() => version);
       if (after !== version) {
         // The app changed while the sense looked, so the results mix two versions. The next tick runs again.
@@ -118,6 +121,7 @@ export class SenseRunner {
             symptom: finding.symptom,
             ...(evidence?.length && { evidence }),
             observedAt: new Date(this.now()).toISOString(),
+            summary: finding.message.trim().slice(0, 200).trim(),
             artifacts: observation.artifacts,
           });
           run.signalled++;
@@ -145,6 +149,17 @@ export class SenseRunner {
     } finally {
       this.busy = false;
     }
+  }
+
+  /** The checks that ran too lately to run again, unless the app is new. */
+  private skipped(reason: Reason, now: number): Set<string> {
+    const skip = new Set<string>();
+    if (reason === 'new version') return skip;
+    for (const [check, every] of Object.entries(this.options.sense.intervals ?? {})) {
+      const last = this.ranAt.get(check);
+      if (last !== undefined && now - last < every) skip.add(check);
+    }
+    return skip;
   }
 
   /** Polls the version every `pollMs` until the returned function is called. The first poll is at once. */

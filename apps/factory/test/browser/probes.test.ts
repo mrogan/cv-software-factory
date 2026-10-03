@@ -4,7 +4,7 @@
  * probes are proved this way, without the app they look after. These tests need Chromium, so they run in the
  * pinned Playwright image (`make e2e`, and CI's browser job).
  */
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validateSignal } from '@software-factory/events/schemas';
@@ -98,11 +98,9 @@ describe.each(CASES)('%s', (check, fault, symptom) => {
     expect(found?.trouble).toBeUndefined();
     expect(found?.finding?.symptom).toBe(symptom);
     expect(found?.finding?.message).not.toBe('');
-    // The proof it keeps: a screenshot, with at most four boxes, and what was expected and seen.
+    // The proof it keeps: a screenshot, with at most four boxes, and and the sentence that says what was expected and seen goes in the signal's summary.
     const screenshot = found?.artifacts.find((a) => a.kind === 'screenshot');
     expect(screenshot?.kind === 'screenshot' && screenshot.boxes.length <= 4).toBe(true);
-    const text = found?.artifacts.find((a) => a.kind === 'file');
-    expect(readFileSync(join(store.dir, text?.hash ?? '')).toString()).toBe(`${found?.finding?.message}\n`);
     // And the signal the runner would send is one the inbox takes.
     expect(
       validateSignal({
@@ -111,6 +109,7 @@ describe.each(CASES)('%s', (check, fault, symptom) => {
         route: found?.route,
         version: 'a'.repeat(40),
         symptom,
+        summary: found?.finding?.message.slice(0, 200),
         evidence: found?.finding?.evidence,
         observedAt: new Date().toISOString(),
         artifacts: found?.artifacts,

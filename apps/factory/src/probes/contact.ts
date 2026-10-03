@@ -8,6 +8,8 @@ import type { BrowserCheck } from '../senses/browser.ts';
 import { evidenceOf } from '../senses/http.ts';
 import { badStatus, type Context, fail, type Shop, visit } from './site.ts';
 
+/** Each of these sends a message to the shop, so they run once an hour. */
+const HOUR = 60 * 60_000;
 const FORM = 'main form:has(textarea)';
 const PROBE =
   'This message is an automatic check by the Software Factory, which sends one each time it looks after the site. It needs no reply.';
@@ -76,12 +78,14 @@ async function send(context: Context, message: Message) {
 export const contactAcceptsAMessage: BrowserCheck<Shop> = {
   id: 'contact-accepts-a-message',
   route: '/contact',
+  every: HOUR,
   run: (context) => send(context, { name: 'Software Factory probe', email: 'probe@example.com', text: PROBE }),
 };
 
 export const contactAcceptsAwkwardButValidInput: BrowserCheck<Shop> = {
   id: 'contact-accepts-awkward-but-valid-input',
   route: '/contact',
+  every: HOUR,
   run: (context) =>
     send(context, {
       name: "Zoë O'Brien-Smith",
