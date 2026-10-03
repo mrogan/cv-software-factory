@@ -15,6 +15,8 @@ export interface Exchange {
   /** The last response's content type, without parameters, or null. */
   type: string | null;
   evidence: HttpEvidence;
+  /** Every header of the last response, by lower-case name. */
+  headers: Record<string, string>;
   /** Why no answer came, when none did. */
   failure?: 'redirect loop' | 'no answer';
 }
@@ -31,7 +33,15 @@ export const pathOf = (url: string | URL, base?: string): string => {
 };
 
 /** GETs a path of the app, following redirects by hand so each one is recorded. */
-export async function exchange(app: string, path: string, init: { signal?: AbortSignal } = {}): Promise<Exchange> {
+export async function exchange(
+  app: string,
+  path: string,
+  init: {
+    signal?: AbortSignal /** Headers to keep in the evidence besides the usual. */;
+    record?: readonly string[];
+  } = {},
+): Promise<Exchange> {
+  const recorded = [...new Set([...HEADERS, ...(init.record ?? [])])];
   const started = performance.now();
   const redirects: HttpEvidence['redirects'] = [];
   const seen = new Set<string>();
@@ -51,6 +61,8 @@ export async function exchange(app: string, path: string, init: { signal?: Abort
       await response.body?.cancel();
       redirects.push({ status: response.status, location: location.slice(0, 300) });
       url = new URL(location, url);
+      // A shopper who is sent to another site has left the app: that is as far as the app's own answer goes.
+      if (url.origin !== new URL(app).origin) return finish(response, '', null);
       if (seen.has(url.href) || redirects.length > MAX_REDIRECTS) return finish(response, '', null, 'redirect loop');
       continue;
     }
@@ -63,7 +75,7 @@ export async function exchange(app: string, path: string, init: { signal?: Abort
       method: 'GET',
       url: pathOf(path, app),
       status: response?.status ?? null,
-      headers: Object.fromEntries(HEADERS.map((name) => [name, response?.headers.get(name)?.slice(0, 300) ?? null])),
+      headers: Object.fromEntries(recorded.map((name) => [name, response?.headers.get(name)?.slice(0, 300) ?? null])),
       timings: { firstByteMs, totalMs: Math.round(performance.now() - started) },
       redirects,
     };
@@ -72,6 +84,7 @@ export async function exchange(app: string, path: string, init: { signal?: Abort
       body,
       type: type?.split(';')[0]?.trim().toLowerCase() ?? null,
       evidence,
+      headers: Object.fromEntries(response?.headers ?? []),
       ...(failure && { failure }),
     };
   }

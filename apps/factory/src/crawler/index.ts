@@ -1,0 +1,172 @@
+/**
+ * The crawler: a sense that follows every link, image, script and stylesheet from the home page, and checks what it
+ * finds by the checks any site should pass (`judge.ts`). The runner treats it as it does the probes: a finding
+ * becomes a signal only when it has failed twice in a row.
+ *
+ * A check here is a symptom class on a route, named `<symptom>@<route>`, such as `missing-header@/about`. Every route
+ * crawled has one for every class the crawler looks for, so a class that stops being found passes, and its streak
+ * ends. A class found on every page crawled is one finding on `*` instead of one on each route.
+ */
+import type { ArtifactRef, Evidence, SymptomClass } from '@software-factory/events';
+import type { ArtifactStore } from '@software-factory/store';
+import { type Browser, chromium } from 'playwright';
+import { capture } from '../capture.ts';
+import { templater } from '../senses/routes.ts';
+import type { Observation, Sense } from '../senses/types.ts';
+import { crawl } from './crawl.ts';
+import { askForErrors, type Issue, judge, RECORDED } from './judge.ts';
+
+/** Every class the crawler can find. */
+export const CLASSES = [
+  'broken-link',
+  'broken-image',
+  'redirect-loop',
+  'server-error',
+  'browser-error',
+  'missing-alt',
+  'low-contrast',
+  'unlabelled-field',
+  'missing-header',
+  'not-cached',
+  'slow-response',
+  'leaks-detail',
+] as const satisfies readonly SymptomClass[];
+
+/** Fewest pages that can be said to have a class on every one of them. */
+const EVERY_PAGE_NEEDS = 3;
+
+export interface CrawlerOptions {
+  app: string;
+  store: ArtifactStore;
+  log: { warn(fields: object, message: string): void };
+  launch?: () => Promise<Browser>;
+  /** The most resources a crawl asks for. */
+  limit?: number;
+}
+
+export class Crawler implements Sense {
+  readonly name = 'crawler';
+  private readonly options: CrawlerOptions;
+  private browser: Browser | undefined;
+
+  constructor(options: CrawlerOptions) {
+    this.options = options;
+  }
+
+  async pass(version: string): Promise<Observation[]> {
+    const { app, log } = this.options;
+    this.browser ??= await (this.options.launch ?? (() => chromium.launch()))();
+    const context = await this.browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
+    try {
+      const reached = await crawl({
+        app,
+        context,
+        record: RECORDED,
+        ...(this.options.limit && { limit: this.options.limit }),
+      });
+      if (reached.capped) log.warn({ resources: reached.resources.length }, 'the crawl stopped at its cap');
+      const template = templater([...reached.resources.map((r) => r.path)]);
+      const issues = judge({
+        crawl: reached,
+        errors: await askForErrors(app),
+        secure: new URL(app).protocol === 'https:',
+        version,
+        template,
+      });
+      const pages = reached.pages.map((p) => p.path);
+      const { findings, every } = collapse(issues, pages);
+      const routes = new Set([...reached.resources.map((r) => template(r.path)), ...findings.map((f) => f.route)]);
+      routes.delete('*');
+
+      const observations: Observation[] = [];
+      for (const symptom of CLASSES) {
+        // On every route, so that a class that is no longer found passes. Not where it is `*`: that is one finding.
+        const wide = every.has(symptom);
+        for (const route of [...routes, '*']) {
+          if (wide && route !== '*') continue;
+          const found = findings.find((f) => f.symptom === symptom && f.route === route);
+          observations.push({
+            check: `${symptom}@${route}`.slice(0, 80),
+            route,
+            finding: found ?? null,
+            artifacts: found ? await this.keep(context, found, version, template) : [],
+          });
+        }
+      }
+      return observations;
+    } finally {
+      await context.close();
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.browser?.close();
+    this.browser = undefined;
+  }
+
+  /** A screenshot of the page the finding was seen on, with the boxes it asked for. */
+  private async keep(
+    context: Awaited<ReturnType<Browser['newContext']>>,
+    found: Issue,
+    version: string,
+    template: (path: string) => string,
+  ): Promise<ArtifactRef[]> {
+    const { app, store, log } = this.options;
+    const page = await context.newPage();
+    page.setDefaultTimeout(2_000);
+    try {
+      await page.goto(new URL(found.at, app).href, { waitUntil: 'load', timeout: 10_000 });
+      const route = template(found.at);
+      const look = (found.look ?? []).slice(0, 4);
+      for (const box of look)
+        await page
+          .locator(box.selector)
+          .first()
+          .scrollIntoViewIfNeeded()
+          .catch(() => {});
+      return [
+        await capture(page, store, { route, version, checks: look }).catch(() =>
+          capture(page, store, { route, version }),
+        ),
+      ];
+    } catch (error) {
+      log.warn({ err: String(error).split('\n')[0], route: found.route }, 'no screenshot of a finding');
+      return [];
+    } finally {
+      await page.close().catch(() => {});
+    }
+  }
+}
+
+/**
+ * Folds issues into findings, one for each class on each route, and says which classes are found on every page
+ * crawled: those become one finding on `*`, and the pages' own are dropped.
+ */
+function collapse(issues: Issue[], pages: string[]) {
+  const every = new Set<SymptomClass>();
+  if (pages.length >= EVERY_PAGE_NEEDS) {
+    for (const symptom of CLASSES) {
+      const onPages = new Set(issues.filter((i) => i.scope === 'page' && i.symptom === symptom).map((i) => i.at));
+      if (pages.every((page) => onPages.has(page))) every.add(symptom);
+    }
+  }
+  const groups = new Map<string, Issue[]>();
+  for (const issue of issues) {
+    const wide = every.has(issue.symptom) && issue.scope === 'page';
+    const key = `${issue.symptom}\n${wide ? '*' : issue.route}`;
+    groups.set(key, [...(groups.get(key) ?? []), issue]);
+  }
+  const findings: Issue[] = [];
+  for (const [key, group] of groups) {
+    const [first] = group as [Issue];
+    const route = key.split('\n')[1] as string;
+    const evidence: Evidence[] = group.flatMap((i) => i.evidence).slice(0, 3);
+    const more = group.length - 1;
+    const message =
+      route === '*'
+        ? `Every page crawled (${pages.length}) has this: ${first.message}`
+        : `${first.message}${more ? ` (and ${more} more like it on this route)` : ''}`;
+    findings.push({ ...first, route, message, evidence });
+  }
+  return { findings, every };
+}
