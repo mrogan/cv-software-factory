@@ -89,14 +89,16 @@ export function combine(earlier: RouteCounts[], later: RouteCounts[]): RouteCoun
 }
 
 /**
- * The requests each route and version counted in the last `seconds`: the counter now, less the counter then, with
- * a series that did not exist then counted from nothing. `increase` would miss the first requests of a series that
- * began in the window, and in a shop with thin traffic most routes' series do.
+ * The requests each route and version counted in the last `seconds`, series by series before they are summed: the
+ * counter now, less the counter then, with a series that did not exist then counted from nothing. A series whose
+ * counter went down has restarted (the app's pod restarted on the same version), so it counts from nothing too.
+ * `increase` would miss the first requests of a series that began in the window, and in a shop with thin traffic
+ * most routes' series do.
  */
 export function requestsBetween(job: string, seconds: number): string {
-  const counter = (offset = '') =>
-    `sum by (http_route, service_version) (http_server_request_duration_seconds_count{${job}, http_route!=""}${offset})`;
-  return `clamp_min(${counter()} - (${counter(` offset ${seconds}s`)} or ${counter()} * 0), 0)`;
+  const counter = (offset = '') => `http_server_request_duration_seconds_count{${job}, http_route!=""}${offset}`;
+  const delta = `(${counter()} - (${counter(` offset ${seconds}s`)} or ${counter()} * 0))`;
+  return `sum by (http_route, service_version) ((${delta} >= 0) or (${counter()} unless (${delta} >= 0)))`;
 }
 
 /** Counts each route's requests between two times, in each of the three records. */

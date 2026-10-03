@@ -15,7 +15,7 @@
       "description": "Signals in the inbox that triage has not yet taken. Metric factory_inbox_waiting (gauge), set by triage.",
       "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "max(factory_inbox_waiting)" }],
+      "targets": [{ "refId": "A", "expr": "sum(factory_inbox_waiting{state=\"waiting\"})" }],
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] }
     },
     {
@@ -57,10 +57,13 @@
       "id": 5,
       "type": "timeseries",
       "title": "Inbox depth",
-      "description": "Signals waiting for triage over time. Metric factory_inbox_waiting (gauge), set by triage. A line that climbs and stays up means triage has stopped taking signals.",
+      "description": "Signals waiting for triage over time, and those left in the inbox after their last attempt. Metric factory_inbox_waiting (gauge, by state), set by triage. A waiting line that climbs and stays up means triage has stopped taking signals.",
       "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "max(factory_inbox_waiting)", "legendFormat": "waiting" }],
+      "targets": [
+        { "refId": "A", "expr": "sum(factory_inbox_waiting{state=\"waiting\"})", "legendFormat": "waiting" },
+        { "refId": "B", "expr": "sum(factory_inbox_waiting{state=\"failed\"})", "legendFormat": "out of attempts" }
+      ],
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "min": 0 }, "overrides": [] }
     },
     {

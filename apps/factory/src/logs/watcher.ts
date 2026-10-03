@@ -154,7 +154,14 @@ export class Watcher {
     const start = new Date(end.getTime() - this.timing.agreementWindowMs);
     this.lastWindowEnd = end.getTime();
 
-    const { routes } = await count(objectives, { prometheus, loki, tempo }, start, end);
+    let routes: Awaited<ReturnType<typeof count>>['routes'];
+    try {
+      ({ routes } = await count(objectives, { prometheus, loki, tempo }, start, end));
+    } catch (error) {
+      // This window is lost, so the next one has no neighbour to be judged with: never pair windows with a gap.
+      this.previousWindow = undefined;
+      throw error;
+    }
     const before = this.previousWindow;
     this.previousWindow = { start, routes };
     if (!before) return 0;

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { objectives } from '../../../policy/objectives.ts';
 import { agree, combine, judge, type RouteCounts, requestsBetween, TOLERANCE } from '../src/logs/agreement.ts';
+import { type Backends, Watcher } from '../src/logs/watcher.ts';
 import { VERSION } from './fakes.ts';
 
 describe('agreeing counts', () => {
@@ -67,11 +69,44 @@ describe('two windows as one', () => {
 });
 
 describe('counting the metrics', () => {
-  it('takes the counter now less the counter then, counting a series born in the window from nothing', () => {
+  it('takes each series’ counter now less its counter then, before summing them', () => {
     const expr = requestsBetween('job="app"', 300);
     expect(expr).toContain('offset 300s');
-    // The series that did not exist then falls back to itself times zero.
-    expect(expr).toMatch(/ or sum by .* \* 0\), 0\)$/);
-    expect(expr.startsWith('clamp_min(')).toBe(true);
+    expect(expr.startsWith('sum by (http_route, service_version) (')).toBe(true);
+  });
+
+  it('counts a series born in the window, or one whose counter restarted, from nothing', () => {
+    const expr = requestsBetween('job="app"', 300);
+    // A series that did not exist then falls back to itself times zero.
+    expect(expr).toContain('or http_server_request_duration_seconds_count{job="app", http_route!=""} * 0');
+    // A series whose difference went below zero restarted: what it holds now is what it counted since.
+    expect(expr).toMatch(/>= 0\) or \(http_server_request_duration_seconds_count\{[^}]*\} unless/);
+  });
+});
+
+describe('judging windows in pairs', () => {
+  it('never pairs a window with one before a gap: a window that could not be counted ends the pair', async () => {
+    let failing = false;
+    const counted = async () => {
+      if (failing) throw new Error('Loki is down');
+      return [];
+    };
+    const backends = {
+      objectives,
+      prometheus: { instant: counted },
+      loki: { instant: counted },
+      tempo: { serverSpans: async () => ({ spans: [], complete: true }) },
+      outbox: { send: async () => {} },
+      log: { info: () => {}, warn: () => {} },
+    } as unknown as Backends;
+    const watcher = new Watcher(backends, { errors: new Date(0), reports: new Date(0) });
+    const previous = () => (watcher as unknown as { previousWindow: unknown }).previousWindow;
+    const at = (minutes: number) => new Date(Date.UTC(2026, 9, 4, 9, minutes));
+
+    await watcher.checkAgreement(at(10));
+    expect(previous()).toBeDefined();
+    failing = true;
+    await expect(watcher.checkAgreement(at(15))).rejects.toThrow('Loki is down');
+    expect(previous()).toBeUndefined();
   });
 });
