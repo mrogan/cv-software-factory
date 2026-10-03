@@ -13,6 +13,8 @@ export interface Finding {
   /** The route as the app names it, when it is not the check's own. */
   route?: string;
   evidence?: Evidence[];
+  /** The path of the page to screenshot, when the check is not on it any more. */
+  at?: string;
   /** The elements on the page the check ended on to box in the screenshot: at most four. */
   look?: Check[];
 }

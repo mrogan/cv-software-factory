@@ -5,6 +5,7 @@
  *
  *     factory <group> <command> [options]
  */
+import * as crawler from './commands/crawler.ts';
 import * as events from './commands/events.ts';
 import * as gateway from './commands/gateway.ts';
 import * as line from './commands/line.ts';
@@ -16,7 +17,7 @@ interface Group {
   run(args: string[]): Promise<number>;
 }
 
-const GROUPS: Record<string, Group> = { events, gateway, line, probes, triage };
+const GROUPS: Record<string, Group> = { crawler, events, gateway, line, probes, triage };
 
 const [name, ...args] = process.argv.slice(2);
 const group = name ? GROUPS[name] : undefined;
