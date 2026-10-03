@@ -66,7 +66,7 @@ Each component lists its v1 choice and, where useful, what it might grow into. L
 | **Traffic generator** | Gives canary analysis enough samples within minutes | Small load job hitting key journeys | |
 | **Feature flags** | Ship improvements switched off; kill switch without rollback | OpenFeature with flagd | |
 | **Telemetry** | Metrics, logs, traces and SLOs | OpenTelemetry SDK and collector → Prometheus, Loki, Tempo, Grafana, all over OTLP; upstream charts at pinned versions | CloudWatch on `aws` |
-| **Probes and crawler** | Synthetic journeys and site checks; screenshots for the event store | Playwright on a schedule; same journeys as CI e2e | |
+| **Probes and crawler** | Synthetic journeys and site checks; screenshots for the event store, with the checked elements' positions, and each page compared with the version before | Playwright on a schedule; same journeys as CI e2e | |
 | **The app** | The World's Worst Website (spec 3) | TypeScript on Node, pages rendered on the server, no framework. Catalogue in SQLite (`node:sqlite`), built into the image and read-only. Baseline and canary side by side, each with its own data | |
 
 ## What changes per profile

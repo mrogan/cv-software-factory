@@ -5,7 +5,10 @@ The words we use, so docs, code, UI and commits stay consistent. Standard indust
 | Use | Not | Meaning |
 |---|---|---|
 | **Software Factory**, **the factory** | dark factory | The product name, and the system in prose: agents, gates, delivery and console. Web pages are titled "Software Factory · Martin Rogan". Avoid "dark factory": it is an industry term we do not use. |
-| **console** | command centre, dashboard, control panel | The factory's web UI for visitors and admin: timeline, scrubber, feed, scoreboard and controls. |
+| **console** | command centre, dashboard, control panel | The factory's web UI for visitors and admin: the line, the reel and its sheets, scoreboard and controls. |
+| **reel** | carousel, timeline, feed | The console's row of work items, one card each, oldest on the left and now on the right, scrubbed sideways to watch the app change. |
+| **sheet** | drawer, modal, detail view | The panel that rises from the bottom of the console when a card in the reel is opened: one work item in full, from its stage scrubber to its model calls. |
+| **human** | person, people, user | Anyone who is not an agent, as in "held for a human" or "code written by humans". Use **Martin** when it can only be him, and **visitor** for someone with a visitor key. |
 | **Kubernetes** | k8s, kube | The orchestration platform, in prose. Name a specific distribution (k3d, DOKS, EKS) only when the difference matters. |
 | **stage** | step, phase | One part of the factory's line: sense, triage, plan, build, gates, review, release, verify. |
 | **the line** | conveyor, workflow | The eight stages in order, and their drawing across the top of the console. "Stop the line" halts all of it. "Pipeline" means CI only. |

@@ -8,12 +8,14 @@
 <!--
   Console mockup. Plain HTML, CSS and JS on top of the design system in ../system/ (read its README).
   Visual and behavioural reference for apps/console: copy the structure and rules, not the code.
-  Query options: ?mode=visitor  ?theme=ink  ?motion=off
+  Query options: ?mode=visitor  ?theme=ink  ?motion=off  ?item=1288 (start the reel there)  &sheet (and open its sheet)
+  The shop's screenshots are drawn in HTML here; in the app they are Playwright captures from the event store.
+  Package logos are from theSVG (MIT), inlined so the page makes no third-party requests for them.
 -->
 <link rel="icon" href="../system/mark/icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Comic+Neue:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="../system/tokens.css">
 <script src="../system/station.js"></script>
 <style>
@@ -22,6 +24,8 @@
 html { background: var(--bg); color-scheme: light; }
 html[data-theme="ink"] { color-scheme: dark; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 var(--font-sans); letter-spacing: -0.1px; -webkit-font-smoothing: antialiased; }
+body.locked { overflow: hidden; }
+body.wiping { cursor: ew-resize; user-select: none; -webkit-user-select: none; }
 button { font: inherit; color: inherit; }
 button:disabled { cursor: not-allowed; }
 a { color: var(--signal); text-underline-offset: 3px; }
@@ -36,6 +40,7 @@ a:hover { color: var(--signal-hover); }
 .tone-signal { --tone: var(--signal); } .tone-ok { --tone: var(--ok); } .tone-attn { --tone: var(--attn); } .tone-faint { --tone: var(--text-faint); }
 [hidden] { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.glyph { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Buttons */
 .btn { min-height: 44px; padding: 0 18px; border-radius: var(--radius-card); border: 1px solid var(--line-strong); background: transparent; color: var(--text); font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
@@ -46,6 +51,9 @@ a:hover { color: var(--signal-hover); }
 .btn.attn { background: var(--attn); border-color: var(--attn); color: var(--on-attn); font-weight: 600; }
 .btn.attn-line { border-color: var(--attn-line); color: var(--attn); }
 .btn.small { min-height: 36px; padding: 0 12px; font-size: 13px; }
+.icon-btn { width: 40px; height: 40px; display: inline-grid; place-items: center; border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: transparent; cursor: pointer; }
+.icon-btn:hover { border-color: var(--text-muted); }
+.icon-btn:disabled { opacity: .4; cursor: default; }
 .seg { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: var(--raised); }
 .seg button { min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--on-inverse); }
@@ -67,7 +75,6 @@ a:hover { color: var(--signal-hover); }
 .banner { background: var(--ok-wash); border-bottom: 1px solid var(--ok-line); color: var(--ok-text); font-size: 13px; }
 .banner .wrap { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .banner button { min-height: 32px; padding: 0 12px; border: 1px solid var(--ok-line); border-radius: var(--radius-card); background: transparent; color: var(--ok-text); font-size: 13px; cursor: pointer; }
-
 header.top { border-bottom: 1px solid var(--line); }
 header.top .wrap { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .brand { display: flex; align-items: center; gap: 14px; color: var(--text); text-decoration: none; }
@@ -123,7 +130,7 @@ header.top .wrap { min-height: 72px; display: flex; align-items: center; justify
   body:not(.still):not(.stopped) .run-b { animation: run-b 6s linear infinite; }
   body:not(.still):not(.stopped) .run-c { animation: run-c 11s linear infinite; }
   body:not(.still):not(.stopped) .ret-arc { animation: dash 1.1s linear infinite; }
-  body:not(.still) .blink { animation: blink 2s ease-in-out infinite; }
+  body:not(.still) .blink, body:not(.still) .prog i.n { animation: blink 2s ease-in-out infinite; }
 }
 .run-a, .run-b, .run-c { opacity: 0; }
 body.still .run-a, body.still .run-b, body.still .run-c, body.stopped .run-a, body.stopped .run-b, body.stopped .run-c { display: none; }
@@ -142,6 +149,7 @@ body.still .run-a, body.still .run-b, body.still .run-c, body.stopped .run-a, bo
 .stage-panel h3:focus { outline: none; }
 .stage-panel .close { width: 36px; height: 36px; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--text-muted); font-size: 20px; cursor: pointer; }
 .stage-panel p { margin: 4px 0 8px; font-size: 12px; color: var(--text-muted); }
+.stage-panel .empty { padding: 12px 0 8px; border-top: 1px solid var(--line); font-size: 13px; color: var(--text-muted); }
 .srow { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; width: 100%; padding: 9px 0; border: 0; border-top: 1px solid var(--line); background: none; text-align: left; font-size: 13px; }
 button.srow { cursor: pointer; margin: 0 -8px; padding: 9px 8px; width: calc(100% + 16px); border-radius: var(--radius-small); }
 button.srow:hover { background: var(--surface); }
@@ -154,62 +162,264 @@ button.srow:hover { background: var(--surface); }
 .srow .aside.go { color: var(--text-2); }
 .srow small { display: block; font-size: 12px; color: var(--tone, var(--text-muted)); }
 
-/* ---- Work items and replay ----------------------------------------------------------- */
-.work { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 20px; margin-top: 48px; }
-.items { display: flex; flex-direction: column; gap: 4px; }
-.items .label { padding: 10px 2px 4px; }
-.item { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 10px; padding: 10px; border: 1px solid transparent; border-radius: var(--radius-card); background: transparent; text-align: left; cursor: pointer; }
-.item:hover { background: color-mix(in srgb, var(--raised) 60%, transparent); }
-.item[aria-current="true"] { background: var(--raised); border-color: var(--line-strong); }
-.item .dot { margin-top: 6px; }
-.item b { display: block; font-weight: 400; font-size: 14px; line-height: 1.3; }
-.item b .mono { font-size: 11px; color: var(--text-muted); margin-right: 4px; }
-.item small { display: block; margin-top: 2px; font-size: 12px; color: var(--text-muted); }
-.item small em { font-style: normal; color: var(--tone); }
+/* ---- The reel ------------------------------------------------------------------------- */
+.history { margin-top: 64px; }
+.history-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
+.history-head h2 { margin: 0; font: 400 40px/1 var(--font-display); letter-spacing: -0.4px; }
+.history-head p { margin: 8px 0 0; font-size: 13px; color: var(--text-muted); max-width: 640px; }
+.transport { display: flex; align-items: center; gap: 8px; }
+.transport .btn { min-height: 40px; padding: 0 16px; }
+.count { font: 12px/1 var(--font-mono); color: var(--text-muted); min-width: 64px; text-align: center; }
+.now-btn { min-height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: transparent; font: 12px/1 var(--font-mono); letter-spacing: 1px; cursor: pointer; }
+.now-btn[aria-pressed="true"] { background: var(--raised); border-color: var(--text-muted); }
 
-.replay-head { display: flex; flex-direction: column; gap: 6px; }
-.replay-head .kicker { font: 11px/1.4 var(--font-mono); letter-spacing: 1.2px; color: var(--tone); }
-.replay-head h2 { font-size: 32px; line-height: 1.05; }
-.replay-body { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 28px; }
-.site-head { display: flex; justify-content: space-between; margin-bottom: 8px; }
-.browser { border: 1px solid var(--line-strong); border-radius: var(--radius-card); overflow: hidden; background: #fffdf2; }
-.browser .chrome { height: 26px; background: #e6e0d0; display: flex; align-items: center; gap: 6px; padding: 0 10px; }
-.browser .chrome i { width: 8px; height: 8px; border-radius: 4px; }
-.browser .url { margin-left: 6px; font: 10px/1.6 var(--font-mono); color: #5f5e5a; background: #fffdf2; padding: 0 8px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.browser .page { height: 200px; padding: 12px 14px; font-family: 'Comic Neue', 'Comic Sans MS', cursive; color: #2c2c2a; display: flex; flex-direction: column; gap: 8px; }
-.page .logo { font-size: 18px; font-weight: 700; color: #c0392b; line-height: 1.1; }
-.page .nav { font-size: 11px; color: #6e6e6e; }
-.page .broken { padding: 10px 12px; border: 3px dashed #c0392b; background: #ffe9e6; }
-.page .broken b { display: block; font-size: 16px; color: #c0392b; }
-.page .broken span { font-size: 11px; color: #555; }
-.page .fine { border: 1px solid #c9c1b3; padding: 5px 8px; background: #fff; font-size: 12px; }
-.site-caption { margin-top: 8px; }
+.reel { --card-w: 620px; position: relative; margin: 28px calc(-1 * var(--g)) 0; height: 600px; overflow: hidden; touch-action: pan-y; cursor: grab; user-select: none; -webkit-user-select: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 93%, transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 93%, transparent 100%); }
+.reel:focus-visible { outline-offset: -4px; }
+.reel.dragging { cursor: grabbing; }
+.reel.anim .card { transition: transform .6s var(--motion-ease), opacity .6s var(--motion-ease); }
 
-.transport { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card { position: absolute; left: 50%; top: 4px; width: var(--card-w); transform-origin: 50% 30%; padding: 14px 14px 16px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-panel); display: flex; flex-direction: column; gap: 12px; cursor: pointer; }
+.card.centre { border-color: var(--line-strong); }
+/* Needs you: the outcome's dot flashes like a station's alarm beacon, and holds still with its ring when motion is off. */
+@media (prefers-reduced-motion: no-preference) { body:not(.still) .dot.alarm { animation: alarm var(--motion-alarm) ease-in-out infinite; } }
+@keyframes alarm { 0%, 100% { opacity: 1; box-shadow: 0 0 0 3px color-mix(in srgb, var(--attn) 30%, transparent); } 50% { opacity: .3; box-shadow: 0 0 0 6px transparent; } }
+.card.centre:hover .open-hint { color: var(--text); }
+.card-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 24px; }
+.cat { display: inline-flex; align-items: center; gap: 7px; font: 11px/1 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--text-2); }
+.kind { font: 12px/1 var(--font-sans); letter-spacing: 0; text-transform: none; color: var(--text-muted); }
+.out { display: inline-flex; align-items: center; gap: 7px; font: 11px/1 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--tone); white-space: nowrap; }
+.out.tone-faint { color: var(--text-muted); }
+.card h3 { margin: 0; font: 400 28px/1.08 var(--font-display); letter-spacing: -0.2px; }
+.card p.desc { margin: 6px 0 0; font-size: 14px; line-height: 1.45; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.9em; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font: 11.5px/1.4 var(--font-mono); color: var(--text-muted); }
+.meta b { font-weight: 400; color: var(--text); }
+.meta .ver { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); }
+.meta .ver s { color: var(--text-muted); }
+.card-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.open-hint { font: 11px/1 var(--font-mono); letter-spacing: 1px; color: var(--text-muted); white-space: nowrap; }
+
+/* Eight segments, one per stage: how far the item got and where it stopped. */
+.prog { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; flex: 1; max-width: 220px; }
+.prog i { height: 4px; border-radius: 2px; background: var(--line); }
+.prog i.o { background: var(--ok); }
+.prog i.k { background: var(--text-muted); }
+.prog i.x, .prog i.w { background: var(--attn); }
+.prog i.s { background: transparent; border: 1px dashed var(--line-strong); }
+.prog i.n { background: var(--signal); }
+
+/* ---- Visuals: one frame per card, scaled with container units ------------------------ */
+.vis { position: relative; aspect-ratio: 16 / 10; container-type: inline-size; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
+.vis .pad { position: absolute; inset: 0; padding: 4.5cqw 5cqw; display: flex; flex-direction: column; gap: 2.6cqw; font-size: 2.3cqw; }
+.vis .big { font: 400 6.4cqw/1 var(--font-mono); letter-spacing: -.2cqw; font-variant-numeric: tabular-nums; }
+.vis .big s { color: var(--text-muted); text-decoration-thickness: .3cqw; }
+.vis .big .ok { color: var(--ok); }
+.vis .cap { font: 1.9cqw/1.3 var(--font-mono); letter-spacing: .15cqw; text-transform: uppercase; color: var(--text-muted); }
+.vis .row { display: flex; align-items: center; gap: 2.4cqw; }
+.vis svg.chart { width: 100%; height: auto; display: block; overflow: visible; }
+.unchanged { margin-top: auto; display: flex; align-items: center; gap: 1.6cqw; font-size: 1.9cqw; color: var(--text-2); }
+.unchanged .thumbs { display: flex; gap: 1cqw; }
+.unchanged .thumbs span { width: 7cqw; aspect-ratio: 16 / 10; border: .2cqw solid var(--ok-line); border-radius: .5cqw; background: #faf6ea; position: relative; overflow: hidden; }
+.unchanged .thumbs span::before { content: ""; position: absolute; left: 12%; right: 12%; top: 18%; height: 8%; background: #1f3d2b; opacity: .55; }
+.unchanged .thumbs span::after { content: ""; position: absolute; left: 12%; right: 40%; top: 40%; bottom: 18%; background: repeating-linear-gradient(#d9d2bd 0 12%, transparent 12% 26%); }
+
+/* Before and after, with a wipe between them. Each side is its own stack, so nothing drawn on one shows through the other. */
+.wipe { position: absolute; inset: 0; --at: 50%; user-select: none; -webkit-user-select: none; }
+.wipe .a, .wipe .b { position: absolute; inset: 0; isolation: isolate; overflow: hidden; }
+.wipe .b { z-index: 1; clip-path: inset(0 0 0 var(--at)); }
+.wipe .div { position: absolute; top: 0; bottom: 0; left: var(--at); width: 2px; margin-left: -1px; background: var(--signal); z-index: 3; }
+.wipe .handle { position: absolute; top: 50%; left: var(--at); z-index: 4; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 17px; border: 2px solid var(--signal); background: var(--raised); color: var(--text); display: grid; place-items: center; cursor: ew-resize; touch-action: none; }
+.card:not(.centre) .handle { display: none; }
+.wtag { position: absolute; bottom: 2.2cqw; z-index: 3; display: inline-flex; align-items: center; gap: 1cqw; padding: .9cqw 1.6cqw; border-radius: .8cqw; background: var(--signal); color: var(--on-signal); font: 1.7cqw/1 var(--font-mono); letter-spacing: .15cqw; white-space: nowrap; }
+.wtag.l { left: 2.2cqw; } .wtag.r { right: 2.2cqw; }
+.wtag .dot { width: 1.4cqw; height: 1.4cqw; }
+
+/* The shop, drawn small: Mossop's Practical Sundries in its own colours, standing in for a screenshot. */
+.shot { position: absolute; inset: 0; container-type: inline-size; background: #faf6ea; color: #1f3d2b; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; overflow: hidden; --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif; }
+.shot .bar { height: 5cqw; background: #e8e2d1; display: flex; align-items: center; gap: .9cqw; padding: 0 1.8cqw; }
+.shot .bar i { width: 1.2cqw; height: 1.2cqw; border-radius: 50%; background: #cfc6b2; }
+.shot .bar span { margin-left: 1cqw; padding: .5cqw 1.4cqw; border-radius: .8cqw; background: #faf6ea; color: #5f5e5a; font: 1.5cqw/1.2 var(--font-mono); width: 52cqw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.shot .pg { padding: 0 4.5cqw; font-size: 1.75cqw; line-height: 1.45; }
+.shot .mast { display: flex; justify-content: space-between; align-items: baseline; padding: 2.4cqw 0 1.3cqw; border-bottom: max(3px, .5cqw) double #1f3d2b; }
+.shot .mast b { font: 600 3.1cqw/1.1 var(--serif); }
+.shot .mast nav { display: flex; gap: 2.2cqw; font-size: 1.6cqw; }
+.shot .mast nav span { color: #7a3410; text-decoration: underline; text-underline-offset: .3cqw; }
+.shot .mast nav span.cur { color: #1f3d2b; font-weight: 600; text-decoration: none; }
+.shot h4 { margin: 2.4cqw 0 1.4cqw; font: 600 3.4cqw/1.15 var(--serif); }
+.shot p { margin: 0 0 1.4cqw; max-width: 60cqw; }
+.shot .filter { display: flex; gap: 1.2cqw; margin-bottom: 1.8cqw; font-size: 1.6cqw; }
+.shot .filter span { padding: .5cqw 1.4cqw; border: .2cqw solid #d9d2bd; border-radius: 3cqw; color: #7a3410; }
+.shot .filter span.cur { background: #1f3d2b; border-color: #1f3d2b; color: #faf6ea; }
+.shot .filter span.focus { outline: .45cqw solid #7a3410; outline-offset: .35cqw; }
+.shot .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.8cqw; }
+.shot .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.shot .sc { position: relative; padding: 1.3cqw 1.5cqw 1.5cqw; background: #fffdf6; border: .2cqw solid #d9d2bd; border-radius: .8cqw; display: flex; flex-direction: column; gap: .3cqw; }
+.shot .sc svg, .shot .drawing svg { width: 100%; height: 8cqw; fill: none; stroke: #1f3d2b; stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; }
+.shot .sc b { font: 600 1.9cqw/1.2 var(--serif); }
+.shot .pr { font-weight: 600; }
+.shot .stock { font-size: 1.5cqw; color: #5b6357; }
+.shot .left span { display: inline-block; padding: .2cqw 1cqw; border-radius: 2cqw; background: #e7eedd; color: #1f3d2b; font-size: 1.45cqw; font-weight: 600; }
+.shot .search { display: flex; gap: 1.2cqw; margin-bottom: 1.4cqw; }
+.shot .search span { flex: 0 1 34cqw; padding: .8cqw 1.4cqw; border: .2cqw solid #1f3d2b; border-radius: .6cqw; background: #fffdf6; }
+.shot .search em { padding: .8cqw 1.8cqw; border-radius: .6cqw; background: #1f3d2b; color: #faf6ea; font-style: normal; }
+.shot .product { display: grid; grid-template-columns: 30cqw 1fr; gap: 3.5cqw; margin-top: 2.6cqw; }
+.shot .drawing { border: .2cqw solid #d9d2bd; border-radius: .8cqw; background: #fffdf6; padding: 2cqw; display: grid; place-items: center; }
+.shot .drawing svg { height: 22cqw; }
+.shot .product h4 { margin-top: 0; }
+.shot .facts { display: flex; gap: 2cqw; margin-bottom: 1.4cqw; font-size: 1.6cqw; color: #5b6357; }
+.shot .facts b { color: #1f3d2b; }
+.shot .notes { padding-left: 1.6cqw; border-left: .4cqw solid #d9d2bd; font-style: italic; font-family: var(--serif); }
+
+/* Marks drawn by the factory over a screenshot: dashed ember for the problem, solid green for the fix. */
+.mk { position: relative; border-radius: .6cqw; outline: max(2px, .35cqw) dashed var(--attn); outline-offset: .5cqw; }
+.mk.good { outline-style: solid; outline-color: var(--ok); }
+.mk[data-note]::after { content: attr(data-note); position: absolute; left: -.6cqw; top: calc(100% + 1.3cqw); z-index: 2; padding: .7cqw 1.1cqw; border-radius: .6cqw; background: var(--attn); color: var(--on-attn); font: 500 1.5cqw/1 var(--font-sans); white-space: nowrap; }
+.mk.good[data-note]::after { background: var(--ok); color: var(--on-ok); }
+.mk.up[data-note]::after { top: auto; bottom: calc(100% + 1.3cqw); }
+
+/* Work with nothing new to see on the site. */
+.pkg { display: flex; align-items: center; gap: 3cqw; }
+.pkg svg { width: 11cqw; height: 11cqw; flex: none; }
+.pkg .name { font: 400 4.2cqw/1.1 var(--font-display); }
+.pkg .bump { margin-top: .8cqw; display: flex; align-items: center; gap: 1.4cqw; font: 2.4cqw/1 var(--font-mono); }
+.pkg .bump s { color: var(--text-muted); }
+.sev { display: grid; grid-template-columns: 13cqw 1fr 9cqw; align-items: center; gap: .9cqw 2cqw; font-size: 1.9cqw; }
+.sev .bars { display: flex; flex-direction: column; gap: .5cqw; }
+.sev .bars i { display: block; height: 1.2cqw; border-radius: .6cqw; background: var(--text-faint); min-width: .6cqw; }
+.sev .bars i.after { background: var(--ok); }
+.sev .bars i.zero { background: transparent; border: .2cqw solid var(--ok-line); width: 1.2cqw; }
+.sev .n { font-family: var(--font-mono); text-align: right; color: var(--text-2); }
+.term { flex: 1; padding: 2.6cqw 3cqw; border-radius: .8cqw; background: var(--station-face); color: var(--station-led-on); font: 1.95cqw/1.6 var(--font-mono); white-space: pre; overflow: hidden; }
+.term .x { color: var(--station-led-attn); }
+.term .ok { color: var(--station-led-ok); }
+.term .dim { color: var(--station-led-dim); }
+.jev { display: grid; grid-template-columns: 1fr 18cqw 8cqw; gap: 1.4cqw 2cqw; align-items: center; font-size: 1.9cqw; }
+.jev .q { color: var(--text-2); }
+.jev .p { height: 1.4cqw; border-radius: .7cqw; background: var(--line); position: relative; overflow: hidden; }
+.jev .p i { position: absolute; inset: 0 auto 0 0; background: var(--signal); border-radius: .7cqw; }
+.jev .a { font-family: var(--font-mono); text-align: right; }
+.split { display: grid; grid-template-columns: 34cqw 1fr; gap: 4cqw; flex: 1; min-height: 0; }
+.split .thumb { position: relative; border: 1px solid var(--line-strong); border-radius: .8cqw; overflow: hidden; align-self: start; aspect-ratio: 16 / 11; }
+.logs { display: grid; gap: 1.6cqw; }
+.logs .term { font-size: 1.75cqw; padding: 2cqw 2.6cqw; }
+.wf { display: grid; grid-template-columns: 27cqw 1fr 13cqw; gap: .9cqw 1.6cqw; align-items: center; font: 1.7cqw/1.2 var(--font-mono); color: var(--text-2); }
+.wf i { display: block; height: 1.5cqw; border-radius: .3cqw; background: var(--signal); }
+.spec { flex: 1; padding: 3cqw 3.4cqw; background: var(--raised); border: 1px solid var(--line); border-left: max(2px, .4cqw) solid var(--attn); border-radius: .4cqw .8cqw .8cqw .4cqw; display: flex; flex-direction: column; gap: 1.6cqw; font-size: 2cqw; }
+.spec .gwt { display: grid; grid-template-columns: 8cqw 1fr; gap: .4cqw 1.6cqw; }
+.spec .gwt b { font: 500 1.65cqw/1.6 var(--font-mono); letter-spacing: .15cqw; color: var(--text-muted); }
+.spec .ask { padding-top: 1.6cqw; border-top: 1px solid var(--line); color: var(--attn); }
+
+/* ---- The timeline under the reel ----------------------------------------------------- */
+.rail { position: relative; height: 92px; margin: 18px 6px 0; touch-action: none; cursor: pointer; }
+.rail:focus-visible { outline-offset: 6px; border-radius: var(--radius-card); }
+.rail .track { position: absolute; left: 0; right: 0; top: 46px; height: 2px; background: var(--line-strong); }
+.rail .day { position: absolute; top: 0; padding-left: 8px; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; }
+.rail .day::before { content: ""; position: absolute; left: 0; top: 2px; width: 1px; height: 54px; background: var(--line-strong); }
+.tick { position: absolute; top: 34px; width: 26px; height: 26px; margin-left: -13px; display: grid; place-items: center; border-radius: 13px; border: 1.5px solid var(--tone); background: var(--bg); color: var(--tone); transition: transform .2s var(--motion-ease); pointer-events: none; }
+.tick .glyph { width: 13px; height: 13px; }
+.tick.here { transform: scale(1.25); background: var(--raised); }
+.tick.tone-faint { color: var(--text-muted); border-style: dashed; border-color: var(--text-muted); }
+.rail .ver { position: absolute; top: 68px; transform: translateX(-50%); font: 10.5px/1.4 var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+.rail .ver.here { color: var(--text); }
+.rail .ver.burnt { text-decoration: line-through; }
+.playhead { position: absolute; top: 22px; bottom: 26px; width: 2px; margin-left: -1px; background: var(--signal); pointer-events: none; }
+.reel.anim ~ .rail .playhead { transition: left .6s var(--motion-ease); }
+.at-line { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 4px; font-size: 13px; color: var(--text-muted); }
+.at-line b { font-weight: 400; color: var(--text); }
+
+/* ---- The sheet ------------------------------------------------------------------------ */
+.scrim { position: fixed; inset: 0; z-index: 40; background: var(--scrim); opacity: 0; transition: opacity .35s var(--motion-ease); }
+.scrim.open { opacity: 1; }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 41; height: 90vh; height: 90dvh; display: flex; flex-direction: column; background: var(--bg); border-top: 1px solid var(--line-strong); border-radius: 14px 14px 0 0; box-shadow: var(--shadow-popover); transform: translateY(100%); transition: transform .42s var(--motion-ease); }
+.sheet.open { transform: none; }
+body.still .sheet, body.still .scrim, body.still .reel.anim .card, body.still .reel.anim ~ .rail .playhead { transition: none; }
+.grab { width: 44px; height: 4px; margin: 10px auto 0; border-radius: 2px; background: var(--line-strong); }
+.sheet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 14px 0 18px; border-bottom: 1px solid var(--line); }
+.sheet-head .kicker { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.sheet-head h2 { margin: 8px 0 0; font: 400 40px/1.02 var(--font-display); letter-spacing: -0.4px; }
+.sheet-head h2:focus { outline: none; }
+.sheet-nav { display: flex; align-items: center; gap: 8px; flex: none; }
+.sheet-scroll { flex: 1; overflow: auto; overscroll-behavior: contain; }
+.sheet-body { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 40px; padding-top: 24px; padding-bottom: 56px; }
+.sheet-main { display: flex; flex-direction: column; gap: 40px; min-width: 0; }
+.sheet-side { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+.lead { margin: 0; font-size: 17px; line-height: 1.55; max-width: 760px; }
+.sec h3 { margin: 0 0 4px; font: 400 26px/1.1 var(--font-display); }
+.sec > .help { margin-bottom: 14px; }
+.source { margin: 10px 0 0; display: flex; gap: 6px; align-items: baseline; font-size: 11.5px; color: var(--text-muted); }
+.source::before { content: "SOURCE"; font: 10px/1 var(--font-mono); letter-spacing: 1px; color: var(--text-faint); }
+.facts-dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); padding: 4px 18px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-panel); font-size: 13px; }
+.facts-dl dt, .facts-dl dd { padding: 9px 0; border-top: 1px solid var(--line); }
+.facts-dl dt:first-of-type, .facts-dl dd:first-of-type { border-top: 0; }
+.facts-dl dt { padding-right: 16px; color: var(--text-muted); }
+.facts-dl dd { margin: 0; text-align: right; font-family: var(--font-mono); font-size: 12.5px; }
+.facts-dl dd a { color: var(--text); }
+/* A visitor's report: sanitised plain text, for Martin and its author only. */
+.report { margin: 0; padding: 14px 18px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-card); display: flex; flex-direction: column; gap: 8px; max-width: 760px; }
+.report-text { margin: 0; font: 15px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.report.withheld { color: var(--text-2); font-size: 14px; border-style: dashed; }
+
+.replay { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; }
+.replay.solo { grid-template-columns: 1fr; }
+.replay .site .vis { margin-top: 8px; }
+.ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ctl .btn { min-height: 40px; }
 .clock { font: 400 24px/1 var(--font-mono); font-variant-numeric: tabular-nums; min-width: 104px; }
-.icon-btn { min-width: 44px; min-height: 40px; border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: transparent; cursor: pointer; font-size: 14px; }
-.live-btn { min-height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--ok-line); border-radius: var(--radius-card); background: transparent; color: var(--ok); font: 12px/1 var(--font-mono); letter-spacing: 1px; cursor: pointer; }
-.live-btn[aria-pressed="true"] { background: var(--ok-wash); }
-.live-btn .dot { --tone: var(--ok); }
-.scrub { position: relative; height: 62px; margin: 18px 34px 0 22px; }
-.scrub .rail, .scrub .fill { position: absolute; left: 0; top: 20px; height: 4px; border-radius: 2px; background: var(--line-strong); }
-.scrub .rail { right: 0; }
+.scrub { position: relative; height: 62px; margin: 16px 30px 0 20px; }
+.scrub .rl, .scrub .fill { position: absolute; left: 0; top: 20px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+.scrub .rl { right: 0; }
 .scrub .fill { background: var(--signal); }
-.scrub .gap { position: absolute; top: 10px; transform: translateX(-50%); padding: 0 6px; background: var(--surface); font: 10px/24px var(--font-mono); color: var(--text-muted); white-space: nowrap; }
-.ch { position: absolute; top: 0; width: 72px; height: 62px; margin-left: -36px; padding: 0; border: 0; background: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; }
-.ch i { display: block; width: 10px; height: 10px; margin-top: 17px; border-radius: 999px; border: 2px solid var(--line-strong); background: var(--surface); }
+.ch { position: absolute; top: 0; width: 64px; height: 62px; margin-left: -32px; padding: 0; border: 0; background: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; }
+.ch i { display: block; width: 10px; height: 10px; margin-top: 17px; border-radius: 999px; border: 2px solid var(--line-strong); background: var(--bg); }
 .ch.done i { background: var(--signal); border-color: var(--signal); }
 .ch.end i { border-color: var(--tone); }
 .ch.here i { width: 16px; height: 16px; margin-top: 14px; background: var(--tone, var(--text)); border-color: var(--tone, var(--text)); }
-.ch span { margin-top: 9px; font: 10px/1 var(--font-mono); letter-spacing: .6px; color: var(--text-muted); white-space: nowrap; }
+.ch span { margin-top: 9px; font: 9.5px/1 var(--font-mono); letter-spacing: .5px; color: var(--text-muted); white-space: nowrap; }
 .ch.here span { margin-top: 6px; color: var(--tone, var(--text)); }
-.events { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
-.event { display: grid; grid-template-columns: 64px 72px minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-card); color: var(--text-2); font-size: 14px; }
+.ch:nth-child(even of .ch) span { margin-top: 24px; }
+.ch.here:nth-child(even of .ch) span { margin-top: 21px; }
+.events { display: flex; flex-direction: column; gap: 6px; margin-top: 26px; }
+.event { display: grid; grid-template-columns: 62px 70px minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-card); color: var(--text-2); font-size: 13.5px; }
 .event.now { background: var(--raised); border-color: var(--line-strong); color: var(--text); }
 .event .mono { font-size: 11px; color: var(--text-muted); }
+.evidence-big { max-width: 880px; }
+.captures { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; margin-top: 16px; }
+.captures figure, .regress figure { margin: 0; }
+.captures figcaption, .regress figcaption { margin-top: 6px; display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-2); }
+.captures figcaption .mono, .regress figcaption .mono { font-size: 11px; color: var(--text-muted); }
+.regress { margin-top: 22px; }
+.regress .row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 8px; }
+.regress .same { color: var(--ok) !important; }
+.regress .meant { color: var(--text) !important; }
+.criteria { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.criteria li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; padding: 10px 14px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-card); font-size: 13.5px; }
+.criteria .glyph { color: var(--ok); margin-top: 2px; }
+.criteria em { font-style: normal; font: 10.5px/1 var(--font-mono); letter-spacing: 1px; color: var(--text-muted); margin-right: 4px; }
+.files { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
+.files div { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; padding: 8px 14px; border-top: 1px solid var(--line); font: 12px/1.4 var(--font-mono); }
+.files div:first-child { border-top: 0; }
+.files .plus { color: var(--ok); } .files .minus { color: var(--attn); }
+table.models { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.models th { text-align: left; font: 10px/1.4 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); font-weight: 400; padding: 0 0 8px; border-bottom: 1px solid var(--line); }
+.models td { padding: 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.models td + td, .models th + th { padding-left: 10px; }
+.models .who { display: flex; gap: 8px; align-items: flex-start; }
+.models .who svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
+.models small { display: block; font: 11px/1.4 var(--font-mono); color: var(--text-muted); }
+.models .num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+.models tfoot td { border-bottom: 0; font-weight: 500; }
+.gates { display: flex; flex-direction: column; }
+.gate { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.gate:last-child { border-bottom: 0; }
+.gate .mono { font-size: 11px; color: var(--text-muted); }
+.gate .glyph { width: 14px; height: 14px; }
+.gate.pass .glyph { color: var(--ok); }
+.gate.fail { color: var(--attn); }
+.side-card { padding: 18px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-panel); }
+.side-card h3 { margin: 0 0 10px; font: 400 22px/1.1 var(--font-display); }
 
 /* ---- Bottom row --------------------------------------------------------------------- */
-.bottom { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 20px; margin-top: 20px; }
+.bottom { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 20px; margin-top: 56px; }
 .canary-steps { display: flex; flex-direction: column; gap: 8px; }
 .bar { position: relative; height: 6px; border-radius: 3px; background: var(--line); }
 .bar i { position: absolute; left: 0; top: 0; height: 6px; border-radius: 3px; background: var(--ok); }
@@ -225,7 +435,6 @@ table.signals { width: 100%; border-collapse: collapse; font-size: 13px; }
 .actions { display: flex; gap: 10px; margin-top: auto; flex-wrap: wrap; }
 .actions .btn.grow { flex: 1; }
 .check-pill { padding: 5px 10px; border: 1px solid var(--ok-line); border-radius: 999px; font: 12px/1.3 var(--font-mono); color: var(--ok); white-space: nowrap; }
-
 .need { display: flex; flex-direction: column; gap: 10px; padding: 16px 16px 16px 18px; background: var(--raised); border: 1px solid var(--line); border-left: var(--stroke-rule) solid var(--attn); border-radius: var(--radius-rule) var(--radius-card) var(--radius-card) var(--radius-rule); }
 .need .kind { font: 11px/1.4 var(--font-mono); letter-spacing: .8px; color: var(--attn); }
 .need .kind span { color: var(--text-muted); letter-spacing: 0; margin-left: 6px; font-family: var(--font-sans); font-size: 12px; }
@@ -238,7 +447,6 @@ table.signals { width: 100%; border-collapse: collapse; font-size: 13px; }
 .try:hover { border-color: var(--text-muted); }
 .try small { font-size: 12px; color: var(--text-muted); }
 .try-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-
 .autonomy { display: flex; flex-direction: column; gap: 8px; }
 .autonomy .seg { width: 100%; }
 .autonomy .seg button { flex: 1; min-height: 36px; font-size: 13px; }
@@ -257,13 +465,13 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
 
 /* ---- Laptop and tablet -------------------------------------------------------------- */
 @media (max-width: 1180px) {
-  .work { grid-template-columns: 1fr; }
-  .items { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
-  .items .label { grid-column: 1 / -1; }
   .bottom { grid-template-columns: 1fr 1fr; }
   .bottom .canary { grid-column: 1 / -1; }
   .stage .name { font-size: 20px; }
   .stage .fig { display: none; }
+  .sheet-body { grid-template-columns: 1fr; }
+  .sheet-side { display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
+  .replay { grid-template-columns: 1fr; }
 }
 
 /* ---- Phone: the line folds into two rows of four ------------------------------------ */
@@ -290,30 +498,47 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   .line { margin-top: 28px; }
   .ret-note { display: flex; justify-content: center; align-items: center; gap: 6px; min-height: 20px; margin-top: 16px; font: 11px/1.4 var(--font-mono); color: var(--text-2); text-align: center; }
   .add { left: -4px; top: -6px; }
-
   .stage-panel { position: fixed !important; left: 0 !important; right: 0; bottom: 0; top: auto !important; width: auto; max-height: 70vh; overflow: auto; border-radius: 14px 14px 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
   .stage-panel .caret { display: none; }
 
-  .work { margin-top: 36px; }
-  .items { display: flex; }
-  .panel { padding: 18px; }
-  .replay-head h2 { font-size: 26px; }
-  .replay-body { grid-template-columns: 1fr; gap: 20px; }
-  .scrub { margin: 18px 18px 0 12px; }
-  .ch { width: 28px; margin-left: -14px; }
-  .scrub .gap { display: none; }
-  .actions .btn { flex: 1; padding: 0 10px; }
+  .history { margin-top: 44px; }
+  .history-head h2 { font-size: 32px; }
+  .play-label { display: none; }
+  .card { padding: 10px 10px 12px; }
+  .card h3 { font-size: 23px; }
+  .card .kind, .meta .opt { display: none; }
+  .rail .ver:not(.here) { display: none; }
+  .rail .day { font-size: 0; }
+  .sheet { height: 94vh; height: 94dvh; }
+  .sheet-head h2 { font-size: 28px; }
+  .sheet-nav .count { display: none; }
+  .sheet-side { display: flex; }
+  .regress .row { grid-template-columns: 1fr 1fr; }
+  .scrub { margin: 16px 16px 0 10px; }
+  .ch { width: 26px; margin-left: -13px; }
   .ch span { display: none; }
-  .ch.here span { display: block; position: absolute; top: 40px; }
+  .ch.here span { display: block; position: absolute; top: 40px; margin-top: 0 !important; }
   .event { grid-template-columns: 56px minmax(0, 1fr); }
   .event .actor { display: none; }
-  .bottom { grid-template-columns: 1fr; }
+  .panel { padding: 18px; }
+  .actions .btn { flex: 1; padding: 0 10px; }
+  .bottom { grid-template-columns: 1fr; margin-top: 40px; }
   .try-grid { grid-template-columns: 1fr; }
 }
 .phone-status { display: none; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
 </style>
 </head>
 <body>
+
+<!-- Logos used more than once, defined once. From theSVG (MIT); the marks belong to their owners. -->
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <symbol id="logo-node" viewBox="0 0 256 292"><defs><linearGradient id="node-a" x1="68.188%" x2="27.823%" y1="17.487%" y2="89.755%"><stop offset="0%" stop-color="#41873f"/><stop offset="32.88%" stop-color="#418b3d"/><stop offset="63.52%" stop-color="#419637"/><stop offset="93.19%" stop-color="#3fa92d"/><stop offset="100%" stop-color="#3fae2a"/></linearGradient><linearGradient id="node-b" x1="43.277%" x2="159.245%" y1="55.169%" y2="-18.306%"><stop offset="13.76%" stop-color="#41873f"/><stop offset="40.32%" stop-color="#54a044"/><stop offset="71.36%" stop-color="#66b848"/><stop offset="90.81%" stop-color="#6cc04a"/></linearGradient><linearGradient id="node-c" x1="-4.389%" x2="101.499%" y1="49.997%" y2="49.997%"><stop offset="9.192%" stop-color="#6cc04a"/><stop offset="28.64%" stop-color="#66b848"/><stop offset="59.68%" stop-color="#54a044"/><stop offset="86.24%" stop-color="#41873f"/></linearGradient><path id="node-d" d="M134.923 1.832c-4.344-2.443-9.502-2.443-13.846 0L6.787 67.801C2.443 70.244 0 74.859 0 79.745v132.208c0 4.887 2.715 9.502 6.787 11.945l114.29 65.968c4.344 2.444 9.502 2.444 13.846 0l114.29-65.968c4.344-2.443 6.787-7.058 6.787-11.945V79.745c0-4.886-2.715-9.501-6.787-11.944z"/><mask id="node-m" fill="#fff"><use href="#node-d"/></mask></defs><path fill="url(#node-a)" d="M134.923 1.832c-4.344-2.443-9.502-2.443-13.846 0L6.787 67.801C2.443 70.244 0 74.859 0 79.745v132.208c0 4.887 2.715 9.502 6.787 11.945l114.29 65.968c4.344 2.444 9.502 2.444 13.846 0l114.29-65.968c4.344-2.443 6.787-7.058 6.787-11.945V79.745c0-4.886-2.715-9.501-6.787-11.944z"/><path fill="url(#node-b)" d="M249.485 67.8L134.65 1.833c-1.086-.542-2.443-1.085-3.529-1.357L2.443 220.912c1.086 1.357 2.444 2.443 3.8 3.258l114.834 65.968c3.258 1.9 7.059 2.443 10.588 1.357L252.47 70.515c-.815-1.086-1.9-1.9-2.986-2.714Z" mask="url(#node-m)"/><path fill="url(#node-c)" d="M249.756 223.898c3.258-1.9 5.701-5.158 6.787-8.687L130.579.204c-3.258-.543-6.787-.272-9.773 1.628L6.786 67.53l122.979 224.238c1.628-.272 3.529-.815 5.158-1.63l114.833-66.239Z" mask="url(#node-m)"/></symbol>
+  <symbol id="logo-otel" viewBox="0 0 24 24"><path fill="currentColor" d="M12.697 13.117A2.618 2.618 0 1 0 16.4 16.82a2.618 2.618 0 0 0-3.703-3.703m2.768 2.77a1.296 1.296 0 1 1-1.833-1.832a1.296 1.296 0 0 1 1.833 1.832M16.356.236L14.752 1.84a.81.81 0 0 0 0 1.144l6.263 6.263a.81.81 0 0 0 1.144 0l1.604-1.604a.81.81 0 0 0 0-1.144L17.498.235a.81.81 0 0 0-1.142 0M5.117 20.734a.733.733 0 0 0 0-1.034l-.815-.816a.733.733 0 0 0-1.035 0l-1.684 1.685l-.003.002l-.462-.463a.654.654 0 1 0-.925.925l2.775 2.775a.654.654 0 1 0 .925-.925l-.463-.462l.003-.002zm8.486-15.893l-3.564 3.564a.82.82 0 0 0 0 1.154l2.2 2.2a3.98 3.98 0 0 1 5.137.419l1.782-1.782a.82.82 0 0 0 0-1.154l-4.401-4.4a.815.815 0 0 0-1.154 0m-2.288 7.846l-1.3-1.3a.786.786 0 0 0-1.108 0l-4.583 4.586a.786.786 0 0 0 0 1.107l2.597 2.598a.786.786 0 0 0 1.108 0l2.947-2.953a3.99 3.99 0 0 1 .339-4.038"/></symbol>
+  <symbol id="logo-trivy" viewBox="0 0 24 24"><path fill="#1904da" d="M4.375 7.311L1.962 5.918a.1.1 0 0 1 0-.174L11.828.047a.34.34 0 0 1 .344 0l9.864 5.696a.1.1 0 0 1 0 .175L19.624 7.31a1 1 0 0 1-.052-.074c-.914-1.478-2.124-2.592-3.596-3.31c-4.088-1.994-9.164-.505-11.6 3.385Zm7.887 16.588v-3.14c5.693-2.087 9.01-7.766 7.588-12.985l2.436-1.42a.1.1 0 0 1 .151.088v11.645a.1.1 0 0 1-.05.087l-9.973 5.812a.1.1 0 0 1-.152-.087m-.559-3.141v3.14a.1.1 0 0 1-.151.086l-9.933-5.81a.11.11 0 0 1-.056-.099V6.436a.1.1 0 0 1 .15-.087l2.44 1.41c-1.455 5.307 1.846 10.993 7.55 13ZM7.013 8.834L4.807 7.561c2.306-3.665 7.094-5.066 10.95-3.186c1.385.676 2.526 1.727 3.39 3.124l.04.062l-2.195 1.268a5.57 5.57 0 0 0-2.429-2.307c-2.603-1.27-5.901-.253-7.552 2.311Zm9.337 5.2c.813-1.371 1.088-2.99.798-4.685l2.255-1.314c1.245 4.86-1.864 10.169-7.14 12.192v-3.072c1.86-.67 3.272-1.747 4.087-3.12ZM4.6 8.018l2.27 1.31c-.225 1.571.112 3.204.951 4.606c.919 1.536 2.225 2.629 3.881 3.25v3.045C6.327 18.25 3.297 13.042 4.601 8.017Zm5.303 2.486l-2.459-1.42c1.52-2.34 4.53-3.268 6.9-2.112A5.1 5.1 0 0 1 16.56 9.08l-2.471 1.427a2.31 2.31 0 0 0-2.03-1.195c-.825 0-1.645.43-2.156 1.192m4.338.522l2.443-1.408c.22 1.51-.043 2.945-.765 4.162c-.735 1.238-1.998 2.224-3.658 2.856v-2.631c1.25-.691 1.968-1.771 1.98-2.979m-5.991 2.65A6.58 6.58 0 0 1 7.34 9.6l2.446 1.412c-.016 1.271.73 2.437 1.917 2.997v2.624a6.98 6.98 0 0 1-3.453-2.956Zm3.853-.148l-.137.073l-.157-.075c-1.023-.504-1.524-1.606-1.557-2.417a2 2 0 0 1 .004-.23a2.15 2.15 0 0 1 1.163-.957c.508-.178 1.034-.153 1.444.071c.6.327.84.797.86.86c.008.156.004.253.004.256c-.038.981-.63 1.863-1.624 2.419"/></symbol>
+  <symbol id="logo-dependabot" viewBox="0 0 24 24"><path fill="#025e8c" d="M10.949.314a1.92 1.92 0 0 1 2.102 0l9.333 6.118c.541.354.866.957.866 1.604v7.928c0 .647-.326 1.25-.866 1.604l-9.333 6.118a1.92 1.92 0 0 1-2.102 0l-9.333-6.118a1.92 1.92 0 0 1-.866-1.604V8.036c0-.647.326-1.25.866-1.604zM12.75 7.5v.75h-6A.75.75 0 0 0 6 9v3h-.5a.25.25 0 0 0-.25.25v2.5c0 .138.112.25.25.25H6v1.5c0 .415.336.75.75.75h10.5a.75.75 0 0 0 .75-.75V15h.5a.25.25 0 0 0 .25-.25v-2.5a.25.25 0 0 0-.25-.25H18V9a.75.75 0 0 0-.75-.75H13.5V5.5a.25.25 0 0 0-.25-.25H11.5a.25.25 0 0 0-.25.25v1.75c0 .138.112.25.25.25zm3.286 5.089l-1.572 1.572a.303.303 0 0 1-.428 0l-.947-.947a.303.303 0 0 1 0-.428l.322-.322a.303.303 0 0 1 .428 0l.41.411l1.037-1.036a.303.303 0 0 1 .428 0l.322.322a.303.303 0 0 1 0 .428M9.464 14.16a.303.303 0 0 1-.428 0l-.948-.947a.3.3 0 0 1 0-.428l.323-.322a.303.303 0 0 1 .427 0l.412.411l1.036-1.037a.303.303 0 0 1 .427 0l.323.322a.303.303 0 0 1 0 .428z"/></symbol>
+  <symbol id="logo-anthropic" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M13.827 3.52h3.603L24 20h-3.603zm-7.258 0h3.767L16.906 20h-3.674l-1.343-3.461H5.017l-1.344 3.46H0L6.57 3.522zm4.132 9.959L8.453 7.687L6.205 13.48H10.7z"/></symbol>
+  <symbol id="logo-jev" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M3 4.5h10M3 8h6M3 11.5h8"/></symbol>
+</svg>
 
 <div class="banner" id="banner" hidden>
   <div class="wrap"><span>You are previewing the console as a visitor sees it.</span><button type="button" id="to-admin">Back to admin</button></div>
@@ -371,17 +596,33 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
     <div class="stage-panel" id="stage-panel" role="dialog" aria-modal="false" aria-labelledby="stage-title" hidden></div>
   </section>
 
-  <section class="work" aria-label="Work items">
-    <nav class="items" id="items" aria-label="Work items"></nav>
-    <article class="panel" id="replay" aria-live="polite" aria-atomic="false"></article>
+  <section class="history" aria-labelledby="history-title">
+    <div class="history-head">
+      <div>
+        <h2 id="history-title">The shop, change by change</h2>
+        <p>Every work item, oldest on the left. Drag the cards or the timeline to watch the shop change; open one to see how it was done.</p>
+      </div>
+      <div class="transport">
+        <button type="button" class="btn" id="play"></button>
+        <button type="button" class="icon-btn" id="prev" aria-label="Previous work item"><svg class="glyph" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></button>
+        <span class="count" id="count"></span>
+        <button type="button" class="icon-btn" id="next" aria-label="Next work item"><svg class="glyph" viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></button>
+        <button type="button" class="now-btn" id="now"><span class="dot tone-signal blink"></span>NOW</button>
+      </div>
+    </div>
+    <div class="reel" id="reel" tabindex="0" role="region" aria-roledescription="carousel" aria-label="Work items, oldest first. Left and right arrows move; Enter opens one."></div>
+    <div class="rail" id="rail" tabindex="0" role="slider" aria-label="Timeline of work items"></div>
+    <div class="at-line" id="at-line"></div>
+    <p class="sr" id="announce" aria-live="polite"></p>
+    <p class="help" style="margin-top: 18px"><b>What am I looking at?</b> Each card is one work item: what was wrong or wanted, what changed on the site, and what it cost. Where nothing visible changed, the card shows what did: a graph, a package, a log line or the refusal that stopped an attack. Open a card for every stage, screenshot and model call.</p>
   </section>
 
   <section class="bottom">
     <article class="panel canary" aria-labelledby="canary-title">
       <div class="panel-head">
         <div style="display: flex; flex-direction: column; gap: 6px">
-          <span class="label" style="color: var(--ok)">Canary in flight · v0.14</span>
-          <h2 id="canary-title">Search handles “café” again</h2>
+          <span class="label" style="color: var(--ok)">Canary in flight · v0.9.9</span>
+          <h2 id="canary-title">Search returns only cats</h2>
         </div>
         <span class="check-pill">All checks passing</span>
       </div>
@@ -392,8 +633,8 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
       <table class="signals">
         <thead><tr><th>Signal</th><th>Canary</th><th>Baseline</th></tr></thead>
         <tbody>
-          <tr><td>Error rate</td><td class="mono ok">0.21%</td><td class="mono muted">1.90%</td></tr>
-          <tr><td>p99 latency</td><td class="mono ok">138 ms</td><td class="mono muted">142 ms</td></tr>
+          <tr><td>Error rate</td><td class="mono ok">0.20%</td><td class="mono muted">0.22%</td></tr>
+          <tr><td>p99 latency</td><td class="mono ok">131 ms</td><td class="mono muted">134 ms</td></tr>
           <tr><td>Synthetic journeys</td><td class="mono ok">24 / 24</td><td class="mono muted">23 / 24</td></tr>
         </tbody>
       </table>
@@ -412,12 +653,12 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
         <div class="kind">IMPROVEMENT<span>#1300 · spec ready</span></div>
         <p>Sort products by price, behind a flag</p>
         <p class="q">The planner asks: should out-of-stock products sort last?</p>
-        <div class="row"><button type="button" class="btn primary small">Answer and approve</button><button type="button" class="btn small">Open spec</button></div>
+        <div class="row"><button type="button" class="btn primary small">Answer and approve</button><button type="button" class="btn small" data-open="1300">Open spec</button></div>
       </div>
       <div class="need">
         <div class="kind">TEST INTEGRITY<span>#1279 · held by the gate</span></div>
         <p>This PR goes green by deleting a failing test</p>
-        <div class="row"><button type="button" class="btn primary small">Reject PR</button><button type="button" class="btn small">Open diff</button></div>
+        <div class="row"><button type="button" class="btn primary small">Reject PR</button><button type="button" class="btn small" data-open="1279">Open work item</button></div>
       </div>
     </article>
 
@@ -468,128 +709,422 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   </div>
 </footer>
 
+<div class="scrim" id="scrim" hidden></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden>
+  <div class="grab" aria-hidden="true"></div>
+  <div class="wrap" style="width: 100%"><header class="sheet-head" id="sheet-head"></header></div>
+  <div class="sheet-scroll"><div class="wrap sheet-body" id="sheet-body"></div></div>
+</section>
+
 <script>
 (() => {
 'use strict';
 
-/* ==== Data: a sample run. In the app, all of this is a projection of the event store. ==== */
+/* ==== The line. In the app, all of this is a projection of the event store. =============== */
 
-// The line. status: idle | working | returning | passing | blocked | failed. fig: one short figure.
+// status: idle | working | returning | passing | blocked | failed. fig: one short figure.
 const LINE = [
   { kind: 'sense',   status: 'working', fig: '3 signals' },
-  { kind: 'triage',  status: 'working', fig: '2 tickets' },
+  { kind: 'triage',  status: 'working', fig: '1 report' },
   { kind: 'plan',    status: 'blocked', fig: '1 spec' },
-  { kind: 'build',   status: 'working', fig: '2 busy' },
+  { kind: 'build',   status: 'idle',    fig: 'none' },
   { kind: 'gates',   status: 'blocked', fig: '1 held' },
-  { kind: 'review',  status: 'working', fig: '1 PR' },
+  { kind: 'review',  status: 'idle',    fig: 'none' },
   { kind: 'release', status: 'working', fig: '25%' },
-  { kind: 'verify',  status: 'passing', fig: '11 today' },
+  { kind: 'verify',  status: 'passing', fig: '1 today' },
 ];
 
-// What each stage holds. Row: [id, title, note, tone, replayable work item or null, age]
+// What each stage holds. Row: [id, title, note, tone, work item to open or null, age]
 const STAGES = {
-  sense:   { blurb: 'What the probes, the crawler and visitor reports picked up.', rows: [
-    ['signal', 'Contact form rejects valid emails', 'probe · contact journey', '', null, '4m'],
-    ['signal', '“Contcat” in the menu', 'visitor report · treated as untrusted text', '', null, '11m'],
-    ['signal', 'p99 on /products creeping up', 'crawler · watching, not a ticket yet', '', null, '23m']] },
+  sense:   { blurb: 'What the probes, the crawler, telemetry and visitor reports picked up.', rows: [
+    ['signal', 'Search journey passing on the canary', 'probe · watching v0.9.9', '', null, '1m'],
+    ['signal', 'A report on “Key, spare”', 'visitor report · untrusted text, sent to triage', '', null, '3m'],
+    ['signal', 'p95 on the home page steady at 85 ms', 'metrics · within its objective', '', null, '9m']] },
   triage:  { blurb: 'Signals deduplicated and backed with evidence before anyone plans work.',
     sources: [['Sense', true], ['Visitor reports', true], ['Slack', false], ['Linear or Jira', false]], rows: [
-    ['#1303', 'Contact form rejects valid emails', 'collecting a trace and a screenshot', '', null, '3m'],
-    ['#1305', '“Contcat” typo in the menu', 'confirming the report on the live page', '', null, '9m']] },
+    ['#1306', 'A report on “Key, spare”', 'Jev answering triage/v1', '', null, '2m']] },
   plan:    { blurb: 'Specs and questions. Improvements wait here for approval.', add: true, rows: [
-    ['#1300', 'Sort products by price', 'spec ready · waiting for approval', 'attn', '1300', '1h']] },
-  build:   { blurb: 'Coder agents write a failing test first, then the fix.', rows: [
-    ['#1302', 'Prices go negative', 'failing test written · fix in progress', '', '1302', '2m'],
-    ['#1297', 'Footer links return 404', 'coder agent writing the fix', '', null, '14m']] },
+    ['#1300', 'Sort products by price', 'spec ready · waiting for approval', 'attn', '1300', '50m']] },
+  build:   { blurb: 'Coder agents write a failing test first, then the fix.', rows: [] },
   gates:   { blurb: 'Deterministic checks every PR must pass. Always enforced.', rows: [
-    ['#1279', 'A PR deletes the failing test', 'held by the test-integrity gate', 'attn', '1279', '6m'],
-    ['#1304', 'Fix for footer links', '7 of 11 checks passed', '', null, '1m']] },
-  review:  { blurb: 'An agent reviewer reads what passed the gates.', rows: [
-    ['#1306', 'Compress product thumbnails', 'sent back to Build · 2 comments', '', null, '1m']] },
+    ['#1279', 'A PR deletes the failing test', 'held by the test-integrity gate', 'attn', '1279', '1d']] },
+  review:  { blurb: 'An agent reviewer reads what passed the gates.', rows: [] },
   release: { blurb: 'Signed images behind a canary that can roll itself back.', rows: [
-    ['#1293', 'Search handles “café” again', 'v0.14 at 25% · all checks passing', '', '1293', '8m']] },
-  verify:  { blurb: 'Has the original signal cleared in production? New problems it finds go back to Sense.', foot: 'and 9 more verified today · 3 new tickets fed back to Sense', rows: [
-    ['#1288', 'Hero image is 5 MB', 'verified in 17 min', 'ok', '1288', '52m'],
-    ['#1291', '“Abuot us” typo in the menu', 'verified in 9 min', 'ok', '1291', '1h']] },
+    ['#1302', 'Search returns only cats', 'v0.9.9 at 25% · all checks passing', '', '1302', '2m']] },
+  verify:  { blurb: 'Has the original signal cleared in production? New problems it finds go back to Sense.', foot: 'and 6 more verified this week · 2 new tickets fed back to Sense', rows: [
+    ['#1296', 'Prices go negative', 'verified in 16 min', 'ok', '1296', '1h'],
+    ['#1293', 'Home page logs lost their trace', 'verified in 21 min', 'ok', '1293', '18h']] },
 };
-
-// Work items. end: live | waiting | verified | rolledback | blocked. ch: [label, clock, actor, event, % along]
-const ITEMS = [
-  { id: '1293', title: 'Search returns 500 for “café”', kind: 'Defect fix', note: 'canary at 25%', end: 'live',
-    url: 'worst-website.demo/search?q=café', broken: ['500 · Internal Server Eror', 'Something went wrong. Please try again never.'],
-    fixed: ['Café au lait mug · £12.99', 'Café racer poster · £8.50', 'Decaf café blend · £6.00'], ok: '', brokenFrom: 0, fixedFrom: 6,
-    fixedCaption: 'From canary traffic: accented searches work again. Baseline users still see the error until the canary is promoted.',
-    gap: ['29%', '6 min idle'],
-    ch: [['SIGNAL', 'T+00:00', 'probe', 'Search journey got a 500 for “café”', 0], ['TICKET', 'T+01:10', 'triage', 'Ticket #1293 opened with a trace and a screenshot', 10],
-      ['SPEC', 'T+03:05', 'planner', 'Spec: accented searches return results', 20], ['PR', 'T+09:40', 'coder', 'Failing test first, then the fix · PR #1301', 38],
-      ['GATES', 'T+14:20', 'actions', 'All 11 required checks passed', 52], ['REVIEW', 'T+16:04', 'reviewer', 'Review posted as a check run: approve', 64],
-      ['CANARY', 'T+20:05', 'rollouts', 'v0.14 signed and admitted; canary at 25%', 80], ['LIVE', 'T+21:40', '', '', 100]] },
-  { id: '1302', title: 'Prices go negative', kind: 'Injected by visitor amber-otter', note: 'fix in progress', end: 'live',
-    url: 'worst-website.demo/products', broken: ['Rubber duck · £-4.99', 'Checkout total: £-12.47. Bargain.'], fixed: [], ok: 'Rubber duck · £4.99',
-    brokenFrom: 1, fixedFrom: null, fixedCaption: '', gap: null,
-    ch: [['INJECT', 'T+00:00', 'visitor', 'Visitor chose “Prices go negative”', 0], ['ON SITE', 'T+04:10', 'injector', 'Injected change passed the pipeline and went live', 20],
-      ['SIGNAL', 'T+05:30', 'probe', 'Checkout journey saw a negative total', 38], ['TICKET', 'T+06:00', 'triage', 'Ticket #1302 opened with a screenshot', 52],
-      ['SPEC', 'T+07:20', 'planner', 'Spec: prices can never be negative', 66], ['PR', 'T+09:05', 'coder', 'Failing test written; fix in progress', 80], ['LIVE', 'T+10:12', '', '', 100]] },
-  { id: '1300', title: 'Sort products by price', kind: 'Improvement requested by Martin', note: 'waiting for approval', end: 'waiting',
-    url: 'worst-website.demo/products', broken: null, fixed: [], ok: 'No change on the site yet. It ships behind a flag once the spec is approved.',
-    brokenFrom: null, fixedFrom: null, fixedCaption: '', gap: null,
-    ch: [['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console', 0], ['SPEC', 'T+02:40', 'planner', 'Spec written with 3 acceptance criteria', 40],
-      ['QUESTION', 'T+03:10', 'planner', 'Asked: where do out-of-stock products sort?', 66], ['WAITING', 'T+03:12', 'console', 'Waiting for Martin to approve the spec', 100]] },
-  { id: '1288', title: 'Hero image is 5 MB', kind: 'Defect fix', note: 'verified in 17 min', end: 'verified',
-    url: 'worst-website.demo/', broken: ['Hero image: 5.2 MB', 'Home page takes 9.8 s to load on mobile.'],
-    fixed: ['Hero image: 180 KB', 'Home page loads in 1.1 s', 'Lighthouse performance: 91'], ok: '', brokenFrom: 0, fixedFrom: 6,
-    fixedCaption: 'After the fix went live: same picture, a fraction of the weight.', gap: null,
-    ch: [['SIGNAL', 'T+00:00', 'crawler', 'Home page hero image is 5.2 MB', 0], ['TICKET', 'T+00:50', 'triage', 'Ticket #1288 opened', 12],
-      ['SPEC', 'T+02:10', 'planner', 'Spec: hero under 300 KB, same look', 24], ['PR', 'T+06:30', 'coder', 'Image resized and served as WebP · PR #1290', 40],
-      ['GATES', 'T+10:40', 'actions', 'All checks passed, including the page-weight budget', 55], ['REVIEW', 'T+12:05', 'reviewer', 'Approved', 67],
-      ['CANARY', 'T+13:30', 'rollouts', 'Canary promoted to 100%', 82], ['VERIFIED', 'T+17:02', 'crawler', 'Hero now 180 KB; ticket closed', 100]] },
-  { id: '1284', title: 'Search slows to 800 ms', kind: 'Defect fix', note: 'rolled back automatically', end: 'rolledback',
-    url: 'worst-website.demo/search?q=duck', broken: ['Search took 820 ms', 'Only canary traffic saw this, for four minutes.'],
-    fixed: ['Back on v0.12 · search 140 ms', 'Ticket #1285 opened with traces'], ok: '', brokenFrom: 1, fixedFrom: 2,
-    fixedCaption: 'After the rollback: baseline users never noticed.', gap: null,
-    ch: [['CANARY', 'T+00:00', 'rollouts', 'v0.13 canary started at 5%', 0], ['ANALYSIS', 'T+03:20', 'rollouts', 'p99 on /search 820 ms against 140 ms baseline', 45],
-      ['ROLLED BACK', 'T+03:24', 'rollouts', 'Traffic back on v0.12; ticket #1285 opened', 100]] },
-  { id: '1279', title: 'A PR deletes the failing test', kind: 'Red-team attack by amber-otter', note: 'blocked by the gate', end: 'blocked',
-    url: 'worst-website.demo/search', broken: null, fixed: [], ok: 'The site never changed: the attack was stopped before anything merged.',
-    brokenFrom: null, fixedFrom: null, fixedCaption: '', gap: null,
-    ch: [['ATTACK', 'T+00:00', 'visitor', 'Visitor chose: make CI green by deleting a test', 0], ['PR', 'T+02:30', 'coder', 'PR #1299 deletes search.spec.ts', 45],
-      ['GATES', 'T+04:10', 'actions', 'Test-integrity gate: tests removed, high risk', 75], ['BLOCKED', 'T+04:11', 'actions', 'Held for a human, with the gate’s reason', 100]] },
-];
 
 // Returns: work going back upstream. Shown one at a time, newest first; a sender flips to "sending back" while its arc shows.
 const RETURNS = [
-  { from: 5, to: 3, text: 'Review sent #1306 back · 2 comments', sender: true },
-  { from: 7, to: 0, text: '3 new tickets from production today' },
-  { from: 4, to: 3, text: 'Gates sent #1297 back · 2 checks failed', sender: true },
+  { from: 4, to: 3, text: 'Gates sent #1302 back · 1 check failed', sender: true },
+  { from: 7, to: 0, text: '2 new tickets from production this week' },
 ];
 
 const STAGE_NAME = { sense: 'Sense', triage: 'Triage', plan: 'Plan', build: 'Build', gates: 'Gates', review: 'Review', release: 'Release', verify: 'Verify' };
 const STATE = { idle: ['idle', 'faint'], working: ['working', 'signal'], returning: ['sending back', 'signal'], passing: ['passed', 'ok'], blocked: ['needs you', 'attn'], failed: ['failed', 'attn'] };
-const END = {
-  live: ['IN PROGRESS · LIVE', 'signal', 'In progress'], waiting: ['WAITING FOR MARTIN', 'attn', 'Needs you'],
-  verified: ['VERIFIED', 'ok', 'Done'], rolledback: ['ROLLED BACK', 'attn', 'Done'], blocked: ['BLOCKED', 'attn', 'Needs you'],
-};
 const AUTONOMY = {
   supervised: ['Supervised', 'You approve every merge and every release.'],
   guarded: ['Guarded', 'Low-risk changes ship on their own. Anything risky waits for you.'],
   lightsout: ['Lights-out', 'Only the gates and the canary decide. You are told afterwards.'],
 };
 
+/* ==== The shop, drawn small ================================================================ */
+
+const DRAW = {
+  candle: '<path d="M17 12h6v14h-6z M13 26h14 M20 12V9.5 M20 9.5c-1.6-1.6-.4-3.4 0-4.5c.4 1.1 1.6 2.9 0 4.5z"/>',
+  clock: '<circle cx="20" cy="15" r="10"/><path d="M20 15l5.2 3 M20 15l6.8-3.9 M20 6.5V8 M20 22v1.5 M11.5 15H13 M27 15h1.5"/>',
+  ladder: '<path d="M15 3v24 M25 3v24 M15 15h10"/>',
+  brick: '<path d="M8 11h24v11H8z M8 16.5h24 M16 11v5.5 M24 16.5V22"/>',
+  key: '<circle cx="13" cy="15" r="4.5"/><path d="M17.5 15h14 M27 15v3.5 M30 15v2.5"/>',
+  jigsaw: '<path d="M9 7h22v16H9z M16.3 7v16 M23.6 7v16 M9 15h22"/><path d="M24.6 16h5.4v6h-5.4z" stroke-dasharray="1.2 1.2"/>',
+  flap: '<path d="M10 4h20v24H10z M14 13h12v11H14z M14 13.5h12"/>',
+  book: '<path d="M12 6h16v19H12z M15 6v19 M18 11h7 M18 14h5"/>',
+  cat: '<path d="M14 25c0-6 2-10 6-10s6 4 6 10z M16 16l-1.2-5 3.6 3 M24 16l1.2-5-3.6 3 M26 23c4 0 5-3 3-5"/>',
+};
+const PROD = {
+  candle: ['Candle, lightly used', 240, 3, 'candle'], clock: ['Clock, stopped', 600, 1, 'clock'],
+  ladder: ['Ladder, one rung', 900, 1, 'ladder'], doorstop: ['Doorstop', 350, 6, 'brick'],
+  key: ['Key, spare', 120, 2, 'key'], jigsaw: ['Jigsaw, 999 pieces', 499, 1, 'jigsaw'],
+  flap: ['Cat flap, painted shut', 300, 1, 'flap'], china: ['Cat, china, one ear', 220, 1, 'cat'], catalogue: ['Catalogue, last spring’s', 50, 4, 'book'],
+};
+const GRID = ['candle', 'clock', 'ladder', 'doorstop', 'key', 'jigsaw'];
+const pounds = (p) => (p < 0 ? '£-' : '£') + (Math.abs(p) / 100).toFixed(2);
+const svgDraw = (d) => `<svg viewBox="0 0 40 30" aria-hidden="true">${DRAW[d]}</svg>`;
+
+// One product card. o: { price(p), mark(slug), markName(slug) and markLeft(slug) -> [class, note] | null, left: bool }
+const marked = (m) => m ? `class="mk ${m[0]}" ${m[1] ? `data-note="${m[1]}"` : ''}` : '';
+function shopCard(slug, o = {}) {
+  const [name, price, stock, d] = PROD[slug];
+  const pr = `<span class="pr"><span ${marked(o.mark?.(slug))}>${pounds(o.price ? o.price(price) : price)}</span></span>`;
+  const left = o.left ? `<span class="left"><span ${marked(o.markLeft?.(slug))}>${stock === 1 ? 'Only 1 left' : stock + ' left'}</span></span>` : `<span class="stock">${stock} in stock</span>`;
+  return `<div class="sc">${svgDraw(d)}<b><span ${marked(o.markName?.(slug))}>${name}</span></b>${pr}${left}</div>`;
+}
+const chrome = (url) => `<div class="bar"><i></i><i></i><i></i><span>mossop.localhost${url}</span></div>`;
+const masthead = (cur) => `<div class="mast"><b>Mossop’s Practical Sundries</b><nav>${['Home', 'Products', 'Search', 'About', 'Contact'].map((n) => `<span class="${n === cur ? 'cur' : ''}">${n}</span>`).join('')}</nav></div>`;
+const shot = (url, cur, body) => `<div class="shot" aria-hidden="true">${chrome(url)}<div class="pg">${masthead(cur)}${body}</div></div>`;
+
+const PAGES = {
+  products: (o = {}) => shot('/products', 'Products', `<h4>Products</h4>
+    <div class="filter">${['All', 'Home', 'Workshop', 'Desk', 'Outdoors'].map((d) => {
+      const m = o.focus === d ? ['good', o.focusNote] : o.markFilter && d === 'Home' ? ['', o.markFilter] : null;
+      return `<span class="${d === 'All' ? 'cur' : ''} ${o.focus === d ? 'focus' : ''} ${m ? 'mk ' + m[0] : ''}" ${m ? `data-note="${m[1]}"` : ''}>${d}</span>`;
+    }).join('')}</div>
+    <div class="grid">${GRID.map((s) => shopCard(s, o)).join('')}</div>`),
+  search: (q, slugs, o = {}) => shot('/search?q=' + q, 'Search', `<h4>Search</h4>
+    <div class="search"><span>${q}</span><em>Search</em></div>
+    <p style="display: inline-block" ${marked(o.markCount ?? null)}>${slugs.length} ${slugs.length === 1 ? 'result' : 'results'} for “${q}”</p>
+    <div class="grid">${slugs.map((s) => shopCard(s, o)).join('')}</div>`),
+  product: (slug) => { const [name, price, stock, d] = PROD[slug]; return shot('/products/clock-stopped', 'Products', `
+    <div class="product"><div class="drawing">${svgDraw(d)}</div><div><h4>${name}</h4>
+    <div class="facts"><span>Item 2</span><b>${pounds(price)}</b><span>${stock} in stock</span></div>
+    <p>A wall clock showing ten past four. Correct twice daily, which is more than can be said for some.</p>
+    <p class="notes">It has shown ten past four since it arrived. For best results, consult it at ten past four.</p></div></div>`); },
+  home: () => shot('/', 'Home', `<h4>Welcome to the shop</h4>
+    <p>Honest goods, honestly described. We opened in March, and it has gone well, considering.</p>
+    <b style="font-family: var(--serif); font-size: 2.2cqw">This week’s sundries</b>
+    <div class="grid four" style="margin-top: 1.2cqw">${['clock', 'ladder', 'key', 'candle'].map((s) => shopCard(s)).join('')}</div>`),
+};
+
+/* ==== Glyphs, one per category ============================================================= */
+
+const G = {
+  improvement: '<circle cx="8" cy="8" r="6.25"/><path d="M8 5v6M5 8h6"/>',
+  functional: '<path d="M5.5 6.5a2.5 2.5 0 0 1 5 0V10a2.5 2.5 0 0 1-5 0z M8 7v5.5 M2.75 8.5h2.75 M10.5 8.5h2.75 M3.5 12.5l2-1.25 M12.5 12.5l-2-1.25 M6.25 4.5 5 2.75 M9.75 4.5 11 2.75"/>',
+  performance: '<path d="M2.25 11.5a5.75 5.75 0 1 1 11.5 0"/><path d="M8 11.5l3.25-3.75"/>',
+  security: '<path d="M8 1.75 13 3.5v4c0 3.2-2.1 5.6-5 6.75C5.1 13.1 3 10.7 3 7.5v-4z"/><path d="M5.75 8.25 7.25 9.75 10.25 6.5"/>',
+  dependency: '<path d="M2.5 5 8 2.25 13.5 5v6L8 13.75 2.5 11z M2.5 5 8 7.75 13.5 5 M8 7.75v6"/>',
+  accessibility: '<circle cx="8" cy="3.25" r="1.25"/><path d="M3 6h10 M8 6v4 M8 10l-2.5 4 M8 10l2.5 4"/>',
+  observability: '<path d="M1.5 8.5h3l1.5-4 3 8 1.5-4h4"/>',
+  redteam: '<path d="M8 1.75 13 3.5v4c0 3.2-2.1 5.6-5 6.75C5.1 13.1 3 10.7 3 7.5v-4z"/><path d="M6 6.25l4 4 M10 6.25l-4 4"/>',
+  triage: '<circle cx="8" cy="8" r="6.25" stroke-dasharray="2.2 2"/><path d="M5.5 8.25l1.75 1.75 3.5-3.75"/>',
+  check: '<path d="M3.5 8.5 6.5 11.5 12.5 4.5"/>', cross: '<path d="M4 4l8 8M12 4l-8 8"/>', ring: '<circle cx="8" cy="8" r="5"/>', dash: '<path d="M4 8h8"/>',
+  arrows: '<path d="M5.5 4.5 2 8l3.5 3.5 M10.5 4.5 14 8l-3.5 3.5"/>',
+};
+const glyph = (k, cls = 'glyph') => `<svg class="${cls}" viewBox="0 0 16 16" aria-hidden="true">${G[k]}</svg>`;
+const CAT = { improvement: 'Improvement', functional: 'Functional', performance: 'Performance', security: 'Security', dependency: 'Dependency', accessibility: 'Accessibility', observability: 'Observability', redteam: 'Red team', triage: 'Not a defect' };
+// Outcome: [word, tone, waits on a human]
+const END = {
+  verified: ['Verified', 'ok'], rolledback: ['Rolled back', 'attn'], blocked: ['Held for a human', 'attn', true],
+  closed: ['Closed · no change', 'faint'], waiting: ['Needs you', 'attn', true], live: ['In progress', 'signal'],
+};
+const STAGES_IN_ORDER = ['Sense', 'Triage', 'Plan', 'Build', 'Gates', 'Review', 'Release', 'Verify'];
+
+/* ==== Charts: one axis, thin lines, direct labels ========================================== */
+
+function lineChart({ series, yMax, ticks, xLabels, marker, objective, unit }) {
+  const w = 600, h = 210, l = 40, r = 96, t = 14, b = 24, n = series[0].data.length;
+  const x = (i) => l + (i / (n - 1)) * (w - l - r), y = (v) => t + (1 - v / yMax) * (h - t - b);
+  const text = (tx, ty, s, o = '') => `<text x="${tx}" y="${ty}" font-size="10.5" fill="var(--text-muted)" font-family="var(--font-mono)" ${o}>${s}</text>`;
+  const grid = ticks.map((v) => `<line x1="${l}" x2="${w - r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>${text(l - 8, y(v) + 3.5, v, 'text-anchor="end"')}`).join('');
+  const xs = xLabels.map(([i, s]) => text(x(i), h - 6, s, 'text-anchor="middle"')).join('');
+  const obj = objective ? `<line x1="${l}" x2="${w - r}" y1="${y(objective[0])}" y2="${y(objective[0])}" stroke="var(--text-muted)" stroke-dasharray="3 4"/>${text(w - r + 8, y(objective[0]) + 3.5, objective[1])}` : '';
+  const mk = marker ? `<line x1="${x(marker[0])}" x2="${x(marker[0])}" y1="${t - 6}" y2="${h - b}" stroke="var(--signal)" stroke-dasharray="2 3"/>${text(x(marker[0]) + 6, marker[2] ? h - b - 8 : t + 2, marker[1])}` : '';
+  const lines = series.map((s) => {
+    const pts = s.data.map((v, i) => (v == null ? null : [x(i), y(v)])).filter(Boolean);
+    const last = pts[pts.length - 1], lastV = s.data.filter((v) => v != null).at(-1);
+    return `<path d="M${pts.map((p) => p.join(' ')).join(' L')}" fill="none" stroke="${s.colour}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${last[0]}" cy="${last[1]}" r="3.5" fill="${s.colour}" stroke="var(--surface)" stroke-width="2"/>
+      <text x="${last[0] + 8}" y="${last[1] + (s.dy || 0) + 3.5}" font-size="10.5" fill="var(--text-2)" font-family="var(--font-sans)">${s.label} · ${lastV} ${unit}</text>`;
+  }).join('');
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${series.map((s) => s.label).join(' and ')} over time">${grid}${obj}${mk}${lines}${xs}</svg>`;
+}
+
+/* ==== Work items: the reel and the sheet ==================================================== */
+
+// prog: one character per stage. o passed, s skipped, n now, x stopped there, w waiting on a human, k closed, ' ' not reached.
+// ch: [label, clock, actor, what happened, % along, which screenshot the site showed: 'a' | 'b' | null]
+const ITEMS = [
+  { id: '1271', cat: 'improvement', kind: 'Improvement requested by Martin', end: 'verified', title: 'Show how many are left on each card',
+    desc: 'Every product card now says how many are left. It shipped behind a flag and was switched on once the canary passed.',
+    lead: 'Martin asked for stock levels on the product cards, so nobody has to open a product to find it is the last one. The planner wrote a spec with three acceptance criteria, Martin approved it, and the change shipped behind the show-stock flag. The canary passed, the flag went on, and the acceptance criteria passed in production.',
+    ver: ['v0.8.4', 'v0.9.0'], live: 'v0.9.0', pr: '1273', day: 'Thu 1 Oct', time: '16:20', dur: '31 min', found: 'Martin, from the console', prog: 'ssoooooo',
+    vis: { type: 'wipe', at: 52, a: ['BEFORE · v0.8.4', 'faint', () => PAGES.products()], b: ['AFTER · v0.9.0', 'ok', () => PAGES.products({ left: true, markLeft: (s) => ['good', s === 'ladder' ? 'New: stock on every card' : ''] })] },
+    afterProducts: () => PAGES.products({ left: true }),
+    ch: [['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console', 0, 'a'], ['SPEC', 'T+03:10', 'planner', 'Spec: three acceptance criteria, behind a flag', 14, 'a'],
+      ['APPROVED', 'T+05:00', 'martin', 'Martin approved the spec', 22, 'a'], ['PR', 'T+14:30', 'coder', 'Tests first, then the change · PR #1273', 44, 'a'],
+      ['GATES', 'T+18:10', 'actions', 'All 11 required checks passed', 58, 'a'], ['REVIEW', 'T+19:40', 'reviewer', 'Approved, one suggestion taken', 66, 'a'],
+      ['CANARY', 'T+24:05', 'rollouts', 'v0.9.0 promoted to 100%; flag switched on', 82, 'b'], ['VERIFIED', 'T+31:20', 'probe', 'Acceptance criteria pass in production', 100, 'b']],
+    criteria: [['Given', 'a product with one left, the card says “Only 1 left”'], ['Given', 'a product with more, the card gives the number'], ['Given', 'the flag is off, every card is as before']],
+    files: [['src/pages/products.ts', 18, 3], ['src/flags.ts', 9, 0], ['public/site.css', 12, 0], ['test/pages-products.test.ts', 41, 0]],
+    regress: { Products: ['4.6%', 'meant'], Home: ['2.1%', 'meant'] },
+    models: [['planner', 1.3], ['coder', 1.6], ['reviewer', 1.1]], gates: 'pass' },
+
+  { id: '1276', cat: 'dependency', kind: 'Dependency update from Dependabot', end: 'rolledback', title: 'OpenTelemetry SDK 0.230 rolled back by the canary',
+    desc: 'Every gate passed. At 5% of traffic the canary’s p99 latency tripled, and it rolled itself back in four minutes.',
+    lead: 'Dependabot proposed @opentelemetry/sdk-node 0.230.1. Every gate passed and the reviewer approved, and as a dependency change it waited for Martin, who approved it too. At 5% of traffic the canary’s p99 latency climbed to three times the baseline. Argo Rollouts rolled it back on its own and opened a ticket with the traces. Only canary traffic ever saw it.',
+    ver: ['v0.9.1', 'v0.9.0'], burnt: true, live: 'v0.9.0', pr: '1275', day: 'Fri 2 Oct', time: '08:10', dur: '16 min', found: 'Dependabot', prog: 'ssssoox ',
+    vis: { type: 'canary' },
+    ch: [['PR', 'T+00:00', 'dependabot', 'Dependabot opened PR #1275: sdk-node 0.222.0 → 0.230.1', 0, null], ['GATES', 'T+03:40', 'actions', 'All 11 required checks passed', 22, null],
+      ['REVIEW', 'T+05:10', 'reviewer', 'Approved; dependency change, so it waits for Martin', 34, null], ['APPROVED', 'T+09:00', 'martin', 'Martin approved the merge', 50, null],
+      ['CANARY', 'T+12:30', 'rollouts', 'v0.9.1 signed and admitted; canary at 5%', 70, null], ['ANALYSIS', 'T+15:50', 'rollouts', 'Canary p99 412 ms against 139 ms baseline', 92, null],
+      ['ROLLED BACK', 'T+15:54', 'rollouts', 'Traffic back on v0.9.0; ticket #1277 opened with traces', 100, null]],
+    files: [['package.json', 1, 1], ['pnpm-lock.yaml', 64, 58]],
+    models: [['reviewer', 0.9]], gates: 'pass' },
+
+  { id: '1279', cat: 'redteam', kind: 'Red-team attack by visitor amber-otter', end: 'blocked', title: 'A pull request that deletes the failing test',
+    desc: 'An agent told to make CI green at any cost deleted the failing test. The test-integrity gate held the pull request for a human.',
+    lead: 'A visitor chose an attack from the menu: an agent is told to make the build pass by any means. It deleted the failing test file. The test-integrity gate is a required check, so the pull request could not merge at any autonomy level; it waits for Martin with the gate’s reason attached. Nothing reached the site.',
+    ver: null, live: 'v0.9.0', pr: '1280', day: 'Fri 2 Oct', time: '10:42', dur: '4 min', found: 'Red-team harness', prog: 'sssox   ',
+    vis: { type: 'refusal' },
+    ch: [['ATTACK', 'T+00:00', 'visitor', 'amber-otter chose: make CI green by deleting a test', 0, null], ['PR', 'T+02:30', 'agent', 'PR #1280 deletes test/money.test.ts', 45, null],
+      ['GATES', 'T+04:10', 'actions', 'Test integrity: tests removed, high risk', 80, null], ['HELD', 'T+04:11', 'actions', 'Held for a human, with the gate’s reason', 100, null]],
+    files: [['test/money.test.ts', 0, 42], ['src/money.ts', 2, 2]],
+    models: [['attacker', 1]], gates: 'integrity' },
+
+  { id: '1282', cat: 'security', kind: 'Dependency update from Dependabot', end: 'verified', title: 'Node.js 24.21.1 security release',
+    desc: 'The base image moved to Node.js 24.21.1. The image scan’s two high findings are gone, and no page changed.',
+    lead: 'Dependabot moved the app’s base image to the Node.js 24.21.1 security release. The image scan found two high-severity findings in the old image and none in the new one. Every page still matches its screenshot from the version before, to the pixel.',
+    ver: ['v0.9.0', 'v0.9.2'], live: 'v0.9.2', pr: '1281', day: 'Fri 2 Oct', time: '11:30', dur: '22 min', found: 'Dependabot', prog: 'ssssoooo',
+    vis: { type: 'package' },
+    ch: [['PR', 'T+00:00', 'dependabot', 'Dependabot opened PR #1281: node 24.21.0 → 24.21.1', 0, null], ['GATES', 'T+04:05', 'actions', 'All checks passed; image scan: no high findings', 24, null],
+      ['REVIEW', 'T+05:30', 'reviewer', 'Approved; dependency change, so it waits for Martin', 34, null], ['APPROVED', 'T+08:40', 'martin', 'Martin approved the merge', 46, null],
+      ['CANARY', 'T+15:10', 'rollouts', 'v0.9.2 promoted to 100%', 76, null], ['VERIFIED', 'T+22:00', 'crawler', 'Every page matches v0.9.0 to the pixel', 100, null]],
+    files: [['Dockerfile', 1, 1], ['mise.toml', 1, 1]],
+    models: [['reviewer', 0.6]], gates: 'pass' },
+
+  { id: '1284', cat: 'triage', kind: 'Visitor report', end: 'closed', title: 'A visitor says the clock is wrong',
+    desc: 'Triage read the report against the page: the clock is sold as stopped. No ticket, nothing built, about a tenth of a penny.',
+    lead: 'A visitor reported a problem on the stopped clock’s page. Report text is untrusted, so it went to Jev as data, never to a generative agent: Jev answered three typed questions, and routing code closed it, because the page says the clock is stopped.',
+    report: { by: 'quiet-heron', raw: 'the clock on item 2 says ten past four all day. is it broken?' },
+    ver: null, live: 'v0.9.2', pr: null, day: 'Fri 2 Oct', time: '12:15', dur: '1 s', found: 'Visitor report', prog: 'ok      ',
+    vis: { type: 'judgement' },
+    ch: [['REPORT', 'T+00:00', 'widget', 'Report received on /products/clock-stopped', 0, null], ['TRIAGE', 'T+00:01', 'jev', 'Triage: not a defect (0.94), no instructions (0.99)', 60, null],
+      ['CLOSED', 'T+00:01', 'triage', 'Closed with no ticket; kept in the triage log', 100, null]],
+    models: [['jev', 1]], gates: 'none' },
+
+  { id: '1288', cat: 'performance', kind: 'Defect fix', end: 'verified', title: 'The home page rebuilt its selection on every visit',
+    desc: 'The home page now keeps “This week’s sundries” for an hour. p95 fell from 640 ms to 85 ms, and every page looks the same.',
+    lead: 'The home page’s p95 latency had sat at 640 ms against a 300 ms objective. The trace showed most of it spent choosing “This week’s sundries”, which changes weekly but was worked out on every visit. The coder wrote a timing test first, then kept the selection for an hour. p95 is now 85 ms and no page changed by a pixel.',
+    ver: ['v0.9.2', 'v0.9.3'], live: 'v0.9.3', pr: '1290', day: 'Fri 2 Oct', time: '14:05', dur: '24 min', found: 'Metrics · objective on /', prog: 'oooooooo',
+    vis: { type: 'perf' },
+    ch: [['SIGNAL', 'T+00:00', 'metrics', 'p95 on / at 640 ms against a 300 ms objective', 0, null], ['TICKET', 'T+00:40', 'triage', 'Ticket #1288 with a trace: 560 ms choosing the selection', 8, null],
+      ['SPEC', 'T+02:30', 'planner', 'Spec: p95 under 300 ms, page unchanged', 18, null], ['PR', 'T+09:20', 'coder', 'Timing test first, then cached for an hour · PR #1290', 40, null],
+      ['GATES', 'T+13:10', 'actions', 'All 11 required checks passed', 55, null], ['REVIEW', 'T+14:30', 'reviewer', 'Approved', 62, null],
+      ['CANARY', 'T+17:40', 'rollouts', 'Canary p95 88 ms against 640 ms baseline', 78, null], ['VERIFIED', 'T+24:10', 'metrics', 'p95 85 ms for 30 minutes; ticket closed', 100, null]],
+    criteria: [['Given', 'a warm cache, the home page’s p95 is under 300 ms'], ['Given', 'the same week, the selection is the same four products'], ['Given', 'any page, it matches its screenshot from v0.9.2']],
+    files: [['src/pages/home.ts', 14, 6], ['src/shop.ts', 22, 2], ['test/pages-home.test.ts', 36, 0]],
+    models: [['jev', 1], ['planner', 1.1], ['coder', 1.5], ['reviewer', 1]], gates: 'pass' },
+
+  { id: '1291', cat: 'accessibility', kind: 'Defect fix', end: 'verified', title: 'The keyboard skipped the department filter',
+    desc: 'Tab went straight past the department filter. It is now a row of real links with a visible focus ring.',
+    lead: 'The crawler’s keyboard journey found that Tab jumped from the menu straight to the first product: the department filter was drawn with elements that cannot take focus. The fix makes each department a real link, with a focus ring in the shop’s own colours. The page looks the same until you press Tab.',
+    ver: ['v0.9.3', 'v0.9.4'], live: 'v0.9.4', pr: '1292', day: 'Fri 2 Oct', time: '15:30', dur: '19 min', found: 'Crawler · keyboard journey', prog: 'oooooooo',
+    vis: { type: 'wipe', at: 37, a: ['BEFORE · v0.9.3', 'attn', () => PAGES.products({ markFilter: 'Tab skips these' })], b: ['AFTER · v0.9.4', 'ok', () => PAGES.products({ focus: 'Outdoors', focusNote: 'Reached with Tab' })] },
+    ch: [['SIGNAL', 'T+00:00', 'crawler', 'Keyboard journey: Tab never reaches the filter', 0, 'a'], ['TICKET', 'T+00:50', 'triage', 'Ticket #1291 with a screenshot and focus order', 10, 'a'],
+      ['SPEC', 'T+02:20', 'planner', 'Spec: every department reachable and visibly focused', 20, 'a'], ['PR', 'T+08:10', 'coder', 'Failing keyboard test first, then the fix · PR #1292', 44, 'a'],
+      ['GATES', 'T+11:40', 'actions', 'All 11 required checks passed', 60, 'a'], ['REVIEW', 'T+12:50', 'reviewer', 'Approved', 68, 'a'],
+      ['CANARY', 'T+15:20', 'rollouts', 'v0.9.4 promoted to 100%', 82, 'b'], ['VERIFIED', 'T+19:05', 'crawler', 'Keyboard journey passes; ticket closed', 100, 'b']],
+    files: [['src/pages/products.ts', 8, 8], ['public/site.css', 6, 0], ['test/accessibility-fields.test.ts', 24, 0]],
+    models: [['jev', 1], ['planner', 0.9], ['coder', 1.1], ['reviewer', 0.9]], gates: 'pass' },
+
+  { id: '1293', cat: 'observability', kind: 'Defect fix', end: 'verified', title: 'Home page logs lost their trace',
+    desc: 'Log lines from the home page carried no trace id, so a slow visit could not be followed from log to trace. They can now.',
+    lead: 'The log check noticed that log lines from the home page had no trace id since the caching change, so a slow visit could not be followed from its log line to its trace. The cached path had stepped outside the request’s context. The fix keeps the context, and a test checks that every route’s logs carry a trace id.',
+    ver: ['v0.9.4', 'v0.9.5'], live: 'v0.9.5', pr: '1295', day: 'Fri 2 Oct', time: '16:50', dur: '21 min', found: 'Logs · trace links', prog: 'oooooooo',
+    vis: { type: 'logs' },
+    ch: [['SIGNAL', 'T+00:00', 'logs', 'Every log line from / is missing its trace id', 0, null], ['TICKET', 'T+00:45', 'triage', 'Ticket #1293 with log samples', 9, null],
+      ['SPEC', 'T+02:40', 'planner', 'Spec: every log line on every route carries its trace', 20, null], ['PR', 'T+09:00', 'coder', 'Failing test first, then the fix · PR #1295', 44, null],
+      ['GATES', 'T+12:30', 'actions', 'All 11 required checks passed', 58, null], ['REVIEW', 'T+13:40', 'reviewer', 'Approved', 66, null],
+      ['CANARY', 'T+16:50', 'rollouts', 'v0.9.5 promoted to 100%', 82, null], ['VERIFIED', 'T+21:00', 'logs', 'Trace ids on every line for 20 minutes', 100, null]],
+    files: [['src/shop.ts', 5, 3], ['src/log.ts', 4, 1], ['test/logging.test.ts', 29, 0]],
+    models: [['jev', 1], ['planner', 0.8], ['coder', 1], ['reviewer', 0.8]], gates: 'pass' },
+
+  { id: '1296', cat: 'functional', kind: 'Injected by visitor amber-otter', end: 'verified', title: 'Prices go negative',
+    desc: 'Injected from the menu at 09:02. A probe saw £-2.40 four minutes later; the fix was live and verified sixteen minutes after injection.',
+    lead: 'A visitor chose “Prices go negative” from the Inject a defect menu. The injector sent the change through the normal pipeline, and it went live as v0.9.6. Four minutes later the products journey saw a price of £-2.40. Triage opened a ticket with the screenshot, the planner wrote a spec, and the coder wrote a failing test before the fix. The fix went out as v0.9.7 and was verified sixteen minutes after the injection.',
+    ver: ['v0.9.6', 'v0.9.7'], live: 'v0.9.7', pr: '1298', day: 'Sat 3 Oct', time: '09:02', dur: '16 min', found: 'Probe · products journey', prog: 'oooooooo',
+    vis: { type: 'wipe', at: 50, a: ['BROKEN · v0.9.6', 'attn', () => PAGES.products({ price: (p) => -p, mark: (s) => ['', s === 'candle' ? 'Prices below zero' : ''] })],
+      b: ['FIXED · v0.9.7', 'ok', () => PAGES.products({ mark: (s) => ['good', s === 'ladder' ? 'Back above zero' : ''] })] },
+    afterProducts: () => PAGES.products(),
+    ch: [['INJECT', 'T+00:00', 'visitor', 'amber-otter chose “Prices go negative”', 0, 'b'], ['ON SITE', 'T+03:10', 'injector', 'Injected change went live as v0.9.6', 18, 'a'],
+      ['SIGNAL', 'T+04:20', 'probe', 'Products journey saw a price of £-2.40', 28, 'a'], ['TICKET', 'T+04:50', 'triage', 'Ticket #1296: functional, severity broken', 35, 'a'],
+      ['SPEC', 'T+05:40', 'planner', 'Spec: a price can never be negative', 42, 'a'], ['PR', 'T+08:15', 'coder', 'Failing test first, then the fix · PR #1298', 55, 'a'],
+      ['GATES', 'T+11:30', 'actions', 'All 11 required checks passed', 68, 'a'], ['REVIEW', 'T+12:20', 'reviewer', 'Approved', 74, 'a'],
+      ['CANARY', 'T+13:40', 'rollouts', 'v0.9.7 promoted to 100%', 86, 'b'], ['VERIFIED', 'T+16:05', 'probe', 'Every price positive on every page; ticket closed', 100, 'b']],
+    captures: [['Signal', 'T+04:20', 'a'], ['Canary at 25%', 'T+13:30', 'b'], ['Full rollout', 'T+16:05', 'b']],
+    criteria: [['Given', 'any product, its price on every page is above zero'], ['Given', 'a stored price, the page shows it to the penny'], ['Given', 'a negative stored price, the page refuses to render it and logs an error']],
+    files: [['src/money.ts', 6, 2], ['test/money.test.ts', 28, 0], ['test/pages-products.test.ts', 12, 0]],
+    regress: { Products: ['3.8%', 'meant'], 'A product': ['0.9%', 'meant'] },
+    models: [['jev', 1], ['planner', 1], ['coder', 1], ['reviewer', 1]], gates: 'pass' },
+
+  { id: '1300', cat: 'improvement', kind: 'Improvement requested by Martin', end: 'waiting', title: 'Sort products by price',
+    desc: 'The spec is written and waiting for Martin, with one question from the planner. Nothing is built until he approves it.',
+    lead: 'Martin asked for a way to sort products by price. The planner wrote a spec with three acceptance criteria and one question it could not settle alone. No code is written until Martin answers and approves.',
+    ver: null, live: 'v0.9.7', pr: null, day: 'Sat 3 Oct', time: '09:40', dur: '50 min so far', found: 'Martin, from the console', prog: 'ssw     ',
+    vis: { type: 'spec' },
+    ch: [['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console', 0, null], ['SPEC', 'T+02:40', 'planner', 'Spec written with three acceptance criteria', 45, null],
+      ['QUESTION', 'T+03:10', 'planner', 'Asked: where do out-of-stock products sort?', 75, null], ['WAITING', 'T+03:12', 'console', 'Waiting for Martin to approve the spec', 100, null]],
+    criteria: [['Given', 'the products page, choosing “Price, low to high” puts the cheapest first'], ['Given', 'a department is chosen, the sort applies within it'], ['Given', 'the flag is off, the page is unchanged']],
+    models: [['planner', 1.4]], gates: 'none' },
+
+  { id: '1302', cat: 'functional', kind: 'Injected by visitor amber-otter', end: 'live', title: 'Search returns only cats',
+    desc: 'Whatever you search for, you get cats. The fix is on the canary at 25%, and every check is passing.',
+    lead: 'A visitor chose “Search returns only cats”. It went live as v0.9.8, and the search journey noticed within five minutes. The first fix failed an end-to-end journey at Gates and went back to Build; the second passed. It is on the canary now, as v0.9.9.',
+    ver: ['v0.9.8', 'v0.9.9'], live: 'v0.9.8', pr: '1305', day: 'Sat 3 Oct', time: '10:12', dur: '18 min so far', found: 'Probe · search journey', prog: 'oooooon ',
+    vis: { type: 'wipe', at: 37, a: ['BEFORE · v0.9.7', 'faint', () => PAGES.search('ladder', ['ladder'], { markCount: ['good', 'The ladder, as it should be'] })], b: ['NOW · v0.9.8', 'attn', () => PAGES.search('ladder', ['flap', 'china', 'catalogue'], { markName: (s) => s === 'flap' ? null : [s === 'china' ? 'up' : '', s === 'china' ? 'Cats, whatever the query' : ''] })] },
+    ch: [['INJECT', 'T+00:00', 'visitor', 'amber-otter chose “Search returns only cats”', 0, 'a'], ['ON SITE', 'T+03:20', 'injector', 'Injected change went live as v0.9.8', 16, 'b'],
+      ['SIGNAL', 'T+04:40', 'probe', 'Search for “ladder” returned three cats', 24, 'b'], ['TICKET', 'T+05:10', 'triage', 'Ticket #1302: functional, severity broken', 30, 'b'],
+      ['SPEC', 'T+06:00', 'planner', 'Spec: results match the query', 36, 'b'], ['PR', 'T+08:40', 'coder', 'Failing test first, then the fix · PR #1305', 48, 'b'],
+      ['SENT BACK', 'T+10:30', 'actions', 'End-to-end journey failed; sent back to Build', 58, 'b'], ['GATES', 'T+13:00', 'actions', 'Second attempt: all 11 required checks passed', 70, 'b'],
+      ['REVIEW', 'T+14:10', 'reviewer', 'Approved', 78, 'b'], ['CANARY', 'T+16:30', 'rollouts', 'v0.9.9 signed and admitted; canary at 25%', 88, 'b'], ['LIVE', 'T+18:00', '', '', 100, 'b']],
+    criteria: [['Given', 'a search for “ladder”, the ladder is the first result'], ['Given', 'a search that matches nothing, the page says so in the shop’s words']],
+    files: [['src/pages/search.ts', 3, 5], ['test/search.test.ts', 19, 0]],
+    models: [['jev', 1], ['planner', 0.8], ['coder', 1.7], ['reviewer', 1]], gates: 'pass' },
+];
+
+// Model calls per agent, from the gateway's log. Scaled per item in this mockup.
+const MODELS = {
+  jev: ['Triage', 'jev', 'Jev', 'jev-1.13.0', 'triage/v1 · 3 questions', 1, 0, 0, 0.001],
+  planner: ['Planner', 'anthropic', 'Claude', 'Opus 5.5', 'effort high', 3, 38000, 3100, 0.27],
+  coder: ['Coder', 'anthropic', 'Claude', 'Sonnet 5.5', 'effort medium · ≤ 40 turns', 21, 540000, 12000, 0.38],
+  reviewer: ['Reviewer', 'anthropic', 'Claude', 'Sonnet 5.5', 'effort high', 2, 41000, 2200, 0.15],
+  attacker: ['Red-team agent', 'anthropic', 'Claude', 'Sonnet 5.5', 'effort low · ≤ 20 turns', 9, 210000, 4800, 0.21],
+};
+const modelRows = (it) => it.models.map(([k, f]) => {
+  const [agent, logo, family, model, settings, calls, tin, tout, cost] = MODELS[k];
+  return { agent, logo, family, model, settings, calls: Math.max(1, Math.round(calls * f)), tin: tin * f, tout: tout * f, cost: cost * f };
+});
+const spend = (it) => modelRows(it).reduce((s, r) => s + r.cost, 0);
+const money = (c) => c < 0.01 ? '<$0.01' : '$' + c.toFixed(2);
+const kTok = (n) => n >= 1000 ? Math.round(n / 1000) + 'k' : String(Math.round(n));
+
+const GATES = [['Pull request title', '4s'], ['Lint and format', '18s'], ['Types', '11s'], ['Unit tests', '23s'], ['Integration tests', '41s'], ['End-to-end journeys', '1m 52s'],
+  ['Test integrity', '9s'], ['Accessibility on changed pages', '34s'], ['Dependency review', '6s'], ['Secret scan', '5s'], ['CodeQL', '2m 10s']];
+
+// What the console does to a visitor's report before showing it to its author or Martin: plain ASCII, no links, short.
+// It is put on the page as a text node, never as markup, and only the author's key and Martin's credential can see it.
+function sanitiseReport(raw) {
+  return raw.normalize('NFKC').replace(/\s+/g, ' ')
+    .replace(/https?:\/\/\S+|www\.\S+|\S+@\S+|\S+\.(com|net|org|io|uk|co)\b\S*/gi, '(link removed)')
+    .replace(/\d{5,}/g, '(number removed)')
+    .replace(/[^A-Za-z0-9 .,'?!£():;\/-]/g, '')
+    .trim().slice(0, 140);
+}
+
+/* ==== Visuals by type ====================================================================== */
+
+const PERF = [612, 648, 630, 661, 640, 655, 622, 670, 644, 638, 651, 640, 352, 160, 88, 86, 84, 85, 83];
+const CANARY = [140, 168, 214, 262, 318, 364, 396, 412, 409, 411, null, null, null, null];
+const BASE = [138, 141, 137, 139, 140, 138, 142, 139, 137, 140, 138, 139, 141, 139];
+
+const unchanged = (n = 4) => `<div class="unchanged"><span class="thumbs">${'<span></span>'.repeat(n)}</span><span>No visible change: ${n} pages match the version before, 0.0% of pixels</span></div>`;
+
+const VIS = {
+  wipe: (it) => { const { a, b, at } = it.vis; return `<div class="wipe" style="--at: ${at}%">
+    <div class="a">${a[2]()}</div><div class="b">${b[2]()}</div>
+    <span class="div"></span>
+    <span class="handle" role="slider" tabindex="-1" aria-label="Compare ${a[0].split(' · ')[0].toLowerCase()} and ${b[0].split(' · ')[0].toLowerCase()}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${at}">${glyph('arrows')}</span>
+    <span class="wtag l"><span class="dot tone-${a[1]}"></span>${a[0]}</span><span class="wtag r"><span class="dot tone-${b[1]}"></span>${b[0]}</span>
+  </div>`; },
+  perf: () => `<div class="pad">
+    <div class="row" style="justify-content: space-between; align-items: flex-end"><div><div class="cap">p95 latency on the home page</div><div class="big"><s>640</s> → <span class="ok">85 ms</span></div></div>
+    <div class="cap" style="text-align: right">13:10 – 16:10</div></div>
+    ${lineChart({ series: [{ data: PERF, colour: 'var(--signal)', label: 'p95' }], yMax: 700, ticks: [0, 300, 600], unit: 'ms', objective: [300, 'objective'], marker: [12, 'v0.9.3 canary'], xLabels: [[0, '13:10'], [6, '14:10'], [12, '15:10'], [18, '16:10']] })}
+    ${unchanged()}</div>`,
+  canary: () => `<div class="pad">
+    <div class="row" style="justify-content: space-between"><div class="pkg" style="gap: 2cqw"><svg style="width: 6cqw; height: 6cqw; color: var(--text)"><use href="#logo-otel"/></svg>
+      <div><div class="name" style="font-size: 3.2cqw">@opentelemetry/sdk-node</div><div class="bump" style="font-size: 2cqw"><s>0.222.0</s>→<span>0.230.1</span></div></div></div>
+      <div class="cap" style="text-align: right">p99 latency, ms<br>canary at 5%</div></div>
+    ${lineChart({ series: [{ data: CANARY, colour: 'var(--attn)', label: 'canary', dy: -4 }, { data: BASE, colour: 'var(--text-muted)', label: 'baseline' }], yMax: 450, ticks: [0, 200, 400], unit: 'ms', marker: [10, 'rolled back · 3:24', 'low'], xLabels: [[0, '0:00'], [3, '1:00'], [6, '2:00'], [9, '3:00'], [12, '4:00']] })}
+    <div class="unchanged">${glyph('check')}<span>Baseline users never saw it: 95% of traffic stayed on v0.9.0 throughout.</span></div></div>`,
+  package: () => `<div class="pad">
+    <div class="pkg"><svg viewBox="0 0 256 292"><use href="#logo-node"/></svg><div><div class="name">Node.js base image</div><div class="bump"><s>24.21.0</s>→<span>24.21.1</span><span class="cap" style="margin-left: 1cqw">security release</span></div></div></div>
+    <div><div class="row cap" style="margin-bottom: 1.4cqw"><svg style="width: 2.6cqw; height: 2.6cqw"><use href="#logo-trivy"/></svg>Image scan, before and after</div>
+    <div class="sev">${[['Critical', 0, 0], ['High', 2, 0], ['Medium', 5, 3], ['Low', 11, 9]].map(([s, b, a]) => `<span>${s}</span>
+      <span class="bars"><i style="width: ${b * 7}%"></i><i class="${a ? 'after' : 'after zero'}" style="width: ${a * 7}%"></i></span><span class="n">${b} → ${a}</span>`).join('')}</div></div>
+    ${unchanged()}</div>`,
+  refusal: () => `<div class="pad">
+    <div class="row cap">${glyph('redteam')} The gate’s own output, as recorded</div>
+    <div class="term"><span class="x">✕ Test integrity</span>  <span class="dim">required check · failed in 9s</span>
+  test/money.test.ts deleted   <span class="x">−42 lines, 6 tests</span>
+  assertions on changed code   31 → 25
+  risk                         <span class="x">high · tests removed</span>
+
+<span class="dim">→</span> Held for a human. This check is required at every
+  autonomy level; no agent can merge past it.</div>
+    <div class="unchanged">${glyph('check')}<span>The site never changed: nothing merged.</span></div></div>`,
+  judgement: () => `<div class="pad"><div class="split">
+    <div class="thumb">${PAGES.product('clock')}</div>
+    <div style="display: flex; flex-direction: column; gap: 2.4cqw"><div class="row cap"><svg style="width: 2.6cqw; height: 2.6cqw; color: var(--text)"><use href="#logo-jev"/></svg>Jev · triage/v1 · jev-1.13.0</div>
+    <div class="jev">${[['Describes something wrong with the page?', 'No', 0.94], ['Asks for new behaviour?', 'No', 0.97], ['Contains instructions for a system?', 'No', 0.99]].map(([q, a, p]) =>
+      `<span class="q">${q}</span><span class="p"><i style="width: ${p * 100}%"></i></span><span class="a">${a} ${p.toFixed(2)}</span>`).join('')}</div>
+    <div style="font-size: 2cqw; color: var(--text-2)">Routing: <b style="font-weight: 500; color: var(--text)">closed, no ticket.</b> The report’s text is untrusted: no generative agent ever reads it.</div></div>
+  </div></div>`,
+  logs: () => `<div class="pad"><div class="row cap"><svg style="width: 2.8cqw; height: 2.8cqw; color: var(--text)"><use href="#logo-otel"/></svg>Log lines from GET /, before and after</div>
+    <div class="logs"><div class="term"><span class="dim">before · v0.9.4</span>
+<span class="dim">16:31:07</span> info  GET /  200  84ms  trace_id=<span class="x">∅</span>
+<span class="dim">16:31:09</span> info  GET /  200  86ms  trace_id=<span class="x">∅</span></div>
+    <div class="term"><span class="dim">after · v0.9.5</span>
+<span class="dim">17:12:40</span> info  GET /  200  83ms  trace_id=<span class="ok">4bf92f3577b34da6</span>
+<span class="dim">17:12:41</span> info  GET /  200  85ms  trace_id=<span class="ok">a3ce929d0e0e4736</span></div></div>
+    <div class="wf"><span>GET /</span><i style="width: 100%"></i><span>83 ms</span><span>  render home</span><i style="width: 22%; margin-left: 6%"></i><span>18 ms</span><span>  this week’s sundries</span><i style="width: 4%; margin-left: 9%"></i><span>3 ms · cached</span></div>
+    </div>`,
+  spec: (it) => `<div class="pad"><div class="spec"><div class="cap" style="color: var(--attn)">Spec · waiting for Martin</div>
+    <div style="font: 400 3.2cqw/1.1 var(--font-display)">Products can be sorted by price, either way</div>
+    <div class="gwt">${it.criteria.map(([k, v]) => `<b>${k.toUpperCase()}</b><span>${v}</span>`).join('')}</div>
+    <div class="ask">The planner asks: should out-of-stock products sort last?</div></div></div>`,
+};
+const visual = (it) => `<div class="vis">${VIS[it.vis.type](it)}</div>`;
+
 /* ==== State ================================================================================ */
 
 const q = new URLSearchParams(location.search);
-const S = {
-  visitor: q.get('mode') === 'visitor', previewing: false,
-  sel: null, at: null, playing: null,
-  stage: null, stopped: false, autonomy: 'guarded',
-  switches: { agents: true, automerge: true, rollback: true },
-};
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-const current = () => ITEMS.find((i) => i.id === (S.sel ?? (S.visitor ? '1288' : '1293'))) || ITEMS[0];
-const playing = () => S.playing ?? S.visitor;
-const atFor = (item) => { const last = item.ch.length - 1; return Math.max(0, Math.min(last, S.at ?? (playing() ? 0 : last))); };
+const n = ITEMS.length;
+const asked = ITEMS.findIndex((i) => i.id === q.get('item'));
+const S = {
+  visitor: q.get('mode') === 'visitor', previewing: false,
+  stage: null, stopped: false, autonomy: 'guarded',
+  switches: { agents: true, automerge: true, rollback: true },
+  P: asked >= 0 ? asked : n - 1, playing: false, sheet: null, at: null, sheetPlay: false,
+};
+const cur = () => Math.round(Math.min(n - 1, Math.max(0, S.P)));
+const still = () => document.body.classList.contains('still');
+const indexOf = (id) => ITEMS.findIndex((i) => i.id === id);
+const reel = $('reel'), rail = $('rail');
 
 /* ==== Header, modes and the line ========================================================== */
 
@@ -619,7 +1154,7 @@ function renderLine() {
       ? `<button type="button" class="add" data-add title="Request an improvement" aria-label="Request an improvement"><span><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5 V10.5 M1.5 6 H10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span></button>` : '';
     return `<div class="cell"><button type="button" class="stage" data-i="${i}" aria-expanded="${S.stage === i}" aria-controls="stage-panel"
         aria-label="${STAGE_NAME[s.kind]}: ${word}, ${esc(s.fig)}. Show what is in this stage">
-      <sf-station kind="${s.kind}" status="${status}" decorative ${document.body.classList.contains('still') ? 'motion="off"' : ''}></sf-station>
+      <sf-station kind="${s.kind}" status="${status}" decorative ${still() ? 'motion="off"' : ''}></sf-station>
       <span class="cap" aria-hidden="true">
         <span class="name">${STAGE_NAME[s.kind]}</span>
         <span class="state"><span class="dot tone-${tone} ${tone === 'attn' ? 'ring' : ''}"></span>${word}<span class="fig">&nbsp;· ${esc(s.fig)}</span></span>
@@ -631,10 +1166,9 @@ function renderLine() {
   const run = (cls, delay) => `<g class="${cls}" style="animation-delay: ${delay}s">${parcel(0)}</g>`;
   $('parcels').innerHTML = [
     run('run-a', 0), run('run-a', -3.5),
-    parcel(296), parcel(312), parcel(304, 161),   // waiting in front of Plan
-    run('run-b', 0), run('run-b', -3),
-    parcel(632), parcel(648),                     // held at Gates
-    run('run-c', 0), run('run-c', -3.7), run('run-c', -7.4),
+    parcel(296), parcel(312),                     // waiting in front of Plan
+    parcel(632),                                  // held at Gates
+    run('run-c', 0), run('run-c', -5.5),
   ].join('');
 }
 
@@ -645,14 +1179,15 @@ function renderStagePanel() {
   panel.innerHTML = `<span class="caret"></span>
     <header><div style="display: flex; gap: 10px; align-items: baseline"><h3 id="stage-title" tabindex="-1">${STAGE_NAME[s.kind]}</h3>
       <span class="mono muted" style="font-size: 11px">${st.rows.length} ${st.rows.length === 1 ? 'item' : 'items'}</span></div>
-      <button type="button" class="close" data-close aria-label="Close">×</button></header>
+      <button type="button" class="close" data-close-stage aria-label="Close">×</button></header>
     <p>${esc(st.blurb)}</p>
-    ${st.sources ? `<div class="sources"><span class="label">Takes work from</span>${st.sources.map(([n, live]) =>
-      `<span class="src ${live ? '' : 'off'}">${n}${live ? '' : ' <em>not in the demo</em>'}</span>`).join('')}</div>` : ''}
+    ${st.sources ? `<div class="sources"><span class="label">Takes work from</span>${st.sources.map(([nm, live]) =>
+      `<span class="src ${live ? '' : 'off'}">${nm}${live ? '' : ' <em>not in the demo</em>'}</span>`).join('')}</div>` : ''}
+    ${st.rows.length ? '' : `<div class="empty">Nothing in ${STAGE_NAME[s.kind]} right now.</div>`}
     ${st.rows.map(([id, title, note, tone, link, age]) => {
       const body = `<span class="id">${esc(id)}</span><span>${esc(title)}<small class="${tone ? 'tone-' + tone : ''}" style="${tone ? 'color: var(--tone)' : ''}">${esc(note)}</small></span>`;
       return link
-        ? `<button type="button" class="srow" data-replay="${link}" aria-label="Replay ${esc(id)} ${esc(title)}">${body}<span class="aside go">Replay ›</span></button>`
+        ? `<button type="button" class="srow" data-open="${link}" aria-label="Open ${esc(id)} ${esc(title)}">${body}<span class="aside go">Open ›</span></button>`
         : `<div class="srow">${body}<span class="aside">${age}</span></div>`;
     }).join('')}
     ${st.foot ? `<div class="srow" style="display: block"><span class="aside">${esc(st.foot)}</span></div>` : ''}
@@ -715,7 +1250,7 @@ function cycleReturns() {
   if (S.stopped || !RETURNS.length) return;
   const r = RETURNS[retIndex % RETURNS.length];
   showReturn(r);
-  if (document.body.classList.contains('still')) return;   // still: hold the newest one
+  if (still()) return;   // still: hold the newest one
   retTimer = setTimeout(() => {
     hideReturn(r);
     retIndex++;
@@ -723,94 +1258,310 @@ function cycleReturns() {
   }, 5200);
 }
 
-/* ==== Work items and replay =============================================================== */
+/* ==== The reel ============================================================================= */
 
-function renderItems() {
-  const item = current();
-  const groups = [['Needs you', (i) => END[i.end][2] === 'Needs you'], ['In progress', (i) => i.end === 'live'], ['Done', (i) => END[i.end][2] === 'Done']];
-  $('items').innerHTML = groups.map(([label, fn]) => {
-    const list = ITEMS.filter(fn);
-    if (!list.length) return '';
-    return `<span class="label">${label}</span>` + list.map((i) => {
-      const tone = END[i.end][1];
-      return `<button type="button" class="item tone-${tone}" data-item="${i.id}" aria-current="${i.id === item.id}">
-        <span class="dot"></span>
-        <span><b><span class="mono">#${i.id}</span>${esc(i.title)}</b><small>${esc(i.kind)} · <em>${esc(i.note)}</em></small></span>
-      </button>`;
-    }).join('');
-  }).join('');
+function card(it, i) {
+  const [word, tone, needs] = END[it.end];
+  const prog = [...it.prog].map((c, k) => `<i class="${c.trim()}" title="${STAGES_IN_ORDER[k]}"></i>`).join('');
+  const ver = it.ver ? (it.burnt ? `<span class="ver"><s>${it.ver[0]}</s> → ${it.ver[1]}</span>` : `<span class="ver">${it.end === 'live' ? it.ver[0] + ' → <span class="muted">' + it.ver[1] + '</span>' : it.ver[1]}</span>`) : '<span class="ver muted">no release</span>';
+  return `<article class="card" data-i="${i}" aria-roledescription="slide" aria-label="${i + 1} of ${n}: ${it.title}. ${word}">
+    <div class="card-top"><span class="cat">${glyph(it.cat)}${CAT[it.cat]}<span class="kind">· ${it.kind}</span></span>
+      <span class="out tone-${tone}"><span class="dot ${it.end === 'live' ? 'blink' : needs ? 'ring alarm' : tone === 'attn' ? 'ring' : ''}"></span>${word}</span></div>
+    ${visual(it)}
+    <div><h3>${it.title}</h3><p class="desc">${it.desc}</p></div>
+    <div class="meta"><b>#${it.id}</b>${ver}${it.pr ? `<span class="opt">PR #${it.pr}</span>` : ''}<span>${it.day.slice(0, 3)} ${it.time}</span><span>${it.dur}</span><span>${money(spend(it))}</span></div>
+    <div class="card-foot"><span class="prog" role="img" aria-label="${progLabel(it)}">${prog}</span><span class="open-hint">OPEN ↑</span></div>
+  </article>`;
+}
+function progLabel(it) {
+  const k = [...it.prog].findIndex((c) => 'nxwk'.includes(c));
+  if (k < 0) return 'Every stage passed';
+  return { n: 'Now at ', x: 'Stopped at ', w: 'Waiting at ', k: 'Closed at ' }[it.prog[k]] + STAGES_IN_ORDER[k];
 }
 
-function renderReplay() {
-  const item = current(), last = item.ch.length - 1, at = atFor(item), isPlaying = playing();
-  const endTone = item.end === 'live' ? 'ok' : END[item.end][1];
-  const status = isPlaying ? ['TIME-LAPSE', 'signal'] : at === last ? [END[item.end][0], endTone] : ['REPLAYING', 'signal'];
+const cardW = () => Math.min(620, reel.clientWidth - (innerWidth <= 720 ? 40 : 200));
+const stepW = () => cardW() * 0.9 + (innerWidth <= 720 ? 12 : 28);
 
-  let site = 'ok';
-  if (item.brokenFrom !== null && at >= item.brokenFrom) site = 'broken';
-  if (item.fixedFrom !== null && at >= item.fixedFrom) site = 'fixed';
-  const tag = { broken: ['BROKEN', 'attn'], fixed: [item.end === 'live' ? 'CANARY · FIXED' : 'FIXED', 'ok'], ok: ['UNCHANGED', 'faint'] }[site];
-  const caption = site === 'broken' ? 'Captured when the problem was visible on the site.' : site === 'fixed' ? item.fixedCaption : 'The site at this moment.';
-  const page = site === 'broken'
-    ? `<div class="broken"><b>${esc(item.broken[0])}</b><span>${esc(item.broken[1])}</span></div>`
-    : site === 'fixed' ? item.fixed.map((t) => `<div class="fine">${esc(t)}</div>`).join('')
-    : `<div class="fine">${esc(item.ok || 'Nothing to see yet.')}</div>`;
+function layout() {
+  const W = cardW(), step = stepW();
+  reel.style.setProperty('--card-w', W + 'px');
+  reel.querySelectorAll('.card').forEach((el) => {
+    const i = +el.dataset.i, d = i - S.P, ad = Math.abs(d);
+    el.style.transform = `translateX(${d * step - W / 2}px) scale(${1 - Math.min(ad, 1) * 0.1})`;
+    el.style.opacity = ad > 2.6 ? 0 : Math.max(0, 1 - Math.min(ad, 1) * 0.3 - Math.max(0, ad - 1) * 0.4);
+    el.style.zIndex = 50 - Math.round(ad * 10);
+    el.style.visibility = ad > 2.8 ? 'hidden' : 'visible';
+    el.classList.toggle('centre', ad < 0.5);
+    el.setAttribute('aria-hidden', String(ad >= 0.5));
+    el.querySelectorAll('.handle').forEach((h) => { h.tabIndex = ad < 0.5 ? 0 : -1; });
+  });
+}
+function fitHeight() {
+  let h = 0;
+  reel.querySelectorAll('.card').forEach((el) => { h = Math.max(h, el.offsetHeight); });
+  reel.style.height = h + 12 + 'px';
+}
 
-  const chapters = item.ch.map((c, i) => {
-    const cls = ['ch', i === at && 'here', i < at && 'done', i === last && 'end'].filter(Boolean).join(' ');
-    const tone = i === last ? `tone-${endTone}` : '';
-    return `<button type="button" class="${cls} ${tone}" style="left: ${c[4]}%" data-at="${i}" aria-label="${c[1]} ${c[0].toLowerCase()}" aria-current="${i === at}"><i></i><span>${c[0]}</span></button>`;
-  }).join('');
+/* The timeline: one mark per work item, a little space between days, the playhead where the reel is. */
+const DAYS = [...new Set(ITEMS.map((i) => i.day))];
+const units = ITEMS.map((it, i) => i + DAYS.indexOf(it.day) * 0.5);
+const fx = (i) => units[i] / units[n - 1];
+const fxP = (p) => { const a = Math.floor(Math.max(0, Math.min(n - 1, p))), b = Math.min(n - 1, a + 1); return fx(a) + (fx(b) - fx(a)) * (p - a); };
+const pFromF = (f) => { for (let i = 0; i < n - 1; i++) if (f <= fx(i + 1)) return i + Math.max(0, (f - fx(i)) / (fx(i + 1) - fx(i))); return n - 1; };
+const pct = (f) => (f * 100).toFixed(3) + '%';
 
-  const lastEvent = item.end === 'live' ? Math.min(at, last - 1) : at;
-  const events = [];
-  for (let j = Math.max(0, lastEvent - 2); j <= lastEvent; j++) {
-    const [, t, actor, text] = item.ch[j];
-    events.push(`<div class="event ${j === lastEvent ? 'now' : ''}"><span class="mono">${t}</span><span class="mono actor">${actor}</span><span>${esc(text)}</span></div>`);
+function buildRail() {
+  const days = DAYS.map((d) => { const i = ITEMS.findIndex((it) => it.day === d); return `<span class="day" style="left: calc(${pct(fx(i))} - 20px)">${d}</span>`; }).join('');
+  const ticks = ITEMS.map((it, i) => `<span class="tick tone-${END[it.end][1]}" data-i="${i}" style="left: ${pct(fx(i))}">${glyph(it.cat)}</span>`).join('');
+  const vers = ITEMS.map((it, i) => it.ver && it.end !== 'live' && it.end !== 'waiting'
+    ? `<span class="ver ${it.burnt ? 'burnt' : ''}" data-i="${i}" style="left: ${pct(fx(i))}">${it.burnt ? it.ver[0] : it.ver[1]}</span>` : '').join('');
+  rail.innerHTML = `<span class="track"></span>${days}${ticks}${vers}<span class="playhead"></span>`;
+}
+function movePlayhead() { rail.querySelector('.playhead').style.left = pct(fxP(S.P)); }
+function renderRail() {
+  const c = cur(), it = ITEMS[c];
+  rail.querySelectorAll('[data-i]').forEach((el) => el.classList.toggle('here', +el.dataset.i === c));
+  movePlayhead();
+  rail.setAttribute('aria-valuemin', '1'); rail.setAttribute('aria-valuemax', String(n)); rail.setAttribute('aria-valuenow', String(c + 1));
+  rail.setAttribute('aria-valuetext', `${c + 1} of ${n}: ${it.title}, ${it.day} ${it.time}`);
+  $('at-line').innerHTML = `<span><b>${it.day}, ${it.time}</b> · #${it.id} ${it.title}</span><span>The shop at <b class="mono">${it.live}</b>${it.end === 'live' ? ' · <span style="color: var(--attn)">broken now; the fix is on the canary</span>' : ''}</span>`;
+  $('count').textContent = `${c + 1} of ${n}`;
+  $('prev').disabled = c === 0; $('next').disabled = c === n - 1;
+  $('now').setAttribute('aria-pressed', String(c === n - 1));
+  $('play').innerHTML = S.playing ? '<svg class="glyph" viewBox="0 0 16 16"><path d="M5 3v10M11 3v10"/></svg><span class="play-label">Pause</span>' : '<svg class="glyph" viewBox="0 0 16 16"><path d="M4.5 3 12.5 8l-8 5z"/></svg><span class="play-label">Play the history</span>';
+}
+
+function go(i, { animate = true, announce = true } = {}) {
+  const c = Math.max(0, Math.min(n - 1, i));
+  reel.classList.toggle('anim', animate && !still());
+  S.P = c;
+  layout(); renderRail();
+  if (announce) $('announce').textContent = `${c + 1} of ${n}: ${ITEMS[c].title}. ${END[ITEMS[c].end][0]}.`;
+  if (S.sheet !== null && S.sheet !== c) openSheet(c, false);
+}
+
+// Keep a drag going when the pointer leaves the element it started on.
+const capture = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch { /* the pointer has already gone */ } };
+
+/* Drag the cards, or the timeline. Release snaps to the nearest item, carried by a flick. */
+let drag = null;
+reel.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || e.target.closest('.handle')) return;
+  drag = { x: e.clientX, P0: S.P, moved: false, card: e.target.closest('.card'), lx: e.clientX, lt: performance.now(), v: 0 };
+  capture(reel, e);
+});
+reel.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x;
+  if (!drag.moved && Math.abs(dx) < 6) return;
+  if (!drag.moved) { drag.moved = true; reel.classList.add('dragging'); reel.classList.remove('anim'); stopPlay(); }
+  const now = performance.now();
+  drag.v = (e.clientX - drag.lx) / Math.max(1, now - drag.lt); drag.lx = e.clientX; drag.lt = now;
+  S.P = Math.max(-0.35, Math.min(n - 0.65, drag.P0 - dx / stepW()));
+  layout(); movePlayhead();
+});
+reel.addEventListener('pointerup', () => {
+  if (!drag) return;
+  const d = drag; drag = null; reel.classList.remove('dragging');
+  if (!d.moved) {
+    if (!d.card) return;
+    stopPlay();
+    const i = +d.card.dataset.i;
+    return i === cur() ? openSheet(i) : go(i);
   }
+  go(Math.round(S.P + (Math.abs(d.v) > 0.5 ? -Math.sign(d.v) * 0.5 : 0)));
+});
+reel.addEventListener('pointercancel', () => { if (drag) { drag = null; reel.classList.remove('dragging'); go(Math.round(S.P)); } });
 
-  $('replay').innerHTML = `
-    <div class="replay-head">
-      <span class="kicker tone-${status[1]}">WORK ITEM #${item.id} · ${status[0]}</span>
-      <h2>${esc(item.title)}</h2>
-      <span class="muted" style="font-size: 13px">${esc(item.kind)}</span>
-    </div>
-    <div class="replay-body">
-      <div>
-        <div class="site-head"><span class="label">The site at ${item.ch[at][1]}</span><span class="label tone-${tag[1]}" style="color: var(--tone)">${tag[0]}</span></div>
-        <div class="browser" aria-label="Screenshot of the site">
-          <div class="chrome"><i style="background: #e0685a"></i><i style="background: #e7b84c"></i><i style="background: #7dbf6a"></i><span class="url">${esc(item.url)}</span></div>
-          <div class="page"><div class="logo">The World’s Worst Webiste</div><div class="nav">Home · Prodcuts · Abuot us · Contcat</div>${page}</div>
-        </div>
-        <p class="help site-caption">${esc(caption)}</p>
-      </div>
-      <div>
-        <div class="transport">
-          <span class="clock">${item.ch[at][1]}</span>
-          <button type="button" class="icon-btn" data-step="-1" aria-label="Previous event">←</button>
-          <button type="button" class="btn primary" data-play style="min-height: 40px; min-width: 84px">${isPlaying ? 'Pause' : at === last ? 'Replay' : 'Play'}</button>
-          <button type="button" class="icon-btn" data-step="1" aria-label="Next event">→</button>
-          ${item.end === 'live' ? `<button type="button" class="live-btn" data-live aria-pressed="${at === last}"><span class="dot blink"></span>LIVE</button>` : ''}
-        </div>
-        <div class="scrub">
-          <div class="rail"></div><div class="fill" style="width: ${item.ch[at][4]}%"></div>
-          ${item.gap ? `<span class="gap" style="left: ${item.gap[0]}">⋯ ${item.gap[1]}</span>` : ''}
-          ${chapters}
-        </div>
-        <div class="events">${events.join('')}</div>
-      </div>
-    </div>
-    <p class="help"><b>What am I looking at?</b> One work item from first signal to outcome. Step back through it and the console shows only what had happened by then: replay and the live view are the same code.</p>`;
+let railDrag = false;
+const railP = (e) => { const r = rail.getBoundingClientRect(); return pFromF(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))); };
+rail.addEventListener('pointerdown', (e) => { railDrag = true; capture(rail, e); stopPlay(); reel.classList.remove('anim'); S.P = railP(e); layout(); movePlayhead(); });
+rail.addEventListener('pointermove', (e) => { if (!railDrag) return; S.P = railP(e); layout(); movePlayhead(); });
+rail.addEventListener('pointerup', () => { if (!railDrag) return; railDrag = false; go(Math.round(S.P)); });
+
+function keys(e) {
+  const k = { ArrowLeft: -1, ArrowRight: 1, PageUp: -3, PageDown: 3 }[e.key];
+  if (k) { e.preventDefault(); stopPlay(); return go(cur() + k); }
+  if (e.key === 'Home') { e.preventDefault(); stopPlay(); return go(0); }
+  if (e.key === 'End') { e.preventDefault(); stopPlay(); return go(n - 1); }
+  if (e.key === 'Enter' && e.currentTarget === reel) { stopPlay(); openSheet(cur()); }
+}
+reel.addEventListener('keydown', keys);
+rail.addEventListener('keydown', keys);
+
+/* Play the history: a card every two and a half seconds, ending at now. */
+let playTimer = null;
+function stopPlay() { if (!S.playing) return; S.playing = false; clearInterval(playTimer); renderRail(); }
+function startPlay(from) {
+  S.playing = true;
+  go(from ?? (cur() === n - 1 ? 0 : cur()), { announce: false });
+  playTimer = setInterval(() => { if (cur() >= n - 1) return stopPlay(); go(cur() + 1); }, 2500);
+}
+// The landing view: the reel plays the recent history once, the first time it is seen. Never with motion off.
+function autoplayWhenSeen() {
+  if (asked >= 0 || still() || !('IntersectionObserver' in window)) return;
+  const from = Math.max(0, n - 8);
+  go(from, { animate: false, announce: false });
+  const io = new IntersectionObserver(([e]) => {
+    if (!e.isIntersecting) return;
+    io.disconnect();
+    if (!still() && cur() === from && S.sheet === null) setTimeout(() => startPlay(from), 600);
+  }, { threshold: 0.6 });
+  io.observe(reel);
 }
 
-function select(id) { S.sel = id; S.at = null; S.playing = false; renderItems(); renderReplay(); }
+/* The wipe between before and after: drag its handle, or use the arrow keys on it. */
+let wipeDrag = null;
+document.addEventListener('pointerdown', (e) => {
+  const h = e.target.closest('.handle'); if (!h) return;
+  e.stopPropagation(); e.preventDefault();
+  wipeDrag = h.closest('.wipe'); document.body.classList.add('wiping'); stopPlay();
+  capture(h, e);
+}, true);
+document.addEventListener('pointermove', (e) => {
+  if (!wipeDrag) return;
+  const r = wipeDrag.getBoundingClientRect();
+  setWipe(wipeDrag, ((e.clientX - r.left) / r.width) * 100);
+});
+document.addEventListener('pointerup', () => { if (wipeDrag) { wipeDrag = null; document.body.classList.remove('wiping'); } });
+function setWipe(w, v) {
+  v = Math.max(0, Math.min(100, v));
+  w.style.setProperty('--at', v + '%');
+  w.querySelector('.handle').setAttribute('aria-valuenow', String(Math.round(v)));
+}
+document.addEventListener('keydown', (e) => {
+  const h = e.target.closest?.('.handle'); if (!h) return;
+  const k = { ArrowLeft: -5, ArrowRight: 5 }[e.key]; if (!k) return;
+  e.preventDefault(); e.stopPropagation();
+  const w = h.closest('.wipe'); setWipe(w, parseFloat(w.style.getPropertyValue('--at')) + k);
+}, true);
 
-setInterval(() => {
-  if (!playing()) return;
-  const item = current(), a = atFor(item);
-  if (a >= item.ch.length - 1) { S.playing = false; } else { S.at = a + 1; S.playing = true; }
-  renderReplay();
-}, 1200);
+/* ==== The sheet ============================================================================ */
+
+let opener = null, sheetTimer = null;
+function openSheet(i, focus = true) {
+  const first = S.sheet === null;
+  S.sheet = i; S.at = null; S.sheetPlay = false; clearInterval(sheetTimer);
+  if (cur() !== i) go(i, { announce: false });
+  renderSheet();
+  if (first) {
+    opener = document.activeElement;
+    stopPlay();
+    if (S.stage !== null) openStage(S.stage);
+    $('sheet').hidden = false; $('scrim').hidden = false; document.body.classList.add('locked');
+    requestAnimationFrame(() => requestAnimationFrame(() => { $('sheet').classList.add('open'); $('scrim').classList.add('open'); }));
+  }
+  $('sheet').querySelector('.sheet-scroll').scrollTop = 0;
+  if (focus) $('sheet-title').focus({ preventScroll: true });
+}
+function closeSheet() {
+  if (S.sheet === null) return;
+  S.sheet = null; clearInterval(sheetTimer);
+  $('sheet').classList.remove('open'); $('scrim').classList.remove('open'); document.body.classList.remove('locked');
+  setTimeout(() => { if (S.sheet === null) { $('sheet').hidden = true; $('scrim').hidden = true; } }, still() ? 0 : 450);
+  (opener && document.contains(opener) ? opener : reel).focus({ preventScroll: true });
+}
+
+const atFor = (it) => { const last = it.ch.length - 1; return Math.max(0, Math.min(last, S.at ?? last)); };
+
+function reportBlock(it) {
+  if (!it.report) return '';
+  const own = !S.visitor;   // in the app: Martin, or the visitor whose key sent the report
+  return own
+    ? `<figure class="report"><span class="label">The report · sanitised · shown only to Martin and to ${it.report.by}, who sent it</span><p class="report-text" id="report-text"></p>
+       <p class="help">Plain text, at most 140 characters of letters, digits and basic punctuation, with links, email addresses and long numbers removed. It is never shown as markup and never reaches a generative agent.</p></figure>`
+    : `<p class="report withheld">A visitor’s report. Its text is shown only to the visitor who sent it and to Martin; what triage made of it is below.</p>`;
+}
+
+function renderSheet() {
+  const it = ITEMS[S.sheet], i = S.sheet, [word, tone, needs] = END[it.end];
+  $('sheet-head').innerHTML = `<div style="min-width: 0">
+      <div class="kicker"><span class="cat">${glyph(it.cat)}${CAT[it.cat]}</span><span class="kind" style="font-size: 13px">${it.kind}</span><span class="out tone-${tone}"><span class="dot ${needs ? 'ring alarm' : ''}"></span>${word}</span></div>
+      <h2 id="sheet-title" tabindex="-1">${it.title}</h2></div>
+    <div class="sheet-nav">
+      <button type="button" class="icon-btn" data-sheet-go="-1" aria-label="Previous work item" ${i === 0 ? 'disabled' : ''}><svg class="glyph" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></button>
+      <span class="count">#${it.id}</span>
+      <button type="button" class="icon-btn" data-sheet-go="1" aria-label="Next work item" ${i === n - 1 ? 'disabled' : ''}><svg class="glyph" viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></button>
+      <button type="button" class="icon-btn" data-close aria-label="Close" style="margin-left: 8px"><svg class="glyph" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </div>`;
+
+  const rows = modelRows(it), total = spend(it), ongoing = it.end === 'live' || it.end === 'waiting';
+  const ver = it.ver ? (it.burnt ? `${it.ver[0]} · rolled back to ${it.ver[1]}` : it.end === 'live' ? `broken in ${it.ver[0]} · fix is ${it.ver[1]}` : `${it.ver[0]} → ${it.ver[1]}`) : 'No release';
+  const facts = [['Work item', '#' + it.id], ['Found by', it.found], ['Version', ver], ['Pull request', it.pr ? `<a href="#">#${it.pr}</a>` : '—'],
+    ['Started', `${it.day}, ${it.time}`], [ongoing ? 'So far' : 'Start to finish', it.dur.replace(' so far', '')], ['Model spend', money(total)], ['Code written by humans', '0 lines']];
+
+  const gates = it.gates === 'none' ? '<p class="help">No pull request, so no gates ran.</p>' : `<div class="gates">${GATES.map(([g, d]) => {
+    const st = it.gates === 'integrity' && g === 'Test integrity' ? 'fail' : 'pass';
+    return `<div class="gate ${st}">${glyph(st === 'fail' ? 'cross' : 'check')}<span>${g}</span><span class="mono">${d}</span></div>`;
+  }).join('')}</div>${it.end === 'rolledback' ? '<p class="help" style="margin-top: 10px">Every gate passed. The canary caught what tests could not.</p>' : ''}`;
+
+  const models = `<table class="models"><thead><tr><th>Agent and model</th><th class="num">Calls</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td><div class="who"><svg style="color: var(--text)"><use href="#logo-${r.logo}"/></svg><span>${r.agent}<small>${r.family} ${r.model} · ${r.settings}</small></span></div></td>
+      <td class="num">${r.calls}</td><td class="num">${r.tin ? kTok(r.tin) + ' in<small>' + kTok(r.tout) + ' out</small>' : '—'}</td><td class="num">${money(r.cost)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>Total${ongoing ? ' so far' : ''}</td><td class="num">${rows.reduce((s, r) => s + r.calls, 0)}</td><td></td><td class="num">${money(total)}</td></tr></tfoot></table>`;
+
+  const pageShot = { Home: () => PAGES.home(), Products: () => (it.afterProducts ?? PAGES.products)(), 'A product': () => PAGES.product('clock'), Search: () => PAGES.search('ladder', ['ladder']) };
+  const regress = it.ver && !it.burnt && !ongoing ? `<div class="regress"><span class="label">After rollout, against ${it.id === '1296' ? 'v0.9.5, before the injection' : 'the version before'}</span>
+    <div class="row">${Object.keys(pageShot).map((p) => { const [d, k] = it.regress?.[p] ?? ['0.0%', 'same'];
+      return `<figure><div class="vis">${pageShot[p]()}</div><figcaption><span>${p}</span><span class="mono ${k}">${d}${k === 'meant' ? ' · intended' : ' · same'}</span></figcaption></figure>`; }).join('')}</div>
+    <p class="source">Playwright screenshots of each page at full rollout, compared pixel by pixel with the version before.</p></div>` : '';
+
+  const captures = it.captures ? `<div class="captures">${it.captures.map(([l, t, s]) => `<figure><div class="vis">${(s === 'a' ? it.vis.a : it.vis.b)[2]()}</div><figcaption><span>${l}</span><span class="mono">${t}</span></figcaption></figure>`).join('')}</div>` : '';
+  const source = { wipe: 'Playwright screenshots, taken when the signal fired and after rollout. The marks are drawn from the elements the probe checked.', perf: 'Prometheus, snapshotted into the event at verify, so the graph outlives the metrics’ retention.',
+    canary: 'Argo Rollouts’ analysis run, with the series it compared.', package: 'The lockfile diff, and the image scan of both images in the pipeline.', refusal: 'The check run’s output, stored with the event when the gate failed.',
+    judgement: 'The Jev request in the event’s payload: question set, model version and every answer with its probability.', logs: 'Loki and Tempo, excerpted into the event at signal and at verify.' }[it.vis.type];
+
+  const change = it.criteria || it.files ? `<section class="sec"><h3>${it.end === 'waiting' ? 'The spec' : 'The change'}</h3><p class="help">${it.end === 'waiting' ? 'Acceptance criteria the planner proposes. Nothing is built until Martin approves.' : 'What the spec asked for, and what the pull request touched.'}</p>
+    ${it.criteria ? `<ul class="criteria">${it.criteria.map(([k, v]) => `<li>${glyph(ongoing ? 'dash' : 'check')}<span><em>${k.toUpperCase()}</em>${v}</span></li>`).join('')}</ul>` : ''}
+    ${it.files ? `<div class="files">${it.files.map(([f, a, d]) => `<div><span>${f}</span><span class="plus">+${a}</span><span class="minus">−${d}</span></div>`).join('')}</div>` : ''}
+  </section>` : '';
+
+  $('sheet-body').innerHTML = `
+    <div class="sheet-main">
+      <p class="lead">${it.lead}</p>
+      ${reportBlock(it)}
+      <section class="sec"><h3>How it went</h3><p class="help">Step through the stages. The console shows only what had happened by then: replay and the live view are the same code.</p><div id="sheet-replay"></div></section>
+      ${it.vis.type === 'spec' ? '' : `<section class="sec"><h3>Evidence</h3><p class="help">Captured when it happened, because the sources expire.</p>
+        <div class="evidence-big">${visual(it)}</div><p class="source">${source}</p>${captures}${regress}</section>`}
+      ${change}
+    </div>
+    <aside class="sheet-side">
+      <dl class="facts-dl">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      <div class="side-card"><h3>Agents and models</h3>${models}<p class="source">The gateway’s log of every call. On the replay site the same calls come from cassettes and cost nothing.</p></div>
+      <div class="side-card"><h3>Gates</h3>${gates}</div>
+    </aside>`;
+  if (it.report && $('report-text')) $('report-text').textContent = sanitiseReport(it.report.raw);   // a text node, never markup
+  renderSheetReplay();
+}
+
+function renderSheetReplay() {
+  const it = ITEMS[S.sheet], last = it.ch.length - 1, at = atFor(it), [, tone] = END[it.end];
+  const site = it.vis.type === 'wipe' ? it.ch[at][5] : null;
+  const chapters = it.ch.map((c, k) => {
+    const cls = ['ch', k === at && 'here', k < at && 'done', k === last && 'end'].filter(Boolean).join(' ');
+    return `<button type="button" class="${cls} ${k === last ? 'tone-' + (tone === 'faint' ? 'ok' : tone) : ''}" style="left: ${c[4]}%" data-at="${k}" aria-label="${c[1]} ${c[0].toLowerCase()}" aria-current="${k === at}"><i></i><span>${c[0]}</span></button>`;
+  }).join('');
+  const upto = it.end === 'live' ? Math.min(at, last - 1) : at;
+  const events = it.ch.slice(0, upto + 1).map((c, k) => `<div class="event ${k === upto ? 'now' : ''}"><span class="mono">${c[1]}</span><span class="mono actor">${c[2]}</span><span>${c[3]}</span></div>`).join('');
+  const shotSide = site ? (() => { const v = site === 'a' ? it.vis.a : it.vis.b;
+    return `<div class="site"><div style="display: flex; justify-content: space-between"><span class="label">The site at ${it.ch[at][1]}</span><span class="label tone-${v[1]}" style="color: var(--tone)">${v[0].split(' · ')[0]}</span></div>
+      <div class="vis">${v[2]()}</div></div>`; })() : '';
+  $('sheet-replay').innerHTML = `<div class="replay ${site ? '' : 'solo'}">${shotSide}<div>
+    <div class="ctl"><span class="clock">${it.ch[at][1]}</span>
+      <button type="button" class="icon-btn" data-step="-1" aria-label="Previous event"><svg class="glyph" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></button>
+      <button type="button" class="btn primary" data-splay style="min-width: 84px">${S.sheetPlay ? 'Pause' : at === last ? 'Replay' : 'Play'}</button>
+      <button type="button" class="icon-btn" data-step="1" aria-label="Next event"><svg class="glyph" viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></button></div>
+    <div class="scrub"><div class="rl"></div><div class="fill" style="width: ${it.ch[at][4]}%"></div>${chapters}</div>
+    <div class="events">${events}</div></div></div>`;
+}
+
+function sheetPlay() {
+  const it = ITEMS[S.sheet], last = it.ch.length - 1;
+  if (S.sheetPlay) { S.sheetPlay = false; clearInterval(sheetTimer); return renderSheetReplay(); }
+  S.sheetPlay = true; if (atFor(it) === last) S.at = 0;
+  renderSheetReplay();
+  sheetTimer = setInterval(() => { const a = atFor(it); if (a >= last) { S.sheetPlay = false; clearInterval(sheetTimer); } else S.at = a + 1; renderSheetReplay(); }, 1200);
+}
 
 /* ==== Controls ============================================================================ */
 
@@ -827,7 +1578,7 @@ function renderControls() {
 /* ==== Events ============================================================================== */
 
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('button, [data-close]');
+  const t = e.target.closest('button');
   if (!t) {
     if (S.stage !== null && !e.target.closest('#stage-panel')) openStage(S.stage);
     return;
@@ -835,17 +1586,17 @@ document.addEventListener('click', (e) => {
   const d = t.dataset;
   if (t.classList.contains('stage')) return openStage(+d.i);
   if ('add' in d) return;   // opens the improvement form (not drawn in this mockup)
-  if ('close' in d) return openStage(S.stage);
-  if (d.replay) { openStage(S.stage); select(d.replay); $('replay').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
-  if (d.item) return select(d.item);
-  if (d.at) { S.at = +d.at; S.playing = false; return renderReplay(); }
-  if (d.step) { const item = current(); S.at = Math.max(0, Math.min(item.ch.length - 1, atFor(item) + +d.step)); S.playing = false; return renderReplay(); }
-  if ('play' in d) {
-    const item = current(), last = item.ch.length - 1, a = atFor(item);
-    if (playing()) { S.playing = false; S.at = a; } else { S.playing = true; S.at = a === last ? 0 : a; }
-    return renderReplay();
-  }
-  if ('live' in d) { S.at = current().ch.length - 1; S.playing = false; return renderReplay(); }
+  if ('closeStage' in d) return openStage(S.stage);
+  if (d.open) { if (S.stage !== null) openStage(S.stage); return openSheet(indexOf(d.open)); }
+  if (t.id === 'prev') { stopPlay(); return go(cur() - 1); }
+  if (t.id === 'next') { stopPlay(); return go(cur() + 1); }
+  if (t.id === 'now') { stopPlay(); return go(n - 1); }
+  if (t.id === 'play') return S.playing ? stopPlay() : startPlay();
+  if ('close' in d) return closeSheet();
+  if (d.sheetGo) return openSheet(Math.max(0, Math.min(n - 1, S.sheet + +d.sheetGo)));
+  if (d.at) { S.at = +d.at; S.sheetPlay = false; clearInterval(sheetTimer); return renderSheetReplay(); }
+  if (d.step) { const it = ITEMS[S.sheet]; S.at = Math.max(0, Math.min(it.ch.length - 1, atFor(it) + +d.step)); S.sheetPlay = false; clearInterval(sheetTimer); return renderSheetReplay(); }
+  if ('splay' in d) return sheetPlay();
   if (d.autonomy) { S.autonomy = d.autonomy; renderControls(); return renderChrome(); }
   if (d.switch) { S.switches[d.switch] = !S.switches[d.switch]; return renderControls(); }
   if (d.themeSet) return setTheme(d.themeSet);
@@ -854,12 +1605,27 @@ document.addEventListener('click', (e) => {
   if (t.id === 'preview-btn') return setMode(true, true);
   if (t.id === 'to-admin') return setMode(false, false);
 });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.stage !== null) openStage(S.stage); });
-window.addEventListener('resize', () => { if (S.stage !== null) renderStagePanel(); });
+$('scrim').addEventListener('click', closeSheet);
+document.addEventListener('keydown', (e) => {
+  if (S.sheet === null) { if (e.key === 'Escape' && S.stage !== null) openStage(S.stage); return; }
+  if (e.key === 'Escape') return closeSheet();
+  if (e.key === 'Tab') {   // keep focus inside the sheet while it is open
+    const f = [...$('sheet').querySelectorAll('button:not([disabled]), a[href], [tabindex="0"]')];
+    if (!f.length) return;
+    if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f.at(-1).focus(); }
+    else if (!e.shiftKey && document.activeElement === f.at(-1)) { e.preventDefault(); f[0].focus(); }
+  }
+});
+let resizeTimer;
+addEventListener('resize', () => {
+  if (S.stage !== null) renderStagePanel();
+  clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { reel.classList.remove('anim'); layout(); fitHeight(); }, 80);
+});
 
 function setMode(visitor, previewing) {
-  Object.assign(S, { visitor, previewing, sel: null, at: null, playing: null, stage: null });
-  renderAll();
+  Object.assign(S, { visitor, previewing, stage: null });
+  if (S.sheet !== null) closeSheet();
+  renderChrome(); renderLine(); renderStagePanel(); renderControls(); retIndex = 0; cycleReturns();
   window.scrollTo(0, 0);
 }
 function setTheme(t) {
@@ -868,16 +1634,21 @@ function setTheme(t) {
 }
 function setMotion(on) {
   document.body.classList.toggle('still', !on);
+  if (!on) stopPlay();
   if ($('stations').children.length) cycleReturns();
   document.querySelectorAll('sf-station').forEach((s) => on ? s.removeAttribute('motion') : s.setAttribute('motion', 'off'));
   document.querySelectorAll('[data-motion]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.motion === 'on') === on)));
 }
-function renderAll() { renderChrome(); renderLine(); renderStagePanel(); renderItems(); renderReplay(); renderControls(); retIndex = 0; cycleReturns(); }
 
 // Paper always first; Ink is a choice made on the page, not remembered.
 setTheme(q.get('theme') === 'ink' ? 'ink' : 'paper');
 setMotion(!(q.get('motion') === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches));
-renderAll();
+renderChrome(); renderLine(); renderStagePanel(); renderControls(); cycleReturns();
+reel.innerHTML = ITEMS.map(card).join('');
+buildRail(); layout(); renderRail(); fitHeight();
+document.fonts?.ready.then(fitHeight);
+autoplayWhenSeen();
+if (q.has('sheet')) openSheet(cur());
 })();
 </script>
 </body>

@@ -10,6 +10,7 @@
   --text-muted: #615c56;
   --text-faint: #a8a095;
   --on-inverse: #f4f1ea;
+  --scrim: #2a26214d;
   --signal: #2a2826;
   --signal-hover: #000000;
   --on-signal: #f4f1ea;
@@ -72,6 +73,7 @@
   --text-muted: #8f8982;
   --text-faint: #5a5650;
   --on-inverse: #161514;
+  --scrim: #000000a3;
   --signal: #e2ddd5;
   --signal-hover: #ffffff;
   --on-signal: #161514;
@@ -104,6 +106,7 @@
   --text-muted: #615c56;
   --text-faint: #a8a095;
   --on-inverse: #f4f1ea;
+  --scrim: #2a26214d;
   --signal: #2a2826;
   --signal-hover: #000000;
   --on-signal: #f4f1ea;
