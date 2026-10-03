@@ -2,40 +2,40 @@
   "app": "7d3353a10f3847284a24ab09cc5db9781f338ecc",
   "shots": {
     "published/home": {
-      "hash": "beadaec68643babba251398dd40991f40cc3365477aada028e4298c9614aa1a9",
-      "size": 224658,
+      "hash": "c24c5853e12a7431a71a28503e791b314d6217221f516e000cef5df72d0129fa",
+      "size": 101637,
       "width": 1280,
       "height": 800,
       "route": "/",
       "boxes": []
     },
     "published/products": {
-      "hash": "ae0b8cb9194a4b9fe4e7c86400ccd2bf0cfa4d50096a54beb0613cdbf09f1ed6",
-      "size": 217811,
+      "hash": "4c35ff641d63c75bf2e1e7673f992dfe566ec28206a186fb2e22b2df52d7bca9",
+      "size": 100556,
       "width": 1280,
       "height": 800,
       "route": "/products",
       "boxes": []
     },
     "published/search": {
-      "hash": "8ad578436e614e59f0b1c2c1d25a3536f43f0fec73c1dc42ebd8f2b77238bcdb",
-      "size": 121726,
+      "hash": "2cd39ce290ee43049440f6b71d01e9338a249b98b86f48d53565d1e56863f9ce",
+      "size": 54367,
       "width": 1280,
       "height": 800,
       "route": "/search",
       "boxes": []
     },
     "published/contact": {
-      "hash": "36893b24f1002e605e05130f6a90393922cec7dca21076bbc8805db6448d9d4c",
-      "size": 125678,
+      "hash": "52aa064bd828544e578f0586c3fe3f1c6afca9564798f7663aaabd7487bb7c6c",
+      "size": 55583,
       "width": 1280,
       "height": 800,
       "route": "/contact",
       "boxes": []
     },
     "published/home-fixed": {
-      "hash": "15af2a0312c497aac34061147f2aae23a93da96cfb8746f74f201cfda72a24fd",
-      "size": 233908,
+      "hash": "ed249592de00488728a0d3bee788bf7ed8ad93d6ddfd921781e1ef9cf1999bba",
+      "size": 107858,
       "width": 1280,
       "height": 800,
       "route": "/",
@@ -51,16 +51,16 @@
       ]
     },
     "published/home-sundries": {
-      "hash": "15af2a0312c497aac34061147f2aae23a93da96cfb8746f74f201cfda72a24fd",
-      "size": 233908,
+      "hash": "ed249592de00488728a0d3bee788bf7ed8ad93d6ddfd921781e1ef9cf1999bba",
+      "size": 107858,
       "width": 1280,
       "height": 800,
       "route": "/",
       "boxes": []
     },
     "published/search-fixed": {
-      "hash": "8ad578436e614e59f0b1c2c1d25a3536f43f0fec73c1dc42ebd8f2b77238bcdb",
-      "size": 121726,
+      "hash": "2cd39ce290ee43049440f6b71d01e9338a249b98b86f48d53565d1e56863f9ce",
+      "size": 54367,
       "width": 1280,
       "height": 800,
       "route": "/search",
@@ -76,40 +76,40 @@
       ]
     },
     "last-one/home": {
-      "hash": "beadaec68643babba251398dd40991f40cc3365477aada028e4298c9614aa1a9",
-      "size": 224658,
+      "hash": "c24c5853e12a7431a71a28503e791b314d6217221f516e000cef5df72d0129fa",
+      "size": 101637,
       "width": 1280,
       "height": 800,
       "route": "/",
       "boxes": []
     },
     "last-one/products": {
-      "hash": "b3f7e52eccc0c3b0460b9ec9f3188c6970b704e346fa1afc22f21bd524afd6fa",
-      "size": 230013,
+      "hash": "a6d73477c4303bf1323c3435b0d5119482d8f1c658caff2dd1e18c337c37507a",
+      "size": 103619,
       "width": 1280,
       "height": 800,
       "route": "/products",
       "boxes": []
     },
     "last-one/search": {
-      "hash": "6f41289a628eae4e4e53a1add65febccc3c6b7895b47921e667e284296d8e57c",
-      "size": 125951,
+      "hash": "6d418ce6f4f17da514cb1cfd4c3a9e8eb8adde2d87cd721f2f9cdeaafef9c42b",
+      "size": 56430,
       "width": 1280,
       "height": 800,
       "route": "/search",
       "boxes": []
     },
     "last-one/contact": {
-      "hash": "36893b24f1002e605e05130f6a90393922cec7dca21076bbc8805db6448d9d4c",
-      "size": 125678,
+      "hash": "52aa064bd828544e578f0586c3fe3f1c6afca9564798f7663aaabd7487bb7c6c",
+      "size": 55583,
       "width": 1280,
       "height": 800,
       "route": "/contact",
       "boxes": []
     },
     "last-one/products-marked": {
-      "hash": "b3f7e52eccc0c3b0460b9ec9f3188c6970b704e346fa1afc22f21bd524afd6fa",
-      "size": 230013,
+      "hash": "a6d73477c4303bf1323c3435b0d5119482d8f1c658caff2dd1e18c337c37507a",
+      "size": 103619,
       "width": 1280,
       "height": 800,
       "route": "/products",
@@ -125,8 +125,8 @@
       ]
     },
     "negative/home-sundries": {
-      "hash": "25394673e8aa5fef22e19288050ff9ac8c63206d79384bc2134f4ce9909e42f3",
-      "size": 233884,
+      "hash": "8447c78e3341d01548f45858b0b74e6a2ed7c6cecf27f6b297c649e449aa4ee4",
+      "size": 107900,
       "width": 1280,
       "height": 800,
       "route": "/",
@@ -142,8 +142,8 @@
       ]
     },
     "short-words/search": {
-      "hash": "d6c9d72b8432f6de0688e7a2afa3da0ca8246dcf171fb3ae96d3911bfb426f52",
-      "size": 112109,
+      "hash": "d8ba82f96ca21d6a3dd3073460f7e0b651bffc7acde9a06a3bf4793eb2229f7d",
+      "size": 50365,
       "width": 1280,
       "height": 800,
       "route": "/search",
@@ -165,9 +165,9 @@
     "published/search": 0,
     "published/contact": 0,
     "last-one/home": 0,
-    "last-one/products": 0.0578,
-    "last-one/search": 0.0163,
+    "last-one/products": 0.0612,
+    "last-one/search": 0.0176,
     "last-one/contact": 0,
-    "short-words/search": 0.1194
+    "short-words/search": 0.1203
   }
 }

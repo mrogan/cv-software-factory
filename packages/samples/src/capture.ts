@@ -159,7 +159,9 @@ run('node', ['scripts/seed.ts']);
 
 const store = new DiskArtifacts(ARTIFACTS);
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 2 });
+// At 1x: sharp enough for a card on a dense screen, a quarter of the bytes for a phone, and a quarter of the memory
+// for a strip of thumbnails, which at 2x left the renderer out of room to draw them all.
+const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 1 });
 const captures: Captures = { app: APP.commit, shots: {}, changed: {} };
 
 try {
