@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/mrogan/cv-software-factory/compare/v0.1.1...v0.2.0) (2026-10-02)
+
+
+### Features
+
+* **deploy:** run The World's Worst Website on the local cluster ([#24](https://github.com/mrogan/cv-software-factory/issues/24)) ([21149b8](https://github.com/mrogan/cv-software-factory/commit/21149b898b5fdc1a3bd5f7834becb5a818d27424))
+
 ## [0.1.1](https://github.com/mrogan/cv-software-factory/compare/v0.1.0...v0.1.1) (2026-09-30)
 
 
