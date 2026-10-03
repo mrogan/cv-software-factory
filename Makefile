@@ -61,8 +61,10 @@ e2e: ## Run the console's browser tests in the pinned Playwright image; UPDATE=1
 		-v "$(CURDIR)/apps/console/e2e/snapshots:/out/snapshots" -v "$(CURDIR)/apps/console/e2e-results:/out/results" \
 		$(PLAYWRIGHT) /src/apps/console/e2e/in-docker.sh
 
-samples: ## Load the sample work items into the cluster's store, with their times moved so the last is now
-	@# Screenshots first, into the artifacts volume, through a pod that mounts it for a moment.
+samples: node_modules ## Load the sample work items into the cluster's store, with their times moved so the last is now
+	@# Screenshots first, into the artifacts volume, through a pod that mounts it for a moment (and not one still
+	@# going from an earlier run).
+	@$(KUBECTL) -n factory delete pod artifacts-copier --ignore-not-found --wait >/dev/null
 	@$(KUBECTL) apply -f deploy/k3d/artifacts-copier.yaml >/dev/null
 	@$(KUBECTL) -n factory wait pod/artifacts-copier --for=condition=Ready --timeout=2m >/dev/null
 	@# No macOS metadata files in the archive (COPYFILE_DISABLE); Linux ignores the setting.
@@ -76,6 +78,12 @@ samples: ## Load the sample work items into the cluster's store, with their time
 		PGPASSWORD="$$($(KUBECTL) -n factory get secret postgres-writer -o jsonpath='{.data.password}' | base64 -d)" \
 		ARTIFACTS_DIR=packages/samples/log/artifacts node apps/factory/src/cli.ts events load packages/samples/log
 	@echo "  Console  http://console.localhost:8080"
+
+# The factory command runs on the host, so loading the samples needs the dependencies: installed on first use, and
+# again when the lockfile changes.
+node_modules: pnpm-lock.yaml
+	pnpm install --frozen-lockfile
+	@touch node_modules
 
 status: ## Show what is running, and where to open it
 	@if ! k3d cluster list $(CLUSTER) >/dev/null 2>&1; then echo "No cluster. Run 'make up'."; else \
