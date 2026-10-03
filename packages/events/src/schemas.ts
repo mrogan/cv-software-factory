@@ -74,6 +74,8 @@ export const evidence = z.discriminatedUnion('kind', [
     kind: z.literal('logs'),
     route,
     version: appVersion,
+    /** How many requests the lines cover, so that none at all says something. */
+    requests: count,
     lines: z
       .array(
         z.strictObject({
@@ -83,7 +85,7 @@ export const evidence = z.discriminatedUnion('kind', [
           traceId: traceId.nullable(),
         }),
       )
-      .min(1)
+      // None at all is evidence too: a route that leaves no log record.
       .max(20),
     trace: z
       .strictObject({
@@ -204,7 +206,8 @@ export const PAYLOADS = {
       .regex(/^[a-z0-9-]+$/)
       .optional(),
   }),
-  'pull-request.opened': z.strictObject({
+  /** A change pushed for review: a new pull request, or another attempt on one that was sent back. */
+  'pull-request.pushed': z.strictObject({
     number: pullRequest,
     title: text(200),
     branch: text(120),
@@ -321,7 +324,7 @@ export const PAYLOADS = {
     provider: z.enum(['anthropic', 'bedrock']),
     model: z.string().regex(/^claude-[a-z0-9-]+$/),
     settings: z.strictObject({
-      effort: z.enum(['low', 'medium', 'high', 'max']).optional(),
+      effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
       maxTurns: z.number().int().positive().optional(),
     }),
     tokens: z.strictObject({ input: count, output: count, cacheRead: count, cacheWrite: count }),

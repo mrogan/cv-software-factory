@@ -9,15 +9,15 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['apps/*/test/**/*.test.ts', 'packages/*/test/**/*.test.ts', 'scripts/**/*.test.ts'],
-          exclude: ['packages/store/test/**'],
+          exclude: ['packages/store/test/**', 'apps/factory/test/**'],
         },
       },
       {
         // Against a real Postgres, which the setup provides.
         extends: true,
         test: {
-          name: 'store',
-          include: ['packages/store/test/**/*.test.ts'],
+          name: 'database',
+          include: ['packages/store/test/**/*.test.ts', 'apps/factory/test/**/*.test.ts'],
           globalSetup: ['packages/store/test/postgres.ts'],
         },
       },

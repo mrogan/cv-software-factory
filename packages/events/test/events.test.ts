@@ -66,6 +66,16 @@ describe('public views', () => {
     expect(viewOf(signal).summary).toBe('A visitor reported a problem on /products/clock-stopped');
   });
 
+  it('never carry the query of the page a report came from, which the visitor typed too', () => {
+    const fromSearch = {
+      ...signal,
+      payload: { ...signal.payload, report: { page: '/search?q=something+rude#top', text: REPORT_TEXT } },
+    };
+    const view = viewOf(fromSearch);
+    expect(JSON.stringify(view)).not.toContain('rude');
+    expect(view.summary).toBe('A visitor reported a problem on /search');
+  });
+
   it('never carry a visitor’s key', () => {
     expect(JSON.stringify(viewOf(opened))).not.toContain(VISITOR_KEY);
   });

@@ -1,0 +1,173 @@
+{
+  "app": "7d3353a10f3847284a24ab09cc5db9781f338ecc",
+  "shots": {
+    "published/home": {
+      "hash": "beadaec68643babba251398dd40991f40cc3365477aada028e4298c9614aa1a9",
+      "size": 224658,
+      "width": 1280,
+      "height": 800,
+      "route": "/",
+      "boxes": []
+    },
+    "published/products": {
+      "hash": "ae0b8cb9194a4b9fe4e7c86400ccd2bf0cfa4d50096a54beb0613cdbf09f1ed6",
+      "size": 217811,
+      "width": 1280,
+      "height": 800,
+      "route": "/products",
+      "boxes": []
+    },
+    "published/search": {
+      "hash": "8ad578436e614e59f0b1c2c1d25a3536f43f0fec73c1dc42ebd8f2b77238bcdb",
+      "size": 121726,
+      "width": 1280,
+      "height": 800,
+      "route": "/search",
+      "boxes": []
+    },
+    "published/contact": {
+      "hash": "36893b24f1002e605e05130f6a90393922cec7dca21076bbc8805db6448d9d4c",
+      "size": 125678,
+      "width": 1280,
+      "height": 800,
+      "route": "/contact",
+      "boxes": []
+    },
+    "published/home-fixed": {
+      "hash": "15af2a0312c497aac34061147f2aae23a93da96cfb8746f74f201cfda72a24fd",
+      "size": 233908,
+      "width": 1280,
+      "height": 800,
+      "route": "/",
+      "boxes": [
+        {
+          "x": 181,
+          "y": 253,
+          "width": 189,
+          "height": 24,
+          "kind": "fix",
+          "label": "Back above zero"
+        }
+      ]
+    },
+    "published/home-sundries": {
+      "hash": "15af2a0312c497aac34061147f2aae23a93da96cfb8746f74f201cfda72a24fd",
+      "size": 233908,
+      "width": 1280,
+      "height": 800,
+      "route": "/",
+      "boxes": []
+    },
+    "published/search-fixed": {
+      "hash": "8ad578436e614e59f0b1c2c1d25a3536f43f0fec73c1dc42ebd8f2b77238bcdb",
+      "size": 121726,
+      "width": 1280,
+      "height": 800,
+      "route": "/search",
+      "boxes": [
+        {
+          "x": 181,
+          "y": 519,
+          "width": 189,
+          "height": 23,
+          "kind": "fix",
+          "label": "The ladder, as it should be"
+        }
+      ]
+    },
+    "last-one/home": {
+      "hash": "beadaec68643babba251398dd40991f40cc3365477aada028e4298c9614aa1a9",
+      "size": 224658,
+      "width": 1280,
+      "height": 800,
+      "route": "/",
+      "boxes": []
+    },
+    "last-one/products": {
+      "hash": "b3f7e52eccc0c3b0460b9ec9f3188c6970b704e346fa1afc22f21bd524afd6fa",
+      "size": 230013,
+      "width": 1280,
+      "height": 800,
+      "route": "/products",
+      "boxes": []
+    },
+    "last-one/search": {
+      "hash": "6f41289a628eae4e4e53a1add65febccc3c6b7895b47921e667e284296d8e57c",
+      "size": 125951,
+      "width": 1280,
+      "height": 800,
+      "route": "/search",
+      "boxes": []
+    },
+    "last-one/contact": {
+      "hash": "36893b24f1002e605e05130f6a90393922cec7dca21076bbc8805db6448d9d4c",
+      "size": 125678,
+      "width": 1280,
+      "height": 800,
+      "route": "/contact",
+      "boxes": []
+    },
+    "last-one/products-marked": {
+      "hash": "b3f7e52eccc0c3b0460b9ec9f3188c6970b704e346fa1afc22f21bd524afd6fa",
+      "size": 230013,
+      "width": 1280,
+      "height": 800,
+      "route": "/products",
+      "boxes": [
+        {
+          "x": 910,
+          "y": 530,
+          "width": 106,
+          "height": 27,
+          "kind": "fix",
+          "label": "New: the last one, marked"
+        }
+      ]
+    },
+    "negative/home-sundries": {
+      "hash": "25394673e8aa5fef22e19288050ff9ac8c63206d79384bc2134f4ce9909e42f3",
+      "size": 233884,
+      "width": 1280,
+      "height": 800,
+      "route": "/",
+      "boxes": [
+        {
+          "x": 181,
+          "y": 253,
+          "width": 189,
+          "height": 24,
+          "kind": "problem",
+          "label": "Prices below zero"
+        }
+      ]
+    },
+    "short-words/search": {
+      "hash": "d6c9d72b8432f6de0688e7a2afa3da0ca8246dcf171fb3ae96d3911bfb426f52",
+      "size": 112109,
+      "width": 1280,
+      "height": 800,
+      "route": "/search",
+      "boxes": [
+        {
+          "x": 164,
+          "y": 253,
+          "width": 640,
+          "height": 51,
+          "kind": "problem",
+          "label": "Turned away: six letters"
+        }
+      ]
+    }
+  },
+  "changed": {
+    "published/home": 0,
+    "published/products": 0,
+    "published/search": 0,
+    "published/contact": 0,
+    "last-one/home": 0,
+    "last-one/products": 0.0578,
+    "last-one/search": 0.0163,
+    "last-one/contact": 0,
+    "short-words/search": 0.1194
+  }
+}

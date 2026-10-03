@@ -1,0 +1,19 @@
+{
+  "name": "@software-factory/samples",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Hand-written sample work items, written against the event types, with real captures of the app. The console shows them until the factory does real work.",
+  "type": "module",
+  "scripts": {
+    "capture": "node src/capture.ts",
+    "export": "node src/export.ts"
+  },
+  "dependencies": {
+    "@software-factory/events": "workspace:*"
+  },
+  "devDependencies": {
+    "@software-factory/factory": "workspace:*",
+    "@software-factory/store": "workspace:*",
+    "playwright": "^1.63.0"
+  }
+}

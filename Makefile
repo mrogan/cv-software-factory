@@ -45,6 +45,7 @@ check: ## Lint, type-check, test, build the browser code, check generated files 
 	pnpm exec tsc -p apps/console/web
 	pnpm exec vitest run
 	node docs/design/system/build.ts --check
+	node packages/samples/src/export.ts --check
 	pnpm --filter @software-factory/console build --logLevel warn
 	@# Argo CD renders each profile's overlay from main, so one that doesn't render must not get there.
 	@for overlay in deploy/overlays/*/; do kustomize build $$overlay >/dev/null || exit 1; done

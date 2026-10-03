@@ -2,8 +2,9 @@
  * Public views: what anyone but Martin may see of an event. Each type defines its own, and the compiler refuses a
  * type without one. The store writes the view once, when the event is appended, and the console serves only views.
  *
- * Every view leaves out a visitor's report text and key, and redacts anything shaped like a secret, because some
- * fields (a gate's output, a log line) are copied verbatim from places the factory does not control.
+ * Every view leaves out what a visitor wrote (a report's text, and the query of the page it came from) and their
+ * key, and redacts anything shaped like a secret, because some fields (a gate's output, a log line) are copied
+ * verbatim from places the factory does not control.
  */
 import type { View } from './types.ts';
 import type { EventType } from './versions.ts';
@@ -44,6 +45,9 @@ export function redactDeep<T>(value: T): T {
 
 type PublicViewOf<K extends EventType> = (event: View<K>) => View<K>;
 
+/** The page a report came from, without its query: a query is typed by the visitor, so it is theirs, like the text. */
+const pathOf = (page: string) => page.split(/[?#]/)[0] || '/';
+
 /** The view of an event with nothing to leave out but secrets. */
 const redacted = <K extends EventType>(event: View<K>): View<K> => redactDeep(event);
 
@@ -59,20 +63,20 @@ export const PUBLIC_VIEWS = {
     // A report's summary is replaced as well as its text, so a careless summary cannot quote the report.
     return redacted({
       ...event,
-      summary: `A visitor reported a problem on ${report.page}`,
-      payload: { ...payload, report: { page: report.page } },
+      summary: `A visitor reported a problem on ${pathOf(report.page)}`,
+      payload: { ...payload, report: { page: pathOf(report.page) } },
     });
   },
   'judgement.made': (event) => {
     const { report, ...state } = event.payload.state;
     return redacted({
       ...event,
-      payload: { ...event.payload, state: { ...state, ...(report && { report: { page: report.page } }) } },
+      payload: { ...event.payload, state: { ...state, ...(report && { report: { page: pathOf(report.page) } }) } },
     });
   },
   'ticket.opened': redacted,
   'spec.written': redacted,
-  'pull-request.opened': redacted,
+  'pull-request.pushed': redacted,
   'gates.started': redacted,
   'gate.finished': redacted,
   'gates.finished': redacted,

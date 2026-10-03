@@ -2,42 +2,25 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { NewEvent } from '@software-factory/events';
-import postgres, { type Sql } from 'postgres';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import type { Sql } from 'postgres';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DiskArtifacts } from '../src/artifacts.ts';
 import { AppendRefused, EventWriter, listen, readPublic } from '../src/events.ts';
 import { migrate } from '../src/migrate.ts';
-
-const PASSWORDS = { writer: 'writer-test-password', console: 'console-test-password' };
-const quiet = { onnotice: () => {}, max: 2 };
+import { type Database, freshDatabase } from './database.ts';
 
 let owner: Sql; // the database's owner, as the migration Job connects
 let writer: Sql;
 let reader: Sql;
-let database: string;
+let database: Database;
 const artifacts = new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-')));
 
-/** Connects to this test's database as a role. */
-function as(user: string, password: string): Sql {
-  const url = new URL(inject('databaseUrl'));
-  return postgres({ ...quiet, host: url.hostname, port: Number(url.port), database, username: user, password });
-}
-
 beforeAll(async () => {
-  database = `store_${process.pid}_${Date.now()}`;
-  const admin = postgres(inject('databaseUrl'), quiet);
-  await admin.unsafe(`create database ${database}`);
-  await admin.end();
-  const url = new URL(inject('databaseUrl'));
-  owner = as(decodeURIComponent(url.username), decodeURIComponent(url.password));
-  expect(await migrate(owner, PASSWORDS)).toEqual(['1_events']);
-  writer = as('factory_writer', PASSWORDS.writer);
-  reader = as('console_reader', PASSWORDS.console);
+  database = await freshDatabase('store');
+  ({ owner, writer, reader } = database);
 });
 
-afterAll(async () => {
-  await Promise.all([owner?.end(), writer?.end(), reader?.end()]);
-});
+afterAll(() => database?.end());
 
 let n = 0;
 /** A fresh work item number for each test, so tests don't trip over each other's items. */
@@ -80,6 +63,13 @@ function report(item: string): NewEvent<'signal.received'> {
 }
 
 const samples = () => new EventWriter(writer, { kind: 'sample', artifacts });
+
+describe('migrations', () => {
+  it('apply once: a second run finds nothing to do', async () => {
+    expect(await migrate(owner)).toEqual([]);
+    expect(await owner`select version, name from schema_migrations`).toEqual([{ version: 1, name: 'events' }]);
+  });
+});
 
 describe('appending', () => {
   it('stores a work item’s events in order, each with its public view', async () => {

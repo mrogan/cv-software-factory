@@ -72,10 +72,18 @@ create trigger events_appended after insert on events
   for each row execute function events_notify();
 
 -- Two roles, each with only what it needs. Their passwords are set outside migrations, from the cluster's Secrets.
+-- Roles belong to the whole server, not one database, so another database may have made them already.
 do $$
 begin
-  if not exists (select from pg_roles where rolname = 'factory_writer') then create role factory_writer login; end if;
-  if not exists (select from pg_roles where rolname = 'console_reader') then create role console_reader login; end if;
+  create role factory_writer login;
+exception when duplicate_object or unique_violation then null;
+end
+$$;
+
+do $$
+begin
+  create role console_reader login;
+exception when duplicate_object or unique_violation then null;
 end
 $$;
 
