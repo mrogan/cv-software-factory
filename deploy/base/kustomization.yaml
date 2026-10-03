@@ -6,5 +6,6 @@ resources:
   - project.yaml
   - telemetry
   - postgres
+  - migrate
   - console
   - website
