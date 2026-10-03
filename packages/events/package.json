@@ -1,0 +1,16 @@
+{
+  "name": "@software-factory/events",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The factory's events: one envelope, typed payloads, versions, public views and the event-log format.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schemas": "./src/schemas.ts",
+    "./public": "./src/public.ts",
+    "./log": "./src/log.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}

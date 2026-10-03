@@ -4,6 +4,8 @@ CLUSTER := software-factory
 CONTEXT := k3d-$(CLUSTER)
 KUBECTL := kubectl --context $(CONTEXT)
 ARGOCD_CHART := 10.9.5
+# The browser tests run in this image, so their snapshots match wherever they run.
+PLAYWRIGHT := mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
 # The branch Argo CD deploys this repository's deploy/ from. `make up REVISION=my-branch` tries a change there
 # before it merges; the charts' values and the app's repository are still read from main.
 REVISION ?= main
@@ -13,7 +15,7 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down check status
+.PHONY: help up down check status e2e
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z-]+:.*## / { printf "  \033[1m%-8s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -39,13 +41,23 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 down: ## Delete the local cluster, and everything in it
 	k3d cluster delete $(CLUSTER)
 
-check: ## Lint, type-check, test, check the design tokens are built and readable, and render the manifests
+check: ## Lint, type-check, test, build the browser code, check generated files are current, render the manifests
 	pnpm exec biome ci
 	pnpm exec tsc
+	pnpm exec tsc -p apps/console/web
+	pnpm exec tsc -p apps/console/e2e
 	pnpm exec vitest run
 	node docs/design/system/build.ts --check
+	node packages/samples/src/export.ts --check
+	pnpm --filter @software-factory/console build --logLevel warn
+	node apps/console/scripts/budget.ts
 	@# Argo CD renders each profile's overlay from main, so one that doesn't render must not get there.
 	@for overlay in deploy/overlays/*/; do kustomize build $$overlay >/dev/null || exit 1; done
+
+e2e: ## Run the console's browser tests in the pinned Playwright image; UPDATE=1 rewrites the snapshots
+	docker run --rm --init --ipc=host -e UPDATE=$(UPDATE) -v "$(CURDIR):/src:ro" \
+		-v "$(CURDIR)/apps/console/e2e/snapshots:/out/snapshots" -v "$(CURDIR)/apps/console/e2e-results:/out/results" \
+		$(PLAYWRIGHT) /src/apps/console/e2e/in-docker.sh
 
 status: ## Show what is running, and where to open it
 	@if ! k3d cluster list $(CLUSTER) >/dev/null 2>&1; then echo "No cluster. Run 'make up'."; else \

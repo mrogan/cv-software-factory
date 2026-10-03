@@ -12,7 +12,10 @@ on:
     # it changes only the root package.json's version. The image's dependencies come from the lockfile.
     paths:
       - apps/console/**
+      - packages/events/**
+      - packages/store/**
       - docs/design/system/tokens.css
+      - docs/design/system/station.ts
       - docs/design/system/mark/**
       - pnpm-lock.yaml
       - pnpm-workspace.yaml

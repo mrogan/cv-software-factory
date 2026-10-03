@@ -1,0 +1,204 @@
+/**
+ * Appending to the event store and reading from it. The rules that matter are in the database as well as here
+ * (0001_events.sql): events are append-only, commit in seq order and are never mixed with samples, and the
+ * console's role can read public views and nothing else.
+ */
+import {
+  CATALOGUE,
+  type Catalogue,
+  type NewEvent,
+  type RawEvent,
+  type StoredEvent,
+  upcast,
+} from '@software-factory/events';
+import { publicView } from '@software-factory/events/public';
+import { validate } from '@software-factory/events/schemas';
+import type { JSONValue, Sql, TransactionSql } from 'postgres';
+import type { ArtifactStore } from './artifacts.ts';
+
+/** An append the store refused, with every reason it found. Nothing in the batch was stored. */
+export class AppendRefused extends Error {
+  readonly problems: string[];
+
+  constructor(problems: string[]) {
+    super(`The event store refused the append:\n  ${problems.join('\n  ')}`);
+    this.name = 'AppendRefused';
+    this.problems = problems;
+  }
+}
+
+export interface WriterOptions {
+  /** Whether this writer appends samples or real events. The store takes one or the other, never both. */
+  kind: 'sample' | 'real';
+  /** Where the events' artifacts must already be. */
+  artifacts: ArtifactStore;
+}
+
+/** The factory's side of the store: it appends, under the writer's role. */
+export class EventWriter {
+  readonly #sql: Sql;
+  readonly #options: WriterOptions;
+
+  constructor(sql: Sql, options: WriterOptions) {
+    this.#sql = sql;
+    this.#options = options;
+  }
+
+  /** Validates the events, writes each with its public view and notifies listeners, in one transaction. */
+  async append(events: NewEvent | readonly NewEvent[]): Promise<StoredEvent[]> {
+    const batch: readonly NewEvent[] = Array.isArray(events) ? events : [events as NewEvent];
+    const problems = [...batch.flatMap(checkShape), ...(await this.#checkArtifacts(batch))];
+    if (problems.length) throw new AppendRefused(problems);
+
+    return this.#sql.begin(async (tx) => {
+      // The insert takes this lock too; taking it first means the checks below see what the insert will see.
+      await tx`select pg_advisory_xact_lock(hashtext('events'))`;
+      const sequence = await this.#checkSequence(tx, batch);
+      if (sequence.length) throw new AppendRefused(sequence);
+
+      const rows = batch.map((event) => ({
+        id: event.id,
+        ts: event.ts,
+        work_item: event.work_item,
+        type: event.type,
+        version: event.version,
+        actor: event.actor,
+        summary: event.summary,
+        payload: tx.json(event.payload as JSONValue),
+        artifacts: tx.json(event.artifacts as JSONValue),
+        public: tx.json(publicView(event.type, event) as unknown as JSONValue),
+        sample: this.#options.kind === 'sample',
+      }));
+      const stored = await tx<{ seq: string; ts: Date }[]>`insert into events ${tx(rows)} returning seq, ts`;
+      return batch.map(
+        (event, i) =>
+          ({
+            ...event,
+            seq: Number(stored[i]?.seq),
+            ts: stored[i]?.ts.toISOString() ?? event.ts,
+            public: publicView(event.type, event),
+          }) as StoredEvent,
+      );
+    }) as Promise<StoredEvent[]>;
+  }
+
+  async #checkArtifacts(batch: readonly NewEvent[]): Promise<string[]> {
+    const problems: string[] = [];
+    for (const [i, event] of batch.entries()) {
+      for (const artifact of event.artifacts) {
+        const size = await this.#options.artifacts.size(artifact.hash);
+        if (size === null) problems.push(`${where(batch, i)}: artifact ${artifact.hash} is not in the artifact store`);
+        else if (size !== artifact.size) {
+          problems.push(`${where(batch, i)}: artifact ${artifact.hash} is ${size} bytes, not ${artifact.size}`);
+        }
+      }
+    }
+    return problems;
+  }
+
+  /** A work item opens once, before anything else happens to it, and nothing but its summary follows its close. */
+  async #checkSequence(tx: TransactionSql, batch: readonly NewEvent[]): Promise<string[]> {
+    const items = [...new Set(batch.flatMap((event) => (event.work_item ? [event.work_item] : [])))];
+    const known = items.length
+      ? await tx<{ work_item: string; opened: boolean; closed: boolean }[]>`
+          select work_item,
+                 bool_or(type = 'work-item.opened') as opened,
+                 bool_or(type = 'work-item.closed') as closed
+          from events where work_item in ${tx(items)} group by work_item`
+      : [];
+    const state = new Map(known.map((row) => [row.work_item, { opened: row.opened, closed: row.closed }]));
+    const problems: string[] = [];
+    for (const [i, event] of batch.entries()) {
+      if (event.work_item === null) continue;
+      const item = state.get(event.work_item) ?? { opened: false, closed: false };
+      const at = where(batch, i);
+      if (event.type === 'work-item.opened') {
+        if (item.opened) problems.push(`${at}: work item ${event.work_item} is already open`);
+        if (event.payload.sample !== (this.#options.kind === 'sample')) {
+          problems.push(`${at}: this writer appends ${this.#options.kind === 'sample' ? 'samples' : 'real work'} only`);
+        }
+        item.opened = true;
+      } else if (!item.opened) {
+        problems.push(`${at}: work item ${event.work_item} has not been opened`);
+      } else if (item.closed && event.type !== 'work-item.summarised') {
+        problems.push(`${at}: work item ${event.work_item} is closed`);
+      }
+      if (event.type === 'work-item.closed') item.closed = true;
+      state.set(event.work_item, item);
+    }
+    return problems;
+  }
+}
+
+function checkShape(event: NewEvent, i: number, batch: readonly NewEvent[]): string[] {
+  const result = validate(event);
+  return result.ok ? [] : result.problems.map((problem) => `${where(batch, i)}: ${problem}`);
+}
+
+const where = (batch: readonly NewEvent[], i: number) => {
+  const event = batch[i];
+  return batch.length === 1 ? `${event?.type}` : `event ${i + 1} (${event?.type})`;
+};
+
+interface PublicRow {
+  seq: string;
+  id: string;
+  ts: Date;
+  work_item: string | null;
+  type: string;
+  version: number;
+  actor: string;
+  public: { summary: string; payload: unknown; artifacts: unknown[] };
+  appended_at: Date;
+}
+
+/** A public event as read, upcast to its current version if this factory knows its type and version. */
+export interface ReadEvent {
+  event: RawEvent & { seq: number };
+  /** When the store took it, for measuring how long it takes to reach a browser. */
+  appendedAt: Date;
+  /** False when a newer factory wrote it: it is passed on as it is, for the console to say so. */
+  understood: boolean;
+}
+
+/**
+ * Reads public events in seq order, after the one given. Uses only the columns the console's role may read, so
+ * the console and the factory read public events the same way.
+ */
+export async function readPublic(
+  sql: Sql,
+  after: number,
+  { limit = 1000, catalogue = CATALOGUE }: { limit?: number; catalogue?: Catalogue } = {},
+): Promise<ReadEvent[]> {
+  const rows = await sql<PublicRow[]>`
+    select seq, id, ts, work_item, type, version, actor, public, appended_at
+    from events where seq > ${after} order by seq limit ${limit}`;
+  return rows.map((row) => {
+    const raw = {
+      id: row.id,
+      seq: Number(row.seq),
+      ts: row.ts.toISOString(),
+      work_item: row.work_item,
+      type: row.type,
+      version: row.version,
+      actor: row.actor,
+      summary: row.public.summary,
+      payload: row.public.payload,
+      artifacts: row.public.artifacts,
+    };
+    const result = upcast(raw, catalogue);
+    return {
+      event: result.ok ? (result.event as RawEvent & { seq: number }) : raw,
+      appendedAt: row.appended_at,
+      understood: result.ok,
+    };
+  });
+}
+
+/**
+ * Calls back with each new seq as appends commit. After a dropped connection it listens again and calls `onReady`
+ * once more, so the caller can read whatever it missed meanwhile.
+ */
+export async function listen(sql: Sql, onAppended: (seq: number) => void, onReady: () => void) {
+  return sql.listen('events', (payload) => onAppended(Number(payload)), onReady);
+}

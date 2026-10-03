@@ -26,6 +26,8 @@ The toolchain is pinned in `mise.toml`, so one command installs it:
 mise install
 pnpm install
 make check    # lint, type-check, tests, design tokens, manifests
+pnpm dev      # the console on http://localhost:5173, with the samples
+make e2e      # the console in a browser: accessibility, security headers, speed, visual snapshots
 ```
 
 Or open the repository in its dev container.

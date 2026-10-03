@@ -3,8 +3,16 @@
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
+!tsconfig.base.json
 !apps/console/package.json
+!apps/console/vite.config.ts
+!apps/console/web
 !apps/console/src
-!apps/console/public
+!packages/events/package.json
+!packages/events/src
+!packages/store/package.json
+!packages/store/src
+!packages/store/migrations
 !docs/design/system/tokens.css
+!docs/design/system/station.ts
 !docs/design/system/mark/icon.svg

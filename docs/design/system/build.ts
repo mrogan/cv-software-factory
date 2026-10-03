@@ -1,17 +1,21 @@
 /**
- * Generate tokens.css from tokens.json and check colour contrast. The JSON is the source.
+ * Generate tokens.css from tokens.json, and station.js from station.ts, and check colour contrast.
+ * The JSON and the TypeScript are the sources.
  *
- *     node docs/design/system/build.ts            # write tokens.css
- *     node docs/design/system/build.ts --check    # fail if tokens.css is out of date (make check, CI)
+ *     node docs/design/system/build.ts            # write tokens.css and station.js
+ *     node docs/design/system/build.ts --check    # fail if either is out of date (make check, CI)
  *
  * Fails if a pair that carries meaning drops below its WCAG 2.2 AA threshold in either theme.
  * Plain TypeScript with no dependencies, run by Node's built-in type stripping.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
 import { join, relative } from 'node:path';
 
 const SRC = join(import.meta.dirname, 'tokens.json');
 const OUT = join(import.meta.dirname, 'tokens.css');
+const STATION_SRC = join(import.meta.dirname, 'station.ts');
+const STATION_OUT = join(import.meta.dirname, 'station.js');
 
 /** [foreground, background, minimum]. 4.5 for text; 3 for large text and graphics (WCAG 1.4.11). */
 type Pair = [fg: string, bg: string, min: number];
@@ -137,17 +141,42 @@ function css(tokens: Tokens): string {
   return out.join('');
 }
 
+/**
+ * station.ts as a classic script, so design pages work straight from disk (file://), where browsers refuse
+ * modules. Types are blanked out where they stood, so line numbers match the source.
+ */
+function stationScript(source: string): string {
+  // Node marks its type stripper experimental; the warning would only repeat on every check.
+  process.removeAllListeners('warning');
+  const js = stripTypeScriptTypes(source)
+    .replace(/^export /gm, '')
+    // Tidy the gaps the types leave behind.
+    .replace(/[ \t]+$/gm, '')
+    .replace(/ +;/g, ';')
+    .replace(/([\w\])]) {2,}([={])/g, '$1 $2');
+  return [
+    '/* Generated from station.ts by build.ts. Do not edit by hand. */',
+    "(() => {\n'use strict';",
+    js.trimEnd(),
+    'globalThis.SFStation = { Station, STAGE_NAME, STATE, KINDS, STATUSES };',
+    '})();\n',
+  ].join('\n');
+}
+
 const tokens: Tokens = JSON.parse(readFileSync(SRC, 'utf-8'));
-const built = css(tokens);
-if (process.argv.includes('--check')) {
-  if (readFileSync(OUT, 'utf-8') !== built) {
-    console.error(`${relative(process.cwd(), OUT)} is out of date: run node ${relative(process.cwd(), import.meta.filename)}`);
+const outputs: [string, string][] = [
+  [OUT, css(tokens)],
+  [STATION_OUT, stationScript(readFileSync(STATION_SRC, 'utf-8'))],
+];
+for (const [file, built] of outputs) {
+  const name = relative(process.cwd(), file);
+  if (!process.argv.includes('--check')) {
+    writeFileSync(file, built);
+    console.log('wrote', name);
+  } else if (readFileSync(file, 'utf-8') !== built) {
+    console.error(`${name} is out of date: run node ${relative(process.cwd(), import.meta.filename)}`);
     process.exit(1);
-  }
-  console.log(relative(process.cwd(), OUT), 'is up to date');
-} else {
-  writeFileSync(OUT, built);
-  console.log('wrote', relative(process.cwd(), OUT));
+  } else console.log(name, 'is up to date');
 }
 const low = report(tokens);
 if (low.length) {

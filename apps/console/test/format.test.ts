@@ -1,0 +1,27 @@
+import { describe, expect, it } from 'vitest';
+import { axis, figure } from '../web/src/format.ts';
+
+describe('a chart’s axis', () => {
+  it.each([
+    ['latency in milliseconds', 706, 800, [0, 400, 800]],
+    ['an error rate', 0.03, 0.04, [0, 0.02, 0.04]],
+    ['a latency in seconds', 0.8, 0.9, [0, 0.45, 0.9]],
+    ['a share just under a whole', 0.27, 0.3, [0, 0.15, 0.3]],
+    ['nothing at all', 0, 1, [0, 0.5, 1]],
+  ])('fits %s', (_case, top, max, ticks) => {
+    expect(axis(top)).toEqual({ max, ticks });
+  });
+
+  it('gives every tick its own value and label', () => {
+    for (const top of [0.003, 0.03, 0.3, 3, 30, 300, 3000]) {
+      const { ticks } = axis(top);
+      expect(new Set(ticks.map(figure)).size).toBe(3);
+    }
+  });
+});
+
+describe('a figure', () => {
+  it('keeps three significant figures, whatever the scale', () => {
+    expect([642, 85, 0.015, 0.02345, 1500].map(figure)).toEqual(['642', '85', '0.015', '0.0235', '1,500']);
+  });
+});

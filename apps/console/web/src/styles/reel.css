@@ -1,0 +1,372 @@
+/* The reel: cards side by side, the centre one full size, and the timeline beneath. */
+
+.history {
+  margin-top: 64px;
+}
+.history-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.history-head h2 {
+  margin: 0;
+  font: 400 40px / 1 var(--font-display);
+  letter-spacing: -0.4px;
+}
+.history-head p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 640px;
+}
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.transport .btn {
+  min-height: 40px;
+  padding: 0 16px;
+}
+.count {
+  font: 12px / 1 var(--font-mono);
+  color: var(--text-muted);
+  min-width: 64px;
+  text-align: center;
+}
+.now-btn {
+  min-height: 40px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: transparent;
+  font: 12px / 1 var(--font-mono);
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.now-btn[aria-pressed="true"] {
+  background: var(--raised);
+  border-color: var(--text-muted);
+}
+
+.reel {
+  --card-w: 620px;
+  position: relative;
+  margin: 28px calc(-1 * var(--g)) 0;
+  height: 600px;
+  overflow: hidden;
+  touch-action: pan-y;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 93%, transparent 100%);
+}
+.reel:focus-visible {
+  outline-offset: -4px;
+}
+.reel.dragging {
+  cursor: grabbing;
+}
+.card {
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: var(--card-w);
+  transform-origin: 50% 30%;
+  padding: 14px 14px 16px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  cursor: pointer;
+}
+.card[data-place="centre"] {
+  border-color: var(--line-strong);
+}
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 24px;
+}
+.cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 11px / 1 var(--font-mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.kind {
+  font: 12px / 1 var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+}
+.out {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 11px / 1 var(--font-mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--tone);
+  white-space: nowrap;
+}
+.out.tone-faint {
+  color: var(--text-muted);
+}
+.card h3 {
+  margin: 0;
+  font: 400 28px / 1.08 var(--font-display);
+  letter-spacing: -0.2px;
+}
+.card p.desc {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.9em;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  font: 11.5px / 1.4 var(--font-mono);
+  color: var(--text-muted);
+}
+.meta b {
+  font-weight: 400;
+  color: var(--text);
+}
+.ver {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text);
+}
+.ver s,
+.ver .muted {
+  color: var(--text-muted);
+}
+.card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.open-hint {
+  font: 11px / 1 var(--font-mono);
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.card[data-place="centre"]:hover .open-hint {
+  color: var(--text);
+}
+.reel.anim .card {
+  transition:
+    transform 0.6s var(--motion-ease),
+    opacity 0.6s var(--motion-ease);
+}
+
+/* Eight segments, one per stage: how far the item got and where it stopped. */
+.prog {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 3px;
+  flex: 1;
+  max-width: 220px;
+}
+.prog i {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.prog i.o {
+  background: var(--ok);
+}
+.prog i.k {
+  background: var(--text-muted);
+}
+.prog i.x,
+.prog i.w {
+  background: var(--attn);
+}
+.prog i.s {
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+}
+.prog i.n {
+  background: var(--signal);
+}
+@media (prefers-reduced-motion: no-preference) {
+  html[data-motion="on"] .prog i.n {
+    animation: blink var(--motion-blink) ease-in-out infinite;
+  }
+}
+
+/* The timeline: a mark per work item, a hairline per day, each release's version and the playhead. */
+.rail {
+  position: relative;
+  height: 92px;
+  margin: 18px 6px 0;
+  touch-action: none;
+  cursor: pointer;
+}
+.rail:focus-visible {
+  outline-offset: 6px;
+  border-radius: var(--radius-card);
+}
+.rail .track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 46px;
+  height: 2px;
+  background: var(--line-strong);
+}
+.rail .day {
+  position: absolute;
+  top: 0;
+  padding-left: 8px;
+  font: 10.5px / 1.4 var(--font-mono);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.rail .day::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 1px;
+  height: 54px;
+  background: var(--line-strong);
+}
+.tick {
+  position: absolute;
+  top: 34px;
+  width: 26px;
+  height: 26px;
+  margin-left: -13px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  border: 1.5px solid var(--tone);
+  background: var(--bg);
+  color: var(--tone);
+  transition: transform 0.2s var(--motion-ease);
+  pointer-events: none;
+}
+.tick .glyph {
+  width: 13px;
+  height: 13px;
+}
+.tick.here {
+  transform: scale(1.25);
+  background: var(--raised);
+}
+.tick.tone-faint {
+  color: var(--text-muted);
+  border-style: dashed;
+  border-color: var(--text-muted);
+}
+.rail .ver {
+  position: absolute;
+  top: 68px;
+  transform: translateX(-50%);
+  padding: 0;
+  border: 0;
+  font: 10.5px / 1.4 var(--font-mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.rail .ver.here {
+  color: var(--text);
+}
+.rail .ver.burnt {
+  text-decoration: line-through;
+}
+.playhead {
+  position: absolute;
+  top: 22px;
+  bottom: 26px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--signal);
+  pointer-events: none;
+}
+.reel.anim ~ .rail .playhead {
+  transition: left 0.6s var(--motion-ease);
+}
+.at-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.at-line b {
+  font-weight: 400;
+  color: var(--text);
+}
+.attn-text {
+  color: var(--attn);
+}
+.help.what {
+  margin-top: 18px;
+}
+
+html[data-motion="off"] .reel.anim .card,
+html[data-motion="off"] .reel.anim ~ .rail .playhead {
+  transition: none;
+}
+
+@media (max-width: 720px) {
+  .history {
+    margin-top: 44px;
+  }
+  .history-head h2 {
+    font-size: 32px;
+  }
+  .play-label {
+    display: none;
+  }
+  .card {
+    padding: 10px 10px 12px;
+  }
+  .card h3 {
+    font-size: 23px;
+  }
+  .card .kind,
+  .meta .opt {
+    display: none;
+  }
+  .rail .ver:not(.here) {
+    display: none;
+  }
+  .rail .day {
+    font-size: 0;
+  }
+}

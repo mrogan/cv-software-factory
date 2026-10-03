@@ -16,8 +16,12 @@ register('@opentelemetry/instrumentation/hook.mjs', import.meta.url);
 const sdk = new NodeSDK({
   serviceName: process.env.OTEL_SERVICE_NAME ?? 'console',
   instrumentations: [
-    // Probes hit /health every few seconds; a span for each would bury the requests that matter.
-    new HttpInstrumentation({ ignoreIncomingRequestHook: (req) => req.url === '/health' }),
+    // Probes hit /health every few seconds; a span for each would bury the requests that matter. An event stream
+    // stays open for as long as a browser does, so it would read as one very slow request: it has metrics of its
+    // own (stream.ts).
+    new HttpInstrumentation({
+      ignoreIncomingRequestHook: (req) => req.url === '/health' || Boolean(req.url?.startsWith('/api/events/stream')),
+    }),
     new PinoInstrumentation(),
   ],
 });

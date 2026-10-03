@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
  * reports as "<calling job> / <job>".
  */
 const REPOSITORIES: Record<string, string[]> = {
-  'mrogan/cv-software-factory': ['lint, types, tests', 'image builds', 'pull request title'],
+  'mrogan/cv-software-factory': ['lint, types, tests', 'browser tests', 'image builds', 'pull request title'],
   'mrogan/cv-worlds-worst-website': ['lint, types, tests', 'image builds', 'title / pull request title'],
 };
 
