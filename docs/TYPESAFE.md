@@ -82,7 +82,7 @@ Measured on 3 October 2026 through the gateway, with `apps/factory/scripts/jev-s
 
 - **Descriptions matter for a Choice.** With bare option names, two of the six reported faults were filed under the wrong category (a negative price as content, a search showing cats as errors). With a one-line description of each option, all six were right.
 - **What the API returns.** A pinned version answers with that version. The alias `jev-latest` is accepted and answers as `jev-1.13.0`, which is why the gateway refuses aliases itself. An unknown model and a 2 MB state are both refused with a 400 and a `detail` list. Forty requests at once all succeeded: no rate limit showed.
-- **What a request takes.** A triage request with four questions is about 740 input tokens (at most 920), or $0.00003. It answers in 220 ms at the median and 250 ms at the 95th percentile, measured at the gateway.
+- **What a request takes.** The spike's requests, of one to five questions, averaged about 740 input tokens (at most 920) and answered in 220 ms at the median and 250 ms at the 95th percentile, measured at the gateway. A real `triage/v1` request is larger, with five questions and every option described: the first live report took 1,525 input tokens and 373 ms, or $0.00006.
 
 ## Triage question set
 

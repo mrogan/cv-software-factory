@@ -157,15 +157,17 @@ const round = (n: number) => Math.round(n * 1000) / 1000;
 // 1. Do identical requests get identical answers?
 const repeats = [];
 for (const report of REPORTS.filter((_, i) => [0, 6, 12].includes(i))) {
-  const runs = [];
+  const runs: Awaited<ReturnType<typeof ask>>[] = [];
   for (let i = 0; i < 5; i++) {
     runs.push(await ask(report.text, { category: category(true), severity, injection: INJECTION.narrow as Question }));
   }
   const spread = (values: number[]) => round(Math.max(...values) - Math.min(...values));
+  // The category Jev chose first; `choices` shows whether it stayed the same across the runs.
+  const chosen = choiceOf(runs[0]?.category).choice;
   repeats.push({
     report: report.text,
     choices: [...new Set(runs.map((r) => choiceOf(r.category).choice))],
-    categorySpread: spread(runs.map((r) => choiceOf(r.category).probabilities[report.category] ?? 0)),
+    categorySpread: spread(runs.map((r) => choiceOf(r.category).probabilities[chosen] ?? 0)),
     severitySpread: spread(runs.map((r) => (r.severity as { score: number }).score)),
     injectionSpread: spread(runs.map((r) => noulOf(r.injection))),
   });
