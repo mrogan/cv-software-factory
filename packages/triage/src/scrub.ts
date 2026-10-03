@@ -7,11 +7,17 @@
  */
 /** Six digits or more, allowing the spaces and dashes people type in phone and card numbers. */
 const LONG_NUMBER = /\+?\d(?:[\s-]?\d){5,}/g;
+/** A date is a fact about the page, which a content report may be about, not a visitor's detail. */
+const DATE = /^(?:\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})$/;
 /** What may wrap an address in prose: brackets, quotes and the punctuation after it. */
 const WRAPPING = new Set('<>()[]"\'“”‘’,;:.!?');
 
 export function scrub(text: string): string {
-  return text.split(/(\s+)/).map(withoutEmail).join('').replace(LONG_NUMBER, '[number]');
+  return text
+    .split(/(\s+)/)
+    .map(withoutEmail)
+    .join('')
+    .replace(LONG_NUMBER, (found) => (DATE.test(found) ? found : '[number]'));
 }
 
 /** A word with an email address in it, the address replaced and what wraps it kept. */
@@ -31,3 +37,27 @@ function withoutEmail(word: string): string {
 
 /** The page a report names, without its query or fragment: those are typed by the visitor, so they are theirs. */
 export const pathOf = (page: string) => page.split(/[?#]/)[0] || '/';
+
+/**
+ * The page a report names, as triage may use it: without its query, and with any email address or long number in
+ * its path taken out, because a visitor can type a path too (a page that does not exist, say). Never longer than a
+ * route may be.
+ */
+export function privatePath(page: string): string {
+  const segments = pathOf(page)
+    .split('/')
+    .map((segment) => {
+      let decoded = segment;
+      try {
+        decoded = decodeURIComponent(segment);
+      } catch {
+        // Not valid percent-encoding: judged as it is.
+      }
+      const scrubbed = scrub(decoded);
+      return scrubbed === decoded ? segment : scrubbed.replace(/\s+/g, '-');
+    });
+  return segments.join('/').slice(0, 200);
+}
+
+/** A page or route short enough for a title or a summary: a long one keeps its start, and says it was cut. */
+export const shortPath = (path: string, max = 60) => (path.length <= max ? path : `${path.slice(0, max - 1)}…`);

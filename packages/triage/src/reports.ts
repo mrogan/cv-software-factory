@@ -27,7 +27,7 @@ import {
   triageQuestions,
 } from './questions.ts';
 import { type Routed, routeReport } from './routing.ts';
-import { pathOf, scrub } from './scrub.ts';
+import { privatePath, scrub } from './scrub.ts';
 
 /** The page a report names, as the factory sees it: a screenshot at its path, and its text in passages. */
 export interface PageView {
@@ -65,7 +65,7 @@ export async function judgeReport(
   judge: Judge,
   read: PageReader,
 ): Promise<ReportDecision> {
-  const path = pathOf(report.page);
+  const path = privatePath(report.page);
   const state: ReportState = { page: path, report: scrub(report.text) };
   const view = await read(path);
 
@@ -102,9 +102,9 @@ export async function judgeReport(
   };
   if (routed.route !== 'ticket') return decision;
 
-  decision.fingerprint = { route: report.route, class: routed.symptom };
-  if (routed.category === 'content' && view?.passages.length) {
-    const passages = view.passages.slice(0, 40);
+  decision.fingerprint = { route: privatePath(report.route), class: routed.symptom };
+  const passages = passagesOf(view?.passages ?? []);
+  if (routed.category === 'content' && passages.length) {
     const asked = passageQuestions(passages);
     const chosen = await judge({
       agent: 'triage',
@@ -181,4 +181,16 @@ function label(result: JudgeResult, key: string, labels: readonly string[]): str
   const { choice } = answer(result, key, 'choice');
   if (!labels.includes(choice)) throw new Error(`Jev answered ${key} with a label it was not offered`);
   return choice;
+}
+
+/**
+ * Passages as a question may offer them and an event may keep them: whitespace folded, none empty or repeated, each
+ * at most 200 characters (a longer one keeps its start), and at most 40.
+ */
+export function passagesOf(read: readonly string[]): string[] {
+  const passages = read
+    .map((passage) => passage.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .map((passage) => (passage.length <= 200 ? passage : `${passage.slice(0, 199)}…`));
+  return [...new Set(passages)].slice(0, 40);
 }

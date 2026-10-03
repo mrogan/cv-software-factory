@@ -126,10 +126,14 @@ describe('triage', () => {
       symptom: undefined,
       report: { page: '/about', text: 'The year on the about page is wrong' },
     });
+    const opened: boolean[] = [];
+    const counting = triage({ onTriaged: (_outcome, _signal, _waited, ticket) => opened.push(ticket) });
     await sendSignal(writer, report);
-    expect(await triage().takeOne()).toBe('report');
+    expect(await counting.takeOne()).toBe('report');
     await sendSignal(writer, report);
-    expect(await triage().takeOne()).toBe('report');
+    expect(await counting.takeOne()).toBe('report');
+    // Only the first opened a ticket, so only it counts towards the time from signal to ticket.
+    expect(opened).toEqual([true, false]);
     const [first, second] = await writer<{ work_item: string }[]>`
       select work_item from inbox where outcome = 'report' order by received_at desc limit 2`;
     expect(first?.work_item).toBe(second?.work_item);

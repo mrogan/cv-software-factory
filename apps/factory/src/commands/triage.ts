@@ -9,13 +9,10 @@
  * store, which it connects to as the factory's writer.
  */
 import type { Screenshot } from '@software-factory/events';
-import { type Judge, JudgeWaiting, type PageReader, Triage } from '@software-factory/triage';
+import { type Judge, type PageReader, Triage } from '@software-factory/triage';
 import { INBOX } from '../../../../policy/triage.ts';
 
 export const USAGE = '  factory triage';
-
-/** How long a report with no cassette waits before it is tried again, when the gateway has no key. */
-const NO_CASSETTE_WAIT_MS = 10 * 60_000;
 
 export async function run(args: string[]): Promise<number> {
   const { GATEWAY_URL, PAGES_URL, ARTIFACTS_DIR, DATABASE_URL } = process.env;
@@ -30,7 +27,7 @@ export async function run(args: string[]): Promise<number> {
   const { default: postgres } = await import('postgres');
   const { DiskArtifacts, EventWriter } = await import('@software-factory/store');
   const { GatewayClient } = await import('../gateway/client.ts');
-  const { CassetteMissing, SpendCapped } = await import('../gateway/errors.ts');
+  const { waitingFor } = await import('../gateway/waiting.ts');
 
   const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
   const gateway = new GatewayClient({ url: GATEWAY_URL });
@@ -39,19 +36,7 @@ export async function run(args: string[]): Promise<number> {
     try {
       return await gateway.judge(request);
     } catch (error) {
-      if (error instanceof SpendCapped && error.resets) {
-        throw new JudgeWaiting(
-          `The ${error.cap} spend cap is reached; triage waits until it resets`,
-          new Date(error.resets),
-        );
-      }
-      if (error instanceof CassetteMissing) {
-        throw new JudgeWaiting(
-          'No cassette for this report, and the gateway has no key to ask Jev',
-          new Date(Date.now() + NO_CASSETTE_WAIT_MS),
-        );
-      }
-      throw error;
+      throw waitingFor(error, new Date()) ?? error;
     }
   };
 
@@ -100,9 +85,9 @@ export async function run(args: string[]): Promise<number> {
     judge,
     read,
     log,
-    onTriaged: (outcome, signal) => {
+    onTriaged: (outcome, signal, _waited, ticketOpened) => {
       triaged.add(1, { sense: signal.sense, outcome });
-      if (outcome === 'opened' || outcome === 'report') {
+      if (ticketOpened) {
         toTicket.record((Date.now() - Date.parse(signal.observedAt)) / 1000, { sense: signal.sense });
       }
     },

@@ -17,7 +17,7 @@ import {
 } from '@software-factory/events';
 import { SYMPTOMS } from '../../../policy/triage.ts';
 import type { Fingerprint, Judgement, ReportDecision } from './reports.ts';
-import { pathOf } from './scrub.ts';
+import { privatePath, shortPath } from './scrub.ts';
 
 /** Ids for the events made from one signal: the same signal always gives the same ids, in the same order. */
 export function idsFor(signalId: string): () => string {
@@ -94,12 +94,12 @@ const TITLES: Record<SymptomClass, string> = {
   'wrong-metric': 'Metrics with a wrong label',
 };
 
-const where = (route: string) => (route === '*' ? 'every page' : route);
+const where = (route: string) => (route === '*' ? 'every page' : shortPath(route));
 
 export const ticketTitle = (fingerprint: Fingerprint): string =>
   'class' in fingerprint
     ? `${TITLES[fingerprint.class]} on ${where(fingerprint.route)}`
-    : `Wrong words on ${fingerprint.page}`;
+    : `Wrong words on ${shortPath(fingerprint.page)}`;
 
 /** A report's ticket says a visitor raised it. Its title is the factory's words, never the visitor's. */
 export const reportedTitle = (fingerprint: Fingerprint): string => {
@@ -123,7 +123,7 @@ function signalEvent(writer: Writer, signal: InboxSignal): Writer {
   const actor = signal.sense === 'report' ? 'widget' : signal.sense;
   const line =
     signal.sense === 'report'
-      ? `A visitor reported a problem on ${payload.report?.page ?? payload.route}`
+      ? `A visitor reported a problem on ${shortPath(payload.report?.page ?? payload.route)}`
       : (summary ?? `${signal.check}: ${TITLES[signal.symptom as SymptomClass].toLowerCase()}`);
   return writer.add('signal.received', actor, line, payload, artifacts);
 }
@@ -173,9 +173,10 @@ export function reportEvents(
   now: Date,
 ): NewEvent[] {
   const { routed, judgements } = decision;
-  // The page without its query, which the visitor typed: the query is theirs, like the text.
-  const page = pathOf(signal.report?.page ?? signal.route);
-  const scrubbed = { ...signal, report: { page, text: decision.text } };
+  // The page without its query or anything private in its path: the visitor may have typed either.
+  const path = privatePath(signal.report?.page ?? signal.route);
+  const page = shortPath(path);
+  const scrubbed = { ...signal, route: privatePath(signal.route), report: { page: path, text: decision.text } };
   const shot = decision.screenshot ? [decision.screenshot] : [];
   const writer = new Writer(signalId, workItem, now);
   if (routed.route !== 'repeat') {

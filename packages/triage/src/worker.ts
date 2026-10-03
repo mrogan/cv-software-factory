@@ -18,7 +18,7 @@ import { idsFor, reportEvents, senseEvidence, senseTicket } from './events.ts';
 import { type Judge, JudgeWaiting } from './judge.ts';
 import type { Candidate } from './questions.ts';
 import { judgeReport, type PageReader } from './reports.ts';
-import { pathOf } from './scrub.ts';
+import { privatePath } from './scrub.ts';
 
 /** What triage made of a signal, as the inbox records it. */
 export type Outcome = 'opened' | 'evidence' | 'counted' | 'report';
@@ -37,7 +37,7 @@ export interface TriageOptions {
   log: Logger;
   now?: () => Date;
   /** Told of each signal triaged, with how long it waited in the inbox. */
-  onTriaged?: (outcome: Outcome, signal: InboxSignal, waitedSeconds: number) => void;
+  onTriaged?: (outcome: Outcome, signal: InboxSignal, waitedSeconds: number, ticketOpened: boolean) => void;
 }
 
 interface Taken {
@@ -70,12 +70,12 @@ export class Triage {
     if (!taken) return reportsWait ? 'waiting' : 'idle';
     const log = { signal: taken.id, sense: taken.sense, attempt: taken.attempts };
     try {
-      const { outcome, workItem } = await this.#triage(taken);
+      const { outcome, workItem, ticketOpened } = await this.#triage(taken);
       await this.#o.sql`update inbox set triaged_at = ${now}, outcome = ${outcome}, work_item = ${workItem},
                         failure = null where id = ${taken.id}`;
       const waited = (now.getTime() - taken.received_at.getTime()) / 1000;
       this.#o.log.info({ ...log, outcome, workItem }, 'triaged a signal');
-      this.#o.onTriaged?.(outcome, taken.signal, waited);
+      this.#o.onTriaged?.(outcome, taken.signal, waited, ticketOpened);
       return outcome;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -142,7 +142,7 @@ export class Triage {
     return row;
   }
 
-  async #triage(taken: Taken): Promise<{ outcome: Outcome; workItem: string }> {
+  async #triage(taken: Taken): Promise<{ outcome: Outcome; workItem: string; ticketOpened: boolean }> {
     const { sql, events } = this.#o;
     const now = this.#o.now();
     const signal = taken.signal;
@@ -152,15 +152,21 @@ export class Triage {
       select work_item, type from events where id = ${idsFor(taken.id)()}`;
     if (done) {
       const outcome = signal.sense === 'report' ? 'report' : done.type === 'work-item.opened' ? 'opened' : 'evidence';
-      return { outcome, workItem: done.work_item };
+      // Counted once already, if at all: the time it took is not this attempt's.
+      return { outcome, workItem: done.work_item, ticketOpened: false };
     }
 
     const tickets = await openTickets(sql);
     if (signal.sense === 'report') {
-      const page = pathOf(signal.report?.page ?? signal.route);
-      const candidates = tickets.filter((ticket) => onPage(ticket, signal.route, page)).slice(0, 10);
+      const text = signal.report?.text;
+      // The inbox refuses a report without its text; one that got in some other way is nothing to judge.
+      if (!text) throw new Error('A report reached triage without its text');
+      // The visitor may have typed the path, so anything private in it goes before anything is matched or asked.
+      const page = privatePath(signal.report?.page ?? signal.route);
+      const route = privatePath(signal.route);
+      const candidates = tickets.filter((ticket) => onPage(ticket, route, page)).slice(0, 10);
       const decision = await judgeReport(
-        { page, text: signal.report?.text ?? '', route: signal.route },
+        { page, text, route },
         candidates.map(candidateOf),
         this.#o.judge,
         this.#o.read,
@@ -175,7 +181,7 @@ export class Triage {
       }
       const workItem = decision.routed.route === 'repeat' ? decision.routed.joined : await nextWorkItem(sql);
       await events.append(reportEvents(signal, taken.id, workItem, decision, now));
-      return { outcome: 'report', workItem };
+      return { outcome: 'report', workItem, ticketOpened: decision.routed.route === 'ticket' };
     }
 
     const fingerprint = { route: signal.route, class: signal.symptom as SymptomClass };
@@ -183,13 +189,13 @@ export class Triage {
     if (!ticket) {
       const workItem = await nextWorkItem(sql);
       await events.append(senseTicket(signal, taken.id, workItem, now));
-      return { outcome: 'opened', workItem };
+      return { outcome: 'opened', workItem, ticketOpened: true };
     }
     const [seen] = await sql`select 1 from events where work_item = ${ticket.workItem}
                              and type = 'signal.received' and payload->>'sense' = ${signal.sense} limit 1`;
-    if (seen) return { outcome: 'counted', workItem: ticket.workItem };
+    if (seen) return { outcome: 'counted', workItem: ticket.workItem, ticketOpened: false };
     await events.append(senseEvidence(signal, taken.id, ticket.workItem, now));
-    return { outcome: 'evidence', workItem: ticket.workItem };
+    return { outcome: 'evidence', workItem: ticket.workItem, ticketOpened: false };
   }
 }
 

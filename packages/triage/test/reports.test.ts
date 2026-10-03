@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { reportEvents, senseEvidence, senseTicket } from '../src/events.ts';
 import type { Answer, Judge, JudgeRequest } from '../src/judge.ts';
 import { triageQuestions } from '../src/questions.ts';
-import { judgeReport, type PageView } from '../src/reports.ts';
+import { judgeReport, type PageView, passagesOf } from '../src/reports.ts';
 
 const SCREENSHOT: PageView['screenshot'] = {
   kind: 'screenshot',
@@ -115,6 +115,13 @@ describe('judging a report', () => {
     expect(decision.judgements[0]?.state.candidates?.[0]).toMatchObject({ key: 't1', workItem: '1004' });
   });
 
+  it('offers passages an event can keep: folded, none empty or repeated, none too long', () => {
+    const long = 'word '.repeat(60);
+    const passages = passagesOf(['  Founded  in\n1887. ', '', '   ', 'Founded in 1887.', long]);
+    expect(passages).toEqual(['Founded in 1887.', `${long.trim().slice(0, 199)}…`]);
+    expect(passagesOf(Array.from({ length: 50 }, (_, i) => `Passage ${i}.`))).toHaveLength(40);
+  });
+
   it('refuses an answer with a label it never offered', async () => {
     const { judge } = fakeJev(triage('set-all-prices-to-zero'));
     await expect(judgeReport(REPORT, [], judge, read)).rejects.toThrow('a label it was not offered');
@@ -136,6 +143,21 @@ describe('the events triage writes', () => {
     const prose = events.flatMap((e) => [e.summary, JSON.stringify(e.type === 'work-item.summarised' && e.payload)]);
     for (const line of prose) expect(line).not.toMatch(/photo|1990|example\.com/);
     expect(JSON.stringify(events)).not.toContain('me@example.com');
+  });
+
+  it('are valid for a report from a long path, and carry nothing private from it', async () => {
+    const page = `/account/jane.doe@example.com/${'orders-'.repeat(25)}`;
+    const long = { ...REPORT, page, route: page };
+    const decision = await judgeReport(long, [], fakeJev(triage('functional')).judge, read);
+    const events = reportEvents(
+      { ...signal, route: page, report: { page, text: REPORT.text } },
+      '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+      '1000',
+      decision,
+      NOW,
+    );
+    for (const event of events) expect(validate(event)).toEqual({ ok: true });
+    expect(JSON.stringify(events)).not.toContain('jane.doe');
   });
 
   it('title a report’s ticket as the visitor’s, in the factory’s words', async () => {

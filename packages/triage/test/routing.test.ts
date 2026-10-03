@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { REPORTS } from '../../../policy/triage.ts';
 import { type ReportAnswers, routeReport, severityOf } from '../src/routing.ts';
-import { pathOf, scrub } from '../src/scrub.ts';
+import { pathOf, privatePath, scrub, shortPath } from '../src/scrub.ts';
 
 const problem: ReportAnswers = { category: 'functional', symptom: 'wrong-result', severity: 2.9, injection: 0.02 };
 const just = (by: number) => Math.round(by * 1000) / 1000;
@@ -71,6 +71,24 @@ describe('what leaves the cluster of a report', () => {
     expect(scrub('Item 2 costs £-12.99 and page 3 of 10 repeats it')).toBe(
       'Item 2 costs £-12.99 and page 3 of 10 repeats it',
     );
+  });
+
+  it('keeps dates, which a content report may be about', () => {
+    expect(scrub('The sale ends 2026-10-03 but the banner says 03-10-2026')).toBe(
+      'The sale ends 2026-10-03 but the banner says 03-10-2026',
+    );
+  });
+
+  it('takes anything private out of the path, which the visitor may have typed', () => {
+    expect(privatePath('/account/jane.doe%40example.com/orders?x=1')).toBe('/account/[email]/orders');
+    expect(privatePath('/track/447700900123')).toBe('/track/[number]');
+    expect(privatePath('/products/brass-doorstop')).toBe('/products/brass-doorstop');
+    expect(privatePath(`/${'a'.repeat(300)}`)).toHaveLength(200);
+  });
+
+  it('shortens a long path for a title, saying it was cut', () => {
+    expect(shortPath('/about')).toBe('/about');
+    expect(shortPath(`/${'a'.repeat(100)}`)).toMatch(/^\/a{58}…$/);
   });
 
   it('names the page without the query, which the visitor typed', () => {
