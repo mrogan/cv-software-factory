@@ -10,8 +10,9 @@ Open [`index.html`](index.html) to see it: every token, both themes, the mark, a
 |---|---|---|
 | [`tokens.json`](tokens.json) | Source of truth: colour roles per theme, type, space, radius, stroke, shadow, motion, station geometry. W3C Design Tokens (DTCG) format. | Yes |
 | [`tokens.css`](tokens.css) | Custom properties and `.t-*` type classes, generated from the JSON. | No: run `build.ts` |
-| [`build.ts`](build.ts) | `node docs/design/system/build.ts` (Node 24, no dependencies) regenerates `tokens.css` and fails if any meaningful colour pair drops below WCAG 2.2 AA. With `--check` it writes nothing and fails if `tokens.css` is out of date; `make check` runs it that way. | Yes |
-| [`station.js`](station.js) | The `<sf-station>` element: reference implementation of the station kit. | Yes |
+| [`build.ts`](build.ts) | `node docs/design/system/build.ts` (Node 24, no dependencies) regenerates `tokens.css` and `station.js`, and fails if any meaningful colour pair drops below WCAG 2.2 AA. With `--check` it writes nothing and fails if either is out of date; `make check` runs it that way. | Yes |
+| [`station.ts`](station.ts) | The `<sf-station>` element: the station kit, which the console imports as it is. No `<style>` element or `style` attribute, so it runs under the console's content security policy. | Yes |
+| [`station.js`](station.js) | The same element as a classic script, so design pages open from disk. | No: run `build.ts` |
 | [`mark/`](mark/) | The MR monogram: `mark.svg` (Paper), `mark-ink.svg` (Ink), `icon.svg` (favicon and app icon). | Replace, don't edit |
 | [`index.html`](index.html) | Specimen page. Opens from disk; `?theme=ink` and `?motion=off` work. | Yes |
 
@@ -111,16 +112,18 @@ Blocked and failed share `attn` on purpose: both mean a person should act. Their
 
 ### From events to a station's status
 
-A proposal for the console's projection of the event store; confirm it when the event schema lands (milestone 3). Evaluate each stage's current work items and take the first rule that matches:
+The console's projection (`apps/console/web/src/projection/line.ts`) works out each station's status from the work items in the stage at time *t*, taking the first rule that matches:
 
-1. **failed:** an item in the stage has failed and has not been retried or rolled back.
-2. **blocked:** an item is waiting on a human (spec approval, held PR, planner question, Stop the line).
-3. **returning:** an item was sent upstream from this stage in the last few minutes.
-4. **working:** at least one item is in progress.
-5. **passing:** the most recent item left the stage successfully, and nothing is in progress.
+1. **failed:** an item in the stage failed (a gate run, a refusal, a rollback) and nothing has happened since: no retry, no return, no hold for a human.
+2. **blocked:** an item is waiting on a human (spec approval, held PR, planner question).
+3. **returning:** an item was sent upstream from this stage in the last 5 minutes.
+4. **working:** at least one item is in progress in the stage.
+5. **passing:** an item left the stage for a later one, or was verified in it, in the last 15 minutes, and nothing is in progress.
 6. **idle:** otherwise.
 
-Under Stop the line, every station shows `blocked` and the belt stops.
+A failure that a mechanism hands to a human (the test-integrity gate holding a pull request) reads as `blocked`, not `failed`: someone should look, and the hatch says why. Under Stop the line, every station shows `blocked` and the belt stops.
+
+The figure in each caption counts the items in the stage (`2 PRs`), gives a canary's share of traffic at Release (`25%`), says how many are held or waiting when the station is blocked, and otherwise counts what left the stage today (`3 today`), or says `none`.
 
 ### On the line
 
@@ -132,9 +135,9 @@ Under Stop the line, every station shows `blocked` and the belt stops.
 - **Entry points sit on the stage they feed.** Admin sees a round `signal` + on Plan (request an improvement), repeated as a button in the Plan panel. Triage's panel lists what it takes work from; sources that aren't built for the demo (Slack, Linear or Jira) are shown with a dashed border and "not in the demo".
 - Under each station: stage name (`t-stage`), a dot and the state word, then the stage's figures and controls. The word is always there, so colour is never the only signal.
 
-### Porting it into the app
+### In the app
 
-`station.js` is dependency-free and works in any framework that renders custom elements. It is a classic script (so design pages open from disk); in the app, port it to a TypeScript module that stays a custom element, used from the console's React code as it is (ADR 0007), and keep the drawing, the state table above and the reduced-motion rules. Worth a visual-regression snapshot per kind × state in both themes (96 images) and an axe check on the line.
+`station.ts` is a dependency-free custom element, used from the console's React code as it is (ADR 0007): one constructed stylesheet shared by every station, and a drawing of classes and presentation attributes. Each kind in each state, in both themes, has a visual-regression snapshot (96 images), and axe checks the line.
 
 ## The reel and the sheet
 
@@ -188,6 +191,22 @@ Package logos come from [theSVG](https://github.com/glincker/thesvg) (MIT; the m
 
 Report text is untrusted. The console shows it only to Martin and to the visitor whose key sent it, sanitised to at most 140 characters of plain ASCII letters, digits and basic punctuation, with links, email addresses and long numbers removed, and inserted as a text node, never as markup. Everyone else sees that a report was made, and what triage made of it.
 
+### When there is nothing ordinary to show
+
+The console never shows a spinner or a blank panel. Whatever it can't show, it says so in a sentence, where the missing thing would be, and keeps everything else.
+
+| State | What the console shows |
+|---|---|
+| Reading the first events | The header says "Connecting to the factory" by a `faint` dot. The line is drawn with every station idle and each caption reading "reading", and the stations can't be opened yet. |
+| Can't reach the factory | The header says "Can't reach the factory". A notice under the header says the console tries again every few seconds; the line appears when the factory answers. |
+| The stream dropped | The header says "Reconnecting" by a blinking `signal` dot, and a notice gives the time it dropped. Everything already shown stays, and the console catches up on what it missed when it is back. |
+| No work yet | Where the reel would be: "Nothing yet", what a card will show, and `make samples` for someone running it themselves. |
+| Samples | A notice over the reel says the work items were written by hand, that the screenshots are of the real shop with each change made in a copy that went nowhere, and that the factory's own work replaces them. Every sample's card and sheet carry a dashed "Sample" pill too. |
+| Events from a newer factory | A notice says how many were left out, and that reloading fetches the newer console. |
+| A screenshot that won't load | The picture's frame stays, with "Screenshot unavailable" and a line saying the rest of the work item is still there. |
+
+A notice is a `t-label` word and a sentence in `text-2`, inside a dashed `line-strong` outline: the same dashed edge as the Sample pill, so the console's remarks about itself never look like the factory's work. Notices about the connection are announced politely to screen readers. Toasts are not used: nothing the console says needs to interrupt.
+
 ## Mark
 
 An **MR monogram**: Martin Rogan's initials in Instrument Serif, with the R set so that it shares the M's last stem, and a full stop in `attn`. The shared stem makes two letters read as one mark. The ember full stop is the same colour that means "a person should look" on the console, so it carries the system's idea into the signature.
@@ -226,4 +245,4 @@ Each panel does one job:
 
 - **Mark sign-off.** The MR monogram is a proposal until Martin approves it.
 - **Social card and README header,** built from the mark once it is approved.
-- **Empty, loading and error states,** toasts, and the audit log's table.
+- **The audit log's table.**

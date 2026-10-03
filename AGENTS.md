@@ -11,18 +11,21 @@ Everything you write here is public and part of the demo. Write for a thoughtful
 ```sh
 mise install && pnpm install   # the pinned toolchain, dependencies and git hooks
 make check                     # what CI requires: lint, types, tests, design tokens, manifests
-pnpm dev                       # the console on :8080, restarting on change
+pnpm dev                       # the console on :5173 with the samples, reloading on change
+make e2e                       # the console in a browser, in the pinned Playwright image
 make up / make status / make down
 ```
 
-The inner loop runs on the host, not through GitOps. With the cluster up, forward its collector and Postgres:
+The inner loop runs on the host, not through GitOps. With the cluster up, forward its collector and Postgres; `pnpm dev` reads the event store instead of the samples when `PGHOST` is set:
 
 ```sh
 kubectl --context k3d-software-factory -n telemetry port-forward svc/otel-collector 4318 &
 kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432 &
 ```
 
-- Node 24 runs TypeScript directly: erasable syntax only, `.ts` extensions in imports, no build step.
+- Node 24 runs TypeScript directly: erasable syntax only, `.ts` extensions in imports, no build step. The console's browser code is the exception: Vite builds it.
+- In the console, anything that runs every frame (a drag, a wipe, the reel settling) writes to the DOM through refs, and React state changes only when the movement ends. A test counts renders during a drag.
+- Visual snapshots are taken in the pinned Playwright image, never on the host: `make e2e` refreshes them with `UPDATE=1`.
 - Commits and pull request titles are Conventional Commits (`scripts/commit-msg.ts` checks both). Pull requests are squash-merged; nothing is pushed to `main`.
 - `deploy/` is GitOps: Argo CD deploys what is on `main`, so a change there reaches the cluster only when it merges.
 - Files listed in `.github/CODEOWNERS` are the rules of the line. Change them only when Martin asks.

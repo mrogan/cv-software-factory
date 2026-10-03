@@ -14,7 +14,13 @@ The words we use, so docs, code, UI and commits stay consistent. Standard indust
 | **the line** | conveyor, workflow | The eight stages in order, and their drawing across the top of the console. "Stop the line" halts all of it. "Pipeline" means CI only. |
 | **station** | node, card | The drawing of one stage on the console's line. |
 | **Needs you** | inbox, approvals, queue | Work waiting on Martin, and the console panel that lists it. |
-| **work item** | job, task, run | One piece of work through the line (a defect fix, injected defect, improvement or red-team attack), from its first event to its last. |
+| **work item** | job, task, run | One piece of work through the line (a defect fix, injected defect, improvement, dependency update, red-team attack or visitor report), from its first event to its last. |
+| **event** | log entry, message | One step of a work item, or of the line, as the event store keeps it: an envelope and a typed payload. |
+| **public view** | redacted copy | What anyone but Martin may see of an event, written once when the event is appended. It never carries what a visitor wrote, their key, or anything shaped like a secret. |
+| **event log** | dump, fixture, export | A folder holding public events as newline-delimited JSON, beside their artifacts named by hash. Samples, recordings for the replay site and the console's tests are event logs. |
+| **projection** | view model, state | What the console draws, worked out from events and a time *t* by `project(events, t)`. Live view and replay are the same projection at different times. |
+| **sample** | fixture, mock, demo data | A hand-written work item that shows what the console will show. Every sample says it is one; a store holds samples or real events, never both. |
+| **artifact** | attachment, asset | A file captured with an event (a screenshot, a gate's output), named by the SHA-256 of its contents and never changed. |
 | **milestone** | stage, phase, step | One unit of the delivery plan in `PLAN/`. |
 | **the app** | the site, the shop (in factory docs) | The World's Worst Website, the web app the factory looks after. "The shop" is what the app calls itself to its visitors: Mossop's Practical Sundries. |
 | **defect** | bug, issue, fault | Something wrong with the app that the factory should find and fix. A **seeded** defect was in the app's first commit; an **injected** one arrives later, through the injector. |
