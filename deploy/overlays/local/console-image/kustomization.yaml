@@ -1,6 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 images:
-- digest: sha256:3b86b4f8f53e2c7642dc7fd315711b42805fb802b9eee550681e92663db0e9b8
+- digest: sha256:488e02c27cd38326608e2fd8a6c6f9b4abfb80d142696a19a74dc157ae5005b0
   name: console
   newName: ghcr.io/mrogan/cv-software-factory/console
