@@ -13,7 +13,7 @@ mise install && pnpm install   # the pinned toolchain, dependencies and git hook
 make check                     # what CI requires: lint, types, tests, design tokens, manifests
 pnpm dev                       # the console on :5173 with the samples, reloading on change
 make e2e                       # the console in a browser, in the pinned Playwright image
-make up / make status / make down
+make up / make samples / make status / make down
 ```
 
 The inner loop runs on the host, not through GitOps. With the cluster up, forward its collector and Postgres; `pnpm dev` reads the event store instead of the samples when `PGHOST` is set:

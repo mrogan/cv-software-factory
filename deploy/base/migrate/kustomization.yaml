@@ -1,12 +1,11 @@
+# The event store's migrations, applied by a Job before the console starts (packages/store/migrations).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: factory
 labels:
   - pairs:
-      app.kubernetes.io/name: console
+      app.kubernetes.io/name: migrate
       app.kubernetes.io/part-of: software-factory
     includeSelectors: true
 resources:
-  - deployment.yaml
-  - service.yaml
-  - artifacts.yaml
+  - job.yaml

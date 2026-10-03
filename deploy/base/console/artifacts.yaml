@@ -1,0 +1,15 @@
+# The artifact store on `local`: screenshots and outputs, each a file named by the SHA-256 of its contents. The
+# console reads it; the factory's workers write it (from milestone 4), as `make samples` does for the samples.
+# Spaces and S3 take its place on the cloud profiles.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: artifacts
+  annotations:
+    # With the console: the volume binds only once a pod that uses it is scheduled.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi

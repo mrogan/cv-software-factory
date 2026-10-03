@@ -2,6 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: console
+  annotations:
+    # After Postgres (wave 0) and the migrations (wave 1).
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   replicas: 1
   template:
@@ -28,6 +31,20 @@ spec:
             # Every 15s rather than the default minute, so rates settle quickly (and canary analysis, later, too).
             - name: OTEL_METRIC_EXPORT_INTERVAL
               value: "15000"
+            # The event store, as the console's role: it can read public views and nothing else.
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              value: factory
+            - name: PGUSER
+              value: console_reader
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-console
+                  key: password
+            - name: ARTIFACTS_DIR
+              value: /var/lib/factory/artifacts
           readinessProbe:
             httpGet:
               path: /health
@@ -49,3 +66,11 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+          volumeMounts:
+            - name: artifacts
+              mountPath: /var/lib/factory/artifacts
+              readOnly: true
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: artifacts

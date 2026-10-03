@@ -2,6 +2,8 @@ apiVersion: v1
 kind: Service
 metadata:
   name: console
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   ports:
     - name: http

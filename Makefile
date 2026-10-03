@@ -15,10 +15,10 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down check status e2e
+.PHONY: help up down check status e2e samples
 
 help: ## List the targets
-	@awk 'BEGIN { FS = ":.*## " } /^[a-z-]+:.*## / { printf "  \033[1m%-8s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-8s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 up: ## Create the local cluster; Argo CD then deploys everything from main (or REVISION=<branch>)
 	@docker info >/dev/null 2>&1 || { echo "Docker isn't running. Start OrbStack (or another runtime) and try again."; exit 1; }
@@ -28,6 +28,8 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 		--values deploy/argocd/values.yaml --wait --timeout 5m --hide-notes
 	@# Passwords live only in the cluster: made here once, never committed.
 	@$(call secret,factory,postgres,--from-literal=password="$$(openssl rand -hex 24)")
+	@$(call secret,factory,postgres-writer,--from-literal=password="$$(openssl rand -hex 24)")
+	@$(call secret,factory,postgres-console,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,telemetry,grafana-admin,--from-literal=admin-user=admin --from-literal=admin-password="$$(openssl rand -hex 24)")
 	sed 's|targetRevision: main|targetRevision: $(REVISION)|' deploy/argocd/root.yaml | $(KUBECTL) apply -f -
 	@echo "Waiting for Argo CD to deploy everything (a few minutes the first time)..."
@@ -58,6 +60,22 @@ e2e: ## Run the console's browser tests in the pinned Playwright image; UPDATE=1
 	docker run --rm --init --ipc=host -e UPDATE=$(UPDATE) -v "$(CURDIR):/src:ro" \
 		-v "$(CURDIR)/apps/console/e2e/snapshots:/out/snapshots" -v "$(CURDIR)/apps/console/e2e-results:/out/results" \
 		$(PLAYWRIGHT) /src/apps/console/e2e/in-docker.sh
+
+samples: ## Load the sample work items into the cluster's store, with their times moved so the last is now
+	@# Screenshots first, into the artifacts volume, through a pod that mounts it for a moment.
+	@$(KUBECTL) apply -f deploy/k3d/artifacts-copier.yaml >/dev/null
+	@$(KUBECTL) -n factory wait pod/artifacts-copier --for=condition=Ready --timeout=2m >/dev/null
+	@# No macOS metadata files in the archive (COPYFILE_DISABLE); Linux ignores the setting.
+	@COPYFILE_DISABLE=1 tar -C packages/samples/log/artifacts -cf - . | \
+		$(KUBECTL) -n factory exec -i artifacts-copier -- tar -C /var/lib/factory/artifacts -xf -
+	@$(KUBECTL) -n factory delete pod artifacts-copier --wait=false >/dev/null
+	@# Then the events, as the factory's writer, through a port-forward to Postgres.
+	@$(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
+		trap 'kill $$forward' EXIT; sleep 2; \
+		PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory PGUSER=factory_writer \
+		PGPASSWORD="$$($(KUBECTL) -n factory get secret postgres-writer -o jsonpath='{.data.password}' | base64 -d)" \
+		ARTIFACTS_DIR=packages/samples/log/artifacts node apps/factory/src/cli.ts events load packages/samples/log
+	@echo "  Console  http://console.localhost:8080"
 
 status: ## Show what is running, and where to open it
 	@if ! k3d cluster list $(CLUSTER) >/dev/null 2>&1; then echo "No cluster. Run 'make up'."; else \

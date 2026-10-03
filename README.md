@@ -28,6 +28,7 @@ You need macOS or Linux, [mise](https://mise.jdx.dev) and a container runtime ([
 ```sh
 mise install   # Node, pnpm, kubectl, k3d, helm, kustomize at pinned versions
 make up        # a local Kubernetes cluster; Argo CD deploys the rest from this repo
+make samples   # twelve sample work items, so the console has something to show
 make status    # what is running, and where to open it
 make down      # delete the cluster; nothing is left behind
 ```
