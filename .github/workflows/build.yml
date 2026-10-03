@@ -1,19 +1,24 @@
-# Builds the console image on main and pushes it to GHCR, then proposes deploying it.
+# Builds the console image and the factory's two images on main and pushes them to GHCR, then proposes deploying them.
 #
 # Argo CD deploys only what is in git, so a new image reaches the local cluster through a pull request that pins
-# its digest in deploy/overlays/local. There is one such pull request at a time, always for the latest build.
-# GitHub holds the checks on a pull request a workflow opened until Martin approves them there.
+# its digest in deploy/overlays/local. There is one such pull request for the console and one for the factory's
+# images (which are built together, from the same code), each always for the latest build. GitHub holds the checks
+# on a pull request a workflow opened until Martin approves them there.
 name: build
 
 on:
   push:
     branches: [main]
-    # Only what goes into the image. Merging the deploy pull request must not build again, and nor must a release:
-    # it changes only the root package.json's version. The image's dependencies come from the lockfile.
+    # Only what goes into an image. Merging a deploy pull request must not build again, and nor must a release:
+    # it changes only the root package.json's version. The images' dependencies come from the lockfile. The
+    # `changes` job below says which images a push changes.
     paths:
       - apps/console/**
+      - apps/factory/**
       - packages/events/**
       - packages/store/**
+      - packages/triage/**
+      - policy/**
       - docs/design/system/tokens.css
       - docs/design/system/station.ts
       - docs/design/system/mark/**
@@ -30,10 +35,46 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}/console
+  FACTORY_IMAGE: ghcr.io/${{ github.repository }}/factory
+  BROWSER_IMAGE: ghcr.io/${{ github.repository }}/factory-browser
 
 jobs:
+  # Which images this push changes: each is built only when something that goes into it changed (or on a manual run).
+  changes:
+    name: which images changed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    outputs:
+      console: ${{ steps.which.outputs.console }}
+      factory: ${{ steps.which.outputs.factory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: which
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "console=true" >> "$GITHUB_OUTPUT"
+            echo "factory=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+          # What each image copies in (the Dockerfiles and their .dockerignore files say the same), and what they share.
+          shared='^(packages/events/|packages/store/|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.github/workflows/build\.yml)'
+          console="$shared|^(apps/console/|docs/design/system/(tokens\.css|station\.ts|mark/))"
+          factory="$shared|^(apps/factory/|packages/triage/|policy/)"
+          echo "console=$(echo "$changed" | grep -Eq "$console" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "factory=$(echo "$changed" | grep -Eq "$factory" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   image:
     name: build and push
+    needs: changes
+    if: needs.changes.outputs.console == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -120,6 +161,123 @@ jobs:
         run: |
           title="chore(deploy): run console ${GITHUB_SHA::7} on the local cluster"
           body="Pins the console image built from $GITHUB_SHA ($IMAGE@$DIGEST) in \`deploy/overlays/local\`. Argo CD deploys it once this is merged.
+
+          Opened by the [build workflow]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). A newer build replaces this pull request's change."
+          if gh pr view "$BRANCH" --json state --jq .state | grep -q OPEN; then
+            gh pr edit "$BRANCH" --title "$title" --body "$body"
+          else
+            gh pr create --head "$BRANCH" --title "$title" --body "$body"
+          fi
+
+  factory-images:
+    name: build and push the factory images
+    needs: changes
+    if: needs.changes.outputs.factory == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      factory: ${{ steps.factory.outputs.digest }}
+      browser: ${{ steps.browser.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Laptops are arm64; cloud nodes are amd64.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: factory
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/factory/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.FACTORY_IMAGE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=Software Factory workers
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha,scope=factory
+          cache-to: type=gha,mode=max,scope=factory
+      - id: browser
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/factory/Dockerfile.browser
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.BROWSER_IMAGE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=Software Factory browser workers
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha,scope=factory-browser
+          cache-to: type=gha,mode=max,scope=factory-browser
+
+  factory-deploy-pr:
+    name: propose deploying the factory images
+    needs: factory-images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # move the deploy branch and commit to it
+      pull-requests: write # open or update its pull request
+    env:
+      BRANCH: deploy/factory-local
+      FILE: deploy/overlays/local/factory-image/kustomization.yaml
+      FACTORY_DIGEST: ${{ needs.factory-images.outputs.factory }}
+      BROWSER_DIGEST: ${{ needs.factory-images.outputs.browser }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: kustomize
+      # The first time, this also brings the workers in with the images they run; after that they are already there.
+      - name: Pin the new digests
+        working-directory: deploy/overlays/local/factory-image
+        run: |
+          kustomize edit add resource ../../../base/factory
+          kustomize edit set image "factory=$FACTORY_IMAGE@$FACTORY_DIGEST" "factory-browser=$BROWSER_IMAGE@$BROWSER_DIGEST"
+      # Committed through the API rather than pushed, so GitHub signs it: main accepts only signed commits.
+      - name: Commit it to the deploy branch
+        run: |
+          base=$(git rev-parse HEAD)
+          refs="repos/$GITHUB_REPOSITORY/git/refs"
+          if gh api "$refs/heads/$BRANCH" >/dev/null 2>&1; then
+            gh api --method PATCH "$refs/heads/$BRANCH" -f sha="$base" -F force=true >/dev/null
+          else
+            gh api --method POST "$refs" -f ref="refs/heads/$BRANCH" -f sha="$base" >/dev/null
+          fi
+          jq --null-input \
+            --arg repo "$GITHUB_REPOSITORY" --arg branch "$BRANCH" --arg head "$base" \
+            --arg headline "chore(deploy): run the factory ${GITHUB_SHA::7} on the local cluster" \
+            --arg path "$FILE" --arg contents "$(base64 --wrap=0 "$FILE")" \
+            '{
+              query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              variables: { input: {
+                branch: { repositoryNameWithOwner: $repo, branchName: $branch },
+                expectedHeadOid: $head,
+                message: { headline: $headline },
+                fileChanges: { additions: [{ path: $path, contents: $contents }] }
+              } }
+            }' | gh api graphql --input - --jq .data.createCommitOnBranch.commit.oid
+      - name: Open or update the pull request
+        run: |
+          title="chore(deploy): run the factory ${GITHUB_SHA::7} on the local cluster"
+          body="Pins the factory image ($FACTORY_IMAGE@$FACTORY_DIGEST) and the factory browser image ($BROWSER_IMAGE@$BROWSER_DIGEST) built from $GITHUB_SHA in \`deploy/overlays/local\`. Argo CD deploys them, with the workers that run them, once this is merged.
 
           Opened by the [build workflow]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). A newer build replaces this pull request's change."
           if gh pr view "$BRANCH" --json state --jq .state | grep -q OPEN; then

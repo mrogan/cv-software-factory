@@ -1,0 +1,46 @@
+# The factory's browser image: the probes and the crawler (`factory probes run`, `factory crawler run`). The same code
+# as Dockerfile, on the pinned Playwright image, which carries Chromium and the system libraries it needs. Built
+# from the repository root:
+#
+#     docker build --file apps/factory/Dockerfile.browser .
+#
+# The Playwright package in the lockfile and the browsers in the image must be the same release (1.63.0), as in
+# Makefile's PLAYWRIGHT and the pull request checks: bump them together.
+#
+# It runs as an unprivileged user, never root. Chromium cannot use its own sandbox without privileges that the
+# restricted Pod Security Standard refuses, so Playwright starts it with the sandbox off (its default), and the pod's
+# fences carry that instead: a non-root user, no capabilities, a read-only filesystem and a network policy that
+# lets it reach only the app and Postgres.
+
+FROM mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27 AS playwright
+
+FROM playwright AS server
+WORKDIR /repo
+# pnpm at the version (and hash) pinned in package.json's packageManager field.
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/factory/package.json apps/factory/
+COPY packages/events/package.json packages/events/
+COPY packages/store/package.json packages/store/
+COPY packages/triage/package.json packages/triage/
+# No lifecycle scripts: the only one is the repository's own, which installs git hooks. The browsers come with the image.
+RUN pnpm install --frozen-lockfile --ignore-scripts --prod --filter @software-factory/factory...
+COPY apps/factory/src apps/factory/src
+COPY packages/events/src packages/events/src
+COPY packages/store/src packages/store/src
+COPY packages/triage/src packages/triage/src
+COPY policy policy
+# Readable by the unprivileged runtime user, and by nobody's writes.
+RUN chmod -R a+rX,go-w /repo
+
+FROM playwright
+COPY --from=server /repo /repo
+WORKDIR /repo/apps/factory
+# The same user as the factory image, so the artifacts volume looks the same to every worker that writes to it. Its
+# home is a folder the pod makes writable; the root filesystem is read-only.
+USER 65532:65532
+ENV HOME=/tmp NODE_ENV=production PORT=8080
+EXPOSE 8080
+# As the factory image: Node is the entrypoint, and a Deployment names the command.
+ENTRYPOINT ["node"]
+CMD ["src/cli.ts"]

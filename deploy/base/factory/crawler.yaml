@@ -1,0 +1,90 @@
+# The crawler: every page reachable from the home page, checked for what any site should get right. Like the probes it runs
+# from the browser image and reaches only the app and Postgres.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crawler
+  labels: &labels
+    app.kubernetes.io/name: crawler
+    app.kubernetes.io/part-of: software-factory
+    app.kubernetes.io/component: worker
+  annotations:
+    # After Postgres (wave 0) and the migrations (wave 1), with the console.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # one at a time: the volumes are ReadWriteOnce, and two workers must not run the same loop
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: crawler
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: crawler
+          # Each profile pins the image by digest (kustomize `images:`), so a deploy is always a commit.
+          image: factory-browser
+          args:
+            - --import
+            - ./src/telemetry.ts
+            - src/cli.ts
+            - crawler
+            - run
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.telemetry:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "crawler"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=software-factory"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "15000"
+            # The event store, as the factory's writer: it appends and reads.
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              value: factory
+            - name: PGUSER
+              value: factory_writer
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-writer
+                  key: password
+            - name: APP_URL
+              value: http://website.website
+            - name: ARTIFACTS_DIR
+              value: /var/lib/factory/artifacts
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: shm
+          # Chromium keeps shared memory here, and the default 64Mi is too small for a page.
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi

@@ -1,0 +1,88 @@
+# The intake: Alertmanager's webhook (`POST /v1/alerts`), which leaves each firing alert in the inbox.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intake
+  labels: &labels
+    app.kubernetes.io/name: intake
+    app.kubernetes.io/part-of: software-factory
+    app.kubernetes.io/component: worker
+  annotations:
+    # After Postgres (wave 0) and the migrations (wave 1), with the console.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # one at a time: the volumes are ReadWriteOnce, and two workers must not run the same loop
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: intake
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: intake
+          # Each profile pins the image by digest (kustomize `images:`), so a deploy is always a commit.
+          image: factory
+          args:
+            - --import
+            - ./src/telemetry.ts
+            - src/cli.ts
+            - intake
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.telemetry:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "intake"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=software-factory"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "15000"
+            # The event store, as the factory's writer: it appends and reads.
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              value: factory
+            - name: PGUSER
+              value: factory_writer
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-writer
+                  key: password
+            - name: PROMETHEUS_URL
+              value: http://prometheus-server.telemetry
+            - name: LOKI_URL
+              value: http://loki.telemetry:3100
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
