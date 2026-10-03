@@ -76,6 +76,12 @@ describe('the samples, projected', () => {
     expect(view.timeline.days).toHaveLength(5);
   });
 
+  it('say which work a visitor started, and nothing about the visitor', () => {
+    const cards = project(SAMPLES, END).cards;
+    expect(cards.filter((c) => c.byVisitor).map((c) => c.number)).toEqual(['1268', '1274', '1293', '1296', '1302']);
+    expect(SAMPLES.some((e) => e.type === 'work-item.opened' && 'visitor' in e.payload)).toBe(false);
+  });
+
   it('label every card a sample', () => {
     expect(view.sample).toBe(true);
     expect(view.cards.every((c) => c.sample)).toBe(true);

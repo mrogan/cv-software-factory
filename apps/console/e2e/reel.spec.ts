@@ -54,6 +54,15 @@ test.describe('the reel', () => {
     await page.mouse.up();
   });
 
+  test('credits work a visitor started to “a visitor”, never by name', async ({ page }) => {
+    await page.goto(consoleUrl({ item: '1296' }));
+    await ready(page);
+    await expect(page.locator('.card[data-place="centre"] .kind')).toHaveText('· Injected by a visitor');
+    await page.goto(consoleUrl({ item: '1274' }));
+    await ready(page);
+    await expect(page.locator('.card[data-place="centre"] .kind')).toHaveText('· Red-team attack by a visitor');
+  });
+
   test('settles on a whole card when the drag ends, carried a little further by a flick', async ({ page }) => {
     await page.goto(consoleUrl());
     await ready(page);

@@ -133,7 +133,7 @@ The console *is* the demo for most people. Everything the factory does must be u
   - metric series, log excerpts and trace links at signal and at verify;
   - the diff, the spec's acceptance criteria, each gate's result and output, the lockfile change and image scan summary for a dependency, and the canary analysis;
   - every model call from the gateway's log: agent, model, settings, tokens and cost.
-- Each event stores a redacted public view, created when the event is written: never a visitor's report text, the query of the page it came from, or their key, and nothing shaped like a secret. Until admin mode, the console serves public views only.
+- Each event stores a redacted public view, created when the event is written: never a visitor's report text, the query of the page it came from, or their key, and nothing shaped like a secret. Public history never names a visitor: work one starts is credited to "a visitor" ("Injected by a visitor"). Until admin mode, the console serves public views only.
 - Events carry a schema version, with upcasters, so old recordings keep replaying.
 - Curated event logs are exported as files: newline-delimited JSON of public events beside a folder of artifacts named by hash. They power the static replay site, `make demo` and UI tests.
 - Until the factory does real work, the console shows hand-written **samples**, each labelled as one. A store holds samples or real events, never both.

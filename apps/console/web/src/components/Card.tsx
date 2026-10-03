@@ -10,7 +10,7 @@ import { segmentsLabel } from '../projection/index.ts';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { Picture } from './Pictures.tsx';
 
-export const KIND_NAME: Record<CardData['kind'], string> = {
+const KIND_NAME: Record<CardData['kind'], string> = {
   'defect-fix': 'Defect fix',
   'injected-defect': 'Injected defect',
   improvement: 'Improvement',
@@ -18,6 +18,13 @@ export const KIND_NAME: Record<CardData['kind'], string> = {
   'red-team': 'Red-team attack',
   'visitor-report': 'Visitor report',
 };
+
+/** The kind of work, saying when a visitor started it: never which visitor. */
+export function kindName({ kind, byVisitor }: Pick<CardData, 'kind' | 'byVisitor'>): string {
+  if (byVisitor && kind === 'injected-defect') return 'Injected by a visitor';
+  if (byVisitor && kind === 'red-team') return 'Red-team attack by a visitor';
+  return KIND_NAME[kind];
+}
 
 /** An outcome's word and tone, and whether it waits on a human. */
 export const OUTCOME: Record<Outcome, [word: string, tone: 'ok' | 'attn' | 'faint' | 'signal', waits: boolean]> = {
@@ -92,7 +99,7 @@ export const Card = memo(function Card({ card, index, count, ref }: CardProps) {
         <span className="cat">
           <Glyph name={card.category} />
           {CATEGORY_NAME[card.category]}
-          <span className="kind">· {KIND_NAME[card.kind]}</span>
+          <span className="kind">· {kindName(card)}</span>
         </span>
         <OutcomeWord outcome={card.outcome} />
       </div>

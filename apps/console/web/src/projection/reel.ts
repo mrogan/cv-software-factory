@@ -49,6 +49,8 @@ export interface Versions {
 export interface Card {
   number: string;
   kind: Kind;
+  /** A visitor started it. Which visitor is never public. */
+  byVisitor: boolean;
   category: Category;
   outcome: Outcome;
   sample: boolean;
@@ -218,6 +220,7 @@ export function card(item: ItemState, events: readonly PublicEvent[], t: number)
   return {
     number: item.number,
     kind: item.kind,
+    byVisitor: item.openedBy === 'visitor',
     category: item.category,
     outcome: item.outcome,
     sample: item.sample,
