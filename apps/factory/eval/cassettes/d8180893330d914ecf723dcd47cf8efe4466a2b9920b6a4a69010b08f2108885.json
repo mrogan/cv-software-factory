@@ -2,7 +2,7 @@
   "key": "d8180893330d914ecf723dcd47cf8efe4466a2b9920b6a4a69010b08f2108885",
   "provider": "typesafe",
   "model": "jev-1.13.0",
-  "recordedAt": "2026-10-03T20:55:33.130Z",
+  "recordedAt": "2026-10-03T22:21:16.996Z",
   "request": {
     "model": "jev-1.13.0",
     "state": {
@@ -23,5 +23,5 @@
       }
     }
   },
-  "response": "{\"model\":\"jev-1.13.0\",\"answers\":{\"passage\":{\"type\":\"choice\",\"choice\":\"p3\",\"confidence\":0.34,\"probabilities\":{\"p1\":0.12,\"none\":0.27,\"p2\":0.0,\"p3\":0.47,\"p4\":0.14}}},\"usage\":{\"input_tokens\":432,\"output_tokens\":58}}"
+  "response": "{\"model\":\"jev-1.13.0\",\"answers\":{\"passage\":{\"type\":\"choice\",\"choice\":\"p3\",\"confidence\":0.38,\"probabilities\":{\"p4\":0.12,\"none\":0.27,\"p2\":0.0,\"p3\":0.51,\"p1\":0.1}}},\"usage\":{\"input_tokens\":432,\"output_tokens\":58}}"
 }
