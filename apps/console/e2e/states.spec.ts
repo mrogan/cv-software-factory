@@ -53,10 +53,15 @@ test('events from a newer factory are left out, with a note', async ({ page, req
   await page.route('**/api/events?after=0', (route) =>
     route.fulfill({ json: [...events, { ...last, seq: last.seq + 1, type: 'robot.danced', version: 1 }] }),
   );
-  await page.route('**/api/events/stream*', () => {});
+  let after: string | null = null;
+  await page.route('**/api/events/stream*', (route) => {
+    after = new URL(route.request().url()).searchParams.get('after');
+  });
   await page.goto(consoleUrl());
   await expect(page.getByText('One event was written by a newer version of the factory')).toBeVisible();
   await expect(page.locator('.transport .count')).toHaveText('12 of 12');
+  // The stream carries on after the event left out, so it is never sent, or counted, twice.
+  await expect.poll(() => after).toBe(String(last.seq + 1));
 });
 
 test('a screenshot that fails to load says so in its place', async ({ page }) => {

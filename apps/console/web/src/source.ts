@@ -132,7 +132,8 @@ export function useEvents(from: Origin): Source {
           if (closed) return;
           note(raws);
           const { events, newer } = merge([], raws);
-          last = events.at(-1)?.seq ?? 0;
+          // Everything read, understood or not: the stream must not send a newer factory's events again.
+          last = raws.at(-1)?.seq ?? 0;
           setSource({ events, newer, connection: 'live' });
           follow();
         })
