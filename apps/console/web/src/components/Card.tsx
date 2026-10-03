@@ -26,19 +26,35 @@ export function kindName({ kind, byVisitor }: Pick<CardData, 'kind' | 'byVisitor
   return KIND_NAME[kind];
 }
 
-/** An outcome's word and tone, and whether it waits on a human. */
+/**
+ * An outcome's word and tone, and whether it waits on a human. Work nobody needs to act on is in the quiet tone:
+ * closed work, a quarantined report (a guardrail that worked), and a ticket waiting for the planner.
+ */
 export const OUTCOME: Record<Outcome, [word: string, tone: 'ok' | 'attn' | 'faint' | 'signal', waits: boolean]> = {
   verified: ['Verified', 'ok', false],
   'rolled-back': ['Rolled back', 'attn', false],
   held: ['Held for a human', 'attn', true],
   closed: ['Closed · no change', 'faint', false],
+  quarantined: ['Quarantined', 'faint', false],
+  'no-ticket': ['Closed · no ticket', 'faint', false],
   'needs-you': ['Needs you', 'attn', true],
+  waiting: ['Waiting for the planner', 'faint', false],
   'in-progress': ['In progress', 'signal', false],
 };
 
 export function OutcomeWord({ outcome }: { outcome: Outcome }) {
   const [word, tone, waits] = OUTCOME[outcome];
-  const dot = outcome === 'in-progress' ? 'blink' : waits ? 'ring alarm' : tone === 'attn' ? 'ring' : '';
+  // Waiting is a hollow dot: work queued, with nobody at it yet.
+  const dot =
+    outcome === 'in-progress'
+      ? 'blink'
+      : outcome === 'waiting'
+        ? 'hollow'
+        : waits
+          ? 'ring alarm'
+          : tone === 'attn'
+            ? 'ring'
+            : '';
   return (
     <span className={`out tone-${tone}`}>
       <span className={`dot ${dot}`} aria-hidden="true" />
@@ -47,9 +63,22 @@ export function OutcomeWord({ outcome }: { outcome: Outcome }) {
   );
 }
 
-/** The version pill: what shipped, what it replaced when that was rolled back, what is still on the canary. */
-export function VersionPill({ versions }: { versions: Versions }) {
+/**
+ * The version pill: what shipped, what it replaced when that was rolled back, what is still on the canary. Before
+ * a release, the version a sense saw the problem on, or the page a visitor's report came from.
+ */
+export function VersionPill({
+  versions,
+  seenOn,
+  from: page,
+}: {
+  versions: Versions;
+  seenOn?: string | undefined;
+  from?: string | undefined;
+}) {
   const { from, to, rolledBack, onCanary } = versions;
+  if (!to && !from && page) return <span className="ver">from {page}</span>;
+  if (!to && !from && seenOn) return <span className="ver">seen on {seenOn}</span>;
   if (!to && !from) return <span className="ver muted">no release</span>;
   if (rolledBack) {
     return (
@@ -68,6 +97,9 @@ export function VersionPill({ versions }: { versions: Versions }) {
   return <span className="ver">{to ?? from}</span>;
 }
 
+/** Outcomes still under way, whose duration is so far. */
+export const ONGOING = new Set<Outcome>(['in-progress', 'needs-you', 'held', 'waiting']);
+
 const SEGMENT_CLASS = {
   passed: 'o',
   skipped: 's',
@@ -75,6 +107,7 @@ const SEGMENT_CLASS = {
   stopped: 'x',
   waiting: 'w',
   closed: 'k',
+  queued: 'q',
   none: '',
 } as const;
 
@@ -111,14 +144,15 @@ export const Card = memo(function Card({ card, index, count, ref }: CardProps) {
       <div className="meta">
         {card.sample && <span className="pill-sample">Sample</span>}
         <b>#{card.number}</b>
-        <VersionPill versions={card.versions} />
+        <VersionPill versions={card.versions} seenOn={card.seenOn} from={card.from} />
         {card.pullRequest && <span className="opt">PR #{card.pullRequest}</span>}
         <span>{shortWhen(card.startedAt)}</span>
         <span>
           {duration(card.durationMs)}
-          {card.outcome === 'in-progress' || card.outcome === 'needs-you' || card.outcome === 'held' ? ' so far' : ''}
+          {ONGOING.has(card.outcome) ? ' so far' : ''}
         </span>
-        <span>{money(card.spend)}</span>
+        {/* No model at all is a choice, not a missing figure: a sense knows what it saw. */}
+        <span>{card.calls ? money(card.spend) : 'no model'}</span>
       </div>
       <div className="card-foot">
         <span className="prog" role="img" aria-label={segmentsLabel(card.segments)}>

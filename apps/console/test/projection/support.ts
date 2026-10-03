@@ -22,6 +22,23 @@ export const SAMPLES: PublicEvent[] = parseLog(
 
 export const END = Date.parse(SAMPLES.at(-1)?.ts ?? '');
 
+/**
+ * The console's milestone 4 test data (test/fixture): a day of invented work in a real store, from the senses'
+ * first tickets to a spend cap reached and cleared.
+ */
+export const FIXTURE: PublicEvent[] = parseLog(
+  readFileSync(fileURLToPath(new URL('../fixture/log/events.ndjson', import.meta.url)), 'utf-8'),
+).map((raw) => {
+  const result = upcast(raw);
+  if (!result.ok) throw new Error(`The test data holds an event the console does not understand: ${raw.type}`);
+  return result.event;
+});
+
+/** Times in the test data's day, in London: the afternoon's work done, the cap reached, and the cap cleared. */
+export const AFTERNOON = Date.parse('2026-10-03T16:10:00+01:00');
+export const CAPPED = Date.parse('2026-10-03T21:20:00+01:00');
+export const CLEARED = Date.parse('2026-10-04T01:05:00+01:00');
+
 let seq = 0;
 
 /** Events for one work item, minutes from a start. */

@@ -2,12 +2,20 @@
  * The line: one station per stage, each captioned with its state word and one figure, the returns drawn over them
  * one at a time, and a panel per stage listing what is in it.
  */
-import type { Stage } from '@software-factory/events';
+import type { Sense, Stage } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { STAGE_NAME, STATE } from '../../../../../docs/design/system/station.ts';
-import { duration } from '../format.ts';
-import { type Return, type Station, type Status, type View, whileSending } from '../projection/index.ts';
+import { clock, duration } from '../format.ts';
+import {
+  type CapSpell,
+  type Return,
+  type SenseCount,
+  type Station,
+  type Status,
+  type View,
+  whileSending,
+} from '../projection/index.ts';
 import { Glyph } from './Glyph.tsx';
 
 const BLURB: Record<Stage, string> = {
@@ -21,13 +29,17 @@ const BLURB: Record<Stage, string> = {
   verify: 'Has the original signal cleared in production? New problems it finds go back to Sense.',
 };
 
-/** Where Triage takes work from. Sources not built for the demo are shown as such. */
-const SOURCES: [name: string, live: boolean][] = [
-  ['Sense', true],
-  ['Visitor reports', true],
-  ['Slack', false],
-  ['Linear or Jira', false],
-];
+/** Where Triage takes work from: the five senses, each with what it watches. */
+const SENSES: Record<Sense, [name: string, watches: string]> = {
+  probe: ['Probes', 'a shopper’s journeys'],
+  crawler: ['Crawler', 'every page and file'],
+  metrics: ['Metrics', 'the app’s objectives'],
+  logs: ['Logs', 'new error patterns'],
+  report: ['Reports', 'from the widget'],
+};
+
+/** Sources not built for the demo, shown as such. */
+const ELSEWHERE = ['Slack', 'Linear or Jira'];
 
 const SHOW_MS = 5200;
 const GAP_MS = 900;
@@ -69,12 +81,31 @@ function arc(r: Return) {
   return { d: `M${x1} 20 Q${(x1 + x2) / 2} ${2 * peak - 20} ${x2} 20`, mid: (x1 + x2) / 2, peak };
 }
 
-/** Parcels on the belt: running through a working stage, piling up in front of one that needs you. Decorative. */
+/**
+ * Parcels on the belt: running through a working stage, piling up in front of one that needs you, and queued in
+ * front of one that has tickets waiting for it. Decorative: the counts are in the captions and the panels.
+ */
 function Parcels({ stations }: { stations: readonly Station[] }) {
   return (
     <g>
       {stations.flatMap((s, i) => {
         const x = 168 * i;
+        if (s.queued && s.status === 'idle') {
+          // Up to three, stacked two and one, on the belt just before the station.
+          return [0, 1, 2]
+            .slice(0, Math.min(3, s.queued))
+            .map((n) => (
+              <rect
+                key={`${s.stage}-queued-${n}`}
+                className="parcel"
+                x={x - 36 + (n === 2 ? 8 : n * 16)}
+                y={n === 2 ? 162 : 174}
+                width="14"
+                height="12"
+                rx="1.5"
+              />
+            ));
+        }
         if (s.status === 'working' || s.status === 'passing') {
           const style = {
             '--run-from': `${x}px`,
@@ -134,8 +165,11 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
         {view.stations.map((s) => {
           const sending = current?.from === s.stage;
           const status: Status = stopped ? 'blocked' : whileSending(s.status, sending);
-          const word = pending ? 'reading' : stopped ? 'stopped' : STATE[status].label;
+          // At a spend cap, Triage uses the blocked drawing with its own word, and says when the cap resets.
+          const capped = !stopped && s.cappedUntil !== undefined;
+          const word = pending ? 'reading' : stopped ? 'stopped' : capped ? 'capped' : STATE[status].label;
           const tone = pending ? 'faint' : stopped ? 'attn' : STATE[status].tone;
+          const figure = capped ? `until ${clock(s.cappedUntil ?? 0)}` : s.figure;
           return (
             <li key={s.stage}>
               <button
@@ -149,7 +183,7 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
                 aria-label={
                   pending
                     ? `${STAGE_NAME[s.stage]}: reading the factory’s events`
-                    : `${STAGE_NAME[s.stage]}: ${word}, ${s.figure}. Show what is in this stage`
+                    : `${STAGE_NAME[s.stage]}: ${word}, ${figure}. Show what is in this stage`
                 }
                 disabled={pending}
                 onClick={() => setOpen((was) => (was === s.stage ? null : s.stage))}
@@ -160,7 +194,7 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
                   <span className="state">
                     <span className={`dot tone-${tone} ${tone === 'attn' ? 'ring' : ''}`} />
                     {word}
-                    {!pending && <span className="fig">&nbsp;· {s.figure}</span>}
+                    {!pending && <span className={`fig ${capped ? 'keep' : ''}`}>&nbsp;· {figure}</span>}
                   </span>
                 </span>
               </button>
@@ -229,6 +263,82 @@ function ReturnPill({ r }: { r: Return }) {
   );
 }
 
+/**
+ * Where Triage's work comes from: each sense, the signals that became events and the tickets they opened. Counted
+ * from events alone, so live and replay agree; the inbox's repeats are not events, and the panel says so.
+ */
+function Sources({ senses }: { senses: SenseCount[] }) {
+  const reports = senses.find((row) => row.sense === 'report')?.routes;
+  const routes = reports
+    ? [
+        reports.quarantined && `${reports.quarantined} quarantined`,
+        reports.parked && `${reports.parked} parked`,
+        reports.closed && `${reports.closed} closed`,
+        reports.joined && `${reports.joined} joined a ticket`,
+      ].filter(Boolean)
+    : [];
+  return (
+    <div className="sources">
+      <table>
+        <caption className="label">Takes work from</caption>
+        <thead>
+          <tr>
+            <th className="label">Sense</th>
+            <th className="label num">Signals</th>
+            <th className="label num">Tickets</th>
+          </tr>
+        </thead>
+        <tbody>
+          {senses.map((row) => (
+            <tr key={row.sense}>
+              <th scope="row">
+                {SENSES[row.sense][0]}
+                <small>{row.sense === 'report' && routes.length ? routes.join(' · ') : SENSES[row.sense][1]}</small>
+              </th>
+              <td className={`num ${row.signals ? '' : 'zero'}`}>{row.signals}</td>
+              <td className={`num ${row.tickets ? '' : 'zero'}`}>{row.tickets}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="elsewhere">
+        {ELSEWHERE.map((name) => (
+          <span key={name} className="src off">
+            {name}
+            <em> not in the demo</em>
+          </span>
+        ))}
+      </div>
+      <p className="help">
+        A signal counts here when it opened a ticket or added a sense’s evidence to one. A sense seeing an open ticket’s
+        problem again is counted by the inbox, not here.
+      </p>
+    </div>
+  );
+}
+
+const CAP_NAME = { day: 'The daily spend cap', month: 'The monthly spend cap' };
+
+/** A spend cap in Triage's panel: while it holds, and for the rest of the day it cleared, written as returns are. */
+function CapRow({ spell, t }: { spell: CapSpell; t: number }) {
+  const cleared = spell.cleared;
+  return (
+    <div className="srow">
+      <span className="id">cap</span>
+      <span>
+        {CAP_NAME[spell.cap]}: reached at {clock(spell.reached)}
+        {cleared !== undefined && `, cleared at ${clock(cleared)}`}
+        <small className={cleared === undefined ? 'tone-attn' : ''}>
+          {cleared === undefined
+            ? `Reports wait in the inbox until ${clock(spell.resets)}, ${duration(spell.resets - t)} from now`
+            : `Reports waited in the inbox for ${duration(cleared - spell.reached)}`}
+        </small>
+      </span>
+      <span className="aside">{cleared === undefined ? '' : '↺'}</span>
+    </div>
+  );
+}
+
 interface PanelProps {
   stage: Stage;
   view: View;
@@ -242,7 +352,7 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
   const panel = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const [place, setPlace] = useState<CSSProperties>({});
-  const rows = view.panels[stage].rows;
+  const { rows, senses, caps, queued } = view.panels[stage];
   const returns = view.returns.filter((r) => r.from === stage);
 
   // Under its station, kept inside the line; on a phone the styles make it a bottom sheet instead.
@@ -293,18 +403,16 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
         </button>
       </header>
       <p>{BLURB[stage]}</p>
-      {stage === 'triage' && (
-        <div className="sources">
-          <span className="label">Takes work from</span>
-          {SOURCES.map(([name, live]) => (
-            <span key={name} className={`src ${live ? '' : 'off'}`}>
-              {name}
-              {!live && <em> not in the demo</em>}
-            </span>
-          ))}
-        </div>
+      {senses && <Sources senses={senses} />}
+      {stage === 'plan' && queued > 0 && (
+        <p className="queue-note">Tickets wait here for the planner, which isn’t built yet.</p>
       )}
-      {rows.length === 0 && returns.length === 0 && <div className="empty">Nothing in {STAGE_NAME[stage]} today.</div>}
+      {rows.length === 0 && returns.length === 0 && caps.length === 0 && (
+        <div className="empty">Nothing in {STAGE_NAME[stage]} today.</div>
+      )}
+      {caps.map((spell) => (
+        <CapRow key={`cap-${spell.cap}-${spell.reached}`} spell={spell} t={view.t} />
+      ))}
       {returns.map((r) => (
         <div key={`return-${r.item}-${r.at}`} className="srow">
           <span className="id">#{r.item}</span>

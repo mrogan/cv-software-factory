@@ -30,6 +30,14 @@
 .vis .big .ok {
   color: var(--ok);
 }
+.vis .big .bad {
+  color: var(--attn);
+}
+.vis .big small {
+  font-size: 2cqw;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
 .vis .cap {
   font: 1.9cqw / 1.3 var(--font-mono);
   letter-spacing: 0.15cqw;
@@ -551,4 +559,385 @@ svg.chart {
 }
 .wipe .b .shot-missing {
   left: var(--at);
+}
+
+/* Numbered marks, keyed to a list beside the picture: the list does the labelling. */
+.mk-n {
+  position: absolute;
+  left: max(-7px, -1.3cqw);
+  top: max(-7px, -1.3cqw);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  min-width: max(14px, 2.6cqw);
+  height: max(14px, 2.6cqw);
+  padding: 0 0.4cqw;
+  border-radius: 999px;
+  background: var(--attn);
+  color: var(--on-attn);
+  font: 500 max(9px, 1.6cqw) / 1 var(--font-mono);
+}
+
+/* Who captured a picture's evidence: the sense, its check and the version. */
+.source-cap {
+  min-height: 3.6cqw;
+  align-items: center;
+  gap: 1cqw 2.4cqw;
+}
+.vis .source-cap .cap {
+  font-size: max(9px, 1.9cqw);
+}
+
+/* A problem on every page: four of the pages, each marked, and how many more. */
+.pages {
+  position: absolute;
+  inset: 0;
+  padding: 3.4cqw 3.4cqw 3.4cqw;
+}
+.pages-grid {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2.4cqw;
+}
+.page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.8cqw;
+  overflow: hidden;
+  background: var(--raised);
+}
+.page-route {
+  padding: 0.6cqw 1.2cqw;
+  border-bottom: 1px solid var(--line);
+  font: max(9px, 1.5cqw) / 1.2 var(--font-mono);
+  color: var(--text-muted);
+}
+.page-shot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.pages .mk {
+  outline-width: max(1.5px, 0.25cqw);
+}
+
+/* An HTTP exchange: the request, its status, each redirect, the headers read, and the timings. */
+.http .big {
+  font-size: 5cqw;
+}
+.http .big b {
+  font-weight: 400;
+}
+.http .request {
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 1cqw 3cqw;
+}
+.http .request .big {
+  white-space: nowrap;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8cqw;
+  padding: 0.6cqw 1.4cqw;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.6cqw;
+  background: var(--raised);
+  font: max(9px, 1.8cqw) / 1.2 var(--font-mono);
+  color: var(--text);
+  white-space: nowrap;
+}
+.status-pill.bad,
+.status-pill.none {
+  color: var(--attn);
+  border-color: var(--attn);
+}
+.status-pill.none {
+  border-style: dashed;
+  background: transparent;
+}
+.vis .status-pill .glyph {
+  width: max(9px, 1.8cqw);
+  height: max(9px, 1.8cqw);
+}
+.hops {
+  display: flex;
+  flex-direction: column;
+  gap: 1cqw;
+  font: max(9px, 1.9cqw) / 1.3 var(--font-mono);
+  color: var(--text-2);
+}
+.hops > div {
+  display: flex;
+  align-items: center;
+  gap: 2cqw;
+}
+.hops .code {
+  min-width: 7cqw;
+  padding: 0.5cqw 1.2cqw;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.5cqw;
+  background: var(--raised);
+  color: var(--text);
+  text-align: center;
+}
+.hops .back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6cqw;
+  font-family: var(--font-sans);
+  color: var(--attn);
+}
+.hops .back .glyph {
+  width: max(9px, 1.8cqw);
+  height: max(9px, 1.8cqw);
+}
+.hops .more {
+  margin: 0.4cqw 0 0;
+  font: max(9px, 1.7cqw) / 1.3 var(--font-sans);
+  color: var(--text-muted);
+}
+.headers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9cqw;
+  font: max(9px, 1.9cqw) / 1.3 var(--font-mono);
+}
+.headers > div {
+  --mark: var(--ok);
+  --value: var(--text-2);
+  display: grid;
+  grid-template-columns: max(10px, 2.2cqw) 20cqw minmax(0, 1fr);
+  gap: 1.6cqw;
+  align-items: center;
+}
+/* A header that is absent is the finding: its cross and its word in the alarm colour. */
+.headers > div.absent {
+  --mark: var(--attn);
+  --value: var(--attn);
+}
+.vis .headers .glyph {
+  width: max(10px, 2.2cqw);
+  height: max(10px, 2.2cqw);
+  color: var(--mark);
+}
+.vis .headers .value {
+  color: var(--value);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timing {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 2cqw;
+  align-items: center;
+  font: max(9px, 1.7cqw) / 1 var(--font-mono);
+  color: var(--text-muted);
+}
+.timing .track {
+  height: 1.2cqw;
+  border-radius: 0.6cqw;
+  background: var(--line);
+  overflow: hidden;
+}
+.timing .track i {
+  display: block;
+  height: 100%;
+  background: var(--text-2);
+}
+
+/* The browser's console, beside the page; an accessibility check's elements, numbered beside the page. */
+.split.console,
+.split.a11y {
+  grid-template-columns: 42cqw 1fr;
+}
+.split.console .term {
+  font-size: max(9px, 1.75cqw);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.findings {
+  display: flex;
+  flex-direction: column;
+  gap: 2cqw;
+  font-size: max(9px, 1.9cqw);
+}
+.finding .rule {
+  display: flex;
+  align-items: center;
+  gap: 1.6cqw;
+}
+.finding .rule b {
+  font: 400 max(10px, 2.2cqw) / 1.2 var(--font-mono);
+}
+.finding .impact {
+  padding: 0.3cqw 1.2cqw;
+  border: 1px solid var(--attn);
+  border-radius: 999px;
+  font: max(8px, 1.5cqw) / 1.3 var(--font-mono);
+  letter-spacing: 0.15cqw;
+  text-transform: uppercase;
+  color: var(--attn);
+}
+.finding p {
+  margin: 1cqw 0 0;
+  padding-bottom: 1.6cqw;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+}
+.finding ol {
+  margin: 1.6cqw 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2cqw;
+  font-family: var(--font-mono);
+}
+.finding li {
+  display: flex;
+  align-items: center;
+  gap: 1.6cqw;
+}
+.finding .n {
+  display: grid;
+  place-items: center;
+  width: max(14px, 2.8cqw);
+  height: max(14px, 2.8cqw);
+  border-radius: 999px;
+  background: var(--attn);
+  color: var(--on-attn);
+  font-size: max(9px, 1.6cqw);
+  flex: none;
+}
+.finding li.away {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.finding li.away .n {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px dashed var(--text-muted);
+}
+
+/* A quarantined report: the deciding answer first, against its threshold, in ink rather than ember. */
+.quarantine .decider {
+  padding: 2.4cqw 3cqw 3.6cqw;
+  border: 1px solid var(--line);
+  border-radius: 0.8cqw;
+  background: var(--raised);
+}
+.quarantine .decider .q {
+  font-size: max(10px, 2.1cqw);
+  color: var(--text-2);
+}
+.quarantine .big small {
+  font: max(9px, 1.9cqw) / 1 var(--font-mono);
+  letter-spacing: 0.15cqw;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.gauge {
+  position: relative;
+  margin-top: 1.8cqw;
+  height: 1.6cqw;
+  border-radius: 0.8cqw;
+  background: var(--line);
+}
+.vis .gauge i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 0.8cqw;
+  background: var(--text);
+}
+.vis .gauge b {
+  position: absolute;
+  top: -1cqw;
+  bottom: -1cqw;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+  box-shadow: 0 0 0 1px var(--raised);
+}
+.gauge span {
+  position: absolute;
+  top: calc(100% + 1cqw);
+  transform: translateX(-50%);
+  font: max(8px, 1.4cqw) / 1 var(--font-mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.2cqw;
+  padding: 1cqw 2cqw;
+  border: max(1.5px, 0.25cqw) solid var(--text);
+  border-radius: 0.6cqw;
+  font: max(9px, 1.8cqw) / 1 var(--font-mono);
+  letter-spacing: 0.25cqw;
+  text-transform: uppercase;
+}
+.vis .stamp .glyph {
+  width: max(11px, 2.2cqw);
+  height: max(11px, 2.2cqw);
+}
+.unused {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9cqw;
+  font-size: max(9px, 1.8cqw);
+  color: var(--text-muted);
+}
+.unused > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 2cqw;
+}
+.unused .a {
+  font-family: var(--font-mono);
+}
+.withheld-note {
+  margin-top: auto;
+  padding: 1.6cqw 2cqw;
+  border: 1px dashed var(--line-strong);
+  border-radius: 0.6cqw;
+  font-size: max(9px, 1.7cqw);
+  color: var(--text-2);
+}
+
+/* A visitor's suggestion, waiting for Martin: the spec's ember rule, the page, and the answers. */
+.spec.suggestion .split {
+  grid-template-columns: 30cqw 1fr;
+  flex: 1;
+}
+.ask-quiet {
+  margin-top: auto;
+  font-size: max(9px, 1.8cqw);
+  color: var(--text-2);
+}
+.vis .ask-quiet b {
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Small pictures (a phone's card, a sheet's evidence blocks) keep their headline and drop secondary rows. */
+@container (max-width: 420px) {
+  .vis .secondary,
+  .vis .unused,
+  .vis .suggestion .jev-row:nth-child(2) {
+    display: none;
+  }
+  .split.console,
+  .split.a11y {
+    grid-template-columns: 34cqw 1fr;
+  }
 }

@@ -110,6 +110,18 @@ a:hover {
 .dot.ring {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--attn) 28%, transparent);
 }
+/* Waiting for a stage to take it: a hollow dot, with nobody at work yet. */
+.dot.hollow {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
+}
+.status .capped {
+  font-weight: 500;
+  color: var(--text);
+}
+.notice .label.attn {
+  color: var(--attn);
+}
 .glyph {
   width: 16px;
   height: 16px;

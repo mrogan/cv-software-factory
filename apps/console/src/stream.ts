@@ -48,6 +48,8 @@ export function stream(
     'x-accel-buffering': 'no',
   });
   res.write('retry: 2000\n\n');
+  // First, what the store holds: not an event, so it goes as a message of its own kind.
+  res.write(`event: store\ndata: ${JSON.stringify({ kind: feed.kind })}\n\n`);
   clients.add(1);
 
   let last = after;

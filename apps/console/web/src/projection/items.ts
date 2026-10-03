@@ -5,7 +5,21 @@
 import type { Category, Evidence, Kind, PayloadOf, PublicEvent, Screenshot, Stage } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
 
-export type Outcome = 'verified' | 'rolled-back' | 'closed' | 'held' | 'needs-you' | 'in-progress';
+/**
+ * How a work item stands. Besides the line's own: `waiting`, a ticket queued for the planner, with nothing being
+ * done to it yet; `quarantined`, a report that gave orders to the system; `no-ticket`, a report that described
+ * nothing wrong.
+ */
+export type Outcome =
+  | 'verified'
+  | 'rolled-back'
+  | 'closed'
+  | 'quarantined'
+  | 'no-ticket'
+  | 'held'
+  | 'needs-you'
+  | 'waiting'
+  | 'in-progress';
 
 export interface Hold {
   stage: Stage;
@@ -68,6 +82,16 @@ export interface ItemState {
   captures: Capture[];
   evidence: { signal: Evidence | undefined; verified: Evidence | undefined };
   spend: number;
+  /** Model calls and Jev requests, so that none at all can be said as such. */
+  calls: number;
+  /** The ticket triage opened, if it has. */
+  ticket: PayloadOf<'ticket.opened'> | undefined;
+  /** A ticket that waits for the planner: its last step was the ticket, and nothing has happened at Plan since. */
+  queued: boolean;
+  /** The app's version when a sense first saw the problem. */
+  seenOn: string | undefined;
+  /** The page a visitor's report came from, at its path only. */
+  reportPage: string | undefined;
 }
 
 /** The stage an event moves its item to, if any. */
@@ -126,6 +150,15 @@ const DEFAULT_CATEGORY: Record<Kind, Category> = {
   'visitor-report': 'not-a-defect',
 };
 
+/** The outcome each way of closing gives. */
+const CLOSED: Record<PayloadOf<'work-item.closed'>['outcome'], Outcome> = {
+  verified: 'verified',
+  'rolled-back': 'rolled-back',
+  'no-change': 'closed',
+  quarantined: 'quarantined',
+  discarded: 'no-ticket',
+};
+
 /** Folds one work item's events (all at or before t, in order) into its state. */
 export function foldItem(events: readonly PublicEvent[]): ItemState | undefined {
   const opened = events.find((event): event is PublicEvent<'work-item.opened'> => event.type === 'work-item.opened');
@@ -158,24 +191,36 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     captures: [],
     evidence: { signal: undefined, verified: undefined },
     spend: 0,
+    calls: 0,
+    ticket: undefined,
+    queued: false,
+    seenOn: undefined,
+    reportPage: undefined,
+  };
+  /** Moves the item into a stage: leaving the one it was in, if this is further along the line. */
+  const enter = (stage: Stage, time: number) => {
+    if (!state.entry) state.entry = stage;
+    if (stage === state.stage) return;
+    const previous = state.stage;
+    // Moving on is leaving a stage behind, done. Being sent back is not: the sender has not passed it.
+    const forward = previous && STAGES.indexOf(stage) > STAGES.indexOf(previous);
+    if (previous && forward && state.visits[previous]) {
+      state.visits[previous] = { ...state.visits[previous], leftAt: time };
+    }
+    state.visits[stage] = { enteredAt: time, leftAt: undefined };
+    state.stage = stage;
   };
   for (const event of events) {
     const time = at(event);
     state.lastAt = time;
-    const stage = stageOf(event);
+    // Once there is a ticket, another sense's signal or a report that repeats it adds evidence: it does not take
+    // the ticket back up the line.
+    const joining = state.ticket && (event.type === 'signal.received' || event.type === 'judgement.made');
+    const stage = joining ? null : stageOf(event);
     if (stage) {
-      if (!state.entry) state.entry = stage;
-      if (stage !== state.stage) {
-        const previous = state.stage;
-        // Moving on is leaving a stage behind, done. Being sent back is not: the sender has not passed it.
-        const forward = previous && STAGES.indexOf(stage) > STAGES.indexOf(previous);
-        if (previous && forward && state.visits[previous]) {
-          state.visits[previous] = { ...state.visits[previous], leftAt: time };
-        }
-        state.visits[stage] = { enteredAt: time, leftAt: undefined };
-        state.stage = stage;
-      }
+      enter(stage, time);
       state.latest[stage] = event;
+      state.queued = false;
       if (event.type !== 'model.called') state.failure = isFailure(event) ? { stage, at: time } : undefined;
     }
 
@@ -187,7 +232,12 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         break;
       case 'ticket.opened':
         state.category = event.payload.category;
+        state.ticket = event.payload;
         if (!state.description) state.title = event.payload.title;
+        // A ticket has left Triage: it sits at Plan, waiting for the planner, until something happens there.
+        enter('plan', time);
+        state.latest.plan = event;
+        state.queued = true;
         break;
       case 'defect.injected':
         state.versions.from = event.payload.version;
@@ -195,6 +245,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         break;
       case 'signal.received':
         state.evidence.signal ??= event.payload.evidence?.[0];
+        state.seenOn ??= event.payload.version;
+        if (event.payload.report) state.reportPage ??= event.payload.report.page;
         break;
       case 'pull-request.pushed':
         state.pullRequest = event.payload.number;
@@ -232,21 +284,21 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         break;
       case 'model.called':
         state.spend += event.payload.costUsd;
+        state.calls += 1;
         break;
       case 'work-item.closed':
         state.closedAt = time;
         state.hold = undefined;
-        state.outcome =
-          event.payload.outcome === 'verified'
-            ? 'verified'
-            : event.payload.outcome === 'rolled-back'
-              ? 'rolled-back'
-              : 'closed';
+        state.queued = false;
+        state.outcome = CLOSED[event.payload.outcome];
         if (state.stage) state.visits[state.stage] = { ...(state.visits[state.stage] as Visit), leftAt: time };
         if (event.payload.outcome === 'discarded') state.category = 'not-a-defect';
         break;
     }
-    if (event.type === 'judgement.made') state.spend += event.payload.costUsd;
+    if (event.type === 'judgement.made') {
+      state.spend += event.payload.costUsd;
+      state.calls += 1;
+    }
 
     event.artifacts.forEach((shot, index) => {
       const side = shot.kind === 'screenshot' ? sideOf(event, state.kind, index) : undefined;
@@ -255,7 +307,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
   }
 
   if (!state.closedAt) {
-    state.outcome = state.hold ? (state.hold.kind === 'held' ? 'held' : 'needs-you') : 'in-progress';
+    if (state.hold) state.outcome = state.hold.kind === 'held' ? 'held' : 'needs-you';
+    else state.outcome = state.queued ? 'waiting' : 'in-progress';
   }
   return state;
 }

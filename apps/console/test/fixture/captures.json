@@ -1,0 +1,229 @@
+{
+  "shots": {
+    "home": {
+      "hash": "1e6bf24e744072e0febcbe23a0b41d53b82f439e735d2719e70ed364e0a2fea7",
+      "size": 42589,
+      "route": "/",
+      "width": 1280,
+      "height": 800,
+      "boxes": []
+    },
+    "about": {
+      "hash": "32c8ba313ad6985268ec85fe6cf42b4bc92d89dc9ecf490f6961ef896958cca0",
+      "size": 62115,
+      "route": "/about",
+      "width": 1280,
+      "height": 800,
+      "boxes": []
+    },
+    "contact": {
+      "hash": "22fd224df4e1181dfebd96b6938bff92e3da5a45f9267090dfd16fddb9ca249f",
+      "size": 49063,
+      "route": "/contact",
+      "width": 1280,
+      "height": 800,
+      "boxes": []
+    },
+    "delivery": {
+      "hash": "95918c34a752c8e6b5aeffda1b6eaf27353c349e793b69b95ab3f806ad46034c",
+      "size": 36490,
+      "route": "/delivery",
+      "width": 1280,
+      "height": 800,
+      "boxes": []
+    },
+    "gift-cards": {
+      "hash": "22a7935a2e3cd2aa48cf5c6b8d5fd9d4cccf3f1772f6cce320df6da9b0cfef47",
+      "size": 42448,
+      "route": "/gift-cards",
+      "width": 1280,
+      "height": 800,
+      "boxes": []
+    },
+    "wishlist": {
+      "hash": "f76ebb0700c2f65a273b9257e4ccbaca68fb64174c2fe7fd2fb904801ba263b7",
+      "size": 28366,
+      "route": "/wishlist",
+      "width": 1280,
+      "height": 800,
+      "boxes": []
+    },
+    "doorstop": {
+      "hash": "e6d4c474c0ae0a2ebf7ca0601b5c3b981eda6d927d0517de28b590e6137c351f",
+      "size": 37785,
+      "route": "/products/doorstop",
+      "width": 1280,
+      "height": 800,
+      "boxes": []
+    },
+    "home-faint": {
+      "hash": "1e6bf24e744072e0febcbe23a0b41d53b82f439e735d2719e70ed364e0a2fea7",
+      "size": 42589,
+      "route": "/",
+      "width": 1280,
+      "height": 800,
+      "boxes": [
+        {
+          "x": 64,
+          "y": 758,
+          "width": 236,
+          "height": 21,
+          "kind": "problem"
+        }
+      ]
+    },
+    "about-faint": {
+      "hash": "32c8ba313ad6985268ec85fe6cf42b4bc92d89dc9ecf490f6961ef896958cca0",
+      "size": 62115,
+      "route": "/about",
+      "width": 1280,
+      "height": 800,
+      "boxes": [
+        {
+          "x": 64,
+          "y": 758,
+          "width": 236,
+          "height": 21,
+          "kind": "problem"
+        }
+      ]
+    },
+    "contact-faint": {
+      "hash": "22fd224df4e1181dfebd96b6938bff92e3da5a45f9267090dfd16fddb9ca249f",
+      "size": 49063,
+      "route": "/contact",
+      "width": 1280,
+      "height": 800,
+      "boxes": [
+        {
+          "x": 64,
+          "y": 758,
+          "width": 236,
+          "height": 21,
+          "kind": "problem"
+        }
+      ]
+    },
+    "delivery-faint": {
+      "hash": "95918c34a752c8e6b5aeffda1b6eaf27353c349e793b69b95ab3f806ad46034c",
+      "size": 36490,
+      "route": "/delivery",
+      "width": 1280,
+      "height": 800,
+      "boxes": [
+        {
+          "x": 64,
+          "y": 758,
+          "width": 236,
+          "height": 21,
+          "kind": "problem"
+        }
+      ]
+    },
+    "gift-cards-faint": {
+      "hash": "22a7935a2e3cd2aa48cf5c6b8d5fd9d4cccf3f1772f6cce320df6da9b0cfef47",
+      "size": 42448,
+      "route": "/gift-cards",
+      "width": 1280,
+      "height": 800,
+      "boxes": [
+        {
+          "x": 64,
+          "y": 758,
+          "width": 236,
+          "height": 21,
+          "kind": "problem"
+        }
+      ]
+    },
+    "wishlist-faint": {
+      "hash": "f76ebb0700c2f65a273b9257e4ccbaca68fb64174c2fe7fd2fb904801ba263b7",
+      "size": 28366,
+      "route": "/wishlist",
+      "width": 1280,
+      "height": 800,
+      "boxes": [
+        {
+          "x": 64,
+          "y": 758,
+          "width": 236,
+          "height": 21,
+          "kind": "problem"
+        }
+      ]
+    },
+    "doorstop-faint": {
+      "hash": "e6d4c474c0ae0a2ebf7ca0601b5c3b981eda6d927d0517de28b590e6137c351f",
+      "size": 37785,
+      "route": "/products/doorstop",
+      "width": 1280,
+      "height": 800,
+      "boxes": [
+        {
+          "x": 64,
+          "y": 758,
+          "width": 236,
+          "height": 21,
+          "kind": "problem"
+        }
+      ]
+    },
+    "about-link": {
+      "hash": "32c8ba313ad6985268ec85fe6cf42b4bc92d89dc9ecf490f6961ef896958cca0",
+      "size": 62115,
+      "route": "/about",
+      "width": 1280,
+      "height": 800,
+      "boxes": [
+        {
+          "x": 102,
+          "y": 321,
+          "width": 155,
+          "height": 20,
+          "kind": "problem",
+          "label": "Leads to a 404"
+        }
+      ]
+    },
+    "contact-error": {
+      "hash": "22fd224df4e1181dfebd96b6938bff92e3da5a45f9267090dfd16fddb9ca249f",
+      "size": 49063,
+      "route": "/contact",
+      "width": 1280,
+      "height": 800,
+      "boxes": [
+        {
+          "x": 64,
+          "y": 229,
+          "width": 460,
+          "height": 83,
+          "kind": "problem",
+          "label": "500 on send"
+        }
+      ]
+    },
+    "delivery-images": {
+      "hash": "95918c34a752c8e6b5aeffda1b6eaf27353c349e793b69b95ab3f806ad46034c",
+      "size": 36490,
+      "route": "/delivery",
+      "width": 1280,
+      "height": 800,
+      "boxes": []
+    }
+  },
+  "elements": {
+    "delivery-images img.van": {
+      "x": 64,
+      "y": 229,
+      "width": 170,
+      "height": 120
+    },
+    "delivery-images img.map": {
+      "x": 252,
+      "y": 229,
+      "width": 170,
+      "height": 120
+    },
+    "delivery-images img.badge": null
+  }
+}

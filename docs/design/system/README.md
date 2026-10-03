@@ -115,24 +115,27 @@ Blocked and failed share `attn` on purpose: both mean a person should act. Their
 The console's projection (`apps/console/web/src/projection/line.ts`) works out each station's status from the work items in the stage at time *t*, taking the first rule that matches:
 
 1. **failed:** an item in the stage failed (a gate run, a refusal, a rollback) and nothing has happened since: no retry, no return, no hold for a human.
-2. **blocked:** an item is waiting on a human (spec approval, held PR, planner question).
+2. **blocked:** an item is waiting on a human (spec approval, held PR, planner question, a visitor's suggestion parked for Martin), or, at Triage, a spend cap holds.
 3. **returning:** an item was sent upstream from this stage in the last 5 minutes.
-4. **working:** at least one item is in progress in the stage.
+4. **working:** at least one item is in progress in the stage. A ticket waiting for the planner is in Plan but not in progress: nobody is at work on it.
 5. **passing:** an item left the stage for a later one, or was verified in it, in the last 15 minutes, and nothing is in progress.
 6. **idle:** otherwise.
 
 A failure that a mechanism hands to a human (the test-integrity gate holding a pull request) reads as `blocked`, not `failed`: someone should look, and the hatch says why. Under Stop the line, every station shows `blocked` and the belt stops.
 
-The figure in each caption counts the items in the stage (`2 PRs`), gives a canary's share of traffic at Release (`25%`), says how many are held or waiting when the station is blocked, and otherwise counts what left the stage today (`3 today`), or says `none`.
+An item whose last step is `ticket.opened` has left Triage and sits at Plan, waiting for the planner, until something happens there; another sense's evidence or a report that repeats the ticket does not take it back up the line. At a spend cap (`spend.capped`, until `spend.cleared`), Triage uses the blocked drawing with its own word, **capped**: it takes no reports until the cap resets, and the senses' tickets still open, because they call no model.
+
+The figure in each caption counts the items in the stage (`2 PRs`), gives a canary's share of traffic at Release (`25%`), says how many are held or waiting when the station is blocked, counts the tickets queued for an idle stage (`7 waiting`), gives a cap's reset time at a capped Triage (`until 01:00`), and otherwise counts what left the stage today (`3 today`), or says `none`.
 
 ### On the line
 
 - Stations sit edge to edge; the rollers at each seam hide the belt joints.
-- Parcels (14 × 12, `surface` fill, `text` stroke) ride on the belt top (`--station-belt-top`, 186px) and pile up in front of a station that needs you. They are decorative; the counts live in the captions and the stage panel.
+- Parcels (14 × 12, `surface` fill, `text` stroke) ride on the belt top (`--station-belt-top`, 186px), pile up in front of a station that needs you, and queue, up to three, in front of an idle station with tickets waiting for it. They are decorative; the counts live in the captions and the stage panel.
 - **Returns** are drawn as a dashed `signal` arc over the stations, from the sender back to the receiver, with a one-line label in a small pill (return icon, `t-data`). There are two kinds: a stage sending work back (Review → Build, Gates → Build), and Verify feeding new tickets from production back to Sense.
 - **One return at a time.** Returns queue newest first and show for about five seconds each, fading in and out. While its arc shows, the sender's station and caption switch to `returning`. With motion off, the newest return holds still. Under Stop the line, none show. Returns are fleeting, so each one is also written as a row in the sender's stage panel.
 - **The whole station is the hit target** (a `<button>` wrapping station and caption). Hover lifts the machine 3px through `::part(machine)`; the legs and belt never move, so the line stays continuous. When the stage panel is open, the stage name gets a 2px underline.
-- **Entry points sit on the stage they feed.** Admin sees a round `signal` + on Plan (request an improvement), repeated as a button in the Plan panel. Triage's panel lists what it takes work from; sources that aren't built for the demo (Slack, Linear or Jira) are shown with a dashed border and "not in the demo".
+- **Entry points sit on the stage they feed.** Admin sees a round `signal` + on Plan (request an improvement), repeated as a button in the Plan panel. Triage's panel lists what it takes work from: the five senses as rows, each with the signals that became events and the tickets they opened, counted from events alone (so live and replay agree), reports broken down by where triage sent them, and a line saying a sense's repeats are counted by the inbox, not here. A zero is written as `0`, in `text-muted`. Sources that aren't built for the demo (Slack, Linear or Jira) are shown with a dashed border and "not in the demo".
+- **A stage panel lists its items newest first**, by work-item number: those in the stage now, then those that left it today. A spend cap that holds, or cleared today, is a row in Triage's panel, written as returns are, so anyone who missed it can still see it happened.
 - Under each station: stage name (`t-stage`), a dot and the state word, then the stage's figures and controls. The word is always there, so colour is never the only signal.
 
 ### In the app
@@ -157,8 +160,22 @@ Top to bottom, and nothing else:
 1. **Category and kind** on the left (glyph, `t-label` caps, then the kind in `t-caption`); **outcome** on the right: dot and word, in the outcome's tone. Work a visitor started says so ("Injected by a visitor", "Red-team attack by a visitor"), never which visitor.
 2. **The picture**, 16:10. See below.
 3. **Title** in Instrument Serif 28, and a description clamped to two lines.
-4. **One line of facts** in `t-data`: number, version (a pill), pull request, start, duration, model spend.
-5. **Eight segments**, one per stage: `ok` for passed, a dashed outline for skipped, `signal` (blinking) for now, `attn` where it stopped or waits on a human, `text-muted` where triage closed it. The segments have an accessible label such as "Stopped at Release".
+4. **One line of facts** in `t-data`: number, version (a pill), pull request, start, duration, model spend. Before a release, the pill says what a sense saw it on ("seen on v0.9.3") or, for a visitor's report, the page it came from at its path only ("from /about"); work that called no model says "no model", not "$0.00".
+5. **Eight segments**, one per stage: `ok` for passed, a dashed outline for skipped, a solid `text-muted` outline for queued (a ticket waiting for the planner), `signal` (blinking) for now, `attn` where it stopped or waits on a human, `text-muted` where triage closed it. The segments have an accessible label such as "Stopped at Release".
+
+The outcomes, each a word and a tone. Work nobody needs to act on is in the quiet tone:
+
+| Outcome | Word | Tone and dot |
+|---|---|---|
+| Verified | Verified | `ok` |
+| Rolled back | Rolled back | `attn`, ringed |
+| Held for a human, Needs you | Held for a human, Needs you | `attn`, flashing |
+| In progress | In progress | `signal`, blinking |
+| A ticket waiting for the planner | Waiting for the planner | `text-muted`, hollow |
+| Closed with no change | Closed · no change | `text-muted` |
+| A report that described nothing wrong | Closed · no ticket | `text-muted` |
+| A report that gave orders to the system | Quarantined | `text-muted`: a guardrail worked, and nobody needs to act |
+| A visitor's suggestion, parked for Martin | Needs you | `attn`, flashing; Triage says "needs you" too |
 
 ### The picture
 
@@ -172,11 +189,20 @@ The picture is evidence, so it is always something the factory captured, never a
 | Security | Package logo and version change, and the image scan's findings before and after by severity |
 | Rollback | Canary against baseline on one axis, the rollback marked; a line saying how much traffic never saw it |
 | Red-team attack | The gate's or policy's own refusal, verbatim, on the station face colour; "the site never changed" |
-| Not a defect | The page the report was about, and Jev's typed answers with their probabilities |
+| Not a defect, or a report's ticket | The page the report was about, and Jev's typed answers with their probabilities: what kind of report, how badly it hurts, and whether it gives orders to a system |
 | Observability | Log lines before and after, and the trace they now link to |
 | Waiting on Martin | The spec: outcome, acceptance criteria and the planner's question, with the `attn` rule |
+| A sense's ticket, waiting | What the sense captured: its screenshot with the mark, tagged SEEN and the version; where there is nothing on the page to point at, what it recorded instead (below) |
+| A problem on every page (`*`) | Four of the pages, each with its mark and its route, and a tag: EVERY PAGE · +N MORE. The sheet has them all |
+| An HTTP exchange | Structured, on the card's surface: the request, the status (or "No response", dashed), each redirect (a loop drawn once, with an arrow back to the start), each header the check read with a tick or a cross and its value ("absent" in `attn`), and the timings |
+| The browser's console | Its messages word for word on the terminal face (✕ error, ! warning, the source dimmed), beside the page's screenshot, unmarked: a console error has no place on the page |
+| An accessibility check | The screenshot with each element axe named numbered, and the list beside it: the rule, its impact, its help, and each element by number; one out of view has a dashed number and "out of view" |
+| A quarantined report | Jev's answer that decided it, first and large, on an ink bar against the threshold that quarantines ("quarantined at 0.50"), a QUARANTINED stamp, the other answers below as unused, and a dashed line saying the text is shown to nobody but Martin and its sender. No page: it has nothing to do with an attack |
+| A visitor's suggestion | The waiting-on-Martin pattern: "Suggestion · waiting for Martin" with the `attn` rule, the page the report named, Jev's answers with the category first, and that only Martin asks for improvements |
 
-**Marks** on a screenshot are drawn by the factory from the elements its probe checked: a dashed `attn` outline for the problem and a solid `ok` outline for the fix, or for the page as it should be, each with a short label in a filled tag. Both sides of a wipe carry a mark, and never more than one label per side.
+**Marks** on a screenshot are drawn by the factory from the elements its probe checked: a dashed `attn` outline for the problem and a solid `ok` outline for the fix, or for the page as it should be, each with a short label in a filled tag. Both sides of a wipe carry a mark, and never more than one label per side. Several marks on one screenshot are **numbered** instead, keyed to a list beside it: the list does the labelling, and has room for what is out of view. A number keeps a minimum size, so it reads on a thumbnail.
+
+On a small picture (a phone's card, a block in the sheet's evidence), each picture keeps its headline and drops its secondary rows: timings, the hops after the first two, a rule's full sentence, the unused answers. Type inside the new pictures never drops below 9px.
 
 Package logos come from [theSVG](https://github.com/glincker/thesvg) (MIT; the marks belong to their owners) and are bundled with the console, never fetched.
 
@@ -186,6 +212,15 @@ Package logos come from [theSVG](https://github.com/glincker/thesvg) (MIT; the m
 - **Main column:** a paragraph saying what happened; for a visitor's report, the report (below); **How it went**, the stage scrubber with the site's screenshot at each step; **Evidence**, the picture at full size, the screenshots captured at signal, canary and rollout, and every page compared with the version before; **The change**, acceptance criteria and the files touched.
 - **Side column:** the facts (including "Code written by humans: 0 lines"), **Agents and models** (each agent's model, settings, calls, tokens and cost, with a total), and **Gates** (each check, its result and time).
 - Each evidence block ends with a one-line **Source**: where the factory got it.
+
+**A ticket's sheet** says who saw the problem and who was asked:
+
+- The facts gain the ticket's category and severity, its fingerprint ("/contact · server-error"), and "Seen on" the version a sense saw it on. Model spend says "none" when no model was called.
+- **Seen by**, after the facts: every sense in order of when it first saw the problem, its check and the time, "opened the ticket" under the one that did and what each other one added; the senses that haven't seen it say "None yet". It replaces the single "Found by" fact. A line says each sense adds its evidence once, and the inbox counts the rest.
+- **Evidence**, when more than one sense saw it: one block for each, the picture its own capture makes, captioned with the sense and when.
+- **Agents and models** names the provider on every row, read from the event: "Jev 1.13.0 · TypeSafe" for `judgement.made`, with each question set asked ("triage/v1 · 4 questions"); "Claude Opus 5.5 · Anthropic", or "· Amazon Bedrock", from `model.called`. Jev's tokens aren't in the event, so that column shows a dash. When no model was called, a sentence says why: a sense knows what it saw, so the policy's table gives the category and severity.
+- The scrubber ends on a larger hollow ring, labelled "WAITING · PLAN", while the ticket waits; later senses' chapters are named by their sense. A quarantine's chapter is in the quiet tone.
+- A quarantined report's withheld block says it gave orders to the system, and that its text is kept, shown only to Martin and its sender.
 
 ### A visitor's report
 
@@ -201,6 +236,8 @@ The console never shows a spinner or a blank panel. Whatever it can't show, it s
 | Can't reach the factory | The header says "Can't reach the factory". A notice under the header says the console tries again every few seconds; the line appears when the factory answers. |
 | The stream dropped | The header says "Reconnecting" by a blinking `signal` dot, and a notice gives the time it dropped. Everything already shown stays, and the console catches up on what it missed when it is back. |
 | No work yet | Where the reel would be: "Nothing yet", what a card will show, and `make samples` for someone running it themselves. |
+| No work yet, in a store for real events | "Watching, nothing yet": the senses check the shop every few minutes and on every new version, a passing check writes nothing, and the first tickets usually appear within fifteen minutes; `make samples` won't load into a real store, and `make status` shows the senses running. The server's stream says what the store holds as its first message (from the store's own record, not an event), and the console waits for it before saying either. |
+| A spend cap reached | The header says "Line running · spend cap reached" by an `attn` ring, Triage says "capped" and until when, and a notice gives the spend against the cap, when it resets (in UTC and where the viewer is), and that reports wait in the inbox, none lost, while the senses' tickets still open. When it clears, all three go, and a row stays in Triage's panel for the day. |
 | Samples | A notice over the reel says the work items were written by hand, that the screenshots are of the real shop with each change made in a copy that went nowhere, and that the factory's own work replaces them. Every sample's card and sheet carry a dashed "Sample" pill too. |
 | Events from a newer factory | A notice says how many were left out, and that reloading fetches the newer console. |
 | A screenshot that won't load | The picture's frame stays, with "Screenshot unavailable" and a line saying the rest of the work item is still there. |
@@ -240,6 +277,10 @@ Each panel does one job:
 - **Needs you:** one card per work item (a spec and the planner's question on it are one decision). Requesting an improvement lives on the Plan station, not here.
 - **Controls:** autonomy, three switches and two spend meters. Guardrails that can't be switched off are not drawn as switches; one line says so.
 - **Left out on purpose:** placeholders for other apps, a live-feed ticker (the stations and the reel already show what is happening), an always-on feedback loop under the belt (production feeding Sense is a return like any other), sparklines, and help text that repeats itself.
+
+## Sensing and triage (milestone 4)
+
+The states the factory's first real work brings, agreed as a set: a sense's ticket waiting at Plan, the pictures for what a screenshot can't show, reports quarantined, parked or closed, a ticket's sheet, where Triage's work comes from, the spend cap, and an empty store for real events. Each is described above where it belongs. The console's tests draw every one from invented test data (`apps/console/test/fixture`), which the console never ships: in Paper at all three widths, the spend cap and a ticket's sheet in Ink too, and with axe in both themes on a laptop and a phone.
 
 ## Not decided yet
 
