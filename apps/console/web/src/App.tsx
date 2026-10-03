@@ -1,7 +1,7 @@
 /**
  * The console: events in, the page out. Everything below is drawn from `project(events, t)`.
  */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { OriginContext } from './artifacts.ts';
 import { Footer } from './components/Footer.tsx';
 import { Header, LineStatus } from './components/Header.tsx';
@@ -28,6 +28,9 @@ export function App() {
   const [theme, setTheme] = useTheme();
   const [motion, setMotion] = useMotion();
   const n = view.cards.length;
+  // The reel draws just after the line, not with it: it is most of the page's work, and the line is what a visitor
+  // reads first.
+  const reel = useDeferredValue(n > 0, false);
   // The store has answered at least once: an empty one is empty, not loading.
   const settled = source.connection === 'live' || source.connection === 'recorded' || source.events.length > 0;
 
@@ -97,17 +100,15 @@ export function App() {
           {/* The stations draw at once, idle, and take their states as the events arrive. */}
           <Line view={view} motion={motion} onOpen={setOpen} pending={!source.events.length && !settled} />
           {n === 0 && settled && <EmptyReel />}
-          {n > 0 && (
-            <>
-              <Reel
-                view={view}
-                centre={resting}
-                onCentre={onCentre}
-                onOpen={(index) => setOpen(view.cards[index]?.number)}
-                motion={motion}
-                asked={asked !== null}
-              />
-            </>
+          {n > 0 && reel && (
+            <Reel
+              view={view}
+              centre={resting}
+              onCentre={onCentre}
+              onOpen={(index) => setOpen(view.cards[index]?.number)}
+              motion={motion}
+              asked={asked !== null}
+            />
           )}
         </div>
       </main>

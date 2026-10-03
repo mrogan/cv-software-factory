@@ -3,7 +3,7 @@ import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gunzipSync } from 'node:zlib';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import type { RawEvent } from '@software-factory/events';
 import { DiskArtifacts } from '@software-factory/store';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -126,18 +126,23 @@ describe('the console server', () => {
     expect((await fetch(`${base}/api/events?after=-1`)).status).toBe(400);
   });
 
-  it('compresses a large answer', async () => {
+  it('compresses a large answer, with brotli where the browser takes it', async () => {
     feed.add(Array.from({ length: 20 }, (_, i) => event(10 + i)));
-    const res = await new Promise<{ encoding: string | undefined; body: Buffer }>((resolve) =>
-      request(`${base}/api/events?after=0`, { headers: { 'accept-encoding': 'gzip' } }, (r) => {
-        const chunks: Buffer[] = [];
-        r.on('data', (c: Buffer) => chunks.push(c)).on('end', () =>
-          resolve({ encoding: r.headers['content-encoding'], body: Buffer.concat(chunks) }),
-        );
-      }).end(),
-    );
-    expect(res.encoding).toBe('gzip');
-    expect(JSON.parse(gunzipSync(res.body).toString())).toHaveLength(23);
+    const fetchRaw = (accept: string) =>
+      new Promise<{ encoding: string | undefined; body: Buffer }>((resolve) =>
+        request(`${base}/api/events?after=0`, { headers: { 'accept-encoding': accept } }, (r) => {
+          const chunks: Buffer[] = [];
+          r.on('data', (c: Buffer) => chunks.push(c)).on('end', () =>
+            resolve({ encoding: r.headers['content-encoding'], body: Buffer.concat(chunks) }),
+          );
+        }).end(),
+      );
+    const br = await fetchRaw('gzip, deflate, br');
+    expect(br.encoding).toBe('br');
+    expect(JSON.parse(brotliDecompressSync(br.body).toString())).toHaveLength(23);
+    const gzip = await fetchRaw('gzip');
+    expect(gzip.encoding).toBe('gzip');
+    expect(JSON.parse(gunzipSync(gzip.body).toString())).toHaveLength(23);
   });
 
   it('streams events from the start, then resumes from Last-Event-ID with none repeated', async () => {
