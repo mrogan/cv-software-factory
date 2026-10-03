@@ -153,6 +153,28 @@ describe('the console server', () => {
     expect(await resumed).toEqual(['30', '31']);
   });
 
+  it('tells an open stream when an empty store learns what it holds', async () => {
+    feed.kind = null;
+    const messages = await new Promise<string[]>((resolve, reject) => {
+      const req = request(`${base}/api/events/stream?after=0`, (res) => {
+        let buffer = '';
+        res.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString();
+          const stores = buffer.split('\n\n').filter((part) => part.startsWith('event: store'));
+          // \`make real-store\` marks the store while the console is open: the stream says so again.
+          if (stores.length === 1 && feed.kind === null) feed.kind = 'real';
+          if (stores.length === 2) {
+            req.destroy();
+            resolve(stores);
+          }
+        });
+      });
+      req.on('error', reject);
+      req.end();
+    });
+    expect(messages).toEqual(['event: store\ndata: {"kind":null}', 'event: store\ndata: {"kind":"real"}']);
+  });
+
   it('says first on every stream what the store holds, as a message that is not an event', async () => {
     const first = (kind: Feed['kind']) =>
       new Promise<string>((resolve, reject) => {

@@ -207,9 +207,13 @@ export function picture(item: ItemState): Picture {
     if (gate?.payload.output) return { type: 'refusal', mechanism: gate.payload.check, output: gate.payload.output };
   }
 
-  // A report shows what triage made of it: the request that routed it, which is its first.
+  // A report shows what triage made of it: the request that routed it, which is its first. One that ended at triage
+  // shows it for good; one that became a ticket only until the line has evidence of its own, such as a fix.
   const judgement = ofType(item, 'judgement.made').find((event) => event.payload.route)?.payload;
-  if (item.kind === 'visitor-report' && judgement) {
+  const endedAtTriage =
+    judgement?.route === 'quarantine' || judgement?.route === 'park' || judgement?.route === 'discard';
+  const pastPlan = item.stage !== null && STAGES.indexOf(item.stage) > STAGES.indexOf('plan');
+  if (item.kind === 'visitor-report' && judgement && (endedAtTriage || !pastPlan)) {
     const page = capture(item, 'page')?.shot;
     if (judgement.route === 'quarantine') return { type: 'quarantine', judgement };
     if (judgement.route === 'park') return { type: 'suggestion', page, judgement };

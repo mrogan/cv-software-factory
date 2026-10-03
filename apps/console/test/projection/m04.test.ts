@@ -101,6 +101,42 @@ describe('a report', () => {
   });
 });
 
+describe('a report that became a ticket, later on the line', () => {
+  const later = (type: string, payload: object, stage = 1) => ({
+    id: `00000000-0000-8000-8000-00000000000${stage}`,
+    seq: 10_000 + stage,
+    ts: new Date(AFTERNOON - 60_000 + stage * 1000).toISOString(),
+    work_item: '1010',
+    type,
+    version: 1,
+    actor: 'factory',
+    summary: `${type} for the test`,
+    payload,
+    artifacts: [],
+  });
+  const pushed = later('pull-request.pushed', {
+    number: 2001,
+    title: 'fix(about): put the right words back',
+    branch: 'factory/1010',
+    attempt: 1,
+    testsFirst: true,
+    files: [{ path: 'src/pages/about.ts', added: 2, removed: 2 }],
+  });
+  const held = later('hold.started', { stage: 'gates', kind: 'held', reason: 'A test was removed' }, 2);
+  const events = [...FIXTURE, pushed, held] as typeof FIXTURE;
+
+  it('leaves Jev’s answers behind once the line has evidence of its own', () => {
+    expect(
+      project([...FIXTURE, pushed] as typeof FIXTURE, AFTERNOON).cards.find((c) => c.number === '1010')?.picture.type,
+    ).not.toBe('judgement');
+  });
+
+  it('shows a later hold’s own reason, not the park', () => {
+    const row = project(events, AFTERNOON).panels.gates.rows.find((r) => r.item === '1010');
+    expect(row?.note).toBe('A test was removed');
+  });
+});
+
 describe('a ticket’s sheet', () => {
   it('lists every sense, those that saw it first and in order, and the rest as not yet', () => {
     const seen = sheet('1000')?.seenBy ?? [];

@@ -60,6 +60,16 @@ describe('a real store', () => {
     expect(await realStore(owner, { force: true })).toEqual({ dropped: 1 });
   });
 
+  it('wakes whatever listens, so a console learns the store’s kind with no event to read', async () => {
+    const heard: string[] = [];
+    const ready = Promise.withResolvers<void>();
+    const subscription = await reader.listen('events', (payload) => heard.push(payload), ready.resolve);
+    await ready.promise;
+    await realStore(owner, { force: true });
+    await expect.poll(() => heard).toEqual(['0']);
+    await subscription.unlisten();
+  });
+
   it('numbers work items from 1000', async () => {
     expect([await nextWorkItem(writer), await nextWorkItem(writer)]).toEqual(['1000', '1001']);
   });

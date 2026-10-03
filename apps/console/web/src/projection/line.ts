@@ -227,8 +227,9 @@ export function returnsAt(events: readonly PublicEvent[], t: number): Return[] {
 /** A row's note for an item in a stage now: what it waits for, or the last thing that happened to it there. */
 function noteOf(item: ItemState, stage: Stage): string {
   if (item.queued) return 'Waiting for the planner';
-  // Only Martin asks for improvements, so a visitor's suggestion waits for him.
-  if (item.hold && item.kind === 'visitor-report') return 'Needs you · parked for Martin';
+  // Only Martin asks for improvements, so a visitor's suggestion waits for Martin. A report that became a ticket
+  // and is held later, at Gates say, shows that hold's own reason.
+  if (item.hold?.stage === 'triage' && item.kind === 'visitor-report') return 'Needs you · parked for Martin';
   return item.hold ? item.hold.reason : (item.latest[stage]?.summary ?? '');
 }
 

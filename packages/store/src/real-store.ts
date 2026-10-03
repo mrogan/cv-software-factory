@@ -31,6 +31,8 @@ export async function realStore(sql: Sql, { force = false } = {}): Promise<{ dro
   // Migrations take their own transaction. If they fail here, running this again starts from an empty schema.
   await migrate(sql);
   await sql`insert into store (sample) values (false)`;
+  // Wakes whatever listens for events, such as the console, so it learns the store's kind with no event to read.
+  await sql`select pg_notify('events', '0')`;
   return { dropped };
 }
 
