@@ -453,7 +453,12 @@ export type Validated = { ok: true } | { ok: false; problems: string[] };
  */
 export const inboxSignal = z.intersection(
   PAYLOADS['signal.received'],
-  z.object({ observedAt: timestamp, artifacts: z.array(artifactRef).max(10) }),
+  z.object({
+    observedAt: timestamp,
+    /** What the sense saw, in a line, for the event's summary. A report has none: its text is never a summary. */
+    summary: text(200).optional(),
+    artifacts: z.array(artifactRef).max(10),
+  }),
 );
 
 /** Checks a signal before it goes in the inbox, so a sense cannot leave triage something it would refuse. */
