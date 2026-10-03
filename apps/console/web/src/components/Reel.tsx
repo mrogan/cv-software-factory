@@ -249,6 +249,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
           <button
             type="button"
             className="btn"
+            aria-label={playing ? 'Pause' : 'Play the history'}
             onClick={() => {
               if (playing) stop();
               else {

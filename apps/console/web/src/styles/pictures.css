@@ -378,7 +378,8 @@ svg.chart {
   color: var(--station-led-ok);
 }
 .term .t-dim {
-  color: var(--station-led-dim);
+  color: var(--station-led-on);
+  font-style: italic;
 }
 .logs {
   display: grid;

@@ -7,6 +7,8 @@
 <meta name="description" content="A working software factory: AI agents and deterministic gates look after a deliberately broken shop, live.">
 <!-- Where the events come from: "live" is this server's API; "log:<url>" is an event-log folder, for the replay site. -->
 <meta name="sf-events" content="live">
+<!-- The events, fetched while the script loads rather than after it runs. A recording's page drops this line. -->
+<link rel="preload" href="/api/events?after=0" as="fetch" crossorigin="anonymous">
 <link rel="icon" href="../../../docs/design/system/mark/icon.svg" type="image/svg+xml">
 <script type="module" src="./src/main.tsx"></script>
 </head>

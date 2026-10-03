@@ -12,3 +12,7 @@ coverage/
 .DS_Store
 .obsidian/
 .claude/settings.local.json
+
+# Browser test output
+apps/console/e2e-results/
+apps/console/e2e-report/

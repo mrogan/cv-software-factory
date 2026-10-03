@@ -207,12 +207,13 @@ html[data-motion="off"] .scrim {
 .scrub .fill {
   background: var(--signal);
 }
+/* Each step's target is the 24px around its dot; its label overhangs without taking clicks from its neighbours. */
 .ch {
   position: absolute;
   top: 0;
-  width: 64px;
+  width: 24px;
   height: 62px;
-  margin-left: -32px;
+  margin-left: -12px;
   padding: 0;
   border: 0;
   background: none;
@@ -242,6 +243,7 @@ html[data-motion="off"] .scrim {
   border-color: var(--tone, var(--text));
 }
 .ch span {
+  pointer-events: none;
   margin-top: 9px;
   font: 9.5px / 1 var(--font-mono);
   letter-spacing: 0.5px;
@@ -552,10 +554,6 @@ table.models {
   }
   .scrub {
     margin: 16px 16px 0 10px;
-  }
-  .ch {
-    width: 26px;
-    margin-left: -13px;
   }
   .ch span {
     display: none;

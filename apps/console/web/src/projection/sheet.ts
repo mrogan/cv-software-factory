@@ -137,7 +137,7 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
 }
 
 /** Positions along the scrubber: by time, but never closer than a minimum gap, so labels stay apart. */
-export function spread(times: readonly number[], start: number, end: number, gap = 7): number[] {
+export function spread(times: readonly number[], start: number, end: number, gap = 7.5): number[] {
   const span = Math.max(1, end - start);
   const raw = times.map((at) => Math.min(100, Math.max(0, ((at - start) / span) * 100)));
   const out: number[] = [];

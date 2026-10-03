@@ -429,3 +429,10 @@ footer.foot a {
     padding-bottom: 10px;
   }
 }
+
+/* The visual tests' stage for a station on its own. */
+.specimen {
+  display: inline-block;
+  padding: 24px 12px 8px;
+  background: var(--bg);
+}

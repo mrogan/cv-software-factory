@@ -1,20 +1,23 @@
 /**
  * The console: events in, the page out. Everything below is drawn from `project(events, t)`.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OriginContext } from './artifacts.ts';
 import { Footer } from './components/Footer.tsx';
 import { Header, LineStatus } from './components/Header.tsx';
 import { Line } from './components/Line.tsx';
 import { LogoSymbols } from './components/Logos.tsx';
 import { Reel } from './components/Reel.tsx';
-import { Sheet } from './components/Sheet.tsx';
+
 import { States } from './components/States.tsx';
 import { project, projectSheet } from './projection/index.ts';
 import { useMotion, useTheme, useTime } from './settings.ts';
 import { origin, useEvents } from './source.ts';
 
 const params = new URLSearchParams(location.search);
+
+/** The sheet's code arrives when the first sheet opens: the first view does not need it. */
+const Sheet = lazy(() => import('./components/Sheet.tsx').then((module) => ({ default: module.Sheet })));
 
 export function App() {
   const from = useMemo(() => origin(), []);
@@ -55,6 +58,14 @@ export function App() {
     },
     [n],
   );
+  // The first meaningful view: the line drawn from the factory's events. The speed test waits for this mark.
+  const marked = useRef(false);
+  useEffect(() => {
+    if (marked.current || !n) return;
+    marked.current = true;
+    performance.mark('sf:first-view');
+  }, [n]);
+
   const sheet = useMemo(() => (open ? projectSheet(source.events, open, t) : undefined), [open, source.events, t]);
   const sheetIndex = sheet ? view.cards.findIndex((card) => card.number === sheet.card.number) : -1;
 
@@ -91,17 +102,19 @@ export function App() {
       </main>
       <Footer />
       {sheet && (
-        <Sheet
-          sheet={sheet}
-          index={sheetIndex}
-          count={n}
-          motion={motion}
-          onStep={(index) => {
-            onCentre(index);
-            setOpen(view.cards[index]?.number);
-          }}
-          onClose={() => setOpen(undefined)}
-        />
+        <Suspense fallback={null}>
+          <Sheet
+            sheet={sheet}
+            index={sheetIndex}
+            count={n}
+            motion={motion}
+            onStep={(index) => {
+              onCentre(index);
+              setOpen(view.cards[index]?.number);
+            }}
+            onClose={() => setOpen(undefined)}
+          />
+        </Suspense>
       )}
     </OriginContext.Provider>
   );
