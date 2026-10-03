@@ -141,15 +141,52 @@ Playwright runs every check against the production build, fed from the sample fi
 
 ## Exit criteria
 
-- [ ] Martin has used the console, fed from the samples, on a laptop and a phone, in both themes and with motion off, and approved it against the bar in `INTENT.md`.
-- [ ] The samples cover every kind, outcome and picture type and every station state, with a return. Every card opens a sheet with its screenshots, gates and model calls.
-- [ ] Playing samples into the cluster's store moves an open console within a second, with no refresh. A test drops the stream mid-play, and the console resumes with no gap and no duplicate.
-- [ ] The production build draws the same page at the same *t* from an event-log file with no server as it does live.
-- [ ] Every event is validated when appended, and an invalid one is refused. An event at an older version replays through its upcaster. Tests prove that the console cannot write and that nobody can update or delete an event.
-- [ ] No public view contains report text, and the samples pass the private repository's answer-key check.
-- [ ] No axe findings, no policy violations and no third-party requests. Visual snapshots cover every station state in both themes, and the drag test passes.
-- [ ] First meaningful view within 2 seconds on the throttled phone profile.
-- [ ] On a fresh clone, `make up && make samples` gives the console showing the samples, from a CI-built image, in under 10 minutes.
+- [x] Martin has used the console, fed from the samples, on a laptop and a phone, in both themes and with motion off, and approved it against the bar in `INTENT.md`.
+- [x] The samples cover every kind, outcome and picture type and every station state, with a return. Every card opens a sheet with its screenshots, gates and model calls.
+- [x] Playing samples into the cluster's store moves an open console within a second, with no refresh. A test drops the stream mid-play, and the console resumes with no gap and no duplicate.
+- [x] The production build draws the same page at the same *t* from an event-log file with no server as it does live.
+- [x] Every event is validated when appended, and an invalid one is refused. An event at an older version replays through its upcaster. Tests prove that the console cannot write and that nobody can update or delete an event.
+- [x] No public view contains report text, and the samples pass the private repository's answer-key check.
+- [x] No axe findings, no policy violations and no third-party requests. Visual snapshots cover every station state in both themes, and the drag test passes.
+- [x] First meaningful view within 2 seconds on the throttled phone profile.
+- [x] On a fresh clone, `make up && make samples` gives the console showing the samples, from a CI-built image, in under 10 minutes.
+
+## Results
+
+- **The events:** 27 types, each a Zod schema at version 1 with a public view. A test-only version 2 proves the upcaster chain, in the events package and through the store.
+- **The samples:** 12 work items over five days, 430 events and 9 screenshots of the app (740 KB). The private repository's check finds no sample matching the answer key.
+- **Tests:** 120 unit and database tests; in the pinned Playwright image, 188 browser tests, 129 of them visual snapshots (96 stations, then the line, nine cards and the sheet at three widths); two live tests against Postgres; and the speed test, run on its own.
+- **First meaningful view on the throttled phone profile:** 1.33 s against the local cluster, 1.5 s on CI's runner, 1.1 s locally in the pinned image. The browser code is 101.4 kB of JavaScript and 8.4 kB of CSS gzipped, against budgets of 112 and 10.
+- **Append to browser:** about 50 ms in CI's live test, and a p95 of about 10 ms on the cluster's dashboard.
+- **Fresh clone to the console showing the samples:** `make up` in 1 min 50 s, then `make samples` in 3 s, on an M-series laptop with OrbStack, with only the cluster's node image already pulled.
+- **Not as planned:** the migrations run as a Sync hook in wave 1, not PreSync, because a PreSync hook runs before Postgres exists on a fresh cluster. Axe leaves out the faded cards either side of the centre one: their text is incidental under WCAG 1.4.3, and the centre card carries everything they say.
+
+## Retrospective
+
+What the milestone taught, and where each lesson now lives.
+
+**Decided**
+
+- Public history never names a visitor: work one starts is credited to "a visitor". Spec section 5.1, the design system's README and the mockup.
+- A public view has the same type as the full event, with whatever it leaves out optional, so a public record reads back as a valid event: `packages/events/src/types.ts`.
+- The station rules are confirmed with their windows (sending back for 5 minutes, passed for 15, returns kept for a day), and so are the states for when there is nothing ordinary to show: the design system's README.
+- Screenshots are captured at 1×: sharp enough for a card on a dense screen, and a quarter of the bytes for a phone. `packages/samples/src/capture.ts`.
+- A deploy change that needs a new image merges after the pull request that pins the image. This milestone split into #30, #33 and #31 for that reason: `AGENTS.md`.
+
+**Learned about the browser**
+
+- With `decoding="async"`, headless Chromium under load sometimes never drew the fourth thumbnail in a strip, even after the test had decoded every image. Two fixes aimed at the wrong cause landed before it was reproduced locally. The thumbnails now decode with the frame that draws them (`Pictures.tsx`). How to reproduce such a flake is in `CONTRIBUTING.md`.
+- A live clock that ticks every ten seconds rebuilds every derived array. Anything keyed on one runs again on each tick, and the reel snapped back under a finger because of it. Martin's review found that and an autoplay watch lost to a re-run effect, both missed by tests that pinned the time. The tests for them use Playwright's fake clock and a held-back stream: `apps/console/e2e/reel.spec.ts`.
+- The same CPU throttle measures about three times slower on CI's runner than on an M-series laptop, so the speed test runs on its own, after the others: `playwright.config.ts`. Drawing the line before the reel, and sending the events with brotli, took the first view on CI from 1.9 s to 1.5 s: `App.tsx`.
+- A content security policy without `'unsafe-inline'` still allows styles set through the CSSOM, so constructed stylesheets and React's style properties work under it: the design system's README.
+
+**Learned about the stack**
+
+- A file piped into an HTTP response with `pipe` stays open if the browser goes away, and a failed read crashes the process; `pipeline` handles both: `apps/console/src/app.ts`.
+- A statement-level trigger that takes an advisory lock makes commit order equal `seq` order, so a reader following `seq` never skips an event that committed late: `packages/store/migrations/0001_events.sql`.
+- macOS's `tar` adds AppleDouble files unless `COPYFILE_DISABLE` is set, and `make samples` runs on the host, so it needs the dependencies installed: the `Makefile`.
+
+**Left open:** see the [backlog](BACKLOG.md).
 
 ## Out of scope
 

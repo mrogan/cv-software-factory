@@ -30,6 +30,8 @@ pnpm dev      # the console on http://localhost:5173, with the samples
 make e2e      # the console in a browser: accessibility, security headers, speed, visual snapshots
 ```
 
+A snapshot that fails only on CI usually comes down to timing, and CI's runner is slower than a laptop. It often reproduces in the pinned image given less CPU: run the `docker run` line from `make e2e` with `--cpus=1.5`, and pass `-g "<test name>" --repeat-each=15` to `in-docker.sh`.
+
 Or open the repository in its dev container.
 
 - Commits and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org): `fix(console): …`, `docs: …`. A commit hook checks them.

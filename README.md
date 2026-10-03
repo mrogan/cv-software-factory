@@ -9,7 +9,7 @@ AI agents and deterministic gates that look after a live web app. They notice pr
 I'm Martin Rogan. This is my portfolio: a working system you can open and judge for yourself, rather than a description of what I can do. [Why it exists and what it has to prove](docs/INTENT.md).
 
 > [!NOTE]
-> **Under construction.** Milestones 1 and 2 of 11 are done ([the plan](docs/PLAN/README.md)): the repository, the toolchain, CI, a local Kubernetes cluster with GitOps and telemetry, and the app the factory will look after, deployed and reporting. Nothing finds or fixes a defect yet. Next is the event store and the console; the first fix lands in milestone 5.
+> **Under construction.** Milestones 1 to 3 of 11 are done ([the plan](docs/PLAN/README.md)): the repository, the toolchain, CI, a local Kubernetes cluster with GitOps and telemetry, the app the factory will look after, and the console, drawn from an append-only event store and live in the browser. Its work items are hand-written samples, labelled as such: nothing finds or fixes a defect yet. Next is sensing and triage; the first fix lands in milestone 5.
 
 ## What it will do
 

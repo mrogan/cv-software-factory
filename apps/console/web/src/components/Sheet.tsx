@@ -5,7 +5,7 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { duration, money, percent, sinceStart, tokens, when } from '../format.ts';
 import type { Chapter, Sheet as SheetData } from '../projection/index.ts';
-import { KIND_NAME, OutcomeWord } from './Card.tsx';
+import { kindName, OutcomeWord } from './Card.tsx';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { LogoMark } from './Logos.tsx';
 import { Picture, Shot } from './Pictures.tsx';
@@ -139,7 +139,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                   <Glyph name={card.category} />
                   {CATEGORY_NAME[card.category]}
                 </span>
-                <span className="kind">{KIND_NAME[card.kind]}</span>
+                <span className="kind">{kindName(card)}</span>
                 <OutcomeWord outcome={card.outcome} />
                 {card.sample && <span className="pill-sample">Sample</span>}
               </div>

@@ -137,7 +137,7 @@ The figure in each caption counts the items in the stage (`2 PRs`), gives a cana
 
 ### In the app
 
-`station.ts` is a dependency-free custom element, used from the console's React code as it is (ADR 0007): one constructed stylesheet shared by every station, and a drawing of classes and presentation attributes. Each kind in each state, in both themes, has a visual-regression snapshot (96 images), and axe checks the line.
+`station.ts` is a dependency-free custom element, used from the console's React code as it is (ADR 0007): one constructed stylesheet shared by every station, and a drawing of classes and presentation attributes. The console's policy refuses styles written into markup, but allows those set through the CSSOM: a constructed stylesheet, or an element's `style` property. Each kind in each state, in both themes, has a visual-regression snapshot (96 images), and axe checks the line.
 
 ## The reel and the sheet
 
@@ -154,7 +154,7 @@ Work items are shown as a **reel**: one card per work item, oldest on the left a
 
 Top to bottom, and nothing else:
 
-1. **Category and kind** on the left (glyph, `t-label` caps, then the kind in `t-caption`); **outcome** on the right: dot and word, in the outcome's tone.
+1. **Category and kind** on the left (glyph, `t-label` caps, then the kind in `t-caption`); **outcome** on the right: dot and word, in the outcome's tone. Work a visitor started says so ("Injected by a visitor", "Red-team attack by a visitor"), never which visitor.
 2. **The picture**, 16:10. See below.
 3. **Title** in Instrument Serif 28, and a description clamped to two lines.
 4. **One line of facts** in `t-data`: number, version (a pill), pull request, start, duration, model spend.
