@@ -1,5 +1,5 @@
-import type { Page } from '@playwright/test';
-import { consoleUrl, expect, ready, test } from './support.ts';
+import type { Page, Route } from '@playwright/test';
+import { consoleUrl, END, expect, ready, test } from './support.ts';
 
 const renders = (page: Page) =>
   page.evaluate(() => (globalThis as { sfRenders?: { reel: number } }).sfRenders?.reel ?? -1);
@@ -33,6 +33,25 @@ test.describe('the reel', () => {
     // React hears where the drag settled, however many frames it drew on the way.
     expect(counts[1]).toBe(counts[0]);
     expect(counts[0]).toBeLessThanOrEqual(3);
+  });
+
+  test('holds still under a drag while a live console’s clock ticks', async ({ page }) => {
+    await page.clock.install({ time: END });
+    // No t in the address: the console follows the clock, ticking every ten seconds.
+    await page.goto('/?motion=off');
+    await ready(page);
+    await page.locator('.reel').scrollIntoViewIfNeeded();
+    const box = await page.locator('.reel').boundingBox();
+    if (!box) throw new Error('No reel');
+    const [x, y] = [box.x + box.width / 2, box.y + 120];
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 300, y, { steps: 10 });
+    const latest = page.locator('.card').last();
+    const held = await latest.evaluate((el) => el.style.transform);
+    await page.clock.runFor(21_000);
+    expect(await latest.evaluate((el) => el.style.transform)).toBe(held);
+    await page.mouse.up();
   });
 
   test('settles on a whole card when the drag ends, carried a little further by a flick', async ({ page }) => {
@@ -136,5 +155,44 @@ test.describe('the line', () => {
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(gates).toBeFocused();
+  });
+});
+
+test.describe('playing the history on first view', () => {
+  // Short enough that the reel starts out of sight, below the line.
+  test.use({ viewport: { width: 1440, height: 560 } });
+
+  test('still plays when new work arrives before the reel comes into sight', async ({ page, request }) => {
+    const events = (await (await request.get('/api/events')).json()) as { seq: number; type: string }[];
+    const opened = events.find((event) => event.type === 'work-item.opened');
+    const last = events.at(-1);
+    if (!opened || !last) throw new Error('No samples');
+    let stream: Route | undefined;
+    await page.route('**/api/events/stream*', (route) => {
+      stream ??= route;
+    });
+    await page.goto(consoleUrl({ motion: true }));
+    await ready(page);
+    const count = page.locator('.transport .count');
+    // Waiting where the latest eight begin.
+    await expect(count).toHaveText('5 of 12');
+    expect((await page.locator('.reel').boundingBox())?.y).toBeGreaterThan(560);
+
+    await expect.poll(() => stream).toBeDefined();
+    const arrived = {
+      ...opened,
+      id: crypto.randomUUID(),
+      seq: last.seq + 1,
+      work_item: '1303',
+      ts: new Date(END).toISOString(),
+    };
+    await stream?.fulfill({
+      headers: { 'content-type': 'text/event-stream' },
+      body: `id: ${arrived.seq}\ndata: ${JSON.stringify(arrived)}\n\n`,
+    });
+    await expect(count).toHaveText('5 of 13');
+
+    await page.locator('.reel').scrollIntoViewIfNeeded();
+    await expect(count).toHaveText('6 of 13', { timeout: 6000 });
   });
 });

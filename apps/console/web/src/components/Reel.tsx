@@ -5,7 +5,7 @@
  * in a ref and write each card's transform directly; React hears only where the reel settles. A test counts renders
  * during a drag and fails if they grow with the number of frames.
  */
-import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { dayLabel, when } from '../format.ts';
 import type { View } from '../projection/index.ts';
 import { renders } from '../renders.ts';
@@ -60,6 +60,14 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   const position = useRef(centre);
   const [playing, setPlaying] = useState(false);
   const [announcement, setAnnouncement] = useState('');
+  /** Set while a finger or pointer is moving the reel or the timeline: nothing else moves it then. */
+  const drag = useRef<Drag | undefined>(undefined);
+  const scrubbing = useRef(false);
+  // A live console's clock ticks every ten seconds, and each tick brings a new timeline with the same positions.
+  // Keyed on the positions themselves, the drawing changes only when a card is added.
+  const positionsKey = timeline.positions.join(' ');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the key stands for the positions
+  const positions = useMemo(() => timeline.positions, [positionsKey]);
 
   /** Writes every card's place for a position. No React: this runs on every frame of a drag. */
   const layout = useCallback(
@@ -83,27 +91,31 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
         el.setAttribute('aria-hidden', String(!atCentre));
         for (const handle of el.querySelectorAll<HTMLElement>('.handle')) handle.tabIndex = atCentre ? 0 : -1;
       });
-      if (playhead.current) playhead.current.style.left = `${railAt(timeline.positions, p) * 100}%`;
+      if (playhead.current) playhead.current.style.left = `${railAt(positions, p) * 100}%`;
       position.current = p;
     },
-    [motion, timeline.positions],
+    [motion, positions],
   );
 
   /** The position nearest a point along the timeline. */
   const positionFromRail = (f: number) => {
     for (let i = 0; i < n - 1; i++) {
-      const [a, b] = [timeline.positions[i] ?? 0, timeline.positions[i + 1] ?? 1];
+      const [a, b] = [positions[i] ?? 0, positions[i + 1] ?? 1];
       if (f <= b) return i + Math.max(0, (f - a) / (b - a || 1));
     }
     return n - 1;
   };
 
-  // React decides where the reel rests; this draws it there, sliding unless motion is off.
+  // React decides where the reel rests; this draws it there, sliding unless motion is off. Mid-gesture it waits:
+  // letting go settles the reel from wherever the gesture left it.
   useLayoutEffect(() => {
-    layout(centre, true);
-    const card = cards[centre];
-    if (card) setAnnouncement(`${centre + 1} of ${n}: ${card.title}. ${OUTCOME[card.outcome][0]}.`);
-  }, [centre, layout, cards, n]);
+    if (!drag.current && !scrubbing.current) layout(centre, true);
+  }, [centre, layout]);
+
+  const { title, outcome } = cards[centre] ?? {};
+  useEffect(() => {
+    if (title && outcome) setAnnouncement(`${centre + 1} of ${n}: ${title}. ${OUTCOME[outcome][0]}.`);
+  }, [centre, n, title, outcome]);
 
   // The tallest card sets the reel's height, once fonts have loaded and whenever the width changes.
   useEffect(() => {
@@ -132,7 +144,13 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     [centre, layout, n, onCentre],
   );
 
-  const stop = useCallback(() => setPlaying(false), []);
+  // On first view the reel plays the latest work items once, when it comes into sight. Never with motion off, and
+  // not once the viewer has moved it themselves.
+  const autoplay = useRef<'not yet' | 'waiting' | 'starting' | 'done'>('not yet');
+  const stop = useCallback(() => {
+    autoplay.current = 'done';
+    setPlaying(false);
+  }, []);
 
   // Play the history: a card every two and a half seconds, ending at now.
   useEffect(() => {
@@ -145,18 +163,25 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     return () => clearTimeout(timer);
   }, [playing, motion, centre, n, onCentre]);
 
-  // On first view the reel plays the latest work items once, when it comes into sight. Never with motion off.
-  const autoplayed = useRef(false);
+  // The reel waits where the history starts, and the watch for it coming into sight outlives new work arriving
+  // (and development's second mount): only playing, or the viewer taking over, ends it.
   useEffect(() => {
-    if (autoplayed.current || asked || !motion || n < 2 || !('IntersectionObserver' in window)) return;
-    autoplayed.current = true;
-    const from = Math.max(0, n - AUTOPLAY);
-    onCentre(from);
+    if (autoplay.current === 'done' || autoplay.current === 'starting') return;
+    if (asked || !motion || n < 2 || !('IntersectionObserver' in window)) return;
+    if (autoplay.current === 'not yet') {
+      autoplay.current = 'waiting';
+      onCentre(Math.max(0, n - AUTOPLAY));
+    }
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry?.isIntersecting) return;
+        if (!entry?.isIntersecting || autoplay.current !== 'waiting') return;
         observer.disconnect();
-        setTimeout(() => setPlaying(true), 600);
+        autoplay.current = 'starting';
+        setTimeout(() => {
+          if (autoplay.current !== 'starting') return;
+          autoplay.current = 'done';
+          setPlaying(true);
+        }, 600);
       },
       { threshold: 0.6 },
     );
@@ -165,7 +190,6 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   }, [asked, motion, n, onCentre]);
 
   // Dragging the cards: a click on the centre card opens it, on a neighbour brings it to the centre.
-  const drag = useRef<Drag | undefined>(undefined);
   const onPointerDown = (event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0 || (event.target as Element).closest('.handle')) return;
     const card = (event.target as Element).closest<HTMLElement>('.card')?.dataset.index;
@@ -188,7 +212,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     if (!d.moved) {
       d.moved = true;
       reel.current.classList.add('dragging');
-      if (playing) stop();
+      stop();
     }
     const now = performance.now();
     d.v = (event.clientX - d.lx) / Math.max(1, now - d.lt);
@@ -215,7 +239,6 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   };
 
   // Scrubbing the timeline.
-  const scrubbing = useRef(false);
   const fromRail = (event: React.PointerEvent) => {
     const box = rail.current?.getBoundingClientRect();
     if (box) layout(positionFromRail(Math.max(0, Math.min(1, (event.clientX - box.left) / box.width))));
@@ -253,6 +276,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
             onClick={() => {
               if (playing) stop();
               else {
+                autoplay.current = 'done';
                 if (centre >= n - 1) onCentre(0);
                 setPlaying(true);
               }
@@ -353,6 +377,10 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
           scrubbing.current = false;
           settle(position.current);
         }}
+        onPointerCancel={() => {
+          scrubbing.current = false;
+          settle(position.current);
+        }}
         onKeyDown={onKeyDown}
       >
         <span className="track" />
@@ -360,7 +388,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
           <span
             key={day}
             className="day"
-            style={{ left: `calc(${(timeline.positions[index] ?? 0) * 100}% - 20px)` } as CSSProperties}
+            style={{ left: `calc(${(positions[index] ?? 0) * 100}% - 20px)` } as CSSProperties}
           >
             {dayLabel(day)}
           </span>
@@ -369,7 +397,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
           <span
             key={card.number}
             className={`tick tone-${OUTCOME[card.outcome][1]} ${i === centre ? 'here' : ''}`}
-            style={{ left: `${(timeline.positions[i] ?? 0) * 100}%` }}
+            style={{ left: `${(positions[i] ?? 0) * 100}%` }}
             title={`${CATEGORY_NAME[card.category]}: ${card.title}`}
           >
             <Glyph name={card.category} />
@@ -379,7 +407,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
           <span
             key={`${version}-${index}`}
             className={`ver ${rolledBack ? 'burnt' : ''} ${index === centre ? 'here' : ''}`}
-            style={{ left: `${(timeline.positions[index] ?? 0) * 100}%` }}
+            style={{ left: `${(positions[index] ?? 0) * 100}%` }}
           >
             {version}
           </span>
