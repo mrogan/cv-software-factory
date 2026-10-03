@@ -14,6 +14,11 @@ cd apps/console
 export SF_PINNED_BROWSER=1
 status=0
 pnpm exec playwright test --project console ${UPDATE:+--update-snapshots} "$@" || status=$?
+# The speed test on its own, once the others are done. Its usual dependency, the live test, needs a Postgres this
+# image doesn't have.
+if [ -z "${UPDATE:-}" ]; then
+  pnpm exec playwright test --project speed --no-deps --output e2e-results/speed || status=$?
+fi
 if [ "$status" != 0 ] && [ -d /out/results ]; then cp -R e2e-results/. /out/results/; fi
 if [ -n "${UPDATE:-}" ]; then
   rm -rf /out/snapshots/*

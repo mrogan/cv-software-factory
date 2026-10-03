@@ -28,9 +28,11 @@ export default defineConfig({
     {
       name: 'console',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: pinned ? /live\.spec\.ts/ : /(live|visual)\.spec\.ts/,
+      testIgnore: pinned ? /(live|speed)\.spec\.ts/ : /(live|speed|visual)\.spec\.ts/,
     },
     { name: 'live', use: { ...devices['Desktop Chrome'] }, testMatch: /live\.spec\.ts/ },
+    // Timed alone, once everything else has finished, so other tests' browsers don't share its CPU.
+    { name: 'speed', testMatch: /speed\.spec\.ts/, dependencies: ['console', 'live'] },
   ],
   webServer: {
     command: 'node src/server.ts',
