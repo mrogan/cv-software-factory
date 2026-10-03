@@ -138,6 +138,14 @@ describe('the events triage writes', () => {
     expect(JSON.stringify(events)).not.toContain('me@example.com');
   });
 
+  it('title a report’s ticket as the visitor’s, in the factory’s words', async () => {
+    const decision = await judgeReport(REPORT, [], fakeJev(triage('functional')).judge, read);
+    const events = reportEvents(signal, '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b', '1000', decision, NOW);
+    expect(events.find((e) => e.type === 'ticket.opened')?.payload).toMatchObject({
+      title: 'A visitor reports a wrong result on /about',
+    });
+  });
+
   it('end a quarantined report and a discarded one, and hold a suggestion for Martin', async () => {
     const types = async (answers: (typeof outcomes)[number][1]) => {
       const decision = await judgeReport(REPORT, [], fakeJev(answers).judge, read);

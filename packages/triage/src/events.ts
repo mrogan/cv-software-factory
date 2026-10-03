@@ -101,6 +101,12 @@ export const ticketTitle = (fingerprint: Fingerprint): string =>
     ? `${TITLES[fingerprint.class]} on ${where(fingerprint.route)}`
     : `Wrong words on ${fingerprint.page}`;
 
+/** A report's ticket says a visitor raised it. Its title is the factory's words, never the visitor's. */
+export const reportedTitle = (fingerprint: Fingerprint): string => {
+  const title = ticketTitle(fingerprint);
+  return `A visitor reports ${title.charAt(0).toLowerCase()}${title.slice(1)}`;
+};
+
 /** Trace ids in the signal's evidence, so the planner can follow a failing request. */
 function tracesOf(signal: InboxSignal): string[] {
   const ids = (signal.evidence ?? []).flatMap((evidence) =>
@@ -222,7 +228,7 @@ export function reportEvents(
       return writer.events;
     case 'ticket': {
       const fingerprint = decision.fingerprint as Fingerprint;
-      const title = ticketTitle(fingerprint);
+      const title = reportedTitle(fingerprint);
       writer.add('ticket.opened', 'triage', `Ticket #${workItem}: ${routed.category}, ${routed.severity}`, {
         title,
         category: routed.category,
