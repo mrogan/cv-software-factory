@@ -54,7 +54,7 @@ check: ## Lint, type-check, test, build the browser code, check generated files 
 	pnpm exec tsc
 	pnpm exec tsc -p apps/console/web
 	pnpm exec tsc -p apps/console/e2e
-	pnpm exec vitest run
+	pnpm exec vitest run --project unit --project database
 	node docs/design/system/build.ts --check
 	node packages/samples/src/export.ts --check
 	pnpm --filter @software-factory/console build --logLevel warn
@@ -62,7 +62,7 @@ check: ## Lint, type-check, test, build the browser code, check generated files 
 	@# Argo CD renders each profile's overlay from main, so one that doesn't render must not get there.
 	@for overlay in deploy/overlays/*/; do kustomize build $$overlay >/dev/null || exit 1; done
 
-e2e: ## Run the console's browser tests in the pinned Playwright image; UPDATE=1 rewrites the snapshots
+e2e: ## Run the browser tests (the console's, and the probes') in the pinned Playwright image; UPDATE=1 rewrites the snapshots
 	docker run --rm --init --ipc=host -e UPDATE=$(UPDATE) -v "$(CURDIR):/src:ro" \
 		-v "$(CURDIR)/apps/console/e2e/snapshots:/out/snapshots" -v "$(CURDIR)/apps/console/e2e-results:/out/results" \
 		$(PLAYWRIGHT) /src/apps/console/e2e/in-docker.sh
