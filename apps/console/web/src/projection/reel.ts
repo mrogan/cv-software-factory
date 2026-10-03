@@ -13,14 +13,20 @@ export type Tag = 'BEFORE' | 'BROKEN' | 'FIXED' | 'AFTER' | 'NOW';
 export type Picture =
   | { type: 'wipe'; before: Screenshot; after: Screenshot; tags: [Tag, Tag] }
   | { type: 'screenshot'; shot: Screenshot; tag: Tag }
-  | { type: 'metric'; evidence: Extract<Evidence, { kind: 'metric' }>; unchanged: number }
+  | { type: 'metric'; evidence: Extract<Evidence, { kind: 'metric' }>; unchanged: Screenshot[] }
   | {
       type: 'logs';
       before: Extract<Evidence, { kind: 'logs' }> | undefined;
       after: Extract<Evidence, { kind: 'logs' }>;
     }
-  | { type: 'package'; dependency: Dependency; unchanged: number }
-  | { type: 'scan'; dependency: Dependency; findings: Findings; unchanged: number }
+  | {
+      type: 'package';
+      dependency: Dependency;
+      files: PayloadOf<'pull-request.pushed'>['files'];
+      checks: { passed: number; total: number } | undefined;
+      unchanged: Screenshot[];
+    }
+  | { type: 'scan'; dependency: Dependency; findings: Findings; unchanged: Screenshot[] }
   | { type: 'rollback'; dependency: Dependency | undefined; rollback: PayloadOf<'release.rolled-back'> }
   | { type: 'refusal'; mechanism: string; output: string }
   | { type: 'judgement'; page: Screenshot | undefined; judgement: PayloadOf<'judgement.made'> }
@@ -119,10 +125,16 @@ const MECHANISMS: Record<PayloadOf<'action.refused'>['mechanism'], string> = {
   'admission-control': 'Admission control',
 };
 
-/** Pages verification found unchanged, for the strip under a picture of something with nothing to see. */
-const unchangedPages = (item: ItemState) =>
-  last(ofType(item, 'verification.finished'), () => true)?.payload.pages.filter((page) => page.changed === 0).length ??
-  0;
+/** The pages verification found unchanged, for the strip under a picture of something with nothing to see. */
+function unchangedPages(item: ItemState): Screenshot[] {
+  const verification = last(ofType(item, 'verification.finished'), () => true);
+  if (!verification) return [];
+  const shots = new Map(verification.artifacts.flatMap((a) => (a.kind === 'screenshot' ? [[a.hash, a]] : [])));
+  return verification.payload.pages.flatMap((page) => {
+    const shot = shots.get(page.screenshot);
+    return page.changed === 0 && shot ? [shot] : [];
+  });
+}
 
 /** The picture for a card: the evidence that best shows what changed. */
 export function picture(item: ItemState): Picture {
@@ -150,7 +162,14 @@ export function picture(item: ItemState): Picture {
     if (item.dependency.security && findings) {
       return { type: 'scan', dependency: item.dependency, findings, unchanged: unchangedPages(item) };
     }
-    return { type: 'package', dependency: item.dependency, unchanged: unchangedPages(item) };
+    const gates = last(ofType(item, 'gates.finished'), () => true)?.payload;
+    return {
+      type: 'package',
+      dependency: item.dependency,
+      files: last(ofType(item, 'pull-request.pushed'), () => true)?.payload.files ?? [],
+      checks: gates && { passed: gates.passed, total: gates.passed + gates.failed.length },
+      unchanged: unchangedPages(item),
+    };
   }
 
   const wipe = wipeOf(item);
@@ -161,7 +180,7 @@ export function picture(item: ItemState): Picture {
   if (verified?.kind === 'logs') {
     return { type: 'logs', before: signal?.kind === 'logs' ? signal : undefined, after: verified };
   }
-  if (signal?.kind === 'metric') return { type: 'metric', evidence: signal, unchanged: 0 };
+  if (signal?.kind === 'metric') return { type: 'metric', evidence: signal, unchanged: [] };
 
   const broken = capture(item, 'broken');
   if (broken) return { type: 'screenshot', shot: broken.shot, tag: 'NOW' };

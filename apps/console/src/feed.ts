@@ -115,17 +115,23 @@ export async function storeFeed(sql: Sql): Promise<Feed> {
   return feed;
 }
 
-/** A feed from an event-log folder: what it holds when the server starts, and nothing more. */
-export function logFeed(dir: string): Feed {
+/**
+ * A feed from an event-log folder: what it holds when the server starts, and nothing more. Its times are moved
+ * so the last event happened as the server started, as `factory events load` moves them into a store, so the
+ * console shows a recording as live work rather than as something hours old.
+ */
+export function logFeed(dir: string, now = Date.now()): Feed {
   const feed = new Feed();
-  const events = parseLog(readFileSync(join(dir, EVENTS_FILE), 'utf-8'));
+  const raws = parseLog(readFileSync(join(dir, EVENTS_FILE), 'utf-8')) as (RawEvent & { ts: string })[];
+  const shift = now - Math.max(...raws.map((raw) => Date.parse(raw.ts)));
   feed.add(
-    events.map((raw) => {
-      const result = upcast(raw);
-      const event = (result.ok ? result.event : raw) as RawEvent & { seq: number };
-      return { event, appendedAt: Date.parse((event as { ts?: string }).ts ?? '') || Date.now() };
+    raws.map((raw) => {
+      const moved = { ...raw, ts: new Date(Date.parse(raw.ts) + shift).toISOString() };
+      const result = upcast(moved);
+      const event = (result.ok ? result.event : moved) as RawEvent & { seq: number };
+      return { event, appendedAt: Date.parse(moved.ts) };
     }),
   );
-  log.info({ events: feed.size, dir }, 'serving an event log');
+  log.info({ events: feed.size, dir }, 'serving an event log, its last event now');
   return feed;
 }

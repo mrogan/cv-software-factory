@@ -1,0 +1,431 @@
+/* The page: base styles, controls, the header, the intro and the footer. Colours, type and spacing are the design
+   system's tokens (tokens.css); nothing here names a colour of its own. */
+
+* {
+  box-sizing: border-box;
+}
+html {
+  background: var(--bg);
+  color-scheme: light;
+}
+html[data-theme="ink"] {
+  color-scheme: dark;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px / 1.45 var(--font-sans);
+  letter-spacing: -0.1px;
+  -webkit-font-smoothing: antialiased;
+}
+body.locked {
+  overflow: hidden;
+}
+button {
+  font: inherit;
+  color: inherit;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+a {
+  color: var(--signal);
+  text-underline-offset: 3px;
+}
+a:hover {
+  color: var(--signal-hover);
+}
+:focus-visible {
+  outline: var(--stroke-rule) solid var(--signal);
+  outline-offset: 3px;
+}
+[hidden] {
+  display: none;
+}
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.label {
+  font: 10.5px / 1.4 var(--font-mono);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.muted {
+  color: var(--text-muted);
+}
+.wrap {
+  --g: var(--space-gutter);
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 var(--g);
+}
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.help {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 0;
+}
+.help b {
+  font-weight: 500;
+  color: var(--text-2);
+}
+.noscript {
+  max-width: 40em;
+  margin: 96px auto;
+  padding: 0 16px;
+}
+
+/* Tone: a role colour carried by one custom property, so dots, words and marks share it. */
+.tone-signal {
+  --tone: var(--signal);
+}
+.tone-ok {
+  --tone: var(--ok);
+}
+.tone-attn {
+  --tone: var(--attn);
+}
+.tone-faint {
+  --tone: var(--text-faint);
+}
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--tone, var(--text-faint));
+  flex: none;
+}
+.dot.ring {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--attn) 28%, transparent);
+}
+.glyph {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Motion: everything that moves stops when the viewer asks, and the still pose says the same thing. */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-motion="on"] .blink {
+    animation: blink var(--motion-blink) ease-in-out infinite;
+  }
+  html[data-motion="on"] .dot.alarm {
+    animation: alarm var(--motion-alarm) ease-in-out infinite;
+  }
+}
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes alarm {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--attn) 30%, transparent);
+  }
+  50% {
+    opacity: 0.3;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+/* Buttons */
+.btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.btn:hover {
+  border-color: var(--text-muted);
+}
+.btn.primary {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: var(--on-signal);
+  font-weight: 500;
+}
+.btn.primary:hover {
+  background: var(--signal-hover);
+}
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: transparent;
+  cursor: pointer;
+}
+.icon-btn:hover {
+  border-color: var(--text-muted);
+}
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.seg {
+  margin: 0;
+  min-width: 0;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--raised);
+}
+.seg button {
+  min-height: 32px;
+  min-width: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--text-2);
+  font: 11px / 1 var(--font-mono);
+  letter-spacing: 0.6px;
+  cursor: pointer;
+}
+.seg button[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--on-inverse);
+}
+
+/* The mark: letters follow the text colour; the full stop is the one warm colour. */
+.mark {
+  height: 30px;
+  width: auto;
+  display: block;
+  color: var(--text);
+}
+.mark .stop {
+  fill: var(--attn);
+}
+
+/* Header */
+header.top {
+  border-bottom: 1px solid var(--line);
+}
+header.top .wrap {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--text);
+  text-decoration: none;
+}
+.brand .rule {
+  width: 1px;
+  height: 30px;
+  background: var(--line-strong);
+}
+.brand b {
+  display: block;
+  font: 400 22px / 1 var(--font-display);
+}
+.brand small {
+  display: block;
+  margin-top: 3px;
+  font: 11px / 1.2 var(--font-mono);
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+.top-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* Intro */
+.intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 32px;
+  padding: 40px 0 8px;
+}
+.intro h1 {
+  margin: 0;
+  font: 400 58px / 1 var(--font-display);
+  letter-spacing: -1px;
+}
+.intro .sub {
+  margin: 8px 0 0;
+  font: italic 400 22px / 1.2 var(--font-display);
+  color: var(--text-muted);
+}
+
+/* A note across the page, in the voice of the console: samples, a lost connection, a newer factory. */
+.notice {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 20px 0 0;
+  padding: 12px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-card);
+  font-size: 13px;
+  color: var(--text-2);
+  max-width: 920px;
+}
+.notice .label {
+  flex: none;
+}
+.notice.attn {
+  border-style: solid;
+  border-color: var(--attn-line);
+  background: var(--attn-wash);
+}
+.pill-sample {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-pill);
+  font: 10px / 1.4 var(--font-mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Footer */
+footer.foot {
+  margin-top: 72px;
+  border-top: 1px solid var(--line);
+}
+footer.foot .wrap {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 20px;
+  padding-bottom: 32px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+footer.foot .mark {
+  height: 18px;
+}
+footer.foot .left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+footer.foot a {
+  color: var(--text-muted);
+}
+
+.phone-status {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .wrap {
+    --g: 16px;
+  }
+  header.top .wrap {
+    min-height: 60px;
+  }
+  .brand .rule,
+  .brand small,
+  .top-right .status {
+    display: none;
+  }
+  .mark {
+    height: 26px;
+  }
+  .brand b {
+    font-size: 20px;
+  }
+  .top-right {
+    gap: 8px;
+  }
+  .seg button {
+    min-width: 0;
+    padding: 0 7px;
+    font-size: 9.5px;
+    letter-spacing: 0.4px;
+  }
+  .intro {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding-top: 28px;
+  }
+  .intro h1 {
+    font-size: 40px;
+  }
+  .intro .sub {
+    font-size: 18px;
+  }
+  .phone-status {
+    display: inline-flex;
+  }
+}
+
+/* The logos' drawings, defined once and drawn wherever they are used. */
+.sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+/* The smallest phones: the switches move under the name rather than push the page sideways. */
+@media (max-width: 400px) {
+  header.top .wrap {
+    flex-wrap: wrap;
+    row-gap: 4px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+}

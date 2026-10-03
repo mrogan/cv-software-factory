@@ -87,7 +87,7 @@ export default new Item('1302', '2026-10-03T10:12:00+01:00')
       output: JOURNEY_FAILED,
     },
   })
-  .at('11:43', 'work.returned', 'factory', 'Gates sent #1302 back to Build: a search for sandpaper was turned away', {
+  .at('11:43', 'work.returned', 'factory', 'Gates sent #1302 back · 1 check failed', {
     from: 'gates',
     to: 'build',
     reason: 'End-to-end journeys failed: a search for sandpaper was still turned away',

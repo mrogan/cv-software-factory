@@ -69,7 +69,7 @@ const VARIANTS: Variant[] = [
         path: '/',
         route: '/',
         scroll: 'h2:text("This week")',
-        checks: [{ selector: '.card:nth-child(1) .price', kind: 'fix', label: 'Back above zero' }],
+        checks: [{ selector: '.card:nth-child(3) .price', kind: 'fix', label: 'Back above zero' }],
       },
       { name: 'home-sundries', path: '/', route: '/', scroll: 'h2:text("This week")' },
       {

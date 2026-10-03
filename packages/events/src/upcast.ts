@@ -27,6 +27,8 @@ export interface RawEvent {
   type: string;
   version: number;
   payload: unknown;
+  /** The store's order, once it has one. */
+  seq?: number;
 }
 
 export type Upcast =

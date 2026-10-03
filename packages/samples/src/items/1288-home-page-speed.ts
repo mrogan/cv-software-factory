@@ -5,8 +5,8 @@ const trace = traceFor('1288/slow');
 
 /** p95 on the home page, every three minutes, from an hour before the signal until verification. */
 const P95 = [
-  631, 648, 640, 662, 637, 655, 622, 671, 644, 638, 651, 640, 633, 659, 642, 636, 604, 88, 86, 84, 85, 83, 86, 85, 84,
-  87, 85,
+  631, 648, 640, 662, 637, 655, 622, 671, 644, 638, 651, 640, 633, 659, 642, 636, 647, 639, 604, 88, 86, 84, 85, 83, 86,
+  85, 84, 87, 85,
 ];
 
 export default new Item('1288', '2026-10-02T14:05:00+01:00')
@@ -79,7 +79,7 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
     comments: 1,
     note: 'Kept for an hour from the first visit, last week’s sundries could still show at ten to one on a Monday morning. Keep the selection until the week turns instead.',
   })
-  .at('13:51', 'work.returned', 'factory', 'Review sent #1288 back to Build: keep the selection until the week turns', {
+  .at('13:51', 'work.returned', 'factory', 'Review sent #1288 back · changes asked for', {
     from: 'review',
     to: 'build',
     reason: 'The reviewer asked for the selection to change when the week does, not an hour after the first visit',

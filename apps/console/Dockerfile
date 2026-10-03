@@ -27,7 +27,8 @@ COPY apps/console/web apps/console/web
 COPY packages/events/src packages/events/src
 COPY docs/design/system/tokens.css docs/design/system/station.ts docs/design/system/
 COPY docs/design/system/mark/icon.svg docs/design/system/mark/
-RUN pnpm --filter @software-factory/console build
+ARG GIT_COMMIT=unknown
+RUN GIT_COMMIT=$GIT_COMMIT pnpm --filter @software-factory/console build
 
 # The server: TypeScript that Node runs as it is, and its production dependencies only.
 FROM base AS server

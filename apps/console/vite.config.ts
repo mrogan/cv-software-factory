@@ -28,6 +28,8 @@ const SERVER = `http://localhost:${process.env.SERVER_PORT ?? 8081}`;
 export default defineConfig({
   root: 'web',
   plugins: [react()],
+  // The commit the build was made from, for the footer: the image passes it in; development says so.
+  define: { __BUILD__: JSON.stringify(process.env.GIT_COMMIT ?? 'dev') },
   build: {
     outDir: '../dist',
     emptyOutDir: true,
