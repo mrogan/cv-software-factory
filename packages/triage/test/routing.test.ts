@@ -55,6 +55,18 @@ describe('what leaves the cluster of a report', () => {
     );
   });
 
+  it('finds an address however it is wrapped, and leaves what only looks like one', () => {
+    expect(scrub('(me@shop.example), "you@b.example".')).toBe('([email]), "[email]".');
+    expect(scrub('@mossops on social, or a@b')).toBe('@mossops on social, or a@b');
+  });
+
+  it('takes no longer than a pass over a hostile text', () => {
+    const hostile = `${'!'.repeat(50_000)}@${'!'.repeat(50_000)}`;
+    const started = performance.now();
+    scrub(hostile);
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
   it('keeps short numbers and prices, which describe the page', () => {
     expect(scrub('Item 2 costs £-12.99 and page 3 of 10 repeats it')).toBe(
       'Item 2 costs £-12.99 and page 3 of 10 repeats it',
