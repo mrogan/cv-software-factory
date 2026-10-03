@@ -16,6 +16,7 @@ spec:
         releaseName: prometheus
         valueFiles:
           - $values/deploy/base/telemetry/values/prometheus.yaml
+          - $values/deploy/base/telemetry/values/prometheus-rules.yaml
     - repoURL: https://github.com/mrogan/cv-software-factory.git
       targetRevision: main
       ref: values
