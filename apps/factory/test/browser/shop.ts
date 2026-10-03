@@ -18,6 +18,8 @@ export type Fault =
   | 'catalogue-gap'
   | 'catalogue-repeat'
   | 'filter-leak'
+  | 'next-page-500'
+  | 'price-run-on'
   | 'product-price'
   | 'product-heading'
   | 'product-404'
@@ -30,6 +32,7 @@ export type Fault =
   | 'contact-refuses'
   | 'contact-422'
   | 'contact-500'
+  | 'contact-thanks-with-form'
   | 'console-error'
   | 'broken-image';
 
@@ -48,6 +51,7 @@ const ITEMS: Item[] = [
   { slug: 'pencil-case', name: 'Pencil case', department: 'desk', pence: 180 },
   { slug: 'rain-hat', name: 'Rain hat', department: 'outdoors', pence: 1999 },
   { slug: 'brass-hook', name: 'Brass hook', department: 'home', pence: 95 },
+  { slug: 'brass-bell', name: 'Brass bell', department: 'home', pence: 1100 },
 ];
 const PAGE_SIZE = 3;
 const DEPARTMENTS = ['home', 'desk', 'outdoors'];
@@ -74,10 +78,14 @@ export async function startShop(...faults: Fault[]): Promise<Shop> {
 <li><a href="/">Home</a></li><li><a href="/products">Products</a></li><li><a href="/search">Search</a></li><li><a href="/contact">Contact</a></li>
 </ul></nav></header><main><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`;
 
+  /** A price with text against it: no space, a comma, a unit, as a page may write it. */
+  const shown = (pence: number) =>
+    has('price-run-on') ? `${money(pence)}<small>In stock</small>, ${money(pence)}/each` : money(pence);
+
   const card = (item: Item, mutate = true) => {
     const name = mutate && has('catalogue-name') && item.slug === 'tin-whistle' ? `${item.name}!` : item.name;
     const pence = mutate && has('catalogue-price') && item.slug === 'oak-stool' ? item.pence + 1 : item.pence;
-    return `<li><img src="/assets/${has('broken-image') ? 'missing' : 'item'}.svg" alt="" width="40" height="40"><h3><a href="/products/${item.slug}">${escapeHtml(name)}</a></h3><p>${money(pence)}</p></li>`;
+    return `<li><img src="/assets/${has('broken-image') ? 'missing' : 'item'}.svg" alt="" width="40" height="40"><h3><a href="/products/${item.slug}">${escapeHtml(name)}</a></h3><p>${shown(pence)}</p></li>`;
   };
 
   const listing = (items: Item[], base: string, requested: number) => {
@@ -150,6 +158,8 @@ export async function startShop(...faults: Fault[]): Promise<Shop> {
       res.writeHead(302, { location: '/loop' });
       return res.end();
     }
+    if (has('next-page-500') && requested > 1 && (path === '/products' || path.startsWith('/departments/')))
+      return send(res, 500, page('Broken', '<p>Something went wrong.</p>'));
     if (path === '/') {
       const extra = `${has('link-404') ? '<li><a href="/missing">Lost property</a></li>' : ''}${has('link-loop') ? '<li><a href="/loop">Offers</a></li>' : ''}`;
       const departments = DEPARTMENTS.map((d) => `<li><a href="/departments/${d}">${d}</a></li>`).join('');
@@ -193,7 +203,7 @@ export async function startShop(...faults: Fault[]): Promise<Shop> {
         200,
         page(
           heading,
-          `<img src="/assets/${has('broken-image') ? 'missing' : 'item'}.svg" alt="${escapeHtml(item.name)}" width="40" height="40"><p>${money(pence)}</p><p>A fine thing.</p>`,
+          `<img src="/assets/${has('broken-image') ? 'missing' : 'item'}.svg" alt="${escapeHtml(item.name)}" width="40" height="40"><p>${shown(pence)}</p><p>A fine thing.</p>`,
         ),
       );
     }
@@ -230,6 +240,16 @@ export async function startShop(...faults: Fault[]): Promise<Shop> {
       }
       if (has('contact-refuses')) return send(res, 200, page('Contact', form('Please try again.', values)));
       messages.push(values);
+      if (has('contact-thanks-with-form')) {
+        return send(
+          res,
+          200,
+          page(
+            'Contact',
+            `<p role="alert">Thank you, your message is on its way.</p>${form().replace('>Email<', '>Email (required)<').replace('<label for="name"', '<p class="error-hint">All fields are required.</p><label for="name"')}`,
+          ),
+        );
+      }
       return send(res, 200, page('Thank you', '<p>Your message is on its way.</p>'));
     }
     return send(res, 404, page('Not found', '<p>No such page.</p>'));

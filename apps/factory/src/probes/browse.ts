@@ -3,7 +3,19 @@
  */
 import type { BrowserCheck } from '../senses/browser.ts';
 import { exchange } from '../senses/http.ts';
-import { badStatus, CARDS, fail, follow, listed, pageThrough, readCards, readLinks, type Shop, visit } from './site.ts';
+import {
+  badStatus,
+  CARDS,
+  fail,
+  follow,
+  listed,
+  pageThrough,
+  readCards,
+  readLinks,
+  type Shop,
+  visit,
+  walkFailure,
+} from './site.ts';
 
 export const homeLeadsToTheCatalogue: BrowserCheck<Shop> = {
   id: 'home-leads-to-the-catalogue',
@@ -67,7 +79,10 @@ export const departmentsListTheirProducts: BrowserCheck<Shop> = {
       const { status, evidence } = await visit(context, path);
       const bad = badStatus(status, `The department page ${path}`, evidence);
       if (bad) return bad;
-      const shown = new Set((await pageThrough(context)).cards.map((card) => card.slug));
+      const walked = await pageThrough(context);
+      const failed = walkFailure(walked, `the ${department} department`);
+      if (failed) return failed;
+      const shown = new Set(walked.cards.map((card) => card.slug));
       const expected = products.filter((p) => p.department === department).map((p) => p.slug);
       const missing = expected.filter((slug) => !shown.has(slug));
       const extra = [...shown].filter((slug) => !expected.includes(slug));

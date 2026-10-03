@@ -126,6 +126,16 @@ export interface Card {
   price: string | null;
 }
 
+/**
+ * An amount of money in pounds as a page shows it, which may have text right up against it with no space (a price
+ * and a label that follow each other, a comma, a unit), so it is the amount and nothing after. A negative amount is
+ * still an amount, whether it is written £-6.00 or -£6.00.
+ */
+const PRICE = /-?£-?\d[\d,]*(?:\.\d{2})?/;
+
+/** A price written -£6.00 as £-6.00, which is how the shop's own API formats it. */
+const normalPrice = (price: string): string => (price.startsWith('-£') ? `£-${price.slice(2)}` : price);
+
 const READ_CARDS = `(() => {
   const scope = document.querySelector('main') ?? document.body;
   const cards = [];
@@ -138,14 +148,18 @@ const READ_CARDS = `(() => {
     const card = link.closest('li, article') ?? link.parentElement;
     if (seen.has(card)) continue;
     seen.add(card);
-    const price = card.textContent.match(/£\\S*/);
+    const price = card.textContent.match(new RegExp(${JSON.stringify(PRICE.source)}));
     cards.push({ slug: decodeURIComponent(match[1]), name, price: price ? price[0] : null });
   }
   return cards;
 })()`;
 
 /** The products a page lists, in the order it lists them, with any that it lists twice listed twice. */
-export const readCards = (page: Page): Promise<Card[]> => page.evaluate(READ_CARDS) as Promise<Card[]>;
+export const readCards = async (page: Page): Promise<Card[]> =>
+  ((await page.evaluate(READ_CARDS)) as Card[]).map((card) => ({
+    ...card,
+    price: card.price && normalPrice(card.price),
+  }));
 
 /** The selector for a page's cards, for boxing them in a screenshot. */
 export const CARDS = 'main li:has(a[href^="/products/"])';
@@ -198,6 +212,20 @@ export async function pageThrough(context: Context, limit = 50): Promise<Walked>
   }
 }
 
+/**
+ * What a fair observer says of a walk that met a page that was not a page: the finding for that page's own path, so
+ * that a server that fell over is not reported as products missing. `what` is whose pages these are, such as "the
+ * catalogue".
+ */
+export function walkFailure(walked: Walked, what: string): Finding | null {
+  if (!walked.failed) return null;
+  const { path, status, evidence } = walked.failed;
+  return (
+    badStatus(status, `The next page ${path} of ${what}`, evidence) ??
+    fail('wrong-result', `The next page ${path} of ${what} could not be opened.`, { evidence })
+  );
+}
+
 /** A list of names for a message: a few, then how many more. */
 export function listed(names: string[], most = 4): string {
   const shown = names.slice(0, most).join(', ');
@@ -209,7 +237,10 @@ export const priceOf = (product: Product): string =>
   Number.isFinite(product.pricePence) ? `£${(product.pricePence / 100).toFixed(2)}` : product.price;
 
 /** The price a product page or card shows: the first amount of money in the text, whatever it looks like. */
-export const firstPrice = (text: string): string | null => text.match(/£\S*/)?.[0] ?? null;
+export const firstPrice = (text: string): string | null => {
+  const price = text.match(PRICE)?.[0];
+  return price ? normalPrice(price) : null;
+};
 
 /** Selector for the smallest element in the main content that shows this text. */
 export const showing = (text: string) => `main :text(${JSON.stringify(text)})`;

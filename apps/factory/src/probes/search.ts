@@ -16,6 +16,7 @@ import {
   pageThrough,
   type Shop,
   visit,
+  walkFailure,
   wordsOf,
 } from './site.ts';
 
@@ -67,7 +68,10 @@ async function findsByWord(context: Context, spell: (word: string) => string, sa
     const { status, evidence } = done;
     const failed = badStatus(status, `Searching for "${typed}"`, evidence);
     if (failed) return failed;
-    const shown = new Set((await pageThrough(context)).cards.map((card) => card.slug));
+    const walked = await pageThrough(context);
+    const walkFailed = walkFailure(walked, `the search for "${typed}"`);
+    if (walkFailed) return walkFailed;
+    const shown = new Set(walked.cards.map((card) => card.slug));
     const expected = products.filter((p) => wordsOf(p.name).some((w) => w.toLowerCase() === word.toLowerCase()));
     const missing = expected.filter((p) => !shown.has(p.slug));
     if (missing.length) {
@@ -109,7 +113,10 @@ export const searchForNothingFindsNothing: BrowserCheck<Shop> = {
     const { status, evidence } = done;
     const failed = badStatus(status, `Searching for "${query}"`, evidence);
     if (failed) return failed;
-    const shown = (await pageThrough(context)).cards;
+    const walked = await pageThrough(context);
+    const walkFailed = walkFailure(walked, `the search for "${query}"`);
+    if (walkFailed) return walkFailed;
+    const shown = walked.cards;
     if (!shown.length) return null;
     return fail(
       'wrong-result',

@@ -14,6 +14,11 @@ const FORM = 'main form:has(textarea)';
 const PROBE =
   'This message is an automatic check by the Software Factory, which sends one each time it looks after the site. It needs no reply.';
 
+/** What a page says when it has taken the message. */
+const THANKS = /\b(thank you|thanks|on its way|(has|have|was|were) been (sent|received)|we('ll| will) be in touch)\b/i;
+/** What it says when it has not. "Required" is no complaint: a form may label its fields so. */
+const COMPLAINT = /\b(error|invalid|try again|failed|could not|couldn't)\b/i;
+
 interface Message {
   name: string;
   email: string;
@@ -54,17 +59,21 @@ async function send(context: Context, message: Message) {
   if (response && response.status() >= 400) {
     return fail('rejects-valid-input', `Sending a valid message answered ${response.status()}.`, { evidence, look });
   }
+  // A page that thanks the visitor has taken the message, whatever else it still shows: some show the form again
+  // under the banner, and a banner or a form's hints can use the words (and classes) of a complaint.
+  const text = await page.locator('main').first().innerText();
+  if (THANKS.test(text) && !COMPLAINT.test(text)) return null;
   // A page that shows the form again with a complaint has refused the message. One that shows no form took it.
-  if (await page.locator('main form:has(textarea)').count()) {
-    const complaint = page.locator('[role="alert"], [aria-invalid="true"], [class*="error" i], [class*="invalid" i]');
+  if (await page.locator(FORM).count()) {
+    const complaint = page
+      .locator('[role="alert"], [aria-invalid="true"], [class*="error" i], [class*="invalid" i]')
+      .filter({ hasText: /\S/ });
     const said = (await complaint.count())
       ? await complaint
           .first()
           .innerText()
           .catch(() => '')
-      : ((await page.locator('main').first().innerText()).match(
-          /[^.\n]*\b(error|invalid|required|try again|failed|could not|couldn't)\b[^.\n]*/i,
-        )?.[0] ?? '');
+      : (text.match(new RegExp(`[^.\\n]*${COMPLAINT.source}[^.\\n]*`, 'i'))?.[0] ?? '');
     if (said.trim()) {
       return fail('rejects-valid-input', `The contact form refused a valid message: "${said.trim().slice(0, 120)}".`, {
         evidence,

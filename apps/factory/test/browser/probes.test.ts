@@ -72,6 +72,9 @@ const CASES: Array<[string, Fault, string]> = [
   ['catalogue-pages-cover-the-range', 'catalogue-gap', 'wrong-result'],
   ['catalogue-pages-cover-the-range', 'catalogue-repeat', 'wrong-result'],
   ['catalogue-filters-by-department', 'filter-leak', 'wrong-result'],
+  ['catalogue-pages-cover-the-range', 'next-page-500', 'server-error'],
+  ['catalogue-filters-by-department', 'next-page-500', 'server-error'],
+  ['departments-list-their-products', 'next-page-500', 'server-error'],
   ['product-page-agrees-with-the-api', 'product-price', 'wrong-result'],
   ['product-page-agrees-with-the-api', 'product-heading', 'wrong-result'],
   ['product-page-agrees-with-the-api', 'product-404', 'broken-link'],
@@ -124,7 +127,27 @@ describe.each(CASES)('%s', (check, fault, symptom) => {
   }, 60_000);
 });
 
+describe('a shop that writes a price with text against it', () => {
+  it('are read for the amount alone', async () => {
+    const observations = await observe(
+      ['price-run-on'],
+      ['catalogue-agrees-with-the-api', 'product-page-agrees-with-the-api'],
+    );
+    expect(observations.filter((o) => o.trouble).map((o) => `${o.check}: ${o.trouble}`)).toEqual([]);
+    expect(failing(observations)).toEqual([]);
+  }, 60_000);
+});
+
 describe('the contact probes', () => {
+  it('take a thank-you that shows the form again, with the word "required" on it, as the message sent', async () => {
+    const observations = await observe(
+      ['contact-thanks-with-form'],
+      ['contact-accepts-a-message', 'contact-accepts-awkward-but-valid-input'],
+    );
+    expect(observations.filter((o) => o.trouble).map((o) => `${o.check}: ${o.trouble}`)).toEqual([]);
+    expect(failing(observations)).toEqual([]);
+  }, 60_000);
+
   it('send messages that say they are the factory’s, and that the shop receives', async () => {
     const shop = await startShop();
     try {

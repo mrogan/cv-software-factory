@@ -52,11 +52,12 @@ export interface BrowserSenseOptions<Shared> {
 export class BrowserSense<Shared> implements Sense {
   readonly name: Sense['name'];
   private readonly options: BrowserSenseOptions<Shared>;
-  private browser: Browser | undefined;
+  private readonly browser: SharedBrowser;
 
   constructor(options: BrowserSenseOptions<Shared>) {
     this.options = options;
     this.name = options.name;
+    this.browser = new SharedBrowser(options.launch);
   }
 
   /** How often the checks that are limited may run, by check. */
@@ -66,8 +67,8 @@ export class BrowserSense<Shared> implements Sense {
 
   /** Runs `work` on a page of its own, in a context of its own, which is closed after. */
   async withPage<T>(work: (page: Page) => Promise<T>): Promise<T> {
-    this.browser ??= await (this.options.launch ?? (() => chromium.launch()))();
-    const context = await this.browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
+    const browser = await this.browser.ready();
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
     try {
       const page = await context.newPage();
       page.setDefaultTimeout(10_000);
@@ -78,8 +79,8 @@ export class BrowserSense<Shared> implements Sense {
   }
 
   async pass(version: string, skip: ReadonlySet<string> = new Set()): Promise<Observation[]> {
-    this.browser ??= await (this.options.launch ?? (() => chromium.launch()))();
-    const context = await this.browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
+    const browser = await this.browser.ready();
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
     const shared = this.options.shared();
     const observations: Observation[] = [];
     try {
@@ -94,8 +95,7 @@ export class BrowserSense<Shared> implements Sense {
   }
 
   async close(): Promise<void> {
-    await this.browser?.close();
-    this.browser = undefined;
+    await this.browser.close();
   }
 
   private async look(
@@ -212,6 +212,46 @@ export class BrowserSense<Shared> implements Sense {
       this.options.log.warn({ err: String(error), route }, 'no screenshot of a finding');
     }
     return artifacts;
+  }
+}
+
+/**
+ * The browser a sense uses, launched when first wanted. Callers that ask together share one launch, and a browser that
+ * has died (Chromium can crash or be killed) is launched again rather than kept, so that it does not leave every later
+ * pass failing until the pod restarts.
+ */
+export class SharedBrowser {
+  private readonly launcher: () => Promise<Browser>;
+  /** The browser, or its launch under way, which every caller waits on rather than starting another. */
+  private browser: Promise<Browser> | undefined;
+
+  constructor(launch: (() => Promise<Browser>) | undefined) {
+    this.launcher = launch ?? (() => chromium.launch());
+  }
+
+  async ready(): Promise<Browser> {
+    const launched = this.browser ?? this.launch();
+    this.browser = launched;
+    const browser = await launched;
+    if (browser.isConnected()) return browser;
+    // Whoever notices first forgets it; those who come after find the new launch.
+    if (this.browser === launched) this.browser = undefined;
+    return this.ready();
+  }
+
+  async close(): Promise<void> {
+    const launched = this.browser;
+    this.browser = undefined;
+    await (await launched?.catch(() => undefined))?.close();
+  }
+
+  private launch(): Promise<Browser> {
+    const launching = this.launcher();
+    // A launch that failed is not kept: the next pass tries again.
+    launching.catch(() => {
+      if (this.browser === launching) this.browser = undefined;
+    });
+    return launching;
   }
 }
 
