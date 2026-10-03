@@ -48,6 +48,23 @@ export const tokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : S
 /** 4.6%, 0.0% */
 export const percent = (share: number) => `${(share * 100).toFixed(1)}%`;
 
+const significant = new Intl.NumberFormat('en-GB', { maximumSignificantDigits: 3 });
+
+/** 642, 0.015, 1,500: a measurement, to three significant figures. */
+export const figure = (value: number) => significant.format(value);
+
+/**
+ * A chart's axis for values up to `top`: a round maximum a little above it, and ticks at none, half and all of it.
+ * Fractions (an error rate of 0.02, a latency of 0.8 s) get fractional ticks.
+ */
+export function axis(top: number): { max: number; ticks: [number, number, number] } {
+  if (!(top > 0)) return { max: 1, ticks: [0, 0.5, 1] };
+  const step = 10 ** Math.floor(Math.log10(top));
+  // toPrecision drops floating-point dust: 0.1 × 3 is 0.30000000000000004.
+  const max = Number((Math.ceil((top * 1.1) / step) * step).toPrecision(12));
+  return { max, ticks: [0, Number((max / 2).toPrecision(12)), max] };
+}
+
 /** 1 PR, 2 PRs */
 export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 

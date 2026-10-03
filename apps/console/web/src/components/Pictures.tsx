@@ -5,7 +5,7 @@
 import type { Evidence, PayloadOf, Screenshot } from '@software-factory/events';
 import { type KeyboardEvent, type PointerEvent, useLayoutEffect, useRef, useState } from 'react';
 import { useArtifactUrl } from '../artifacts.ts';
-import { clock, plural } from '../format.ts';
+import { axis, clock, figure, plural } from '../format.ts';
 import type { Picture as PictureData, Tag } from '../projection/index.ts';
 import { Glyph } from './Glyph.tsx';
 import { LogoMark, logoFor } from './Logos.tsx';
@@ -185,6 +185,8 @@ interface Series {
   label: string;
 }
 
+const TICKS = ['none', 'half', 'all'] as const;
+
 /** A line chart: one axis, thin lines, the last value labelled where it ends. */
 function LineChart(props: {
   series: Series[];
@@ -198,18 +200,16 @@ function LineChart(props: {
   const [w, h, l, r, t, b] = [600, 210, 40, 104, 14, 24];
   const n = Math.max(...series.map((s) => s.values.length));
   const top = Math.max(objective ?? 0, ...series.flatMap((s) => s.values.filter((v): v is number => v !== null)));
-  const step = 10 ** Math.floor(Math.log10(top || 1));
-  const yMax = Math.ceil((top * 1.1) / step) * step;
-  const ticks = [0, Math.round(yMax / 2), yMax];
+  const { max: yMax, ticks } = axis(top);
   const x = (i: number) => l + (i / Math.max(1, n - 1)) * (w - l - r);
   const y = (v: number) => t + (1 - v / yMax) * (h - t - b);
   return (
     <svg className="chart" viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label}>
-      {ticks.map((v) => (
-        <g key={v}>
+      {ticks.map((v, i) => (
+        <g key={TICKS[i]}>
           <line className="grid" x1={l} x2={w - r} y1={y(v)} y2={y(v)} />
           <text className="axis" x={l - 8} y={y(v) + 3.5} textAnchor="end">
-            {v}
+            {figure(v)}
           </text>
         </g>
       ))}
@@ -238,7 +238,7 @@ function LineChart(props: {
             <path d={`M${points.map(([px, py]) => `${px} ${py}`).join(' L')}`} />
             <circle cx={end[0]} cy={end[1]} r="3.5" />
             <text className="end" x={end[0] + 8} y={end[1] + 3.5}>
-              {s.label} · {end[2]} {unit}
+              {s.label} · {figure(end[2])} {unit}
             </text>
           </g>
         );
@@ -272,9 +272,9 @@ function MetricPicture({ evidence, unchanged }: { evidence: Metric; unchanged: S
         <div>
           <div className="cap">{evidence.name}</div>
           <div className="big">
-            <s>{before}</s> →{' '}
+            <s>{figure(before)}</s> →{' '}
             <span className="ok">
-              {after} {evidence.unit}
+              {figure(after)} {evidence.unit}
             </span>
           </div>
         </div>
@@ -283,7 +283,7 @@ function MetricPicture({ evidence, unchanged }: { evidence: Metric; unchanged: S
         </div>
       </div>
       <LineChart
-        label={`${evidence.name} over time, from ${before} to ${after} ${evidence.unit}`}
+        label={`${evidence.name} over time, from ${figure(before)} to ${figure(after)} ${evidence.unit}`}
         series={[{ values, tone: 'signal', label: evidence.name.split(' ')[0] ?? '' }]}
         unit={evidence.unit}
         objective={evidence.objective}
