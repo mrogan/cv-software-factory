@@ -80,6 +80,9 @@ spec:
               mountPath: /tmp
             - name: shm
               mountPath: /dev/shm
+            # Screenshots go here, for the console to serve.
+            - name: artifacts
+              mountPath: /var/lib/factory/artifacts
       volumes:
         - name: tmp
           emptyDir: {}
@@ -88,3 +91,6 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 256Mi
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: artifacts
