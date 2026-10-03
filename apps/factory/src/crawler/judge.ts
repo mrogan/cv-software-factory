@@ -8,7 +8,7 @@
  * - a broken link or image belongs on the route of the page that holds it, where a visitor meets it;
  * - a server error, a redirect loop, a slow answer or an uncached asset belongs on the route that was asked for.
  */
-import type { Evidence } from '@software-factory/events';
+import type { Evidence, SymptomClass } from '@software-factory/events';
 import type { Check } from '../capture.ts';
 import { type Exchange, exchange } from '../senses/http.ts';
 import type { Finding } from '../senses/types.ts';
@@ -31,6 +31,24 @@ export interface Issue extends Finding {
   evidence: Evidence[];
 }
 
+/**
+ * Something the crawl could not tell: a route on which the checks for these classes (any, if none are named) can
+ * be neither passed nor failed, as a check that threw is neither.
+ */
+export interface Trouble {
+  route: string;
+  symptoms?: readonly SymptomClass[];
+  message: string;
+}
+
+/** What opening a page in a browser tells of: the checks that cannot be made when it could not be opened. */
+const OF_A_PAGE = ['missing-header', 'browser-error', 'missing-alt', 'low-contrast', 'unlabelled-field'] as const;
+
+export interface Judged {
+  issues: Issue[];
+  trouble: Trouble[];
+}
+
 export interface JudgeInput {
   crawl: Crawl;
   errors: ErrorPage[];
@@ -45,8 +63,9 @@ const STATIC = /\.(?:js|mjs|css|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf)$
 
 const quoted = (path: string) => path.replaceAll('"', '');
 
-export function judge({ crawl, errors, secure, version, template }: JudgeInput): Issue[] {
+export function judge({ crawl, errors, secure, version, template }: JudgeInput): Judged {
   const issues: Issue[] = [];
+  const trouble: Trouble[] = [];
   const byPath = new Map(crawl.resources.map((r) => [r.path, r]));
 
   for (const resource of crawl.resources) {
@@ -68,7 +87,15 @@ export function judge({ crawl, errors, secure, version, template }: JudgeInput):
       continue;
     }
     const status = answer.status;
-    if (status === null) continue;
+    if (status === null) {
+      // No answer at all (refused, reset, or too slow to wait for) is not a pass: whether it is broken is not known.
+      // That holds for the route asked for, and for the check on the page that holds the link or image.
+      const message = `${path}${path === from ? '' : `, from ${from},`} gave no answer.`;
+      trouble.push({ route: target, message });
+      if (kind !== 'asset')
+        trouble.push({ route: holder, symptoms: [kind === 'image' ? 'broken-image' : 'broken-link'], message });
+      continue;
+    }
     if (status >= 500) {
       issues.push({
         symptom: 'server-error',
@@ -121,6 +148,14 @@ export function judge({ crawl, errors, secure, version, template }: JudgeInput):
         evidence: [answer.evidence],
       });
     }
+  }
+
+  for (const { path, message } of crawl.unbrowsed) {
+    trouble.push({
+      route: template(path),
+      symptoms: OF_A_PAGE,
+      message: `${path} answered but could not be opened in a browser: ${message}`,
+    });
   }
 
   for (const page of crawl.pages) {
@@ -191,7 +226,7 @@ export function judge({ crawl, errors, secure, version, template }: JudgeInput):
       evidence: [error.answer.evidence],
     });
   }
-  return issues;
+  return { issues, trouble };
 }
 
 /** Whether an asset says it may be kept for some time. */

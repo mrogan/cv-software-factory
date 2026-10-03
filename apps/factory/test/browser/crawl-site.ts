@@ -23,6 +23,9 @@ export type Fault =
   | 'no-headers-all'
   | 'no-cache'
   | 'slow-about'
+  | 'slow-all'
+  | 'page-hangs'
+  | 'no-answer'
   | 'leaky-missing'
   | 'leaky-malformed'
   | 'powered-by';
@@ -74,6 +77,12 @@ ${body}${throws ? '<script>throw new Error("boom")</script>' : ''}</main></body>
     const path = raw.split('?')[0] as string;
     const asset = { 'cache-control': has('no-cache') ? 'no-store' : 'public, max-age=3600' };
     if (path === '/version') return send(res, 200, JSON.stringify({ commit: 'c'.repeat(40) }), 'application/json');
+    if (has('slow-all') && path !== '/version') await new Promise((resolve) => setTimeout(resolve, 2_300));
+    if (path === '/reset') return req.socket.destroy();
+    // A page whose script is never sent, so that it never finishes loading.
+    if (path === '/static/hang.js') return;
+    if (path === '/hangs')
+      return send(res, 200, '<!doctype html><title>Hangs</title><script src="/static/hang.js"></script>');
     if (path === '/static/site.css') return send(res, 200, 'body{font-family:sans-serif}', 'text/css', asset);
     if (path === '/static/site.js') return send(res, 200, 'void 0;', 'text/javascript', asset);
     if (path === '/static/dot.svg') {
@@ -94,6 +103,8 @@ ${body}${throws ? '<script>throw new Error("boom")</script>' : ''}</main></body>
       if (path === '/about' && has('slow-about')) await new Promise((resolve) => setTimeout(resolve, 2_300));
       const extras = [
         path === '/' && has('dead-link') ? '<a href="/gone">Lost</a>' : '',
+        path === '/' && has('page-hangs') ? '<a href="/hangs">Hangs</a>' : '',
+        path === '/' && has('no-answer') ? '<a href="/reset">Reset</a>' : '',
         path === '/' && has('loop') ? '<a href="/loop">Offers</a>' : '',
         path === '/about' && has('unlabelled') ? '<form><input type="text" name="q"></form>' : '',
       ].join(' ');
@@ -119,6 +130,10 @@ ${body}${throws ? '<script>throw new Error("boom")</script>' : ''}</main></body>
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-    close: () => new Promise((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      }),
   };
 }

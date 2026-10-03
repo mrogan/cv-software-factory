@@ -9,8 +9,9 @@
  */
 import type { ArtifactRef, Evidence, SymptomClass } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
-import { type Browser, chromium } from 'playwright';
+import type { Browser } from 'playwright';
 import { capture } from '../capture.ts';
+import { SharedBrowser } from '../senses/browser.ts';
 import { templater } from '../senses/routes.ts';
 import type { Observation, Sense } from '../senses/types.ts';
 import { crawl } from './crawl.ts';
@@ -47,16 +48,17 @@ export interface CrawlerOptions {
 export class Crawler implements Sense {
   readonly name = 'crawler';
   private readonly options: CrawlerOptions;
-  private browser: Browser | undefined;
+  private readonly browser: SharedBrowser;
 
   constructor(options: CrawlerOptions) {
     this.options = options;
+    this.browser = new SharedBrowser(options.launch);
   }
 
   async pass(version: string): Promise<Observation[]> {
     const { app, log } = this.options;
-    this.browser ??= await (this.options.launch ?? (() => chromium.launch()))();
-    const context = await this.browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
+    const browser = await this.browser.ready();
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
     try {
       const reached = await crawl({
         app,
@@ -66,7 +68,7 @@ export class Crawler implements Sense {
       });
       if (reached.capped) log.warn({ resources: reached.resources.length }, 'the crawl stopped at its cap');
       const template = templater([...reached.resources.map((r) => r.path)]);
-      const issues = judge({
+      const { issues, trouble } = judge({
         crawl: reached,
         errors: await askForErrors(app),
         secure: new URL(app).protocol === 'https:',
@@ -75,21 +77,32 @@ export class Crawler implements Sense {
       });
       const pages = reached.pages.map((p) => p.path);
       const { findings, every } = collapse(issues, pages);
-      const routes = new Set([...reached.resources.map((r) => template(r.path)), ...findings.map((f) => f.route)]);
+      const routes = new Set([
+        ...reached.resources.map((r) => template(r.path)),
+        ...findings.map((f) => f.route),
+        ...trouble.map((t) => t.route),
+      ]);
       routes.delete('*');
+      const pageRoutes = new Set(reached.pages.map((p) => template(p.path)));
 
       const observations: Observation[] = [];
       for (const symptom of CLASSES) {
-        // On every route, so that a class that is no longer found passes. Not where it is `*`: that is one finding.
+        // On every route, so that a class that is no longer found passes. Not on the pages where it is `*`, which is one
+        // finding, but still where it was found beyond them (a slow asset is not a page).
         const wide = every.has(symptom);
         for (const route of [...routes, '*']) {
-          if (wide && route !== '*') continue;
           const found = findings.find((f) => f.symptom === symptom && f.route === route);
+          if (wide && route !== '*' && pageRoutes.has(route) && !found) continue;
+          // What could not be told is neither a pass nor a failure, so it does not end a streak.
+          const unknown = found
+            ? undefined
+            : trouble.find((t) => t.route === route && (!t.symptoms || t.symptoms.includes(symptom)));
           observations.push({
             check: `${symptom}@${route}`.slice(0, 80),
             route,
             finding: found ?? null,
             artifacts: found ? await this.keep(context, found, version, template) : [],
+            ...(unknown && { trouble: unknown.message }),
           });
         }
       }
@@ -100,8 +113,7 @@ export class Crawler implements Sense {
   }
 
   async close(): Promise<void> {
-    await this.browser?.close();
-    this.browser = undefined;
+    await this.browser.close();
   }
 
   /** A screenshot of the page the finding was seen on, with the boxes it asked for. */

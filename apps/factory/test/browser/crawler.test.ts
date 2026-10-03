@@ -11,7 +11,7 @@ import { validateSignal } from '@software-factory/events/schemas';
 import { DiskArtifacts } from '@software-factory/store';
 import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Crawler } from '../../src/crawler/index.ts';
+import { CLASSES, Crawler } from '../../src/crawler/index.ts';
 import type { Observation } from '../../src/senses/types.ts';
 import { type Fault, startSite } from './crawl-site.ts';
 
@@ -69,6 +69,40 @@ const CASES: Array<[Fault, string, string]> = [
   ['contrast-all', 'low-contrast@*', 'low-contrast'],
   ['no-headers-all', 'missing-header@*', 'missing-header'],
 ];
+
+describe('a class found on every page', () => {
+  it('is one finding for the pages, and still found on the assets that had it too', async () => {
+    const observations = await crawl('slow-all');
+    expect(found(observations).sort()).toEqual(['slow-response@*', 'slow-response@/static/:file']);
+  }, 120_000);
+});
+
+describe('what the crawl could not tell', () => {
+  /** What was reported as trouble, by check, and whether any check on the route passed. */
+  const troubleOn = (observations: Observation[], route: string) =>
+    observations.filter((o) => o.route === route && o.trouble);
+
+  it('is trouble, not a pass, when a page that answered will not open in the browser, and the crawl goes on', async () => {
+    const observations = await crawl('page-hangs');
+    const trouble = troubleOn(observations, '/hangs');
+    expect(trouble.map((o) => o.check).sort()).toEqual(
+      ['browser-error', 'low-contrast', 'missing-alt', 'missing-header', 'unlabelled-field']
+        .map((c) => `${c}@/hangs`)
+        .sort(),
+    );
+    expect(trouble[0]?.trouble).toContain('/hangs');
+    expect(found(observations)).toEqual([]);
+    // The rest of the site was still looked at.
+    expect(observations.map((o) => o.check)).toContain('missing-header@/items/:item');
+  }, 60_000);
+
+  it('is trouble, not a pass, when a link gets no answer', async () => {
+    const observations = await crawl('no-answer');
+    expect(troubleOn(observations, '/reset')).toHaveLength(CLASSES.length);
+    expect(troubleOn(observations, '/').map((o) => o.check)).toEqual(['broken-link@/']);
+    expect(found(observations)).toEqual([]);
+  }, 60_000);
+});
 
 describe.each(CASES)('%s', (fault, check, symptom) => {
   it(`is found as ${check}`, async () => {

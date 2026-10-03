@@ -40,9 +40,18 @@ export interface Browsed {
   accessibility: AccessibilityIssue[];
 }
 
+/** A page that answered, and could not then be opened in a browser: it timed out, navigated away, or axe failed on it. */
+export interface Unbrowsed {
+  path: string;
+  /** What went wrong, in a line. */
+  message: string;
+}
+
 export interface Crawl {
   resources: Resource[];
   pages: Browsed[];
+  /** The pages that answered but could not be browsed, which are neither found fine nor found at fault. */
+  unbrowsed: Unbrowsed[];
   /** Set when the crawl stopped at its cap, so what it did not reach is unknown. */
   capped: boolean;
 }
@@ -81,7 +90,7 @@ const REFERENCES = `(() => {
 
 export async function crawl({ app, context, limit = 150, record }: CrawlOptions): Promise<Crawl> {
   const origin = new URL(app).origin;
-  const result: Crawl = { resources: [], pages: [], capped: false };
+  const result: Crawl = { resources: [], pages: [], unbrowsed: [], capped: false };
   const queued = new Map<string, { kind: Kind; from: string }>([['/', { kind: 'link', from: '/' }]]);
   const todo = ['/'];
 
@@ -111,7 +120,15 @@ export async function crawl({ app, context, limit = 150, record }: CrawlOptions)
     const answer = await exchange(app, next, { record });
     result.resources.push({ path: next, kind, from, answer });
     if (kind !== 'link' || answer.status !== 200 || answer.type !== 'text/html') continue;
-    const browsed = await browse(context, new URL(next, app).href, next);
+    // One page that will not open must not end the crawl: it is kept as a resource, and reported as trouble.
+    const browsed = await browse(context, new URL(next, app).href, next).catch((error: unknown) => {
+      result.unbrowsed.push({
+        path: next,
+        message: (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '',
+      });
+      return null;
+    });
+    if (!browsed) continue;
     result.pages.push(browsed.page);
     enqueue(browsed.references.links, 'link', next);
     enqueue(browsed.references.images, 'image', next);
