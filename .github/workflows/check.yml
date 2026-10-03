@@ -80,7 +80,7 @@ jobs:
   image:
     name: image builds
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,3 +93,17 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/factory/Dockerfile
+          push: false
+          cache-from: type=gha,scope=factory
+          cache-to: type=gha,mode=max,scope=factory
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/factory/Dockerfile.browser
+          push: false
+          cache-from: type=gha,scope=factory-browser
+          cache-to: type=gha,mode=max,scope=factory-browser

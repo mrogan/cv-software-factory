@@ -23,6 +23,22 @@ kubectl --context k3d-software-factory -n telemetry port-forward svc/otel-collec
 kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432 &
 ```
 
+- The workers can run on the host instead of in the cluster, against forwarded Prometheus, Loki, Tempo and Postgres, and a gateway that runs on the host too. The collector's address is the default (`localhost:4318`, forwarded as above), so the workers' own telemetry arrives as well:
+
+  ```sh
+  kubectl --context k3d-software-factory -n telemetry port-forward svc/prometheus-server 9090:80 &
+  kubectl --context k3d-software-factory -n telemetry port-forward svc/loki 3100 &
+  kubectl --context k3d-software-factory -n telemetry port-forward svc/tempo 3200 &
+  export PGHOST=127.0.0.1 PGDATABASE=factory PGUSER=factory_writer \
+    PGPASSWORD="$(kubectl --context k3d-software-factory -n factory get secret postgres-writer -o jsonpath='{.data.password}' | base64 -d)"
+  # The gateway, with the key from the Keychain (leave it out to replay only), on :8080.
+  GATEWAY_MODE=replay-record CASSETTES_DIR=/tmp/cassettes TYPESAFE_API_KEY="$(security find-generic-password -s typesafe-api-key -w)" \
+    node --import ./apps/factory/src/telemetry.ts apps/factory/src/cli.ts gateway &
+  GATEWAY_URL=http://localhost:8080 ARTIFACTS_DIR=/tmp/artifacts node apps/factory/src/cli.ts triage
+  APP_URL=http://website.localhost:8080 ARTIFACTS_DIR=/tmp/artifacts PORT=8090 node apps/factory/src/cli.ts probes run
+  ```
+
+  Scale the cluster's copy of a worker to nothing first (`kubectl -n factory scale deployment/triage --replicas=0`), and back to one after, so two do not take the same signals. Add `PAGES_URL=http://localhost:8090` to triage to have it read the pages reports name.
 - Node 24 runs TypeScript directly: erasable syntax only, `.ts` extensions in imports, no build step. The console's browser code is the exception: Vite builds it.
 - In the console, anything that runs every frame (a drag, a wipe, the reel settling) writes to the DOM through refs, and React state changes only when the movement ends. A test counts renders during a drag.
 - Visual snapshots are taken in the pinned Playwright image, never on the host: `make e2e` refreshes them with `UPDATE=1`.
