@@ -251,18 +251,39 @@ importers:
 
   apps/factory:
     dependencies:
+      '@opentelemetry/api':
+        specifier: ^1.9.1
+        version: 1.9.1
+      '@opentelemetry/instrumentation':
+        specifier: ^0.222.0
+        version: 0.222.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/instrumentation-http':
+        specifier: ^0.222.0
+        version: 0.222.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/instrumentation-pino':
+        specifier: ^0.68.0
+        version: 0.68.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-node':
+        specifier: ^0.222.0
+        version: 0.222.0(@opentelemetry/api@1.9.1)
       '@software-factory/events':
         specifier: workspace:*
         version: link:../../packages/events
       '@software-factory/store':
         specifier: workspace:*
         version: link:../../packages/store
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
       playwright:
         specifier: ^1.63.0
         version: 1.63.0
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/events:
     dependencies:

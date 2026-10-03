@@ -70,6 +70,7 @@ describe('migrations', () => {
     expect(await owner`select version, name from schema_migrations order by version`).toEqual([
       { version: 1, name: 'events' },
       { version: 2, name: 'store-kind-work-items-and-inbox' },
+      { version: 3, name: 'model-calls' },
     ]);
   });
 });

@@ -1,0 +1,234 @@
+import { mkdtempSync } from 'node:fs';
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DiskArtifacts, EventWriter } from '@software-factory/store';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
+import type { SpendPolicy } from '../../../../policy/spend.ts';
+import { Cassettes } from '../../src/gateway/cassettes.ts';
+import { GatewayClient } from '../../src/gateway/client.ts';
+import { configFromEnv } from '../../src/gateway/config.ts';
+import {
+  BadRequest,
+  CassetteMissing,
+  GatewayUnavailable,
+  ProviderError,
+  SpendCapped,
+} from '../../src/gateway/errors.ts';
+import { Gateway, type Mode } from '../../src/gateway/gateway.ts';
+import { createGatewayServer } from '../../src/gateway/server.ts';
+import { Spend } from '../../src/gateway/spend.ts';
+import { TypeSafe } from '../../src/gateway/typesafe.ts';
+import { capturingLog, type FakeTypeSafe, fakeTypeSafe, request, SECRET } from './helpers.ts';
+
+let fake: FakeTypeSafe;
+let database: Database | undefined;
+let server: Server;
+let url: string;
+let client: GatewayClient;
+const captured = capturingLog();
+
+const start = async (mode: Mode, policy: SpendPolicy = { dayUsd: 20, monthUsd: 100, workItemUsd: 0.04 }) => {
+  // A database of its own, so one test's spend is not another's.
+  database = await freshDatabase('server');
+  const dir = mkdtempSync(join(tmpdir(), 'cassettes-'));
+  const events = new EventWriter(database.writer, { kind: 'real', artifacts: new DiskArtifacts(dir) });
+  const spend = new Spend({ sql: database.writer, events, profile: 'local', policy, log: captured.log });
+  const gateway = new Gateway({
+    sql: database.writer,
+    spend,
+    cassettes: new Cassettes({ record: dir }),
+    mode,
+    typesafe: new TypeSafe({
+      apiKey: 'k',
+      baseUrl: fake.url,
+      log: captured.log,
+      sleep: async () => {},
+      random: () => 0,
+    }),
+    log: captured.log,
+  });
+  server = createGatewayServer({ gateway, spend, log: captured.log });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  client = new GatewayClient({ url });
+};
+
+beforeAll(async () => {
+  fake = await fakeTypeSafe();
+});
+afterAll(() => fake.close());
+beforeEach(() => {
+  fake.requests.length = 0;
+  fake.inputTokens = 300;
+});
+const stop = async () => {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await database?.end();
+  database = undefined;
+};
+
+const post = (body: string) => fetch(`${url}/v1/judgements`, { method: 'POST', body });
+
+describe('the gateway over HTTP', () => {
+  it('serves a judgement to the client, and a cassette replays it', async () => {
+    await start('replay-record');
+    const first = await client.judge(request({ workItem: '1000' }));
+    expect(first).toMatchObject({
+      model: 'jev-1.13.0',
+      source: 'provider',
+      usage: { inputTokens: 300, outputTokens: 12 },
+    });
+    expect(first.answers.category).toMatchObject({ type: 'choice', choice: 'functional' });
+    const second = await client.judge(request({ workItem: '1000' }));
+    expect(second).toMatchObject({ source: 'cassette', costUsd: 0, cassette: first.cassette });
+    await stop();
+  });
+
+  it('answers /health and /v1/spend', async () => {
+    await start('replay');
+    expect(await (await fetch(`${url}/health`)).json()).toEqual({ status: 'ok', mode: 'replay' });
+    const spend = await client.spend();
+    expect(spend).toMatchObject({ profile: 'local', capped: [], workItemLimitUsd: 0.04 });
+    expect(spend.day.limitUsd).toBe(20);
+    await stop();
+  });
+
+  it('maps a spend cap to 429, with the cap and when it resets, and the client maps it back', async () => {
+    await start('record');
+    fake.inputTokens = 1_000_000;
+    await client.judge(request({ workItem: '2000' }));
+    const raw = await post(JSON.stringify(request({ workItem: '2000' })));
+    expect(raw.status).toBe(429);
+    expect(await raw.json()).toMatchObject({ error: 'spend-capped', cap: 'work-item', limitUsd: 0.04, resets: null });
+    const error = await client.judge(request({ workItem: '2000' })).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SpendCapped);
+    expect(error).toMatchObject({ cap: 'work-item', limitUsd: 0.04 });
+    await stop();
+  });
+
+  it('sends Retry-After with a day cap', async () => {
+    await start('record', { dayUsd: 0.04, monthUsd: null, workItemUsd: 2 });
+    fake.inputTokens = 1_000_000;
+    await client.judge(request({ state: 'one' }));
+    const raw = await post(JSON.stringify(request({ state: 'two' })));
+    expect(raw.status).toBe(429);
+    expect(Number(raw.headers.get('retry-after'))).toBeGreaterThan(0);
+    const body = (await raw.json()) as { cap: string; resets: string };
+    expect(body.cap).toBe('day');
+    expect(body.resets).toMatch(/T00:00:00\.000Z$/);
+    await stop();
+  });
+
+  it('maps a cassette miss to 409', async () => {
+    await start('replay');
+    const raw = await post(JSON.stringify(request()));
+    expect(raw.status).toBe(409);
+    const body = (await raw.json()) as { key: string };
+    const error = await client.judge(request()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CassetteMissing);
+    expect((error as CassetteMissing).key).toBe(body.key);
+    await stop();
+  });
+
+  it('maps a provider failure to 502, and says nothing of what it answered', async () => {
+    await start('record');
+    fake.script({ status: 422 });
+    const raw = await post(JSON.stringify(request()));
+    expect(raw.status).toBe(502);
+    const text = await raw.text();
+    expect(JSON.parse(text)).toMatchObject({ error: 'provider-failed', kind: 'rejected', status: 422 });
+    expect(text).not.toContain(SECRET);
+    fake.script({ status: 422 });
+    const error = await client.judge(request()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(error).toMatchObject({ kind: 'rejected', status: 422 });
+    await stop();
+  });
+
+  it('maps a request it will not send to 400, never echoing it', async () => {
+    await start('record');
+    const alias = await post(JSON.stringify(request({ model: 'jev-latest' })));
+    expect(alias.status).toBe(400);
+    expect(await client.judge(request({ model: 'jev-latest' })).catch((e: unknown) => e)).toBeInstanceOf(BadRequest);
+
+    const bad = [
+      `{"state": "${SECRET}`,
+      JSON.stringify({ ...request(), extra: SECRET }),
+      JSON.stringify({ ...request(), questions: { q: { type: SECRET } } }),
+      JSON.stringify(SECRET),
+    ];
+    for (const body of bad) {
+      const raw = await post(body);
+      expect(raw.status).toBe(400);
+      expect(await raw.text()).not.toContain(SECRET);
+    }
+    expect(fake.requests).toHaveLength(0);
+    await stop();
+  });
+
+  it('refuses a body that is too large with 413', async () => {
+    await start('record');
+    const raw = await post(JSON.stringify(request({ state: 'x'.repeat(300 * 1024) })));
+    expect(raw.status).toBe(413);
+    await stop();
+  });
+
+  it('answers a route or method it does not have with 404 or 405', async () => {
+    await start('record');
+    expect((await fetch(`${url}/nothing`)).status).toBe(404);
+    const wrong = await fetch(`${url}/v1/judgements`);
+    expect(wrong.status).toBe(405);
+    expect(wrong.headers.get('allow')).toBe('POST');
+    expect((await fetch(`${url}/v1/spend`, { method: 'POST' })).status).toBe(405);
+    await stop();
+  });
+
+  it('answers 500 with nothing of what went wrong, and the client calls it unavailable', async () => {
+    const gateway = { mode: 'replay', judge: async () => Promise.reject(new Error(`boom ${SECRET}`)) };
+    const spend = { report: async () => ({}) };
+    server = createGatewayServer({ gateway: gateway as never, spend: spend as never, log: captured.log });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    client = new GatewayClient({ url });
+    const raw = await post(JSON.stringify(request()));
+    expect(raw.status).toBe(500);
+    expect(await raw.text()).not.toContain(SECRET);
+    expect(await client.judge(request()).catch((e: unknown) => e)).toBeInstanceOf(GatewayUnavailable);
+    await stop();
+  });
+
+  it('is unavailable to a client with no gateway to reach', async () => {
+    const lost = new GatewayClient({ url: 'http://127.0.0.1:1', timeoutMs: 500 });
+    expect(await lost.judge(request()).catch((e: unknown) => e)).toBeInstanceOf(GatewayUnavailable);
+  });
+});
+
+describe('the gateway’s settings', () => {
+  it('default to replay on the local profile', () => {
+    expect(configFromEnv({})).toMatchObject({ mode: 'replay', profile: 'local', port: 8080, cassettesRead: [] });
+  });
+
+  it('read the modes, the profile and the folders', () => {
+    expect(
+      configFromEnv({
+        GATEWAY_MODE: 'record',
+        TYPESAFE_API_KEY: 'k',
+        CASSETTES_DIR: '/data',
+        CASSETTES_READ: '/a:/b',
+        FACTORY_PROFILE: 'do',
+        PORT: '9000',
+      }),
+    ).toMatchObject({ mode: 'record', cassettesDir: '/data', cassettesRead: ['/a', '/b'], profile: 'do', port: 9000 });
+  });
+
+  it('refuse a mode or profile that does not exist, and recording nowhere', () => {
+    expect(() => configFromEnv({ GATEWAY_MODE: 'yolo' })).toThrow('GATEWAY_MODE');
+    expect(() => configFromEnv({ FACTORY_PROFILE: 'moon' })).toThrow('FACTORY_PROFILE');
+    expect(() => configFromEnv({ GATEWAY_MODE: 'record', TYPESAFE_API_KEY: 'k' })).toThrow('CASSETTES_DIR');
+    // With no key it only replays, so it records nothing and needs nowhere to.
+    expect(configFromEnv({ GATEWAY_MODE: 'record' }).mode).toBe('record');
+  });
+});

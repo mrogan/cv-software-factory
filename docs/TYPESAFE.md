@@ -45,12 +45,13 @@ Triage is the first and most valuable use (milestone 4, with the report widget i
 
 ### Through the gateway
 
-Guardrail 6 applies: TypeSafe calls go through the LLM gateway like every other model call. The gateway gets a TypeSafe adapter that:
+Guardrail 6 applies: TypeSafe calls go through the LLM gateway like every other model call (`apps/factory/src/gateway`). Its TypeSafe adapter:
 
-- holds the API key (the only component that does);
-- counts usage against the same daily, monthly, per-task and visitor budgets;
-- logs every call for the audit log;
-- records and replays cassettes (ADR 0003), keyed by a hash of the model, state and questions. `make demo` and CI therefore run triage with no key.
+- holds the API key (the only component that does), and calls `POST /v1/systemone` with `fetch`, not TypeSafe's SDK, so that it has the bytes on the wire for cassettes. Its request and response schemas are Zod, written from [TypeSafe's OpenAPI document](https://api.typesafe.ai/openapi.json). A response is checked against the request that was sent: the model it names, the questions it answers, and an answer of each question's type;
+- times out after ten seconds, and retries a 429, a 529, any other 5xx, a timeout or a dropped connection, up to three times, with exponential backoff and jitter, waiting as long as `Retry-After` asks (up to thirty seconds). It does not retry any other 4xx;
+- never logs or throws a provider's response body, because a 422 echoes the request, and a report's text is in that;
+- counts spend against one cap across every provider (`policy/spend.ts`): per day and per month by profile, and per work item. Jev's price is in `prices.ts`, $0.042 per million input tokens, and a model with no price is refused. The count comes from the `model_calls` table, which holds one row for every call: its agent, work item, tokens, cost, duration, cassette key and outcome, but never the state;
+- records and replays cassettes (ADR 0003). A cassette is one file, `<key>.json`, whose key is the SHA-256 of the provider, the pinned model, the questions and the state, with the options of a Choice in the order they were sent, since that order can change an answer. It keeps the response body as it came. CI runs the gateway in `replay` and fails on a miss; with no `TYPESAFE_API_KEY` the gateway replays whatever mode was asked for. `make demo` and CI therefore run triage with no key.
 
 ### Pinned model
 
