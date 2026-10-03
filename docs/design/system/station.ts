@@ -1,6 +1,3 @@
-/* Generated from station.ts by build.ts. Do not edit by hand. */
-(() => {
-'use strict';
 /**
  * <sf-station>: one stage of the factory line, drawn as a small machine on a length of belt.
  *
@@ -30,18 +27,18 @@
  * script, for design pages opened from disk, exposing globalThis.SFStation.
  */
 
-const KINDS = ['sense', 'triage', 'plan', 'build', 'gates', 'review', 'release', 'verify'];
+export const KINDS = ['sense', 'triage', 'plan', 'build', 'gates', 'review', 'release', 'verify'] as const;
+export type Kind = (typeof KINDS)[number];
+export const STATUSES = ['idle', 'working', 'returning', 'passing', 'blocked', 'failed'] as const;
+export type Status = (typeof STATUSES)[number];
 
-const STATUSES = ['idle', 'working', 'returning', 'passing', 'blocked', 'failed'];
-
-
-const STAGE_NAME = {
+export const STAGE_NAME: Record<Kind, string> = {
   sense: 'Sense', triage: 'Triage', plan: 'Plan', build: 'Build',
   gates: 'Gates', review: 'Review', release: 'Release', verify: 'Verify',
 };
 
 /** Short state words for captions. Tone says which colour role goes with them. */
-const STATE = {
+export const STATE: Record<Status, { label: string; tone: 'faint' | 'signal' | 'ok' | 'attn' }> = {
   idle: { label: 'idle', tone: 'faint' },
   working: { label: 'working', tone: 'signal' },
   returning: { label: 'sending back', tone: 'signal' },
@@ -63,33 +60,33 @@ const CSS = `
 }
 svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .machine { transition: transform .2s var(--motion-ease, ease); }
-.s-idle { --tone: var(--text-faint, #a8a095); --led: var(--station-led-dim, #77716a); }
+.s-idle      { --tone: var(--text-faint, #a8a095); --led: var(--station-led-dim, #77716a); }
 .s-working,
 .s-returning { --tone: var(--signal, #2a2826); --led: var(--station-led-on, #f4f1ea); }
-.s-passing { --tone: var(--ok, #3b6631); --led: var(--station-led-ok, #a9c79c); }
+.s-passing   { --tone: var(--ok, #3b6631); --led: var(--station-led-ok, #a9c79c); }
 .s-blocked,
-.s-failed { --tone: var(--attn, #b53c0a); --led: var(--station-led-attn, #f09a64); }
+.s-failed    { --tone: var(--attn, #b53c0a); --led: var(--station-led-attn, #f09a64); }
 
 /* Linework */
-.part { fill: var(--_paper); stroke: var(--_ink); stroke-width: 1.75; stroke-linejoin: round; }
+.part  { fill: var(--_paper); stroke: var(--_ink); stroke-width: 1.75; stroke-linejoin: round; }
 .steel { fill: var(--_steel); stroke: var(--_ink); stroke-width: 1.75; }
-.body { fill: var(--_paper); stroke: var(--_ink); stroke-width: 2; }
-.ink { fill: var(--_ink); }
-.line { fill: none; stroke: var(--_ink); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
-.thin { fill: none; stroke: var(--_ink); stroke-width: 1.25; stroke-linecap: round; }
-.face { fill: var(--_face); }
-.led { fill: none; stroke: var(--led); stroke-linecap: round; stroke-linejoin: round; }
+.body  { fill: var(--_paper); stroke: var(--_ink); stroke-width: 2; }
+.ink   { fill: var(--_ink); }
+.line  { fill: none; stroke: var(--_ink); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.thin  { fill: none; stroke: var(--_ink); stroke-width: 1.25; stroke-linecap: round; }
+.face  { fill: var(--_face); }
+.led   { fill: none; stroke: var(--led); stroke-linecap: round; stroke-linejoin: round; }
 .led-fill { fill: var(--led); }
-.tone { fill: none; stroke: var(--tone); stroke-linecap: round; stroke-linejoin: round; }
+.tone  { fill: none; stroke: var(--tone); stroke-linecap: round; stroke-linejoin: round; }
 .tone-fill { fill: var(--tone); }
 .faint { fill: none; stroke: var(--_faint); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .parcel { fill: var(--_steel); stroke: var(--_ink); stroke-width: 1.5; }
-.bird { fill: var(--_canary); stroke: var(--_ink); stroke-width: 1.5; stroke-linejoin: round; }
+.bird  { fill: var(--_canary); stroke: var(--_ink); stroke-width: 1.5; stroke-linejoin: round; }
 .beacon-glow { fill: var(--tone); opacity: 0; }
 .s-passing .beacon-glow { opacity: .18; }
 .s-blocked .beacon-glow, .s-failed .beacon-glow { opacity: .3; }
 .roller { fill: var(--_steel); stroke: var(--_ink); stroke-width: 1.5; }
-.chev { fill: none; stroke: var(--_ink); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; opacity: .55; }
+.chev  { fill: none; stroke: var(--_ink); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; opacity: .55; }
 .s-idle .chev { opacity: .22; }
 .s-blocked .chev, .s-failed .chev { opacity: .35; }
 .hazard-stripe { fill: var(--_face); }
@@ -97,14 +94,14 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .zz { fill: none; stroke: var(--_faint); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 
 /* What were inline styles: the console's content security policy refuses style attributes. */
-.rim { stroke: var(--_ink); }
+.rim   { stroke: var(--_ink); }
 .glare { stroke: var(--_paper); stroke-width: 2; }
 .track { fill: var(--_ink); opacity: .14; }
 .frame { fill: none; stroke: var(--_ink); stroke-width: 1.75; }
-.belt { fill: var(--_steel); }
-.seam { stroke: var(--_steel); stroke-width: 2.5; stroke-linecap: round; }
-.dome { fill: var(--tone); stroke: var(--_ink); stroke-width: 1.75; stroke-linejoin: round; }
-.puff { fill: var(--_faint); }
+.belt  { fill: var(--_steel); }
+.seam  { stroke: var(--_steel); stroke-width: 2.5; stroke-linecap: round; }
+.dome  { fill: var(--tone); stroke: var(--_ink); stroke-width: 1.75; stroke-linejoin: round; }
+.puff  { fill: var(--_faint); }
 .puff-a { transform-origin: 44px 40px; }
 .puff-b { transform-origin: 51px 40px; }
 
@@ -114,16 +111,16 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
   transform-box: view-box;
 }
 .sense-dish { transform-origin: 74px 31px; }
-.plan-arm { transform-origin: 74px 8px; }
-.build-arm { transform-origin: 74px 38px; transform: rotate(-18deg); }
-.gate-boom { transform-origin: 59px 16.5px; }
+.plan-arm   { transform-origin: 74px 8px; }
+.build-arm  { transform-origin: 74px 38px; transform: rotate(-18deg); }
+.gate-boom  { transform-origin: 59px 16.5px; }
 .s-passing .gate-boom { transform: rotate(-55deg); }
-.bar { transform-origin: 48px 129px; transform: scaleX(.62); }
-.eyes { transform-origin: 84px 82px; }
+.bar        { transform-origin: 48px 129px; transform: scaleX(.62); }
+.eyes       { transform-origin: 84px 82px; }
 
 @media (prefers-reduced-motion: no-preference) {
   :host(:not([motion="off"])) .belt-run { animation: belt var(--_belt-dur, .7s) linear infinite; }
-  :host(:not([motion="off"])) .s-passing { --_belt-dur: 1.4s; }
+  :host(:not([motion="off"])) .s-passing  { --_belt-dur: 1.4s; }
   :host(:not([motion="off"])) .s-returning .belt-run { animation-name: belt-back; }
   :host(:not([motion="off"])) .s-idle .belt-run,
   :host(:not([motion="off"])) .s-blocked .belt-run,
@@ -172,30 +169,30 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
   :host(:not([motion="off"])) .s-working .stamp,
   :host(:not([motion="off"])) .s-returning .stamp { animation: press .9s ease-in-out infinite; }
 }
-@keyframes belt { to { transform: translateX(21px); } }
+@keyframes belt      { to { transform: translateX(21px); } }
 @keyframes belt-back { to { transform: translateX(-21px); } }
 @keyframes alarm-glow{ 0%, 100% { opacity: .45; } 50% { opacity: 0; } }
-@keyframes flash { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-@keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } }
-@keyframes fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@keyframes twinkle { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
-@keyframes drift { from { transform: translate(0, 0); opacity: 0; } 30% { opacity: 1; } to { transform: translate(6px, -16px); opacity: 0; } }
-@keyframes puff { from { transform: translateY(0) scale(1); opacity: .7; } to { transform: translateY(-36px) scale(2.4); opacity: 0; } }
-@keyframes sweep { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
-@keyframes pulse-op { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
-@keyframes drop { from { transform: translateY(-4px); opacity: 1; } 80% { opacity: 1; } to { transform: translateY(20px); opacity: 0; } }
-@keyframes swing { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
-@keyframes draw { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
-@keyframes hammer { 0%, 100% { transform: rotate(-32deg); } 55% { transform: rotate(14deg); } }
-@keyframes wobble { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(-3deg); } }
-@keyframes scan { 0%, 100% { transform: translateX(-12px); } 50% { transform: translateX(12px); } }
-@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-@keyframes press { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(6px); } }
+@keyframes flash     { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes blink     { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } }
+@keyframes fill      { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes twinkle   { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
+@keyframes drift     { from { transform: translate(0, 0); opacity: 0; } 30% { opacity: 1; } to { transform: translate(6px, -16px); opacity: 0; } }
+@keyframes puff      { from { transform: translateY(0) scale(1); opacity: .7; } to { transform: translateY(-36px) scale(2.4); opacity: 0; } }
+@keyframes sweep     { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
+@keyframes pulse-op  { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
+@keyframes drop      { from { transform: translateY(-4px); opacity: 1; } 80% { opacity: 1; } to { transform: translateY(20px); opacity: 0; } }
+@keyframes swing     { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
+@keyframes draw      { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
+@keyframes hammer    { 0%, 100% { transform: rotate(-32deg); } 55% { transform: rotate(14deg); } }
+@keyframes wobble    { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(-3deg); } }
+@keyframes scan      { 0%, 100% { transform: translateX(-12px); } 50% { transform: translateX(12px); } }
+@keyframes bob       { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes press     { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(6px); } }
 `;
 
 /* ---- Tools: what the stage does ------------------------------------------------------ */
 
-const TOOLS = {
+const TOOLS: Record<Kind, (status: Status) => string> = {
   sense: () => `
     <rect class="ink" x="71" y="30" width="6" height="14"/>
     <g class="sense-dish">
@@ -288,7 +285,7 @@ const TOOLS = {
 
 /* ---- Faces, hatches and extras: how it is doing -------------------------------------- */
 
-const STATE_ART = {
+const STATE_ART: Record<Status, () => { face: string; hatch: string; extra: string }> = {
   idle: () => ({
     face: `<path class="led" stroke-width="3" d="M59 82 q7 6 14 0 M95 82 q7 6 14 0"/>
            <path class="led" stroke-width="2.5" d="M80 97 h8"/>`,
@@ -338,7 +335,7 @@ const STATE_ART = {
 const CHEV_RIGHT = Array.from({ length: 10 }, (_, i) => `M${-13 + 21 * i} 169l6 5-6 5`).join('');
 const CHEV_LEFT = Array.from({ length: 10 }, (_, i) => `M${-7 + 21 * i} 169l-6 5 6 5`).join('');
 
-function render(kind      , status        ) {
+function render(kind: Kind, status: Status): string {
   const art = STATE_ART[status]();
   return `
 <svg viewBox="0 -20 168 220" class="s-${status} k-${kind}" part="svg" aria-hidden="true" focusable="false">
@@ -383,12 +380,12 @@ function render(kind      , status        ) {
 </svg>`;
 }
 
-let sheet;
+let sheet: CSSStyleSheet | undefined;
 
-class Station extends HTMLElement {
+export class Station extends HTMLElement {
   static observedAttributes = ['kind', 'status', 'label', 'decorative'];
 
-           #root;
+  readonly #root: ShadowRoot;
 
   constructor() {
     super();
@@ -400,35 +397,35 @@ class Station extends HTMLElement {
     this.#root.adoptedStyleSheets = [sheet];
   }
 
-  connectedCallback() {
+  connectedCallback(): void {
     this.#update();
   }
 
-  attributeChangedCallback() {
+  attributeChangedCallback(): void {
     if (this.isConnected) this.#update();
   }
 
   // Properties reflect their attributes, so frameworks that set properties (React does) and markup that sets
   // attributes draw the same thing.
-  get kind() {
+  get kind(): Kind {
     const k = this.getAttribute('kind');
     return KINDS.find((kind) => kind === k) ?? 'build';
   }
 
-  set kind(kind      ) {
+  set kind(kind: Kind) {
     this.setAttribute('kind', kind);
   }
 
-  get status() {
+  get status(): Status {
     const s = this.getAttribute('status');
     return STATUSES.find((status) => status === s) ?? 'idle';
   }
 
-  set status(status        ) {
+  set status(status: Status) {
     this.setAttribute('status', status);
   }
 
-  #update() {
+  #update(): void {
     const { kind, status } = this;
     this.#root.innerHTML = render(kind, status);
     if (this.hasAttribute('decorative')) {
@@ -444,5 +441,3 @@ class Station extends HTMLElement {
 }
 
 if (!customElements.get('sf-station')) customElements.define('sf-station', Station);
-globalThis.SFStation = { Station, STAGE_NAME, STATE, KINDS, STATUSES };
-})();

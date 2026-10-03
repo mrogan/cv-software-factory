@@ -6,6 +6,6 @@
   },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
   "javascript": { "formatter": { "quoteStyle": "single" } },
-  "linter": { "rules": { "preset": "recommended" } },
+  "linter": { "domains": { "react": "recommended" }, "rules": { "preset": "recommended" } },
   "assist": { "actions": { "source": { "organizeImports": "on" } } }
 }

@@ -39,11 +39,13 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 down: ## Delete the local cluster, and everything in it
 	k3d cluster delete $(CLUSTER)
 
-check: ## Lint, type-check, test, check the design tokens are built and readable, and render the manifests
+check: ## Lint, type-check, test, build the browser code, check generated files are current, render the manifests
 	pnpm exec biome ci
 	pnpm exec tsc
+	pnpm exec tsc -p apps/console/web
 	pnpm exec vitest run
 	node docs/design/system/build.ts --check
+	pnpm --filter @software-factory/console build --logLevel warn
 	@# Argo CD renders each profile's overlay from main, so one that doesn't render must not get there.
 	@for overlay in deploy/overlays/*/; do kustomize build $$overlay >/dev/null || exit 1; done
 

@@ -3,10 +3,12 @@
   "include": [
     "apps/*/src",
     "apps/*/test",
+    "apps/*/scripts",
+    "apps/*/vite.config.ts",
     "packages/*/src",
     "packages/*/test",
     "scripts",
-    "docs/design/system/*.ts",
+    "docs/design/system/build.ts",
     "*.ts"
   ]
 }
