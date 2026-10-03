@@ -104,17 +104,21 @@ export async function play(sql: Sql, store: ArtifactStore, dir: string, options:
   return { events: events.length };
 }
 
-/** `factory events export`: writes a work item's public events, and their artifacts, to a log folder. */
-export async function exportItem(sql: Sql, store: ArtifactStore, item: string, dir: string) {
+/**
+ * `factory events export`: writes a work item's public events, or with no work item every public event in the
+ * store, and their artifacts, to a log folder.
+ */
+export async function exportItem(sql: Sql, store: ArtifactStore, item: string | null, dir: string) {
   const events: PublicEvent[] = [];
   for (let after = 0; ; ) {
     const page = await readPublic(sql, after);
     if (!page.length) break;
     after = page.at(-1)?.event.seq ?? after;
     const publicEvents = page.map(({ event }) => event as unknown as PublicEvent);
-    events.push(...publicEvents.filter((event) => event.work_item === item));
+    events.push(...publicEvents.filter((event) => item === null || event.work_item === item));
   }
-  if (!events.length) throw new Error(`The store holds no events for work item ${item}.`);
+  if (!events.length)
+    throw new Error(item ? `The store holds no events for work item ${item}.` : 'The store is empty.');
   writeLogEvents(dir, events);
   const hashes = new Set(events.flatMap((event) => event.artifacts.map((artifact) => artifact.hash)));
   await mkdir(join(dir, 'artifacts'), { recursive: true });

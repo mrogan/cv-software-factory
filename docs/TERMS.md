@@ -13,7 +13,7 @@ The words we use, so docs, code, UI and commits stay consistent. Standard indust
 | **stage** | step, phase | One part of the factory's line: sense, triage, plan, build, gates, review, release, verify. |
 | **the line** | conveyor, workflow | The eight stages in order, and their drawing across the top of the console. "Stop the line" halts all of it. "Pipeline" means CI only. |
 | **station** | node, card | The drawing of one stage on the console's line. |
-| **Needs you** | inbox, approvals, queue | Work waiting on Martin, and the console panel that lists it. |
+| **Needs you** | approvals, queue | Work waiting on Martin, and the console panel that lists it. Not the inbox, which holds signals for triage. |
 | **work item** | job, task, run | One piece of work through the line (a defect fix, injected defect, improvement, dependency update, red-team attack or visitor report), from its first event to its last. |
 | **event** | log entry, message | One step of a work item, or of the line, as the event store keeps it: an envelope and a typed payload. |
 | **public view** | redacted copy | What anyone but Martin may see of an event, written once when the event is appended. It never carries what a visitor wrote, their key, or anything shaped like a secret. |
@@ -28,6 +28,10 @@ The words we use, so docs, code, UI and commits stay consistent. Standard indust
 | **fingerprint** | signature, ID | What identifies a defect from outside: a route and a symptom class, or, for content, a page and the exact text that is wrong. The scoreboard matches a ticket to the answer key by fingerprint alone. |
 | **symptom class** | error type | One of a short closed list of ways a defect shows itself, such as `broken-link` or `slow-response`. The answer key and tickets share the list. |
 | **sense** | detector, monitor | One of the five ways the factory notices a defect: probe, crawler, metrics, logs or a report. |
+| **check** | test, assertion | One thing a sense looks at, such as "search finds a product by a word in its name". A check that passes writes nothing; one that fails twice in a row sends a signal. |
+| **signal** | alert, finding, event | What a sense found, or a visitor reported: the route, the symptom class and the evidence. Signals wait in the inbox until triage takes them, and only those triage keeps become events. |
+| **inbox** | queue, backlog | The table where signals wait for triage. Only the factory reads it, because reports are in it. |
+| **ticket** | issue, bug | A defect triage has recognised, with its category, severity, fingerprint and evidence. One fingerprint, one ticket; a ticket closes only when its fix is verified. |
 | **seeded baseline** | initial state, golden copy | The app's tree as first published: the correct app with every seeded defect applied. Reset restores it. |
 | **TypeSafe** | | The company and API that serve Jev. |
 | **Jev** | classifier, LLM | TypeSafe's model for typed judgements: it answers Choice, Score and Noul questions with probabilities and never generates text. |
