@@ -21,7 +21,7 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down check status e2e samples real-store stop-the-line start-the-line
+.PHONY: help up down check status e2e eval samples real-store stop-the-line start-the-line
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -66,6 +66,10 @@ e2e: ## Run the console's browser tests in the pinned Playwright image; UPDATE=1
 	docker run --rm --init --ipc=host -e UPDATE=$(UPDATE) -v "$(CURDIR):/src:ro" \
 		-v "$(CURDIR)/apps/console/e2e/snapshots:/out/snapshots" -v "$(CURDIR)/apps/console/e2e-results:/out/results" \
 		$(PLAYWRIGHT) /src/apps/console/e2e/in-docker.sh
+
+eval: node_modules ## Run triage's evaluation set against Jev live, recording its cassettes; RUNS=3 shows the drift
+	@TYPESAFE_API_KEY="$${TYPESAFE_API_KEY:-$$(security find-generic-password -s typesafe-api-key -w 2>/dev/null)}" \
+		node apps/factory/scripts/eval.ts --runs $(or $(RUNS),1)
 
 samples: node_modules ## Load the sample work items into the cluster's store, with their times moved so the last is now
 	@# Screenshots first, into the artifacts volume, through a pod that mounts it for a moment (and not one still

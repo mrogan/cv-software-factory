@@ -1,0 +1,28 @@
+{
+  "key": "d43791a7f3415073cdae14e1795b15301f7733aa7be6d43036cead989cebcbc5",
+  "provider": "typesafe",
+  "model": "jev-1.13.0",
+  "recordedAt": "2026-10-03T20:55:33.608Z",
+  "request": {
+    "model": "jev-1.13.0",
+    "state": {
+      "page": "/contact",
+      "report": "The contact page says you are closed on Sundays, but the banner on the home page says open seven days a week."
+    },
+    "questions": {
+      "passage": {
+        "type": "choice",
+        "instructions": "Which passage of the page is the report about?",
+        "criteria": {
+          "p1": "Write to us",
+          "p2": "We read every message.",
+          "p3": "Opening hours: Monday to Saturday, nine till five. Closed on Sundays.",
+          "p4": "Your name",
+          "p5": "Your message",
+          "none": "None of these passages"
+        }
+      }
+    }
+  },
+  "response": "{\"model\":\"jev-1.13.0\",\"answers\":{\"passage\":{\"type\":\"choice\",\"choice\":\"p3\",\"confidence\":0.99,\"probabilities\":{\"p2\":0.0,\"p3\":1.0,\"p4\":0.0,\"p5\":0.0,\"p1\":0.0,\"none\":0.0}}},\"usage\":{\"input_tokens\":426,\"output_tokens\":66}}"
+}

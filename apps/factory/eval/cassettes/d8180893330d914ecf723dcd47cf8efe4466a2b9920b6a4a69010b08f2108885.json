@@ -1,0 +1,27 @@
+{
+  "key": "d8180893330d914ecf723dcd47cf8efe4466a2b9920b6a4a69010b08f2108885",
+  "provider": "typesafe",
+  "model": "jev-1.13.0",
+  "recordedAt": "2026-10-03T20:55:33.130Z",
+  "request": {
+    "model": "jev-1.13.0",
+    "state": {
+      "page": "/about",
+      "report": "The about page says the shop is on Market Street but the footer says Mill Lane. Which is it?"
+    },
+    "questions": {
+      "passage": {
+        "type": "choice",
+        "instructions": "Which passage of the page is the report about?",
+        "criteria": {
+          "p1": "About the shop",
+          "p2": "Mossop’s has sold practical sundries since the day it opened.",
+          "p3": "You will find us at 4 Market Street, between the bakery and the bank.",
+          "p4": "Mossop’s Practical Sundries, 12 Mill Lane",
+          "none": "None of these passages"
+        }
+      }
+    }
+  },
+  "response": "{\"model\":\"jev-1.13.0\",\"answers\":{\"passage\":{\"type\":\"choice\",\"choice\":\"p3\",\"confidence\":0.34,\"probabilities\":{\"p1\":0.12,\"none\":0.27,\"p2\":0.0,\"p3\":0.47,\"p4\":0.14}}},\"usage\":{\"input_tokens\":432,\"output_tokens\":58}}"
+}
