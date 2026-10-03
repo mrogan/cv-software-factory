@@ -25,9 +25,9 @@ export async function run(args: string[]): Promise<number> {
     return 2;
   }
   // The instrumentation goes in before the modules it patches are imported.
-  const { shutdownTelemetry } = await import('../gateway/telemetry.ts');
+  const { shutdownTelemetry } = await import('../telemetry.ts');
   const { startGateway } = await import('../gateway/service.ts');
-  const { log } = await import('../gateway/log.ts');
+  const { log } = await import('../log.ts');
   const { stop } = await startGateway(config);
 
   // Kubernetes sends SIGTERM before it stops the pod: finish the requests in flight, then flush telemetry.

@@ -69,7 +69,7 @@ In `apps/factory`:
 - One internal endpoint for a judgement: the agent, the work item, the question set and the state in; the answers, cost, duration and cassette key out. Requests name a pinned model, `jev-1.13.0`, never an alias.
 - The TypeSafe adapter: Zod schemas for the request and response, from TypeSafe's OpenAPI document; a timeout; retries with backoff on 429, 529 and 5xx, honouring `Retry-After`. It never logs a provider's error body, because a validation error echoes the request, report text included.
 - Modes: live, record, replay, and replay falling through to record for development. CI uses replay and fails on a miss.
-- Budgets: one cap across every provider, per day and per month (task 0 has the figures), and one per work item. At a cap the gateway refuses, a line event says so, triage stops taking work, and signals wait in the inbox until the cap resets. The visitor budget arrives with visitor actions (milestone 9).
+- Budgets: one cap across every provider, per day and per month (task 0 has the figures), and one per work item. At a cap the gateway refuses, a line event says so, triage stops taking reports, and they wait in the inbox until the cap resets. The senses' signals carry on: they call no model. The visitor budget arrives with visitor actions (milestone 9).
 - Every call logged for the audit log: agent, work item, model, tokens, cost, duration, cassette and outcome, but never the state. Metrics for calls, spend and latency, on the factory's Grafana dashboard.
 
 ### 3. Jev in practice

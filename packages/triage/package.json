@@ -1,0 +1,15 @@
+{
+  "name": "@software-factory/triage",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Triage: takes what the senses found from the inbox and turns it into deduplicated tickets, asking Jev only about reports.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@software-factory/events": "workspace:*",
+    "@software-factory/store": "workspace:*",
+    "postgres": "^3.4.9"
+  }
+}
