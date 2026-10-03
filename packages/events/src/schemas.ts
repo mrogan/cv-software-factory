@@ -447,6 +447,21 @@ export const newEvent = z.strictObject({
 
 export type Validated = { ok: true } | { ok: false; problems: string[] };
 
+/**
+ * A signal as a sense leaves it in the inbox: what `signal.received` will say if triage makes an event of it, when
+ * the sense saw it, and its artifacts.
+ */
+export const inboxSignal = z.intersection(
+  PAYLOADS['signal.received'],
+  z.object({ observedAt: timestamp, artifacts: z.array(artifactRef).max(10) }),
+);
+
+/** Checks a signal before it goes in the inbox, so a sense cannot leave triage something it would refuse. */
+export function validateSignal(input: unknown): Validated {
+  const result = inboxSignal.safeParse(input);
+  return result.success ? { ok: true } : { ok: false, problems: problemsOf(result.error) };
+}
+
 /** Checks an event's envelope and payload against the current version of its type. */
 export function validate(input: unknown): Validated {
   const envelope = newEvent.safeParse(input);

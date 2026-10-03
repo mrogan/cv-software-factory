@@ -6,6 +6,7 @@ import type { Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DiskArtifacts } from '../src/artifacts.ts';
 import { EventWriter, nextWorkItem, storeKind } from '../src/events.ts';
+import { sendSignal } from '../src/inbox.ts';
 import { realStore } from '../src/real-store.ts';
 import { type Database, freshDatabase } from './database.ts';
 
@@ -132,6 +133,17 @@ describe('the inbox', () => {
     await writer`update inbox set triaged_at = now(), outcome = 'opened', work_item = '1000' where id = ${id}`;
     await expect(writer`update inbox set signal = '{}' where id = ${id}`).rejects.toThrow('permission denied');
     await expect(writer`delete from inbox where id = ${id}`).rejects.toThrow('permission denied');
+  });
+
+  it('checks what a sense sends, and files it by fingerprint', async () => {
+    const found = { sense: 'crawler' as const, ...signal, symptom: 'broken-link' as const };
+    const id = await sendSignal(writer, { ...found, observedAt: '2026-10-04T09:00:00.000Z', artifacts: [] });
+    expect(await writer`select fingerprint from inbox where id = ${id}`).toEqual([
+      { fingerprint: '/about broken-link' },
+    ]);
+    await expect(
+      sendSignal(writer, { ...found, route: 'about', observedAt: '2026-10-04T09:00:00.000Z', artifacts: [] }),
+    ).rejects.toThrow('route: a path');
   });
 
   it('is closed to the console, because reports are in it', async () => {
