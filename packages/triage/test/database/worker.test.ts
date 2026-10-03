@@ -181,6 +181,20 @@ describe('triage', () => {
     expect(row?.triaged_at).toBeNull();
   });
 
+  it('keeps opening the senses’ tickets while reports wait for the gateway', async () => {
+    const until = new Date(Date.now() + 60_000);
+    const worker = triage({
+      judge: async () => {
+        throw new JudgeWaiting('The day spend cap is reached', until);
+      },
+    });
+    await sendSignal(writer, found({ sense: 'report', symptom: undefined, report: { page: '/', text: 'Broken' } }));
+    expect(await worker.takeOne()).toBe('waiting');
+    await sendSignal(writer, found({ route: '/during-a-cap' }));
+    expect(await worker.takeOne()).toBe('opened');
+    expect(await worker.takeOne()).toBe('waiting');
+  });
+
   it('leaves a signal that keeps failing in the inbox with its reason', async () => {
     const id = await sendSignal(
       writer,

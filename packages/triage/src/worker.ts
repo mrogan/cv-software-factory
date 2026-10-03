@@ -8,7 +8,7 @@
  *   that says it was quarantined, parked or discarded.
  *
  * One worker decides at a time (it holds an advisory lock), so two signals with the same new fingerprint cannot
- * open two tickets. It takes nothing while the line is stopped, or while the gateway is waiting on a spend cap.
+ * open two tickets. It takes nothing while the line is stopped, and no report while the gateway waits on a spend cap.
  */
 import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/events';
 import { type EventWriter, nextWorkItem } from '@software-factory/store';
@@ -54,7 +54,8 @@ export type Took = Outcome | 'idle' | 'stopped' | 'waiting' | 'failed';
 
 export class Triage {
   readonly #o: Required<Omit<TriageOptions, 'onTriaged'>> & Pick<TriageOptions, 'onTriaged'>;
-  #pausedUntil = 0;
+  /** Until when reports wait: the gateway cannot answer before then. The senses' signals need no model. */
+  #reportsWaitUntil = 0;
 
   constructor(options: TriageOptions) {
     this.#o = { now: () => new Date(), ...options };
@@ -63,10 +64,10 @@ export class Triage {
   /** Takes one signal, if the line is running and one is waiting, and triages it. */
   async takeOne(): Promise<Took> {
     const now = this.#o.now();
-    if (now.getTime() < this.#pausedUntil) return 'waiting';
     if (await lineStopped(this.#o.sql)) return 'stopped';
-    const taken = await this.#claim();
-    if (!taken) return 'idle';
+    const reportsWait = now.getTime() < this.#reportsWaitUntil;
+    const taken = await this.#claim(reportsWait);
+    if (!taken) return reportsWait ? 'waiting' : 'idle';
     const log = { signal: taken.id, sense: taken.sense, attempt: taken.attempts };
     try {
       const { outcome, workItem } = await this.#triage(taken);
@@ -79,8 +80,9 @@ export class Triage {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       if (error instanceof JudgeWaiting) {
-        // Not the signal's fault: it keeps its attempt, and nothing is taken until the gateway can answer.
-        this.#pausedUntil = error.until.getTime();
+        // Not the signal's fault: it keeps its attempt, and no report is taken until the gateway can answer. The
+        // senses' signals carry on, because they call no model.
+        this.#reportsWaitUntil = error.until.getTime();
         await this.#o.sql`update inbox set attempts = attempts - 1, failure = ${reason}, not_before = ${error.until}
                           where id = ${taken.id}`;
         this.#o.log.warn({ ...log, until: error.until.toISOString(), reason }, 'triage is waiting for the gateway');
@@ -110,7 +112,7 @@ export class Triage {
       while (!abort.aborted) {
         const took = await this.takeOne();
         if (took === 'idle' || took === 'stopped' || took === 'waiting') {
-          const pause = took === 'waiting' ? Math.max(1000, this.#pausedUntil - Date.now()) : 30_000;
+          const pause = took === 'waiting' ? Math.max(1000, this.#reportsWaitUntil - Date.now()) : 30_000;
           const timer = setTimeout(nudge, Math.min(pause, 30_000));
           await wake.promise;
           clearTimeout(timer);
@@ -124,13 +126,17 @@ export class Triage {
     }
   }
 
-  /** Holds the oldest waiting signal for a while, so another worker leaves it alone, and counts the attempt. */
-  async #claim(): Promise<Taken | undefined> {
+  /**
+   * Holds the oldest waiting signal for a while, so another worker leaves it alone, and counts the attempt. While
+   * reports wait for the gateway, it takes only the senses' signals.
+   */
+  async #claim(skipReports: boolean): Promise<Taken | undefined> {
     const [row] = await this.#o.sql<Taken[]>`
       update inbox set attempts = attempts + 1,
                        not_before = clock_timestamp() + make_interval(secs => ${INBOX.leaseSeconds})
       where id = (select id from inbox
                   where triaged_at is null and not_before <= clock_timestamp() and attempts < ${INBOX.attempts}
+                    and (not ${skipReports} or sense <> 'report')
                   order by received_at limit 1 for update skip locked)
       returning id, sense, signal, attempts, received_at`;
     return row;
