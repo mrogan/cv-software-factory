@@ -1,8 +1,8 @@
 /**
  * Builds the console's browser code: `web/` in, `dist/` out. The Node server serves `dist/` by its manifest.
  *
- * In development (`pnpm dev`), Vite serves the page with hot reloading on :8080 and passes events, artifacts
- * and the health and version endpoints to the Node server on :8081.
+ * In development (`pnpm dev`), Vite serves the page with hot reloading on :5173 and passes events, artifacts
+ * and the health and version endpoints to the Node server on :5174. The cluster's ingress has :8080.
  */
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
@@ -23,7 +23,7 @@ const DEVELOPMENT_POLICY = [
   "frame-ancestors 'none'",
 ].join('; ');
 
-const SERVER = `http://localhost:${process.env.SERVER_PORT ?? 8081}`;
+const SERVER = `http://localhost:${process.env.SERVER_PORT ?? 5174}`;
 
 export default defineConfig({
   root: 'web',
@@ -39,7 +39,7 @@ export default defineConfig({
     target: 'es2024',
   },
   server: {
-    port: 8080,
+    port: 5173,
     strictPort: true,
     headers: { 'content-security-policy': DEVELOPMENT_POLICY },
     proxy: Object.fromEntries(['/api', '/artifacts', '/health', '/version'].map((path) => [path, SERVER])),

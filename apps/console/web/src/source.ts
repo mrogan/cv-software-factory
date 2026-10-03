@@ -15,7 +15,7 @@ export type Connection =
   | 'reconnecting'
   /** A recording: everything there is arrived at once. */
   | 'recorded'
-  /** The events could not be read at all. */
+  /** The events could not be read at all; the console keeps trying. */
   | 'failed';
 
 export interface Source {
@@ -26,6 +26,9 @@ export interface Source {
 }
 
 export type Origin = { kind: 'live' } | { kind: 'log'; base: string };
+
+/** How long to wait before trying the server again. */
+const RETRY_MS = 5000;
 
 /**
  * With `?debug=events`, every seq as it arrives, duplicates and all, for the test that drops the stream and checks
@@ -101,28 +104,49 @@ export function useEvents(from: Origin): Source {
     }
 
     let stream: EventSource | undefined;
-    fetch('/api/events?after=0')
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
-      .then((raws: RawEvent[]) => {
-        if (closed) return;
-        note(raws);
-        const { events, newer } = merge([], raws);
-        setSource({ events, newer, connection: 'live' });
-        // From here on the stream carries everything after the last event held. If it drops, the browser
-        // reconnects with the last ID it saw, and the server sends what was missed, once.
-        stream = new EventSource(`/api/events/stream?after=${events.at(-1)?.seq ?? 0}`);
-        stream.onopen = () => set('live');
-        stream.onerror = () => set(stream?.readyState === EventSource.CLOSED ? 'failed' : 'reconnecting');
-        stream.onmessage = (message) => {
-          const raw = JSON.parse(message.data) as RawEvent;
-          note([raw]);
-          queue(raw);
-        };
-      })
-      .catch(() => set('failed'));
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let last = 0;
+    // From the first read on, the stream carries everything after the last event held. If it drops, the browser
+    // reconnects with the last ID it saw and the server sends what was missed, once. If the browser gives up (the
+    // server answered with an error), this starts a new stream from the last event held.
+    const follow = () => {
+      stream = new EventSource(`/api/events/stream?after=${last}`);
+      stream.onopen = () => set('live');
+      stream.onerror = () => {
+        set('reconnecting');
+        if (stream?.readyState !== EventSource.CLOSED) return;
+        stream.close();
+        retry = setTimeout(follow, RETRY_MS);
+      };
+      stream.onmessage = (message) => {
+        const raw = JSON.parse(message.data) as RawEvent;
+        note([raw]);
+        last = Math.max(last, raw.seq ?? 0);
+        queue(raw);
+      };
+    };
+    const read = () => {
+      fetch('/api/events?after=0')
+        .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
+        .then((raws: RawEvent[]) => {
+          if (closed) return;
+          note(raws);
+          const { events, newer } = merge([], raws);
+          last = events.at(-1)?.seq ?? 0;
+          setSource({ events, newer, connection: 'live' });
+          follow();
+        })
+        .catch(() => {
+          if (closed) return;
+          set('failed');
+          retry = setTimeout(read, RETRY_MS);
+        });
+    };
+    read();
     return () => {
       closed = true;
       stream?.close();
+      clearTimeout(retry);
       cancelAnimationFrame(frame.current);
     };
   }, [from]);

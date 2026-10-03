@@ -544,3 +544,11 @@ svg.chart {
   height: 2.4cqw;
   color: var(--ok);
 }
+
+/* In a wipe, each side's missing screenshot says so in the half that side shows. */
+.wipe .a .shot-missing {
+  right: calc(100% - var(--at));
+}
+.wipe .b .shot-missing {
+  left: var(--at);
+}

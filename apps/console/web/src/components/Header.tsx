@@ -1,12 +1,29 @@
 import type { Autonomy } from '@software-factory/events';
 import type { Header as LineState } from '../projection/index.ts';
 import type { Theme } from '../settings.ts';
+import type { Connection } from '../source.ts';
 import { Mark } from './Mark.tsx';
 
 const AUTONOMY: Record<Autonomy, string> = { supervised: 'Supervised', guarded: 'Guarded', 'lights-out': 'Lights-out' };
 
 /** Whether the line runs, in words and a dot that never carries the meaning alone. */
-export function LineStatus({ line }: { line: LineState }) {
+export function LineStatus({ line, connection }: { line: LineState; connection: Connection }) {
+  if (connection === 'loading' || connection === 'failed') {
+    return (
+      <>
+        <span className="dot tone-faint" aria-hidden="true" />
+        {connection === 'loading' ? 'Connecting to the factory' : 'Can’t reach the factory'}
+      </>
+    );
+  }
+  if (connection === 'reconnecting') {
+    return (
+      <>
+        <span className="dot tone-signal blink" aria-hidden="true" />
+        Reconnecting
+      </>
+    );
+  }
   if (line.stopped !== undefined) {
     return (
       <>
@@ -33,13 +50,14 @@ export function LineStatus({ line }: { line: LineState }) {
 
 interface HeaderProps {
   line: LineState;
+  connection: Connection;
   theme: Theme;
   onTheme: (theme: Theme) => void;
   motion: boolean;
   onMotion: (on: boolean) => void;
 }
 
-export function Header({ line, theme, onTheme, motion, onMotion }: HeaderProps) {
+export function Header({ line, connection, theme, onTheme, motion, onMotion }: HeaderProps) {
   return (
     <header className="top">
       <div className="wrap">
@@ -53,7 +71,7 @@ export function Header({ line, theme, onTheme, motion, onMotion }: HeaderProps) 
         </a>
         <div className="top-right">
           <span className="status">
-            <LineStatus line={line} />
+            <LineStatus line={line} connection={connection} />
           </span>
           <fieldset className="seg" aria-label="Theme">
             <button type="button" aria-pressed={theme === 'paper'} onClick={() => onTheme('paper')}>

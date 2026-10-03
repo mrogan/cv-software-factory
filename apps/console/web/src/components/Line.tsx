@@ -110,9 +110,11 @@ interface LineProps {
   view: View;
   motion: boolean;
   onOpen: (item: string) => void;
+  /** No events yet: the stations wait, idle, saying so. */
+  pending?: boolean;
 }
 
-export function Line({ view, motion, onOpen }: LineProps) {
+export function Line({ view, motion, onOpen, pending = false }: LineProps) {
   const [open, setOpen] = useState<Stage | null>(null);
   const line = useRef<HTMLElement>(null);
   const buttons = useRef(new Map<Stage, HTMLButtonElement>());
@@ -132,8 +134,8 @@ export function Line({ view, motion, onOpen }: LineProps) {
         {view.stations.map((s) => {
           const sending = current?.from === s.stage;
           const status: Status = stopped ? 'blocked' : sending ? 'returning' : s.status;
-          const word = stopped ? 'stopped' : STATE[status].label;
-          const tone = stopped ? 'attn' : STATE[status].tone;
+          const word = pending ? 'reading' : stopped ? 'stopped' : STATE[status].label;
+          const tone = pending ? 'faint' : stopped ? 'attn' : STATE[status].tone;
           return (
             <li key={s.stage}>
               <button
@@ -144,7 +146,12 @@ export function Line({ view, motion, onOpen }: LineProps) {
                 }}
                 aria-expanded={open === s.stage}
                 aria-controls="stage-panel"
-                aria-label={`${STAGE_NAME[s.stage]}: ${word}, ${s.figure}. Show what is in this stage`}
+                aria-label={
+                  pending
+                    ? `${STAGE_NAME[s.stage]}: reading the factory’s events`
+                    : `${STAGE_NAME[s.stage]}: ${word}, ${s.figure}. Show what is in this stage`
+                }
+                disabled={pending}
                 onClick={() => setOpen((was) => (was === s.stage ? null : s.stage))}
               >
                 <sf-station kind={s.stage} status={status} decorative motion={motion ? undefined : 'off'} />
@@ -153,7 +160,7 @@ export function Line({ view, motion, onOpen }: LineProps) {
                   <span className="state">
                     <span className={`dot tone-${tone} ${tone === 'attn' ? 'ring' : ''}`} />
                     {word}
-                    <span className="fig">&nbsp;· {s.figure}</span>
+                    {!pending && <span className="fig">&nbsp;· {s.figure}</span>}
                   </span>
                 </span>
               </button>

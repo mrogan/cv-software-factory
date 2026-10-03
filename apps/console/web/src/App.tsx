@@ -9,7 +9,7 @@ import { Line } from './components/Line.tsx';
 import { LogoSymbols } from './components/Logos.tsx';
 import { Reel } from './components/Reel.tsx';
 
-import { States } from './components/States.tsx';
+import { EmptyReel, States } from './components/States.tsx';
 import { project, projectSheet } from './projection/index.ts';
 import { useMotion, useTheme, useTime } from './settings.ts';
 import { origin, useEvents } from './source.ts';
@@ -28,6 +28,8 @@ export function App() {
   const [theme, setTheme] = useTheme();
   const [motion, setMotion] = useMotion();
   const n = view.cards.length;
+  // The store has answered at least once: an empty one is empty, not loading.
+  const settled = source.connection === 'live' || source.connection === 'recorded' || source.events.length > 0;
 
   // The reel rests on the latest work item unless the viewer moves it, or asked for one in the address.
   const asked = params.get('item');
@@ -72,7 +74,14 @@ export function App() {
   return (
     <OriginContext.Provider value={from}>
       <LogoSymbols />
-      <Header line={view.header} theme={theme} onTheme={setTheme} motion={motion} onMotion={setMotion} />
+      <Header
+        line={view.header}
+        connection={source.connection}
+        theme={theme}
+        onTheme={setTheme}
+        motion={motion}
+        onMotion={setMotion}
+      />
       <main id="top">
         <div className="wrap">
           <section className="intro" aria-labelledby="app-name">
@@ -81,13 +90,15 @@ export function App() {
               <p className="sub">a deliberately broken shop, looked after by agents</p>
             </div>
             <span className="status phone-status">
-              <LineStatus line={view.header} />
+              <LineStatus line={view.header} connection={source.connection} />
             </span>
           </section>
           <States source={source} view={view} />
+          {/* The stations draw at once, idle, and take their states as the events arrive. */}
+          <Line view={view} motion={motion} onOpen={setOpen} pending={!source.events.length && !settled} />
+          {n === 0 && settled && <EmptyReel />}
           {n > 0 && (
             <>
-              <Line view={view} motion={motion} onOpen={setOpen} />
               <Reel
                 view={view}
                 centre={resting}

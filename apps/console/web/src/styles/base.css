@@ -317,11 +317,6 @@ header.top .wrap {
 .notice .label {
   flex: none;
 }
-.notice.attn {
-  border-style: solid;
-  border-color: var(--attn-line);
-  background: var(--attn-wash);
-}
 .pill-sample {
   display: inline-flex;
   align-items: center;
@@ -435,4 +430,28 @@ footer.foot a {
   display: inline-block;
   padding: 24px 12px 8px;
   background: var(--bg);
+}
+
+/* Where the reel would be, when the store holds no work. */
+.empty-reel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 28px;
+  padding: 40px 32px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-panel);
+  max-width: 640px;
+}
+.empty-reel p {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-2);
+}
+.empty-reel code {
+  font: 12px var(--font-mono);
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--raised);
 }

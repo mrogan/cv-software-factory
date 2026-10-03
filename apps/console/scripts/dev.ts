@@ -1,12 +1,13 @@
 /**
- * `pnpm dev`: the console on http://localhost:8080, with hot reloading.
+ * `pnpm dev`: the console on http://localhost:5173, with hot reloading.
  *
- * Vite serves the page on :8080 and passes events, artifacts, /health and /version to the Node server on :8081,
+ * Vite serves the page on :5173 and passes events, artifacts, /health and /version to the Node server on :5174,
  * which restarts when its code changes. With PGHOST or DATABASE_URL set, the server reads the event store (see
  * AGENTS.md for forwarding the cluster's); otherwise it serves the samples' event log.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'vite';
 
 const here = fileURLToPath(new URL('..', import.meta.url));
 const samples = fileURLToPath(new URL('../../../packages/samples/log', import.meta.url));
@@ -28,14 +29,16 @@ function run(name: string, command: string, args: string[], env: NodeJS.ProcessE
 }
 
 run('server', process.execPath, ['--watch', '--import', './src/telemetry.ts', 'src/server.ts'], {
-  PORT: '8081',
+  PORT: '5174',
   ...(live ? {} : { EVENT_LOG: samples }),
 });
-run('vite', process.execPath, [fileURLToPath(import.meta.resolve('vite/bin/vite.js'))]);
-console.log(`The console: http://localhost:8080, with ${live ? 'the event store' : 'the samples'} behind it.`);
+const vite = await createServer({ configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)) });
+await vite.listen();
+console.log(`The console: http://localhost:5173, with ${live ? 'the event store' : 'the samples'} behind it.`);
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
     for (const child of children) child.kill();
+    void vite.close();
   });
 }
