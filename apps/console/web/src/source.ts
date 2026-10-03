@@ -27,6 +27,16 @@ export interface Source {
 
 export type Origin = { kind: 'live' } | { kind: 'log'; base: string };
 
+/**
+ * With `?debug=events`, every seq as it arrives, duplicates and all, for the test that drops the stream and checks
+ * nothing was missed or sent twice.
+ */
+const received: number[] | undefined = new URLSearchParams(location.search).get('debug') === 'events' ? [] : undefined;
+if (received) (globalThis as { sfReceived?: number[] }).sfReceived = received;
+const note = (raws: RawEvent[]) => {
+  if (received) for (const raw of raws) if (raw.seq !== undefined) received.push(raw.seq);
+};
+
 /** Reads the page's meta tag. Anything unexpected means live. */
 export function origin(doc: Document = document): Origin {
   const content = doc.querySelector('meta[name="sf-events"]')?.getAttribute('content') ?? 'live';
@@ -95,6 +105,7 @@ export function useEvents(from: Origin): Source {
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
       .then((raws: RawEvent[]) => {
         if (closed) return;
+        note(raws);
         const { events, newer } = merge([], raws);
         setSource({ events, newer, connection: 'live' });
         // From here on the stream carries everything after the last event held. If it drops, the browser
@@ -102,7 +113,11 @@ export function useEvents(from: Origin): Source {
         stream = new EventSource(`/api/events/stream?after=${events.at(-1)?.seq ?? 0}`);
         stream.onopen = () => set('live');
         stream.onerror = () => set(stream?.readyState === EventSource.CLOSED ? 'failed' : 'reconnecting');
-        stream.onmessage = (message) => queue(JSON.parse(message.data) as RawEvent);
+        stream.onmessage = (message) => {
+          const raw = JSON.parse(message.data) as RawEvent;
+          note([raw]);
+          queue(raw);
+        };
       })
       .catch(() => set('failed'));
     return () => {

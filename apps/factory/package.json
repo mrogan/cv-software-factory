@@ -8,7 +8,8 @@
     "factory": "src/cli.ts"
   },
   "exports": {
-    "./capture": "./src/capture.ts"
+    "./capture": "./src/capture.ts",
+    "./events": "./src/events.ts"
   },
   "dependencies": {
     "@software-factory/events": "workspace:*",

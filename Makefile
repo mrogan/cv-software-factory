@@ -45,6 +45,7 @@ check: ## Lint, type-check, test, build the browser code, check generated files 
 	pnpm exec biome ci
 	pnpm exec tsc
 	pnpm exec tsc -p apps/console/web
+	pnpm exec tsc -p apps/console/e2e
 	pnpm exec vitest run
 	node docs/design/system/build.ts --check
 	node packages/samples/src/export.ts --check

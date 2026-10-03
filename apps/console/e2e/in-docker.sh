@@ -11,6 +11,7 @@ corepack enable >/dev/null
 pnpm install --frozen-lockfile --ignore-scripts --reporter=silent
 pnpm --filter @software-factory/console build --logLevel warn
 cd apps/console
+export SF_PINNED_BROWSER=1
 status=0
 pnpm exec playwright test --project console ${UPDATE:+--update-snapshots} "$@" || status=$?
 if [ "$status" != 0 ] && [ -d /out/results ]; then cp -R e2e-results/. /out/results/; fi

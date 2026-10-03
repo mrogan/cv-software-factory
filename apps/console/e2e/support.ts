@@ -31,7 +31,7 @@ export function consoleUrl({
 }: {
   theme?: 'paper' | 'ink';
   motion?: boolean;
-  item?: string;
+  item?: string | undefined;
   sheet?: boolean;
   debug?: string;
 } = {}): string {
