@@ -66,8 +66,14 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         await ready(page);
         const card = page.locator('.card[data-place="centre"]');
         await card.scrollIntoViewIfNeeded();
+        // Every image loaded and decoded, the lazy ones included: a failure says so here, not as a pixel difference.
         await card.evaluate((el) =>
-          Promise.all([...el.querySelectorAll('img')].map((img) => img.decode().catch(() => undefined))),
+          Promise.all(
+            [...el.querySelectorAll('img')].map((img) => {
+              img.loading = 'eager';
+              return img.decode();
+            }),
+          ),
         );
         await expect(card).toHaveScreenshot(`card-${picture}-${width}.png`);
       });
