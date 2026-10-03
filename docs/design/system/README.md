@@ -41,8 +41,9 @@ Components use role names only, never hex values. Each theme assigns every role,
 | `attn` (+ `on-attn`, `-wash`, `-line`) | Needs you, held, blocked, failed, rolled back, Stop the line | Decoration, links, brand |
 | `station-face`, `station-led-*` | The station's LED face (always dark) and its glyphs | Anything outside a station |
 | `station-canary` | The Release station's bird | Anything else |
+| `scrim` | Dimming the page behind the sheet | Anything that carries meaning |
 
-The pattern for "needs you" in cards is a 2px `attn` rule on the left edge (`radius-rule` on that side), not a filled box.
+The pattern for "needs you" in cards is a 2px `attn` rule on the left edge (`radius-rule` on that side), not a filled box. The reel's cards are the exception: their outcome dot flashes instead.
 
 `build.ts` checks these pairs in both themes: text roles on `bg`, `raised` and `surface` at 4.5:1; `on-*` on their fills at 4.5:1; station linework and LED glyphs at 3:1 (WCAG 1.4.11, graphics). Add a pair when you add a role that carries meaning.
 
@@ -70,7 +71,7 @@ All three faces are on Google Fonts; self-host them in the app (woff2, `font-dis
 - **Space:** 4px base (`--space-1` … `--space-9`); page gutter 48px at desktop.
 - **Radius:** 2 (the Needs-you edge), 4 (small controls), 6 (cards, buttons), 8 (panels, popovers), pill.
 - **Stroke:** 1px hairlines; 2px for the Needs-you rule, focus rings and the station chassis; 1.75px for station tools.
-- **Elevation:** flat. The only shadow is `--shadow-popover`, for panels that float over the line.
+- **Elevation:** flat. The only shadow is `--shadow-popover`, for panels that float over the line and for the sheet.
 - **Motion:** everything stops under `prefers-reduced-motion: reduce` and when the console's motion switch is off, and the still pose must say the same thing. Alarms flash at 0.9s, well under three flashes a second. Flows use `--motion-flow` (1.1s); easing is `--motion-ease`.
 
 ## Stations
@@ -135,6 +136,58 @@ Under Stop the line, every station shows `blocked` and the belt stops.
 
 `station.js` is dependency-free and works in any framework that renders custom elements. It is a classic script (so design pages open from disk); in the app, port it to a TypeScript module or a framework component, and keep the drawing, the state table above and the reduced-motion rules. Worth a visual-regression snapshot per kind × state in both themes (96 images) and an axe check on the line.
 
+## The reel and the sheet
+
+Work items are shown as a **reel**: one card per work item, oldest on the left and now on the right, scrubbed sideways. Opening a card raises its **sheet** from the bottom of the screen, with everything about that work item.
+
+### The reel
+
+- **One card in the centre**, its neighbours either side at 90% scale and lower opacity, fading out at the reel's edges. Drag the cards, flick them, use the arrow keys, or drag the **timeline** underneath; release snaps to the nearest card. Clicking a neighbour brings it to the centre; clicking the centre card opens its sheet.
+- **The timeline** has one mark per work item, in its category glyph and outcome tone, a hairline at the start of each day, the version each release left the shop on (a version rolled back is struck through), and a playhead. Under it, one line says when the centre card happened and what version the shop was then.
+- **Play the history** steps a card every 2.5 seconds and ends at now. On first view the reel plays the most recent eight work items once, when it scrolls into view. With motion off it never plays itself, and the cards move without animating.
+- **Needs you** cards (waiting on Martin, or held for a human) flash their outcome dot at `--motion-alarm`, like a station's beacon, and hold it still with its ring when motion is off. They take no edge rule: the picture often carries one already.
+
+### A card
+
+Top to bottom, and nothing else:
+
+1. **Category and kind** on the left (glyph, `t-label` caps, then the kind in `t-caption`); **outcome** on the right: dot and word, in the outcome's tone.
+2. **The picture**, 16:10. See below.
+3. **Title** in Instrument Serif 28, and a description clamped to two lines.
+4. **One line of facts** in `t-data`: number, version (a pill), pull request, start, duration, model spend.
+5. **Eight segments**, one per stage: `ok` for passed, a dashed outline for skipped, `signal` (blinking) for now, `attn` where it stopped or waits on a human, `text-muted` where triage closed it. The segments have an accessible label such as "Stopped at Release".
+
+### The picture
+
+The picture is evidence, so it is always something the factory captured, never an illustration.
+
+| Work | Picture |
+|---|---|
+| A visible change | Screenshots before and after, with a **wipe** between them: a 2px `signal` divider and a round handle (drag it, or arrow keys on it). Each side is its own stacking context, so nothing drawn on one side shows through the other. Tags in the bottom corners name each side (BEFORE, BROKEN, FIXED, NOW) with its version. |
+| Performance | The metric over time, one series, with the objective dashed and the release marked; the headline before → after above it; a strip of page thumbnails saying no page changed |
+| Dependency update | Package logo and the version change; the screenshot strip below |
+| Security | Package logo and version change, and the image scan's findings before and after by severity |
+| Rollback | Canary against baseline on one axis, the rollback marked; a line saying how much traffic never saw it |
+| Red-team attack | The gate's or policy's own refusal, verbatim, on the station face colour; "the site never changed" |
+| Not a defect | The page the report was about, and Jev's typed answers with their probabilities |
+| Observability | Log lines before and after, and the trace they now link to |
+| Waiting on Martin | The spec: outcome, acceptance criteria and the planner's question, with the `attn` rule |
+
+**Marks** on a screenshot are drawn by the factory from the elements its probe checked: a dashed `attn` outline for the problem and a solid `ok` outline for the fix, or for the page as it should be, each with a short label in a filled tag. Both sides of a wipe carry a mark, and never more than one label per side.
+
+Package logos come from [theSVG](https://github.com/glincker/thesvg) (MIT; the marks belong to their owners) and are bundled with the console, never fetched.
+
+### The sheet
+
+- Rises from the bottom to 90% of the viewport height (94% on a phone) over a `scrim`, with `--shadow-popover` and 14px top corners. Escape, the close button or the scrim close it, and focus returns to where it was. Previous and next step between work items, and the reel follows behind.
+- **Main column:** a paragraph saying what happened; for a visitor's report, the report (below); **How it went**, the stage scrubber with the site's screenshot at each step; **Evidence**, the picture at full size, the screenshots captured at signal, canary and rollout, and every page compared with the version before; **The change**, acceptance criteria and the files touched.
+- **Side column:** the facts (including "Code written by humans: 0 lines"), **Agents and models** (each agent's model, settings, calls, tokens and cost, with a total), and **Gates** (each check, its result and time).
+- Each evidence block ends with a one-line **Source**: where the factory got it.
+
+### A visitor's report
+
+Report text is untrusted. The console shows it only to Martin and to the visitor whose key sent it, sanitised to at most 140 characters of plain ASCII letters, digits and basic punctuation, with links, email addresses and long numbers removed, and inserted as a text node, never as markup. Everyone else sees that a report was made, and what triage made of it.
+
 ## Mark
 
 An **MR monogram**: Martin Rogan's initials in Instrument Serif, with the R set so that it shares the M's last stem, and a full stop in `attn`. The shared stem makes two letters read as one mark. The ember full stop is the same colour that means "a person should look" on the console, so it carries the system's idea into the signature.
@@ -148,25 +201,26 @@ An **MR monogram**: Martin Rogan's initials in Instrument Serif, with the R set 
 
 One page, three widths. The console is designed to be read from top to bottom: *is it running → what is happening → what does it need from me*.
 
-| Width | The line | Work | Bottom row |
+| Width | The line | The reel and the sheet | Bottom row |
 |---|---|---|---|
-| ≥ 1180 | 8 stations in a row, scaled to fit; captions show state and one figure | List (320px) beside the replay | Canary, Needs you (or Try it yourself), Controls |
-| 721–1179 | Same row, smaller; captions show state only | List above the replay, as a grid | Canary full width, then two columns |
-| ≤ 720 | **Two rows of four stations**, reading left to right like text; the current return becomes one line of text underneath; tapping a station opens a bottom sheet | List, then the replay, stacked; scrubber shows dots and the current label only | One column |
+| ≥ 1180 | 8 stations in a row, scaled to fit; captions show state and one figure | Cards up to 620px with both neighbours showing; the sheet in two columns | Canary, Needs you (or Try it yourself), Controls |
+| 721–1179 | Same row, smaller; captions show state only | The same reel; the sheet in one column, its side column as two cards side by side | Canary full width, then two columns |
+| ≤ 720 | **Two rows of four stations**, reading left to right like text; the current return becomes one line of text underneath; tapping a station opens a bottom sheet | Cards the width of the screen with neighbours just showing; the timeline shows only the current version; the sheet at 94% height, one column, its scrubber showing dots and the current label | One column |
 
 The phone keeps the stations: they are the thing people remember, and at a quarter of the width the face, hatch and beacon still read. What goes on the phone is detail: figures, the parcels on the belt, and the return arcs.
 
-## What the console shows, and what it left out
+## What the console shows, and what it leaves out
 
-The console was pared back so each panel does one job:
+Each panel does one job:
 
 - **Header:** mark, name, whether the line is running (with the autonomy level), and Stop the line. Autonomy is set in Controls.
-- **Scoreboard:** three figures: found, verified fixed, median time to verified. Totals, false positives and a separate "fixed" count were cut: "fixed" and "verified" were too close to earn two places.
-- **Captions under stations:** the name and one line: state word and one figure. Descriptions moved into the stage panel. Switches moved into Controls.
-- **Work items:** grouped Needs you, In progress, Done. No filters: the list is short, and grouping answers the question the filters were for.
+- **Scoreboard:** three figures: found, verified fixed, median time to verified. No totals, false positives or separate "fixed" count: "fixed" and "verified" are too close to earn two places.
+- **Captions under stations:** the name and one line: state word and one figure. Descriptions belong in the stage panel, switches in Controls.
+- **The reel:** every work item, oldest to now. Watching the shop change says more than a list; what waits on Martin is also listed in Needs you.
+- **The sheet:** one work item in full: the stage scrubber and the site at each step, the evidence, the change, the model calls and the gates.
 - **Needs you:** one card per work item (a spec and the planner's question on it are one decision). Requesting an improvement lives on the Plan station, not here.
 - **Controls:** autonomy, three switches and two spend meters. Guardrails that can't be switched off are not drawn as switches; one line says so.
-- **Removed:** the apps row with "Onboard your app" placeholders, the live-feed ticker (the stations and the replay already show what is happening), the always-on green feedback loop under the belt (now a return like any other), the sparklines, and duplicate help text.
+- **Left out on purpose:** placeholders for other apps, a live-feed ticker (the stations and the reel already show what is happening), an always-on feedback loop under the belt (production feeding Sense is a return like any other), sparklines, and help text that repeats itself.
 
 ## Not decided yet
 

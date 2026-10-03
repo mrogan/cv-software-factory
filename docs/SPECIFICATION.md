@@ -27,8 +27,8 @@ Terms are defined in `TERMS.md`; unresolved questions live in `OPEN-QUESTIONS.md
 
 | Audience | Time | Experience |
 |---|---|---|
-| Recruiter | 1 minute | Static replay site: the latest fix plays as a time-lapse on the landing page |
-| Engineer / future colleague | 10–30 minutes | Live instance: inject a defect, red-team the factory, scrub through work items. Or clone and run `make demo` |
+| Recruiter | 1 minute | Static replay site: the shop's recent history plays on the landing page, change by change |
+| Engineer / future colleague | 10–30 minutes | Live instance: inject a defect, red-team the factory, open any work item and step through it. Or clone and run `make demo` |
 | Interviewer | An hour | A fresh AWS environment stood up on demand, walked through live |
 
 Public forms, in delivery order:
@@ -126,7 +126,12 @@ The console *is* the demo for most people. Everything the factory does must be u
 
 - Every step of every work item is an event in an append-only store: `{id, ts, work_item, type, actor, summary, payload, artifacts}`. `summary` is the plain-English line shown to people.
 - **The UI is a pure function of events up to time *t*.** It never fetches live state directly. Live view is *t* = now; replay is any other *t*. Same code.
-- Artifacts are captured when they happen, because their sources expire: diffs, metric series, log excerpts, and Playwright **screenshots of the site** at key moments (defect detected, fix live).
+- Artifacts are captured when they happen, because their sources expire:
+  - Playwright **screenshots of the site** when the signal fires, on the canary and after full rollout, with the bounding boxes of the elements the probe checked, so the console can mark the problem and the fix;
+  - after rollout, a screenshot of every page compared pixel by pixel with the version before, to show what changed and that nothing else did;
+  - metric series, log excerpts and trace links at signal and at verify;
+  - the diff, the spec's acceptance criteria, each gate's result and output, the lockfile change and image scan summary for a dependency, and the canary analysis;
+  - every model call from the gateway's log: agent, model, settings, tokens and cost.
 - Each event stores a redacted public view, created when the event is written.
 - Events carry a schema version, with upcasters, so old recordings keep replaying.
 - Curated event logs are exported as files. They power the static replay site, `make demo` and UI tests.
@@ -137,19 +142,19 @@ One page, read from top to bottom: *is it running → what is happening → what
 
 - **Header:** the mark and name, whether the line is running (with the autonomy level), and **Stop the line** for admin.
 - **Scoreboard:** found, verified fixed, and median time to verified fix, beside the app's name.
-- **The line:** one **station** per stage, in order, each showing its state (idle, working, sending back, passed, needs you, failed) in words and one figure. Work sent back upstream shows as a return arc, one at a time. Selecting a station opens its stage panel: the items in that stage, each linking to its replay. Triage's panel lists where work comes from. For admin, Plan carries the "+" for requesting an improvement; visitors do not see it.
-- **Work items:** grouped into Needs you, In progress and Done. Each item shows its kind (defect fix, injected defect, improvement, red-team attack) and outcome (verified, rolled back, blocked, waiting). Selecting one opens its replay.
-- **Replay:** one work item with a **time scrubber**: drag through signal → ticket → spec → PR → gates → review → canary → verified, with chapter markers per stage, a visible marker where idle gaps are compressed, previous and next controls to step between events, and **LIVE** at the right edge for items in progress. The recent events are listed in plain English. **Site beside factory:** the site's screenshot at time *t*, so viewers watch it break and heal.
-- **Landing:** the latest completed work item auto-plays as a time-lapse.
+- **The line:** one **station** per stage, in order, each showing its state (idle, working, sending back, passed, needs you, failed) in words and one figure. Work sent back upstream shows as a return arc, one at a time. Selecting a station opens its stage panel: the items in that stage, each opening its sheet. Triage's panel lists where work comes from. For admin, Plan carries the "+" for requesting an improvement; visitors do not see it.
+- **The reel:** every work item as a card, oldest on the left and now on the right, scrubbed sideways by dragging the cards or a timeline beneath them that marks each item, each day and each release's version. A card shows the item's category, kind (defect fix, injected defect, improvement, dependency update, red-team attack, visitor report) and outcome (verified, rolled back, held for a human, closed, needs you, in progress); one picture of what changed; a title and two lines of description; its number, version, pull request, time, duration and model spend; and how far it got through the stages. The picture is evidence, never an illustration: before and after screenshots with a wipe between them and the change marked, or, where nothing visible changed, the metric, package, scan, log, refusal or judgement that did. Items waiting on Martin stay in the reel, marked as Needs you.
+- **The sheet:** opening a card raises it from the bottom of the screen, over most of it. It holds what happened in a paragraph; the stage scrubber (signal → ticket → spec → PR → gates → review → canary → verified, with a chapter per stage, previous and next, and the events up to *t* in plain English) beside the site's screenshot at *t*, so viewers watch it break and heal; the evidence at full size, with every page compared to the version before; the acceptance criteria and files changed; the gates; and each agent's model, settings, calls, tokens and cost.
+- **Landing:** the reel plays the most recent work items once, when it first comes into view, and stops at now.
 - **Canary:** the release in flight compared with baseline on error rate, latency and synthetic journeys, with its traffic steps.
 - **Needs you** (admin): one card per work item waiting on Martin. **Try it yourself** (visitors) takes its place: the visitor actions in section 5.3, with what is left of today's allowance.
 - **Controls:** autonomy, switches and spend against today's caps. Read-only for visitors. Guardrails that cannot be switched off are not drawn as switches; one line says so.
 - **Guardrails visible:** blocked actions, failed gates and rollbacks are shown as prominently as successes.
-- Panels explain themselves in a line; the replay has a "What am I looking at?" explanation.
+- Panels explain themselves in a line; the reel has a "What am I looking at?" explanation.
 
 ### 5.3 Visitor actions (live instance only)
 
-- **Report a problem:** free text via the widget on the site. Goes through triage like any signal; can only ever lead to a defect fix.
+- **Report a problem:** free text via the widget on the site. Goes through triage like any signal; can only ever lead to a defect fix. The console shows a report's text only to Martin and to the visitor whose key sent it: at most 140 characters of plain ASCII letters, digits and basic punctuation, with links, email addresses and long numbers removed, inserted as text and never as markup. Everyone else sees that a report was made and what triage made of it.
 - **Inject a defect:** choose from a curated menu of visible breakages (for example "Prices go negative", "Search returns only cats"). No free text.
 - **Red team the factory:** choose a curated attack and watch a real mechanism stop it. The UI shows the mechanism's actual refusal, never an animation:
 
