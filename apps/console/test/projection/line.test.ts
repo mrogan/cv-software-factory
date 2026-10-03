@@ -1,7 +1,7 @@
 import type { PublicEvent } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { project } from '../../web/src/projection/index.ts';
-import { PASSING_MS, RETURNING_MS } from '../../web/src/projection/line.ts';
+import { PASSING_MS, RETURNING_MS, whileSending } from '../../web/src/projection/line.ts';
 import { payloads, work } from './support.ts';
 
 const gatesStatus = (events: PublicEvent[], t: number) =>
@@ -83,6 +83,15 @@ describe('a station’s state', () => {
     const view = project([line], Date.now());
     expect(view.stations.every((s) => s.status === 'blocked')).toBe(true);
     expect(view.header).toMatchObject({ running: false, stopped: 'Martin stopped the line' });
+  });
+
+  it('says “sending back” while its return is drawn, unless it has failed or waits on a human', () => {
+    for (const status of ['idle', 'working', 'passing', 'returning'] as const) {
+      expect(whileSending(status, true)).toBe('returning');
+    }
+    expect(whileSending('failed', true)).toBe('failed');
+    expect(whileSending('blocked', true)).toBe('blocked');
+    expect(whileSending('working', false)).toBe('working');
   });
 
   it('stops saying “sending back” once the return is a few minutes old', () => {

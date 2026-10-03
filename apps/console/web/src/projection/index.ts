@@ -13,6 +13,7 @@ import { type Sheet, sheet } from './sheet.ts';
 
 export type { Capture, ItemState, Outcome } from './items.ts';
 export type { Header, PanelRow, Return, StagePanel, Station, Status } from './line.ts';
+export { whileSending } from './line.ts';
 export type { Card, Picture, Segment, Tag, Timeline, Versions } from './reel.ts';
 export { segmentsLabel } from './reel.ts';
 export type { AgentRow, Chapter, GateRow, PageComparison, Sheet } from './sheet.ts';

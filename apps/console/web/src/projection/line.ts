@@ -130,6 +130,14 @@ export function station(
   return { stage, status, figure } satisfies Station;
 }
 
+/**
+ * What a station shows while the line draws one of its returns: "sending back", unless it has failed or waits on
+ * a human, which outrank a return (the rules above).
+ */
+export function whileSending(status: Status, sending: boolean): Status {
+  return sending && status !== 'failed' && status !== 'blocked' ? 'returning' : status;
+}
+
 /** Work sent back upstream in the last day, newest first. */
 export function returnsAt(events: readonly PublicEvent[], t: number): Return[] {
   return events

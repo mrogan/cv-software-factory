@@ -7,7 +7,7 @@ import { STAGES } from '@software-factory/events';
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { STAGE_NAME, STATE } from '../../../../../docs/design/system/station.ts';
 import { duration } from '../format.ts';
-import type { Return, Station, Status, View } from '../projection/index.ts';
+import { type Return, type Station, type Status, type View, whileSending } from '../projection/index.ts';
 import { Glyph } from './Glyph.tsx';
 
 const BLURB: Record<Stage, string> = {
@@ -133,7 +133,7 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
       <ul className="stations">
         {view.stations.map((s) => {
           const sending = current?.from === s.stage;
-          const status: Status = stopped ? 'blocked' : sending ? 'returning' : s.status;
+          const status: Status = stopped ? 'blocked' : whileSending(s.status, sending);
           const word = pending ? 'reading' : stopped ? 'stopped' : STATE[status].label;
           const tone = pending ? 'faint' : stopped ? 'attn' : STATE[status].tone;
           return (
