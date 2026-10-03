@@ -22,10 +22,10 @@ export const TRIAGE = 'triage/v1';
 export const PASSAGE = 'passage/v1';
 
 /** What a report's state holds: the page it was sent from, without its query, and its text, scrubbed. */
-export interface ReportState {
+export type ReportState = {
   page: string;
   report: string;
-}
+};
 
 const CATEGORY: Record<ReportCategory, string> = {
   content: 'The words on the page are wrong: a typo, a wrong date or fact, placeholder text, or names that disagree',

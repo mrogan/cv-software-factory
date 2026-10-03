@@ -20,7 +20,8 @@ export interface JudgeRequest {
   workItem: string | null;
   questionSet: string;
   model: string;
-  state: unknown;
+  /** What Jev reads: plain fields of text. */
+  state: Record<string, string>;
   questions: Record<string, Question>;
 }
 

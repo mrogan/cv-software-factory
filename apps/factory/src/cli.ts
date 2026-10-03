@@ -8,13 +8,14 @@
 import * as events from './commands/events.ts';
 import * as gateway from './commands/gateway.ts';
 import * as line from './commands/line.ts';
+import * as triage from './commands/triage.ts';
 
 interface Group {
   USAGE: string;
   run(args: string[]): Promise<number>;
 }
 
-const GROUPS: Record<string, Group> = { events, gateway, line };
+const GROUPS: Record<string, Group> = { events, gateway, line, triage };
 
 const [name, ...args] = process.argv.slice(2);
 const group = name ? GROUPS[name] : undefined;
