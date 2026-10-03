@@ -451,15 +451,25 @@ export type Validated = { ok: true } | { ok: false; problems: string[] };
  * A signal as a sense leaves it in the inbox: what `signal.received` will say if triage makes an event of it, when
  * the sense saw it, and its artifacts.
  */
-export const inboxSignal = z.intersection(
-  PAYLOADS['signal.received'],
-  z.object({
-    observedAt: timestamp,
-    /** What the sense saw, in a line, for the event's summary. A report has none: its text is never a summary. */
-    summary: text(200).optional(),
-    artifacts: z.array(artifactRef).max(10),
-  }),
-);
+export const inboxSignal = z
+  .intersection(
+    PAYLOADS['signal.received'],
+    z.object({
+      observedAt: timestamp,
+      /** What the sense saw, in a line, for the event's summary. A report has none: its text is never a summary. */
+      summary: text(200).optional(),
+      artifacts: z.array(artifactRef).max(10),
+    }),
+  )
+  .superRefine((signal, context) => {
+    // A report is its text: one without any is nothing to judge, and nothing to answer.
+    if (signal.sense === 'report' && !signal.report?.text) {
+      context.addIssue({ code: 'custom', path: ['report', 'text'], message: 'a report needs its text' });
+    }
+    if (signal.sense !== 'report' && signal.report) {
+      context.addIssue({ code: 'custom', path: ['report'], message: 'only a report carries a report' });
+    }
+  });
 
 /** Checks a signal before it goes in the inbox, so a sense cannot leave triage something it would refuse. */
 export function validateSignal(input: unknown): Validated {

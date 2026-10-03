@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatLog, parseLog } from '../src/log-format.ts';
 import { PUBLIC_VIEWS, publicView, redactSecrets } from '../src/public.ts';
-import { validate } from '../src/schemas.ts';
+import { validate, validateSignal } from '../src/schemas.ts';
 import type { NewEvent, PublicEvent } from '../src/types.ts';
 import { type Catalogue, upcast } from '../src/upcast.ts';
 import { EVENT_TYPES } from '../src/versions.ts';
@@ -102,6 +102,16 @@ describe('validation', () => {
       },
     };
     expect(validate(crawled)).toEqual({ ok: true });
+  });
+
+  it('takes a report into the inbox only with its text', () => {
+    const report = { ...signal.payload, observedAt: signal.ts, artifacts: [] };
+    expect(validateSignal(report)).toEqual({ ok: true });
+    expect(validateSignal({ ...report, report: { page: '/' } })).toEqual({
+      ok: false,
+      problems: ['report.text: a report needs its text'],
+    });
+    expect(validateSignal({ ...report, sense: 'crawler', symptom: 'broken-link' }).ok).toBe(false);
   });
 
   it('only lets work return upstream', () => {
