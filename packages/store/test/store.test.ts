@@ -67,7 +67,10 @@ const samples = () => new EventWriter(writer, { kind: 'sample', artifacts });
 describe('migrations', () => {
   it('apply once: a second run finds nothing to do', async () => {
     expect(await migrate(owner)).toEqual([]);
-    expect(await owner`select version, name from schema_migrations`).toEqual([{ version: 1, name: 'events' }]);
+    expect(await owner`select version, name from schema_migrations order by version`).toEqual([
+      { version: 1, name: 'events' },
+      { version: 2, name: 'store-kind-work-items-and-inbox' },
+    ]);
   });
 });
 

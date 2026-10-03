@@ -1,5 +1,5 @@
 # A pod that mounts the artifacts volume for a moment, so `make samples` can copy the samples' screenshots into
-# it. Applied and deleted by `make samples`, never by Argo CD. It runs the Postgres image the cluster already has,
+# it and `make real-store` can empty it. Applied and deleted by those targets, never by Argo CD. It runs the Postgres image the cluster already has,
 # for its shell and tar, as the console's user, so the console can read what it copies.
 apiVersion: v1
 kind: Pod

@@ -159,8 +159,6 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     evidence: { signal: undefined, verified: undefined },
     spend: 0,
   };
-  let triageClosed = false;
-
   for (const event of events) {
     const time = at(event);
     state.lastAt = time;
@@ -191,15 +189,12 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.category = event.payload.category;
         if (!state.description) state.title = event.payload.title;
         break;
-      case 'judgement.made':
-        triageClosed = event.payload.route === 'discard';
-        break;
       case 'defect.injected':
         state.versions.from = event.payload.version;
         state.versions.live = true;
         break;
       case 'signal.received':
-        state.evidence.signal ??= event.payload.evidence;
+        state.evidence.signal ??= event.payload.evidence?.[0];
         break;
       case 'pull-request.pushed':
         state.pullRequest = event.payload.number;
@@ -248,7 +243,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
               ? 'rolled-back'
               : 'closed';
         if (state.stage) state.visits[state.stage] = { ...(state.visits[state.stage] as Visit), leftAt: time };
-        if (event.payload.outcome === 'no-change' && triageClosed) state.category = 'not-a-defect';
+        if (event.payload.outcome === 'discarded') state.category = 'not-a-defect';
         break;
     }
     if (event.type === 'judgement.made') state.spend += event.payload.costUsd;

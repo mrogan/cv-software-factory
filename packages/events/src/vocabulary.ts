@@ -44,6 +44,7 @@ export const SYMPTOM_CLASSES = [
   'server-error',
   'browser-error',
   'slow-response',
+  'not-cached',
   'missing-alt',
   'low-contrast',
   'unlabelled-field',
@@ -53,6 +54,21 @@ export const SYMPTOM_CLASSES = [
   'wrong-metric',
 ] as const;
 export type SymptomClass = (typeof SYMPTOM_CLASSES)[number];
+
+/** A ticket's severity: how badly the problem hurts a visitor. */
+export const SEVERITIES = ['cosmetic', 'degraded', 'broken'] as const;
+export type Severity = (typeof SEVERITIES)[number];
+
+/** What triage's category question may answer for a report: a defect's category, or one of the two that are not. */
+export const REPORT_CATEGORIES = [...DEFECT_CATEGORIES, 'suggestion', 'not-a-defect'] as const;
+export type ReportCategory = (typeof REPORT_CATEGORIES)[number];
+
+/**
+ * Where triage sends what it takes from the inbox: a new ticket, an open ticket it repeats, Martin (a suggestion),
+ * quarantine (instructions aimed at the system), or nowhere (not a defect).
+ */
+export const TRIAGE_ROUTES = ['ticket', 'repeat', 'park', 'quarantine', 'discard'] as const;
+export type TriageRoute = (typeof TRIAGE_ROUTES)[number];
 
 /** The factory's five senses. */
 export const SENSES = ['probe', 'crawler', 'metrics', 'logs', 'report'] as const;

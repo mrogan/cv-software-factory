@@ -41,6 +41,69 @@ describe('validation', () => {
     });
   });
 
+  it('keeps spend caps on the line', () => {
+    const capped = {
+      ...opened,
+      work_item: null,
+      type: 'spend.capped',
+      payload: { cap: 'day', limitUsd: 20, spentUsd: 20.01, resets: '2026-10-05T00:00:00.000Z' },
+    };
+    expect(validate(capped)).toEqual({ ok: true });
+    expect(validate({ ...capped, type: 'spend.cleared', payload: { cap: 'day' } })).toEqual({ ok: true });
+  });
+
+  it('names the ticket a repeat joined, and only for a repeat', () => {
+    const repeat = { ...judgement, payload: { ...judgement.payload, route: 'repeat', joined: '1000' } };
+    expect(validate(repeat)).toEqual({ ok: true });
+    expect(validate({ ...repeat, payload: { ...repeat.payload, joined: undefined } }).ok).toBe(false);
+    expect(validate({ ...judgement, payload: { ...judgement.payload, joined: '1000' } }).ok).toBe(false);
+  });
+
+  it('takes what a browser saw as evidence, and a symptom on every page as one route', () => {
+    const crawled = {
+      ...signal,
+      actor: 'crawler',
+      payload: {
+        sense: 'crawler',
+        check: 'security headers',
+        route: '*',
+        version: 'v0.9.2',
+        symptom: 'missing-header',
+        evidence: [
+          {
+            kind: 'http',
+            method: 'GET',
+            url: '/products?page=2',
+            status: 200,
+            headers: { 'content-security-policy': null },
+            timings: { firstByteMs: 41, totalMs: 58 },
+            redirects: [],
+          },
+          {
+            kind: 'console',
+            route: '/products',
+            version: 'v0.9.2',
+            messages: [{ level: 'error', text: 'Uncaught TypeError: x is undefined' }],
+          },
+          {
+            kind: 'accessibility',
+            route: '/products',
+            version: 'v0.9.2',
+            findings: [
+              {
+                rule: 'image-alt',
+                impact: 'critical',
+                help: 'Images must have alternative text',
+                elements: [{ selector: 'main img', box: { x: 10, y: 20, width: 200, height: 150 } }],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    expect(validate(crawled)).toEqual({ ok: true });
+  });
+
   it('only lets work return upstream', () => {
     const back = {
       ...opened,

@@ -132,7 +132,10 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
     case 'action.refused':
       return { label: 'REFUSED', tone: 'attn' };
     case 'work-item.closed':
-      return event.payload.outcome === 'no-change' ? { label: 'CLOSED', tone: 'faint' } : undefined;
+      if (event.payload.outcome === 'quarantined') return { label: 'QUARANTINED', tone: 'attn' };
+      return event.payload.outcome === 'no-change' || event.payload.outcome === 'discarded'
+        ? { label: 'CLOSED', tone: 'faint' }
+        : undefined;
     default:
       return undefined;
   }

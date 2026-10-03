@@ -1,5 +1,5 @@
 /** A defect a visitor injected, still on the line: sent back once by Gates, and now on the canary. */
-import { commitFor, digestFor, Item, JEV, jevCassette, traceFor, triageAnswers } from '../build.ts';
+import { commitFor, digestFor, Item, traceFor } from '../build.ts';
 import { shot } from '../captures.ts';
 
 const JOURNEY_FAILED = `✕ End-to-end journeys             required check · failed in 1m 52s
@@ -29,18 +29,9 @@ export default new Item('1302', '2026-10-03T10:12:00+01:00')
     'signal.received',
     'probe',
     'A search for “ladder” was turned away: six letters is too long',
-    { sense: 'probe', check: 'search journey', route: '/search', version: 'v0.9.6' },
+    { sense: 'probe', check: 'search journey', route: '/search', version: 'v0.9.6', symptom: 'rejects-valid-input' },
     [shot('short-words/search', 'v0.9.6')],
   )
-  .at('5:05', 'judgement.made', 'triage', 'Triage: functional (0.98), broken, no instructions (0.00)', {
-    ...JEV,
-    state: { signal: { route: '/search', check: 'search journey' } },
-    answers: triageAnswers('functional', 0.98, [0.0, 0.02, 0.09, 0.89], 0.001),
-    route: 'ticket',
-    costUsd: 0.0009,
-    durationMs: 97,
-    cassette: jevCassette('1302'),
-  })
   .at('5:06', 'ticket.opened', 'triage', 'Ticket #1302: functional, broken', {
     title: 'Search refuses any word longer than four letters',
     category: 'functional',

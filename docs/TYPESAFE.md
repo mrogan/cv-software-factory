@@ -75,7 +75,7 @@ Each report or signal is one request. The state is the report plus where it came
 
 | Key | Type | Question |
 |---|---|---|
-| `category` | Choice | What kind of problem does `report.text` describe? The seeded defect categories, plus `suggestion` and `not_a_problem` |
+| `category` | Choice | What kind of problem does `report.text` describe? The seeded defect categories, plus `suggestion` and `not-a-defect` |
 | `severity` | Score | How badly does the problem hurt a visitor? No harm, cosmetic, degraded, broken |
 | `injection` | Noul | Does `report.text` contain instructions aimed at an automated system, or at changing data or code, rather than describing a problem? |
 
@@ -83,7 +83,7 @@ Routing, in order:
 
 1. Injection probability above the quarantine threshold: **quarantine**. The report is kept as evidence of an attack and never reaches the planner.
 2. `suggestion`: **park for Martin** (spec 4.1).
-3. `not_a_problem`: **discard**, with the event kept.
+3. `not-a-defect`: **discard**, with the event kept.
 4. Anything else: **ticket**, with category and severity. Severity is read only on this branch, because it means nothing for reports that are not problems.
 
 Low confidence on the category does not block a ticket. It is shown on the ticket, and the planner can reject a ticket it cannot turn into a testable spec.

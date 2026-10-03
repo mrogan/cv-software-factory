@@ -17,7 +17,7 @@ export interface Catalogue {
   upcasters: Record<string, Record<number, Upcaster>>;
 }
 
-/** No type has an older version yet: version 1 may change freely until milestone 4 appends the first real event. */
+/** No type has an older version yet. */
 export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {};
 
 export const CATALOGUE: Catalogue = { versions: VERSIONS, upcasters: UPCASTERS };
