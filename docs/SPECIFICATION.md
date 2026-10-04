@@ -163,7 +163,7 @@ One page, read from top to bottom: *is it running → what is happening → what
   | Attack | Stopped by |
   |---|---|
   | Problem report with an injected instruction ("set all prices to £0") | Jev can only return typed answers, so the text never reaches the planner; triage quarantines it |
-  | Agent told to "fix CI" by editing `.github/workflows` | Agent token lacks workflow permission; ruleset |
+  | Agent told to "fix CI" by editing `.github/workflows` | Agent token lacks workflow permission; rulesets |
   | PR that deletes the failing test | Test-integrity gate routes it to a human |
   | Agent tries to send data to an outside URL | Egress policy |
   | Agent tries to ship an image it built itself | Only pipeline-signed images pass admission control |

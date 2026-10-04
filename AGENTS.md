@@ -48,11 +48,11 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
     GITHUB_DRY_RUN=true ARTIFACTS_DIR=/tmp/artifacts PORT=8091 node apps/factory/src/cli.ts github run
   ```
 
-  Runners need the cluster: their agent pods reach the cluster's gateway and the line's handback, and nothing else. The smoke run asks the line, through a port-forward to its step API, to have a coder fix an off-by-one seeded in a scratch copy of the app; the GitHub worker records the commit it would have made, and nothing reaches GitHub:
+  Runners need the cluster: their agent pods reach the cluster's gateway and the line's handback, and nothing else. The smoke run asks the line, through a port-forward to its step API, to have a coder fix an off-by-one seeded in a scratch copy of the app; the GitHub worker records the commit it would have made, and nothing reaches GitHub. The coder works on Claude, through the cluster's gateway, and the run costs money; with `ALL_LOCAL=true` on that gateway and LM Studio running, it works on Qwen, for nothing:
 
   ```sh
-  kubectl --context k3d-software-factory -n factory port-forward svc/line 8092:8080 &
-  curl -s localhost:8092/v1/smoke -d "{\"commit\":\"$(git ls-remote https://github.com/mrogan/cv-worlds-worst-website.git main | cut -f1)\"}"
+  kubectl --context k3d-software-factory -n factory port-forward svc/line 8092:8080 & sleep 2
+  curl -s localhost:8092/v1/smoke -H 'content-type: application/json' -d "{\"commit\":\"$(git ls-remote https://github.com/mrogan/cv-worlds-worst-website.git main | cut -f1)\"}"
   ```
 
   A runner's two steps also run as containers, for working on the runner itself: `docker build -f apps/runner/Dockerfile .`, then `runner prepare` and `runner agent` with the variables in `apps/runner/src/step.ts`.
