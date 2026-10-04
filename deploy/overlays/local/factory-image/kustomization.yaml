@@ -6,9 +6,9 @@ kind: Component
 resources:
 - ../../../base/factory
 images:
-- digest: sha256:39d4cc77f0e34d53cc92fc2d72fb3c12dfde31df69c2391ab5614599d4680b26
+- digest: sha256:98e6f694adbfe06fc7957c54c0cfad97abb42f7506c70a00f8c81ec00a6f7139
   name: factory
   newName: ghcr.io/mrogan/cv-software-factory/factory
-- digest: sha256:7413f2bd8f17adbacdd93f578355c451a18c4e29140fdb18135c46718ec9597e
+- digest: sha256:6e91b662516fa29b9c26f9aeb43a38bbd63991dc98f39c4cd49ac2f02fe6f888
   name: factory-browser
   newName: ghcr.io/mrogan/cv-software-factory/factory-browser
