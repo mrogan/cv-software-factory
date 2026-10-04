@@ -164,16 +164,27 @@ In the private repository, a script reads an exported event log of tickets and p
 
 ## Results
 
-A first count, taken 15 minutes after `make real-store` on the local cluster, with no reports, by the private repository's `workshop/count.ts`:
+The count after an hour of sensing on the local cluster, with no reports, by the private repository's `workshop/count.ts`. It ran on 3 and 4 October, on a store made empty by `make real-store`, with every fix up to #51:
 
 | Measure | Result |
 |---|---|
-| Seeded defects matched | 12 of 24 |
-| Tickets that match no defect | 10 of 22 |
+| Seeded defects matched | 13 of 24 |
+| Tickets that match no defect | 5 of 18 |
 | Defects with two or more tickets | none |
-| Tickets with a screenshot | 21 of 22 (the log watcher's has no page to show) |
+| Tickets with a screenshot | 17 of 18 (the log watcher's has no page to show) |
+| First ticket | 5 minutes after the workers started; 17 tickets within 6 minutes |
 
-The count after an hour of sensing, and each unmatched ticket with its cause, follow once Martin has reviewed the checks.
+Every ticket that matches no defect reports a real fault in the app; none is a check that misread a page. Each is filed under a route the answer key does not use for that fault:
+
+| Ticket | Why it matches nothing |
+|---|---|
+| A page redirects without end on `/` | The probe that follows the home page's links filed the loop under the page holding the link, not the page that loops. Another ticket has the loop under its own route. |
+| A page redirects without end on `/departments/:department` | The factory names the route's parameter by what it holds, and the answer key by another name. The count compares route templates exactly. |
+| Images without alternative text on `/` | The same images, missing their text, on a page the answer key does not list for them. |
+| Images without alternative text on `/products/:slug` | As above, on another page. |
+| Files the browser may not keep on `/assets/drawings/:file` | A more specific route than the answer key's for the same files. Another ticket, on the broader route, matched. |
+
+Two of the five come from how routes are named and attributed, not from sensing. They are in the backlog.
 
 ## Out of scope
 
