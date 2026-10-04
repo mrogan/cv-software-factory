@@ -21,7 +21,7 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down gateway-key check status e2e egress eval samples real-store stop-the-line start-the-line
+.PHONY: help up down gateway-key github-key check status e2e egress eval samples real-store stop-the-line start-the-line
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -37,6 +37,7 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@$(call secret,factory,postgres-writer,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-console,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(MAKE) --no-print-directory gateway-key
+	@$(MAKE) --no-print-directory github-key
 	@$(call secret,telemetry,grafana-admin,--from-literal=admin-user=admin --from-literal=admin-password="$$(openssl rand -hex 24)")
 	sed 's|targetRevision: main|targetRevision: $(REVISION)|' deploy/argocd/root.yaml | $(KUBECTL) apply -f -
 	@echo "Waiting for Argo CD to deploy everything (a few minutes the first time)..."
@@ -59,6 +60,16 @@ gateway-key:
 			printf %s "$$key" | $(KUBECTL) -n factory create secret generic typesafe --from-file=api-key=/dev/stdin --dry-run=client -o yaml | \
 				$(KUBECTL) apply -f - >/dev/null && echo "  The gateway has the TypeSafe key, so it records what Jev answers."; \
 		else echo "  No TypeSafe key (TYPESAFE_API_KEY, or the Keychain's typesafe-api-key): the gateway replays cassettes only."; fi
+
+# The factory's GitHub App key, from the macOS Keychain (base64, because the Keychain prints a value with newlines as
+# hex), goes to the cluster the same way: through stdin, decoded on the way. Without it the GitHub worker reads and
+# writes nothing. Restart the worker after changing the key.
+github-key:
+	@if security find-generic-password -s factory-github-app-key >/dev/null 2>&1; then \
+			security find-generic-password -s factory-github-app-key -w | base64 -d | \
+				$(KUBECTL) -n factory create secret generic github-app --from-file=private-key=/dev/stdin --dry-run=client -o yaml | \
+				$(KUBECTL) apply -f - >/dev/null && echo "  The GitHub worker has the App's key, so it acts as the factory in GitHub."; \
+		else echo "  No App key (the Keychain's factory-github-app-key): the GitHub worker reads and writes nothing."; fi
 
 egress: ## Prove the network policies: only the gateway may leave the cluster (needs the factory's workers running)
 	scripts/egress.sh
