@@ -39,8 +39,8 @@ spec:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
 ---
-# Every worker writes to the store and sends its own telemetry. A pod labelled as a worker gets only this, which is
-# why a stray one can reach nothing else.
+# Every worker but the GitHub worker writes to the store, and every one sends its own telemetry. A pod labelled as a
+# worker gets only this, which is why a stray one can reach nothing else.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -180,8 +180,8 @@ spec:
         - { protocol: TCP, port: 443 }
 ---
 # The GitHub worker reaches GitHub and GHCR, over TLS, and nothing else outside the cluster. Their addresses are many
-# and change, so, as for the gateway, the rule is the internet on 443 with the cluster's and the local network's
-# addresses excepted. Nothing calls it yet; the line will.
+# and change, so, as for the gateway, the rule is the internet on 443 with the cluster's, the local network's and the
+# host's addresses excepted. Nothing calls it yet; the line will. It sends its telemetry, and touches no store.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -198,9 +198,18 @@ spec:
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
-            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 0.0.0.0/8]
       ports:
         - { protocol: TCP, port: 443 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - { protocol: TCP, port: 4318 }
 ---
 # Triage asks the gateway to judge a report, and the probes' page reader for the page it names.
 apiVersion: networking.k8s.io/v1

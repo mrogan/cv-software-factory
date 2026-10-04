@@ -8,9 +8,11 @@ metadata:
   labels: &labels
     app.kubernetes.io/name: github
     app.kubernetes.io/part-of: software-factory
-    app.kubernetes.io/component: worker
+    # Not `worker`: that would give the pod with the App's key and the internet a path to Postgres, which it never
+    # uses. Its own policy gives it the collector (network-policies.yaml).
+    app.kubernetes.io/component: github
   annotations:
-    # After Postgres (wave 0) and the migrations (wave 1), with the console.
+    # With the other workers, after the artifacts volume it records dry runs to.
     argocd.argoproj.io/sync-wave: "2"
 spec:
   replicas: 1
@@ -44,6 +46,9 @@ spec:
             - name: http
               containerPort: 8080
           env:
+            # Other pods call it, so it listens beyond loopback; the network policy says which may.
+            - name: HOST
+              value: 0.0.0.0
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector.telemetry:4318"
             - name: OTEL_SERVICE_NAME
