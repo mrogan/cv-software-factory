@@ -53,13 +53,16 @@ export interface ServerOptions {
   clock?: () => Date;
 }
 
-/** Writes a reply, relaying a stream chunk by chunk, and stops reading it if the runner goes away. */
+/**
+ * Writes a reply, relaying a stream chunk by chunk at the pace the runner reads it, and stops reading it if the
+ * runner goes away.
+ */
 async function write(res: ServerResponse, reply: Reply): Promise<void> {
   res.writeHead(reply.status, { 'cache-control': 'no-store', ...reply.headers });
   if (typeof reply.body === 'string') return void res.end(reply.body);
   for await (const chunk of reply.body) {
     if (res.destroyed) break;
-    res.write(chunk);
+    if (!res.write(chunk)) await new Promise((resolve) => res.once('drain', resolve).once('close', resolve));
   }
   res.end();
 }
@@ -67,9 +70,16 @@ async function write(res: ServerResponse, reply: Reply): Promise<void> {
 export function createGatewayServer({ gateway, agents, spend, log, clock = () => new Date() }: ServerOptions): Server {
   async function agentCall(req: IncomingMessage, res: ServerResponse, call: 'messages' | 'countTokens') {
     if (!agents) return send(res, 404, { error: 'bad-request', message: 'This gateway serves no agents.' });
+    // The body is read only once the token is good, and the call to the provider ends if the runner goes away.
+    const gone = new AbortController();
+    res.once('close', () => gone.abort());
     let reply: Reply;
     try {
-      reply = await agents[call](req.headers, await readBody(req, MAX_MESSAGES_BYTES));
+      const read = () => readBody(req, MAX_MESSAGES_BYTES);
+      reply =
+        call === 'messages'
+          ? await agents.messages(req.headers, read, gone.signal)
+          : await agents.countTokens(req.headers, read);
     } catch (error) {
       if (error instanceof TooLarge) reply = apiError(413, 'request_too_large', 'The request is over 32 MB.');
       else if (error instanceof BadRequest) reply = apiError(400, 'invalid_request_error', error.message);

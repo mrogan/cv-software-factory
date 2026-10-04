@@ -49,7 +49,11 @@ const sse = (text: string) =>
     .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
     .join('');
 
-type Step = { status: number; body: unknown } | 'drop';
+type Step =
+  | { status: number; body: unknown; headers?: Record<string, string> }
+  | 'drop'
+  /** A stream as given, and then the connection dropped if `drop`. */
+  | { sse: string; drop?: boolean };
 
 /** A stand-in for Anthropic's Messages API (and LM Studio's, which is the same). */
 async function fakeProvider() {
@@ -62,8 +66,14 @@ async function fakeProvider() {
     requests.push({ headers: req.headers, body });
     const step = steps.shift();
     if (step === 'drop') return void req.socket.destroy();
+    if (step && 'sse' in step) {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write(step.sse);
+      if (step.drop) return void setTimeout(() => res.destroy(), 20);
+      return void res.end();
+    }
     if (step) {
-      res.writeHead(step.status, { 'content-type': 'application/json' });
+      res.writeHead(step.status, { 'content-type': 'application/json', ...step.headers });
       return void res.end(JSON.stringify(step.body));
     }
     if (body.stream) {
@@ -351,7 +361,9 @@ describe('agents through the gateway', () => {
 
 describe('reading the provider', () => {
   it('reads usage from a whole response and from a stream', () => {
-    expect(usageOf(JSON.stringify({ usage: { input_tokens: 5, output_tokens: 2 } }), false)).toMatchObject({
+    expect(
+      usageOf(JSON.stringify({ type: 'message', usage: { input_tokens: 5, output_tokens: 2 } }), false),
+    ).toMatchObject({
       inputTokens: 5,
       outputTokens: 2,
     });
@@ -379,5 +391,161 @@ describe('reading the provider', () => {
 
   it('keys a step without its session or its date', () => {
     expect(keyedRequest(agentRequest('2026-10-04', 'a'))).toEqual(keyedRequest(agentRequest('2027-01-31', 'b')));
+  });
+});
+
+/** A stream's events, written as Anthropic writes them. */
+const events = (...list: [string, unknown][]) =>
+  list.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('');
+
+describe('what the gateway lets through', () => {
+  it('refuses a beta it does not know, a server tool, and a field it does not take, before calling anyone', async () => {
+    provider.requests.length = 0;
+    const { token } = await start();
+    const send = (body: unknown, beta = 'interleaved-thinking-2025-05-14') =>
+      fetch(`${url}/v1/messages`, {
+        method: 'POST',
+        headers: { 'x-api-key': token, 'anthropic-beta': beta, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const beta = await send(agentRequest(), 'interleaved-thinking-2025-05-14,web-fetch-2025-09-10');
+    expect(beta.status).toBe(400);
+    expect(await beta.json()).toMatchObject({ error: { message: expect.stringContaining('web-fetch-2025-09-10') } });
+    const search = await send({ ...agentRequest(), tools: [{ type: 'web_search_20260209', name: 'web_search' }] });
+    expect(search.status).toBe(400);
+    expect((await send({ ...agentRequest(), service_tier: 'priority' })).status).toBe(400);
+    expect(
+      (await send({ ...agentRequest(), tools: [{ name: 'Bash', input_schema: { type: 'object' } }] })).status,
+    ).toBe(200);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it('checks the token before it reads the body, and takes a Bearer token as well as a key', async () => {
+    const { token } = await start();
+    const stranger = await fetch(`${url}/v1/messages`, { method: 'POST', body: 'not json at all' });
+    expect(stranger.status).toBe(401);
+    const bearer = await fetch(`${url}/v1/messages`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: 'not json at all',
+    });
+    expect(bearer.status).toBe(400);
+    expect(await bearer.json()).toMatchObject({ error: { message: 'The body is not JSON.' } });
+    const huge = await fetch(`${url}/v1/messages`, {
+      method: 'POST',
+      headers: { 'x-api-key': token },
+      body: 'x'.repeat(33 * 1024 * 1024),
+    });
+    expect(huge.status).toBe(413);
+  });
+});
+
+describe('what the provider answers', () => {
+  it('a whole message, not streamed: relayed, audited and recorded', async () => {
+    provider.requests.length = 0;
+    const { sql, token } = await start();
+    const response = await call(token, { ...agentRequest(), stream: false });
+    expect(await response.json()).toMatchObject({ type: 'message', usage: { input_tokens: 10 } });
+    const [row] = await sql`select input_tokens, output_tokens, outcome from model_calls`;
+    expect(row).toEqual({ input_tokens: 10, output_tokens: 3, outcome: 'answered' });
+  });
+
+  it('counts an hour’s cache writes apart, and a delta’s nulls change nothing', async () => {
+    const { sql, token } = await start();
+    provider.script({
+      sse: events(
+        [
+          'message_start',
+          {
+            type: 'message_start',
+            message: {
+              type: 'message',
+              usage: {
+                input_tokens: 100,
+                cache_read_input_tokens: 2000,
+                cache_creation_input_tokens: 500,
+                cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 500 },
+                output_tokens: 1,
+              },
+            },
+          },
+        ],
+        [
+          'message_delta',
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn' },
+            usage: {
+              output_tokens: 40,
+              input_tokens: null,
+              cache_read_input_tokens: null,
+              cache_creation_input_tokens: null,
+            },
+          },
+        ],
+        ['message_stop', { type: 'message_stop' }],
+      ),
+    });
+    await (await call(token, agentRequest())).text();
+    const [row] =
+      await sql`select input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd from model_calls`;
+    expect(row).toMatchObject({
+      input_tokens: 100,
+      output_tokens: 40,
+      cache_read_tokens: 2000,
+      cache_write_tokens: 500,
+    });
+    const usage = {
+      inputTokens: 100,
+      outputTokens: 40,
+      cacheReadTokens: 2000,
+      cacheWriteTokens: 0,
+      cacheWriteHourTokens: 500,
+    };
+    expect(Number(row?.cost_usd)).toBeCloseTo(costOf('claude-sonnet-5-5', usage), 8);
+  });
+
+  it('a stream that reports an error, or breaks off, is audited at what it cost, and keeps no cassette', async () => {
+    const { sql, token } = await start();
+    const start_ = [
+      'message_start',
+      { type: 'message_start', message: { type: 'message', usage: { input_tokens: 300, output_tokens: 1 } } },
+    ] as [string, unknown];
+    const delta = ['message_delta', { type: 'message_delta', delta: {}, usage: { output_tokens: 25 } }] as [
+      string,
+      unknown,
+    ];
+    provider.script({
+      sse: events(start_, delta, [
+        'error',
+        { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } },
+      ]),
+    });
+    await (await call(token, agentRequest())).text();
+    provider.script({ sse: events(start_, delta), drop: true });
+    await (await call(token, agentRequest('2026-10-06')).catch(() => undefined))?.text().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const rows = await sql`select outcome, output_tokens, cost_usd from model_calls order by at`;
+    expect(rows.map((r) => [r.outcome, r.output_tokens])).toEqual([
+      ['failed', 25],
+      ['failed', 25],
+    ]);
+    expect(rows.every((r) => Number(r.cost_usd) > 0)).toBe(true);
+    expect(readdirSync(cassettesDir).filter((f) => f.endsWith('.json'))).toEqual([]);
+  });
+
+  it('passes a rate limit or an overload through with its retry-after, for the SDK to wait out', async () => {
+    const { token } = await start();
+    provider.script(
+      {
+        status: 429,
+        body: { type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } },
+        headers: { 'retry-after': '12' },
+      },
+      { status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'busy' } } },
+    );
+    const limited = await call(token, agentRequest());
+    expect([limited.status, limited.headers.get('retry-after')]).toEqual([429, '12']);
+    expect((await call(token, agentRequest())).status).toBe(529);
   });
 });

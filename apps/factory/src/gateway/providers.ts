@@ -81,10 +81,15 @@ export class LocalModels implements MessagesProvider {
   }
 }
 
-/** A provider refusing for a cap the factory does not own: why, and in its own words. */
-export interface ProviderRefusal {
-  reason: ProviderCap;
-  message: string;
+/** A provider refusing for a cap the factory does not own: why, as a kind callers branch on, and in its own words. */
+export class ProviderRefusal {
+  readonly reason: ProviderCap;
+  readonly message: string;
+
+  constructor(reason: ProviderCap, message: string) {
+    this.reason = reason;
+    this.message = message;
+  }
 }
 
 /** Reads an error response for a cap the factory does not own, or undefined for any other failure. */
@@ -99,8 +104,10 @@ export function capOf(status: number, body: string): ProviderRefusal | undefined
     return undefined;
   }
   const said = message.slice(0, 300) || `${status} ${type}`;
-  if (/workspace/i.test(message) && /limit/i.test(message)) return { reason: 'workspace-limit', message: said };
-  if (status === 402 || type === 'billing_error' || /credit balance/i.test(message))
-    return { reason: 'credit', message: said };
+  // Read here, once: callers get a ProviderRefusal and its kind, and never match the words again.
+  if (/workspace/i.test(message) && /limit/i.test(message)) return new ProviderRefusal('workspace-limit', said);
+  if (status === 402 || type === 'billing_error' || /credit balance/i.test(message)) {
+    return new ProviderRefusal('credit', said);
+  }
   return undefined;
 }

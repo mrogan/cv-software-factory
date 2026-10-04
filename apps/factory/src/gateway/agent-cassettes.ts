@@ -29,6 +29,11 @@ const agentCassette = z.strictObject({
 
 export type AgentCassette = z.infer<typeof agentCassette>;
 
+/** A cassette whose contents do not match its key: changed, or written by something else. */
+export class CassetteDamaged extends Error {
+  override name = 'CassetteDamaged';
+}
+
 /** How a prompt names the day, which changes from one run to the next and nothing else does. */
 const DATE = /Today's date is [^.\n"\\]+/g;
 
@@ -58,7 +63,7 @@ export class AgentCassettes {
     for (const dir of this.#dirs) {
       const file = join(dir, `${key}.json`);
       if (!existsSync(file)) continue;
-      const damaged = new Error(`Cassette ${file} is damaged: its contents do not match its key.`);
+      const damaged = new CassetteDamaged(`Cassette ${file} is damaged: its contents do not match its key.`);
       let json: unknown;
       try {
         json = JSON.parse(readFileSync(file, 'utf-8'));

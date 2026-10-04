@@ -228,7 +228,9 @@ describe('the gateway’s settings', () => {
     expect(() => configFromEnv({ GATEWAY_MODE: 'yolo' })).toThrow('GATEWAY_MODE');
     expect(() => configFromEnv({ FACTORY_PROFILE: 'moon' })).toThrow('FACTORY_PROFILE');
     expect(() => configFromEnv({ GATEWAY_MODE: 'record', TYPESAFE_API_KEY: 'k' })).toThrow('CASSETTES_DIR');
-    // With no key it only replays, so it records nothing and needs nowhere to.
-    expect(configFromEnv({ GATEWAY_MODE: 'record' }).mode).toBe('record');
+    // On `local` the local model records with no key at all, so it needs somewhere to.
+    expect(() => configFromEnv({ GATEWAY_MODE: 'record' })).toThrow('CASSETTES_DIR');
+    // With no key and no local model it only replays, so it records nothing and needs nowhere to.
+    expect(configFromEnv({ GATEWAY_MODE: 'record', FACTORY_PROFILE: 'do' }).mode).toBe('record');
   });
 });

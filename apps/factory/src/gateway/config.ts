@@ -58,10 +58,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv): GatewayConfig {
   if (config.allLocal && !MODELS[config.profile].local) {
     throw new Error(`ALL_LOCAL sends every agent to the local model, and the ${config.profile} profile has none.`);
   }
-  if (config.anthropicKey && (config.mode === 'record' || config.mode === 'replay-record') && !config.cassettesDir) {
-    throw new Error(`GATEWAY_MODE ${config.mode} records cassettes, so set CASSETTES_DIR to the folder for them.`);
-  }
-  if (apiKey && (config.mode === 'record' || config.mode === 'replay-record') && !config.cassettesDir) {
+  // Recording needs somewhere to record, whenever there is a provider to record from: TypeSafe, Anthropic, or the
+  // profile's local model, which needs no key.
+  const records = config.mode === 'record' || config.mode === 'replay-record';
+  const provider = apiKey || config.anthropicKey || MODELS[config.profile].local;
+  if (records && provider && !config.cassettesDir) {
     throw new Error(`GATEWAY_MODE ${config.mode} records cassettes, so set CASSETTES_DIR to the folder for them.`);
   }
   return config;

@@ -58,7 +58,10 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
       {},
       AbortSignal.timeout(30_000),
     );
-    const usage = response.ok ? usageOf(await response.text(), false) : { inputTokens: 0, outputTokens: 0 };
+    const usage = (response.ok ? usageOf(await response.text(), false) : undefined) ?? {
+      inputTokens: 0,
+      outputTokens: 0,
+    };
     if (!response.ok) await response.body?.cancel();
     // Every call is audited and counted, the gateway's own included.
     await sql`

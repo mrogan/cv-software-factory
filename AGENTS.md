@@ -32,7 +32,8 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   export PGHOST=127.0.0.1 PGDATABASE=factory PGUSER=factory_writer \
     PGPASSWORD="$(kubectl --context k3d-software-factory -n factory get secret postgres-writer -o jsonpath='{.data.password}' | base64 -d)"
   # The gateway, with the keys from the Keychain (leave one out to replay that provider only), on :8080. It reaches LM
-  # Studio at 127.0.0.1:1234; ALL_LOCAL=true sends every agent there.
+  # Studio at 127.0.0.1:1234; ALL_LOCAL=true sends every agent there. Its cassettes hold whole prompts, reports and
+  # tool output: keep them out of the repository (only eval cassettes, made from invented reports, are committed).
   GATEWAY_MODE=replay-record CASSETTES_DIR=/tmp/cassettes TYPESAFE_API_KEY="$(security find-generic-password -s typesafe-api-key -w)" \
     ANTHROPIC_API_KEY="$(security find-generic-password -s anthropic-api-key -w)" \
     node --import ./apps/factory/src/telemetry.ts apps/factory/src/cli.ts gateway &
