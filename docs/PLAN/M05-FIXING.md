@@ -80,7 +80,7 @@ Each task is its own pull request, in order, each demonstrable.
 ### 0. Settled before the start
 
 - Martin has agreed the decisions above, and settled anything this file asks him.
-- Martin has created the GitHub App on his account, installable only there, with no webhook and no user authorisation. It may read and write contents, pull requests, checks and issues, with metadata read-only and nothing else. It is installed on the two public repositories only. Its avatar is the design system's mark, so its work never wears Martin's face.
+- Martin has created the GitHub App, `mrogan-software-factory` (its work shows as `mrogan-software-factory[bot]`), on his account, installable only there, with no webhook and no user authorisation. It may read and write contents, pull requests, checks and issues, with metadata read-only and nothing else. It is installed on the two public repositories only. Its avatar is the design system's mark, so its work never wears Martin's face.
 - The App's private key is in Martin's macOS Keychain as `factory-github-app-key`, base64-encoded, because `security find-generic-password -w` prints a value with newlines as hex. `make up` decodes it.
 - Martin has an Anthropic API key for a Claude Console workspace of its own, with a monthly spend limit above the gateway's caps, in the Keychain as `anthropic-api-key`.
 - LM Studio serves `qwen/qwen3.8-27b` on `127.0.0.1:1234` on Martin's Mac.
