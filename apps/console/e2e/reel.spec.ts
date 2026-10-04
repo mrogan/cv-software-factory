@@ -3,6 +3,25 @@ import { consoleUrl, END, expect, ready, test } from './support.ts';
 
 const renders = (page: Page) =>
   page.evaluate(() => (globalThis as { sfRenders?: { reel: number } }).sfRenders?.reel ?? -1);
+/**
+ * The render count once it has stopped changing. Letting go of the reel removes its dragging class at once, and React
+ * renders where it settled a moment later, so a count read straight away can miss a render.
+ */
+async function settledRenders(page: Page): Promise<number> {
+  let last = Number.NaN;
+  await expect
+    .poll(
+      async () => {
+        const now = await renders(page);
+        const still = now === last;
+        last = now;
+        return still;
+      },
+      { intervals: [250] },
+    )
+    .toBe(true);
+  return last;
+}
 const centre = (page: Page) => page.locator('.card[data-place="centre"] h3').textContent();
 
 /** Drags the reel a card and a half to the right, in a given number of pointer moves. */
@@ -25,10 +44,10 @@ test.describe('the reel', () => {
     for (const frames of [8, 80]) {
       await page.goto(consoleUrl({ debug: 'renders' }));
       await ready(page);
-      const before = await renders(page);
+      const before = await settledRenders(page);
       await drag(page, frames);
       await expect(page.locator('.reel')).not.toHaveClass(/dragging/);
-      counts.push((await renders(page)) - before);
+      counts.push((await settledRenders(page)) - before);
     }
     // React hears where the drag settled, however many frames it drew on the way.
     expect(counts[1]).toBe(counts[0]);

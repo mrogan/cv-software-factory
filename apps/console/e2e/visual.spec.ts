@@ -6,7 +6,7 @@
  * empty store for real events.
  */
 import { STAGES as KINDS } from '@software-factory/events';
-import { consoleUrl, emptyStore, expect, fixtureUrl, ready, THEMES, test, WIDTHS } from './support.ts';
+import { consoleUrl, emptyStore, expect, fixtureUrl, picturesShown, ready, THEMES, test, WIDTHS } from './support.ts';
 
 /** The station kit's states (the design system's README); its module defines an element, so Node cannot load it. */
 const STATUSES = ['idle', 'working', 'returning', 'passing', 'blocked', 'failed'] as const;
@@ -68,15 +68,7 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         await ready(page);
         const card = page.locator('.card[data-place="centre"]');
         await card.scrollIntoViewIfNeeded();
-        // Every image loaded and decoded, the lazy ones included: a failure says so here, not as a pixel difference.
-        await card.evaluate((el) =>
-          Promise.all(
-            [...el.querySelectorAll('img')].map((img) => {
-              img.loading = 'eager';
-              return img.decode();
-            }),
-          ),
-        );
+        await picturesShown(card);
         await expect(card).toHaveScreenshot(`card-${picture}-${width}.png`);
       });
     }
@@ -115,14 +107,7 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         await ready(page);
         const card = page.locator('.card[data-place="centre"]');
         await card.scrollIntoViewIfNeeded();
-        await card.evaluate((el) =>
-          Promise.all(
-            [...el.querySelectorAll('img')].map((img) => {
-              img.loading = 'eager';
-              return img.decode();
-            }),
-          ),
-        );
+        await picturesShown(card);
         await expect(card).toHaveScreenshot(`m04-card-${state}-${width}.png`);
       });
     }

@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Locator, type Page } from '@playwright/test';
 
 export const PORT = 18_321;
 /** A second server, with the console's milestone 4 test data (test/fixture) instead of the samples. */
@@ -109,6 +109,25 @@ export async function emptyStore(page: Page, kind: 'sample' | 'real' | null): Pr
 export async function ready(page: Page): Promise<void> {
   await page.locator('.card[data-place="centre"]').waitFor();
   await page.evaluate(() => document.fonts.ready);
+}
+
+/**
+ * Waits until every picture in a part of the page is loaded, decoded and drawn, the lazy ones included, so a failure
+ * says so here and not as a pixel difference. The console decodes pictures off the main thread, and a picture
+ * decoded that way can be left out of the frames a snapshot is taken from, so here they decode as they are drawn.
+ */
+export async function picturesShown(part: Locator): Promise<void> {
+  await part.evaluate(async (el) => {
+    const pictures = [...el.querySelectorAll('img')];
+    for (const img of pictures) {
+      img.loading = 'eager';
+      img.decoding = 'sync';
+    }
+    await Promise.all(pictures.map((img) => img.decode()));
+    const empty = pictures.filter((img) => !img.naturalWidth).map((img) => img.src);
+    if (empty.length) throw new Error(`No pixels in ${empty.join(', ')}`);
+    await new Promise((drawn) => requestAnimationFrame(() => requestAnimationFrame(drawn)));
+  });
 }
 
 interface Guard {
