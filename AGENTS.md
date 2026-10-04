@@ -52,7 +52,7 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
 - Commits and pull request titles are Conventional Commits (`scripts/commit-msg.ts` checks both). Pull requests are squash-merged; nothing is pushed to `main`.
 - `deploy/` is GitOps: Argo CD deploys what is on `main`, so a change there reaches the cluster only when it merges. A deploy change that needs a new image (a migration, a new setting) waits for the pull request that pins that image.
 - Files listed in `.github/CODEOWNERS` are the rules of the line. Change them only when Martin asks.
-- Merging is Martin's call, and so is approving the held check runs on a pull request a workflow opened (deploy, release).
+- Merging is Martin's call. The factory's App opens the deploy and release pull requests; no workflow opens or approves one.
 - pnpm installs no release younger than a day, runs no dependency's install script unless `pnpm-workspace.yaml` allows it, and refuses a provenance downgrade. When it refuses, find out why; an exception goes in that file with its reason.
 - Refresh a Dependabot pull request with `@dependabot rebase` or `@dependabot recreate`. Don't close it: that tells Dependabot to skip the version.
 - A follow-up with no home yet goes in [`docs/PLAN/BACKLOG.md`](docs/PLAN/BACKLOG.md), not in a code comment.

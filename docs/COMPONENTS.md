@@ -65,7 +65,7 @@ Each component lists its v1 choice and, where useful, what it might grow into. L
 |---|---|---|---|
 | **Ingress** | Public entry to `do` and `aws` | Cloudflare Tunnel: no load balancer, no open ports | |
 | **Registry** | Signed images, referenced by digest | GHCR, shared by every profile | ECR on `aws` |
-| **GitOps** | Cluster state reconciled from git | Argo CD app of apps, one Kustomize overlay per profile. Each overlay pins image digests; CI opens a pull request to move them, labelled with the profile (`deploy: local`). The app deploys from its own repository through its own Argo CD project: a few namespaced kinds, in the `website` namespace, and nothing else | Promotion pull requests from the factory's GitHub App |
+| **GitOps** | Cluster state reconciled from git | Argo CD app of apps, one Kustomize overlay per profile. Each overlay pins image digests; the factory's GitHub worker opens a pull request to move them when CI builds new images, labelled with the profile (`deploy: local`). The app deploys from its own repository through its own Argo CD project: a few namespaced kinds, in the `website` namespace, and nothing else | |
 | **Admission control** | Refuses unsigned images | Kyverno image verification | |
 | **Progressive delivery** | Canary against baseline; automatic promote or roll back | Argo Rollouts with short steps (for example 20% then 100%), analysed on error rate, latency and probe results | More steps, business metrics |
 | **Traffic generator** | Gives canary analysis enough samples within minutes | Small load job hitting key journeys | |
