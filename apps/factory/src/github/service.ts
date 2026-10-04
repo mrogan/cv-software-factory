@@ -4,7 +4,7 @@
  */
 import { DiskArtifacts } from '@software-factory/store';
 import type { Logger } from 'pino';
-import { type Actions, DryRunActions, LiveActions } from './actions.ts';
+import { type Actions, contentsReader, DryRunActions, LiveActions } from './actions.ts';
 import { GitHub } from './client.ts';
 import type { GitHubConfig } from './config.ts';
 import { currentWatch } from './current.ts';
@@ -19,9 +19,11 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
   const registry = new Registry({ base: config.ghcr });
   // configFromEnv refuses a dry run with nowhere to record it; this holds even if it is called some other way.
   if (config.dryRun && !config.artifactsDir) throw new Error('A dry run needs ARTIFACTS_DIR to record to.');
-  const actions: Actions = config.dryRun
-    ? new DryRunActions(new DiskArtifacts(config.artifactsDir as string), log)
-    : new LiveActions(github);
+  // One dry run, remembered for as long as the worker runs, for a worker in dry-run mode and for any request that asks.
+  const dryRun = config.artifactsDir
+    ? new DryRunActions(new DiskArtifacts(config.artifactsDir), log, undefined, contentsReader(github))
+    : undefined;
+  const actions: Actions = config.dryRun && dryRun ? dryRun : new LiveActions(github);
   const poller = new Poller({ intervalMs: config.pollMs, log });
 
   const mode = config.dryRun ? 'dry-run' : github.writable ? 'live' : 'read-only';
@@ -45,6 +47,7 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
   }
   const server = createWorkerServer({
     actions,
+    dryRun,
     repositories: config.repositories,
     health: () => ({ mode, watching: poller.watching }),
     log,

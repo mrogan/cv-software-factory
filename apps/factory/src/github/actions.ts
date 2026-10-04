@@ -14,6 +14,7 @@ import type { ArtifactStore } from '@software-factory/store';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import { type GitHub, GitHubError } from './client.ts';
+import { applyTo } from './patches.ts';
 
 export interface FileChanges {
   /** Files to add or replace, with their whole new contents. */
@@ -28,6 +29,36 @@ export interface Commit {
   /** The first line is the headline; the rest, after a blank line, is the body. */
   message: string;
   changes: FileChanges;
+}
+
+/** A runner's patch, to go on a branch as one signed commit (ADR 0008). */
+export interface PatchCommit {
+  branch: string;
+  /** The branch's head, which the patch was made against and goes on. */
+  expectedHead: string;
+  /** A unified diff, as `git diff` writes one. */
+  patch: string;
+  message: string;
+}
+
+/** Reads a file at a commit: its text, or null if it is not there. */
+export type ReadFile = (repo: string, path: string, ref: string) => Promise<string | null>;
+
+/** A file at a commit, through the contents API. */
+export function contentsReader(github: GitHub): ReadFile {
+  return async (repo, path, ref) => {
+    try {
+      const file = await github.request<{ content?: string; encoding?: string }>(
+        repo,
+        'GET',
+        `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`,
+      );
+      return Buffer.from(file.content ?? '', 'base64').toString('utf-8');
+    } catch (error) {
+      if (error instanceof GitHubError && error.kind === 'not-found') return null;
+      throw error;
+    }
+  };
 }
 
 export interface PullRequestDraft {
@@ -73,6 +104,8 @@ export interface Actions {
   deleteBranch(repo: string, branch: string): Promise<void>;
   /** Makes one signed commit on a branch, and returns its sha. */
   commit(repo: string, commit: Commit): Promise<string>;
+  /** Applies a runner's patch to the files at the branch's head, outside the sandbox, and commits it. */
+  applyPatch(repo: string, patch: PatchCommit): Promise<string>;
   openPullRequest(repo: string, draft: PullRequestDraft): Promise<PullRequestRef>;
   updatePullRequest(repo: string, number: number, change: { title?: string; body?: string }): Promise<void>;
   addLabels(repo: string, number: number, labels: string[]): Promise<void>;
@@ -121,9 +154,16 @@ const checkRunBody = (report: Partial<CheckRunReport>) => ({
 export class LiveActions implements Actions {
   readonly dryRun = false;
   readonly #github: GitHub;
+  readonly #read: ReadFile;
 
   constructor(github: GitHub) {
     this.#github = github;
+    this.#read = contentsReader(github);
+  }
+
+  async applyPatch(repo: string, { branch, expectedHead, patch, message }: PatchCommit): Promise<string> {
+    const changes = await applyTo(patch, (path) => this.#read(repo, path, expectedHead));
+    return this.commit(repo, { branch, expectedHead, message, changes });
   }
 
   async setBranch(repo: string, branch: string, sha: string, { force = false } = {}): Promise<void> {
@@ -269,16 +309,45 @@ export class DryRunActions implements Actions {
   readonly #artifacts: ArtifactStore;
   readonly #log: Logger;
   readonly #now: () => Date;
+  readonly #read: ReadFile;
+  /**
+   * The commits it would have made, each with its parent and the files it changed, so a patch can go on one: the
+   * smoke run's seeded base, or a second round's fix on top of the first.
+   */
+  readonly #commits = new Map<string, { parent: string; files: Map<string, string | null> }>();
   /**
    * Numbers for what would have been made, from a billion up: positive, as every action that takes one requires,
    * and far beyond any this repository will reach, so none can be taken for a real one.
    */
   #next = 1_000_000_000;
 
-  constructor(artifacts: ArtifactStore, log: Logger, now: () => Date = () => new Date()) {
+  constructor(
+    artifacts: ArtifactStore,
+    log: Logger,
+    now: () => Date = () => new Date(),
+    read: ReadFile = async () => {
+      throw new Error('This dry run reads no files.');
+    },
+  ) {
     this.#artifacts = artifacts;
     this.#log = log;
     this.#now = now;
+    this.#read = read;
+  }
+
+  /** A file at a commit: as a commit this dry run made left it, or as it really is. */
+  async #file(repo: string, path: string, ref: string): Promise<string | null> {
+    let at = ref;
+    for (let made = this.#commits.get(at); made; made = this.#commits.get(at)) {
+      if (made.files.has(path)) return made.files.get(path) ?? null;
+      at = made.parent;
+    }
+    return this.#read(repo, path, at);
+  }
+
+  async applyPatch(repo: string, { branch, expectedHead, patch, message }: PatchCommit): Promise<string> {
+    const changes = await applyTo(patch, (path) => this.#file(repo, path, expectedHead));
+    return this.commit(repo, { branch, expectedHead, message, changes });
   }
 
   async #record(action: DryRunRecord['action'], repo: string, args: unknown): Promise<string> {
@@ -311,7 +380,11 @@ export class DryRunActions implements Actions {
       },
     });
     // The record's own hash stands in for the commit's: it is as long, and names something that can be looked up.
-    return hash.slice(0, 40);
+    const sha = hash.slice(0, 40);
+    const files = new Map<string, string | null>(changes.deletions.map((path) => [path, null]));
+    for (const a of changes.additions) files.set(a.path, new TextDecoder().decode(a.contents));
+    this.#commits.set(sha, { parent: commit.expectedHead, files });
+    return sha;
   }
 
   async openPullRequest(repo: string, draft: PullRequestDraft): Promise<PullRequestRef> {

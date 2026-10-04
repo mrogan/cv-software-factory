@@ -2,19 +2,21 @@
  * The GitHub worker over HTTP, for the other workers in the cluster: the only way they act in GitHub, since this is
  * the only pod with the App's key.
  *
- *     POST /v1/actions/<action>   one of `Actions`, with its arguments as JSON; its result out
+ *     POST /v1/actions/<action>   one of `Actions`, with its arguments as JSON; its result out. With the header
+ *                                 `x-factory-dry-run: true` it is recorded in the artifact store and not done
  *     GET  /health                whether it can write, whether it is a dry run, and what it is watching
  *
  * A body must say it is JSON: a web page cannot send that without the browser asking first, and the worker answers
  * no browser, so a page open on the same machine cannot make it act. Each body is checked with Zod at the door, and names a repository the worker is configured for, or it is refused.
  * A GitHub failure keeps its meaning: refused 403, not found 404, conflict 409, rate limited 429, GitHub or the
- * network failing 502, and a write with no key 503.
+ * network failing 502, and a write with no key 503. A patch that will not apply is 422.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import type { Actions } from './actions.ts';
 import { GitHubError } from './client.ts';
+import { PatchRefused } from './patches.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
@@ -59,6 +61,15 @@ const ARGS = {
       deletions: z.array(path).max(200),
     }),
   }),
+  applyPatch: z.strictObject({
+    branch,
+    expectedHead: sha,
+    patch: z
+      .string()
+      .min(1)
+      .max(2 * 1024 * 1024),
+    message: text(10_000).min(1),
+  }),
   openPullRequest: z.strictObject({
     head: branch,
     base: branch,
@@ -102,6 +113,7 @@ const CALLS: { [K in Name]: (actions: Actions, repo: string, args: z.infer<(type
         deletions: changes.deletions,
       },
     }),
+  applyPatch: (x, repo, patch) => x.applyPatch(repo, patch),
   openPullRequest: (x, repo, draft) => x.openPullRequest(repo, defined(draft)),
   updatePullRequest: (x, repo, { number, ...change }) => x.updatePullRequest(repo, number, defined(change)),
   addLabels: (x, repo, { number, labels }) => x.addLabels(repo, number, labels),
@@ -146,6 +158,8 @@ const STATUS: Record<GitHubError['kind'], number> = {
 
 export interface WorkerServerOptions {
   actions: Actions;
+  /** What a request asking for a dry run (`x-factory-dry-run: true`) gets: one memory of what it would have done. */
+  dryRun?: Actions | undefined;
   /** The repositories the worker acts on, as `owner/name`. */
   repositories: readonly string[];
   /** What the worker says about itself at `/health`. */
@@ -153,7 +167,7 @@ export interface WorkerServerOptions {
   log: Logger;
 }
 
-export function createWorkerServer({ actions, repositories, health, log }: WorkerServerOptions): Server {
+export function createWorkerServer({ actions: live, dryRun, repositories, health, log }: WorkerServerOptions): Server {
   const send = (res: ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify(body));
@@ -162,6 +176,8 @@ export function createWorkerServer({ actions, repositories, health, log }: Worke
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const { pathname } = new URL(req.url ?? '/', 'http://github');
     if (pathname === '/health') return send(res, 200, { status: 'ok', ...health() });
+    // A dry run when asked for, such as the smoke run's, even from a worker that acts.
+    const actions = req.headers['x-factory-dry-run'] === 'true' && dryRun ? dryRun : live;
     const name = /^\/v1\/actions\/([A-Za-z]+)$/.exec(pathname)?.[1];
     if (!name || !Object.hasOwn(ARGS, name)) return send(res, 404, { error: 'not-found', message: 'No such action.' });
     if (req.method !== 'POST') return send(res, 405, { error: 'bad-request', message: 'Use POST.' });
@@ -197,6 +213,10 @@ export function createWorkerServer({ actions, repositories, health, log }: Worke
   return createServer((req, res) => {
     handle(req, res).catch((error: unknown) => {
       if (res.headersSent) return void res.destroy();
+      if (error instanceof PatchRefused) {
+        log.warn({ message: error.message }, 'a patch was refused');
+        return send(res, 422, { error: 'patch-refused', message: error.message });
+      }
       if (error instanceof GitHubError) {
         log.warn({ kind: error.kind, status: error.status, message: error.message }, 'github refused an action');
         return send(res, STATUS[error.kind], { error: error.kind, message: error.message });
