@@ -127,6 +127,16 @@ describe.each(CASES)('%s', (check, fault, symptom) => {
   }, 60_000);
 });
 
+describe('a link from the home page that loops', () => {
+  it('is filed under the route that loops, as the crawler names it, not the home page', async () => {
+    // The home page links one featured item; its siblings are linked only from the about page.
+    const observations = await observe(['featured-loop'], ['home-links-open']);
+    const found = observations.find((o) => o.check === 'home-links-open');
+    expect(found?.finding?.symptom).toBe('redirect-loop');
+    expect(found?.route).toBe('/featured/:featured');
+  }, 60_000);
+});
+
 describe('a shop that writes a price with text against it', () => {
   it('are read for the amount alone', async () => {
     const observations = await observe(

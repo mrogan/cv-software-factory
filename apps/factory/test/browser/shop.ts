@@ -12,6 +12,7 @@ export type Fault =
   | 'catalogue-empty'
   | 'link-404'
   | 'link-loop'
+  | 'featured-loop'
   | 'department-wrong'
   | 'catalogue-price'
   | 'catalogue-name'
@@ -151,17 +152,29 @@ export async function startShop(...faults: Fault[]): Promise<Shop> {
       return send(
         res,
         200,
-        page('About', `<p>${sentences.join(' ')} Sentence number 0 is here. ${'Long '.repeat(80)}end.</p>`),
+        page(
+          'About',
+          `<p>${sentences.join(' ')} Sentence number 0 is here. ${'Long '.repeat(80)}end.</p>${has('featured-loop') ? '<a href="/featured/brass-hook">Hook</a> <a href="/featured/rain-hat">Hat</a>' : ''}`,
+        ),
       );
     }
     if (path === '/loop') {
       res.writeHead(302, { location: '/loop' });
       return res.end();
     }
+    // A featured item that loops, one of several the about page links: only a look past the home page shows they
+    // are a collection.
+    if (has('featured-loop') && path.startsWith('/featured/')) {
+      if (path === '/featured/oak-stool') {
+        res.writeHead(302, { location: path });
+        return res.end();
+      }
+      return send(res, 200, page('Featured', '<p>Featured.</p>'));
+    }
     if (has('next-page-500') && requested > 1 && (path === '/products' || path.startsWith('/departments/')))
       return send(res, 500, page('Broken', '<p>Something went wrong.</p>'));
     if (path === '/') {
-      const extra = `${has('link-404') ? '<li><a href="/missing">Lost property</a></li>' : ''}${has('link-loop') ? '<li><a href="/loop">Offers</a></li>' : ''}`;
+      const extra = `${has('link-404') ? '<li><a href="/missing">Lost property</a></li>' : ''}${has('link-loop') ? '<li><a href="/loop">Offers</a></li>' : ''}${has('featured-loop') ? '<li><a href="/featured/oak-stool">Featured</a></li><li><a href="/about">About</a></li>' : ''}`;
       const departments = DEPARTMENTS.map((d) => `<li><a href="/departments/${d}">${d}</a></li>`).join('');
       const script = has('console-error') ? '<script>throw new Error("boom")</script>' : '';
       return send(res, 200, page('Welcome', `<ul>${departments}${extra}</ul><p>${script}Good day.</p>`));
