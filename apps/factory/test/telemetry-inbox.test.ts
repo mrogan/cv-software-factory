@@ -5,7 +5,7 @@ import { objectives } from '../../../policy/objectives.ts';
 import { Loki } from '../src/clients/loki.ts';
 import { Prometheus } from '../src/clients/prometheus.ts';
 import { Tempo } from '../src/clients/tempo.ts';
-import { lastObserved } from '../src/logs/cursor.ts';
+import { lastObserved, reportsFrom } from '../src/logs/cursor.ts';
 import { Watcher } from '../src/logs/watcher.ts';
 import { inbox } from '../src/outbox.ts';
 import { fakeFetch, ns, streams, VERSION, vector } from './fakes.ts';
@@ -99,5 +99,20 @@ describe('the log watcher, against a real inbox', () => {
   it('picks up where the last report left off, after a restart', async () => {
     expect(await lastObserved(database.writer, 'report')).toEqual(new Date('2026-10-03T20:45:00Z'));
     expect(await lastObserved(database.writer, 'probe')).toBeUndefined();
+  });
+});
+
+describe('where reading reports starts', () => {
+  it('goes back a day for an empty store, but never before the store took real work', async () => {
+    const fresh = await freshDatabase('cursor');
+    try {
+      const now = new Date('2026-10-04T09:00:00Z');
+      const day = 24 * 60 * 60 * 1000;
+      expect(await reportsFrom(fresh.writer, now, day)).toEqual(new Date('2026-10-03T09:00:00Z'));
+      await fresh.owner`insert into store (sample, chosen_at) values (false, '2026-10-04T08:30:00Z')`;
+      expect(await reportsFrom(fresh.writer, now, day)).toEqual(new Date('2026-10-04T08:30:00Z'));
+    } finally {
+      await fresh.end();
+    }
   });
 });

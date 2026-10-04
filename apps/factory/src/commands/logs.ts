@@ -14,7 +14,7 @@ import postgres from 'postgres';
 import { objectives } from '../../../../policy/objectives.ts';
 import { telemetryFrom } from '../clients/env.ts';
 import { log } from '../log.ts';
-import { lastObserved } from '../logs/cursor.ts';
+import { reportsFrom as readReportsFrom } from '../logs/cursor.ts';
 import { TIMING, Watcher } from '../logs/watcher.ts';
 import { inbox, printing } from '../outbox.ts';
 
@@ -60,7 +60,9 @@ export async function run(args: string[]): Promise<number> {
   }
 
   // Not before the last report the inbox holds, and a day back on a fresh store; errors from a couple of minutes ago.
-  const reportsFrom = (sql && (await lastObserved(sql, 'report'))) || new Date(Date.now() - duration('24h'));
+  const reportsFrom = sql
+    ? await readReportsFrom(sql, new Date(), duration('24h'))
+    : new Date(Date.now() - duration('24h'));
   const watcher = new Watcher(backends, { errors: new Date(Date.now() - 2 * 60_000), reports: reportsFrom });
   const learned = await watcher.learnPatterns();
   log.info({ learned, reportsFrom: reportsFrom.toISOString() }, 'log watcher started');
