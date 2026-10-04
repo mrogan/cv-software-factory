@@ -116,12 +116,12 @@ for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
     gh('PUT', '/actions/permissions', { enabled: true, allowed_actions: 'all', sha_pinning_required: true }),
   );
 
-  // Workflows start read-only and ask for more per job. They may open pull requests (the deploy and release
-  // pull requests), which is what "approve" also grants; no review is counted from them.
-  step('workflow tokens read-only by default; workflows may open pull requests', () =>
+  // Workflows start read-only and ask for more per job. None may open or approve a pull request: the factory's App
+  // opens the deploy and release pull requests (ADR 0005), and a workflow's token never stands in for a reviewer.
+  step('workflow tokens read-only by default; workflows may not open or approve pull requests', () =>
     gh('PUT', '/actions/permissions/workflow', {
       default_workflow_permissions: 'read',
-      can_approve_pull_request_reviews: true,
+      can_approve_pull_request_reviews: false,
     }),
   );
 
@@ -129,7 +129,7 @@ for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
     gh('PUT', '/actions/permissions/fork-pr-contributor-approval', { approval_policy: 'first_time_contributors' }),
   );
 
-  // The release pull request carries release-please's labels; a deploy pull request carries this one.
+  // The release pull request carries release-please's labels; a deploy pull request, which the App opens, this one.
   const deployLabel = {
     name: 'deploy: local',
     color: '0e8a16',
