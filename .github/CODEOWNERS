@@ -22,6 +22,7 @@
 
 # Intent, specification and reference material
 /docs/INTENT.md              @mrogan
+/docs/REVIEWERS.md           @mrogan
 /docs/SPECIFICATION.md       @mrogan
 /docs/design/                @mrogan
 /docs/architecture/          @mrogan

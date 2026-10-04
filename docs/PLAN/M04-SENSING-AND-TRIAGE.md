@@ -152,15 +152,15 @@ In the private repository, a script reads an exported event log of tickets and p
 
 ## Exit criteria
 
-- [ ] On a fresh clone with a key, `make up && make real-store` gives a factory whose senses open tickets against the seeded app within 15 minutes, every ticket with its evidence, and a screenshot wherever there is a page to show.
-- [ ] With no reports, the tickets match at least 12 of the 24 seeded defects by the private repository's count. Every ticket that matches none is listed in the results, with its cause.
-- [ ] No seeded defect has two tickets, and a sense running again over the same defect opens nothing new.
-- [ ] A report sent from the widget appears in the console, triaged, within 30 seconds. Its text is in no public view, committed cassette or log line, which tests check.
-- [ ] Every report in the evaluation set routes as expected in CI, on cassettes with no key, and a missing cassette fails the run. Live, `make eval` agrees, and its margins are recorded. Every red-team report is quarantined and every polite feature request parked.
-- [ ] Only the gateway holds the key or reaches the internet, and tests show another pod cannot. At a spend cap the gateway refuses and the console says so.
-- [ ] A new version of the app is probed and crawled within two minutes of becoming ready.
-- [ ] `make stop-the-line` stops triage taking work, and starting the line again resumes from the inbox, losing nothing.
-- [ ] Martin has watched the factory sense and triage in the console, on a laptop and a phone, and approved it against the bar in `INTENT.md`.
+- [x] On a fresh clone with a key, `make up && make real-store` gives a factory whose senses open tickets against the seeded app within 15 minutes, every ticket with its evidence, and a screenshot wherever there is a page to show.
+- [x] With no reports, the tickets match at least 12 of the 24 seeded defects by the private repository's count. Every ticket that matches none is listed in the results, with its cause.
+- [x] No seeded defect has two tickets, and a sense running again over the same defect opens nothing new.
+- [x] A report sent from the widget appears in the console, triaged, within 30 seconds. Its text is in no public view, committed cassette or log line, which tests check.
+- [x] Every report in the evaluation set routes as expected in CI, on cassettes with no key, and a missing cassette fails the run. Live, `make eval` agrees, and its margins are recorded. Every red-team report is quarantined and every polite feature request parked.
+- [x] Only the gateway holds the key or reaches the internet, and tests show another pod cannot. At a spend cap the gateway refuses and the console says so.
+- [x] A new version of the app is probed and crawled within two minutes of becoming ready.
+- [x] `make stop-the-line` stops triage taking work, and starting the line again resumes from the inbox, losing nothing.
+- [x] Martin has watched the factory sense and triage in the console, on a laptop and a phone, and approved it against the bar in `INTENT.md`.
 
 ## Results
 
@@ -185,6 +185,31 @@ Every ticket that matches no defect reports a real fault in the app; none is a c
 | Files the browser may not keep on `/assets/drawings/:file` | A more specific route than the answer key's for the same files. Another ticket, on the broader route, matched. |
 
 Two of the five come from how routes are named and attributed, not from sensing. They are in the backlog.
+
+## Retrospective
+
+What the milestone taught, and where each lesson now lives.
+
+**Decided**
+
+- Jev reads only what a visitor wrote. A sense knows what it saw, so a table in policy gives its signal a category and severity, and a fingerprint recognises a repeat. Spec sections 4.1 and 7.2, and ADR 0004, amended in place because Jev had not been used yet.
+- Checks are written from the app's public pages by an author who has not read the private repository, the app's source or its tests. Otherwise "found without hints" measures nothing: spec section 4.1.
+- One spend cap covers every model provider, with $2 for each work item until the planner and coder show what a fix costs: `policy/spend.ts`, and milestone 5's input.
+
+**Learned about Jev** (all in `TYPESAFE.md`)
+
+- A one-line description of each option moves a Choice more than anything else tried. Bare option names filed two of six faults under the wrong category; with descriptions, all six were right.
+- Jev's answers drift between identical requests, so only a cassette replays exactly, and CI fails on a miss.
+- TypeSafe accepts the alias `jev-latest`, so the gateway refuses aliases itself.
+
+**Learned about the app and its telemetry**
+
+- The app's request metrics name the path asked for, not its route, so each product page is its own series and too thin to alert on. The log watcher and the intake name the route from the log instead: the [backlog](BACKLOG.md), for milestone 6.
+- A new trace reaches Tempo a minute or two late, so the agreement check reads windows that ended minutes ago, and signals carry trace IDs at once and spans later: `COMPONENTS.md` and the backlog.
+- Two of the five tickets that matched no defect came from how a route is named or which page a fault is filed under, not from what was sensed: the backlog.
+- The first real report from the widget was read with the record shape the log watcher had guessed, so that backlog item is closed.
+
+**Left open:** see the [backlog](BACKLOG.md).
 
 ## Out of scope
 
