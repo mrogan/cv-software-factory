@@ -167,6 +167,7 @@ In `apps/factory/src/line`, run by `factory line`:
 - A queue of work items by stage, in Postgres with leases, as the inbox is, taking the oldest open ticket of the highest severity into Plan, one work item at a time.
 - For each stage, a runner, its handback, and the events: `spec.written`, `pull-request.pushed`, `gates.started` and `gate.finished` from the check runs the GitHub worker reads, `review.submitted`, `work.returned` for each round, `model.called` for each step, and `hold.started` when the work item waits for Martin's merge, or for anything else that routes to him. `pull-request.merged` when he merges.
 - When the line stops, it deletes running jobs and takes nothing new, and the gateway refuses agent calls. Starting again resumes from the last event.
+- When a work item ends, merged or closed, the line deletes its volume (`Runners.finish`).
 - The ticket's issue when it enters Plan.
 
 ### 10. The planner
