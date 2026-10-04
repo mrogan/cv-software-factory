@@ -2,7 +2,8 @@
 #
 # - the prepare pod may reach the internet on 443, outside the cluster's and the local network's addresses: GitHub,
 #   to check out the app, and the npm registry, to install it;
-# - the agent pod may reach the gateway and the line's handback, and nothing else.
+# - the agent pod may reach the gateway and the line's handback, and nothing else: not even DNS, where a query for a
+#   name of its choosing would be a way out. The line writes the two addresses into its hosts (runners/jobs.ts).
 #
 # A pod is fenced a moment after it starts, so the agent pod checks its own fence before it runs the agent
 # (apps/runner/src/agent.ts). `make egress` shows the fences hold.
@@ -19,11 +20,13 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-dns
+  name: prepare-dns
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      factory.mrogan.dev/runner: prepare
   policyTypes: [Egress]
   egress:
     - to:

@@ -345,7 +345,9 @@ spec:
         - { protocol: TCP, port: 8080 }
 ---
 # The line takes runners' handbacks, starts their Jobs through the Kubernetes API, and asks the GitHub worker to act.
-# The API server is the node's own address in k3d, so its ports are allowed on private addresses only.
+# The API server listens on the k3d node's own address, which Docker chooses when the cluster is made, on 6443. A policy
+# sees a connection after the `kubernetes` Service has translated it, so 6443 on a private address is all the line
+# needs, and it reaches nothing else on the cluster's or the local network's addresses.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -382,5 +384,4 @@ spec:
         - ipBlock:
             cidr: 192.168.0.0/16
       ports:
-        - { protocol: TCP, port: 443 }
         - { protocol: TCP, port: 6443 }

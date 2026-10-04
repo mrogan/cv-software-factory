@@ -6,3 +6,4 @@ namespace: runners
 resources:
   - network-policies.yaml
   - line-access.yaml
+  - quota.yaml

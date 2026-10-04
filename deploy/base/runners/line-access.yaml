@@ -1,5 +1,6 @@
 # The line may start runners: create, read and delete Jobs, and the volume each work item's Jobs share. Nothing else,
-# here or anywhere: it cannot read a Secret, run a pod of its own or exec into one.
+# here or anywhere: it cannot read a Secret or exec into a pod. A Job it makes can run any image and command, but only
+# here, under the restricted standard the namespace enforces, within its quota (quota.yaml), and fenced by its labels.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -7,7 +8,7 @@ metadata:
 rules:
   - apiGroups: [batch]
     resources: [jobs]
-    verbs: [create, get, list, watch, delete]
+    verbs: [create, get, delete]
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
     verbs: [create, get, delete]

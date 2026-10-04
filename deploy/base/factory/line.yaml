@@ -45,6 +45,12 @@ spec:
           image: factory-runner
           args: ["--version"]
           command: [node]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
