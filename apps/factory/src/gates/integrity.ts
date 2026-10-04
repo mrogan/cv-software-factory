@@ -72,9 +72,13 @@ export function compare(base: Map<string, string>, change: Map<string, string>):
     const had = before.get(file) ?? [];
     for (const t of cases) {
       const isMove = !before.has(file) && [...before.values()].some((c) => c.some((w) => w.name === t.name));
-      if (!had.some((w) => w.name === t.name) && !isMove)
-        added.push({ file, test: t.name, message: `"${t.name}" was added` });
-      // A test that arrives already disabled weakens nothing that was there, but is worth seeing.
+      const isNew = !had.some((w) => w.name === t.name) && !isMove;
+      // A test that arrives already disabled weakens nothing that was there, but is worth seeing in the summary.
+      if (isNew) {
+        const disabled = t.disabled && t.disabled !== 'only' ? `, but ${DISABLED[t.disabled]}` : '';
+        added.push({ file, test: t.name, message: `"${t.name}" was added${disabled}` });
+      }
+      // `.only` skips every other test in its file, so it is a problem however it arrives.
       if (t.disabled === 'only' && !had.some((w) => w.name === t.name)) {
         problems.push({ file, test: t.name, message: `"${t.name}" ${DISABLED.only}` });
       }

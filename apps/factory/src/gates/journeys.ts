@@ -2,7 +2,9 @@
  * The journeys gate: the probes and the crawler, run against a pull request's base and its change, and compared.
  * The app is broken on purpose, so a check that fails on both says nothing about the change; the gate fails only on
  * a check that passes on the base and fails on the change, and fails on the change again when run a second time (a
- * check that fails once can be the network). A check the base could not tell about is reported, not failed on.
+ * check that fails once can be the network). A check that passes on the base and cannot finish on the change (it
+ * times out, or what it needs has gone) is as bad as one that fails: it fails the gate the same way, when it happens
+ * twice. A check the base could not tell about is reported, not failed on.
  */
 import { cell } from './report.ts';
 
@@ -18,13 +20,13 @@ export interface Seen {
 }
 
 export interface Comparison {
-  /** Pass on the base, fail on the change twice: these fail the gate. */
+  /** Pass on the base, and fail or cannot finish on the change, twice: these fail the gate. */
   regressions: Seen[];
   /** Fail on the base, pass on the change. */
   fixed: Seen[];
   /** Fail on both: the app as it was. */
   unchanged: Seen[];
-  /** Failed on the change once, then passed. */
+  /** Failed, or could not finish, on the change once, then passed. */
   flaky: Seen[];
   /** Fail on the change, where the base could not tell. */
   unsure: Seen[];
@@ -42,12 +44,18 @@ export async function compareJourneys(
   const before = index(await observe(base));
   const first = await observe(change);
   const failing = first.filter((s) => s.failed);
-  const candidates = failing.filter((s) => !before.get(keyOf(s))?.failed && !before.get(keyOf(s))?.trouble);
+  // Passed cleanly on the base: no finding, and no trouble.
+  const passed = (s: Seen) => {
+    const was = before.get(keyOf(s));
+    return was !== undefined ? !was.failed && !was.trouble : true;
+  };
+  const bad = (s: Seen | undefined) => s !== undefined && (s.failed || s.trouble !== undefined);
+  const candidates = first.filter((s) => bad(s) && passed(s));
   const again = candidates.length ? index(await observe(change)) : new Map<string, Seen>();
   const after = index(first);
   return {
-    regressions: candidates.filter((s) => again.get(keyOf(s))?.failed),
-    flaky: candidates.filter((s) => !again.get(keyOf(s))?.failed),
+    regressions: candidates.filter((s) => bad(again.get(keyOf(s)))).map((s) => again.get(keyOf(s)) ?? s),
+    flaky: candidates.filter((s) => !bad(again.get(keyOf(s)))),
     unsure: failing.filter((s) => !before.get(keyOf(s))?.failed && before.get(keyOf(s))?.trouble),
     unchanged: failing.filter((s) => before.get(keyOf(s))?.failed),
     fixed: [...before.values()].filter((s) => s.failed && after.has(keyOf(s)) && !after.get(keyOf(s))?.failed),

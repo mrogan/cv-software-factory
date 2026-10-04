@@ -12,12 +12,14 @@
  * 0 when at least one did, and 1 when none did or there were none.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { filesIn, TEST_FILE, TEST_SUPPORT } from './files.ts';
 import { annotate, cell, summarise } from './report.ts';
 import { testsIn } from './tests.ts';
 
 export interface Manifest {
+  /** The base's checkout, which Vitest names its files under. */
+  root: string;
   /** Test files to run on the base. */
   files: string[];
   /** The new and changed tests, by file and name. */
@@ -25,7 +27,7 @@ export interface Manifest {
 }
 
 /** The new and changed tests, and every file in a test folder the change added or changed. */
-export function changedTests(base: Map<string, string>, change: Map<string, string>) {
+export function changedTests(base: Map<string, string>, change: Map<string, string>, root = '') {
   const copy = [...change].filter(([path, source]) => base.get(path) !== source).map(([path]) => path);
   const tests: Manifest['tests'] = [];
   for (const file of copy.filter((path) => TEST_FILE.test(path))) {
@@ -37,7 +39,7 @@ export function changedTests(base: Map<string, string>, change: Map<string, stri
     }
   }
   const files = [...new Set(tests.map((t) => t.file))];
-  return { copy, manifest: { files, tests } satisfies Manifest };
+  return { copy, manifest: { root, files, tests } satisfies Manifest };
 }
 
 interface VitestResults {
@@ -63,7 +65,8 @@ export type Outcome = 'failed' | 'passed' | 'did not run';
 /** How each test in the manifest went on the base. A file that would not load failed every test in it. */
 export function outcomes(manifest: Manifest, results: VitestResults) {
   return manifest.tests.map((test) => {
-    const file = results.testResults.find((r) => r.name.endsWith(`/${test.file}`) || r.name === test.file);
+    // By its path from the checkout, exactly: `test/a.test.ts` is not `src/test/a.test.ts`.
+    const file = results.testResults.find((r) => relative(manifest.root, r.name).split('\\').join('/') === test.file);
     if (!file) return { ...test, outcome: 'did not run' as Outcome };
     if (!file.assertionResults.length && file.status === 'failed') return { ...test, outcome: 'failed' as Outcome };
     const pattern = namePattern(test.name);
@@ -75,17 +78,19 @@ export function outcomes(manifest: Manifest, results: VitestResults) {
 
 async function prepare(base: string, change: string, manifestPath: string): Promise<number> {
   const pattern = new RegExp(`${TEST_FILE.source}|${TEST_SUPPORT.source}`);
-  const { copy, manifest } = changedTests(await filesIn(base, pattern), await filesIn(change, pattern));
+  const { copy, manifest } = changedTests(await filesIn(base, pattern), await filesIn(change, pattern), resolve(base));
   for (const path of copy) {
     await mkdir(dirname(join(base, path)), { recursive: true });
     await writeFile(join(base, path), await readFile(join(change, path)));
   }
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-  console.log(manifest.files.join(' '));
+  // One file a line, for the workflow to read into a list: a name with a space stays one name.
+  console.log(manifest.files.join('\n'));
   return 0;
 }
 
 async function report(manifestPath: string, resultsPath: string | undefined): Promise<number> {
+  // Written by `prepare` in the same job, so it is the shape it was written in; Node alone runs this, with no Zod.
   const manifest = JSON.parse(await readFile(manifestPath, 'utf-8')) as Manifest;
   if (!manifest.tests.length) {
     annotate('warning', 'This change adds or changes no test, so nothing shows it fixes anything.');
@@ -93,7 +98,7 @@ async function report(manifestPath: string, resultsPath: string | undefined): Pr
     return 1;
   }
   const results = resultsPath
-    ? (JSON.parse(await readFile(resultsPath, 'utf-8')) as VitestResults)
+    ? (JSON.parse(await readFile(resultsPath, 'utf-8')) as VitestResults) // Vitest's own JSON reporter
     : { testResults: [] };
   const rows = outcomes(manifest, results);
   const failed = rows.filter((r) => r.outcome === 'failed');

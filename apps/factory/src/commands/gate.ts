@@ -15,6 +15,7 @@ import { parseArgs } from 'node:util';
 import { DiskArtifacts } from '@software-factory/store';
 import { Crawler } from '../crawler/index.ts';
 import { compareJourneys, type Seen, summary } from '../gates/journeys.ts';
+import { annotate } from '../gates/report.ts';
 import { log } from '../log.ts';
 import { probes } from '../probes/index.ts';
 import { versionOf } from '../senses/http.ts';
@@ -62,6 +63,6 @@ export async function run(args: string[]): Promise<number> {
   if (values.summary) await appendFile(values.summary, `${markdown}\n`);
   else console.log(markdown);
   for (const r of comparison.regressions)
-    console.log(`::error::${r.sense} ${r.check} on ${r.route}: ${r.message ?? 'failed'}`);
+    annotate('error', `${r.sense} ${r.check} on ${r.route}: ${r.message ?? r.trouble ?? 'failed'}`);
   return comparison.regressions.length ? 1 : 0;
 }

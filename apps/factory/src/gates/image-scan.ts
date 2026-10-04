@@ -9,7 +9,7 @@
  * same vulnerability brings nothing new.
  */
 import { readFile } from 'node:fs/promises';
-import { cell, summarise } from './report.ts';
+import { annotate, cell, summarise } from './report.ts';
 
 interface Vulnerability {
   VulnerabilityID: string;
@@ -46,6 +46,8 @@ export async function main([basePath, changePath]: string[]): Promise<number> {
     console.error('Usage: image-scan.ts <base trivy.json> <change trivy.json>');
     return 2;
   }
+  // Trivy's own JSON, from the same job. Node alone runs this, from a sparse checkout with no Zod, and every field it
+  // reads is optional, so a report of another shape reads as no vulnerabilities rather than throwing.
   const read = async (path: string) => JSON.parse(await readFile(path, 'utf-8')) as TrivyReport;
   const { added, failing, removed, total } = newIn(await read(basePath), await read(changePath));
   const rows = added
@@ -64,7 +66,7 @@ export async function main([basePath, changePath]: string[]): Promise<number> {
     ].join('\n\n'),
   );
   for (const v of failing)
-    console.log(`::error::${v.Severity} ${v.VulnerabilityID} in ${v.PkgName} ${v.InstalledVersion}`);
+    annotate('error', `${v.Severity} ${v.VulnerabilityID} in ${v.PkgName} ${v.InstalledVersion}`);
   return failing.length ? 1 : 0;
 }
 

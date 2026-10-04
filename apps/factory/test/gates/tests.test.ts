@@ -104,11 +104,16 @@ describe('tests first', () => {
   it('copies what changed in test folders, and looks for the new and changed tests only', () => {
     const { copy, manifest } = changedTests(base, change);
     expect(copy).toEqual(['test/a.test.ts', 'test/support/helper.ts']);
-    expect(manifest).toEqual({ files: ['test/a.test.ts'], tests: [{ file: 'test/a.test.ts', name: 'new %s' }] });
+    expect(manifest).toEqual({
+      root: '',
+      files: ['test/a.test.ts'],
+      tests: [{ file: 'test/a.test.ts', name: 'new %s' }],
+    });
   });
 
   it('reads Vitest’s results, filling in placeholders, and a file that would not load as failed', () => {
     const manifest = {
+      root: '/work/base',
       files: ['test/a.test.ts', 'test/b.test.ts'],
       tests: [
         { file: 'test/a.test.ts', name: 'new %s' },
@@ -234,5 +239,89 @@ describe('image scan', () => {
     expect(added.map((v) => v.VulnerabilityID)).toEqual(['CVE-3', 'CVE-4']);
     expect(failing.map((v) => v.VulnerabilityID)).toEqual(['CVE-3']);
     expect(removed.map((v) => v.VulnerabilityID)).toEqual(['CVE-2']);
+  });
+});
+
+describe('journeys, when a check cannot finish on the change', () => {
+  const seen = (check: string, failed: boolean, trouble?: string): Seen => ({
+    sense: 'probe',
+    check,
+    route: '/',
+    failed,
+    ...(trouble ? { trouble } : {}),
+  });
+
+  it('fails the gate when it passed on the base and could not finish on the change, twice', async () => {
+    const runs: Seen[][] = [
+      [seen('buy', false), seen('search', false)],
+      [seen('buy', false, 'the button to click is not there'), seen('search', false, 'timed out')],
+      [seen('buy', false, 'the button to click is not there'), seen('search', false)],
+    ];
+    const c = await compareJourneys(async () => runs.shift() ?? [], 'base', 'change');
+    expect(c.regressions.map((s) => [s.check, s.trouble])).toEqual([['buy', 'the button to click is not there']]);
+    expect(c.flaky.map((s) => s.check)).toEqual(['search']);
+    expect(summary(c)).toContain('the button to click is not there');
+  });
+});
+
+describe('the gates’ scripts, end to end', () => {
+  const dirs = async (files: Record<string, string>) => {
+    const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises');
+    const { join, dirname } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const dir = await mkdtemp(join(tmpdir(), 'gate-'));
+    for (const [path, text] of Object.entries(files)) {
+      await mkdir(dirname(join(dir, path)), { recursive: true });
+      await writeFile(join(dir, path), text);
+    }
+    return dir;
+  };
+
+  it('test integrity: duplicate names in one file, a test added skipped, and one deleted', async () => {
+    const { main } = await import('../../src/gates/test-integrity.ts');
+    const twice = `describe('a', () => { it('x', () => { expect(1).toBe(1); }); });\ndescribe('b', () => { it('x', () => { expect(1).toBe(1); }); });`;
+    const base = await dirs({ 'test/a.test.ts': twice });
+    const kept = await dirs({ 'test/a.test.ts': `${twice}\nit.skip('later', () => {});` });
+    const lost = await dirs({ 'test/a.test.ts': `describe('a', () => { it('x', () => { expect(1).toBe(1); }); });` });
+    const output: string[] = [];
+    const log = console.log;
+    console.log = (line: string) => void output.push(line);
+    try {
+      expect(await main([base, kept])).toBe(0);
+      expect(output.join('\n')).toContain('"later" was added, but is skipped');
+      expect(await main([base, lost])).toBe(1);
+      expect(output.join('\n')).toContain('"b > x" was deleted');
+    } finally {
+      console.log = log;
+    }
+  });
+
+  it('image scan: a report with no results is no vulnerability, new or old', async () => {
+    const { main } = await import('../../src/gates/image-scan.ts');
+    const dir = await dirs({
+      'base.json': '{}',
+      'change.json': '{"Results":[{"Target":"app","Vulnerabilities":null}]}',
+    });
+    const log = console.log;
+    console.log = () => {};
+    try {
+      expect(await main([`${dir}/base.json`, `${dir}/change.json`])).toBe(0);
+    } finally {
+      console.log = log;
+    }
+  });
+
+  it('tests first: a result is a file’s by its exact path from the checkout', () => {
+    const manifest = { root: '/work/base', files: ['test/a.test.ts'], tests: [{ file: 'test/a.test.ts', name: 'x' }] };
+    const elsewhere = {
+      testResults: [
+        {
+          name: '/work/base/src/test/a.test.ts',
+          status: 'failed',
+          assertionResults: [{ ancestorTitles: [], title: 'x', status: 'failed' }],
+        },
+      ],
+    };
+    expect(outcomes(manifest, elsewhere).map((o) => o.outcome)).toEqual(['did not run']);
   });
 });

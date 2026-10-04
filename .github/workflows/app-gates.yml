@@ -175,25 +175,22 @@ jobs:
         with:
           working_directory: base
           install_args: node pnpm
+      # The test files go through a file, one a line, so a name with a space is still one name.
       - name: Put the change's tests in the base
-        id: prepare
-        run: echo "files=$(node factory/apps/factory/src/gates/tests-first.ts prepare base change "$RUNNER_TEMP/tests-first.json")" >> "$GITHUB_OUTPUT"
+        run: node factory/apps/factory/src/gates/tests-first.ts prepare base change "$RUNNER_TEMP/tests-first.json" > "$RUNNER_TEMP/tests-first-files"
       - name: Run them there
-        if: steps.prepare.outputs.files != ''
         working-directory: base
-        env:
-          FILES: ${{ steps.prepare.outputs.files }}
         run: |
+          mapfile -t files < "$RUNNER_TEMP/tests-first-files"
+          if [ "${#files[@]}" -eq 0 ] || [ -z "${files[0]}" ]; then exit 0; fi
           pnpm install --frozen-lockfile --ignore-scripts
           # Failures are what this is looking for: the report reads them.
-          # shellcheck disable=SC2086 # one argument per file
-          pnpm exec vitest run --reporter=json --outputFile="$RUNNER_TEMP/tests-first-results.json" $FILES || true
+          pnpm exec vitest run --reporter=json --outputFile="$RUNNER_TEMP/tests-first-results.json" "${files[@]}" || true
       - name: Say which failed before the fix
-        env:
-          RAN: ${{ steps.prepare.outputs.files != '' }}
         run: |
-          if [ "$RAN" = true ]; then results="$RUNNER_TEMP/tests-first-results.json"; else results=; fi
-          node factory/apps/factory/src/gates/tests-first.ts report "$RUNNER_TEMP/tests-first.json" $results
+          results=()
+          if [ -f "$RUNNER_TEMP/tests-first-results.json" ]; then results=("$RUNNER_TEMP/tests-first-results.json"); fi
+          node factory/apps/factory/src/gates/tests-first.ts report "$RUNNER_TEMP/tests-first.json" "${results[@]}"
 
   dependency-review:
     name: dependency review
