@@ -201,7 +201,7 @@ describe('a ticket’s sheet', () => {
         tokens: { input: 1000, output: 200, cacheRead: 0, cacheWrite: 0 },
         costUsd: 0.01,
         durationMs: 4000,
-        cassette: 'c'.repeat(64),
+        calls: 1,
       }).events;
     expect(projectSheet(events, '1', Date.parse(events.at(-1)?.ts ?? ''))?.agents[0]).toMatchObject({
       provider: 'bedrock',

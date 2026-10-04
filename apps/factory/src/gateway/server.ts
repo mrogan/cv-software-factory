@@ -2,34 +2,40 @@
  * The gateway over HTTP, for the workers in the cluster.
  *
  *     POST /v1/judgements   a judgement request as JSON (`JudgeRequest`); the answers, cost and cassette key out
+ *     POST /v1/messages     Anthropic's Messages API, for runners with a job token (`agents.ts`)
+ *     POST /v1/messages/count_tokens
  *     GET  /v1/spend        today's and this month's spend against the caps
  *     GET  /health          for the cluster's probes
  *
- * Errors keep their meaning: a spend cap is 429 with the cap and when it resets (and `Retry-After`), a request
+ * The Messages API answers its errors in Anthropic's shape (`agents.ts`). The judgements' errors keep their meaning: a spend cap is 429 with the cap and when it resets (and `Retry-After`), a request
  * with no cassette in replay is 409, a provider that failed is 502, a request the gateway will not send is 400
  * (413 when it is too big). No error body echoes the request, which may hold a report's text.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { Logger } from '../log.ts';
+import { type AgentCalls, apiError, type Reply } from './agents.ts';
+import { BadRequest } from './errors.ts';
 import type { Gateway } from './gateway.ts';
 import type { Spend } from './spend.ts';
 import { errorResponse } from './wire.ts';
 
 /** A judgement request is a few hundred tokens of text; this leaves room for a long report and its context. */
 const MAX_BODY_BYTES = 256 * 1024;
+/** An agent's call carries its whole conversation: Anthropic takes up to 32 MB. */
+const MAX_MESSAGES_BYTES = 32 * 1024 * 1024;
 
 class TooLarge extends Error {}
 
-async function readBody(req: IncomingMessage): Promise<string> {
+async function readBody(req: IncomingMessage, limit = MAX_BODY_BYTES): Promise<string> {
   const chunks: Buffer[] = [];
   let size = 0;
   // Reads to the end even when it is too big, and keeps none of it: stopping early would drop the connection
   // before the 413 could be sent.
   for await (const chunk of req as AsyncIterable<Buffer>) {
     size += chunk.length;
-    if (size <= MAX_BODY_BYTES) chunks.push(chunk);
+    if (size <= limit) chunks.push(chunk);
   }
-  if (size > MAX_BODY_BYTES) throw new TooLarge();
+  if (size > limit) throw new TooLarge();
   return Buffer.concat(chunks).toString('utf-8');
 }
 
@@ -40,12 +46,41 @@ function send(res: ServerResponse, status: number, body: unknown, headers: Recor
 
 export interface ServerOptions {
   gateway: Gateway;
+  /** The Messages API for runners. Without it, those paths are not here. */
+  agents?: AgentCalls | undefined;
   spend: Spend;
   log: Logger;
   clock?: () => Date;
 }
 
-export function createGatewayServer({ gateway, spend, log, clock = () => new Date() }: ServerOptions): Server {
+/** Writes a reply, relaying a stream chunk by chunk, and stops reading it if the runner goes away. */
+async function write(res: ServerResponse, reply: Reply): Promise<void> {
+  res.writeHead(reply.status, { 'cache-control': 'no-store', ...reply.headers });
+  if (typeof reply.body === 'string') return void res.end(reply.body);
+  for await (const chunk of reply.body) {
+    if (res.destroyed) break;
+    res.write(chunk);
+  }
+  res.end();
+}
+
+export function createGatewayServer({ gateway, agents, spend, log, clock = () => new Date() }: ServerOptions): Server {
+  async function agentCall(req: IncomingMessage, res: ServerResponse, call: 'messages' | 'countTokens') {
+    if (!agents) return send(res, 404, { error: 'bad-request', message: 'This gateway serves no agents.' });
+    let reply: Reply;
+    try {
+      reply = await agents[call](req.headers, await readBody(req, MAX_MESSAGES_BYTES));
+    } catch (error) {
+      if (error instanceof TooLarge) reply = apiError(413, 'request_too_large', 'The request is over 32 MB.');
+      else if (error instanceof BadRequest) reply = apiError(400, 'invalid_request_error', error.message);
+      else {
+        log.error({ err: { type: (error as Error)?.name, message: (error as Error)?.message } }, 'agent call failed');
+        reply = apiError(500, 'api_error', 'The gateway failed. See its log.');
+      }
+    }
+    await write(res, reply);
+  }
+
   async function judgements(req: IncomingMessage, res: ServerResponse): Promise<void> {
     let input: unknown;
     try {
@@ -73,6 +108,10 @@ export function createGatewayServer({ gateway, spend, log, clock = () => new Dat
       if (only('GET')) send(res, 200, await spend.report());
     } else if (pathname === '/v1/judgements') {
       if (only('POST')) await judgements(req, res);
+    } else if (pathname === '/v1/messages') {
+      if (only('POST')) await agentCall(req, res, 'messages');
+    } else if (pathname === '/v1/messages/count_tokens') {
+      if (only('POST')) await agentCall(req, res, 'countTokens');
     } else {
       send(res, 404, { error: 'bad-request', message: 'There is nothing here.' });
     }

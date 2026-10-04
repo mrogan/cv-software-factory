@@ -20,9 +20,9 @@ export interface SpendPolicy {
 }
 
 export const SPEND: Record<Profile, SpendPolicy> = {
-  local: { dayUsd: 20, monthUsd: null, workItemUsd: 2 },
-  // Revisit the per-work-item cap when the planner and coder arrive (milestone 5): a fix may cost more than a
-  // triage judgement does.
+  // $5 a work item while milestone 5 measures what a fix costs: the coder alone was priced at $0.50 to $2.50. The
+  // measured figure sets every profile's cap at the end of the milestone.
+  local: { dayUsd: 20, monthUsd: null, workItemUsd: 5 },
   do: { dayUsd: 20, monthUsd: 100, workItemUsd: 2 },
   aws: { dayUsd: 20, monthUsd: 100, workItemUsd: 2 },
 };

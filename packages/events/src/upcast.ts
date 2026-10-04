@@ -17,8 +17,13 @@ export interface Catalogue {
   upcasters: Record<string, Record<number, Upcaster>>;
 }
 
-/** No type has an older version yet. */
-export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {};
+export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
+  // Version 1 recorded each call, with its cassette; version 2 records an agent's step, with how many calls it made.
+  'model.called': { 1: ({ cassette: _, ...payload }) => ({ ...payload, calls: 1 }) },
+  // Version 2 adds the provider's own caps beside the day's and the month's, which read as they did.
+  'spend.capped': { 1: (payload) => payload },
+  'spend.cleared': { 1: (payload) => payload },
+};
 
 export const CATALOGUE: Catalogue = { versions: VERSIONS, upcasters: UPCASTERS };
 

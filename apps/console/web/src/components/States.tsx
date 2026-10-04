@@ -4,7 +4,7 @@
  */
 import { useRef } from 'react';
 import { clock, dayLabel, money } from '../format.ts';
-import type { CapSpell, View } from '../projection/index.ts';
+import type { CapSpell, ProviderSpell, View } from '../projection/index.ts';
 import type { Source, StoreKind } from '../source.ts';
 
 export function States({ source, view }: { source: Source; view: View }) {
@@ -40,6 +40,7 @@ export function States({ source, view }: { source: Source; view: View }) {
         </p>
       )}
       {view.header.capped && <SpendCap spell={view.header.capped} />}
+      {view.header.waiting && <ProviderWait spell={view.header.waiting} />}
       {view.sample && (
         <p className="notice">
           <span className="label">Samples</span>
@@ -72,6 +73,32 @@ function SpendCap({ spell }: { spell: CapSpell }) {
         The factory has spent {money(spell.spentUsd)} of {period} {money(spell.limitUsd)} on models, so the gateway
         refuses every model call {resetsAt(spell)}. Reports wait in the inbox and none is lost. The senses keep
         watching, and their tickets still open, because they call no model.
+      </span>
+    </p>
+  );
+}
+
+const PROVIDER_NAME = { anthropic: 'Anthropic', bedrock: 'Amazon Bedrock', local: 'The local model' };
+
+/** Why a provider refuses, in a sentence. */
+const BECAUSE = {
+  credit: 'the account’s credit is spent',
+  'workspace-limit': 'the workspace has reached its monthly spend limit',
+  unreachable: 'it is not answering',
+};
+
+/**
+ * A provider refusing for a cap the factory does not own: who, why, in its own words, and that the agents wait and
+ * carry on by themselves when it answers again.
+ */
+function ProviderWait({ spell }: { spell: ProviderSpell }) {
+  return (
+    <p className="notice">
+      <span className="label attn">Agents waiting</span>
+      <span>
+        {PROVIDER_NAME[spell.provider]} refuses model calls because {BECAUSE[spell.reason]} (“{spell.message}”), since{' '}
+        {clock(spell.reached)}. The agents’ calls wait, and the gateway asks again every few minutes; work carries on by
+        itself once it answers. Triage and the senses are not affected.
       </span>
     </p>
   );

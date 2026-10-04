@@ -182,7 +182,7 @@ export class Spend {
       id: crypto.randomUUID(),
       ts: this.#clock().toISOString(),
       work_item: null,
-      version: 1 as const,
+      version: 2 as const,
       actor: 'factory' as const,
       artifacts: [],
     };

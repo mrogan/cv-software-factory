@@ -15,7 +15,8 @@ export const PASSING_MS = 15 * 60_000;
 /** How far back returns are kept, to be drawn one at a time. */
 export const RETURNS_MS = 24 * 3_600_000;
 
-type Cap = PayloadOf<'spend.capped'>['cap'];
+type Cap = 'day' | 'month';
+type ProviderCapped = Extract<PayloadOf<'spend.capped'>, { cap: 'provider' }>;
 
 /** A spend cap reached, and when it cleared, if it has. */
 export interface CapSpell {
@@ -24,6 +25,16 @@ export interface CapSpell {
   spentUsd: number;
   /** When the cap was due to reset, as the gateway said when it was reached. */
   resets: number;
+  reached: number;
+  cleared: number | undefined;
+}
+
+/** A provider that refused for a cap the factory does not own, and when it answered again, if it has. */
+export interface ProviderSpell {
+  provider: ProviderCapped['provider'];
+  reason: ProviderCapped['reason'];
+  /** The provider's own words. */
+  message: string;
   reached: number;
   cleared: number | undefined;
 }
@@ -37,6 +48,10 @@ export interface Header {
   capped: CapSpell | undefined;
   /** Every cap reached so far, oldest first. */
   caps: CapSpell[];
+  /** A provider refusing for now: agent calls wait until it answers again. */
+  waiting: ProviderSpell | undefined;
+  /** Every time a provider refused so, oldest first. */
+  providers: ProviderSpell[];
 }
 
 export interface Station {
@@ -87,28 +102,55 @@ export interface StagePanel {
 }
 
 export function header(events: readonly PublicEvent[]): Header {
-  let state: Header = { running: false, autonomy: undefined, stopped: undefined, capped: undefined, caps: [] };
+  let state: Header = {
+    running: false,
+    autonomy: undefined,
+    stopped: undefined,
+    capped: undefined,
+    caps: [],
+    waiting: undefined,
+    providers: [],
+  };
   for (const event of events) {
     if (event.type === 'line.started') {
       state = { ...state, running: true, autonomy: event.payload.autonomy, stopped: undefined };
     }
     if (event.type === 'line.stopped') state = { ...state, running: false, stopped: event.payload.reason };
     if (event.type === 'spend.capped') {
-      const { cap, limitUsd, spentUsd, resets } = event.payload;
-      const spell = { cap, limitUsd, spentUsd, resets: Date.parse(resets), reached: Date.parse(event.ts) };
-      state = { ...state, caps: [...state.caps, { ...spell, cleared: undefined }] };
+      const capped = event.payload;
+      const reached = Date.parse(event.ts);
+      if (capped.cap === 'provider') {
+        const { provider, reason, message } = capped;
+        state = {
+          ...state,
+          providers: [...state.providers, { provider, reason, message, reached, cleared: undefined }],
+        };
+      } else {
+        const { cap, limitUsd, spentUsd, resets } = capped;
+        const spell = { cap, limitUsd, spentUsd, resets: Date.parse(resets), reached, cleared: undefined };
+        state = { ...state, caps: [...state.caps, spell] };
+      }
     }
     if (event.type === 'spend.cleared') {
+      const cleared = event.payload;
       const at = Date.parse(event.ts);
-      const caps = state.caps.map((spell) =>
-        spell.cap === event.payload.cap && spell.cleared === undefined ? { ...spell, cleared: at } : spell,
-      );
-      state = { ...state, caps };
+      if (cleared.cap === 'provider') {
+        const providers = state.providers.map((spell) =>
+          spell.provider === cleared.provider && spell.cleared === undefined ? { ...spell, cleared: at } : spell,
+        );
+        state = { ...state, providers };
+      } else {
+        const caps = state.caps.map((spell) =>
+          spell.cap === cleared.cap && spell.cleared === undefined ? { ...spell, cleared: at } : spell,
+        );
+        state = { ...state, caps };
+      }
     }
   }
   // When the day's and the month's caps both hold, the month's says when work resumes: it resets last.
   const holding = state.caps.filter((spell) => spell.cleared === undefined);
-  return { ...state, capped: holding.find((spell) => spell.cap === 'month') ?? holding[0] };
+  const waiting = state.providers.filter((spell) => spell.cleared === undefined).at(-1);
+  return { ...state, capped: holding.find((spell) => spell.cap === 'month') ?? holding[0], waiting };
 }
 
 /** Items in a stage now: open, and that stage their latest. */
