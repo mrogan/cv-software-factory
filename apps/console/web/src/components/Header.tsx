@@ -49,6 +49,14 @@ export function LineStatus({ line, connection }: { line: LineState; connection: 
       </>
     );
   }
+  if (line.waiting) {
+    return (
+      <>
+        <span className="dot tone-attn ring" aria-hidden="true" />
+        Line running · <b className="capped">agents waiting for a model</b>
+      </>
+    );
+  }
   return (
     <>
       <span className="dot tone-ok blink" aria-hidden="true" />

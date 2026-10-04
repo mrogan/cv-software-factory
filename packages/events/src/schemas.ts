@@ -406,10 +406,12 @@ export const PAYLOADS = {
     /** The mechanism's own refusal, verbatim. */
     output: z.string().min(1).max(4000),
   }),
+  /** One agent's step: every call it made, summed. The gateway's `model_calls` table keeps each call. */
   'model.called': z.strictObject({
     agent: z.enum(V.AGENTS),
-    provider: z.enum(['anthropic', 'bedrock']),
-    model: z.string().regex(/^claude-[a-z0-9-]+$/),
+    provider: z.enum(V.MODEL_PROVIDERS),
+    /** A pinned model: `claude-sonnet-5-5`, or a local one such as `qwen/qwen3.8-27b`. */
+    model: z.string().regex(/^[a-z0-9][a-z0-9./_-]{0,79}$/),
     settings: z.strictObject({
       effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
       maxTurns: z.number().int().positive().optional(),
@@ -417,19 +419,36 @@ export const PAYLOADS = {
     tokens: z.strictObject({ input: count, output: count, cacheRead: count, cacheWrite: count }),
     costUsd: usd,
     durationMs: count,
-    cassette: sha256,
+    /** How many calls the step made. */
+    calls: z.number().int().positive(),
   }),
 
   'line.started': z.strictObject({ autonomy: z.enum(V.AUTONOMY) }),
   'line.stopped': z.strictObject({ reason: text(200) }),
-  /** Model spend reached a cap (guardrail 7): the gateway refuses calls until it resets. */
-  'spend.capped': z.strictObject({
-    cap: z.enum(['day', 'month']),
-    limitUsd: usd,
-    spentUsd: usd,
-    resets: timestamp,
-  }),
-  'spend.cleared': z.strictObject({ cap: z.enum(['day', 'month']) }),
+  /**
+   * Model calls wait (guardrail 7). Either the factory's own day or month cap is reached, and the gateway refuses
+   * calls until it resets; or a provider refuses for a cap the factory does not own (the account's credit is spent,
+   * the workspace's limit is reached, or the local model is not running), and agent calls wait until it answers.
+   */
+  'spend.capped': z.discriminatedUnion('cap', [
+    z.strictObject({
+      cap: z.enum(['day', 'month']),
+      limitUsd: usd,
+      spentUsd: usd,
+      resets: timestamp,
+    }),
+    z.strictObject({
+      cap: z.literal('provider'),
+      provider: z.enum(V.MODEL_PROVIDERS),
+      reason: z.enum(V.PROVIDER_CAPS),
+      /** The provider's own words, or what the gateway saw when it could not connect. */
+      message: text(300),
+    }),
+  ]),
+  'spend.cleared': z.discriminatedUnion('cap', [
+    z.strictObject({ cap: z.enum(['day', 'month']) }),
+    z.strictObject({ cap: z.literal('provider'), provider: z.enum(V.MODEL_PROVIDERS) }),
+  ]),
 } satisfies { [K in EventType]: z.ZodType };
 
 /** The envelope of an event about to be appended: everything but `seq` and `public`, which the store adds. */

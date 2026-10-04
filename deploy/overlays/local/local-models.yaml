@@ -1,0 +1,20 @@
+# The local profile's model: LM Studio on Martin's Mac, which the gateway reaches at OrbStack's address for the host. This
+# lets the gateway reach that one port there, and nothing else on the host; no other pod may (factory's default-deny).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-local-models
+  namespace: factory
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.250.250.254/32
+      ports:
+        - { protocol: TCP, port: 1234 }

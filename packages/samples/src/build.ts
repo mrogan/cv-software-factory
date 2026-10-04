@@ -5,6 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { Actor, Agent, ArtifactRef, EventType, NewEvent, PayloadOf, Screenshot } from '@software-factory/events';
+import { VERSIONS } from '@software-factory/events';
 import { changed, shot } from './captures.ts';
 
 const hex = (name: string, length = 64) => createHash('sha256').update(name).digest('hex').slice(0, length);
@@ -128,7 +129,7 @@ export class Item {
       ts: this.time(offset),
       work_item: this.number,
       type,
-      version: 1,
+      version: VERSIONS[type],
       actor,
       summary,
       payload,
@@ -173,7 +174,7 @@ export class Item {
           tokens: { input: uncached, output: tokensOut, cacheRead, cacheWrite },
           costUsd: Math.round(cost * 1e6) / 1e6,
           durationMs: Math.round((4 + next() * (agent === 'planner' ? 30 : 14)) * 1000),
-          cassette: cassetteFor(`${this.number}/${agent}/${i}/${from}`),
+          calls: 1,
         },
       );
     });

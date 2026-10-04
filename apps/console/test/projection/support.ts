@@ -10,6 +10,7 @@ import {
   type PublicEvent,
   parseLog,
   upcast,
+  VERSIONS,
 } from '@software-factory/events';
 
 export const SAMPLES: PublicEvent[] = parseLog(
@@ -61,7 +62,7 @@ export function work(number: string, start = Date.parse('2026-10-03T09:00:00Z'))
         ts: new Date(start + minute * 60_000).toISOString(),
         work_item: number,
         type,
-        version: 1,
+        version: VERSIONS[type],
         actor,
         summary,
         payload,

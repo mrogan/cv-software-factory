@@ -128,9 +128,14 @@ export function stageOf(event: PublicEvent): Stage | null {
     case 'action.refused':
       return event.payload.mechanism === 'admission-control' ? 'release' : 'build';
     case 'model.called':
-      return { planner: 'plan', coder: 'build', reviewer: 'review', 'red-team': 'build', triage: 'triage' }[
-        event.payload.agent
-      ] as Stage;
+      return {
+        planner: 'plan',
+        coder: 'build',
+        reviewer: 'review',
+        describer: 'review',
+        'red-team': 'build',
+        triage: 'triage',
+      }[event.payload.agent] as Stage;
     default:
       return null;
   }

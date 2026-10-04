@@ -51,15 +51,21 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 down: ## Delete the local cluster, and everything in it
 	k3d cluster delete $(CLUSTER)
 
-# The gateway's TypeSafe key, from the environment or the macOS Keychain, goes to the cluster and nowhere else: it
-# is piped through stdin, never written to a file or put on a command line. Without one there is no Secret, and the
-# gateway replays cassettes only. Restart the gateway after changing the key: it reads it when it starts.
+# The gateway's keys, TypeSafe's and Anthropic's, from the environment or the macOS Keychain, go to the cluster and
+# nowhere else: each is piped through stdin, never written to a file or put on a command line. Without one there is no
+# Secret, and the gateway replays that provider's cassettes only. Restart the gateway after changing a key: it reads
+# them when it starts.
 gateway-key:
 	@key="$${TYPESAFE_API_KEY:-$$(security find-generic-password -s typesafe-api-key -w 2>/dev/null)}"; \
 		if [ -n "$$key" ]; then \
 			printf %s "$$key" | $(KUBECTL) -n factory create secret generic typesafe --from-file=api-key=/dev/stdin --dry-run=client -o yaml | \
 				$(KUBECTL) apply -f - >/dev/null && echo "  The gateway has the TypeSafe key, so it records what Jev answers."; \
 		else echo "  No TypeSafe key (TYPESAFE_API_KEY, or the Keychain's typesafe-api-key): the gateway replays cassettes only."; fi
+	@key="$${ANTHROPIC_API_KEY:-$$(security find-generic-password -s anthropic-api-key -w 2>/dev/null)}"; \
+		if [ -n "$$key" ]; then \
+			printf %s "$$key" | $(KUBECTL) -n factory create secret generic anthropic --from-file=api-key=/dev/stdin --dry-run=client -o yaml | \
+				$(KUBECTL) apply -f - >/dev/null && echo "  The gateway has the Anthropic key, so agents' calls reach Claude."; \
+		else echo "  No Anthropic key (ANTHROPIC_API_KEY, or the Keychain's anthropic-api-key): agents' calls to Claude replay only."; fi
 
 # The factory's GitHub App key, from the macOS Keychain (base64, because the Keychain prints a value with newlines as
 # hex), goes to the cluster the same way: through stdin, decoded on the way. Without it the GitHub worker reads and
