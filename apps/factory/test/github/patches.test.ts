@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
+import { contentsReader, DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { applyTo, filesIn, PatchRefused } from '../../src/github/patches.ts';
 import { calls, client, quiet, REPO, SHA } from './fake.ts';
 
@@ -66,7 +66,7 @@ describe('applying a patch outside the sandbox', () => {
           const file = decodeURIComponent(path.split('/contents/')[1]?.split('?')[0] ?? '');
           return BASE[file] === undefined
             ? { status: 404, body: { message: 'Not Found' } }
-            : { body: { content: Buffer.from(BASE[file] ?? '').toString('base64') } };
+            : { body: { type: 'file', encoding: 'base64', content: Buffer.from(BASE[file] ?? '').toString('base64') } };
         },
       },
       {
@@ -128,5 +128,72 @@ describe('applying a patch outside the sandbox', () => {
     expect(last.args.changes.additions).toEqual([
       { path: 'src/count.ts', text: 'export const count = (xs: readonly unknown[]) => xs.length;\n' },
     ]);
+  });
+});
+
+describe('what a patch may not do', () => {
+  const header = (path: string, mode = '') =>
+    `diff --git a/${path} b/${path}\n${mode}--- /dev/null\n+++ b/${path}\n@@ -0,0 +1 @@\n+x\n`;
+
+  it('name a path that climbs out, or is absolute', () => {
+    for (const path of ['src/../.github/workflows/x.yml', '/etc/passwd', 'src//x.ts', './x.ts']) {
+      expect(() => filesIn(header(path)), path).toThrow(PatchRefused);
+    }
+  });
+
+  it('add an executable, a symlink, or an empty file the fence would not see', () => {
+    expect(() => filesIn(header('run.sh', 'new file mode 100755\n'))).toThrow('ordinary file');
+    expect(() => filesIn(header('link', 'new file mode 120000\n'))).toThrow('ordinary file');
+    expect(() => filesIn('diff --git a/empty.ts b/empty.ts\nnew file mode 100644\nindex 0000000..e69de29\n')).toThrow(
+      'no change',
+    );
+    expect(filesIn(header('fine.ts', 'new file mode 100644\n')).map((f) => f.path)).toEqual(['fine.ts']);
+  });
+
+  it('change the workflows, the deployment, or a code-owned path, even in a dry run, whatever the line said', async () => {
+    const files: Record<string, string> = {
+      '.github/CODEOWNERS': '/Dockerfile @mrogan\n/src/money.ts @mrogan\n',
+      'src/money.ts': 'old\n',
+      Dockerfile: 'old\n',
+    };
+    const actions = new DryRunActions(
+      { put: async () => 'e'.repeat(64) } as never,
+      quiet,
+      () => new Date(),
+      async (_r, path) => files[path] ?? null,
+    );
+    const change = (path: string) =>
+      `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`;
+    for (const path of ['src/money.ts', 'Dockerfile']) {
+      await expect(
+        actions.applyPatch(REPO, { branch: 'fix/1', expectedHead: SHA, patch: change(path), message: 'm' }),
+      ).rejects.toMatchObject({ kind: 'protected' });
+    }
+    await expect(
+      actions.applyPatch(REPO, { branch: 'fix/1', expectedHead: SHA, patch: header('deploy/x.yaml'), message: 'm' }),
+    ).rejects.toMatchObject({ kind: 'protected' });
+  });
+
+  it('change a file the API cannot send whole, or that is not text', async () => {
+    const answers: Record<string, unknown> = {
+      'big.ts': { type: 'file', encoding: 'none', content: '' },
+      dir: [{ name: 'a' }],
+      'latin1.ts': { type: 'file', encoding: 'base64', content: Buffer.from([0xe9, 0x0a]).toString('base64') },
+    };
+    const { github } = client([
+      {
+        method: 'GET',
+        path: /\/contents\//,
+        answer: ({ path }) => {
+          const file = decodeURIComponent(path.split('/contents/')[1]?.split('?')[0] ?? '');
+          return file in answers ? { body: answers[file] } : { status: 404, body: { message: 'Not Found' } };
+        },
+      },
+    ]);
+    const read = contentsReader(github);
+    await expect(read(REPO, 'big.ts', SHA)).rejects.toMatchObject({ kind: 'unsupported' });
+    await expect(read(REPO, 'dir', SHA)).rejects.toMatchObject({ kind: 'unsupported' });
+    await expect(read(REPO, 'latin1.ts', SHA)).rejects.toThrow('not UTF-8');
+    expect(await read(REPO, 'missing.ts', SHA)).toBeNull();
   });
 });

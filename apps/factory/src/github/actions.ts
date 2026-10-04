@@ -14,7 +14,8 @@ import type { ArtifactStore } from '@software-factory/store';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import { type GitHub, GitHubError } from './client.ts';
-import { applyTo } from './patches.ts';
+import { applyTo, filesIn, PatchRefused } from './patches.ts';
+import { CODEOWNERS_PATHS, inScope, NEVER, ownedPaths } from './paths.ts';
 
 export interface FileChanges {
   /** Files to add or replace, with their whole new contents. */
@@ -44,21 +45,59 @@ export interface PatchCommit {
 /** Reads a file at a commit: its text, or null if it is not there. */
 export type ReadFile = (repo: string, path: string, ref: string) => Promise<string | null>;
 
-/** A file at a commit, through the contents API. */
+const CONTENTS = z.object({
+  type: z.string(),
+  encoding: z.string().optional(),
+  content: z.string().optional(),
+});
+
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
+
+/**
+ * A file at a commit, through the contents API. Only an ordinary text file can be patched: a folder, a symlink, a
+ * submodule, a file too large for the API to send whole (over a megabyte) or one that is not UTF-8 is refused rather
+ * than read as something it is not.
+ */
 export function contentsReader(github: GitHub): ReadFile {
   return async (repo, path, ref) => {
+    let file: z.infer<typeof CONTENTS>;
     try {
-      const file = await github.request<{ content?: string; encoding?: string }>(
+      file = await github.read(
         repo,
-        'GET',
         `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`,
+        CONTENTS,
       );
-      return Buffer.from(file.content ?? '', 'base64').toString('utf-8');
     } catch (error) {
       if (error instanceof GitHubError && error.kind === 'not-found') return null;
+      // An array answer is a folder.
+      if (error instanceof GitHubError && error.kind === 'malformed') {
+        throw new PatchRefused('unsupported', `${path} is not a file the patch can change.`);
+      }
       throw error;
     }
+    if (file.type !== 'file' || file.encoding !== 'base64' || file.content === undefined) {
+      throw new PatchRefused('unsupported', `${path} is not a text file the API sends whole.`);
+    }
+    try {
+      return UTF8.decode(Buffer.from(file.content, 'base64'));
+    } catch {
+      throw new PatchRefused('unsupported', `${path} is not UTF-8 text.`);
+    }
   };
+}
+
+/**
+ * Refuses a patch that changes a path no patch may: the workflows, the deployment, or one the repository's
+ * CODEOWNERS (at the commit the patch goes on) gives a person. The line's fence asks the same; this is the last word.
+ */
+export async function guard(patch: string, read: (path: string) => Promise<string | null>): Promise<void> {
+  const owners = (await Promise.all(CODEOWNERS_PATHS.map(read))).find((text) => text !== null) ?? '';
+  const forbidden = [...NEVER, ...ownedPaths(owners)];
+  const blocked = filesIn(patch)
+    .map((f) => f.path)
+    .filter((path) => inScope(path, forbidden));
+  if (blocked.length)
+    throw new PatchRefused('protected', `The patch changes ${blocked.join(', ')}, which no patch may.`);
 }
 
 export interface PullRequestDraft {
@@ -162,7 +201,9 @@ export class LiveActions implements Actions {
   }
 
   async applyPatch(repo: string, { branch, expectedHead, patch, message }: PatchCommit): Promise<string> {
-    const changes = await applyTo(patch, (path) => this.#read(repo, path, expectedHead));
+    const read = (path: string) => this.#read(repo, path, expectedHead);
+    await guard(patch, read);
+    const changes = await applyTo(patch, read);
     return this.commit(repo, { branch, expectedHead, message, changes });
   }
 
@@ -346,7 +387,9 @@ export class DryRunActions implements Actions {
   }
 
   async applyPatch(repo: string, { branch, expectedHead, patch, message }: PatchCommit): Promise<string> {
-    const changes = await applyTo(patch, (path) => this.#file(repo, path, expectedHead));
+    const read = (path: string) => this.#file(repo, path, expectedHead);
+    await guard(patch, read);
+    const changes = await applyTo(patch, read);
     return this.commit(repo, { branch, expectedHead, message, changes });
   }
 

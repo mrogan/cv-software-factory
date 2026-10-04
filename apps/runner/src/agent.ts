@@ -22,26 +22,54 @@ const NOTE_LENGTH = 4000;
 /** What a pod can be asked to hand back. */
 const PATCH_BYTES = 1024 * 1024;
 
-const reaches = (url: string) =>
-  fetch(url, { signal: AbortSignal.timeout(3000) }).then(
-    () => true,
-    () => false,
-  );
+/**
+ * How an attempt to reach an address went: reached it; blocked, as a network policy blocks (the connection refused,
+ * reset or never answered); or failed some other way, such as a name that does not resolve, which proves nothing
+ * about a fence.
+ */
+export async function attempt(url: string): Promise<'reached' | 'blocked' | 'unclear'> {
+  try {
+    await fetch(url, { signal: AbortSignal.timeout(3000) });
+    return 'reached';
+  } catch (error) {
+    const code = ((error as Error)?.cause as { code?: string } | undefined)?.code ?? (error as Error)?.name;
+    const blocks = [
+      'ECONNREFUSED',
+      'ECONNRESET',
+      'EHOSTUNREACH',
+      'ENETUNREACH',
+      'UND_ERR_CONNECT_TIMEOUT',
+      'TimeoutError',
+    ];
+    return blocks.includes(code ?? '') ? 'blocked' : 'unclear';
+  }
+}
 
-/** Waits until the pod is fenced: the canary out of reach, the gateway in it. */
+/**
+ * Waits until the pod is fenced: the canary blocked, as a policy blocks it, and the gateway reached. A canary that
+ * cannot be resolved, or answers oddly, is not taken for a fence.
+ */
 export async function awaitFence(gateway: string, canary = CANARY, waitMs = FENCE_WAIT_MS): Promise<void> {
   const until = Date.now() + waitMs;
   for (;;) {
-    const [out, gate] = await Promise.all([reaches(canary), reaches(`${gateway}/health`)]);
-    if (!out && gate) return;
+    const [out, gate] = await Promise.all([attempt(canary), attempt(`${gateway}/health`)]);
+    if (out === 'blocked' && gate === 'reached') return;
     if (Date.now() > until) {
       throw new Error(
-        out ? `This pod can reach ${canary}: its fence is not up.` : 'This pod cannot reach the gateway.',
+        gate !== 'reached'
+          ? 'This pod cannot reach the gateway.'
+          : `This pod's way to ${canary} is ${out}, not blocked: its fence is not shown to be up.`,
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 }
+
+/**
+ * The tools an agent may use: its checkout's files and a shell. Not the web (WebSearch asks the model's API for a
+ * search, WebFetch reaches out), and not Claude Code's agents, schedules or worktrees.
+ */
+export const TOOLS = ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep'];
 
 /** The system prompt's addition: who the agent is, which skill to use, and what its last message is for. */
 function instructions(agent: string, skill: string | undefined): string {
@@ -78,6 +106,7 @@ export async function runAgent(
       options: {
         cwd,
         maxTurns: step.maxTurns,
+        tools: TOOLS,
         ...(step.resume ? { resume: step.resume } : {}),
         // The sandbox is the fence: inside it, the agent needs no one's permission to edit or run.
         permissionMode: 'bypassPermissions',
@@ -128,29 +157,14 @@ export async function runAgent(
 }
 
 /**
- * What the agent changed since the checkout's last commit, as a patch; then committed in the checkout, so that a later
- * round's patch holds only that round's changes. Renames are written as a deletion and an addition, which every
- * patch reader understands.
+ * What the agent changed since the commit the step started from, as a patch. Nothing is committed in the sandbox:
+ * each step starts from a fresh checkout of the branch's head on GitHub, so a round's patch holds that round's
+ * changes on what GitHub has, and a refused patch leaves nothing behind. Renames are written as a deletion and an
+ * addition, which every patch reader understands.
  */
 export async function changes(cwd: string): Promise<string> {
   await git(cwd, 'add', '--all', '--', '.', ':(exclude).claude');
-  const patch = await git(cwd, 'diff', '--cached', '--no-renames', '--no-ext-diff', '--no-color');
-  // Its own name, whatever the checkout's settings say: the commit stays in the sandbox.
-  if (patch) {
-    await git(
-      cwd,
-      '-c',
-      'user.name=runner',
-      '-c',
-      'user.email=runner@factory.invalid',
-      'commit',
-      '--quiet',
-      '--no-verify',
-      '--message',
-      'Handed back',
-    );
-  }
-  return patch;
+  return git(cwd, 'diff', '--cached', '--no-renames', '--no-ext-diff', '--no-color');
 }
 
 /** Hands the result back to the line, with the job token. */

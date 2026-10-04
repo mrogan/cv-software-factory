@@ -5,21 +5,30 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { request } from 'node:https';
+import type { z } from 'zod';
 
 const ACCOUNT = '/var/run/secrets/kubernetes.io/serviceaccount';
 
 export interface Kube {
-  get<T>(path: string): Promise<T | undefined>;
+  /** An object read through its schema, or undefined if there is none. */
+  get<T>(path: string, schema: z.ZodType<T>): Promise<T | undefined>;
   create(path: string, body: unknown): Promise<void>;
   remove(path: string): Promise<void>;
 }
 
-class KubeError extends Error {
+export type KubeErrorKind = 'refused' | 'invalid' | 'server' | 'malformed';
+
+/** The API refused or failed: `refused` (401, 403), `invalid` (another 4xx), `server` (5xx), or an answer of another shape. */
+export class KubeError extends Error {
+  override name = 'KubeError';
   readonly status: number;
+  readonly kind: KubeErrorKind;
 
   constructor(status: number, message: string) {
     super(message);
     this.status = status;
+    this.kind =
+      status === 401 || status === 403 ? 'refused' : status >= 500 ? 'server' : status === 0 ? 'malformed' : 'invalid';
   }
 }
 
@@ -39,11 +48,13 @@ function client(send: Send): Kube {
     }
   };
   return {
-    async get<T>(path: string) {
+    async get<T>(path: string, schema: z.ZodType<T>) {
       const answer = await send('GET', path);
       if (answer.status === 404) return undefined;
       check('GET', path, answer);
-      return JSON.parse(answer.text) as T;
+      const parsed = schema.safeParse(JSON.parse(answer.text));
+      if (!parsed.success) throw new KubeError(0, `GET ${path} answered with something else`);
+      return parsed.data;
     },
     async create(path: string, body: unknown) {
       const answer = await send('POST', path, body);

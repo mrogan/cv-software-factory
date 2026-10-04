@@ -99,7 +99,8 @@ async function serve(): Promise<number> {
   const { api, handback } = lineServers({ runners, github, log });
   const port = Number(env.PORT ?? 8080);
   const handbackPort = Number(env.HANDBACK_PORT ?? 8081);
-  await new Promise<void>((resolve) => api.listen(port, resolve));
+  // The step API on loopback only: a port-forward reaches it, and no pod can. Agent pods call the handback.
+  await new Promise<void>((resolve) => api.listen(port, '127.0.0.1', resolve));
   await new Promise<void>((resolve) => handback.listen(handbackPort, resolve));
   log.info({ port, handbackPort }, `line listening on :${port}, the handback on :${handbackPort}`);
   await new Promise<void>((resolve) => {

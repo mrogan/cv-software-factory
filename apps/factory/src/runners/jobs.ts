@@ -3,7 +3,9 @@
  *
  * - The volume lives as long as the work item, so the checkout, its dependencies and the agent's session are there
  *   for the next step: the coder resumes its own session after review.
- * - The prepare Job checks out the commit and installs it. Its pod may reach GitHub and the npm registry.
+ * - The prepare Job checks out the commit and installs it. Its pod may reach GitHub and the npm registry, so it keeps
+ *   its home, its settings and pnpm's store in an empty folder of its own, and runs nothing the agent could have left
+ *   on the volume (apps/runner/src/prepare.ts).
  * - The agent Job runs the agent. Its pod reaches the gateway and the line's handback, and nothing else; it holds its
  *   job token, which is not a credential anywhere else.
  *
@@ -93,9 +95,11 @@ function job(names: JobNames, part: 'prepare' | 'agent', settings: JobSettings, 
               args: [part],
               env: env({
                 WORK: '/work',
-                HOME: '/work/home',
-                COREPACK_HOME: '/work/corepack',
-                npm_config_store_dir: '/work/pnpm-store',
+                // pnpm, at the version the image holds, read-only: neither pod can change the pnpm the other runs.
+                COREPACK_HOME: '/opt/corepack',
+                ...(part === 'prepare'
+                  ? { PREPARE: '/prepare', HOME: '/prepare/home', npm_config_store_dir: '/prepare/store' }
+                  : { HOME: '/work/home' }),
                 ...variables,
               }),
               securityContext: {
@@ -107,12 +111,14 @@ function job(names: JobNames, part: 'prepare' | 'agent', settings: JobSettings, 
               volumeMounts: [
                 { name: 'work', mountPath: '/work' },
                 { name: 'tmp', mountPath: '/tmp' },
+                ...(part === 'prepare' ? [{ name: 'prepare', mountPath: '/prepare' }] : []),
               ],
             },
           ],
           volumes: [
             { name: 'work', persistentVolumeClaim: { claimName: volumeName(names.workItem) } },
             { name: 'tmp', emptyDir: {} },
+            ...(part === 'prepare' ? [{ name: 'prepare', emptyDir: {} }] : []),
           ],
         },
       },
@@ -127,7 +133,8 @@ export const agentJob = (names: JobNames, step: Step, settings: AgentSettings) =
   job(names, 'agent', settings, {
     RUNNER_STEP: JSON.stringify(step),
     ANTHROPIC_BASE_URL: settings.gatewayUrl,
-    // Its job token, where the Agent SDK looks for a key. The gateway and the handback take it, while the job runs.
+    // Its job token, where the Agent SDK looks for a key. The gateway and the handback take it, while the job runs. It
+    // is in the Job's spec, which only the line can read in `runners`; it is worth nothing once the job ends.
     ANTHROPIC_API_KEY: settings.token,
     HANDBACK_URL: settings.handbackUrl,
   });

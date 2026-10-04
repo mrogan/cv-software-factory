@@ -51,24 +51,35 @@ export interface RunnersOptions {
   log: Logger;
   /** How often a Job's state is read. */
   pollMs?: number;
+  /** How long a handback may follow the agent pod's end: a pod hands back, then ends. */
+  graceMs?: number;
+  /** Injected so tests need neither real waiting nor a real clock. */
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
 }
 
 const PREPARE_SECONDS = 600;
 
-interface JobStatus {
-  status?: {
-    succeeded?: number;
-    failed?: number;
-    conditions?: { type: string; status: string; reason?: string; message?: string }[];
-  };
-}
+const JOB = z.object({
+  status: z
+    .object({
+      succeeded: z.number().optional(),
+      conditions: z.array(z.object({ type: z.string(), status: z.string(), reason: z.string().optional() })).optional(),
+    })
+    .optional(),
+});
 
 export class Runners {
   readonly #o: RunnersOptions;
   readonly #waiting = new Map<string, (handback: Handback) => void>();
 
+  readonly #sleep: (ms: number) => Promise<void>;
+  readonly #now: () => number;
+
   constructor(options: RunnersOptions) {
     this.#o = options;
+    this.#sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.#now = options.now ?? Date.now;
   }
 
   async run(request: StepRequest): Promise<StepOutcome> {
@@ -99,7 +110,7 @@ export class Runners {
       log.info({ job, workItem, agent: step.agent }, 'the agent is working');
       // The pod ending is checked after the handback could have arrived: a pod hands back, then ends.
       const ended = this.#finished(`${jobs}/${job}-agent`, deadlineSeconds + 60).then(async (state) => {
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        await this.#sleep(this.#o.graceMs ?? 2_000);
         return state;
       });
       const first = await Promise.race([
@@ -110,7 +121,10 @@ export class Runners {
       return { kind: 'failed', job, reason: `The agent pod ${first.state} without handing anything back.` };
     } finally {
       this.#waiting.delete(job);
-      await endJobToken(sql, job);
+      // Each of these is tried whatever the others do: a token that will not end must not leave a Job running.
+      await endJobToken(sql, job).catch((error: Error) =>
+        log.error({ job, err: { message: error.message } }, 'could not end a job token'),
+      );
       for (const part of ['prepare', 'agent']) {
         await kube
           .remove(`${jobs}/${job}-${part}`)
@@ -124,14 +138,14 @@ export class Runners {
     path: string,
     withinSeconds: number,
   ): Promise<'succeeded' | 'failed' | 'ran out of time' | 'vanished'> {
-    const until = Date.now() + withinSeconds * 1000;
-    while (Date.now() < until) {
-      const job = await this.#o.kube.get<JobStatus>(path);
+    const until = this.#now() + withinSeconds * 1000;
+    while (this.#now() < until) {
+      const job = await this.#o.kube.get(path, JOB);
       if (!job) return 'vanished';
       if (job.status?.succeeded) return 'succeeded';
       const failed = job.status?.conditions?.find((c) => c.type === 'Failed' && c.status === 'True');
       if (failed) return failed.reason === 'DeadlineExceeded' ? 'ran out of time' : 'failed';
-      await new Promise((resolve) => setTimeout(resolve, this.#o.pollMs ?? 2_000));
+      await this.#sleep(this.#o.pollMs ?? 2_000);
     }
     return 'ran out of time';
   }
@@ -177,10 +191,11 @@ class TooLarge extends Error {}
 async function readBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   let size = 0;
+  // Read to the end even when it is too big, keeping none of it, so the refusal can be sent.
   for await (const chunk of req as AsyncIterable<Buffer>) {
     size += chunk.length;
-    if (size > MAX_BODY) throw new TooLarge();
-    chunks.push(chunk);
+    if (size <= MAX_BODY) chunks.push(chunk);
   }
+  if (size > MAX_BODY) throw new TooLarge();
   return Buffer.concat(chunks).toString('utf-8');
 }

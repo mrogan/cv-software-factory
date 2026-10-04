@@ -8,9 +8,9 @@
  * a path the repository's CODEOWNERS gives a person.
  */
 import { filesIn } from '../github/patches.ts';
+import { inScope, NEVER, ownedPaths } from '../github/paths.ts';
 
-/** Never in scope: the rules of the line, in the app's repository. */
-export const NEVER = ['.github/', 'deploy/'];
+export { NEVER, ownedPaths };
 
 export interface Fenced {
   ok: boolean;
@@ -20,35 +20,9 @@ export interface Fenced {
   outside: string[];
 }
 
-const pattern = (entry: string) =>
-  new RegExp(
-    `^${entry
-      .split(/(\*\*\/?|\*)/)
-      .map((part) =>
-        part.startsWith('**') ? '.*' : part === '*' ? '[^/]*' : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'),
-      )
-      .join('')}${entry.endsWith('/') ? '.*' : ''}$`,
-  );
-
-export const inScope = (path: string, scope: readonly string[]) => scope.some((entry) => pattern(entry).test(path));
-
 export function fence(patch: string, scope: readonly string[], owned: readonly string[] = []): Fenced {
   const paths = [...new Set(filesIn(patch).map((f) => f.path))];
   const forbidden = [...NEVER, ...owned];
   const outside = paths.filter((path) => !inScope(path, scope) || inScope(path, forbidden));
   return { ok: outside.length === 0, paths, outside };
-}
-
-/**
- * The paths a CODEOWNERS file gives anyone, as scope entries: `/deploy/` is `deploy/`, `/Dockerfile` is `Dockerfile`,
- * and an entry with no leading slash matches anywhere.
- */
-export function ownedPaths(codeowners: string): string[] {
-  return codeowners
-    .split('\n')
-    .map((line) => line.replace(/#.*/, '').trim())
-    .filter(Boolean)
-    .map((line) => line.split(/\s+/)[0] ?? '')
-    .filter(Boolean)
-    .map((path) => (path.startsWith('/') ? path.slice(1) : `**/${path}`));
 }

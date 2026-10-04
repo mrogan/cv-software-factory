@@ -4,11 +4,13 @@
  *
  *     RUNNER_STEP   the step, as JSON (`Step`)
  *     WORK          the job's volume, which lives as long as the work item (default /work)
+ *     PREPARE       the prepare pod's own folder, empty each time, for what it must not share with the agent
  *
  * The agent pod also has ANTHROPIC_BASE_URL (the gateway), ANTHROPIC_API_KEY (its job token, which is not a key) and
  * HANDBACK_URL (the line's handback endpoint). The prepare pod has neither.
  */
 import { join } from 'node:path';
+import { z } from 'zod';
 
 export interface Step {
   /** The agent: planner, coder, reviewer or describer. */
@@ -49,14 +51,25 @@ export interface Handback {
 export const work = (env = process.env) => env.WORK ?? '/work';
 export const repoDir = (env = process.env) => join(work(env), 'repo');
 
+const STEP = z.strictObject({
+  agent: z.string().min(1),
+  repository: z.url(),
+  commit: z.string().regex(/^[0-9a-f]{40}$/, 'a full commit sha'),
+  prompt: z.string().min(1),
+  skill: z.string().optional(),
+  maxTurns: z.number().int().positive(),
+  resume: z.string().optional(),
+  seed: z.string().optional(),
+});
+
 export function stepFrom(env = process.env): Step {
   const text = env.RUNNER_STEP;
   if (!text) throw new Error('RUNNER_STEP is not set: the job says what to do there.');
-  const step = JSON.parse(text) as Step;
-  for (const field of ['agent', 'repository', 'commit', 'prompt'] as const) {
-    if (typeof step[field] !== 'string' || !step[field]) throw new Error(`RUNNER_STEP has no ${field}.`);
+  const parsed = STEP.safeParse(JSON.parse(text));
+  if (!parsed.success) {
+    throw new Error(
+      `RUNNER_STEP is not a step (${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')})`,
+    );
   }
-  if (!/^[0-9a-f]{40}$/.test(step.commit)) throw new Error('RUNNER_STEP.commit is not a full commit sha.');
-  if (!Number.isInteger(step.maxTurns) || step.maxTurns < 1) throw new Error('RUNNER_STEP.maxTurns is not a count.');
-  return step;
+  return parsed.data as Step;
 }

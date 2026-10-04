@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { jobForToken } from '@software-factory/store';
+import { issueJobToken, jobForToken } from '@software-factory/store';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../packages/store/test/database.ts';
 import type { Handback, Step } from '../../runner/src/step.ts';
@@ -214,5 +214,27 @@ describe('running a step', () => {
       job: 'coder-1003-2',
       reason: 'The agent pod succeeded without handing anything back.',
     });
+  });
+});
+
+describe('the handback', () => {
+  it('turns away a job nobody waits for, and a body over its limit', async () => {
+    const { handbackUrl, close } = await line(() => {});
+    const token = await issueJobToken(database.writer, { job: 'coder-1004-1', workItem: '1004', agent: 'coder' });
+    expect((await handBack(handbackUrl, token, DONE)).status).toBe(409);
+    const huge = await fetch(handbackUrl, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      body: 'x'.repeat(3 * 1024 * 1024),
+    });
+    expect(huge.status).toBe(413);
+    await close();
+  });
+});
+
+describe('the scope fence, against a path that climbs out', () => {
+  it('refuses it before it can match a folder', () => {
+    const climbing = PATCH('src/../.github/workflows/x.yml');
+    expect(() => fence(climbing, ['src/'])).toThrow('not a plain path');
   });
 });

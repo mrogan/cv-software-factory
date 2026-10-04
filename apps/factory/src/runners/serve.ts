@@ -1,6 +1,8 @@
 /**
- * The line's server, as far as runners go: the handback for agent pods on one port, and on another, which nothing
- * in the cluster may reach (only a person's `kubectl port-forward`), the steps it runs.
+ * The line's server, as far as runners go: the handback for agent pods on one port, and on another, the steps it
+ * runs. The step API has no token: it listens on loopback only, so nothing in the cluster can reach it, and a person
+ * reaches it through `kubectl port-forward`, which needs their own rights in the cluster. It takes only JSON, so a web
+ * page on the same machine cannot drive it, and bodies of a megabyte at most.
  *
  *     :8081  POST /v1/handback      a job's result, with its token (agent pods)
  *     :8080  POST /v1/steps         run one step (`StepRequest`) and answer with how it went
@@ -33,9 +35,16 @@ export const stepRequest = z.strictObject({
     .max(4 * 3600),
 });
 
+const MAX_BODY = 1024 * 1024;
+
 async function json(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req as AsyncIterable<Buffer>) chunks.push(chunk);
+  let size = 0;
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    size += chunk.length;
+    if (size > MAX_BODY) throw new RangeError(`The body is over ${MAX_BODY} bytes.`);
+    chunks.push(chunk);
+  }
   return JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
 }
 
@@ -50,6 +59,9 @@ export function lineServers({ runners, github, log }: { runners: Runners; github
       const { pathname } = new URL(req.url ?? '/', 'http://line');
       if (pathname === '/health') return send(res, 200, { status: 'ok' });
       if (req.method !== 'POST') return send(res, 404, { error: 'not found' });
+      if (!/^application\/json(;|$)/i.test(req.headers['content-type'] ?? '')) {
+        return send(res, 415, { error: 'Send the body as application/json.' });
+      }
       if (pathname === '/v1/steps') {
         const parsed = stepRequest.safeParse(await json(req));
         if (!parsed.success)
@@ -72,7 +84,10 @@ export function lineServers({ runners, github, log }: { runners: Runners; github
       send(res, 404, { error: 'not found' });
     })().catch((error: unknown) => {
       log.error({ err: { message: (error as Error)?.message } }, 'a line request failed');
-      if (!res.headersSent) send(res, 500, { error: (error as Error)?.message ?? 'failed' });
+      if (res.headersSent) return;
+      if (error instanceof RangeError || error instanceof SyntaxError)
+        send(res, 400, { error: (error as Error).message });
+      else send(res, 500, { error: (error as Error)?.message ?? 'failed' });
     });
   });
   return { api, handback: createServer(runners.handback()) };

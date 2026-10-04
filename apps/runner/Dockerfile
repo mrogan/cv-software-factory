@@ -12,6 +12,12 @@ RUN apt-get update \
   && apt-get install --yes --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable
+# pnpm at the version the repository pins, which is the app's too, held in the image, read-only: the runner's pods
+# have no way to change it, and the agent pod, with no network, has no need to fetch it.
+ENV COREPACK_HOME=/opt/corepack
+COPY package.json /tmp/pin/
+RUN cd /tmp/pin && corepack install && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm --version \
+  && rm -rf /tmp/pin && chmod -R a+rX,go-w /opt/corepack
 
 FROM node AS runner
 WORKDIR /repo
@@ -26,7 +32,7 @@ RUN chmod -R a+rX,go-w /repo
 FROM node
 COPY --from=runner /repo /repo
 USER 65532:65532
-# The job's volume is /work: the checkout, its dependencies, pnpm itself (through corepack) and the agent's session.
-ENV NODE_ENV=production WORK=/work HOME=/work/home COREPACK_HOME=/work/corepack npm_config_store_dir=/work/pnpm-store
+# The job's volume is /work: the checkout, its dependencies and the agent's session.
+ENV NODE_ENV=production WORK=/work HOME=/work/home
 WORKDIR /work
 ENTRYPOINT ["node", "/repo/apps/runner/src/cli.ts"]
