@@ -2,7 +2,8 @@
 name: check
 
 # Pull requests that workflows open (deploy, release) run these too, once Martin approves the runs on the pull request.
-# They also run on main after each merge, which is what the README's badge reports.
+# Theirs are lighter: no browser tests, and a deploy pull request's images are checked rather than built (the `kind`
+# job). They also run on main after each merge, which is what the README's badge reports.
 on:
   pull_request:
   push:
@@ -16,6 +17,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Whether this is a release or deploy pull request that a workflow opened and nobody has changed. Only those skip
+  # checks, and a skipped job counts as passed for the ruleset, so the test is the author and the exact files and
+  # lines that change. Anything else, or this job failing, is `code` and runs everything.
+  kind:
+    name: which checks apply
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      kind: ${{ steps.which.outputs.kind }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+          # The merge commit and its parents: the first is the base, so the diff between them is what would merge.
+          fetch-depth: 2
+      - id: which
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          kind=code
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$AUTHOR" = 'github-actions[bot]' ]; then
+            files=$(git diff --name-only HEAD^1 HEAD)
+            # Every changed line of package.json is its version.
+            other_lines=$(git diff --unified=0 HEAD^1 HEAD -- package.json | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | grep -vE '^[-+]  "version": "[^"]+",$' || true)
+            if [ -n "$files" ] && ! grep -vqxE 'CHANGELOG\.md|package\.json|\.release-please-manifest\.json' <<< "$files" && [ -z "$other_lines" ]; then
+              kind=release
+            elif [ -n "$files" ] && ! grep -vqxE 'deploy/overlays/local/(console|factory)-image/kustomization\.yaml' <<< "$files"; then
+              kind=deploy
+            fi
+          fi
+          echo "$kind"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+
   check:
     name: lint, types, tests
     runs-on: ubuntu-24.04
@@ -43,6 +78,9 @@ jobs:
 
   browser:
     name: browser tests
+    needs: kind
+    # Skipped only for a release or deploy pull request: they change nothing a browser test could see.
+    if: ${{ !cancelled() && needs.kind.outputs.kind != 'release' && needs.kind.outputs.kind != 'deploy' }}
     # The pinned Playwright image, on arm64 like the laptops the snapshots are made on, so they match.
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
@@ -77,30 +115,66 @@ jobs:
             apps/console/e2e-results
           retention-days: 7
 
+  # A deploy pull request builds nothing: it checks that each image it pins was built from main. A release pull request
+  # changes nothing an image holds, so it skips this.
   image:
     name: image builds
+    needs: kind
+    if: ${{ !cancelled() && needs.kind.outputs.kind != 'release' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      DEPLOY: ${{ needs.kind.outputs.kind == 'deploy' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      # build.yml pushes each image tagged and labelled with the commit it was built from, and only on main does it
+      # run with the right to push. A digest from a run on another branch, or one that is not in GHCR, fails here.
+      - name: Check the pinned images were built from main
+        if: env.DEPLOY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for file in deploy/overlays/local/*-image/kustomization.yaml; do
+            for ref in $(yq '.images[] | .newName + "@" + .digest' "$file"); do
+              case "$ref" in
+                "ghcr.io/$GITHUB_REPOSITORY/"*@sha256:*) ;;
+                *) echo "::error file=$file::$ref is not one of this repository's images, pinned by digest"; exit 1 ;;
+              esac
+              revisions=$(docker buildx imagetools inspect "$ref" --format '{{ json .Image }}' \
+                | jq -r '[.. | objects | .config?.Labels?["org.opencontainers.image.revision"]? // empty] | unique | .[]')
+              if [ "$(wc -w <<< "$revisions")" -ne 1 ]; then
+                echo "::error file=$file::$ref does not name the one commit it was built from (found: ${revisions:-none})"; exit 1
+              fi
+              # "ahead" or "identical": main contains the commit.
+              status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$revisions...main" --jq .status)
+              if [ "$status" != ahead ] && [ "$status" != identical ]; then
+                echo "::error file=$file::$ref was built from $revisions, which is not on main"; exit 1
+              fi
+              echo "$ref: built from $revisions, on main"
+            done
+          done
+      - if: env.DEPLOY != 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: env.DEPLOY != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/console/Dockerfile
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - if: env.DEPLOY != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/factory/Dockerfile
           push: false
           cache-from: type=gha,scope=factory
           cache-to: type=gha,mode=max,scope=factory
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - if: env.DEPLOY != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/factory/Dockerfile.browser
