@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ArtifactRef, RawEvent } from '@software-factory/events';
 import { EVENTS_FILE, parseLog, upcast } from '@software-factory/events';
-import { listen, readPublic } from '@software-factory/store';
+import { listen, readPublic, storeKind } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { log } from './log.ts';
 
@@ -23,7 +23,31 @@ export interface FeedEvent {
 
 export type Listener = (event: FeedEvent) => void;
 
+/** What a store holds: samples or real events, or neither yet. Not an event: the store records it once (0002). */
+export type StoreKind = 'sample' | 'real' | null;
+
 export class Feed {
+  /** What the store holds, as it last said. The stream tells each browser first thing, so an empty store is described rightly. */
+  #kind: StoreKind = null;
+  readonly #kindListeners = new Set<(kind: StoreKind) => void>();
+
+  get kind(): StoreKind {
+    return this.#kind;
+  }
+
+  /** Records what the store holds, and tells every stream when it changes. */
+  set kind(kind: StoreKind) {
+    if (kind === this.#kind) return;
+    this.#kind = kind;
+    for (const listener of this.#kindListeners) listener(kind);
+  }
+
+  /** Calls back whenever the store's kind changes, until unsubscribed. */
+  onKind(listener: (kind: StoreKind) => void): () => void {
+    this.#kindListeners.add(listener);
+    return () => this.#kindListeners.delete(listener);
+  }
+
   readonly #events: FeedEvent[] = [];
   readonly #listeners = new Set<Listener>();
   /** Every public artifact's recorded type, by hash. The console serves only these. */
@@ -90,6 +114,9 @@ export async function storeFeed(sql: Sql): Promise<Feed> {
     reading = (async () => {
       do {
         again = false;
+        // The kind is decided once, by `make real-store` or the first event, and never changes after. Until then it
+        // is asked again on every read: `make real-store` notifies, so the console hears of it with no event.
+        if (feed.kind === null) feed.kind = await storeKind(sql);
         for (;;) {
           const page = await readPublic(sql, feed.lastSeq);
           feed.add(page.map(({ event, appendedAt }) => ({ event, appendedAt: appendedAt.getTime() })));
@@ -132,6 +159,9 @@ export function logFeed(dir: string, now = Date.now()): Feed {
       return { event, appendedAt: Date.parse(moved.ts) };
     }),
   );
+  // A log has no store table: its first work item says whether it holds samples.
+  const opened = raws.find((raw) => raw.type === 'work-item.opened') as { payload?: { sample?: boolean } } | undefined;
+  feed.kind = opened ? (opened.payload?.sample ? 'sample' : 'real') : null;
   log.info({ events: feed.size, dir }, 'serving an event log, its last event now');
   return feed;
 }

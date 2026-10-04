@@ -1,23 +1,54 @@
 /**
  * The reel at time t: one card per work item, oldest first, and the timeline under them.
  */
-import type { Category, Evidence, Kind, PayloadOf, PublicEvent, Screenshot, Stage } from '@software-factory/events';
+import type {
+  Category,
+  Evidence,
+  Kind,
+  PayloadOf,
+  PublicEvent,
+  Screenshot,
+  Sense,
+  Stage,
+} from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
 import type { Capture, ItemState, Outcome } from './items.ts';
 
-export type Segment = 'passed' | 'skipped' | 'now' | 'stopped' | 'waiting' | 'closed' | 'none';
+export type Segment = 'passed' | 'skipped' | 'now' | 'queued' | 'stopped' | 'waiting' | 'closed' | 'none';
 
-export type Tag = 'BEFORE' | 'BROKEN' | 'FIXED' | 'AFTER' | 'NOW';
+export type Tag = 'BEFORE' | 'BROKEN' | 'FIXED' | 'AFTER' | 'NOW' | 'SEEN';
+
+/**
+ * The probability of holding instructions at which triage quarantines a report: `REPORTS.quarantine` in
+ * policy/triage.ts. The console's image is built without policy/, so it keeps this copy, and a test holds the two
+ * together.
+ */
+export const QUARANTINE_AT = 0.5;
+
+type Http = Extract<Evidence, { kind: 'http' }>;
+type Console = Extract<Evidence, { kind: 'console' }>;
+type Accessibility = Extract<Evidence, { kind: 'accessibility' }>;
+type Judgement = PayloadOf<'judgement.made'>;
+
+/** Who captured a picture's evidence, with which check, on which version, and whether on one page or every page. */
+export interface Source {
+  sense: Sense;
+  check: string;
+  version: string;
+  every: boolean;
+}
 
 /** The picture on a card: always evidence the factory captured, never an illustration. */
 export type Picture =
   | { type: 'wipe'; before: Screenshot; after: Screenshot; tags: [Tag, Tag] }
   | { type: 'screenshot'; shot: Screenshot; tag: Tag }
-  | { type: 'metric'; evidence: Extract<Evidence, { kind: 'metric' }>; unchanged: Screenshot[] }
+  /** A metric over time: a fix's effect once verified, or, when `seen`, the problem as a sense saw it. */
+  | { type: 'metric'; evidence: Extract<Evidence, { kind: 'metric' }>; unchanged: Screenshot[]; seen?: boolean }
   | {
       type: 'logs';
       before: Extract<Evidence, { kind: 'logs' }> | undefined;
       after: Extract<Evidence, { kind: 'logs' }>;
+      seen?: boolean;
     }
   | {
       type: 'package';
@@ -29,8 +60,20 @@ export type Picture =
   | { type: 'scan'; dependency: Dependency; findings: Findings; unchanged: Screenshot[] }
   | { type: 'rollback'; dependency: Dependency | undefined; rollback: PayloadOf<'release.rolled-back'> }
   | { type: 'refusal'; mechanism: string; output: string }
-  | { type: 'judgement'; page: Screenshot | undefined; judgement: PayloadOf<'judgement.made'> }
+  | { type: 'judgement'; page: Screenshot | undefined; judgement: Judgement }
+  /** A report quarantined: the answer that decided it, against its threshold, and no page at all. */
+  | { type: 'quarantine'; judgement: Judgement }
+  /** A visitor's suggestion, parked for Martin: the page it named and Jev's answers, waiting on him. */
+  | { type: 'suggestion'; page: Screenshot | undefined; judgement: Judgement }
   | { type: 'spec'; spec: PayloadOf<'spec.written'>; question: string | undefined }
+  /** A problem found on every page: a few of the pages, each marked, and how many more. */
+  | { type: 'pages'; shots: Screenshot[]; more: number; source: Source }
+  /** A request and what came back: what a screenshot cannot show, such as a redirect or a missing header. */
+  | { type: 'http'; exchange: Http; source: Source }
+  /** What the browser's console said, word for word, beside the page it said it on. */
+  | { type: 'console'; console: Console; shot: Screenshot | undefined; source: Source }
+  /** What an accessibility check found, with each element it named numbered on the screenshot. */
+  | { type: 'accessibility'; findings: Accessibility; shot: Screenshot | undefined; source: Source }
   | { type: 'none' };
 
 type Dependency = NonNullable<PayloadOf<'work-item.opened'>['dependency']>;
@@ -58,6 +101,12 @@ export interface Card {
   description: string;
   picture: Picture;
   versions: Versions;
+  /** The app's version when a sense first saw it, for work that has not reached a release. */
+  seenOn: string | undefined;
+  /** The page a visitor's report came from, at its path only. */
+  from: string | undefined;
+  /** Model calls and Jev requests: none at all is said as "no model". */
+  calls: number;
   pullRequest: number | undefined;
   startedAt: number;
   /** Start to finish, or so far. */
@@ -93,7 +142,11 @@ export function segments(item: ItemState): Segment[] {
         return 'stopped';
       case 'needs-you':
         return 'waiting';
+      case 'waiting':
+        return 'queued';
       case 'closed':
+      case 'quarantined':
+      case 'no-ticket':
         return item.failure ? 'stopped' : 'closed';
       default:
         return 'now';
@@ -103,16 +156,19 @@ export function segments(item: ItemState): Segment[] {
 
 /** Where the item got to, in words, for the segments' accessible name. */
 export function segmentsLabel(list: readonly Segment[]): string {
-  const at = list.findIndex((s) => s === 'now' || s === 'stopped' || s === 'waiting' || s === 'closed');
+  const at = list.findIndex(
+    (s) => s === 'now' || s === 'queued' || s === 'stopped' || s === 'waiting' || s === 'closed',
+  );
   if (at < 0) return list.every((s) => s === 'none') ? 'Not on the line yet' : 'Every stage passed';
   const stage = STAGES[at] as Stage;
   const name = stage[0]?.toUpperCase() + stage.slice(1);
   return {
     now: `Now at ${name}`,
+    queued: stage === 'plan' ? 'Waiting at Plan for the planner' : `Waiting at ${name}`,
     stopped: `Stopped at ${name}`,
     waiting: `Waiting at ${name}`,
     closed: `Closed at ${name}`,
-  }[list[at] as 'now' | 'stopped' | 'waiting' | 'closed'];
+  }[list[at] as 'now' | 'queued' | 'stopped' | 'waiting' | 'closed'];
 }
 
 const last = <T>(list: readonly T[], test: (value: T) => boolean) => [...list].reverse().find(test);
@@ -151,9 +207,17 @@ export function picture(item: ItemState): Picture {
     if (gate?.payload.output) return { type: 'refusal', mechanism: gate.payload.check, output: gate.payload.output };
   }
 
-  const judgement = last(ofType(item, 'judgement.made'), () => true);
-  if (item.category === 'not-a-defect' && judgement) {
-    return { type: 'judgement', page: capture(item, 'page')?.shot, judgement: judgement.payload };
+  // A report shows what triage made of it: the request that routed it, which is its first. One that ended at triage
+  // shows it for good; one that became a ticket only until the line has evidence of its own, such as a fix.
+  const judgement = ofType(item, 'judgement.made').find((event) => event.payload.route)?.payload;
+  const endedAtTriage =
+    judgement?.route === 'quarantine' || judgement?.route === 'park' || judgement?.route === 'discard';
+  const pastPlan = item.stage !== null && STAGES.indexOf(item.stage) > STAGES.indexOf('plan');
+  if (item.kind === 'visitor-report' && judgement && (endedAtTriage || !pastPlan)) {
+    const page = capture(item, 'page')?.shot;
+    if (judgement.route === 'quarantine') return { type: 'quarantine', judgement };
+    if (judgement.route === 'park') return { type: 'suggestion', page, judgement };
+    return { type: 'judgement', page, judgement };
   }
 
   const spec = last(ofType(item, 'spec.written'), () => true);
@@ -182,12 +246,49 @@ export function picture(item: ItemState): Picture {
   if (verified?.kind === 'logs') {
     return { type: 'logs', before: signal?.kind === 'logs' ? signal : undefined, after: verified };
   }
-  if (signal?.kind === 'metric') return { type: 'metric', evidence: signal, unchanged: [] };
+  if (signal?.kind === 'metric') return { type: 'metric', evidence: signal, unchanged: [], seen: true };
+
+  const opened = opening(item);
+  const seen = opened && pictureOfSignal(opened);
+  if (seen) return seen;
 
   const broken = capture(item, 'broken');
-  if (broken) return { type: 'screenshot', shot: broken.shot, tag: 'NOW' };
+  if (broken) return { type: 'screenshot', shot: broken.shot, tag: 'SEEN' };
   if (spec) return { type: 'spec', spec: spec.payload, question: item.hold?.question };
   return { type: 'none' };
+}
+
+/** The sense's signal that opened the work item, if a sense opened it. */
+const opening = (item: ItemState) => ofType(item, 'signal.received').find((event) => event.payload.sense !== 'report');
+
+/**
+ * The picture a sense's own capture makes: a screenshot where it marked something on the page, and otherwise what
+ * the sense recorded instead (every page, the browser's console, an accessibility check, an HTTP exchange, a metric
+ * or log lines), or the unmarked page.
+ */
+export function pictureOfSignal(signal: PublicEvent<'signal.received'>): Picture | undefined {
+  const { sense, check, version, route, evidence = [] } = signal.payload;
+  const source: Source = { sense, check, version, every: route === '*' };
+  const shots = signal.artifacts.filter((a): a is Screenshot => a.kind === 'screenshot');
+  const find = <K extends Evidence['kind']>(kind: K) =>
+    evidence.find((e): e is Extract<Evidence, { kind: K }> => e.kind === kind);
+  const [shot] = shots;
+  if (source.every && shots.length > 1) {
+    return { type: 'pages', shots: shots.slice(0, 4), more: Math.max(0, shots.length - 4), source };
+  }
+  if (shot?.boxes.length) return { type: 'screenshot', shot, tag: 'SEEN' };
+  const consoled = find('console');
+  if (consoled) return { type: 'console', console: consoled, shot, source };
+  const accessibility = find('accessibility');
+  if (accessibility) return { type: 'accessibility', findings: accessibility, shot, source };
+  const http = find('http');
+  if (http) return { type: 'http', exchange: http, source };
+  const metric = find('metric');
+  if (metric) return { type: 'metric', evidence: metric, unchanged: [], seen: true };
+  const logs = find('logs');
+  if (logs) return { type: 'logs', before: undefined, after: logs, seen: true };
+  if (shot) return { type: 'screenshot', shot, tag: 'SEEN' };
+  return undefined;
 }
 
 const capture = (item: ItemState, side: Capture['side']) => last(item.captures, (c) => c.side === side);
@@ -233,6 +334,9 @@ export function card(item: ItemState, events: readonly PublicEvent[], t: number)
       rolledBack: item.versions.rolledBack,
       onCanary: Boolean(item.canary),
     },
+    seenOn: item.seenOn,
+    from: item.reportPage,
+    calls: item.calls,
     pullRequest: item.pullRequest,
     startedAt: item.openedAt,
     durationMs: Math.max(0, end - item.openedAt),

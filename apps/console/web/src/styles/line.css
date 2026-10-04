@@ -256,14 +256,7 @@ button.srow:hover {
   color: var(--tone);
 }
 .sources {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 10px;
-}
-.sources .label {
-  width: 100%;
+  margin: 0 0 4px;
 }
 .src {
   padding: 3px 10px;
@@ -333,5 +326,78 @@ button.srow:hover {
   }
   .stage-panel .caret {
     display: none;
+  }
+}
+
+/* Where Triage's work comes from: the five senses as rows, counted from events, and sources not in the demo. */
+.sources table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.sources caption {
+  text-align: left;
+  padding: 4px 0 2px;
+}
+.sources th,
+.sources td {
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  font-weight: 400;
+}
+.sources thead th {
+  padding: 4px 0 6px;
+  border-top: 0;
+}
+.sources .num {
+  width: 64px;
+  text-align: right;
+  font: 12px / 1.4 var(--font-mono);
+}
+.sources thead .num {
+  font-size: 10.5px;
+}
+.sources td.zero {
+  color: var(--text-muted);
+}
+.sources tbody th small {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.sources .elsewhere {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 0 8px;
+  border-top: 1px solid var(--line);
+}
+.sources .help {
+  margin-bottom: 8px;
+}
+.stage-panel .queue-note {
+  font: 11.5px / 1.5 var(--font-mono);
+  color: var(--text-2);
+}
+
+/* A spend cap's reset time stays in Triage's caption at every width: it is the station's one figure. */
+@media (max-width: 1180px) {
+  .stage .fig.keep {
+    display: inline;
+  }
+}
+@media (max-width: 720px) {
+  .stage .fig.keep {
+    display: block;
+    width: 100%;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .stage .state:has(.fig.keep) {
+    flex-wrap: wrap;
+    justify-content: center;
+    white-space: normal;
   }
 }

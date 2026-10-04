@@ -3,10 +3,11 @@
  * illustration: screenshots with the probe's marks, a metric series, log lines, a scan, a refusal, a judgement.
  */
 import type { Evidence, PayloadOf, Screenshot } from '@software-factory/events';
-import { type KeyboardEvent, type PointerEvent, useLayoutEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, type PointerEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { useArtifactUrl } from '../artifacts.ts';
 import { axis, clock, figure, plural } from '../format.ts';
-import type { Picture as PictureData, Tag } from '../projection/index.ts';
+import type { Picture as PictureData, Source, Tag } from '../projection/index.ts';
+import { QUARANTINE_AT } from '../projection/index.ts';
 import { Glyph } from './Glyph.tsx';
 import { LogoMark, logoFor } from './Logos.tsx';
 
@@ -16,6 +17,7 @@ const TAG_TONE: Record<Tag, 'faint' | 'attn' | 'ok'> = {
   FIXED: 'ok',
   AFTER: 'ok',
   NOW: 'attn',
+  SEEN: 'attn',
 };
 
 const PAGE_NAME: Record<string, string> = {
@@ -27,12 +29,39 @@ const PAGE_NAME: Record<string, string> = {
 
 const pageName = (route: string) => PAGE_NAME[route] ?? route;
 
-/** A screenshot of the app, with the probe's marks drawn where it looked. */
-export function Shot({ shot, eager = false }: { shot: Screenshot; eager?: boolean }) {
+/** A mark on a screenshot: where, whether the problem or the fix, and its label or its number in a list. */
+export interface Mark {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  kind: 'problem' | 'fix';
+  label?: string | undefined;
+  /** Numbered marks are keyed to a list beside the screenshot, which does their labelling. */
+  n?: number | undefined;
+}
+
+/**
+ * A screenshot of the app, with the probe's marks drawn where it looked. Several marks are numbered, keyed to a
+ * list beside the picture: one label per side still holds, and the list has room for what the screenshot can't show.
+ */
+export function Shot({
+  shot,
+  eager = false,
+  marks: given,
+  numbered = false,
+}: {
+  shot: Screenshot;
+  eager?: boolean;
+  /** Marks other than the screenshot's own boxes, such as the elements an accessibility check named. */
+  marks?: Mark[];
+  numbered?: boolean;
+}) {
   const url = useArtifactUrl();
   const [failed, setFailed] = useState(false);
-  const marks = shot.boxes.map((box) => box.label).filter(Boolean);
-  const alt = `Screenshot of ${pageName(shot.route)} at ${shot.version}${marks.length ? `, marked: ${marks.join('; ')}` : ''}`;
+  const marks: Mark[] = given ?? shot.boxes.map((box, i) => ({ ...box, ...(numbered && { n: i + 1 }) }));
+  const named = marks.map((mark) => [mark.n, mark.label].filter(Boolean).join(' ')).filter(Boolean);
+  const alt = `Screenshot of ${pageName(shot.route)} at ${shot.version}${named.length ? `, marked: ${named.join('; ')}` : ''}`;
   return (
     <div className="shot">
       {failed ? (
@@ -56,7 +85,7 @@ export function Shot({ shot, eager = false }: { shot: Screenshot; eager?: boolea
         />
       )}
       {!failed &&
-        shot.boxes.map((box) => (
+        marks.map((box) => (
           <span
             key={`${box.x},${box.y},${box.kind}`}
             className={`mk ${box.kind} ${box.y + box.height > shot.height * 0.8 ? 'up' : ''}`}
@@ -68,7 +97,11 @@ export function Shot({ shot, eager = false }: { shot: Screenshot; eager?: boolea
             }}
             aria-hidden="true"
           >
-            {box.label && <span className="mk-label">{box.label}</span>}
+            {box.n !== undefined ? (
+              <span className="mk-n">{box.n}</span>
+            ) : (
+              box.label && <span className="mk-label">{box.label}</span>
+            )}
           </span>
         ))}
     </div>
@@ -254,7 +287,7 @@ function LineChart(props: {
 
 type Metric = Extract<Evidence, { kind: 'metric' }>;
 
-function MetricPicture({ evidence, unchanged }: { evidence: Metric; unchanged: Screenshot[] }) {
+function MetricPicture({ evidence, unchanged, seen }: { evidence: Metric; unchanged: Screenshot[]; seen: boolean }) {
   const values = evidence.values;
   const at = (i: number) => Date.parse(evidence.start) + i * evidence.stepSeconds * 1000;
   // Before is the middle of the values before the release, so one odd sample cannot move it.
@@ -271,12 +304,27 @@ function MetricPicture({ evidence, unchanged }: { evidence: Metric; unchanged: S
       <div className="row spread">
         <div>
           <div className="cap">{evidence.name}</div>
-          <div className="big">
-            <s>{figure(before)}</s> →{' '}
-            <span className="ok">
-              {figure(after)} {evidence.unit}
-            </span>
-          </div>
+          {/* A sense's series shows the problem: where it is now, against its objective. Only a fix is drawn in green. */}
+          {seen ? (
+            <div className="big">
+              <span className="bad">
+                {figure(after)} {evidence.unit}
+              </span>
+              {evidence.objective !== undefined && (
+                <small>
+                  {' '}
+                  objective {figure(evidence.objective)} {evidence.unit}
+                </small>
+              )}
+            </div>
+          ) : (
+            <div className="big">
+              <s>{figure(before)}</s> →{' '}
+              <span className="ok">
+                {figure(after)} {evidence.unit}
+              </span>
+            </div>
+          )}
         </div>
         <div className="cap right">
           {clock(at(0))} – {clock(at(values.length - 1))}
@@ -325,18 +373,19 @@ function Terminal({ logs, title }: { logs: Logs; title: string }) {
   );
 }
 
-function LogsPicture({ before, after }: { before: Logs | undefined; after: Logs }) {
+function LogsPicture({ before, after, seen }: { before: Logs | undefined; after: Logs; seen: boolean }) {
   const spans = after.trace?.spans ?? [];
   const total = Math.max(1, ...spans.map((s) => s.offsetMs + s.durationMs));
   return (
     <div className="pad">
       <div className="row cap">
         <LogoMark name="otel" className="logo small" />
-        Log lines from {after.route}, before and after
+        Log lines from {after.route}
+        {before ? ', before and after' : ''}
       </div>
       <div className="logs">
         {before && <Terminal logs={before} title="before" />}
-        <Terminal logs={after} title="after" />
+        <Terminal logs={after} title={seen ? 'seen' : 'after'} />
       </div>
       {spans.length > 0 && (
         <div className="wf" role="img" aria-label={`The trace a log line now links to, ${spans.length} spans`}>
@@ -455,6 +504,17 @@ function RollbackPicture({ dependency, rollback }: Extract<PictureData, { type: 
 }
 
 /** Lines of output, each with a key of its own, even where the same text repeats. */
+/** Items each with a key of their own, even where the same one repeats. */
+function keyed<T>(list: readonly T[], name: (value: T) => string): { value: T; key: string }[] {
+  const seen = new Map<string, number>();
+  return list.map((value) => {
+    const text = name(value);
+    const count = (seen.get(text) ?? 0) + 1;
+    seen.set(text, count);
+    return { value, key: `${count}:${text}` };
+  });
+}
+
 function keyedLines(output: string): { text: string; key: string }[] {
   const seen = new Map<string, number>();
   return output.split('\n').map((text) => {
@@ -491,11 +551,48 @@ function RefusalPicture({ mechanism, output }: Extract<PictureData, { type: 'ref
   );
 }
 
+/** Jev's questions, in a few words each: the event holds them in full. */
 const QUESTION: Record<string, string> = {
-  category: 'What kind of problem?',
+  category: 'What kind of report?',
+  symptom: 'How does it show?',
   severity: 'How badly does it hurt?',
-  injection: 'Instructions for a system?',
+  injection: 'Orders for a system?',
+  repeat: 'Repeats an open ticket?',
+  passage: 'Which passage?',
 };
+
+/** The answers a judgement picture shows, in this order: the ones routing reads first. */
+const SHOWN = ['category', 'severity', 'injection'];
+
+type Answers = PayloadOf<'judgement.made'>['answers'];
+
+/** The answers to show, in order, leaving out the ones the picture has no room for. */
+function shown(answers: Answers, first?: string): Answers {
+  const order = first ? [first, ...SHOWN.filter((key) => key !== first)] : SHOWN;
+  const picked = order.flatMap((key) => answers.find((a) => a.key === key) ?? []);
+  return picked.length ? picked : answers;
+}
+
+function AnswerRows({ answers }: { answers: Answers }) {
+  return (
+    <div className="jev">
+      {answers.map((answer) => {
+        const { text, p } = answerOf(answer);
+        return (
+          <div className="jev-row" key={answer.key}>
+            <span className="q">{QUESTION[answer.key] ?? answer.question}</span>
+            <span className="p" aria-hidden="true">
+              <i style={{ width: `${p * 100}%` }} />
+            </span>
+            <span className="a">
+              {text} {p.toFixed(2)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const ROUTE: Record<NonNullable<PayloadOf<'judgement.made'>['route']>, string> = {
   ticket: 'a ticket',
@@ -533,27 +630,336 @@ function JudgementPicture({ page, judgement }: Extract<PictureData, { type: 'jud
             <LogoMark name="jev" className="logo small" />
             Jev · {judgement.questionSet} · {judgement.model}
           </div>
-          <div className="jev">
-            {judgement.answers.map((answer) => {
-              const { text, p } = answerOf(answer);
-              return (
-                <div className="jev-row" key={answer.key}>
-                  <span className="q">{QUESTION[answer.key] ?? answer.question}</span>
-                  <span className="p" aria-hidden="true">
-                    <i style={{ width: `${p * 100}%` }} />
-                  </span>
-                  <span className="a">
-                    {text} {p.toFixed(2)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+          <AnswerRows answers={shown(judgement.answers)} />
           {judgement.route && (
             <div className="routing">
               Routing: <b>{ROUTE[judgement.route]}.</b> A report’s text is untrusted: no generative agent ever reads it.
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A quarantined report: the one answer that decided it, first and large, against the threshold that routes it,
+ * and the others below it, unused. No page: the page has nothing to do with an attack. Never the report's words.
+ */
+function QuarantinePicture({ judgement }: Extract<PictureData, { type: 'quarantine' }>) {
+  const injection = judgement.answers.find((a) => a.key === 'injection');
+  const p = injection?.type === 'noul' ? injection.probability : 0;
+  const others = shown(judgement.answers).filter((a) => a.key !== 'injection');
+  return (
+    <div className="pad quarantine">
+      <div className="row cap">
+        <LogoMark name="jev" className="logo small" />
+        Jev · {judgement.questionSet} · {judgement.model}
+      </div>
+      <div className="decider">
+        <div className="row spread">
+          <span className="q">Does it give orders to a system that reads it?</span>
+          <span className="big">
+            <small>{p >= QUARANTINE_AT ? 'yes' : 'no'}</small> {p.toFixed(2)}
+          </span>
+        </div>
+        <div
+          className="gauge"
+          role="img"
+          aria-label={`Probability ${p.toFixed(2)}, against the threshold of ${QUARANTINE_AT.toFixed(2)} that quarantines a report`}
+        >
+          <i style={{ width: `${p * 100}%` }} />
+          <b style={{ left: `${QUARANTINE_AT * 100}%` }} />
+          <span style={{ left: `${QUARANTINE_AT * 100}%` }}>quarantined at {QUARANTINE_AT.toFixed(2)}</span>
+        </div>
+      </div>
+      <div className="row spread">
+        <span className="stamp">
+          <Glyph name="red-team" />
+          Quarantined
+        </span>
+        <span className="cap right">
+          decided first
+          <br />
+          other answers unused
+        </span>
+      </div>
+      <div className="unused">
+        {others.map((answer) => {
+          const { text, p: q } = answerOf(answer);
+          return (
+            <div key={answer.key}>
+              <span>{QUESTION[answer.key] ?? answer.question}</span>
+              <span className="a">
+                {text} {q.toFixed(2)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="withheld-note">
+        The report’s text is shown to nobody but Martin and its sender. No agent reads it.
+      </div>
+    </div>
+  );
+}
+
+/** A visitor's suggestion: it waits for Martin, the only one who asks for improvements. */
+function SuggestionPicture({ page, judgement }: Extract<PictureData, { type: 'suggestion' }>) {
+  return (
+    <div className="pad">
+      <div className="spec suggestion">
+        <div className="cap attn">Suggestion · waiting for Martin</div>
+        <div className="split">
+          {page && (
+            <div className="thumb">
+              <Shot shot={page} />
+            </div>
+          )}
+          <AnswerRows answers={shown(judgement.answers)} />
+        </div>
+        <div className="ask-quiet">
+          Parked for Martin: <b>only he asks for improvements.</b> He can make it one, or close it.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const SENSE_NAME: Record<Source['sense'], string> = {
+  probe: 'Probe',
+  crawler: 'Crawler',
+  metrics: 'Metrics',
+  logs: 'Log watcher',
+  report: 'Report',
+};
+
+/** Who captured it: the sense, its check, and the version, as a picture's cap. */
+function SourceCap({ source, children }: { source: Source; children?: ReactNode }) {
+  return (
+    <div className="row spread source-cap">
+      <span className="cap">
+        {SENSE_NAME[source.sense]} · {source.every ? 'every page' : source.check} · {source.version}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+/** A problem on every page: four of the pages, each with its mark, and how many more the sheet has. */
+function PagesPicture({ shots, more }: Extract<PictureData, { type: 'pages' }>) {
+  return (
+    <div className="pages">
+      <div className="pages-grid">
+        {shots.map((shot) => (
+          <div className="page" key={`${shot.hash}-${shot.route}`}>
+            <span className="page-route">{shot.route}</span>
+            <div className="page-shot">
+              <Shot shot={shot} numbered />
+            </div>
+          </div>
+        ))}
+      </div>
+      <span className="wtag r tone-attn">
+        <span className="dot" />
+        EVERY PAGE{more > 0 ? ` · +${more} MORE` : ''}
+      </span>
+    </div>
+  );
+}
+
+const STATUS_TEXT: Record<number, string> = {
+  200: 'OK',
+  301: 'Moved',
+  304: 'Not modified',
+  308: 'Moved',
+  404: 'Not found',
+  500: 'Server error',
+};
+
+/** The shortest run of redirects the whole list repeats, if it repeats at all. */
+function cycleOf(hops: readonly { status: number; location: string }[]): number | undefined {
+  for (let length = 1; length <= hops.length / 2; length++) {
+    if (
+      hops.every((hop, i) => hop.location === hops[i % length]?.location && hop.status === hops[i % length]?.status)
+    ) {
+      return length;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * An HTTP exchange, as the sense summarised it: the request, the status (or none), each redirect followed, the
+ * headers the check read with a tick or a cross, and the timings. A loop is drawn once, with an arrow back.
+ */
+function HttpPicture({ exchange, source }: Extract<PictureData, { type: 'http' }>) {
+  const { method, url, status, headers, timings, redirects } = exchange;
+  const cycle = cycleOf(redirects);
+  const hops = cycle ? redirects.slice(0, cycle) : redirects.slice(0, 4);
+  const rest = cycle ? redirects.length / cycle - 1 : redirects.length - hops.length;
+  const word = (n: number) => ['', 'one', 'two', 'three', 'four'][n] ?? String(n);
+  return (
+    <div className="pad http">
+      <SourceCap source={source}>
+        {status === null ? (
+          <span className="status-pill none">
+            <Glyph name="cross" />
+            No response{redirects.length ? ` · ${plural(redirects.length, 'redirect')}` : ''}
+          </span>
+        ) : (
+          <span className={`status-pill ${status >= 400 ? 'bad' : ''}`}>
+            {status} {STATUS_TEXT[status] ?? ''}
+          </span>
+        )}
+      </SourceCap>
+      <div className="row spread request">
+        <span className="big">
+          {method} <b>{url}</b>
+        </span>
+        {/* With no response there is no bar to draw: the timings go beside the request instead. */}
+        {status === null && (
+          <span className="cap right secondary">
+            first byte {timings.firstByteMs} ms · gave up at {timings.totalMs} ms
+          </span>
+        )}
+      </div>
+      {hops.length > 0 && (
+        <div className="hops">
+          {keyed(hops, (hop) => `${hop.status} ${hop.location}`).map(({ value: hop, key }, i) => (
+            <div key={key} className={i > 1 ? 'secondary' : ''}>
+              <span className="code">{hop.status}</span>
+              <span>→ {hop.location}</span>
+              {cycle && i === hops.length - 1 && hop.location === url && (
+                <span className="back">
+                  <Glyph name="back" /> back to the start
+                </span>
+              )}
+            </div>
+          ))}
+          {rest > 0 && (
+            <p className="more">
+              {cycle
+                ? `… and the same ${word(cycle)}, ${plural(rest, 'more time')}.`
+                : `… and ${plural(rest, 'more redirect')}.`}
+              {status === null && ` The ${SENSE_NAME[source.sense].toLowerCase()} gave up after ${redirects.length}.`}
+            </p>
+          )}
+        </div>
+      )}
+      {Object.keys(headers).length > 0 && (
+        <div className="headers">
+          {Object.entries(headers).map(([name, value]) => (
+            <div key={name} className={value === null ? 'absent' : ''}>
+              <Glyph name={value === null ? 'cross' : 'check'} />
+              <span className="name">{name}</span>
+              <span className="value">{value ?? 'absent'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {status !== null && timings.totalMs > 0 && (
+        <div className="timing secondary" aria-hidden="true">
+          <span>first byte {timings.firstByteMs} ms</span>
+          <span className="track">
+            <i style={{ width: `${(timings.firstByteMs / timings.totalMs) * 100}%` }} />
+          </span>
+          <span>total {timings.totalMs} ms</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ConsoleEvidence = Extract<Evidence, { kind: 'console' }>;
+
+/** The browser's console, word for word, on the terminal face; the page beside it, unmarked, since an error has no place on it. */
+function ConsolePicture({ console: logged, shot, source }: Extract<PictureData, { type: 'console' }>) {
+  const errors = logged.messages.filter((m) => m.level === 'error').length;
+  const warnings = logged.messages.length - errors;
+  return (
+    <div className="pad">
+      <SourceCap source={source}>
+        <span className="cap right">
+          {[errors && plural(errors, 'error'), warnings && plural(warnings, 'warning')].filter(Boolean).join(' · ')}
+        </span>
+      </SourceCap>
+      <div className="split console">
+        {shot && (
+          <div className="thumb">
+            <Shot shot={shot} />
+          </div>
+        )}
+        <ConsoleLines messages={logged.messages} />
+      </div>
+    </div>
+  );
+}
+
+function ConsoleLines({ messages }: { messages: ConsoleEvidence['messages'] }) {
+  return (
+    <pre className="term">
+      {keyed(messages, (message) => message.text).map(({ value: message, key }) => (
+        <span key={key}>
+          <span className={message.level === 'error' ? 't-bad' : ''}>
+            {message.level === 'error' ? '✕ error' : '! warning'}
+          </span>{' '}
+          {message.text}
+          {'\n'}
+          {message.source && (
+            <>
+              <span className="t-dim">{message.source}</span>
+              {'\n'}
+            </>
+          )}
+        </span>
+      ))}
+    </pre>
+  );
+}
+
+/** What an accessibility check found: each element it named numbered on the screenshot and in the list beside it. */
+function AccessibilityPicture({ findings, shot, source }: Extract<PictureData, { type: 'accessibility' }>) {
+  let n = 0;
+  const numbered = findings.findings.map((finding) => ({
+    finding,
+    elements: finding.elements.map((element) => ({ ...element, n: ++n })),
+  }));
+  const marks: Mark[] = numbered.flatMap(({ elements }) =>
+    elements.flatMap((element) => (element.box ? [{ ...element.box, kind: 'problem' as const, n: element.n }] : [])),
+  );
+  return (
+    <div className="pad">
+      <SourceCap source={source}>
+        <span className="cap right">{plural(n, 'element')}</span>
+      </SourceCap>
+      <div className="split a11y">
+        {shot && (
+          <div className="thumb">
+            <Shot shot={shot} marks={marks} />
+          </div>
+        )}
+        <div className="findings">
+          {numbered.map(({ finding, elements }) => (
+            <div key={finding.rule} className="finding">
+              <div className="rule">
+                <b>{finding.rule}</b>
+                <span className="impact">{finding.impact}</span>
+              </div>
+              <p className="secondary">{finding.help}</p>
+              <ol>
+                {elements.map((element) => (
+                  <li key={element.selector} className={element.box ? '' : 'away'}>
+                    <span className="n">{element.n}</span>
+                    <span>
+                      {element.selector}
+                      {!element.box && ' · out of view'}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -583,9 +989,27 @@ export function Picture({ picture, interactive }: { picture: PictureData; intera
   return (
     <div className={`vis vis-${picture.type}`}>
       {picture.type === 'wipe' && <Wipe {...picture} interactive={interactive} />}
-      {picture.type === 'screenshot' && <Shot shot={picture.shot} />}
-      {picture.type === 'metric' && <MetricPicture evidence={picture.evidence} unchanged={picture.unchanged} />}
-      {picture.type === 'logs' && <LogsPicture before={picture.before} after={picture.after} />}
+      {picture.type === 'screenshot' && (
+        <>
+          <Shot shot={picture.shot} numbered={picture.shot.boxes.length > 1} />
+          <span className={`wtag l tone-${TAG_TONE[picture.tag]}`}>
+            <span className="dot" />
+            {picture.tag} · {picture.shot.version}
+          </span>
+        </>
+      )}
+      {picture.type === 'pages' && <PagesPicture {...picture} />}
+      {picture.type === 'http' && <HttpPicture {...picture} />}
+      {picture.type === 'console' && <ConsolePicture {...picture} />}
+      {picture.type === 'accessibility' && <AccessibilityPicture {...picture} />}
+      {picture.type === 'quarantine' && <QuarantinePicture {...picture} />}
+      {picture.type === 'suggestion' && <SuggestionPicture {...picture} />}
+      {picture.type === 'metric' && (
+        <MetricPicture evidence={picture.evidence} unchanged={picture.unchanged} seen={Boolean(picture.seen)} />
+      )}
+      {picture.type === 'logs' && (
+        <LogsPicture before={picture.before} after={picture.after} seen={Boolean(picture.seen)} />
+      )}
       {picture.type === 'package' && (
         <div className="pad">
           <Package dependency={picture.dependency} />
