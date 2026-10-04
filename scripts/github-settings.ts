@@ -118,6 +118,8 @@ for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
 
   // Workflows start read-only and ask for more per job. None may open or approve a pull request: the factory's App
   // opens the deploy and release pull requests (ADR 0005), and a workflow's token never stands in for a reviewer.
+  // Apply this only once both repositories' workflows have stopped opening pull requests (their matching pull
+  // requests merged), or their build and release workflows fail.
   step('workflow tokens read-only by default; workflows may not open or approve pull requests', () =>
     gh('PUT', '/actions/permissions/workflow', {
       default_workflow_permissions: 'read',

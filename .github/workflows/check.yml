@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Whether this is a release or deploy pull request that the factory's App opened and nobody has changed. Only those skip
-  # checks, and a skipped job counts as passed for the ruleset, so the test is the author and the exact files and
+  # Whether this is a release or deploy pull request that the factory's App opened and nobody has changed. Only those
+  # skip checks, and a skipped job counts as passed for the ruleset, so the test is the author and the exact files and
   # lines that change. Anything else, or this job failing, is `code` and runs everything.
   kind:
     name: which checks apply
