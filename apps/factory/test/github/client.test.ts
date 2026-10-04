@@ -1,5 +1,6 @@
 import { createPrivateKey } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { appJwt, InstallationTokens } from '../../src/github/app.ts';
 import { GitHubError } from '../../src/github/client.ts';
 import { CLIENT_ID, calls, client, PRIVATE_KEY, REPO, type Sent, verifyJwt } from './fake.ts';
@@ -39,10 +40,13 @@ describe('the App', () => {
   });
 });
 
+const PULLS = z.array(z.object({ number: z.number() }));
+const OK = z.object({ ok: z.boolean() });
+
 describe('the client', () => {
   it('calls as the installation, with a token for that repository', async () => {
     const { github, sent } = client([{ method: 'GET', path: `/repos/${REPO}`, answer: () => ({ body: { id: 1 } }) }]);
-    expect(await github.request(REPO, 'GET', `/repos/${REPO}`)).toEqual({ id: 1 });
+    expect(await github.read(REPO, `/repos/${REPO}`, z.object({ id: z.number() }))).toEqual({ id: 1 });
     const [call] = calls(sent);
     expect(call?.headers.authorization).toMatch(/^token ghs_test\d+$/);
     expect(call?.headers['x-github-api-version']).toBe('2022-11-28');
@@ -55,12 +59,14 @@ describe('the client', () => {
       { keyless: true },
     );
     expect(github.writable).toBe(false);
-    await github.request(REPO, 'GET', `/repos/${REPO}`);
+    await github.read(REPO, `/repos/${REPO}`, z.unknown());
     expect(sent[0]?.headers.authorization).toBeUndefined();
-    await expect(github.request(REPO, 'POST', `/repos/${REPO}/issues`, {})).rejects.toMatchObject({
+    await expect(github.write(REPO, 'POST', `/repos/${REPO}/issues`, {})).rejects.toMatchObject({
       kind: 'read-only',
     });
-    await expect(github.graphql(REPO, 'query { viewer { login } }', {})).rejects.toMatchObject({ kind: 'read-only' });
+    await expect(github.graphql(REPO, 'query { viewer { login } }', {}, z.unknown())).rejects.toMatchObject({
+      kind: 'read-only',
+    });
     expect(sent).toHaveLength(1);
   });
 
@@ -76,10 +82,10 @@ describe('the client', () => {
             : { body: [{ number: state }], headers: { etag: `"v${state}"` } },
       },
     ]);
-    expect(await github.poll(REPO, `/repos/${REPO}/pulls`)).toEqual({ changed: true, body: [{ number: 1 }] });
-    expect(await github.poll(REPO, `/repos/${REPO}/pulls`)).toEqual({ changed: false, body: [{ number: 1 }] });
+    expect(await github.poll(REPO, `/repos/${REPO}/pulls`, PULLS)).toEqual({ changed: true, body: [{ number: 1 }] });
+    expect(await github.poll(REPO, `/repos/${REPO}/pulls`, PULLS)).toEqual({ changed: false, body: [{ number: 1 }] });
     state = 2;
-    expect(await github.poll(REPO, `/repos/${REPO}/pulls`)).toEqual({ changed: true, body: [{ number: 2 }] });
+    expect(await github.poll(REPO, `/repos/${REPO}/pulls`, PULLS)).toEqual({ changed: true, body: [{ number: 2 }] });
     expect(calls(sent).map((s) => s.headers['if-none-match'])).toEqual([undefined, '"v1"', '"v1"']);
   });
 
@@ -99,7 +105,7 @@ describe('the client', () => {
       [],
       { sleep: async (ms) => void waits.push(ms) },
     );
-    expect(await github.request(REPO, 'GET', `/repos/${REPO}`)).toEqual({ ok: true });
+    expect(await github.read(REPO, `/repos/${REPO}`, OK)).toEqual({ ok: true });
     expect(waits).toEqual([7000]);
   });
 
@@ -115,7 +121,7 @@ describe('the client', () => {
         },
       },
     ]);
-    expect(await github.request(REPO, 'GET', `/repos/${REPO}`)).toEqual({ ok: true });
+    expect(await github.read(REPO, `/repos/${REPO}`, OK)).toEqual({ ok: true });
     expect(seen[0]).not.toBe(seen[1]);
   });
 
@@ -140,14 +146,14 @@ describe('the client', () => {
       ],
       sent,
     );
-    const conflict = (await github.request(REPO, 'POST', `/repos/${REPO}/pulls`, {}).catch((e) => e)) as GitHubError;
+    const conflict = (await github.write(REPO, 'POST', `/repos/${REPO}/pulls`, {}).catch((e) => e)) as GitHubError;
     expect(conflict).toBeInstanceOf(GitHubError);
     expect(conflict).toMatchObject({ kind: 'conflict', status: 422 });
     expect(conflict.message).toBe(
       `POST /repos/${REPO}/pulls answered 422: Validation Failed; A pull request already exists`,
     );
-    await expect(github.request(REPO, 'GET', `/repos/${REPO}/nothing`)).rejects.toMatchObject({ kind: 'not-found' });
-    const server = (await github.request(REPO, 'GET', `/repos/${REPO}/broken`).catch((e) => e)) as GitHubError;
+    await expect(github.read(REPO, `/repos/${REPO}/nothing`, z.unknown())).rejects.toMatchObject({ kind: 'not-found' });
+    const server = (await github.read(REPO, `/repos/${REPO}/broken`, z.unknown()).catch((e) => e)) as GitHubError;
     expect(server).toMatchObject({ kind: 'server', status: 502 });
     expect(calls(sent).filter((s) => s.path.endsWith('/broken'))).toHaveLength(4); // the first try and three more
     const token = calls(sent)[0]?.headers.authorization?.replace('token ', '') ?? '';
@@ -165,9 +171,27 @@ describe('the client', () => {
         }),
       },
     ]);
-    await expect(github.graphql(REPO, 'mutation { x }', {})).rejects.toMatchObject({
+    await expect(github.graphql(REPO, 'mutation { x }', {}, z.unknown())).rejects.toMatchObject({
       kind: 'refused',
       message: 'Resource not accessible by integration',
     });
+  });
+
+  it('reads a body only through its schema, and says where an answer was not what it should be', async () => {
+    const { github } = client([{ method: 'GET', path: `/repos/${REPO}`, answer: () => ({ body: { id: 'one' } }) }]);
+    await expect(github.read(REPO, `/repos/${REPO}`, z.object({ id: z.number() }))).rejects.toMatchObject({
+      kind: 'malformed',
+      message: `GET /repos/${REPO} answered with something else (id: invalid_type)`,
+    });
+  });
+
+  it('does not send a POST again after a server error: it may have made its issue already', async () => {
+    const sent: Sent[] = [];
+    const { github } = client(
+      [{ method: 'POST', path: `/repos/${REPO}/issues`, answer: () => ({ status: 502 }) }],
+      sent,
+    );
+    await expect(github.write(REPO, 'POST', `/repos/${REPO}/issues`, {})).rejects.toMatchObject({ kind: 'server' });
+    expect(calls(sent)).toHaveLength(1);
   });
 });

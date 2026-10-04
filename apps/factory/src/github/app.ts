@@ -9,6 +9,7 @@
  * Neither the key nor a token is ever logged, put in an error, or written anywhere: they live in this module's memory.
  */
 import { createPrivateKey, createSign, type KeyObject } from 'node:crypto';
+import { z } from 'zod';
 
 export interface AppCredentials {
   /** The App's Client ID (`Iv23…`), which GitHub accepts as the token's issuer as it does the numeric App ID. */
@@ -30,6 +31,9 @@ export function appJwt(clientId: string, key: KeyObject, nowMs: number): string 
   const signature = createSign('RSA-SHA256').update(`${header}.${claims}`).sign(key);
   return `${header}.${claims}.${base64url(signature)}`;
 }
+
+const installation = z.object({ id: z.number().int().positive() });
+const accessToken = z.object({ token: z.string().min(1), expires_at: z.iso.datetime({ offset: true }) });
 
 /** A token is made again this long before it expires, so none goes out in a request that outlives it. */
 const RENEW_BEFORE_MS = 5 * 60_000;
@@ -81,16 +85,28 @@ export class InstallationTokens {
     const jwt = appJwt(this.clientId, this.#key, this.#now());
     let installation = this.#installations.get(repo);
     if (installation === undefined) {
-      const found = (await this.#request('GET', `/repos/${repo}/installation`, jwt)) as { id: number };
-      installation = found.id;
+      installation = installationOf(await this.#request('GET', `/repos/${repo}/installation`, jwt));
       this.#installations.set(repo, installation);
     }
     const [, name] = repo.split('/');
     // Narrowed to the one repository: a token that leaks from a call about the app's repository is no use on this one.
-    const made = (await this.#request('POST', `/app/installations/${installation}/access_tokens`, jwt, {
-      repositories: [name],
-    })) as { token: string; expires_at: string };
+    const made = tokenOf(
+      await this.#request('POST', `/app/installations/${installation}/access_tokens`, jwt, { repositories: [name] }),
+    );
     this.#tokens.set(repo, { token: made.token, expiresMs: Date.parse(made.expires_at) });
     return made.token;
   }
+}
+
+/** The installation's id from GitHub's answer. Its words never reach an error: they could hold a token. */
+function installationOf(answer: unknown): number {
+  const parsed = installation.safeParse(answer);
+  if (!parsed.success) throw new Error('GitHub answered the installation lookup with something else.');
+  return parsed.data.id;
+}
+
+function tokenOf(answer: unknown): z.infer<typeof accessToken> {
+  const parsed = accessToken.safeParse(answer);
+  if (!parsed.success) throw new Error('GitHub answered the request for a token with something else.');
+  return parsed.data;
 }

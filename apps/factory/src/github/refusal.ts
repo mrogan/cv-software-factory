@@ -7,6 +7,7 @@
  * for a signed commit that adds a workflow. The App has no `workflows` permission, so GitHub must refuse. If GitHub
  * accepts it, that is the finding: the branch is deleted all the same, and the result says so.
  */
+import { z } from 'zod';
 import type { LiveActions } from './actions.ts';
 import { type GitHub, GitHubError } from './client.ts';
 
@@ -44,7 +45,11 @@ export async function tryWorkflowWrite(
   repo: string,
   now = () => new Date(),
 ): Promise<Refusal> {
-  const main = await github.request<{ object: { sha: string } }>(repo, 'GET', `/repos/${repo}/git/ref/heads/main`);
+  const main = await github.read(
+    repo,
+    `/repos/${repo}/git/ref/heads/main`,
+    z.object({ object: z.object({ sha: z.string() }) }),
+  );
   await actions.setBranch(repo, REFUSAL_BRANCH, main.object.sha, { force: true });
   const attempted = `a signed commit (createCommitOnBranch) adding ${WORKFLOW} on ${REFUSAL_BRANCH}`;
   const encode = (text: string) => new TextEncoder().encode(text);
@@ -72,7 +77,9 @@ export async function tryWorkflowWrite(
       });
       return { repo, at: now().toISOString(), attempted, control, outcome: 'accepted' };
     } catch (error) {
-      if (!(error instanceof GitHubError)) throw error;
+      // Only GitHub saying no is a refusal. A timeout, a server error or a stale head proves nothing about the
+      // fence, and recording one as a refusal would be false evidence.
+      if (!(error instanceof GitHubError && error.kind === 'refused')) throw error;
       return {
         repo,
         at: now().toISOString(),

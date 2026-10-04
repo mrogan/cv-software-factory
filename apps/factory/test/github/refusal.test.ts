@@ -6,8 +6,14 @@ import { CONTROL, REFUSAL_BRANCH, type Refusal, tryWorkflowWrite, WORKFLOW } fro
 import { calls, client, OTHER_SHA, REPO, type Route, SHA } from './fake.ts';
 
 /** GitHub as it answers the App: it takes ordinary commits, and refuses a workflow unless `workflows` is granted. */
-function github(workflows: 'refused' | 'granted', control: 'accepted' | 'refused' = 'accepted') {
+function github(workflows: 'refused' | 'granted' | 'down', control: 'accepted' | 'refused' = 'accepted') {
   const routes: Route[] = [
+    {
+      method: 'GET',
+      path: `/repos/${REPO}/git/ref/heads/${REFUSAL_BRANCH}`,
+      answer: () => ({ status: 404, body: {} }),
+    },
+    { method: 'POST', path: `/repos/${REPO}/git/refs`, answer: () => ({ status: 201, body: {} }) },
     { method: 'GET', path: `/repos/${REPO}/git/ref/heads/main`, answer: () => ({ body: { object: { sha: SHA } } }) },
     { method: 'PATCH', path: `/repos/${REPO}/git/refs/heads/${REFUSAL_BRANCH}`, answer: () => ({ body: {} }) },
     { method: 'DELETE', path: `/repos/${REPO}/git/refs/heads/${REFUSAL_BRANCH}`, answer: () => ({ status: 204 }) },
@@ -15,6 +21,7 @@ function github(workflows: 'refused' | 'granted', control: 'accepted' | 'refused
       method: 'POST',
       path: '/graphql',
       answer: ({ body }) => {
+        if (workflows === 'down' && JSON.stringify(body).includes('workflows')) return { status: 502 };
         const paths = (
           body as { variables: { input: { fileChanges: { additions: { path: string }[] } } } }
         ).variables.input.fileChanges.additions.map((a) => a.path);
@@ -56,6 +63,12 @@ describe("the App's workflow refusal", () => {
   it('records nothing when the App cannot commit at all: a refusal then would prove nothing', async () => {
     const { github: gh, sent } = github('refused', 'refused');
     await expect(tryWorkflowWrite(gh, new LiveActions(gh), REPO, at)).rejects.toMatchObject({ kind: 'refused' });
+    expect(calls(sent).at(-1)?.method).toBe('DELETE');
+  });
+
+  it('records nothing when GitHub fails rather than refuses: a server error proves nothing about the fence', async () => {
+    const { github: gh, sent } = github('down');
+    await expect(tryWorkflowWrite(gh, new LiveActions(gh), REPO, at)).rejects.toMatchObject({ kind: 'server' });
     expect(calls(sent).at(-1)?.method).toBe('DELETE');
   });
 

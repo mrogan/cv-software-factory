@@ -5,13 +5,21 @@
  * (`app.ts`). Without the App's key there are no tokens: calls go unauthenticated, which reads public repositories
  * and nothing more, and a write fails with a `GitHubError` of kind `read-only` before it is sent.
  *
+ * A body is read only through a Zod schema (`read`, `write`, `poll`, `graphql`): what GitHub answers is checked
+ * where it enters, and an answer that is not what the factory expects is a `GitHubError` of kind `malformed`.
+ *
  * `poll` is a conditional GET: the client keeps each answer's ETag and asks again with `If-None-Match`, so an
  * answer that has not changed costs a 304 and nothing against the rate limit.
+ *
+ * A request is tried again after a rate limit, which GitHub answers before doing anything. After a timeout or a
+ * server error it is tried again only if doing it twice is harmless: a GET, PATCH, PUT or DELETE. A POST that timed
+ * out may have made its issue, comment or commit already.
  *
  * Failures are `GitHubError`s with a kind the caller can act on. They carry GitHub's own message, which says what
  * was refused and why; a token never appears in one, or in a log line.
  */
 import type { Logger } from 'pino';
+import type { z } from 'zod';
 import { type AppCredentials, InstallationTokens } from './app.ts';
 
 export const API = 'https://api.github.com';
@@ -28,7 +36,9 @@ export type GitHubErrorKind =
   | 'server'
   | 'network'
   /** A write with no App key: the worker is running read-only. */
-  | 'read-only';
+  | 'read-only'
+  /** An answer that is not the shape the factory expects. */
+  | 'malformed';
 
 export class GitHubError extends Error {
   override name = 'GitHubError';
@@ -104,23 +114,35 @@ export class GitHub {
     return this.#tokens !== undefined;
   }
 
-  /** A REST call about one repository (`owner/name`). The path is from the API's root, such as `/repos/o/r/pulls`. */
-  async request<T>(repo: string, method: Method, path: string, body?: unknown): Promise<T> {
-    if (method !== 'GET' && !this.#tokens) {
-      throw new GitHubError('read-only', `The worker has no App key, so it cannot ${method} ${path}.`);
-    }
+  /** A GET about one repository (`owner/name`), its body read through `schema`. The path is from the API's root. */
+  async read<T>(repo: string, path: string, schema: z.ZodType<T>): Promise<T> {
+    return parse(schema, await (await this.#authorised(repo, 'GET', path)).json(), `GET ${path}`);
+  }
+
+  /** A write about one repository. Its answer is read through `schema` when one is given, and ignored when not. */
+  async write<T = undefined>(
+    repo: string,
+    method: Exclude<Method, 'GET'>,
+    path: string,
+    body?: unknown,
+    schema?: z.ZodType<T>,
+  ): Promise<T> {
+    if (!this.#tokens) throw new GitHubError('read-only', `The worker has no App key, so it cannot ${method} ${path}.`);
     const response = await this.#authorised(repo, method, path, body);
-    if (response.status === 204) return undefined as T;
-    return (await response.json()) as T;
+    if (!schema) {
+      await response.body?.cancel();
+      return undefined as T;
+    }
+    return parse(schema, await response.json(), `${method} ${path}`);
   }
 
   /** A conditional GET: unchanged answers come from the client's cache and cost nothing against the rate limit. */
-  async poll<T>(repo: string, path: string): Promise<Polled<T>> {
+  async poll<T>(repo: string, path: string, schema: z.ZodType<T>): Promise<Polled<T>> {
     const key = `${repo} ${path}`;
     const cached = this.#etags.get(key);
     const response = await this.#authorised(repo, 'GET', path, undefined, cached?.etag);
     if (response.status === 304 && cached) return { changed: false, body: cached.body as T };
-    const body = (await response.json()) as T;
+    const body = parse(schema, await response.json(), `GET ${path}`);
     const etag = response.headers.get('etag');
     if (etag) {
       this.#etags.delete(key);
@@ -131,15 +153,11 @@ export class GitHub {
   }
 
   /** A GraphQL call. GitHub answers errors with a 200 and an `errors` list; those are thrown as `GitHubError`s. */
-  async graphql<T>(repo: string, query: string, variables: Record<string, unknown>): Promise<T> {
+  async graphql<T>(repo: string, query: string, variables: Record<string, unknown>, schema: z.ZodType<T>): Promise<T> {
     if (!this.#tokens) throw new GitHubError('read-only', 'The worker has no App key, so it cannot use GraphQL.');
-    const answer = await this.request<{ data?: T; errors?: { type?: string; message: string }[] }>(
-      repo,
-      'POST',
-      '/graphql',
-      { query, variables },
-    );
-    const [first] = answer.errors ?? [];
+    const response = await this.#authorised(repo, 'POST', '/graphql', { query, variables });
+    const answer = (await response.json()) as { data?: unknown; errors?: { type?: string; message?: string }[] };
+    const [first] = Array.isArray(answer?.errors) ? answer.errors : [];
     if (first) {
       const kind: GitHubErrorKind =
         first.type === 'FORBIDDEN'
@@ -150,9 +168,9 @@ export class GitHub {
               ? 'rate-limited'
               : // Most others are a request that does not fit the state it found: a stale expected head, for one.
                 'conflict';
-      throw new GitHubError(kind, first.message);
+      throw new GitHubError(kind, String(first.message ?? first.type ?? 'GraphQL error'));
     }
-    return answer.data as T;
+    return parse(schema, answer?.data, 'GraphQL');
   }
 
   async #authorised(repo: string, method: Method, path: string, body?: unknown, etag?: string): Promise<Response> {
@@ -173,6 +191,8 @@ export class GitHub {
 
   async #send(method: Method, path: string, authorization?: string, body?: unknown, etag?: string) {
     const url = `${this.api}${path}`;
+    // Doing it twice is harmless: anything but a POST.
+    const repeatable = method !== 'POST';
     for (let attempt = 0; ; attempt++) {
       const headers: Record<string, string> = {
         accept: 'application/vnd.github+json',
@@ -194,7 +214,7 @@ export class GitHub {
       } catch (error) {
         const timedOut = error instanceof Error && error.name === 'TimeoutError';
         const failure = new GitHubError('network', `${method} ${path} ${timedOut ? 'timed out' : 'failed to connect'}`);
-        if (attempt < this.#maxRetries) {
+        if (repeatable && attempt < this.#maxRetries) {
           await this.#sleep(BACKOFF_MS * 2 ** attempt);
           continue;
         }
@@ -205,7 +225,8 @@ export class GitHub {
 
       const failure = await errorOf(method, path, response, this.#now());
       const wait = failure.kind === 'rate-limited' ? failure.waitMs : BACKOFF_MS * 2 ** attempt;
-      const retry = (failure.kind === 'rate-limited' || failure.kind === 'server') && wait <= MAX_WAIT_MS;
+      const retry =
+        (failure.kind === 'rate-limited' || (failure.kind === 'server' && repeatable)) && wait <= MAX_WAIT_MS;
       if (retry && attempt < this.#maxRetries) {
         this.#log.warn({ method, path, status: response.status, waitMs: wait }, 'github asked us to wait');
         await this.#sleep(wait);
@@ -246,4 +267,12 @@ async function errorOf(method: string, path: string, response: Response, now: nu
             ? 'conflict'
             : 'refused';
   return Object.assign(new GitHubError(kind, text, status), { waitMs: 0 });
+}
+
+/** A body as the schema reads it, or a `malformed` error naming where, never what: a body can hold a person's words. */
+function parse<T>(schema: z.ZodType<T>, body: unknown, where: string): T {
+  const parsed = schema.safeParse(body);
+  if (parsed.success) return parsed.data;
+  const problems = parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.') || '(body)'}: ${i.code}`);
+  throw new GitHubError('malformed', `${where} answered with something else (${problems.join('; ')})`);
 }

@@ -8,6 +8,7 @@
  * it never stops the others.
  */
 import type { Logger } from 'pino';
+import { z } from 'zod';
 import type { GitHub } from './client.ts';
 import type { Registry } from './registry.ts';
 
@@ -89,6 +90,31 @@ export class Poller {
   }
 }
 
+const CHECK_RUNS = z.object({
+  check_runs: z.array(
+    z.object({
+      id: z.number(),
+      name: z.string(),
+      status: z.string(),
+      conclusion: z.string().nullable(),
+      app: z.object({ slug: z.string().optional() }).nullable().optional(),
+      details_url: z.string().nullable(),
+    }),
+  ),
+});
+
+const CLOSED = z.array(
+  z.object({
+    number: z.number(),
+    title: z.string(),
+    // GitHub gives a deleted account as null.
+    user: z.object({ login: z.string() }).nullable(),
+    head: z.object({ ref: z.string() }),
+    merged_at: z.string().nullable(),
+    merge_commit_sha: z.string().nullable(),
+  }),
+);
+
 /** One check run as the factory cares about it. */
 export interface CheckRunState {
   id: number;
@@ -114,23 +140,19 @@ export function checkRunsWatch(
   // Set while a change has not been handed over, because the handler failed: the next poll hands it over again.
   let retry = true;
   return async () => {
-    const { changed, body } = await github.poll<{
-      check_runs: {
-        id: number;
-        name: string;
-        status: string;
-        conclusion: string | null;
-        app?: { slug?: string };
-        details_url: string | null;
-      }[];
-    }>(repo, `/repos/${repo}/commits/${sha}/check-runs?per_page=100`);
+    // One page: a commit here has a dozen check runs, not a hundred.
+    const { changed, body } = await github.poll(
+      repo,
+      `/repos/${repo}/commits/${sha}/check-runs?per_page=100`,
+      CHECK_RUNS,
+    );
     if (!changed && !retry) return;
     const all = body.check_runs.map((r) => ({
       id: r.id,
       name: r.name,
       status: r.status,
       conclusion: r.conclusion,
-      app: r.app?.slug,
+      app: r.app?.slug ?? undefined,
       detailsUrl: r.details_url,
     }));
     const fresh = all.filter((r) => seen.get(r.id) !== `${r.status}/${r.conclusion}`);
@@ -163,31 +185,33 @@ export function mergesWatch(
   const handed = new Set<number>();
   return async () => {
     // Unchanged answers are filtered again too: a merge whose handler failed last time is handed over again.
-    const { body } = await github.poll<
-      {
-        number: number;
-        title: string;
-        user: { login: string };
-        head: { ref: string };
-        merged_at: string | null;
-        merge_commit_sha: string | null;
-      }[]
-    >(repo, `/repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=30`);
+    const { body } = await github.poll(
+      repo,
+      `/repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=30`,
+      CLOSED,
+    );
     const merged = body
       .filter((p) => p.merged_at && p.merge_commit_sha && Date.parse(p.merged_at) >= since.getTime())
       .filter((p) => !handed.has(p.number))
       .sort((a, b) => Date.parse(a.merged_at as string) - Date.parse(b.merged_at as string));
+    // Each merge is handed over on its own: one whose handler fails does not hold back the ones after it.
+    let failure: unknown;
     for (const p of merged) {
-      await onMerged({
-        number: p.number,
-        title: p.title,
-        author: p.user.login,
-        head: p.head.ref,
-        mergeCommit: p.merge_commit_sha as string,
-        mergedAt: p.merged_at as string,
-      });
-      handed.add(p.number);
+      try {
+        await onMerged({
+          number: p.number,
+          title: p.title,
+          author: p.user?.login ?? 'ghost',
+          head: p.head.ref,
+          mergeCommit: p.merge_commit_sha as string,
+          mergedAt: p.merged_at as string,
+        });
+        handed.add(p.number);
+      } catch (error) {
+        failure ??= error;
+      }
     }
+    if (failure) throw failure;
   };
 }
 

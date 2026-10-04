@@ -12,7 +12,8 @@
  */
 import type { ArtifactStore } from '@software-factory/store';
 import type { Logger } from 'pino';
-import type { GitHub } from './client.ts';
+import { z } from 'zod';
+import { type GitHub, GitHubError } from './client.ts';
 
 export interface FileChanges {
   /** Files to add or replace, with their whole new contents. */
@@ -92,6 +93,10 @@ export interface Actions {
   comment(repo: string, number: number, body: string): Promise<void>;
 }
 
+const SHA = z.string().regex(/^[0-9a-f]{40}$/);
+const NUMBER = z.number().int().positive();
+const ID = z.object({ id: NUMBER });
+
 const CREATE_COMMIT = `mutation($input: CreateCommitOnBranchInput!) {
   createCommitOnBranch(input: $input) { commit { oid } }
 }`;
@@ -122,23 +127,26 @@ export class LiveActions implements Actions {
   }
 
   async setBranch(repo: string, branch: string, sha: string, { force = false } = {}): Promise<void> {
+    // Whether the branch is there decides between moving it and making it: asked, not read off an error's words.
+    let exists = true;
     try {
-      await this.#github.request(repo, 'PATCH', `/repos/${repo}/git/refs/heads/${branch}`, { sha, force });
+      await this.#github.read(repo, `/repos/${repo}/git/ref/heads/${branch}`, z.unknown());
     } catch (error) {
-      // GitHub answers 422 "Reference does not exist" for a branch that is not there yet.
-      if (!(error instanceof Error && /does not exist/i.test(error.message))) throw error;
-      await this.#github.request(repo, 'POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha });
+      if (!(error instanceof GitHubError && error.kind === 'not-found')) throw error;
+      exists = false;
     }
+    if (exists) await this.#github.write(repo, 'PATCH', `/repos/${repo}/git/refs/heads/${branch}`, { sha, force });
+    else await this.#github.write(repo, 'POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha });
   }
 
   async deleteBranch(repo: string, branch: string): Promise<void> {
-    await this.#github.request(repo, 'DELETE', `/repos/${repo}/git/refs/heads/${branch}`);
+    await this.#github.write(repo, 'DELETE', `/repos/${repo}/git/refs/heads/${branch}`);
   }
 
   async commit(repo: string, { branch, expectedHead, message, changes }: Commit): Promise<string> {
     const [headline = '', ...rest] = message.split('\n');
     const body = rest.join('\n').trim();
-    const answer = await this.#github.graphql<{ createCommitOnBranch: { commit: { oid: string } } }>(
+    const answer = await this.#github.graphql(
       repo,
       CREATE_COMMIT,
       {
@@ -155,35 +163,37 @@ export class LiveActions implements Actions {
           },
         },
       },
+      z.object({ createCommitOnBranch: z.object({ commit: z.object({ oid: SHA }) }) }),
     );
     return answer.createCommitOnBranch.commit.oid;
   }
 
   async openPullRequest(repo: string, { labels, ...draft }: PullRequestDraft): Promise<PullRequestRef> {
-    const made = await this.#github.request<{ number: number; html_url: string; node_id: string }>(
+    const made = await this.#github.write(
       repo,
       'POST',
       `/repos/${repo}/pulls`,
       { ...draft, draft: draft.draft ?? false },
+      z.object({ number: NUMBER, html_url: z.string(), node_id: z.string().min(1) }),
     );
     if (labels?.length) await this.addLabels(repo, made.number, labels);
     return { number: made.number, url: made.html_url, nodeId: made.node_id };
   }
 
   async updatePullRequest(repo: string, number: number, change: { title?: string; body?: string }): Promise<void> {
-    await this.#github.request(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, change);
+    await this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, change);
   }
 
   async addLabels(repo: string, number: number, labels: string[]): Promise<void> {
-    await this.#github.request(repo, 'POST', `/repos/${repo}/issues/${number}/labels`, { labels });
+    await this.#github.write(repo, 'POST', `/repos/${repo}/issues/${number}/labels`, { labels });
   }
 
   async readyForReview(repo: string, pullRequest: PullRequestRef): Promise<void> {
-    await this.#github.graphql(repo, READY, { id: pullRequest.nodeId });
+    await this.#github.graphql(repo, READY, { id: pullRequest.nodeId }, z.unknown());
   }
 
   async updateBranch(repo: string, number: number, expectedHead: string): Promise<void> {
-    await this.#github.request(repo, 'PUT', `/repos/${repo}/pulls/${number}/update-branch`, {
+    await this.#github.write(repo, 'PUT', `/repos/${repo}/pulls/${number}/update-branch`, {
       expected_head_sha: expectedHead,
     });
   }
@@ -193,43 +203,44 @@ export class LiveActions implements Actions {
     number: number,
     { commit, body, comments }: { commit: string; body: string; comments: ReviewComment[] },
   ): Promise<number> {
-    const made = await this.#github.request<{ id: number }>(repo, 'POST', `/repos/${repo}/pulls/${number}/reviews`, {
-      commit_id: commit,
-      body,
-      event: 'COMMENT',
-      comments: comments.map((c) => ({ path: c.path, line: c.line, side: 'RIGHT', body: c.body })),
-    });
-    return made.id;
-  }
-
-  async createCheckRun(repo: string, report: CheckRunReport): Promise<number> {
-    const made = await this.#github.request<{ id: number }>(
+    const made = await this.#github.write(
       repo,
       'POST',
-      `/repos/${repo}/check-runs`,
-      checkRunBody(report),
+      `/repos/${repo}/pulls/${number}/reviews`,
+      {
+        commit_id: commit,
+        body,
+        event: 'COMMENT',
+        comments: comments.map((c) => ({ path: c.path, line: c.line, side: 'RIGHT', body: c.body })),
+      },
+      ID,
     );
     return made.id;
   }
 
+  async createCheckRun(repo: string, report: CheckRunReport): Promise<number> {
+    const made = await this.#github.write(repo, 'POST', `/repos/${repo}/check-runs`, checkRunBody(report), ID);
+    return made.id;
+  }
+
   async updateCheckRun(repo: string, id: number, report: Partial<CheckRunReport>): Promise<void> {
-    await this.#github.request(repo, 'PATCH', `/repos/${repo}/check-runs/${id}`, checkRunBody(report));
+    await this.#github.write(repo, 'PATCH', `/repos/${repo}/check-runs/${id}`, checkRunBody(report));
   }
 
   async openIssue(repo: string, issue: { title: string; body: string; labels?: string[] }): Promise<number> {
-    const made = await this.#github.request<{ number: number }>(repo, 'POST', `/repos/${repo}/issues`, issue);
+    const made = await this.#github.write(repo, 'POST', `/repos/${repo}/issues`, issue, z.object({ number: NUMBER }));
     return made.number;
   }
 
   async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned'): Promise<void> {
-    await this.#github.request(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
+    await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
       state: 'closed',
       state_reason: reason,
     });
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {
-    await this.#github.request(repo, 'POST', `/repos/${repo}/issues/${number}/comments`, { body });
+    await this.#github.write(repo, 'POST', `/repos/${repo}/issues/${number}/comments`, { body });
   }
 }
 
@@ -258,8 +269,11 @@ export class DryRunActions implements Actions {
   readonly #artifacts: ArtifactStore;
   readonly #log: Logger;
   readonly #now: () => Date;
-  /** Numbers for what would have been made, counting down from zero so that none can be taken for a real one. */
-  #next = 0;
+  /**
+   * Numbers for what would have been made, from a billion up: positive, as every action that takes one requires,
+   * and far beyond any this repository will reach, so none can be taken for a real one.
+   */
+  #next = 1_000_000_000;
 
   constructor(artifacts: ArtifactStore, log: Logger, now: () => Date = () => new Date()) {
     this.#artifacts = artifacts;
@@ -275,7 +289,7 @@ export class DryRunActions implements Actions {
   }
 
   #number(): number {
-    this.#next -= 1;
+    this.#next += 1;
     return this.#next;
   }
 

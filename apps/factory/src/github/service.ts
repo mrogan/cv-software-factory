@@ -14,10 +14,11 @@ import { createWorkerServer } from './server.ts';
 export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
   const github = new GitHub({ credentials: config.credentials, api: config.api, log });
   const registry = new Registry({ base: config.ghcr });
-  const actions: Actions =
-    config.dryRun && config.artifactsDir
-      ? new DryRunActions(new DiskArtifacts(config.artifactsDir), log)
-      : new LiveActions(github);
+  // configFromEnv refuses a dry run with nowhere to record it; this holds even if it is called some other way.
+  if (config.dryRun && !config.artifactsDir) throw new Error('A dry run needs ARTIFACTS_DIR to record to.');
+  const actions: Actions = config.dryRun
+    ? new DryRunActions(new DiskArtifacts(config.artifactsDir as string), log)
+    : new LiveActions(github);
   const poller = new Poller({ intervalMs: config.pollMs, log });
 
   const mode = config.dryRun ? 'dry-run' : github.writable ? 'live' : 'read-only';
@@ -30,11 +31,11 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
     health: () => ({ mode, watching: poller.watching }),
     log,
   });
-  await new Promise<void>((resolve) => server.listen(config.port, resolve));
+  await new Promise<void>((resolve) => server.listen(config.port, config.host, resolve));
   poller.start();
   log.info(
-    { port: config.port, mode, repositories: config.repositories },
-    `github worker listening on :${config.port}`,
+    { host: config.host, port: config.port, mode, repositories: config.repositories },
+    `github worker listening on ${config.host}:${config.port}`,
   );
 
   const stop = async () => {

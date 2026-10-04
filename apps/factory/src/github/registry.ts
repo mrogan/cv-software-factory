@@ -6,7 +6,30 @@
  *     digest(image, tag)     the digest the tag points at: the image index, for a multi-platform build
  *     revision(image, ref)   the commit the image was built from, from its `org.opencontainers.image.revision` label
  */
+import { z } from 'zod';
+
 export const GHCR = 'https://ghcr.io';
+
+export const DIGEST = /^sha256:[0-9a-f]{64}$/;
+
+const TOKEN = z.object({ token: z.string().min(1) });
+const TAGS = z.object({ tags: z.array(z.string()).nullable().optional() });
+const MANIFEST = z.object({
+  manifests: z
+    .array(z.object({ digest: z.string().regex(DIGEST), platform: z.object({ os: z.string().optional() }).optional() }))
+    .optional(),
+  config: z.object({ digest: z.string().regex(DIGEST) }).optional(),
+});
+const CONFIG = z.object({
+  config: z.object({ Labels: z.record(z.string(), z.string()).nullable().optional() }).optional(),
+});
+
+/** An answer read through its schema, or an error that names what was asked. */
+async function json<T>(response: Response, schema: z.ZodType<T>, what: string): Promise<T> {
+  const parsed = schema.safeParse(await response.json());
+  if (!parsed.success) throw new Error(`ghcr.io answered ${what} with something else`);
+  return parsed.data;
+}
 
 const INDEX_TYPES = [
   'application/vnd.oci.image.index.v1+json',
@@ -38,7 +61,7 @@ export class Registry {
     let path: string | null = `/v2/${image}/tags/list?n=1000`;
     while (path) {
       const response = await this.#get(image, path, 'application/json');
-      tags.push(...(((await response.json()) as { tags?: string[] | null }).tags ?? []));
+      tags.push(...((await json(response, TAGS, `the tags of ${image}`)).tags ?? []));
       // The next page, if any, is in a Link header: `</v2/…/tags/list?last=…&n=1000>; rel="next"`.
       path = /<([^>]+)>;\s*rel="next"/.exec(response.headers.get('link') ?? '')?.[1] ?? null;
     }
@@ -48,36 +71,31 @@ export class Registry {
   async digest(image: string, tag: string): Promise<string> {
     const response = await this.#get(image, `/v2/${image}/manifests/${tag}`, INDEX_TYPES, 'HEAD');
     const digest = response.headers.get('docker-content-digest');
-    if (!digest?.startsWith('sha256:')) throw new Error(`ghcr.io gave no digest for ${image}:${tag}`);
+    // Checked whole: it goes into a pin file, and from there to the cluster.
+    if (!digest || !DIGEST.test(digest)) throw new Error(`ghcr.io gave no digest for ${image}:${tag}`);
     return digest;
   }
 
   /** The one commit an image (by tag or digest) says it was built from, or undefined if it names none or several. */
   async revision(image: string, reference: string): Promise<string | undefined> {
-    const manifest = (await (await this.#get(image, `/v2/${image}/manifests/${reference}`, INDEX_TYPES)).json()) as {
-      manifests?: { digest: string; platform?: { os?: string } }[];
-      config?: { digest: string };
-    };
+    const manifest = (path: string) => this.#get(image, path, INDEX_TYPES).then((r) => json(r, MANIFEST, path));
+    const index = await manifest(`/v2/${image}/manifests/${reference}`);
     // An index lists one manifest per platform, and attestations that name no OS; each platform's config has the labels.
-    const configs = manifest.config
-      ? [manifest.config.digest]
+    const configs = index.config
+      ? [index.config.digest]
       : await Promise.all(
-          (manifest.manifests ?? [])
+          (index.manifests ?? [])
             .filter((m) => m.platform?.os && m.platform.os !== 'unknown')
             .map(async (m) => {
-              const platform = (await (
-                await this.#get(image, `/v2/${image}/manifests/${m.digest}`, INDEX_TYPES)
-              ).json()) as {
-                config: { digest: string };
-              };
+              const platform = await manifest(`/v2/${image}/manifests/${m.digest}`);
+              if (!platform.config) throw new Error(`ghcr.io gave a platform of ${image} no config`);
               return platform.config.digest;
             }),
         );
     const revisions = new Set<string>();
     for (const digest of new Set(configs)) {
-      const config = (await (await this.#get(image, `/v2/${image}/blobs/${digest}`, 'application/json')).json()) as {
-        config?: { Labels?: Record<string, string> };
-      };
+      const path = `/v2/${image}/blobs/${digest}`;
+      const config = await json(await this.#get(image, path, 'application/json'), CONFIG, path);
       const revision = config.config?.Labels?.['org.opencontainers.image.revision'];
       if (revision) revisions.add(revision);
     }
@@ -91,7 +109,7 @@ export class Registry {
       signal: AbortSignal.timeout(this.#timeoutMs),
     });
     if (!response.ok) throw new Error(`ghcr.io refused an anonymous token for ${image}: ${response.status}`);
-    const { token } = (await response.json()) as { token: string };
+    const { token } = await json(response, TOKEN, `an anonymous token for ${image}`);
     this.#tokens.set(image, token);
     return token;
   }

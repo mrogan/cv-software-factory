@@ -9,6 +9,7 @@
  *     GITHUB_POLL_SECONDS      how often it polls (default 60)
  *     GITHUB_API_URL, GHCR_URL GitHub's API and GHCR, for a stand-in
  *     PORT                     default 8080
+ *     HOST                     the address to listen on (default 127.0.0.1; the cluster's Deployment says 0.0.0.0)
  */
 import type { AppCredentials } from './app.ts';
 import { API } from './client.ts';
@@ -26,13 +27,19 @@ export interface GitHubConfig {
   api: string;
   ghcr: string;
   port: number;
+  host: string;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv): GitHubConfig {
   const clientId = env.GITHUB_APP_CLIENT_ID || undefined;
   const privateKey = env.GITHUB_APP_PRIVATE_KEY || undefined;
   if (privateKey && !clientId) throw new Error('GITHUB_APP_PRIVATE_KEY is set without GITHUB_APP_CLIENT_ID.');
-  const dryRun = env.GITHUB_DRY_RUN === 'true' || env.GITHUB_DRY_RUN === '1';
+  // The setting that keeps the worker from acting fails closed: anything but a plain yes or no stops it starting.
+  const asked = (env.GITHUB_DRY_RUN ?? 'false').trim().toLowerCase();
+  if (!['true', 'false', '1', '0', ''].includes(asked)) {
+    throw new Error(`GITHUB_DRY_RUN is ${JSON.stringify(env.GITHUB_DRY_RUN)}; it must be true or false.`);
+  }
+  const dryRun = asked === 'true' || asked === '1';
   const config: GitHubConfig = {
     credentials: clientId && privateKey ? { clientId, privateKey } : undefined,
     dryRun,
@@ -45,7 +52,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv): GitHubConfig {
     api: env.GITHUB_API_URL || API,
     ghcr: env.GHCR_URL || GHCR,
     port: Number(env.PORT ?? 8080),
+    host: env.HOST || '127.0.0.1',
   };
+  if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65_535) {
+    throw new Error(`PORT is ${JSON.stringify(env.PORT)}; it must be a port number.`);
+  }
   if (dryRun && !config.artifactsDir)
     throw new Error('GITHUB_DRY_RUN records to the artifact store: set ARTIFACTS_DIR.');
   for (const repo of config.repositories) {

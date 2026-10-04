@@ -5,7 +5,8 @@
  *     POST /v1/actions/<action>   one of `Actions`, with its arguments as JSON; its result out
  *     GET  /health                whether it can write, whether it is a dry run, and what it is watching
  *
- * Each body is checked with Zod at the door, and names a repository the worker is configured for, or it is refused.
+ * A body must say it is JSON: a web page cannot send that without the browser asking first, and the worker answers
+ * no browser, so a page open on the same machine cannot make it act. Each body is checked with Zod at the door, and names a repository the worker is configured for, or it is refused.
  * A GitHub failure keeps its meaning: refused 403, not found 404, conflict 409, rate limited 429, GitHub or the
  * network failing 502, and a write with no key 503.
  */
@@ -140,6 +141,7 @@ const STATUS: Record<GitHubError['kind'], number> = {
   server: 502,
   network: 502,
   'read-only': 503,
+  malformed: 502,
 };
 
 export interface WorkerServerOptions {
@@ -163,6 +165,9 @@ export function createWorkerServer({ actions, repositories, health, log }: Worke
     const name = /^\/v1\/actions\/([A-Za-z]+)$/.exec(pathname)?.[1];
     if (!name || !Object.hasOwn(ARGS, name)) return send(res, 404, { error: 'not-found', message: 'No such action.' });
     if (req.method !== 'POST') return send(res, 405, { error: 'bad-request', message: 'Use POST.' });
+    if (!/^application\/json(;|$)/i.test(req.headers['content-type'] ?? '')) {
+      return send(res, 415, { error: 'bad-request', message: 'Send the body as application/json.' });
+    }
 
     let input: unknown;
     try {

@@ -43,21 +43,22 @@ describe('acting in GitHub', () => {
     const existing = new Set(['deploy/local']);
     const { github, sent } = client([
       {
-        method: 'PATCH',
-        path: /^\/repos\/.+\/git\/refs\/heads\//,
+        method: 'GET',
+        path: /^\/repos\/.+\/git\/ref\/heads\//,
         answer: ({ path }) =>
-          existing.has(path.split('/heads/')[1] ?? '')
-            ? { body: {} }
-            : { status: 422, body: { message: 'Reference does not exist' } },
+          existing.has(path.split('/heads/')[1] ?? '') ? { body: {} } : { status: 404, body: { message: 'Not Found' } },
       },
+      { method: 'PATCH', path: /^\/repos\/.+\/git\/refs\/heads\//, answer: () => ({ body: {} }) },
       { method: 'POST', path: `/repos/${REPO}/git/refs`, answer: () => ({ status: 201, body: {} }) },
     ]);
     const actions = new LiveActions(github);
     await actions.setBranch(REPO, 'deploy/local', SHA, { force: true });
     await actions.setBranch(REPO, 'fix/1001', SHA);
+    // Whether it exists is asked first, not read off an error's words.
     expect(calls(sent).map((s) => [s.method, s.path, s.body])).toEqual([
+      ['GET', `/repos/${REPO}/git/ref/heads/deploy/local`, undefined],
       ['PATCH', `/repos/${REPO}/git/refs/heads/deploy/local`, { sha: SHA, force: true }],
-      ['PATCH', `/repos/${REPO}/git/refs/heads/fix/1001`, { sha: SHA, force: false }],
+      ['GET', `/repos/${REPO}/git/ref/heads/fix/1001`, undefined],
       ['POST', `/repos/${REPO}/git/refs`, { ref: 'refs/heads/fix/1001', sha: SHA }],
     ]);
   });
@@ -160,7 +161,7 @@ describe('a dry run', () => {
     });
     const pr = await actions.openPullRequest(REPO, { head: 'fix/1001', base: 'main', title: 't', body: 'b' });
     expect(oid).toMatch(/^[0-9a-f]{40}$/);
-    expect(pr.number).toBeLessThan(0);
+    expect(pr.number).toBeGreaterThan(1_000_000_000);
 
     const records = await Promise.all(
       (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
@@ -177,6 +178,7 @@ describe('a dry run', () => {
 
 describe('the worker over HTTP', () => {
   let close: (() => void) | undefined;
+  let baseUrl = '';
   afterEach(() => close?.());
 
   async function serve(actions: ConstructorParameters<typeof LiveActions>[0] | DryRunActions) {
@@ -189,9 +191,11 @@ describe('the worker over HTTP', () => {
     await new Promise<void>((resolve) => server.listen(0, resolve));
     close = () => server.close();
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    baseUrl = base;
     return (path: string, body?: unknown) =>
       fetch(`${base}${path}`, {
         method: body === undefined ? 'GET' : 'POST',
+        headers: { 'content-type': 'application/json' },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       }).then(async (r) => ({
         status: r.status,
@@ -253,6 +257,37 @@ describe('the worker over HTTP', () => {
     close?.();
     const readOnly = await (await serve(keyless))('/v1/actions/comment', { repo: REPO, number: 1, body: 'hi' });
     expect(readOnly).toMatchObject({ status: 503, body: { error: 'read-only' } });
+  });
+
+  it('refuses a body that does not say it is JSON, which is all a web page can send unasked', async () => {
+    const { github, sent } = client([]);
+    await serve(github);
+    const plain = await fetch(`${baseUrl}/v1/actions/comment`, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: JSON.stringify({ repo: REPO, number: 1, body: 'hi' }),
+    });
+    expect(plain.status).toBe(415);
+    expect(calls(sent)).toEqual([]);
+  });
+
+  it('chains a dry run’s actions: what it would have opened can be labelled, readied and commented on', async () => {
+    const call = await serve(new DryRunActions(new DiskArtifacts(await mkdtemp(join(tmpdir(), 'dry-run-'))), quiet));
+    const opened = await call('/v1/actions/openPullRequest', {
+      repo: REPO,
+      head: 'fix/1',
+      base: 'main',
+      title: 't',
+      body: 'b',
+    });
+    const pullRequest = opened.body.result as { number: number; url: string; nodeId: string };
+    expect(
+      (await call('/v1/actions/addLabels', { repo: REPO, number: pullRequest.number, labels: ['factory'] })).status,
+    ).toBe(200);
+    expect((await call('/v1/actions/readyForReview', { repo: REPO, pullRequest })).status).toBe(200);
+    expect((await call('/v1/actions/comment', { repo: REPO, number: pullRequest.number, body: 'Ready.' })).status).toBe(
+      200,
+    );
   });
 
   it('says it is a dry run in every answer', async () => {

@@ -176,16 +176,20 @@ describe('GHCR', () => {
         if (path === `/v2/${image}/tags/list?last=a&n=1000`) return answer({ tags: ['b'] });
         if (path === `/v2/${image}/manifests/b`)
           return new Response(null, { headers: { 'docker-content-digest': `sha256:${'1'.repeat(64)}` } });
-        if (path === `/v2/${image}/manifests/sha256:index`)
+        if (path === `/v2/${image}/manifests/c`)
+          return new Response(null, { headers: { 'docker-content-digest': 'sha256:$&' } });
+        if (path === `/v2/${image}/manifests/sha256:${'d'.repeat(64)}`)
           return answer({
             manifests: [
-              { digest: 'sha256:amd', platform: { os: 'linux' } },
-              { digest: 'sha256:arm', platform: { os: 'linux' } },
-              { digest: 'sha256:att', platform: { os: 'unknown' } },
+              { digest: `sha256:${'a'.repeat(64)}`, platform: { os: 'linux' } },
+              { digest: `sha256:${'b'.repeat(64)}`, platform: { os: 'linux' } },
+              { digest: `sha256:${'c'.repeat(64)}`, platform: { os: 'unknown' } },
             ],
           });
-        if (path === `/v2/${image}/manifests/sha256:amd`) return answer({ config: { digest: 'sha256:c1' } });
-        if (path === `/v2/${image}/manifests/sha256:arm`) return answer({ config: { digest: 'sha256:c2' } });
+        if (path === `/v2/${image}/manifests/sha256:${'a'.repeat(64)}`)
+          return answer({ config: { digest: `sha256:${'e'.repeat(64)}` } });
+        if (path === `/v2/${image}/manifests/sha256:${'b'.repeat(64)}`)
+          return answer({ config: { digest: `sha256:${'f'.repeat(64)}` } });
         if (path.startsWith(`/v2/${image}/blobs/`))
           return answer({ config: { Labels: { 'org.opencontainers.image.revision': SHA } } });
         return new Response(null, { status: 404 });
@@ -198,8 +202,8 @@ describe('GHCR', () => {
     const r = registry(requests);
     expect(await r.tags(image)).toEqual(['a', 'b']);
     expect(await r.digest(image, 'b')).toBe(`sha256:${'1'.repeat(64)}`);
-    expect(await r.revision(image, 'sha256:index')).toBe(SHA);
+    expect(await r.revision(image, `sha256:${'d'.repeat(64)}`)).toBe(SHA);
     expect(requests.filter((p) => p.startsWith('/token'))).toHaveLength(1);
-    expect(requests).not.toContain(`/v2/${image}/manifests/sha256:att`);
+    expect(requests).not.toContain(`/v2/${image}/manifests/sha256:${'c'.repeat(64)}`);
   });
 });
