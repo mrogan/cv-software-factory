@@ -22,6 +22,8 @@ Splitting the rules keeps every change on the same path: a pull request, its che
 
 - Martin merges his own pull requests through the bypass (GitHub's "merge without waiting for requirements to be met", for review only). The checks still have to pass.
 - Every pull request the App opens waits for Martin's approval, whatever it changes.
-- Approval counts only after the last push, so the App updates its pull requests with `main` only before anyone has approved them. After that, a branch update would need approving again.
+- Approval counts only after the last push, so the App updates its pull requests with `main` only before anyone has approved them. An approved App pull request that falls behind `main` needs updating before it can merge, and whoever updates it is the last pusher: if Martin does, his own approval no longer counts, and the way through is to update it and merge with the bypass.
+- Dependabot's pull requests wait for Martin's approval too.
+- The rulesets are applied by hand, so `scripts/github-settings.ts --check` says whether the live ones still say what the script does, such as a bypass widened or an actor added in the browser. A test pins the invariants: no bypass on the first ruleset, the admin role alone with `pull_request` on the second, and never the App.
 - OpenSSF Scorecard's Branch-Protection check reads the rulesets and docks the admin bypass. The score is recorded in milestone 5's results.
 - `scripts/github-settings.ts` applies both rulesets to both repositories.

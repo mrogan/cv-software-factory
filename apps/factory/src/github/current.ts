@@ -8,6 +8,7 @@
  * and checked by the time he looks at it.
  */
 import type { Logger } from 'pino';
+import { z } from 'zod';
 import type { Actions } from './actions.ts';
 import type { GitHub } from './client.ts';
 import { GitHubError } from './client.ts';
@@ -16,29 +17,35 @@ import type { Watch } from './poller.ts';
 /** How the App appears as a pull request's author. */
 export const APP_LOGIN = 'mrogan-software-factory[bot]';
 
-interface OpenPullRequest {
-  number: number;
-  user: { login: string };
-  head: { sha: string; ref: string };
-}
+const OPEN = z.array(
+  z.object({
+    number: z.number().int().positive(),
+    // GitHub gives a deleted account as null.
+    user: z.object({ login: z.string() }).nullable(),
+    head: z.object({ sha: z.string() }),
+  }),
+);
+const COMPARISON = z.object({ behind_by: z.number().int().nonnegative() });
+const REVIEWS = z.array(z.object({ state: z.string() }));
 
 export function currentWatch(github: GitHub, actions: Actions, repo: string, log: Logger): Watch {
-  // Heads already updated from, so a dry run, which moves nothing, records each update once.
+  // Heads already tried: updated, or found to conflict with main. A dry run, which moves nothing, records each update
+  // once, and a conflict is reported once; a new push is a new head, and tried afresh.
   const updated = new Set<string>();
   return async () => {
-    const { body: open } = await github.poll<OpenPullRequest[]>(
+    const { body: open } = await github.poll(
       repo,
       `/repos/${repo}/pulls?state=open&sort=created&direction=asc&per_page=50`,
+      OPEN,
     );
-    for (const pr of open.filter((p) => p.user.login === APP_LOGIN)) {
-      const { body: comparison } = await github.poll<{ behind_by: number }>(
-        repo,
-        `/repos/${repo}/compare/main...${pr.head.sha}`,
-      );
-      if (comparison.behind_by === 0 || updated.has(pr.head.sha)) continue;
-      const { body: reviews } = await github.poll<{ state: string }[]>(
+    for (const pr of open.filter((p) => p.user?.login === APP_LOGIN)) {
+      if (updated.has(pr.head.sha)) continue;
+      const { body: comparison } = await github.poll(repo, `/repos/${repo}/compare/main...${pr.head.sha}`, COMPARISON);
+      if (comparison.behind_by === 0) continue;
+      const { body: reviews } = await github.poll(
         repo,
         `/repos/${repo}/pulls/${pr.number}/reviews?per_page=100`,
+        REVIEWS,
       );
       if (reviews.some((r) => r.state === 'APPROVED')) continue;
       try {
@@ -48,6 +55,7 @@ export function currentWatch(github: GitHub, actions: Actions, repo: string, log
       } catch (error) {
         // A conflict, or a head that moved since it was read: the next poll sees the new state.
         if (!(error instanceof GitHubError && error.kind === 'conflict')) throw error;
+        updated.add(pr.head.sha);
         log.warn({ repo, number: pr.number, message: error.message }, 'could not bring a pull request up to date');
       }
     }

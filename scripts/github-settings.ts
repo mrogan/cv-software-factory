@@ -4,6 +4,10 @@
  *
  *     node scripts/github-settings.ts                  # every repository below
  *     node scripts/github-settings.ts <owner/repo>     # one of them
+ *     node scripts/github-settings.ts --check          # change nothing: say where the live rulesets differ
+ *
+ * `--check` reads each repository's rulesets and compares them with the ones here, and names any it does not know,
+ * such as one added in the browser. It exits 1 if anything differs.
  *
  * Needs the GitHub CLI, signed in as an admin of the repository.
  */
@@ -13,7 +17,7 @@ import { execFileSync } from 'node:child_process';
  * Each repository, and the jobs that must pass before anything merges into its main. A job in a shared workflow
  * reports as "<calling job> / <job>".
  */
-const REPOSITORIES: Record<string, string[]> = {
+export const REPOSITORIES: Record<string, string[]> = {
   'mrogan/cv-software-factory': ['lint, types, tests', 'browser tests', 'image builds', 'pull request title'],
   'mrogan/cv-worlds-worst-website': ['lint, types, tests', 'image builds', 'title / pull request title'],
 };
@@ -28,7 +32,7 @@ const ADMIN_ROLE = 5;
  * Two rulesets on main (ADR 0009). The first holds everything but review, and nobody bypasses it: every change is a
  * pull request, squash-merged, signed and linear, once its required checks pass.
  */
-const rules = (requiredChecks: string[]) => ({
+export const rules = (requiredChecks: string[]) => ({
   name: 'main',
   target: 'branch',
   enforcement: 'active',
@@ -68,7 +72,7 @@ const rules = (requiredChecks: string[]) => ({
  * repository's admin may bypass this one, and only when merging a pull request. The merge records the bypass. The
  * factory's App may not bypass it, so each of its pull requests waits for Martin.
  */
-const review = {
+export const review = {
   name: 'main: review',
   target: 'branch',
   enforcement: 'active',
@@ -102,14 +106,63 @@ function step(what: string, apply: () => unknown): void {
   console.log(`  ✓ ${what}`);
 }
 
-const [only] = process.argv.slice(2);
-if (only && !REPOSITORIES[only]) {
-  console.error(`${only} is not one of ours. Choose from: ${Object.keys(REPOSITORIES).join(', ')}`);
-  process.exit(1);
+/**
+ * Whether what GitHub holds says everything this script set. GitHub adds defaults of its own (such as
+ * `required_reviewers: []`), so an object matches when each key this script set matches; a list must be as long, and
+ * match item by item, so a bypass actor or a rule added elsewhere is drift.
+ */
+export function matches(live: unknown, wanted: unknown): boolean {
+  if (Array.isArray(wanted)) {
+    return Array.isArray(live) && live.length === wanted.length && wanted.every((w, i) => matches(live[i], w));
+  }
+  if (wanted && typeof wanted === 'object') {
+    if (!live || typeof live !== 'object') return false;
+    return Object.entries(wanted).every(([key, value]) => matches((live as Record<string, unknown>)[key], value));
+  }
+  return live === wanted;
 }
 
-for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
-  if (only && name !== only) continue;
+/** Compares a repository's live rulesets with these, and says what differs. */
+function check(requiredChecks: string[]): string[] {
+  const wanted = [rules(requiredChecks), review];
+  const live = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
+  const problems = live
+    .filter((r) => !wanted.some((w) => w.name === r.name))
+    .map((r) => `ruleset "${r.name}" is not one of these`);
+  for (const ruleset of wanted) {
+    const found = live.find((r) => r.name === ruleset.name);
+    if (!found) problems.push(`ruleset "${ruleset.name}" is missing`);
+    else if (!matches(JSON.parse(gh('GET', `/rulesets/${found.id}`)), ruleset)) {
+      problems.push(`ruleset "${ruleset.name}" differs from this script's`);
+    }
+  }
+  return problems;
+}
+
+function main(args: string[]): number {
+  const checking = args.includes('--check');
+  const only = args.find((a) => !a.startsWith('--'));
+  if (only && !REPOSITORIES[only]) {
+    console.error(`${only} is not one of ours. Choose from: ${Object.keys(REPOSITORIES).join(', ')}`);
+    return 1;
+  }
+  let drift = false;
+  for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
+    if (only && name !== only) continue;
+    repo = name;
+    if (checking) {
+      const problems = check(requiredChecks);
+      for (const p of problems) console.log(`  ✗ ${repo}: ${p}`);
+      if (!problems.length) console.log(`  ✓ ${repo}: the rulesets are as this script makes them`);
+      drift ||= problems.length > 0;
+      continue;
+    }
+    apply(name, requiredChecks);
+  }
+  return drift ? 1 : 0;
+}
+
+function apply(name: string, requiredChecks: string[]): void {
   repo = name;
   console.log(`Applying settings to ${repo}`);
 
@@ -189,3 +242,5 @@ for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
     apply(review),
   );
 }
+
+if (import.meta.main) process.exitCode = main(process.argv.slice(2));
