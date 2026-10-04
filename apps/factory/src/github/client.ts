@@ -1,0 +1,249 @@
+/**
+ * GitHub's REST and GraphQL APIs, with `fetch`, as the factory's App.
+ *
+ * Every call names the repository it is about, and carries an installation token for that repository alone
+ * (`app.ts`). Without the App's key there are no tokens: calls go unauthenticated, which reads public repositories
+ * and nothing more, and a write fails with a `GitHubError` of kind `read-only` before it is sent.
+ *
+ * `poll` is a conditional GET: the client keeps each answer's ETag and asks again with `If-None-Match`, so an
+ * answer that has not changed costs a 304 and nothing against the rate limit.
+ *
+ * Failures are `GitHubError`s with a kind the caller can act on. They carry GitHub's own message, which says what
+ * was refused and why; a token never appears in one, or in a log line.
+ */
+import type { Logger } from 'pino';
+import { type AppCredentials, InstallationTokens } from './app.ts';
+
+export const API = 'https://api.github.com';
+const VERSION = '2022-11-28';
+const USER_AGENT = 'mrogan-software-factory';
+
+export type GitHubErrorKind =
+  /** Not allowed: the App lacks the permission, a ruleset forbids it, or GitHub refused for its own reasons. */
+  | 'refused'
+  | 'not-found'
+  /** The request is not valid for the state it found (a stale head, a branch that exists, a validation failure). */
+  | 'conflict'
+  | 'rate-limited'
+  | 'server'
+  | 'network'
+  /** A write with no App key: the worker is running read-only. */
+  | 'read-only';
+
+export class GitHubError extends Error {
+  override name = 'GitHubError';
+  readonly kind: GitHubErrorKind;
+  readonly status: number | undefined;
+
+  constructor(kind: GitHubErrorKind, message: string, status?: number) {
+    super(message);
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
+export interface GitHubOptions {
+  /** The App's key and Client ID. Without them the client reads public repositories and writes nothing. */
+  credentials?: AppCredentials | undefined;
+  /** Without a trailing slash. Tests point it at a fake. */
+  api?: string;
+  log: Logger;
+  fetch?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+  /** For one attempt, in milliseconds. */
+  timeoutMs?: number;
+  /** Retries after the first attempt, for a rate limit, a server error or the network. */
+  maxRetries?: number;
+}
+
+/** The longest the client waits for a rate limit to lift before it gives up and lets the caller try later. */
+const MAX_WAIT_MS = 60_000;
+const BACKOFF_MS = 1_000;
+/** Conditional answers kept; the polled set is small, so this is a guard against a leak and not a working limit. */
+const MAX_CACHED = 500;
+
+export type Method = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+
+export interface Polled<T> {
+  /** False when GitHub answered 304: the body is the one it gave last time. */
+  changed: boolean;
+  body: T;
+}
+
+export class GitHub {
+  readonly api: string;
+  readonly #tokens: InstallationTokens | undefined;
+  readonly #log: Logger;
+  readonly #fetch: typeof fetch;
+  readonly #sleep: (ms: number) => Promise<void>;
+  readonly #now: () => number;
+  readonly #timeoutMs: number;
+  readonly #maxRetries: number;
+  readonly #etags = new Map<string, { etag: string; body: unknown }>();
+
+  constructor(options: GitHubOptions) {
+    this.api = options.api ?? API;
+    this.#log = options.log;
+    this.#fetch = options.fetch ?? fetch;
+    this.#sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.#now = options.now ?? Date.now;
+    this.#timeoutMs = options.timeoutMs ?? 20_000;
+    this.#maxRetries = options.maxRetries ?? 3;
+    this.#tokens = options.credentials
+      ? new InstallationTokens(
+          options.credentials,
+          async (method, path, jwt, body) => (await this.#send(method, path, `Bearer ${jwt}`, body)).json(),
+          this.#now,
+        )
+      : undefined;
+  }
+
+  /** Whether the client holds the App's key, and so may write. */
+  get writable(): boolean {
+    return this.#tokens !== undefined;
+  }
+
+  /** A REST call about one repository (`owner/name`). The path is from the API's root, such as `/repos/o/r/pulls`. */
+  async request<T>(repo: string, method: Method, path: string, body?: unknown): Promise<T> {
+    if (method !== 'GET' && !this.#tokens) {
+      throw new GitHubError('read-only', `The worker has no App key, so it cannot ${method} ${path}.`);
+    }
+    const response = await this.#authorised(repo, method, path, body);
+    if (response.status === 204) return undefined as T;
+    return (await response.json()) as T;
+  }
+
+  /** A conditional GET: unchanged answers come from the client's cache and cost nothing against the rate limit. */
+  async poll<T>(repo: string, path: string): Promise<Polled<T>> {
+    const key = `${repo} ${path}`;
+    const cached = this.#etags.get(key);
+    const response = await this.#authorised(repo, 'GET', path, undefined, cached?.etag);
+    if (response.status === 304 && cached) return { changed: false, body: cached.body as T };
+    const body = (await response.json()) as T;
+    const etag = response.headers.get('etag');
+    if (etag) {
+      this.#etags.delete(key);
+      this.#etags.set(key, { etag, body });
+      if (this.#etags.size > MAX_CACHED) this.#etags.delete(this.#etags.keys().next().value as string);
+    }
+    return { changed: true, body };
+  }
+
+  /** A GraphQL call. GitHub answers errors with a 200 and an `errors` list; those are thrown as `GitHubError`s. */
+  async graphql<T>(repo: string, query: string, variables: Record<string, unknown>): Promise<T> {
+    if (!this.#tokens) throw new GitHubError('read-only', 'The worker has no App key, so it cannot use GraphQL.');
+    const answer = await this.request<{ data?: T; errors?: { type?: string; message: string }[] }>(
+      repo,
+      'POST',
+      '/graphql',
+      { query, variables },
+    );
+    const [first] = answer.errors ?? [];
+    if (first) {
+      const kind: GitHubErrorKind =
+        first.type === 'FORBIDDEN'
+          ? 'refused'
+          : first.type === 'NOT_FOUND'
+            ? 'not-found'
+            : first.type === 'RATE_LIMITED'
+              ? 'rate-limited'
+              : // Most others are a request that does not fit the state it found: a stale expected head, for one.
+                'conflict';
+      throw new GitHubError(kind, first.message);
+    }
+    return answer.data as T;
+  }
+
+  async #authorised(repo: string, method: Method, path: string, body?: unknown, etag?: string): Promise<Response> {
+    for (let renewed = false; ; renewed = true) {
+      const token = this.#tokens ? await this.#tokens.token(repo) : undefined;
+      try {
+        return await this.#send(method, path, token && `token ${token}`, body, etag);
+      } catch (error) {
+        // A token GitHub no longer accepts (revoked, or a clock that drifted) is made again, once.
+        if (error instanceof GitHubError && error.status === 401 && this.#tokens && !renewed) {
+          this.#tokens.forget(repo);
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
+  async #send(method: Method, path: string, authorization?: string, body?: unknown, etag?: string) {
+    const url = `${this.api}${path}`;
+    for (let attempt = 0; ; attempt++) {
+      const headers: Record<string, string> = {
+        accept: 'application/vnd.github+json',
+        'x-github-api-version': VERSION,
+        'user-agent': USER_AGENT,
+      };
+      if (authorization) headers.authorization = authorization;
+      if (body !== undefined) headers['content-type'] = 'application/json';
+      if (etag) headers['if-none-match'] = etag;
+      const started = this.#now();
+      let response: Response;
+      try {
+        response = await this.#fetch(url, {
+          method,
+          headers,
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          signal: AbortSignal.timeout(this.#timeoutMs),
+        });
+      } catch (error) {
+        const timedOut = error instanceof Error && error.name === 'TimeoutError';
+        const failure = new GitHubError('network', `${method} ${path} ${timedOut ? 'timed out' : 'failed to connect'}`);
+        if (attempt < this.#maxRetries) {
+          await this.#sleep(BACKOFF_MS * 2 ** attempt);
+          continue;
+        }
+        throw failure;
+      }
+      this.#log.debug({ method, path, status: response.status, ms: this.#now() - started }, 'github');
+      if (response.ok || response.status === 304) return response;
+
+      const failure = await errorOf(method, path, response, this.#now());
+      const wait = failure.kind === 'rate-limited' ? failure.waitMs : BACKOFF_MS * 2 ** attempt;
+      const retry = (failure.kind === 'rate-limited' || failure.kind === 'server') && wait <= MAX_WAIT_MS;
+      if (retry && attempt < this.#maxRetries) {
+        this.#log.warn({ method, path, status: response.status, waitMs: wait }, 'github asked us to wait');
+        await this.#sleep(wait);
+        continue;
+      }
+      throw failure;
+    }
+  }
+}
+
+async function errorOf(method: string, path: string, response: Response, now: number) {
+  const { status, headers } = response;
+  let message = '';
+  try {
+    const body = (await response.json()) as { message?: string; errors?: { message?: string }[] };
+    message = [body.message, ...(body.errors ?? []).map((e) => e.message)].filter(Boolean).join('; ');
+  } catch {
+    // Not JSON: the status says enough.
+  }
+  const text = `${method} ${path} answered ${status}${message ? `: ${message}` : ''}`;
+  // GitHub signals its rate limits with 403 or 429, and either a Retry-After or a spent quota and when it refills.
+  const retryAfter = Number(headers.get('retry-after'));
+  const reset = Number(headers.get('x-ratelimit-reset'));
+  const limited =
+    status === 429 || (status === 403 && (headers.has('retry-after') || headers.get('x-ratelimit-remaining') === '0'));
+  if (limited) {
+    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : Math.max(0, reset * 1000 - now);
+    return Object.assign(new GitHubError('rate-limited', text, status), { waitMs });
+  }
+  const kind: GitHubErrorKind =
+    status >= 500
+      ? 'server'
+      : status === 404
+        ? 'not-found'
+        : status === 401 || status === 403
+          ? 'refused'
+          : status === 409 || status === 422
+            ? 'conflict'
+            : 'refused';
+  return Object.assign(new GitHubError(kind, text, status), { waitMs: 0 });
+}

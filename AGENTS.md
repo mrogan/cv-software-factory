@@ -38,6 +38,13 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   APP_URL=http://website.localhost:8080 ARTIFACTS_DIR=/tmp/artifacts PORT=8090 node apps/factory/src/cli.ts probes run
   ```
 
+  The GitHub worker acts as the factory's App, with its key from the Keychain; `GITHUB_DRY_RUN=true` records what it would do in the artifact store and touches nothing in GitHub:
+
+  ```sh
+  GITHUB_APP_CLIENT_ID=Iv23liE1Dj3iYkwWX59z GITHUB_APP_PRIVATE_KEY="$(security find-generic-password -s factory-github-app-key -w | base64 -d)" \
+    GITHUB_DRY_RUN=true ARTIFACTS_DIR=/tmp/artifacts PORT=8091 node apps/factory/src/cli.ts github run
+  ```
+
   Scale the cluster's copy of a worker to nothing first (`kubectl -n factory scale deployment/triage --replicas=0`), and back to one after, so two do not take the same signals. Add `PAGES_URL=http://localhost:8090` to triage to have it read the pages reports name.
 - Node 24 runs TypeScript directly: erasable syntax only, `.ts` extensions in imports, no build step. The console's browser code is the exception: Vite builds it.
 - In the console, anything that runs every frame (a drag, a wipe, the reel settling) writes to the DOM through refs, and React state changes only when the movement ends. A test counts renders during a drag.
