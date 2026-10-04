@@ -19,7 +19,16 @@ import { execFileSync } from 'node:child_process';
  */
 export const REPOSITORIES: Record<string, string[]> = {
   'mrogan/cv-software-factory': ['lint, types, tests', 'browser tests', 'image builds', 'pull request title'],
-  'mrogan/cv-worlds-worst-website': ['lint, types, tests', 'image builds', 'title / pull request title'],
+  // The app's gates come from this repository (app-gates.yml); tests first is a signal, not a requirement.
+  'mrogan/cv-worlds-worst-website': [
+    'lint, types, tests',
+    'image builds',
+    'title / pull request title',
+    'gates / journeys',
+    'gates / test integrity',
+    'gates / dependency review',
+    'gates / image scan',
+  ],
 };
 
 /** GitHub Actions, as the app that reports check runs. */

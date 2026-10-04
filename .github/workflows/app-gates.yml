@@ -1,0 +1,272 @@
+# The app's gates (spec section 4.1), beside its own lint, types and tests: what a pull request to the app must pass
+# that the app's repository cannot loosen.
+#
+# Shared: cv-worlds-worst-website calls this workflow at a pinned commit, from its pull requests. The scripts come from
+# this repository at that commit, and the probes and crawler from the factory-browser image this repository's local
+# profile pins, so nothing in a pull request to the app changes how it is judged.
+#
+# - journeys: the probes and the crawler against the base's image and the change's; fails on a check that passes on
+#   the base and fails on the change twice. The app is broken on purpose, so failing on the base is no reason to fail.
+# - test integrity: fails a change that deletes, skips or weakens an existing test.
+# - tests first: runs the change's new and changed tests against the base's source, and says which fail there. Not
+#   required: a fix whose tests all pass before it holds for Martin, and the line reads this to know.
+# - dependency review and image scan: fail only on a vulnerability the change brings in.
+#
+# Every job is skipped for a deploy or release pull request the factory's App opened (`skip`), which changes nothing
+# they judge.
+name: app-gates
+
+on:
+  workflow_call:
+    inputs:
+      skip:
+        description: True for a deploy or release pull request the factory's App opened and nobody changed.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  # The vulnerability scanner, by digest: 0.74.0.
+  TRIVY: aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+
+jobs:
+  journeys:
+    name: journeys
+    if: ${{ !inputs.skip }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # These jobs check out and run a pull request's code. They do it only where that code can do no harm: a
+      # pull_request run, with a read-only token and no secrets. Called from anything else, they fail rather than run.
+      - name: Refuse a privileged context
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "::error::The app's gates run only on pull_request, not $GITHUB_EVENT_NAME."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: change
+          persist-credentials: false
+      # This workflow's own repository and commit, for the image its local profile pins.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: factory
+          sparse-checkout: deploy/overlays/local/factory-image/kustomization.yaml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: base
+          load: true
+          tags: app:base
+          build-args: GIT_COMMIT=${{ github.event.pull_request.base.sha }}
+          cache-from: type=gha
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: change
+          load: true
+          tags: app:change
+          build-args: GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha
+      - name: Start both
+        run: |
+          docker run -d --name base -p 8081:8080 app:base
+          docker run -d --name change -p 8082:8080 app:change
+          for port in 8081 8082; do
+            for _ in $(seq 30); do curl -sf "http://localhost:$port/version" >/dev/null && break; sleep 1; done
+            curl -sf "http://localhost:$port/version" >/dev/null || { docker logs base; docker logs change; exit 1; }
+          done
+      - name: Compare the journeys
+        run: |
+          browser=$(yq '.images[] | select(.name == "factory-browser") | .newName + "@" + .digest' \
+            factory/deploy/overlays/local/factory-image/kustomization.yaml)
+          echo "Running the probes and the crawler from $browser"
+          mkdir -p "$RUNNER_TEMP/gate" && chmod 777 "$RUNNER_TEMP/gate"
+          status=0
+          docker run --rm --init --ipc=host --network host -v "$RUNNER_TEMP/gate:/out" -e LOG_LEVEL=warn "$browser" \
+            src/cli.ts gate journeys --base http://localhost:8081 --change http://localhost:8082 --summary /out/journeys.md \
+            || status=$?
+          cat "$RUNNER_TEMP/gate/journeys.md" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$status"
+
+  test-integrity:
+    name: test integrity
+    if: ${{ !inputs.skip }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # These jobs check out and run a pull request's code. They do it only where that code can do no harm: a
+      # pull_request run, with a read-only token and no secrets. Called from anything else, they fail rather than run.
+      - name: Refuse a privileged context
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "::error::The app's gates run only on pull_request, not $GITHUB_EVENT_NAME."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: change
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: factory
+          sparse-checkout: |
+            mise.toml
+            apps/factory/src/gates/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          working_directory: factory
+          install_args: node
+      - run: node factory/apps/factory/src/gates/test-integrity.ts base change
+
+  tests-first:
+    name: tests first
+    if: ${{ !inputs.skip }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # These jobs check out and run a pull request's code. They do it only where that code can do no harm: a
+      # pull_request run, with a read-only token and no secrets. Called from anything else, they fail rather than run.
+      - name: Refuse a privileged context
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "::error::The app's gates run only on pull_request, not $GITHUB_EVENT_NAME."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: change
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: factory
+          sparse-checkout: apps/factory/src/gates/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      # The app's own toolchain, as its base pins it.
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          working_directory: base
+          install_args: node pnpm
+      # The test files go through a file, one a line, so a name with a space is still one name.
+      - name: Put the change's tests in the base
+        run: node factory/apps/factory/src/gates/tests-first.ts prepare base change "$RUNNER_TEMP/tests-first.json" > "$RUNNER_TEMP/tests-first-files"
+      - name: Run them there
+        working-directory: base
+        run: |
+          mapfile -t files < "$RUNNER_TEMP/tests-first-files"
+          if [ "${#files[@]}" -eq 0 ] || [ -z "${files[0]}" ]; then exit 0; fi
+          pnpm install --frozen-lockfile --ignore-scripts
+          # Failures are what this is looking for: the report reads them.
+          pnpm exec vitest run --reporter=json --outputFile="$RUNNER_TEMP/tests-first-results.json" "${files[@]}" || true
+      - name: Say which failed before the fix
+        run: |
+          results=()
+          if [ -f "$RUNNER_TEMP/tests-first-results.json" ]; then results=("$RUNNER_TEMP/tests-first-results.json"); fi
+          node factory/apps/factory/src/gates/tests-first.ts report "$RUNNER_TEMP/tests-first.json" "${results[@]}"
+
+  dependency-review:
+    name: dependency review
+    if: ${{ !inputs.skip }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # These jobs check out and run a pull request's code. They do it only where that code can do no harm: a
+      # pull_request run, with a read-only token and no secrets. Called from anything else, they fail rather than run.
+      - name: Refuse a privileged context
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "::error::The app's gates run only on pull_request, not $GITHUB_EVENT_NAME."
+            exit 1
+          fi
+      # It compares the dependency graph of the base and the change, so it fails only on what the change brings in.
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          comment-summary-in-pr: never
+
+  image-scan:
+    name: image scan
+    if: ${{ !inputs.skip }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # These jobs check out and run a pull request's code. They do it only where that code can do no harm: a
+      # pull_request run, with a read-only token and no secrets. Called from anything else, they fail rather than run.
+      - name: Refuse a privileged context
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            echo "::error::The app's gates run only on pull_request, not $GITHUB_EVENT_NAME."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: change
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: factory
+          sparse-checkout: |
+            mise.toml
+            apps/factory/src/gates/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          working_directory: factory
+          install_args: node
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: base
+          load: true
+          tags: app:base
+          cache-from: type=gha
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: change
+          load: true
+          tags: app:change
+          cache-from: type=gha
+      - name: Scan both
+        run: |
+          mkdir -p "$RUNNER_TEMP/scan" && chmod 777 "$RUNNER_TEMP/scan"
+          for image in base change; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$RUNNER_TEMP/scan:/out" "$TRIVY" \
+              image --quiet --scanners vuln --format json --output "/out/$image.json" "app:$image"
+          done
+      - run: node factory/apps/factory/src/gates/image-scan.ts "$RUNNER_TEMP/scan/base.json" "$RUNNER_TEMP/scan/change.json"
