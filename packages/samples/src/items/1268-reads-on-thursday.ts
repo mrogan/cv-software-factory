@@ -26,17 +26,17 @@ export default new Item('1268', '2026-09-30T11:20:00+01:00')
     },
     [shot('published/contact', 'v0.8.5')],
   )
-  .at('0:01', 'judgement.made', 'triage', 'Triage: not a problem (0.93), no harm, no instructions (0.02)', {
+  .at('0:01', 'judgement.made', 'triage', 'Triage: not a defect (0.93), no harm, no instructions (0.02)', {
     ...JEV,
     state: { report: { page: '/contact', text: REPORT } },
-    answers: triageAnswers('not_a_problem', 0.93, [0.88, 0.09, 0.02, 0.01], 0.02),
+    answers: triageAnswers('not-a-defect', 0.93, [0.88, 0.09, 0.02, 0.01], 0.02),
     route: 'discard',
     costUsd: 0.0011,
     durationMs: 103,
     cassette: jevCassette('1268'),
   })
   .at('0:01', 'work-item.closed', 'triage', 'Closed with no ticket; kept in the triage log', {
-    outcome: 'no-change',
+    outcome: 'discarded',
     reason: 'Not a problem with the page: it works, and says what it should',
   })
   .at('0:02', 'work-item.summarised', 'factory', 'Summary written', {

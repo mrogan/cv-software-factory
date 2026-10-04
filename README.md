@@ -26,12 +26,14 @@ It is safe because of mechanisms, not because the prompts ask nicely: agents can
 You need macOS or Linux, [mise](https://mise.jdx.dev) and a container runtime ([OrbStack](https://orbstack.dev) on a Mac).
 
 ```sh
-mise install   # Node, pnpm, kubectl, k3d, helm, kustomize at pinned versions
-make up        # a local Kubernetes cluster; Argo CD deploys the rest from this repo
-make samples   # twelve sample work items, so the console has something to show
-make status    # what is running, and where to open it
-make down      # delete the cluster; nothing is left behind
+mise install     # Node, pnpm, kubectl, k3d, helm, kustomize at pinned versions
+make up          # a local Kubernetes cluster; Argo CD deploys the rest from this repo
+make samples     # twelve sample work items, so the console has something to show
+make status      # what is running, and where to open it
+make down        # delete the cluster; nothing is left behind
 ```
+
+A store holds samples or the factory's own work, never both. `make real-store` empties it for real work: use it when you want to watch the factory find and triage defects in the app, rather than browse the samples.
 
 `make` on its own lists every target. The first `make up` takes a few minutes while images download.
 

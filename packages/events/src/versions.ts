@@ -1,9 +1,8 @@
 /**
  * Every event type, and the version of its payload that is current. One type for each thing a stage does.
  *
- * Until milestone 4 appends the first real event, version 1 of each type may change freely. After that, a change
- * to a payload raises its version here and adds an upcaster (upcast.ts), so that stored events and recordings keep
- * reading as the current version.
+ * Real events are stored at these versions, so a payload never changes in place: a change raises its type's version
+ * here and adds an upcaster (upcast.ts), so that stored events and recordings keep reading as the current version.
  */
 export const VERSIONS = {
   // A work item, from first event to last
@@ -41,6 +40,8 @@ export const VERSIONS = {
   // The line as a whole, with no work item
   'line.started': 1,
   'line.stopped': 1,
+  'spend.capped': 1,
+  'spend.cleared': 1,
 } as const;
 
 export type EventType = keyof typeof VERSIONS;
@@ -48,6 +49,6 @@ export type EventType = keyof typeof VERSIONS;
 export const EVENT_TYPES = Object.keys(VERSIONS) as EventType[];
 
 /** Types that belong to the line as a whole. Every other event belongs to a work item. */
-export const LINE_TYPES: readonly EventType[] = ['line.started', 'line.stopped'];
+export const LINE_TYPES: readonly EventType[] = ['line.started', 'line.stopped', 'spend.capped', 'spend.cleared'];
 
 export const isEventType = (type: string): type is EventType => Object.hasOwn(VERSIONS, type);

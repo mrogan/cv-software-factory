@@ -94,6 +94,8 @@ export const PUBLIC_VIEWS = {
   'model.called': redacted,
   'line.started': redacted,
   'line.stopped': redacted,
+  'spend.capped': redacted,
+  'spend.cleared': redacted,
 } satisfies { [K in EventType]: PublicViewOf<K> };
 
 /** The public view of an event. Applying it twice changes nothing. */

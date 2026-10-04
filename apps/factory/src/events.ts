@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { buffer } from 'node:stream/consumers';
 import { type NewEvent, type PublicEvent, type RawEvent, upcast } from '@software-factory/events';
 import { logArtifactPath, readLogEvents, writeLogEvents } from '@software-factory/events/log';
-import { type ArtifactStore, EventWriter, readPublic } from '@software-factory/store';
+import { type ArtifactStore, EventWriter, readPublic, storeKind } from '@software-factory/store';
 import type { Sql } from 'postgres';
 
 export interface Selection {
@@ -39,10 +39,9 @@ const isSample = (events: readonly NewEvent[]) =>
 /** Refuses a store that holds the other kind of event, or any of these already. */
 async function checkStore(sql: Sql, events: readonly NewEvent[]): Promise<'sample' | 'real'> {
   const kind = isSample(events) ? 'sample' : 'real';
-  const [held] = await sql<{ real: boolean | null; sample: boolean | null }[]>`
-    select bool_or(not sample) as real, bool_or(sample) as sample from events`;
-  if (kind === 'sample' && held?.real) throw new Error('This store holds real events, so it takes no samples.');
-  if (kind === 'real' && held?.sample) throw new Error('This store holds samples, so it takes no real events.');
+  const held = await storeKind(sql);
+  if (kind === 'sample' && held === 'real') throw new Error('This store holds real events, so it takes no samples.');
+  if (kind === 'real' && held === 'sample') throw new Error('This store holds samples, so it takes no real events.');
   const ids = events.map((event) => event.id);
   const [{ count } = { count: 0 }] = await sql<{ count: number }[]>`
     select count(*)::int as count from events where id in ${sql(ids)}`;

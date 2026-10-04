@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatLog, parseLog } from '../src/log-format.ts';
 import { PUBLIC_VIEWS, publicView, redactSecrets } from '../src/public.ts';
-import { validate } from '../src/schemas.ts';
+import { validate, validateSignal } from '../src/schemas.ts';
 import type { NewEvent, PublicEvent } from '../src/types.ts';
 import { type Catalogue, upcast } from '../src/upcast.ts';
 import { EVENT_TYPES } from '../src/versions.ts';
@@ -39,6 +39,79 @@ describe('validation', () => {
       ok: false,
       problems: ['work-item.opened needs a work item'],
     });
+  });
+
+  it('keeps spend caps on the line', () => {
+    const capped = {
+      ...opened,
+      work_item: null,
+      type: 'spend.capped',
+      payload: { cap: 'day', limitUsd: 20, spentUsd: 20.01, resets: '2026-10-05T00:00:00.000Z' },
+    };
+    expect(validate(capped)).toEqual({ ok: true });
+    expect(validate({ ...capped, type: 'spend.cleared', payload: { cap: 'day' } })).toEqual({ ok: true });
+  });
+
+  it('names the ticket a repeat joined, and only for a repeat', () => {
+    const repeat = { ...judgement, payload: { ...judgement.payload, route: 'repeat', joined: '1000' } };
+    expect(validate(repeat)).toEqual({ ok: true });
+    expect(validate({ ...repeat, payload: { ...repeat.payload, joined: undefined } }).ok).toBe(false);
+    expect(validate({ ...judgement, payload: { ...judgement.payload, joined: '1000' } }).ok).toBe(false);
+  });
+
+  it('takes what a browser saw as evidence, and a symptom on every page as one route', () => {
+    const crawled = {
+      ...signal,
+      actor: 'crawler',
+      payload: {
+        sense: 'crawler',
+        check: 'security headers',
+        route: '*',
+        version: 'v0.9.2',
+        symptom: 'missing-header',
+        evidence: [
+          {
+            kind: 'http',
+            method: 'GET',
+            url: '/products?page=2',
+            status: 200,
+            headers: { 'content-security-policy': null },
+            timings: { firstByteMs: 41, totalMs: 58 },
+            redirects: [],
+          },
+          {
+            kind: 'console',
+            route: '/products',
+            version: 'v0.9.2',
+            messages: [{ level: 'error', text: 'Uncaught TypeError: x is undefined' }],
+          },
+          {
+            kind: 'accessibility',
+            route: '/products',
+            version: 'v0.9.2',
+            findings: [
+              {
+                rule: 'image-alt',
+                impact: 'critical',
+                help: 'Images must have alternative text',
+                elements: [{ selector: 'main img', box: { x: 10, y: 20, width: 200, height: 150 } }],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    expect(validate(crawled)).toEqual({ ok: true });
+  });
+
+  it('takes a report into the inbox only with its text', () => {
+    const report = { ...signal.payload, observedAt: signal.ts, artifacts: [] };
+    expect(validateSignal(report)).toEqual({ ok: true });
+    expect(validateSignal({ ...report, report: { page: '/' } })).toEqual({
+      ok: false,
+      problems: ['report.text: a report needs its text'],
+    });
+    expect(validateSignal({ ...report, sense: 'crawler', symptom: 'broken-link' }).ok).toBe(false);
   });
 
   it('only lets work return upstream', () => {

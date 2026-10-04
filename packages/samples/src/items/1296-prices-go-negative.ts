@@ -1,5 +1,5 @@
 /** A defect a visitor injected from the menu: noticed in four minutes, fixed and verified in sixteen. */
-import { commitFor, digestFor, Item, JEV, jevCassette, traceFor, triageAnswers } from '../build.ts';
+import { commitFor, digestFor, Item, traceFor } from '../build.ts';
 import { shot } from '../captures.ts';
 
 export default new Item('1296', '2026-10-03T09:02:00+01:00')
@@ -23,18 +23,9 @@ export default new Item('1296', '2026-10-03T09:02:00+01:00')
     'signal.received',
     'probe',
     'The home journey saw a price of £-6.00',
-    { sense: 'probe', check: 'home journey', route: '/', version: 'v0.9.4' },
+    { sense: 'probe', check: 'home journey', route: '/', version: 'v0.9.4', symptom: 'wrong-result' },
     [shot('negative/home-sundries', 'v0.9.4')],
   )
-  .at('4:50', 'judgement.made', 'triage', 'Triage: functional (0.97), broken, no instructions (0.00)', {
-    ...JEV,
-    state: { signal: { route: '/', check: 'home journey' } },
-    answers: triageAnswers('functional', 0.97, [0.0, 0.01, 0.06, 0.93], 0.001),
-    route: 'ticket',
-    costUsd: 0.0009,
-    durationMs: 91,
-    cassette: jevCassette('1296'),
-  })
   .at('4:51', 'ticket.opened', 'triage', 'Ticket #1296: functional, broken', {
     title: 'Prices below zero on the home page',
     category: 'functional',

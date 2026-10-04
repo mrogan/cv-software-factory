@@ -269,14 +269,14 @@ interface Verification {
   marked?: Screenshot;
 }
 
-/** Triage's question set (TYPESAFE.md), answered: category, severity, and whether it holds instructions. */
+/** Triage's question set (TYPESAFE.md), answered for a report: category, severity, and whether it holds instructions. */
 export function triageAnswers(
   category: string,
   confidence: number,
   severity: [noHarm: number, cosmetic: number, degraded: number, broken: number],
   injection: number,
 ): PayloadOf<'judgement.made'>['answers'] {
-  const others = ['content', 'functional', 'performance', 'observability', 'not_a_problem'].filter(
+  const others = ['content', 'functional', 'performance', 'observability', 'not-a-defect'].filter(
     (c) => c !== category,
   );
   const rest = 1 - confidence;
@@ -284,7 +284,7 @@ export function triageAnswers(
     {
       type: 'choice',
       key: 'category',
-      question: 'What kind of problem does the report or signal describe?',
+      question: 'What kind of problem does the report describe?',
       answer: category,
       probabilities: Object.fromEntries([
         [category, confidence],

@@ -1,5 +1,5 @@
 /** A defect the metrics noticed: the home page was slow, and is now fast, and looks exactly the same. */
-import { commitFor, digestFor, Item, JEV, jevCassette, traceFor, triageAnswers } from '../build.ts';
+import { commitFor, digestFor, Item, traceFor } from '../build.ts';
 
 const trace = traceFor('1288/slow');
 
@@ -20,24 +20,18 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
     check: 'objective: p95 under 300 ms on /',
     route: '/',
     version: 'v0.9.2',
-    evidence: {
-      kind: 'metric',
-      name: 'p95 latency on /',
-      unit: 'ms',
-      objective: 300,
-      start: '2026-10-02T12:05:00.000Z',
-      stepSeconds: 300,
-      values: [628, 655, 640, 661, 637, 648, 622, 670, 644, 638, 651, 640],
-    },
-  })
-  .at('0:40', 'judgement.made', 'triage', 'Triage: performance (0.95), degraded, no instructions (0.00)', {
-    ...JEV,
-    state: { signal: { route: '/', check: 'objective: p95 under 300 ms on /' } },
-    answers: triageAnswers('performance', 0.95, [0.02, 0.06, 0.84, 0.08], 0.001),
-    route: 'ticket',
-    costUsd: 0.0009,
-    durationMs: 88,
-    cassette: jevCassette('1288'),
+    symptom: 'slow-response',
+    evidence: [
+      {
+        kind: 'metric',
+        name: 'p95 latency on /',
+        unit: 'ms',
+        objective: 300,
+        start: '2026-10-02T12:05:00.000Z',
+        stepSeconds: 300,
+        values: [628, 655, 640, 661, 637, 648, 622, 670, 644, 638, 651, 640],
+      },
+    ],
   })
   .at('0:41', 'ticket.opened', 'triage', 'Ticket #1288 with a trace: 560 ms choosing the selection', {
     title: 'The home page is slow',

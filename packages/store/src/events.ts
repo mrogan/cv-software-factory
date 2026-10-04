@@ -44,7 +44,11 @@ export class EventWriter {
     this.#options = options;
   }
 
-  /** Validates the events, writes each with its public view and notifies listeners, in one transaction. */
+  /**
+   * Validates the events, writes each with its public view and notifies listeners, in one transaction. An event
+   * already stored with the same id and the same content is not stored again, so a worker can retry an append that
+   * may or may not have committed; the same id with different content is refused.
+   */
   async append(events: NewEvent | readonly NewEvent[]): Promise<StoredEvent[]> {
     const batch: readonly NewEvent[] = Array.isArray(events) ? events : [events as NewEvent];
     const problems = [...batch.flatMap(checkShape), ...(await this.#checkArtifacts(batch))];
@@ -53,10 +57,13 @@ export class EventWriter {
     return this.#sql.begin(async (tx) => {
       // The insert takes this lock too; taking it first means the checks below see what the insert will see.
       await tx`select pg_advisory_xact_lock(hashtext('events'))`;
-      const sequence = await this.#checkSequence(tx, batch);
+      const { stored, retried } = await this.#checkRetries(tx, batch);
+      if (retried.length) throw new AppendRefused(retried);
+      const fresh = batch.filter((event) => !stored.has(event.id));
+      const sequence = await this.#checkSequence(tx, fresh);
       if (sequence.length) throw new AppendRefused(sequence);
 
-      const rows = batch.map((event) => ({
+      const rows = fresh.map((event) => ({
         id: event.id,
         ts: event.ts,
         work_item: event.work_item,
@@ -69,17 +76,33 @@ export class EventWriter {
         public: tx.json(publicView(event.type, event) as unknown as JSONValue),
         sample: this.#options.kind === 'sample',
       }));
-      const stored = await tx<{ seq: string; ts: Date }[]>`insert into events ${tx(rows)} returning seq, ts`;
+      const inserted = rows.length
+        ? await tx<{ id: string; seq: string }[]>`insert into events ${tx(rows)} returning id, seq`
+        : [];
+      const seqs = new Map([...stored, ...inserted.map((row) => [row.id, Number(row.seq)] as const)]);
       return batch.map(
-        (event, i) =>
-          ({
-            ...event,
-            seq: Number(stored[i]?.seq),
-            ts: stored[i]?.ts.toISOString() ?? event.ts,
-            public: publicView(event.type, event),
-          }) as StoredEvent,
+        (event) => ({ ...event, seq: seqs.get(event.id), public: publicView(event.type, event) }) as StoredEvent,
       );
     }) as Promise<StoredEvent[]>;
+  }
+
+  /** The events of the batch already stored, by id with their seq, and a reason for each stored differently. */
+  async #checkRetries(tx: TransactionSql, batch: readonly NewEvent[]) {
+    const rows = await tx<StoredRow[]>`
+      select seq, id, ts, work_item, type, version, actor, summary, payload, artifacts
+      from events where id in ${tx(batch.map((event) => event.id))}`;
+    const stored = new Map<string, number>();
+    const retried: string[] = [];
+    for (const row of rows) {
+      const i = batch.findIndex((event) => event.id === row.id);
+      const event = batch[i] as NewEvent;
+      const differ = differences(row, event);
+      if (differ.length) {
+        retried.push(`${where(batch, i)}: event ${row.id} is already stored, with a different ${differ.join(', ')}`);
+      }
+      stored.set(row.id, Number(row.seq));
+    }
+    return { stored, retried };
   }
 
   async #checkArtifacts(batch: readonly NewEvent[]): Promise<string[]> {
@@ -130,6 +153,43 @@ export class EventWriter {
   }
 }
 
+interface StoredRow {
+  seq: string;
+  id: string;
+  ts: Date;
+  work_item: string | null;
+  type: string;
+  version: number;
+  actor: string;
+  summary: string;
+  payload: unknown;
+  artifacts: unknown;
+}
+
+/** The fields in which a stored event differs from one appended again with its id. */
+function differences(row: StoredRow, event: NewEvent): string[] {
+  const fields: [string, unknown, unknown][] = [
+    ['ts', row.ts.getTime(), Date.parse(event.ts)],
+    ['work_item', row.work_item, event.work_item],
+    ['type', row.type, event.type],
+    ['version', row.version, event.version],
+    ['actor', row.actor, event.actor],
+    ['summary', row.summary, event.summary],
+    ['payload', canonical(row.payload), canonical(event.payload)],
+    ['artifacts', canonical(row.artifacts), canonical(event.artifacts)],
+  ];
+  return fields.filter(([, a, b]) => a !== b).map(([name]) => name);
+}
+
+/** JSON with its keys in order, as Postgres's jsonb keeps them, so two equal values compare equal. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, inner) =>
+    inner && typeof inner === 'object' && !Array.isArray(inner)
+      ? Object.fromEntries(Object.entries(inner).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : inner,
+  );
+}
+
 function checkShape(event: NewEvent, i: number, batch: readonly NewEvent[]): string[] {
   const result = validate(event);
   return result.ok ? [] : result.problems.map((problem) => `${where(batch, i)}: ${problem}`);
@@ -139,6 +199,19 @@ const where = (batch: readonly NewEvent[], i: number) => {
   const event = batch[i];
   return batch.length === 1 ? `${event?.type}` : `event ${i + 1} (${event?.type})`;
 };
+
+/** The next work item's number, from the store's sequence: 1000 for the first in a real store. */
+export async function nextWorkItem(sql: Sql): Promise<string> {
+  const [row] = await sql<{ next: string }[]>`select nextval('work_items')::text as next`;
+  if (!row) throw new Error('The store gave no work item number');
+  return row.next;
+}
+
+/** Whether the store holds samples or real events, or null while it holds neither. */
+export async function storeKind(sql: Sql): Promise<'sample' | 'real' | null> {
+  const [row] = await sql<{ sample: boolean }[]>`select sample from store`;
+  return row ? (row.sample ? 'sample' : 'real') : null;
+}
 
 interface PublicRow {
   seq: string;
