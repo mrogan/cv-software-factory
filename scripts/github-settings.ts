@@ -1,9 +1,13 @@
 /**
  * Applies the public repositories' GitHub settings, so they are reviewable like code and reproducible. Both get
- * the same ruleset and security settings; only the checks each requires differ. Safe to run again.
+ * the same rulesets and security settings; only the checks each requires differ. Safe to run again.
  *
  *     node scripts/github-settings.ts                  # every repository below
  *     node scripts/github-settings.ts <owner/repo>     # one of them
+ *     node scripts/github-settings.ts --check          # change nothing: say where the live rulesets differ
+ *
+ * `--check` reads each repository's rulesets and compares them with the ones here, and names any it does not know,
+ * such as one added in the browser. It exits 1 if anything differs.
  *
  * Needs the GitHub CLI, signed in as an admin of the repository.
  */
@@ -13,7 +17,7 @@ import { execFileSync } from 'node:child_process';
  * Each repository, and the jobs that must pass before anything merges into its main. A job in a shared workflow
  * reports as "<calling job> / <job>".
  */
-const REPOSITORIES: Record<string, string[]> = {
+export const REPOSITORIES: Record<string, string[]> = {
   'mrogan/cv-software-factory': ['lint, types, tests', 'browser tests', 'image builds', 'pull request title'],
   'mrogan/cv-worlds-worst-website': ['lint, types, tests', 'image builds', 'title / pull request title'],
 };
@@ -21,7 +25,14 @@ const REPOSITORIES: Record<string, string[]> = {
 /** GitHub Actions, as the app that reports check runs. */
 const GITHUB_ACTIONS = 15368;
 
-const ruleset = (requiredChecks: string[]) => ({
+/** Repository roles, as a ruleset's bypass list names them. */
+const ADMIN_ROLE = 5;
+
+/**
+ * Two rulesets on main (ADR 0009). The first holds everything but review, and nobody bypasses it: every change is a
+ * pull request, squash-merged, signed and linear, once its required checks pass.
+ */
+export const rules = (requiredChecks: string[]) => ({
   name: 'main',
   target: 'branch',
   enforcement: 'active',
@@ -36,8 +47,6 @@ const ruleset = (requiredChecks: string[]) => ({
     {
       type: 'pull_request',
       parameters: {
-        // Code-owner review is switched on in milestone 5, when the factory opens pull requests and Martin
-        // reviews them. Until then every pull request is Martin's, and GitHub never counts an author's approval.
         required_approving_review_count: 0,
         require_code_owner_review: false,
         dismiss_stale_reviews_on_push: true,
@@ -57,6 +66,33 @@ const ruleset = (requiredChecks: string[]) => ({
   ],
 });
 
+/**
+ * The second holds review: a code owner's approval, after the last push, on every pull request. Martin is the code
+ * owner and the author of every human pull request, and GitHub never counts an author's own approval, so the
+ * repository's admin may bypass this one, and only when merging a pull request. The merge records the bypass. The
+ * factory's App may not bypass it, so each of its pull requests waits for Martin.
+ */
+export const review = {
+  name: 'main: review',
+  target: 'branch',
+  enforcement: 'active',
+  conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+  bypass_actors: [{ actor_id: ADMIN_ROLE, actor_type: 'RepositoryRole', bypass_mode: 'pull_request' }],
+  rules: [
+    {
+      type: 'pull_request',
+      parameters: {
+        required_approving_review_count: 1,
+        require_code_owner_review: true,
+        dismiss_stale_reviews_on_push: true,
+        require_last_push_approval: true,
+        required_review_thread_resolution: false,
+        allowed_merge_methods: ['squash'],
+      },
+    },
+  ],
+};
+
 let repo = '';
 
 function gh(method: string, path: string, body?: unknown): string {
@@ -70,14 +106,63 @@ function step(what: string, apply: () => unknown): void {
   console.log(`  ✓ ${what}`);
 }
 
-const [only] = process.argv.slice(2);
-if (only && !REPOSITORIES[only]) {
-  console.error(`${only} is not one of ours. Choose from: ${Object.keys(REPOSITORIES).join(', ')}`);
-  process.exit(1);
+/**
+ * Whether what GitHub holds says everything this script set. GitHub adds defaults of its own (such as
+ * `required_reviewers: []`), so an object matches when each key this script set matches; a list must be as long, and
+ * match item by item, so a bypass actor or a rule added elsewhere is drift.
+ */
+export function matches(live: unknown, wanted: unknown): boolean {
+  if (Array.isArray(wanted)) {
+    return Array.isArray(live) && live.length === wanted.length && wanted.every((w, i) => matches(live[i], w));
+  }
+  if (wanted && typeof wanted === 'object') {
+    if (!live || typeof live !== 'object') return false;
+    return Object.entries(wanted).every(([key, value]) => matches((live as Record<string, unknown>)[key], value));
+  }
+  return live === wanted;
 }
 
-for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
-  if (only && name !== only) continue;
+/** Compares a repository's live rulesets with these, and says what differs. */
+function check(requiredChecks: string[]): string[] {
+  const wanted = [rules(requiredChecks), review];
+  const live = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
+  const problems = live
+    .filter((r) => !wanted.some((w) => w.name === r.name))
+    .map((r) => `ruleset "${r.name}" is not one of these`);
+  for (const ruleset of wanted) {
+    const found = live.find((r) => r.name === ruleset.name);
+    if (!found) problems.push(`ruleset "${ruleset.name}" is missing`);
+    else if (!matches(JSON.parse(gh('GET', `/rulesets/${found.id}`)), ruleset)) {
+      problems.push(`ruleset "${ruleset.name}" differs from this script's`);
+    }
+  }
+  return problems;
+}
+
+function main(args: string[]): number {
+  const checking = args.includes('--check');
+  const only = args.find((a) => !a.startsWith('--'));
+  if (only && !REPOSITORIES[only]) {
+    console.error(`${only} is not one of ours. Choose from: ${Object.keys(REPOSITORIES).join(', ')}`);
+    return 1;
+  }
+  let drift = false;
+  for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
+    if (only && name !== only) continue;
+    repo = name;
+    if (checking) {
+      const problems = check(requiredChecks);
+      for (const p of problems) console.log(`  ✗ ${repo}: ${p}`);
+      if (!problems.length) console.log(`  ✓ ${repo}: the rulesets are as this script makes them`);
+      drift ||= problems.length > 0;
+      continue;
+    }
+    apply(name, requiredChecks);
+  }
+  return drift ? 1 : 0;
+}
+
+function apply(name: string, requiredChecks: string[]): void {
   repo = name;
   console.log(`Applying settings to ${repo}`);
 
@@ -144,11 +229,18 @@ for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
     else gh('POST', '/labels', deployLabel);
   });
 
-  const rules = ruleset(requiredChecks);
-  step(`ruleset "${rules.name}": pull requests only, linear and signed; requires ${requiredChecks.join('; ')}`, () => {
-    const existing = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
-    const id = existing.find((r) => r.name === rules.name)?.id;
-    if (id) gh('PUT', `/rulesets/${id}`, rules);
-    else gh('POST', '/rulesets', rules);
-  });
+  const existing = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
+  const apply = (ruleset: { name: string }) => {
+    const id = existing.find((r) => r.name === ruleset.name)?.id;
+    if (id) gh('PUT', `/rulesets/${id}`, ruleset);
+    else gh('POST', '/rulesets', ruleset);
+  };
+  step(`ruleset "main": pull requests only, linear and signed; requires ${requiredChecks.join('; ')}`, () =>
+    apply(rules(requiredChecks)),
+  );
+  step('ruleset "main: review": a code owner approves after the last push; the admin may bypass it to merge', () =>
+    apply(review),
+  );
 }
+
+if (import.meta.main) process.exitCode = main(process.argv.slice(2));
