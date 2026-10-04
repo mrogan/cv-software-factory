@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0](https://github.com/mrogan/cv-software-factory/compare/v0.3.1...v0.4.0) (2026-10-04)
+
+
+### Features
+
+* **console:** show the factory's first real work, sensing and triage ([#51](https://github.com/mrogan/cv-software-factory/issues/51)) ([681386d](https://github.com/mrogan/cv-software-factory/commit/681386dbd113a133d53ec8cd59f33b3eb65128c7))
+* **crawler:** check every page and asset any site should pass ([#47](https://github.com/mrogan/cv-software-factory/issues/47)) ([2b6f00c](https://github.com/mrogan/cv-software-factory/commit/2b6f00ca649e19aca4be17b81826c1289fd7f6d5))
+* **deploy:** run the factory's workers on the local cluster ([#49](https://github.com/mrogan/cv-software-factory/issues/49)) ([dd31af7](https://github.com/mrogan/cv-software-factory/commit/dd31af7fab2c40d15fee476f8c6737cf8b8fd459))
+* **events:** settle version 1 of the events and the store before real work ([#41](https://github.com/mrogan/cv-software-factory/issues/41)) ([6d389c7](https://github.com/mrogan/cv-software-factory/commit/6d389c7e809a685b79afd7b84e0dc61746a1b5c1))
+* **gateway:** make the gateway the only way to a model ([#42](https://github.com/mrogan/cv-software-factory/issues/42)) ([d6d60c9](https://github.com/mrogan/cv-software-factory/commit/d6d60c989259f23056f1bb9db0735279d6ea06a4))
+* **probes:** look after the shop the way a shopper does ([#46](https://github.com/mrogan/cv-software-factory/issues/46)) ([82f4baa](https://github.com/mrogan/cv-software-factory/commit/82f4baaf99dbaca892a7af4992b0a94be9d873aa))
+* **telemetry:** alert on the app's objectives and watch its logs ([#48](https://github.com/mrogan/cv-software-factory/issues/48)) ([19d3fbd](https://github.com/mrogan/cv-software-factory/commit/19d3fbdc6ffd0b1304465e8ec4d8745ac0449028))
+* **triage:** turn the inbox into deduplicated tickets ([#44](https://github.com/mrogan/cv-software-factory/issues/44)) ([952ccf8](https://github.com/mrogan/cv-software-factory/commit/952ccf88d01c9f4467cbd1ad5bdbc26380211813))
+
 ## [0.3.1](https://github.com/mrogan/cv-software-factory/compare/v0.3.0...v0.3.1) (2026-10-03)
 
 
