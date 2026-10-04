@@ -32,7 +32,7 @@ The factory already splits the work between agents that write things (specs, tes
 | **Plan** | Is each acceptance criterion testable? Does the scope cover the files the evidence points to? | Noul per criterion or check | Rejects or escalates a spec before a coder spends budget |
 | **Review** | Does the diff change behaviour beyond the spec? Does it touch security-relevant code? | Score per dimension | May add a route to "Needs you"; never removes one |
 
-Triage is the first and most valuable use (milestone 4, with the report widget in milestone 9). The others follow only if triage earns its place.
+Triage is the first and most valuable use: reports from the widget are triaged from milestone 4, and visitor keys arrive in milestone 9. The others follow only if triage earns its place.
 
 ## Where it is not used
 

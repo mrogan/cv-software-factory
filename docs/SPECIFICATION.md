@@ -93,7 +93,7 @@ A deliberately bad, funny, small web app that gives the factory real work.
 | Stage | Requirements |
 |---|---|
 | **Sense** | Synthetic probes (Playwright journeys against live and canary); a crawler for 404s, broken images, browser console errors and accessibility; OTel metrics against SLOs; OTel logs for new error patterns; user reports. |
-| **Triage** | Turn signals into deduplicated tickets with evidence (trace IDs, log lines, screenshots, repro steps). Classify category, severity and risk with typed Jev judgements (section 7.2); routing is plain code against human-owned thresholds. All signal content is untrusted. A report asking for new behaviour is labelled a suggestion and parked for Martin; one containing instructions aimed at the system is quarantined. |
+| **Triage** | Turn signals into deduplicated tickets with evidence (trace IDs, log lines, screenshots, repro steps). A sense's signal takes its category and severity from a human-owned table by its symptom class, and repeats are recognised by fingerprint. A visitor's report is judged with typed Jev judgements (section 7.2): category, symptom, severity, instructions aimed at the system, and which open ticket it repeats; routing is plain code against human-owned thresholds. All signal content is untrusted. A report asking for new behaviour is labelled a suggestion and parked for Martin; one containing instructions aimed at the system is quarantined. |
 | **Plan** | A spec per ticket in a fixed template: outcome, Given/When/Then acceptance criteria, scope (files that may change), risk tags, rollout note. Tickets that cannot become a testable spec are rejected or escalated. |
 | **Build** | Coder agents in disposable sandboxes with no production credentials. Failing test first for every bug. Stay inside scope. Respect concurrency, time and spend limits. |
 | **Gates** | Deterministic required checks: build, lint, type-check; unit and integration tests; e2e journeys (same scripts as the probes) against a throwaway k3d cluster in the runner; test integrity (weakened or deleted tests are high risk); dependency and secret scanning; static analysis; accessibility on changed pages; image scan. GitHub Actions *(default)*. |
@@ -234,7 +234,7 @@ Each seam sits behind an interface, so a pivot means a new adapter, not a rewrit
 
 Small judgements about untrusted text use TypeSafe's Jev model rather than a generative prompt. Jev answers a set of typed questions (Choice, Score, Noul) with probabilities and cannot return free text. Details are in `TYPESAFE.md`.
 
-- Used in triage first; planning and review checks only if triage earns its place. Never in gates, merges, releases, canary analysis or the scoreboard. A judgement can route work *towards* a human, never away from one.
+- Used in triage, for visitors' reports only: what a sense found is classified by a table. Planning and review checks follow only if triage earns its place. Never in gates, merges, releases, canary analysis or the scoreboard. A judgement can route work *towards* a human, never away from one.
 - Calls go through the gateway like every other model call: budgets, audit log, cassettes.
 - Requests name a pinned model version. Upgrading is a deliberate change with its own evaluation run.
 - Question sets are versioned TypeScript in the repo. Routing thresholds are human-owned policy under CODEOWNERS.
