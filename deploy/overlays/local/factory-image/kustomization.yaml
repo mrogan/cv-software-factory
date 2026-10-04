@@ -3,4 +3,12 @@
 # change, so the cluster never has workers without an image to run. After that it moves only the two digests.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
-images: []
+resources:
+- ../../../base/factory
+images:
+- digest: sha256:39d4cc77f0e34d53cc92fc2d72fb3c12dfde31df69c2391ab5614599d4680b26
+  name: factory
+  newName: ghcr.io/mrogan/cv-software-factory/factory
+- digest: sha256:7413f2bd8f17adbacdd93f578355c451a18c4e29140fdb18135c46718ec9597e
+  name: factory-browser
+  newName: ghcr.io/mrogan/cv-software-factory/factory-browser
