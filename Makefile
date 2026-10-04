@@ -71,7 +71,7 @@ github-key:
 				$(KUBECTL) apply -f - >/dev/null && echo "  The GitHub worker has the App's key, so it acts as the factory in GitHub."; \
 		else echo "  No App key (the Keychain's factory-github-app-key): the GitHub worker reads and writes nothing."; fi
 
-egress: ## Prove the network policies: only the gateway may leave the cluster (needs the factory's workers running)
+egress: ## Prove the network policies: only the gateway and the GitHub worker may leave the cluster (needs the factory's workers running)
 	scripts/egress.sh
 
 check: ## Lint, type-check, test, build the browser code, check generated files are current, render the manifests

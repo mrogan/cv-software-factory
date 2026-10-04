@@ -1,5 +1,5 @@
 # The workers that others call. Alertmanager posts to `intake` (deploy/base/telemetry/values/prometheus.yaml); triage
-# calls `gateway` and `probes`. The network policies say who may.
+# calls `gateway` and `probes`; the line will call `github`. The network policies say who may.
 apiVersion: v1
 kind: Service
 metadata:
@@ -9,6 +9,20 @@ metadata:
 spec:
   selector:
     app.kubernetes.io/name: gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: github
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app.kubernetes.io/name: github
   ports:
     - name: http
       port: 8080
