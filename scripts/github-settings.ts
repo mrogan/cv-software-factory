@@ -129,6 +129,19 @@ for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
     gh('PUT', '/actions/permissions/fork-pr-contributor-approval', { approval_policy: 'first_time_contributors' }),
   );
 
+  // The release pull request carries release-please's labels; a deploy pull request carries this one.
+  const deployLabel = {
+    name: 'deploy: local',
+    color: '0e8a16',
+    description: 'Moves an image pin in the local profile',
+  };
+  step(`label "${deployLabel.name}" for the deploy pull requests`, () => {
+    const existing = JSON.parse(gh('GET', '/labels?per_page=100')) as { name: string }[];
+    if (existing.some((l) => l.name === deployLabel.name))
+      gh('PATCH', `/labels/${encodeURIComponent(deployLabel.name)}`, deployLabel);
+    else gh('POST', '/labels', deployLabel);
+  });
+
   const rules = ruleset(requiredChecks);
   step(`ruleset "${rules.name}": pull requests only, linear and signed; requires ${requiredChecks.join('; ')}`, () => {
     const existing = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
