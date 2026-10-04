@@ -8,6 +8,9 @@ trustPolicy: no-downgrade # refuse a release published with weaker provenance th
 trustPolicyExclude:
   # Published by the same maintainer without provenance in January 2025, after two releases with it; used by Vitest.
   - why-is-node-running@3.2.2
+  # Octokit's v9 line, which release-please (run by the GitHub worker) still uses: the February 2025 backport of a
+  # ReDoS fix, published by GitHub's own octokitbot without provenance, after the v10 line had it.
+  - '@octokit/endpoint@9.0.6'
 allowBuilds:
   lefthook: false # its postinstall only installs the git hooks, which `prepare` does
   protobufjs: false # its postinstall only prints a version-scheme warning

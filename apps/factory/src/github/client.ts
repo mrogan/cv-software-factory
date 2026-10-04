@@ -114,6 +114,15 @@ export class GitHub {
     return this.#tokens !== undefined;
   }
 
+  /**
+   * An installation token for one repository, for a library that makes its own calls (release-please). It stays in
+   * memory and goes only to GitHub.
+   */
+  async token(repo: string): Promise<string> {
+    if (!this.#tokens) throw new GitHubError('read-only', 'The worker has no App key, so it has no token to lend.');
+    return this.#tokens.token(repo);
+  }
+
   /** A GET about one repository (`owner/name`), its body read through `schema`. The path is from the API's root. */
   async read<T>(repo: string, path: string, schema: z.ZodType<T>): Promise<T> {
     return parse(schema, await (await this.#authorised(repo, 'GET', path)).json(), `GET ${path}`);
