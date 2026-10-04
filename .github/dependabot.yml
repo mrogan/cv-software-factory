@@ -11,8 +11,8 @@ updates:
       # Node's own types follow the Node version in mise.toml, which moves by hand.
       - dependency-name: '@types/node'
         update-types: [version-update:semver-major]
-      # Published by hand without provenance, between two releases with it. pnpm's trust policy refuses it, and with
-      # it the whole npm update, so it is skipped rather than allowed: 2.1.16 has provenance again.
+      # 2.1.15 was published without provenance (2.1.14 and 2.1.16 have it), so pnpm's trust policy refuses it and
+      # fails the whole update. Remove once lefthook 2.1.16 or later is merged.
       - dependency-name: lefthook
         versions: ['2.1.15']
     cooldown:
