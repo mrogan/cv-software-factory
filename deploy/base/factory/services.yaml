@@ -55,3 +55,20 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: line
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app.kubernetes.io/name: line
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: handback
+      port: 8081
+      targetPort: handback

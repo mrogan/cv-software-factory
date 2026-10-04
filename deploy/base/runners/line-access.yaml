@@ -1,0 +1,26 @@
+# The line may start runners: create, read and delete Jobs, and the volume each work item's Jobs share. Nothing else,
+# here or anywhere: it cannot read a Secret, run a pod of its own or exec into one.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: line
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create, get, list, watch, delete]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [create, get, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: line
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: line
+subjects:
+  - kind: ServiceAccount
+    name: line
+    namespace: factory
