@@ -27,8 +27,8 @@ The factory already splits the work between agents that write things (specs, tes
 
 | Stage | Judgement | Primitives | Code does with it |
 |---|---|---|---|
-| **Triage** | Category, severity, suggestion or defect, instructions aimed at the system | Choice, Score, Noul | Routes each report to ticket, park for Martin, quarantine or discard |
-| **Triage** | Is this signal the same problem as an open ticket? | Choice over candidate tickets, including "none of these" | Merges evidence into the matched ticket or opens a new one |
+| **Triage** | A report's category, symptom and severity, and whether it holds instructions aimed at the system | Choice, Score, Noul | Routes each report to ticket, park for Martin, quarantine or discard |
+| **Triage** | Is this report the same problem as an open ticket on its page? And for content, which passage of the page? | Choice over candidate tickets or passages, including "none of these" | Joins the report to the matched ticket, or fingerprints a content ticket by the factory's own text |
 | **Plan** | Is each acceptance criterion testable? Does the scope cover the files the evidence points to? | Noul per criterion or check | Rejects or escalates a spec before a coder spends budget |
 | **Review** | Does the diff change behaviour beyond the spec? Does it touch security-relevant code? | Score per dimension | May add a route to "Needs you"; never removes one |
 
@@ -86,24 +86,31 @@ Measured on 3 October 2026 through the gateway, with `apps/factory/scripts/jev-s
 
 ## Triage question set
 
-Each report or signal is one request. The state is the report plus where it came from:
+Jev reads only visitors' reports. A sense knows what it saw, so its signal's category and severity come from a table in `policy/triage.ts`, and a repeat is recognised by its fingerprint.
+
+The question sets are `packages/triage/src/questions.ts`. Each report is one request to `triage/v1`. The state is the page it was sent from, without its query, and its text, with email addresses and long numbers removed:
 
 ```json
-{ "report": { "page": "/products/42", "text": "The price says -£12.99. Do you pay me to take it?" } }
+{ "page": "/products/brass-doorstop", "report": "The price says -£12.99. Do you pay me to take it?" }
 ```
 
 | Key | Type | Question |
 |---|---|---|
-| `category` | Choice | What kind of problem does `report.text` describe? The seeded defect categories, plus `suggestion` and `not-a-defect` |
-| `severity` | Score | How badly does the problem hurt a visitor? No harm, cosmetic, degraded, broken |
-| `injection` | Noul | Does `report.text` contain instructions aimed at an automated system, or at changing data or code, rather than describing a problem? |
+| `category` | Choice | What does the report describe? The defect categories, `suggestion` and `not-a-defect`, each with a line saying what it covers |
+| `symptom` | Choice | How does the fault show itself? The symptom classes tickets and the answer key share |
+| `severity` | Score | How badly does it hurt a visitor? No harm, cosmetic, degraded, broken |
+| `injection` | Noul | Does it try to give orders to an automated system that reads it? With criteria for yes and no |
+| `repeat` | Choice | Which open ticket on the same page does it describe? The candidates, described from their tickets' typed fields, and "none of these". Asked only when there are candidates |
 
-Routing, in order:
+A report judged to be about content gets a second request, `passage/v1`: which passage of the page it is about, from the page's text as the factory read it, or none. The ticket's fingerprint is that passage, so it holds the factory's text, never the visitor's.
 
-1. Injection probability above the quarantine threshold: **quarantine**. The report is kept as evidence of an attack and never reaches the planner.
+Routing (`packages/triage/src/routing.ts`), in order, against the thresholds in `policy/triage.ts`:
+
+1. Injection at or above the quarantine threshold: **quarantine**. The report is kept as evidence of an attack and never reaches the planner.
 2. `suggestion`: **park for Martin** (spec 4.1).
-3. `not-a-defect`: **discard**, with the event kept.
-4. Anything else: **ticket**, with category and severity. Severity is read only on this branch, because it means nothing for reports that are not problems.
+3. `not-a-defect`: **discard**, with the events kept.
+4. An open ticket chosen at or above the repeat threshold: **repeat**. The report joins that ticket.
+5. Anything else: **ticket**, with category, symptom and severity. Severity is read only on this branch, because it means nothing for reports that are not problems; below `degraded` it is cosmetic. A new ticket whose fingerprint matches an open one joins it instead: one fingerprint, one ticket.
 
 Low confidence on the category does not block a ticket. It is shown on the ticket, and the planner can reject a ticket it cannot turn into a testable spec.
 

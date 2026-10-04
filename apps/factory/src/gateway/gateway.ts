@@ -16,9 +16,9 @@
 import { AGENTS, type Agent } from '@software-factory/events';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
+import type { Logger } from '../log.ts';
 import { type Cassettes, cassetteKey } from './cassettes.ts';
 import { BadRequest, CassetteMissing, ProviderError, problemsOf, SpendCapped } from './errors.ts';
-import type { Logger } from './log.ts';
 import * as instruments from './metrics.ts';
 import { costOf, priceOf } from './prices.ts';
 import type { Spend } from './spend.ts';

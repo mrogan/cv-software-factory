@@ -10,8 +10,8 @@
  * (413 when it is too big). No error body echoes the request, which may hold a report's text.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { Logger } from '../log.ts';
 import type { Gateway } from './gateway.ts';
-import type { Logger } from './log.ts';
 import type { Spend } from './spend.ts';
 import { errorResponse } from './wire.ts';
 

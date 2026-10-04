@@ -1,8 +1,9 @@
 /**
- * OpenTelemetry for the gateway: traces, metrics and logs, sent over OTLP to the collector, as for the console.
+ * OpenTelemetry for the factory's workers: traces, metrics and logs, sent over OTLP to the collector, as for the
+ * console. Each worker names itself with OTEL_SERVICE_NAME, or by its command.
  *
- * Load it before the server's modules, so the instrumentation is in place before they import what it patches:
- * `factory gateway` imports it first, and `node --import` does the same. Configured by the standard OTEL_*
+ * Load it before the worker's modules, so the instrumentation is in place before they import what it patches: each
+ * `factory` command that runs a worker imports it first. Configured by the standard OTEL_*
  * environment variables; the endpoint defaults to http://localhost:4318.
  */
 import { register } from 'node:module';
@@ -14,8 +15,8 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 register('@opentelemetry/instrumentation/hook.mjs', import.meta.url);
 
 const sdk = new NodeSDK({
-  serviceName: process.env.OTEL_SERVICE_NAME ?? 'gateway',
-  // Probes hit /health every few seconds; a span for each would bury the calls that matter.
+  serviceName: process.env.OTEL_SERVICE_NAME ?? `factory-${process.argv[2] ?? 'command'}`,
+  // Kubernetes probes /health every few seconds; a span for each would bury the requests that matter.
   instrumentations: [
     new HttpInstrumentation({ ignoreIncomingRequestHook: (req) => req.url === '/health' }),
     new PinoInstrumentation(),

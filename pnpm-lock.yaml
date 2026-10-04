@@ -272,6 +272,9 @@ importers:
       '@software-factory/store':
         specifier: workspace:*
         version: link:../../packages/store
+      '@software-factory/triage':
+        specifier: workspace:*
+        version: link:../../packages/triage
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -312,6 +315,18 @@ importers:
       '@software-factory/events':
         specifier: workspace:*
         version: link:../events
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
+
+  packages/triage:
+    dependencies:
+      '@software-factory/events':
+        specifier: workspace:*
+        version: link:../events
+      '@software-factory/store':
+        specifier: workspace:*
+        version: link:../store
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
