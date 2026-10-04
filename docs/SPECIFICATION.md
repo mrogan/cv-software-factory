@@ -268,7 +268,7 @@ Small judgements about untrusted text use TypeSafe's Jev model rather than a gen
 
 Nothing from the private repo is ever copied into a public repo, a visitor-visible log or an agent's context. The one exception happens once: the private repo publishes the app's first commit, after a check that the tree gives no defect away. From then on the app changes only in its public repo.
 
-The gates the two public repos share (the pull request title check, CodeQL and Scorecard) live in `cv-software-factory` and are called from the app's repo at a pinned commit, and one script applies the same ruleset and security settings to both. An agent that can write to the app's repo cannot loosen them.
+The gates the two public repos share (the pull request title check, CodeQL, Scorecard, and the app's gates: its journeys compared with the base's, test integrity, tests first, dependency review and an image scan) live in `cv-software-factory` and are called from the app's repo at a pinned commit, and one script applies the same rulesets and security settings to both. An agent that can write to the app's repo cannot loosen them.
 
 Public repos must be exemplary:
 
@@ -276,8 +276,8 @@ Public repos must be exemplary:
 - Owned by the `mrogan` GitHub account. MIT `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, issue and PR templates.
 - Formatter, linter and type-checker enforced by pre-commit and CI; `.editorconfig`; a dev container.
 - Conventional Commits; squash-merged PRs linking ticket and evidence; semantic releases with generated changelog; automated dependency updates; committed lockfiles. New dependency releases wait a day before they can be installed, install scripts run only when allowed by name, and a release with weaker provenance than its predecessor is refused.
-- Agent work authored by the factory's GitHub App identity. Agent PRs follow a template: problem, evidence, change, tests, risk, rollout.
-- Supply chain: branch rulesets on `main` (PRs only, required checks, linear and signed history, CODEOWNERS for protected paths); secret scanning and push protection; Actions pinned by SHA with minimal `permissions`; `pull_request` never `pull_request_target` for untrusted code; OIDC for cloud access; OpenSSF Scorecard ≥ 8.
+- Agent work authored by the factory's GitHub App identity, `mrogan-software-factory`, which opens every pull request a machine opens: fixes, deploys and releases. No workflow opens or approves a pull request. Agent PRs follow a template: problem, evidence, change, tests, risk, rollout.
+- Supply chain: branch rulesets on `main` (PRs only, required checks, linear and signed history; a code owner's approval after the last push, which the repository's admin may bypass only to merge a pull request, ADR 0009; CODEOWNERS for protected paths); secret scanning and push protection; Actions pinned by SHA with minimal `permissions`; `pull_request` never `pull_request_target` for untrusted code; OIDC for cloud access; OpenSSF Scorecard ≥ 8.
 - Only true badges: CI, coverage, Scorecard, release. No clutter.
 
 ## 10. Success

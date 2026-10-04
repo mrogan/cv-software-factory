@@ -240,3 +240,13 @@ Spec sections 4.1, 7 and 9; `COMPONENTS.md` (the line, the agents and the App's 
 - **The journeys gate is flaky.** A probe that fails once on the change and passes on the base fails the gate. Each check already needs two failures in a row to signal; in the gate, a check fails only if it fails on the change twice.
 - **Determinism ends replays early.** A test's timings in a tool result change the next request. Runners report test results without timings where the tools allow.
 - **Prompt injection through the repository.** A file in the app can say anything to the coder. The coder holds no credential, reaches only the gateway, and hands back a patch that a deterministic fence and the gates judge.
+
+## Results
+
+### Part A
+
+- **The App cannot change a workflow.** Asked for a signed commit adding a workflow, after a control commit it was allowed, GitHub answered `Resource not accessible by integration` in both repositories (`apps/factory/test/github/workflow-refusals.json`). The control commits were verified, signed by GitHub and authored by `mrogan-software-factory[bot]`.
+- **The app's gates, on a pull request that changes nothing they judge:** test integrity, dependency review and the image scan pass; tests first fails, as it must for a change with no tests. The journeys gate, run locally against a copy of the app whose about page answered 500, failed on that one check and passed over the 23 the base already fails, in 48 seconds.
+- **The gateway on Anthropic and on LM Studio.** A runner's call went to Claude Sonnet 5.5 at medium effort, the policy's choice, though it asked for Opus, and cost $0.0001; the same call on another day, in another session, replayed. On `local`, Qwen answered through the same endpoint, at no cost.
+- **A smoke run, outside the cluster.** The line's code, with each Job run as a container of the `factory-runner` image and the agent's container on a network that reached only the gateway and the handback: the coder on Qwen wrote the failing test, ran it, fixed the off-by-one, ran it again, and handed back a two-file patch in 2.8 minutes and 8 turns. The fence passed it, and the dry-run GitHub worker recorded the commit on the seeded base.
+- **A pod is fenced a moment after it starts.** A pod in `factory` reached LM Studio on the host in its first second, before kube-router had applied its policies; a moment later it could not. The agent pod therefore checks its own fence before it runs the agent.
