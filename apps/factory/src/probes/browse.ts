@@ -3,6 +3,7 @@
  */
 import type { BrowserCheck } from '../senses/browser.ts';
 import { exchange } from '../senses/http.ts';
+import { templater } from '../senses/routes.ts';
 import {
   badStatus,
   CARDS,
@@ -46,11 +47,15 @@ export const homeLinksOpen: BrowserCheck<Shop> = {
     const links = await readLinks(context.page, 'header a[href], nav a[href], main a[href], footer a[href]');
     const unique = new Map<string, string>();
     for (const { path, text } of links) if (!unique.has(path)) unique.set(path, text);
+    const templateOf = templater(unique.keys());
     for (const [path, text] of [...unique].slice(0, 60)) {
       const answer = await exchange(context.app, path);
       const look = [{ selector: `a[href="${path.replaceAll('"', '')}"]`, kind: 'problem' as const }];
+      // A loop is the destination's fault, not the home page's: it is filed under the route that loops, where the
+      // crawler files it too, so the two are one ticket.
       if (answer.failure === 'redirect loop') {
         return fail('redirect-loop', `The link "${text || path}" to ${path} redirects round in a circle.`, {
+          route: templateOf(path),
           evidence: [answer.evidence],
           look,
         });

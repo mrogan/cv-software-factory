@@ -127,6 +127,13 @@ describe.each(CASES)('%s', (check, fault, symptom) => {
   }, 60_000);
 });
 
+describe('a link from the home page that loops', () => {
+  it('is filed under the route that loops, not the home page', async () => {
+    const observations = await observe(['link-loop'], ['home-links-open']);
+    expect(observations.find((o) => o.check === 'home-links-open')?.route).toBe('/loop');
+  }, 60_000);
+});
+
 describe('a shop that writes a price with text against it', () => {
   it('are read for the amount alone', async () => {
     const observations = await observe(
