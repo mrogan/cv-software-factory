@@ -92,7 +92,7 @@ A deliberately bad, funny, small web app that gives the factory real work.
 
 | Stage | Requirements |
 |---|---|
-| **Sense** | Synthetic probes (Playwright journeys against live and canary); a crawler for 404s, broken images, browser console errors and accessibility; OTel metrics against SLOs; OTel logs for new error patterns; user reports. |
+| **Sense** | Synthetic probes (Playwright journeys against live and canary); a crawler for 404s, broken images, browser console errors and accessibility; OTel metrics against SLOs; OTel logs for new error patterns; user reports. Checks are written from the app's public pages by an author who has not read the private repository or the app's source and tests, so a defect they find was found without hints (section 10.2). |
 | **Triage** | Turn signals into deduplicated tickets with evidence (trace IDs, log lines, screenshots, repro steps). A sense's signal takes its category and severity from a human-owned table by its symptom class, and repeats are recognised by fingerprint. A visitor's report is judged with typed Jev judgements (section 7.2): category, symptom, severity, instructions aimed at the system, and which open ticket it repeats; routing is plain code against human-owned thresholds. All signal content is untrusted. A report asking for new behaviour is labelled a suggestion and parked for Martin; one containing instructions aimed at the system is quarantined. |
 | **Plan** | A spec per ticket in a fixed template: outcome, Given/When/Then acceptance criteria, scope (files that may change), risk tags, rollout note. Tickets that cannot become a testable spec are rejected or escalated. |
 | **Build** | Coder agents in disposable sandboxes with no production credentials. Failing test first for every bug. Stay inside scope. Respect concurrency, time and spend limits. |
@@ -225,7 +225,7 @@ Each seam sits behind an interface, so a pivot means a new adapter, not a rewrit
 
 ### 7.1 Recorded model responses
 
-- **record:** calls the model and saves request and response to a cassette, keyed by a hash of model, messages and tools.
+- **record:** calls the model and saves request and response to a cassette, keyed by a hash of the provider, the model and the request.
 - **replay:** answers only from cassettes; no model call, no key needed.
 - Development defaults to replay with fall-through to record on a miss; CI fails on a miss.
 - Cassettes power `make demo` for cloners, tests and cheap development loops.

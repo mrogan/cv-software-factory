@@ -36,3 +36,4 @@ The words we use, so docs, code, UI and commits stay consistent. Standard indust
 | **TypeSafe** | | The company and API that serve Jev. |
 | **Jev** | classifier, LLM | TypeSafe's model for typed judgements: it answers Choice, Score and Noul questions with probabilities and never generates text. |
 | **question set** | prompt | A versioned group of Jev questions, such as `triage/v1`, kept as code. |
+| **cassette** | recording, tape, mock | One model call as the gateway recorded it: the request and the provider's response, in a file named by the SHA-256 of the provider, model and request. Replaying it answers the same request again without calling the model. "Recording" means an event log. |
