@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Proves the network policies in deploy/base/factory: `make egress`.
 #
-# Only the gateway may reach the internet (TypeSafe, over TLS), and only triage may reach the gateway. This starts a
-# pod labelled like a worker, which is what a compromised one would be, and shows that it cannot reach TypeSafe, the
-# gateway, the app or a public address, while the gateway can reach TypeSafe. It runs the factory image the gateway
+# Only the gateway (TypeSafe) and the GitHub worker (GitHub and GHCR) may reach the internet, over TLS, and only triage
+# may reach the gateway. This starts a pod labelled like a worker, which is what a compromised one would be, and shows
+# that it cannot reach TypeSafe, GitHub, the gateway, the GitHub worker, the app or a public address, while the
+# gateway can reach TypeSafe and the GitHub worker can reach GitHub. It runs the factory image the gateway
 # runs, with Node's `fetch`, so nothing else is pulled.
 #
-# The control matters: if the gateway could not reach TypeSafe either, the pod's failure would prove only that the
+# The controls matter: if the gateway could not reach TypeSafe either, the pod's failure would prove only that the
 # network was down.
 set -euo pipefail
 
@@ -64,16 +65,22 @@ expect() {
   fi
 }
 
-echo "A pod labelled like a worker (${pod}), and the gateway:"
+echo "A pod labelled like a worker (${pod}), the gateway and the GitHub worker:"
 expect "the gateway reaches TypeSafe" deployment/gateway https://api.typesafe.ai reached
 expect "the worker cannot reach TypeSafe" "$pod" https://api.typesafe.ai blocked
+expect "the worker cannot reach GitHub" "$pod" https://api.github.com blocked
 expect "the worker cannot reach a public address" "$pod" https://1.1.1.1 blocked
 expect "the worker cannot reach the gateway" "$pod" http://gateway:8080/health blocked
+expect "the worker cannot reach the GitHub worker" "$pod" http://github:8080/health blocked
 expect "the worker cannot reach the app" "$pod" http://website.website blocked
 expect "the worker cannot reach Prometheus" "$pod" http://prometheus-server.telemetry/-/healthy blocked
 expect "the gateway cannot reach the app" deployment/gateway http://website.website blocked
+expect "the GitHub worker reaches GitHub" deployment/github https://api.github.com reached
+expect "the GitHub worker reaches GHCR" deployment/github https://ghcr.io/v2/ reached
+expect "the GitHub worker cannot reach the app" deployment/github http://website.website blocked
+expect "the GitHub worker cannot reach the gateway" deployment/github http://gateway:8080/health blocked
 expect "triage reaches the gateway" deployment/triage http://gateway:8080/health reached
 expect "the intake cannot reach the gateway" deployment/intake http://gateway:8080/health blocked
 
-if [ "$failed" = 0 ]; then echo "Only the gateway leaves the cluster."; else echo "The network policies do not hold."; fi
+if [ "$failed" = 0 ]; then echo "Only the gateway and the GitHub worker leave the cluster."; else echo "The network policies do not hold."; fi
 exit "$failed"

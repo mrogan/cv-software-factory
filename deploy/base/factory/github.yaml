@@ -1,0 +1,96 @@
+# The GitHub worker: the factory's identity in GitHub, and the only pod that holds the App's key. It commits, opens pull
+# requests, reviews, reports check runs and opens issues as the App, for the other workers, and polls GitHub and GHCR.
+# Without the key (`make up` creates the Secret from the Keychain) it reads and writes nothing.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github
+  labels: &labels
+    app.kubernetes.io/name: github
+    app.kubernetes.io/part-of: software-factory
+    app.kubernetes.io/component: worker
+  annotations:
+    # After Postgres (wave 0) and the migrations (wave 1), with the console.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # one at a time: two workers must not open the same pull request
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: github
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: github
+          # Each profile pins the image by digest (kustomize `images:`), so a deploy is always a commit.
+          image: factory
+          args:
+            - --import
+            - ./src/telemetry.ts
+            - src/cli.ts
+            - github
+            - run
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.telemetry:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "github"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=software-factory"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "15000"
+            # Not a secret: GitHub accepts it as the issuer of the App's tokens, which only the key can sign.
+            - name: GITHUB_APP_CLIENT_ID
+              value: Iv23liE1Dj3iYkwWX59z
+            - name: GITHUB_APP_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: github-app
+                  key: private-key
+                  optional: true
+            # true for the unattended passes: each action goes to the artifact store, and nothing to GitHub.
+            - name: GITHUB_DRY_RUN
+              value: "false"
+            - name: ARTIFACTS_DIR
+              value: /var/lib/factory/artifacts
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: artifacts
+              mountPath: /var/lib/factory/artifacts
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: artifacts

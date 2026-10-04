@@ -1,8 +1,9 @@
 # The cluster's first NetworkPolicies. Everything in `factory` is denied, in and out, and each pod is then allowed what
 # it needs and nothing more. The workers are the pods labelled `app.kubernetes.io/component: worker`.
 #
-# The rule that matters most: the gateway alone may reach the internet, so no other pod can send a report's text, or
-# anything else, out of the cluster, and only the gateway's pod has the TypeSafe key. `make egress` proves it.
+# The rule that matters most: only the gateway and the GitHub worker may reach the internet, each holding the one key
+# it needs (TypeSafe's; the factory's GitHub App's), so no other pod can send a report's text, or anything else, out of
+# the cluster. `make egress` proves it.
 # k3s enforces these itself (its embedded network policy controller), so they hold on the local cluster.
 #
 # Policies add: a pod may do whatever any policy that selects it allows. Policies on telemetry and website are not
@@ -170,6 +171,29 @@ spec:
               app.kubernetes.io/name: triage
       ports:
         - { protocol: TCP, port: 8080 }
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+# The GitHub worker reaches GitHub and GHCR, over TLS, and nothing else outside the cluster. Their addresses are many
+# and change, so, as for the gateway, the rule is the internet on 443 with the cluster's and the local network's
+# addresses excepted. Nothing calls it yet; the line will.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: github
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: github
+  policyTypes: [Ingress, Egress]
+  ingress: []
   egress:
     - to:
         - ipBlock:

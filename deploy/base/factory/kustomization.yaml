@@ -1,4 +1,4 @@
-# The factory's workers: the gateway, triage, the intake and the log watcher (the `factory` image), and the probes and
+# The factory's workers: the gateway, the GitHub worker, triage, the intake and the log watcher (the `factory` image), and the probes and
 # crawler (the `factory-browser` image). One replica each. They write to the artifacts volume the console reads, and to
 # the event store as the factory's writer. The network policies, the cluster's first, fence them in.
 #
@@ -12,6 +12,7 @@ resources:
   - cassettes.yaml
   - services.yaml
   - gateway.yaml
+  - github.yaml
   - triage.yaml
   - intake.yaml
   - logs.yaml
