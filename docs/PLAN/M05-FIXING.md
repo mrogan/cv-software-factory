@@ -168,6 +168,8 @@ In `apps/factory/src/line`, run by `factory line`:
 - For each stage, a runner, its handback, and the events: `spec.written`, `pull-request.pushed`, `gates.started` and `gate.finished` from the check runs the GitHub worker reads, `review.submitted`, `work.returned` for each round, `model.called` for each step, and `hold.started` when the work item waits for Martin's merge, or for anything else that routes to him. `pull-request.merged` when he merges.
 - When the line stops, it deletes running jobs and takes nothing new, and the gateway refuses agent calls. Starting again resumes from the last event.
 - When a work item ends, merged or closed, the line deletes its volume (`Runners.finish`).
+- A step tried again starts clean. `Runners.run` treats a 409 on create as "made already", so a retry under a name whose Job is still being deleted would read the old Job's status: each attempt gets a name of its own, or the line waits for the delete to finish.
+- The GitHub worker refuses to move or delete a branch the factory does not own. Today `setBranch` will force-move, and `deleteBranch` delete, any branch it is given, and only the rulesets keep `main` safe. It refuses as it already refuses a protected path.
 - The ticket's issue when it enters Plan.
 
 ### 10. The planner
@@ -202,6 +204,7 @@ In `apps/factory/src/line`, run by `factory line`:
 
 ### 15. Cost, and the soak
 
+- The readers of the version 2 events: the console's projections and the Grafana spend panel read `model.called` (one event per step), `spend.capped` and `spend.cleared` as Part A changed them, and a test holds each reader to the new shapes. Nothing tests that yet.
 - Every agent step's tokens, cache reads and cost, per agent and per fix, from the work items this part runs, in this file's results, with a proposed per-work-item cap for every profile in `policy/spend.ts`.
 - An overnight soak on the local model, with the GitHub worker in dry-run: the line takes ticket after ticket, and in the morning no lease is stuck, no job is left behind, every event is valid, and the spend is nothing.
 
@@ -253,3 +256,43 @@ All on 4 October 2026.
 - **The gateway on Anthropic and on LM Studio.** A runner's call went to Claude Sonnet 5.5 at medium effort, the policy's choice, though it asked for Opus, and cost $0.0001; the same call on another day, in another session, replayed. On `local`, Qwen answered through the same endpoint, at no cost.
 - **A smoke run, outside the cluster.** The line's code, with each Job run as a container of the `factory-runner` image and the agent's container on a network that reached only the gateway and the handback: the coder on Qwen wrote the failing test, ran it, fixed the off-by-one, ran it again, and handed back a two-file patch in 2.8 minutes and 8 turns. The fence passed it, and the dry-run GitHub worker recorded the commit on the seeded base. The containers were set up by hand, for this run only. The same run in the cluster, through the line's `/v1/smoke`, is still to do: it waits for the line's deploy and a pinned runner image.
 - **A pod is fenced a moment after it starts.** A pod in `factory` reached LM Studio on the host in its first second, before kube-router had applied its policies; a moment later it could not. The agent pod therefore checks its own fence before it runs the agent.
+
+## Retrospective
+
+### Part A
+
+Written once Part A's pull requests (#62 to #73, and the app's #9 to #11) had been reviewed and their checks passed, and before they merged. Its criteria above wait on the merges and on the runs listed under "Still to run". What Part A taught, and where each lesson now lives.
+
+**Decided**
+
+- Two rulesets on `main`: review, which the admin may bypass to merge, and everything else, which nobody bypasses. ADR 0009. `scripts/github-settings.ts --check` says where the live rulesets differ from it.
+- A runner hands back a patch, which the GitHub worker applies outside the sandbox: ADR 0008. The worker checks every patch itself, not only the line: a path outside the repository, a mode other than a plain file's, and `.github/`, `deploy/` or a code-owned path are refused, whatever the line sent. `COMPONENTS.md`.
+- The gateway lets through only what the Agent SDK sends, and refuses server tools, which would be a way past the fence: `COMPONENTS.md`.
+- An agent pod has no DNS. The line looks up the two addresses it needs and writes them into the pod's hosts: `COMPONENTS.md`.
+
+**Learned about GitHub**
+
+- GitHub accepts the App's Client ID as a token's issuer, so the worker never needs the numeric App ID: `github/app.ts`.
+- The App's token cannot write a workflow, even with contents write. The results above, and `workflow-refusals.json` for milestone 9's red team.
+
+**Learned about the cluster**
+
+- A pod is unfenced for about a second after it starts, so the agent pod checks its own fence before it runs the agent: the results above, and `apps/runner/src/agent.ts`.
+- A NetworkPolicy sees a connection after a Service has translated it. So the line needs only port 6443 on the node to reach the API server through `kubernetes:443`: the policy's comment.
+- The work volume outlives each step, so anything on it may be the agent's. The prepare pod checks out afresh each time, with a home, a store and settings of its own, and runs no lifecycle script or pnpmfile. pnpm is in the image, read-only, and runs once at build, because pnpm 12 fetches its native binary on first use. `runners/jobs.ts`, `apps/runner/src/prepare.ts` and the runner's Dockerfile.
+
+**Learned about building it**
+
+- Each pull request had one reviewer, then a review across the whole stack lined up the findings that span pull requests. That found four major problems in the runners and one in the gateway. In each, a side with privileges trusted what the sandbox handed it. Every finding was answered on its pull request.
+- In a stack of squash-merged pull requests, every fix low in the stack means rebasing everything above it. Whether Part B tries GitHub's stacked pull requests is still open.
+- No test runs the real Agent SDK against the gateway's allow-lists: the [backlog](BACKLOG.md).
+
+**Still to run**
+
+- The merges in order, with the runner image's digest pinned in #72 from the commit that built the factory's images.
+- `scripts/github-settings.ts` on both repositories once no workflow opens a pull request, then Scorecard, with its Branch-Protection score in the results.
+- The smoke run in the cluster through `/v1/smoke`, on Qwen, and `make egress`.
+- The workspace's limit set below its spend once, and LM Studio stopped once, to see agent calls wait, the console say why, and the calls resume.
+- A pull request to the app that breaks a journey, deletes a test or adds a vulnerable dependency, and one that only fixes a seeded defect.
+
+**Left open:** see the [backlog](BACKLOG.md), and the Part B tasks that gained items from review (9 and 15).
