@@ -2,7 +2,7 @@
   "name": "@software-factory/factory",
   "version": "0.0.0",
   "private": true,
-  "description": "The factory's command line, the model gateway, and the probes' first part: capturing a page of the app as evidence.",
+  "description": "The factory's command line and workers: the model gateway, triage's entry point, and the senses that look at the app from outside, the probes and the runner the crawler shares.",
   "type": "module",
   "bin": {
     "factory": "src/cli.ts"
@@ -11,7 +11,9 @@
     "./capture": "./src/capture.ts",
     "./events": "./src/events.ts",
     "./gateway": "./src/gateway/gateway.ts",
-    "./gateway/client": "./src/gateway/client.ts"
+    "./gateway/client": "./src/gateway/client.ts",
+    "./probes": "./src/probes/index.ts",
+    "./senses": "./src/senses/runner.ts"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
