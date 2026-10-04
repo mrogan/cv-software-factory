@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { newIn } from '../../src/gates/image-scan.ts';
 import { compare } from '../../src/gates/integrity.ts';
 import { compareJourneys, type Seen, summary } from '../../src/gates/journeys.ts';
@@ -286,6 +286,8 @@ describe('the gates’ scripts, end to end', () => {
     const output: string[] = [];
     const log = console.log;
     console.log = (line: string) => void output.push(line);
+    // In Actions the summary goes to the job's page instead.
+    vi.stubEnv('GITHUB_STEP_SUMMARY', '');
     try {
       expect(await main([base, kept])).toBe(0);
       expect(output.join('\n')).toContain('"later" was added, but is skipped');
@@ -293,6 +295,7 @@ describe('the gates’ scripts, end to end', () => {
       expect(output.join('\n')).toContain('"b > x" was deleted');
     } finally {
       console.log = log;
+      vi.unstubAllEnvs();
     }
   });
 
