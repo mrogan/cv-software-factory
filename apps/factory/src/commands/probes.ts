@@ -19,9 +19,10 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DiskArtifacts, sendSignal } from '@software-factory/store';
+import { DiskArtifacts } from '@software-factory/store';
 import postgres from 'postgres';
 import { log } from '../log.ts';
+import { inbox } from '../outbox.ts';
 import { probes } from '../probes/index.ts';
 import { readerServer } from '../probes/reader.ts';
 import { versionOf } from '../senses/http.ts';
@@ -87,7 +88,7 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
     sense,
     log,
     version: () => versionOf(app),
-    send: async (signal) => void (await sendSignal(sql, signal)),
+    send: inbox(sql).send,
     every: seconds('PROBE_INTERVAL', 300),
   });
   const reader = readerServer({ app, sense, store, version: () => versionOf(app), log });

@@ -57,6 +57,7 @@ check: ## Lint, type-check, test, build the browser code, check generated files 
 	pnpm exec vitest run --project unit --project database
 	node docs/design/system/build.ts --check
 	node packages/samples/src/export.ts --check
+	node apps/factory/src/alerts/rules.ts --check
 	pnpm --filter @software-factory/console build --logLevel warn
 	node apps/console/scripts/budget.ts
 	@# Argo CD renders each profile's overlay from main, so one that doesn't render must not get there.

@@ -8,7 +8,9 @@
 import * as crawler from './commands/crawler.ts';
 import * as events from './commands/events.ts';
 import * as gateway from './commands/gateway.ts';
+import * as intake from './commands/intake.ts';
 import * as line from './commands/line.ts';
+import * as logs from './commands/logs.ts';
 import * as probes from './commands/probes.ts';
 import * as triage from './commands/triage.ts';
 
@@ -17,7 +19,7 @@ interface Group {
   run(args: string[]): Promise<number>;
 }
 
-const GROUPS: Record<string, Group> = { crawler, events, gateway, line, probes, triage };
+const GROUPS: Record<string, Group> = { crawler, events, gateway, intake, line, logs, probes, triage };
 
 const [name, ...args] = process.argv.slice(2);
 const group = name ? GROUPS[name] : undefined;

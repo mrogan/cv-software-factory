@@ -1,0 +1,139 @@
+{
+  "uid": "factory",
+  "title": "Factory",
+  "description": "The inbox, the senses, triage and the gateway: what is waiting, what arrives, how long it takes and what it costs.",
+  "tags": ["software-factory"],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Signals waiting",
+      "description": "Signals in the inbox that triage has not yet taken. Metric factory_inbox_waiting (gauge), set by triage.",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(factory_inbox_waiting{state=\"waiting\"})" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Signals in the period",
+      "description": "Signals the senses have left in the inbox over the time shown. Metric factory_signals_total{sense} (counter), from the intake and the log watcher.",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(increase(factory_signals_total[$__range]))" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Signal to ticket, median",
+      "description": "Time from a signal reaching the inbox to triage making it a ticket. Metric factory_triage_signal_to_ticket_seconds (histogram), observed by triage.",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(factory_triage_signal_to_ticket_seconds_bucket[$__range])))"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 1 }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Gateway spend in the period",
+      "description": "What the gateway has spent on models over the time shown, in US dollars. Metric factory_gateway_spend_usd_total (counter), counted by the gateway.",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(increase(factory_gateway_spend_usd_total[$__range])) or vector(0)" }],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 3 }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Inbox depth",
+      "description": "Signals waiting for triage over time, and those left in the inbox after their last attempt. Metric factory_inbox_waiting (gauge, by state), set by triage. A waiting line that climbs and stays up means triage has stopped taking signals.",
+      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(factory_inbox_waiting{state=\"waiting\"})", "legendFormat": "waiting" },
+        { "refId": "B", "expr": "sum(factory_inbox_waiting{state=\"failed\"})", "legendFormat": "out of attempts" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Signals by sense",
+      "description": "Signals left in the inbox each minute, by the sense that found them: probe, crawler, metrics, logs or report. Metric factory_signals_total{sense} (counter).",
+      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (sense) (rate(factory_signals_total[$__rate_interval])) * 60",
+          "legendFormat": "{{sense}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" } } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "From signal to ticket",
+      "description": "Time from a signal reaching the inbox to triage making it a ticket. Metric factory_triage_signal_to_ticket_seconds (histogram).",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(factory_triage_signal_to_ticket_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "median"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(factory_triage_signal_to_ticket_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "95th percentile"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Gateway spend",
+      "description": "What the gateway has spent on models, in US dollars, summed over the time shown. Metric factory_gateway_spend_usd_total (counter).",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(factory_gateway_spend_usd_total[$__rate_interval])) or vector(0)",
+          "legendFormat": "spend"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "decimals": 4, "custom": { "drawStyle": "bars" } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "logs",
+      "title": "The factory's logs",
+      "description": "What the intake and the log watcher say about themselves. They never log what a visitor wrote.",
+      "gridPos": { "x": 0, "y": 21, "w": 24, "h": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{ "refId": "A", "expr": "{service_name=\"factory\"}" }],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    }
+  ]
+}

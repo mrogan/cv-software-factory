@@ -11,9 +11,9 @@ export const calls = meter.createCounter('gateway.calls', {
   description: 'Calls to the gateway, by agent, provider, model and outcome (answered, replayed, refused, failed)',
 });
 
-export const spend = meter.createCounter('gateway.spend', {
-  description: 'Model spend counted by the gateway',
-  unit: 'USD',
+// Named with its unit, as the factory's dashboard reads it: `factory_gateway_spend_usd_total`.
+export const spend = meter.createCounter('factory_gateway_spend_usd', {
+  description: 'Model spend counted by the gateway, in US dollars',
 });
 
 export const latency = meter.createHistogram('gateway.call.duration', {
