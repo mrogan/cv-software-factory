@@ -37,6 +37,8 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}/console
   FACTORY_IMAGE: ghcr.io/${{ github.repository }}/factory
   BROWSER_IMAGE: ghcr.io/${{ github.repository }}/factory-browser
+  # Marks a deploy pull request apart from the release pull request and Martin's own. scripts/github-settings.ts makes it.
+  DEPLOY_LABEL: 'deploy: local'
 
 jobs:
   # Which images to build: each one whose inputs changed since the commit its last deploy pull request pinned. Not
@@ -171,9 +173,9 @@ jobs:
 
           Opened by the [build workflow]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). A newer build replaces this pull request's change."
           if gh pr view "$BRANCH" --json state --jq .state | grep -q OPEN; then
-            gh pr edit "$BRANCH" --title "$title" --body "$body"
+            gh pr edit "$BRANCH" --title "$title" --body "$body" --add-label "$DEPLOY_LABEL"
           else
-            gh pr create --head "$BRANCH" --title "$title" --body "$body"
+            gh pr create --head "$BRANCH" --title "$title" --body "$body" --label "$DEPLOY_LABEL"
           fi
 
   factory-images:
@@ -288,7 +290,7 @@ jobs:
 
           Opened by the [build workflow]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). A newer build replaces this pull request's change."
           if gh pr view "$BRANCH" --json state --jq .state | grep -q OPEN; then
-            gh pr edit "$BRANCH" --title "$title" --body "$body"
+            gh pr edit "$BRANCH" --title "$title" --body "$body" --add-label "$DEPLOY_LABEL"
           else
-            gh pr create --head "$BRANCH" --title "$title" --body "$body"
+            gh pr create --head "$BRANCH" --title "$title" --body "$body" --label "$DEPLOY_LABEL"
           fi

@@ -14,6 +14,7 @@ Git stays the whole truth about what is running, and a deployment is reviewable,
 - A pin lives beside the build that moves it, so a workflow's own token is enough to propose a deployment and no credential crosses repositories. Argo CD watches both repositories.
 - The pin lives in a file of its own (a Kustomize component), so the deploy diff is one line.
 - `main` accepts only signed commits, so the pin is committed through GitHub's API, which signs it.
+- Each deploy pull request is labelled with its profile (`deploy: local`), so it is told apart from the release pull request and from Martin's own. `scripts/github-settings.ts` makes the label.
 - Until the factory has its GitHub App (milestone 5), the pull request is opened by a workflow, and GitHub holds its checks until Martin approves the runs. Checks dispatched on the branch do not count towards the ruleset.
 - Merging the deploy pull request must not build again, so the build watches only what goes into the image.
 - A deploy pull request builds no image in its checks. Instead they confirm each digest it pins is in GHCR and labelled with a commit on `main`, so a digest from a branch's build, or a typo, cannot merge. They skip the browser tests, which nothing in a pin can change. Only a pull request a workflow opened, changing only the pin files, is treated so; anything else runs every check.
