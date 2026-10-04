@@ -1,232 +1,272 @@
+/**
+ * The deploy and release watches, through the watch itself: a fake GitHub and GHCR, and what the watch does to them.
+ */
 import { describe, expect, it } from 'vitest';
-import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
-import { DEPLOYS, deployBody, deployTitle, deployWatch, pinned, repin } from '../../src/github/deploys.ts';
+import { type Actions, DryRunActions, LiveActions } from '../../src/github/actions.ts';
+import { DEPLOYS, type DeployTarget, deployWatch } from '../../src/github/deploys.ts';
 import type { Registry } from '../../src/github/registry.ts';
 import { releaseWatch } from '../../src/github/releases.ts';
-import { calls, client, quiet, type Route } from './fake.ts';
+import { calls, client, quiet, type Route, type Sent } from './fake.ts';
 
-const [CONSOLE, FACTORY] = DEPLOYS as [(typeof DEPLOYS)[0], (typeof DEPLOYS)[0]];
-const REPO = 'mrogan/cv-software-factory';
+const [CONSOLE, FACTORY, APP] = DEPLOYS as [DeployTarget, DeployTarget, DeployTarget];
 const digest = (c: string) => `sha256:${c.repeat(64)}`;
 const commit = (c: string) => c.repeat(40);
+const HEAD = commit('d');
 
-const PIN = `apiVersion: kustomize.config.k8s.io/v1alpha1
+/** A pin file as `kustomize edit` writes one. */
+const pinFile = (
+  images: [name: string, digest: string, image: string][],
+) => `apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
-resources:
-- ../../../base/factory
 images:
-- digest: ${digest('1')}
-  name: factory
-  newName: ghcr.io/mrogan/cv-software-factory/factory
-- digest: ${digest('2')}
-  name: factory-browser
-  newName: ghcr.io/mrogan/cv-software-factory/factory-browser
+${images.map(([name, d, image]) => `- digest: ${d}\n  name: ${name}\n  newName: ghcr.io/${image}`).join('\n')}
 `;
+const FACTORY_PIN = pinFile([
+  ['factory', digest('1'), 'mrogan/cv-software-factory/factory'],
+  ['factory-browser', digest('2'), 'mrogan/cv-software-factory/factory-browser'],
+]);
 
-describe('a pin file', () => {
-  it('is read by image name, and moved digest by digest with its layout kept', () => {
-    expect(pinned(PIN)).toEqual(
-      new Map([
-        ['factory', digest('1')],
-        ['factory-browser', digest('2')],
-      ]),
-    );
-    const next = repin(PIN, {
-      commit: commit('c'),
-      digests: [
-        { name: 'factory', image: 'x', digest: digest('3') },
-        { name: 'factory-browser', image: 'y', digest: digest('4') },
-      ],
-    });
-    expect(next).toBe(PIN.replace(digest('1'), digest('3')).replace(digest('2'), digest('4')));
-  });
+interface Pull {
+  number: number;
+  title: string;
+  state: 'open' | 'closed';
+  merged_at: string | null;
+  labels: { name: string }[];
+}
 
-  it('gives the title the build workflow reads back, and a body that names each image', () => {
-    expect(deployTitle(CONSOLE, commit('a'))).toBe('chore(deploy): run console aaaaaaa on the local cluster');
-    expect(deployTitle(DEPLOYS[2] as (typeof DEPLOYS)[0], commit('a'))).toBe(
-      'chore(deploy): run aaaaaaa on the local cluster',
-    );
-    expect(
-      deployBody(FACTORY, {
-        commit: commit('c'),
-        digests: [
-          { name: 'factory', image: 'mrogan/cv-software-factory/factory', digest: digest('3') },
-          { name: 'factory-browser', image: 'mrogan/cv-software-factory/factory-browser', digest: digest('4') },
-        ],
-      }),
-    ).toMatch(
-      /^Pins `factory` \(ghcr\.io\/mrogan\/cv-software-factory\/factory@sha256:3{64}\) and `factory-browser` .*, built from c{40}, in `deploy\/overlays\/local`\. Argo CD deploys them/,
-    );
-  });
-});
-
-/** GitHub with main at commits d (newest), c, b, a, the pin file, and the deploy branch's open pull requests. */
-function world(options: { pin?: string; open?: { number: number; title: string }[] } = {}) {
+/** GitHub with main at d, then c, b, a; a pin file at d; and the deploy branch's pull requests. */
+function github(target: DeployTarget, options: { pin?: string; pulls?: Pull[]; failCommit?: boolean } = {}) {
+  const { repo } = target;
+  const sent: Sent[] = [];
+  let failCommit = options.failCommit ?? false;
   const routes: Route[] = [
+    { method: 'GET', path: `/repos/${repo}/git/ref/heads/main`, answer: () => ({ body: { object: { sha: HEAD } } }) },
     {
       method: 'GET',
-      path: `/repos/${REPO}/contents/${FACTORY.file}?ref=main`,
-      answer: () => ({ body: { content: Buffer.from(options.pin ?? PIN).toString('base64') } }),
+      path: `/repos/${repo}/contents/${target.file}?ref=${HEAD}`,
+      answer: () => ({ body: { content: Buffer.from(options.pin ?? FACTORY_PIN).toString('base64') } }),
     },
     {
       method: 'GET',
-      path: `/repos/${REPO}/commits?sha=main&per_page=100`,
+      path: `/repos/${repo}/commits?sha=${HEAD}&per_page=100`,
       answer: () => ({ body: ['d', 'c', 'b', 'a'].map((c) => ({ sha: commit(c) })) }),
     },
-    {
-      method: 'GET',
-      path: `/repos/${REPO}/pulls?state=open&head=mrogan:deploy%2Ffactory-local`,
-      answer: () => ({ body: options.open ?? [] }),
-    },
-    {
-      method: 'GET',
-      path: `/repos/${REPO}/git/ref/heads/main`,
-      answer: () => ({ body: { object: { sha: commit('d') } } }),
-    },
-    { method: 'PATCH', path: `/repos/${REPO}/git/refs/heads/deploy/factory-local`, answer: () => ({ body: {} }) },
+    { method: 'GET', path: /\/pulls\?state=all/, answer: () => ({ body: options.pulls ?? [] }) },
+    { method: 'GET', path: /\/git\/ref\/heads\/deploy\//, answer: () => ({ body: {} }) },
+    { method: 'PATCH', path: /\/git\/refs\/heads\/deploy\//, answer: () => ({ body: {} }) },
     {
       method: 'POST',
       path: '/graphql',
-      answer: () => ({ body: { data: { createCommitOnBranch: { commit: { oid: commit('e') } } } } }),
+      answer: () =>
+        failCommit ? { status: 502 } : { body: { data: { createCommitOnBranch: { commit: { oid: commit('e') } } } } },
     },
     {
       method: 'POST',
-      path: `/repos/${REPO}/pulls`,
+      path: `/repos/${repo}/pulls`,
       answer: () => ({ status: 201, body: { number: 70, html_url: 'u', node_id: 'n' } }),
     },
-    { method: 'POST', path: `/repos/${REPO}/issues/70/labels`, answer: () => ({ body: [] }) },
-    { method: 'PATCH', path: `/repos/${REPO}/pulls/69`, answer: () => ({ body: {} }) },
+    { method: 'POST', path: /\/issues\/\d+\/labels$/, answer: () => ({ body: [] }) },
+    { method: 'PATCH', path: /\/pulls\/\d+$/, answer: () => ({ body: {} }) },
   ];
-  return client(routes);
+  return { ...client(routes, sent), recover: () => (failCommit = false) };
 }
 
-/**
- * GHCR, where the factory image was built from c and b and the browser image only from b: c's set is not finished.
- * The pin's digests were built from a.
- */
-function ghcr(tags: Record<string, string[]> = {}): Registry {
-  const all: Record<string, string[]> = {
-    'mrogan/cv-software-factory/factory': [commit('a'), commit('b'), commit('c')],
-    'mrogan/cv-software-factory/factory-browser': [commit('a'), commit('b')],
-    ...tags,
+/** GHCR: the factory built from c and b, its browser image not yet from c, and every pin built from a. */
+function ghcr(revision = commit('a')): Registry {
+  const built: Record<string, string[]> = {
+    'mrogan/cv-software-factory/factory': ['a', 'b', 'c'].map(commit),
+    'mrogan/cv-software-factory/factory-browser': ['a', 'b'].map(commit),
+    'mrogan/cv-software-factory/factory-runner': ['a', 'b', 'c'].map(commit),
+    'mrogan/cv-software-factory/console': ['a', 'c'].map(commit),
+    'mrogan/cv-worlds-worst-website': ['a', 'b'].map(commit),
   };
   return {
-    tags: async (image: string) => all[image] ?? [],
-    digest: async (image: string) => digest(image.endsWith('browser') ? '8' : '7'),
-    revision: async (_image: string, ref: string) => (ref === digest('1') ? commit('a') : undefined),
+    tags: async (image: string) => built[image] ?? [],
+    digest: async (image: string) => digest(image.endsWith('browser') ? '8' : image.endsWith('runner') ? '6' : '7'),
+    revision: async () => revision,
   } as unknown as Registry;
 }
 
+const writes = (sent: Sent[]) => calls(sent).filter((s) => s.method !== 'GET');
+
+interface CommitInput {
+  expectedHeadOid: string;
+  message: { headline: string };
+  fileChanges: { additions: { contents: string }[] };
+}
+
+const committed = (sent: Sent[]) => {
+  const graphql = writes(sent).find((s) => s.path === '/graphql') as { body: { variables: { input: CommitInput } } };
+  const input = graphql.body.variables.input;
+  return { ...input, file: Buffer.from(input.fileChanges.additions[0]?.contents ?? '', 'base64').toString() };
+};
+
+const watch = (gh: ReturnType<typeof github>, target: DeployTarget, registry = ghcr(), actions?: Actions) =>
+  deployWatch({ github: gh.github, registry, actions: actions ?? new LiveActions(gh.github), log: quiet }, target);
+
 describe('the deploy watch', () => {
-  it('proposes the newest commit every image was built from, opening a labelled pull request', async () => {
-    const { github, sent } = world();
-    await deployWatch({ github, registry: ghcr(), actions: new LiveActions(github), log: quiet }, FACTORY)();
-    const writes = calls(sent).filter((s) => s.method !== 'GET');
-    expect(writes.map((s) => `${s.method} ${s.path}`)).toEqual([
-      `PATCH /repos/${REPO}/git/refs/heads/deploy/factory-local`,
+  it('proposes the newest commit every pinned image was built from, at the head it read, labelled', async () => {
+    const gh = github(FACTORY);
+    await watch(gh, FACTORY)();
+    expect(writes(gh.sent).map((s) => `${s.method} ${s.path}`)).toEqual([
+      `PATCH /repos/${FACTORY.repo}/git/refs/heads/deploy/factory-local`,
       'POST /graphql',
-      `POST /repos/${REPO}/pulls`,
-      `POST /repos/${REPO}/issues/70/labels`,
+      `POST /repos/${FACTORY.repo}/pulls`,
+      `POST /repos/${FACTORY.repo}/issues/70/labels`,
     ]);
-    expect(writes[0]?.body).toEqual({ sha: commit('d'), force: true });
-    const { input } = (writes[1] as { body: { variables: unknown } }).body.variables as {
-      input: {
-        expectedHeadOid: string;
-        message: { headline: string };
-        fileChanges: { additions: { path: string; contents: string }[] };
-      };
-    };
-    expect(input.expectedHeadOid).toBe(commit('d'));
-    expect(input.message.headline).toBe(`chore(deploy): run the factory bbbbbbb on the local cluster`);
-    const file = Buffer.from(input.fileChanges.additions[0]?.contents ?? '', 'base64').toString();
-    expect(pinned(file)).toEqual(
-      new Map([
-        ['factory', digest('7')],
-        ['factory-browser', digest('8')],
-      ]),
-    );
-    expect(writes[2]?.body).toMatchObject({
+    // The branch, the commit and the pin file all come from the one head of main.
+    expect(writes(gh.sent)[0]?.body).toEqual({ sha: HEAD, force: true });
+    const { expectedHeadOid, message, file } = committed(gh.sent);
+    expect(expectedHeadOid).toBe(HEAD);
+    expect(message.headline).toBe('chore(deploy): run the factory bbbbbbb on the local cluster');
+    // Only the digests change, as text.
+    expect(file).toBe(FACTORY_PIN.replace(digest('1'), digest('7')).replace(digest('2'), digest('8')));
+    expect(writes(gh.sent)[2]?.body).toMatchObject({
       head: 'deploy/factory-local',
       base: 'main',
-      title: input.message.headline,
+      title: message.headline,
     });
-    expect(writes[3]?.body).toEqual({ labels: ['deploy: local'] });
+    expect((writes(gh.sent)[2] as { body: { body: string } }).body.body).toMatch(
+      /^Pins `factory` \(ghcr\.io\/mrogan\/cv-software-factory\/factory@sha256:7{64}\) and `factory-browser` .* built from b{40}/,
+    );
+    expect(writes(gh.sent)[3]?.body).toEqual({ labels: ['deploy: local'] });
   });
 
-  it('moves an open pull request for an older build to the newer one, and leaves one already current', async () => {
-    const older = world({
-      open: [{ number: 69, title: 'chore(deploy): run the factory aaaaaaa on the local cluster' }],
-    });
-    await deployWatch(
-      { github: older.github, registry: ghcr(), actions: new LiveActions(older.github), log: quiet },
-      FACTORY,
-    )();
-    expect(
-      calls(older.sent)
-        .filter((s) => s.method !== 'GET')
-        .map((s) => `${s.method} ${s.path}`),
-    ).toEqual([
-      `PATCH /repos/${REPO}/git/refs/heads/deploy/factory-local`,
-      'POST /graphql',
-      `PATCH /repos/${REPO}/pulls/69`,
-    ]);
+  it('names the console and the app as their titles say', async () => {
+    const console = github(CONSOLE, { pin: pinFile([['console', digest('1'), 'mrogan/cv-software-factory/console']]) });
+    await watch(console, CONSOLE)();
+    expect(committed(console.sent).message.headline).toBe('chore(deploy): run console ccccccc on the local cluster');
+    const app = github(APP, { pin: pinFile([['website', digest('1'), 'mrogan/cv-worlds-worst-website']]) });
+    await watch(app, APP)();
+    expect(committed(app.sent).message.headline).toBe('chore(deploy): run bbbbbbb on the local cluster');
+  });
 
-    const current = world({
-      open: [{ number: 69, title: 'chore(deploy): run the factory bbbbbbb on the local cluster' }],
+  it('leaves out an image the pin file does not pin yet: the change that brings it in pins it', async () => {
+    const target = {
+      ...FACTORY,
+      images: [...FACTORY.images, { name: 'later', image: 'mrogan/cv-software-factory/later' }],
+    };
+    const gh = github(target);
+    await watch(gh, target)();
+    expect(committed(gh.sent).message.headline).toBe('chore(deploy): run the factory bbbbbbb on the local cluster');
+  });
+
+  it('moves an open pull request for an older build, with its new title and body', async () => {
+    const older = 'chore(deploy): run the factory aaaaaaa on the local cluster';
+    const label = [{ name: 'deploy: local' }];
+    const gh = github(FACTORY, {
+      pulls: [{ number: 69, title: older, state: 'open', merged_at: null, labels: label }],
     });
-    await deployWatch(
-      { github: current.github, registry: ghcr(), actions: new LiveActions(current.github), log: quiet },
-      FACTORY,
-    )();
-    expect(calls(current.sent).filter((s) => s.method !== 'GET')).toEqual([]);
+    await watch(gh, FACTORY)();
+    const update = writes(gh.sent).at(-1);
+    expect(update?.path).toBe(`/repos/${FACTORY.repo}/pulls/69`);
+    expect(update?.body).toMatchObject({
+      title: 'chore(deploy): run the factory bbbbbbb on the local cluster',
+      body: expect.stringContaining(`built from ${commit('b')}`),
+    });
+  });
+
+  it('leaves one already current, adding its label if an earlier pass did not get that far', async () => {
+    const title = 'chore(deploy): run the factory bbbbbbb on the local cluster';
+    const gh = github(FACTORY, { pulls: [{ number: 69, title, state: 'open', merged_at: null, labels: [] }] });
+    await watch(gh, FACTORY)();
+    expect(writes(gh.sent).map((s) => [s.path, s.body])).toEqual([
+      [`/repos/${FACTORY.repo}/issues/69/labels`, { labels: ['deploy: local'] }],
+    ]);
+  });
+
+  it('does not propose again a build whose pull request was closed without merging', async () => {
+    const title = 'chore(deploy): run the factory bbbbbbb on the local cluster';
+    const gh = github(FACTORY, { pulls: [{ number: 68, title, state: 'closed', merged_at: null, labels: [] }] });
+    await watch(gh, FACTORY)();
+    expect(writes(gh.sent)).toEqual([]);
   });
 
   it('proposes nothing when the pin is the newest full build, or newer than any', async () => {
-    const registry = ghcr();
-    (registry as { revision: Registry['revision'] }).revision = async () => commit('b');
-    const atB = world();
-    await deployWatch({ github: atB.github, registry, actions: new LiveActions(atB.github), log: quiet }, FACTORY)();
-    (registry as { revision: Registry['revision'] }).revision = async () => commit('d');
-    await deployWatch({ github: atB.github, registry, actions: new LiveActions(atB.github), log: quiet }, FACTORY)();
-    expect(calls(atB.sent).filter((s) => s.method !== 'GET' || s.path.includes('/pulls'))).toEqual([]);
+    for (const revision of [commit('b'), commit('d')]) {
+      const gh = github(FACTORY);
+      await watch(gh, FACTORY, ghcr(revision))();
+      expect(writes(gh.sent)).toEqual([]);
+    }
+  });
+
+  it('carries on after a failure partway: the next pass moves the branch again and opens the pull request', async () => {
+    const gh = github(FACTORY, { failCommit: true });
+    const pass = watch(gh, FACTORY);
+    await expect(pass()).rejects.toMatchObject({ kind: 'server' });
+    gh.recover();
+    await pass();
+    expect(writes(gh.sent).map((s) => `${s.method} ${s.path.split('/').at(-1)}`)).toEqual([
+      'PATCH factory-local',
+      'POST graphql',
+      'PATCH factory-local',
+      'POST graphql',
+      'POST pulls',
+      'POST labels',
+    ]);
   });
 
   it('in a dry run, records the proposal once rather than every minute', async () => {
-    const { github, sent } = world();
-    const recorded: string[] = [];
-    const actions = new DryRunActions({ put: async () => 'f'.repeat(64) } as never, quiet);
-    const watch = deployWatch({ github, registry: ghcr(), actions: Object.assign(actions, {}), log: quiet }, FACTORY);
-    const original = actions.openPullRequest.bind(actions);
-    actions.openPullRequest = async (repo, draft) => {
-      recorded.push(draft.title);
-      return original(repo, draft);
+    const gh = github(FACTORY);
+    const records: string[] = [];
+    const store = {
+      put: async (bytes: Uint8Array) => {
+        records.push(JSON.parse(new TextDecoder().decode(bytes)).action);
+        return String(records.length).padStart(64, 'f');
+      },
     };
-    await watch();
-    await watch();
-    expect(recorded).toEqual(['chore(deploy): run the factory bbbbbbb on the local cluster']);
-    expect(calls(sent).filter((s) => s.method !== 'GET')).toEqual([]);
+    const pass = watch(gh, FACTORY, ghcr(), new DryRunActions(store as never, quiet));
+    await pass();
+    await pass();
+    expect(records).toEqual(['setBranch', 'commit', 'openPullRequest']);
+    expect(writes(gh.sent)).toEqual([]);
   });
 });
 
 describe('the release watch', () => {
-  it('runs release-please each time main moves, and not again until it does', async () => {
+  const REPO = 'mrogan/cv-software-factory';
+  function main() {
     let head = 'a';
-    const { github } = client([
+    const { github: gh } = client([
       {
         method: 'GET',
         path: `/repos/${REPO}/git/ref/heads/main`,
         answer: () => ({ body: { object: { sha: commit(head) } } }),
       },
     ]);
-    const runs: string[] = [];
-    const watch = releaseWatch(github, REPO, quiet, async () => {
-      runs.push(head);
+    return {
+      gh,
+      move: (to: string) => {
+        head = to;
+      },
+    };
+  }
+
+  it('runs release-please each time main moves, and not again until it does', async () => {
+    const { gh, move } = main();
+    let runs = 0;
+    const pass = releaseWatch(gh, REPO, quiet, async () => {
+      runs += 1;
       return { releases: [], pullRequests: [] };
     });
-    await watch();
-    await watch();
-    head = 'b';
-    await watch();
-    expect(runs).toEqual(['a', 'b']);
+    await pass();
+    await pass();
+    move('b');
+    await pass();
+    expect(runs).toBe(2);
+  });
+
+  it('does not run again every minute after a run that failed, but does when main moves', async () => {
+    const { gh, move } = main();
+    let runs = 0;
+    const pass = releaseWatch(gh, REPO, quiet, async () => {
+      runs += 1;
+      throw new Error('no release-please-config.json');
+    });
+    await expect(pass()).rejects.toThrow();
+    await pass();
+    move('b');
+    await expect(pass()).rejects.toThrow();
+    expect(runs).toBe(2);
   });
 });

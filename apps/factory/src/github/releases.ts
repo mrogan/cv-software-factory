@@ -11,6 +11,7 @@
  */
 import type { Logger } from 'pino';
 import { Manifest, GitHub as ReleasePleaseGitHub, setLogger } from 'release-please';
+import { z } from 'zod';
 import type { GitHub } from './client.ts';
 import type { Watch } from './poller.ts';
 
@@ -39,16 +40,19 @@ export async function release(github: GitHub, repo: string): Promise<ReleaseOutc
   };
 }
 
+const HEAD = z.object({ object: z.object({ sha: z.string() }) });
+
 /** Runs release-please on a repository each time its main moves. */
 export function releaseWatch(github: GitHub, repo: string, log: Logger, run = release): Watch {
   let ran: string | undefined;
   return async () => {
-    const { body } = await github.poll<{ object: { sha: string } }>(repo, `/repos/${repo}/git/ref/heads/main`);
+    const { body } = await github.poll(repo, `/repos/${repo}/git/ref/heads/main`, HEAD);
     if (ran === body.object.sha) return;
+    // Once per head of main, whatever happens: a run that fails is tried again when main moves, not every minute.
+    ran = body.object.sha;
     const outcome = await run(github, repo);
     for (const r of outcome.releases) log.info({ repo, tag: r.tag }, 'released');
     for (const p of outcome.pullRequests) log.info({ repo, number: p.number }, 'release pull request up to date');
-    ran = body.object.sha;
   };
 }
 

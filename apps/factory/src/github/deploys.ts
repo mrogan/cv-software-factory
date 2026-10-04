@@ -10,10 +10,14 @@
  * an older build.
  *
  * Its title names the commit, as the build workflow's `changes` job reads it back: `chore(deploy): run console
- * 1f14f44 on the local cluster`.
+ * 1f14f44 on the local cluster`. A proposal Martin closed without merging is not made again; the next build is.
+ *
+ * Everything in one pass is read at one commit of main, the head it starts from, so a pin that moves on main while
+ * it runs is not reverted.
  */
 import type { Logger } from 'pino';
 import { parse } from 'yaml';
+import { z } from 'zod';
 import type { Actions } from './actions.ts';
 import type { GitHub } from './client.ts';
 import type { Watch } from './poller.ts';
@@ -73,16 +77,25 @@ export interface Proposal {
   digests: { name: string; image: string; digest: string }[];
 }
 
-interface PinnedImage {
-  name: string;
-  newName?: string;
-  digest?: string;
+const PIN_FILE = z
+  .object({
+    images: z
+      .array(z.object({ name: z.string(), digest: z.string().optional() }))
+      .nullable()
+      .optional(),
+  })
+  .nullable();
+
+/** A pin file that does not say what the factory expects of it. */
+export class PinFileError extends Error {
+  override name = 'PinFileError';
 }
 
 /** The digests a pin file holds, by kustomize name. */
 export function pinned(file: string): Map<string, string> {
-  const images = ((parse(file) as { images?: PinnedImage[] } | null)?.images ?? []).filter((i) => i.digest);
-  return new Map(images.map((i) => [i.name, i.digest as string]));
+  const parsed = PIN_FILE.safeParse(parse(file));
+  if (!parsed.success) throw new PinFileError('The pin file is not a kustomization with images.');
+  return new Map((parsed.data?.images ?? []).flatMap((i) => (i.digest ? [[i.name, i.digest] as const] : [])));
 }
 
 /**
@@ -94,8 +107,9 @@ export function repin(file: string, proposal: Proposal): string {
   let next = file;
   for (const { name, digest } of proposal.digests) {
     const old = current.get(name);
-    if (!old) throw new Error(`The pin file has no digest for ${name}`);
-    next = next.replace(old, digest);
+    if (!old) throw new PinFileError(`The pin file has no digest for ${name}.`);
+    // A function, so nothing in the digest is read as a replacement pattern.
+    next = next.replace(old, () => digest);
   }
   return next;
 }
@@ -116,34 +130,54 @@ interface Dependencies {
   log: Logger;
 }
 
+const SHA = z.string().regex(/^[0-9a-f]{40}$/);
+const HEAD = z.object({ object: z.object({ sha: SHA }) });
+const COMMITS = z.array(z.object({ sha: z.string() }));
+const CONTENT = z.object({ content: z.string() });
+const PULLS = z.array(
+  z.object({
+    number: z.number().int().positive(),
+    title: z.string(),
+    state: z.string(),
+    merged_at: z.string().nullable(),
+    labels: z.array(z.object({ name: z.string() })),
+  }),
+);
+
 /**
- * The newest commit on main that every image of the target was built from, with each image's digest; or undefined
- * when there is none newer than the pinned one.
+ * The newest commit on main, up to `head`, that every image the pin file pins was built from, with each image's
+ * digest; or undefined when there is none newer than the pinned one. An image of the target the file does not pin
+ * yet is left out: the change that brings it in pins it.
  */
 export async function newerBuild(
   { github, registry }: Pick<Dependencies, 'github' | 'registry'>,
   target: DeployTarget,
   pinFile: string,
+  head: string,
 ): Promise<Proposal | undefined> {
-  const { body: commits } = await github.poll<{ sha: string }[]>(
+  const pins = pinned(pinFile);
+  const images = target.images.filter((i) => pins.has(i.name));
+  if (!images.length) return undefined;
+  const { body: commits } = await github.poll(
     target.repo,
-    `/repos/${target.repo}/commits?sha=main&per_page=100`,
+    `/repos/${target.repo}/commits?sha=${head}&per_page=100`,
+    COMMITS,
   );
-  const tags = await Promise.all(target.images.map(async (i) => new Set(await registry.tags(i.image))));
+  const tags = await Promise.all(images.map(async (i) => new Set(await registry.tags(i.image))));
   const newest = commits.findIndex((c) => tags.every((t) => t.has(c.sha)));
   if (newest === -1) return undefined;
   const commit = commits[newest]?.sha as string;
 
-  const [first] = target.images;
-  const pinnedDigest = first && pinned(pinFile).get(first.name);
-  const pinnedCommit = pinnedDigest ? await registry.revision(first.image, pinnedDigest) : undefined;
+  const [first] = images;
+  const pinnedDigest = first && pins.get(first.name);
+  const pinnedCommit = first && pinnedDigest ? await registry.revision(first.image, pinnedDigest) : undefined;
   if (pinnedCommit) {
     const at = commits.findIndex((c) => c.sha === pinnedCommit);
     // The pin is this build, or a newer one than any this target has a full set of images for.
     if (at !== -1 && at <= newest) return undefined;
   }
   const digests = await Promise.all(
-    target.images.map(async (i) => ({ ...i, digest: await registry.digest(i.image, commit) })),
+    images.map(async (i) => ({ ...i, digest: await registry.digest(i.image, commit) })),
   );
   return { commit, digests };
 }
@@ -152,35 +186,43 @@ export async function newerBuild(
 export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
   const { github, actions, log } = deps;
   const { repo } = target;
+  const label = deployLabel(target);
   // What this worker last proposed, so a dry run, which changes nothing in GitHub, records each proposal once.
   let proposed: string | undefined;
   return async () => {
-    const { body: file } = await github.poll<{ content: string }>(
-      repo,
-      `/repos/${repo}/contents/${target.file}?ref=main`,
-    );
+    // One head of main for the whole pass: the pin file, the commits and the branch all come from it.
+    const { body: main } = await github.poll(repo, `/repos/${repo}/git/ref/heads/main`, HEAD);
+    const head = main.object.sha;
+    const { body: file } = await github.poll(repo, `/repos/${repo}/contents/${target.file}?ref=${head}`, CONTENT);
     const pinFile = Buffer.from(file.content, 'base64').toString('utf-8');
-    const proposal = await newerBuild(deps, target, pinFile);
+    const proposal = await newerBuild(deps, target, pinFile, head);
     if (!proposal) return;
     const title = deployTitle(target, proposal.commit);
     if (proposed === title) return;
 
     const [owner] = repo.split('/');
-    const { body: open } = await github.poll<{ number: number; title: string }[]>(
+    const { body: pulls } = await github.poll(
       repo,
-      `/repos/${repo}/pulls?state=open&head=${owner}:${encodeURIComponent(target.branch)}`,
+      `/repos/${repo}/pulls?state=all&sort=created&direction=desc&per_page=20&head=${owner}:${encodeURIComponent(target.branch)}`,
+      PULLS,
     );
-    const existing = open[0];
+    if (pulls.some((p) => p.state === 'closed' && !p.merged_at && p.title === title)) {
+      log.info({ repo, commit: proposal.commit }, 'this build’s deploy pull request was closed; waiting for the next');
+      proposed = title;
+      return;
+    }
+    const existing = pulls.find((p) => p.state === 'open');
     if (existing?.title === title) {
+      // Opened by an earlier pass that did not get as far as its label.
+      if (!existing.labels.some((l) => l.name === label)) await actions.addLabels(repo, existing.number, [label]);
       proposed = title;
       return;
     }
 
-    const { body: main } = await github.poll<{ object: { sha: string } }>(repo, `/repos/${repo}/git/ref/heads/main`);
-    await actions.setBranch(repo, target.branch, main.object.sha, { force: true });
+    await actions.setBranch(repo, target.branch, head, { force: true });
     await actions.commit(repo, {
       branch: target.branch,
-      expectedHead: main.object.sha,
+      expectedHead: head,
       message: title,
       changes: {
         additions: [{ path: target.file, contents: new TextEncoder().encode(repin(pinFile, proposal)) }],
@@ -200,7 +242,7 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
         base: 'main',
         title,
         body,
-        labels: [deployLabel(target)],
+        labels: [label],
       });
       log.info({ repo, number: made.number, commit: proposal.commit }, 'opened a deploy pull request');
     }
