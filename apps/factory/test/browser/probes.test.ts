@@ -128,9 +128,12 @@ describe.each(CASES)('%s', (check, fault, symptom) => {
 });
 
 describe('a link from the home page that loops', () => {
-  it('is filed under the route that loops, not the home page', async () => {
-    const observations = await observe(['link-loop'], ['home-links-open']);
-    expect(observations.find((o) => o.check === 'home-links-open')?.route).toBe('/loop');
+  it('is filed under the route that loops, as the crawler names it, not the home page', async () => {
+    // The home page links one featured item; its siblings are linked only from the about page.
+    const observations = await observe(['featured-loop'], ['home-links-open']);
+    const found = observations.find((o) => o.check === 'home-links-open');
+    expect(found?.finding?.symptom).toBe('redirect-loop');
+    expect(found?.route).toBe('/featured/:featured');
   }, 60_000);
 });
 

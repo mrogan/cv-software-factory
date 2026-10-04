@@ -47,12 +47,17 @@ export const homeLinksOpen: BrowserCheck<Shop> = {
     const links = await readLinks(context.page, 'header a[href], nav a[href], main a[href], footer a[href]');
     const unique = new Map<string, string>();
     for (const { path, text } of links) if (!unique.has(path)) unique.set(path, text);
-    const templateOf = templater(unique.keys());
-    for (const [path, text] of [...unique].slice(0, 60)) {
-      const answer = await exchange(context.app, path);
+    const answers = [];
+    for (const [path, text] of [...unique].slice(0, 60))
+      answers.push({ path, text, answer: await exchange(context.app, path) });
+    // A loop is the destination's fault, not the home page's: it is filed under the route that loops, named as the
+    // crawler names it, so the two are one ticket. The crawler works routes out from every page it reaches; this
+    // looks as far as the pages the home page links to, which is where a collection's other members are listed.
+    const seen = [...unique.keys()];
+    for (const { answer } of answers) if (answer.type === 'text/html') seen.push(...hrefsIn(answer.body));
+    const templateOf = templater(seen);
+    for (const { path, text, answer } of answers) {
       const look = [{ selector: `a[href="${path.replaceAll('"', '')}"]`, kind: 'problem' as const }];
-      // A loop is the destination's fault, not the home page's: it is filed under the route that loops, where the
-      // crawler files it too, so the two are one ticket.
       if (answer.failure === 'redirect loop') {
         return fail('redirect-loop', `The link "${text || path}" to ${path} redirects round in a circle.`, {
           route: templateOf(path),
@@ -67,6 +72,11 @@ export const homeLinksOpen: BrowserCheck<Shop> = {
     return null;
   },
 };
+
+/** The paths of a page's links to its own site, read from its HTML. */
+function hrefsIn(html: string): string[] {
+  return [...html.matchAll(/href="(\/[^"#]*)"/g)].map((m) => (m[1] ?? '').split('?')[0] ?? '').filter(Boolean);
+}
 
 export const departmentsListTheirProducts: BrowserCheck<Shop> = {
   id: 'departments-list-their-products',
