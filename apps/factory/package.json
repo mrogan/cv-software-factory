@@ -13,9 +13,11 @@
     "./gateway": "./src/gateway/gateway.ts",
     "./gateway/client": "./src/gateway/client.ts",
     "./probes": "./src/probes/index.ts",
-    "./senses": "./src/senses/runner.ts"
+    "./senses": "./src/senses/runner.ts",
+    "./crawler": "./src/crawler/index.ts"
   },
   "dependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/instrumentation": "^0.222.0",
     "@opentelemetry/instrumentation-http": "^0.222.0",
