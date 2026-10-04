@@ -30,10 +30,13 @@ mise install     # Node, pnpm, kubectl, k3d, helm, kustomize at pinned versions
 make up          # a local Kubernetes cluster; Argo CD deploys the rest from this repo
 make samples     # twelve sample work items, so the console has something to show
 make status      # what is running, and where to open it
+make egress      # prove that only the model gateway can leave the cluster
 make down        # delete the cluster; nothing is left behind
 ```
 
 A store holds samples or the factory's own work, never both. `make real-store` empties it for real work: use it when you want to watch the factory find and triage defects in the app, rather than browse the samples.
+
+The factory's workers run in the cluster too: the model gateway, triage, the intake and log watcher, and the probes and crawler that look at the app. The gateway asks Jev (TypeSafe) with a key from `TYPESAFE_API_KEY` or the macOS Keychain (`typesafe-api-key`), which `make up` hands to the cluster and writes nowhere else; with no key it replays recorded answers only. Network policies let only the gateway reach the internet.
 
 `make` on its own lists every target. The first `make up` takes a few minutes while images download.
 

@@ -1,0 +1,107 @@
+# The model gateway: the only way from the factory to a model, and the only pod that holds the TypeSafe key or may reach the
+# internet (network-policies.yaml). In record mode it asks Jev and keeps a cassette of each answer on its own volume, where
+# recordings of real reports stay: no other pod mounts it, and nothing commits it. Without a key it replays.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels: &labels
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/part-of: software-factory
+    app.kubernetes.io/component: worker
+  annotations:
+    # After Postgres (wave 0) and the migrations (wave 1), with the console.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # one at a time: the volumes are ReadWriteOnce, and two workers must not run the same loop
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          # Each profile pins the image by digest (kustomize `images:`), so a deploy is always a commit.
+          image: factory
+          args:
+            - --import
+            - ./src/telemetry.ts
+            - src/cli.ts
+            - gateway
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.telemetry:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "gateway"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=software-factory"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "15000"
+            # The event store, as the factory's writer: it appends and reads.
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              value: factory
+            - name: PGUSER
+              value: factory_writer
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-writer
+                  key: password
+            - name: GATEWAY_MODE
+              value: record
+            - name: FACTORY_PROFILE
+              value: local
+            - name: CASSETTES_DIR
+              value: /var/lib/factory/cassettes
+            # The only pod that holds the key. `make up` creates the Secret from TYPESAFE_API_KEY or the Keychain; with none,
+            # the gateway replays cassettes only.
+            - name: TYPESAFE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: typesafe
+                  key: api-key
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: cassettes
+              mountPath: /var/lib/factory/cassettes
+      volumes:
+        - name: cassettes
+          persistentVolumeClaim:
+            claimName: cassettes

@@ -1,0 +1,14 @@
+# The gateway's recordings of what Jev answered. Recordings of real reports live here and nowhere else: only the
+# gateway mounts this volume, and nothing commits or publishes it. Deleting it loses nothing but the saved answers.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cassettes
+  annotations:
+    # With the gateway: the volume binds only once a pod that uses it is scheduled.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 256Mi

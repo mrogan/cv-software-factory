@@ -21,7 +21,7 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down check status e2e eval samples real-store stop-the-line start-the-line
+.PHONY: help up down gateway-key check status e2e egress eval samples real-store stop-the-line start-the-line
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -36,6 +36,7 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@$(call secret,factory,postgres,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-writer,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-console,--from-literal=password="$$(openssl rand -hex 24)")
+	@$(MAKE) --no-print-directory gateway-key
 	@$(call secret,telemetry,grafana-admin,--from-literal=admin-user=admin --from-literal=admin-password="$$(openssl rand -hex 24)")
 	sed 's|targetRevision: main|targetRevision: $(REVISION)|' deploy/argocd/root.yaml | $(KUBECTL) apply -f -
 	@echo "Waiting for Argo CD to deploy everything (a few minutes the first time)..."
@@ -48,6 +49,19 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 
 down: ## Delete the local cluster, and everything in it
 	k3d cluster delete $(CLUSTER)
+
+# The gateway's TypeSafe key, from the environment or the macOS Keychain, goes to the cluster and nowhere else: it
+# is piped through stdin, never written to a file or put on a command line. Without one there is no Secret, and the
+# gateway replays cassettes only. Restart the gateway after changing the key: it reads it when it starts.
+gateway-key:
+	@key="$${TYPESAFE_API_KEY:-$$(security find-generic-password -s typesafe-api-key -w 2>/dev/null)}"; \
+		if [ -n "$$key" ]; then \
+			printf %s "$$key" | $(KUBECTL) -n factory create secret generic typesafe --from-file=api-key=/dev/stdin --dry-run=client -o yaml | \
+				$(KUBECTL) apply -f - >/dev/null && echo "  The gateway has the TypeSafe key, so it records what Jev answers."; \
+		else echo "  No TypeSafe key (TYPESAFE_API_KEY, or the Keychain's typesafe-api-key): the gateway replays cassettes only."; fi
+
+egress: ## Prove the network policies: only the gateway may leave the cluster (needs the factory's workers running)
+	scripts/egress.sh
 
 check: ## Lint, type-check, test, build the browser code, check generated files are current, render the manifests
 	pnpm exec biome ci
