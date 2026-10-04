@@ -7,8 +7,10 @@ import type { Logger } from 'pino';
 import { type Actions, DryRunActions, LiveActions } from './actions.ts';
 import { GitHub } from './client.ts';
 import type { GitHubConfig } from './config.ts';
+import { DEPLOYS, deployWatch } from './deploys.ts';
 import { Poller } from './poller.ts';
 import { Registry } from './registry.ts';
+import { quietReleasePlease, releaseWatch } from './releases.ts';
 import { createWorkerServer } from './server.ts';
 
 export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
@@ -24,6 +26,18 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
   const mode = config.dryRun ? 'dry-run' : github.writable ? 'live' : 'read-only';
   if (mode === 'read-only') {
     log.warn('No App key (GITHUB_APP_PRIVATE_KEY): the worker reads GitHub and writes nothing.');
+  } else {
+    // The App opens the deploy pull requests, and keeps the release pull requests, in every repository it acts on.
+    for (const target of DEPLOYS.filter((t) => config.repositories.includes(t.repo))) {
+      poller.watch(
+        `deploy ${target.branch} in ${target.repo}`,
+        deployWatch({ github, registry, actions, log }, target),
+      );
+    }
+    if (mode === 'live') {
+      quietReleasePlease(log);
+      for (const repo of config.repositories) poller.watch(`releases in ${repo}`, releaseWatch(github, repo, log));
+    }
   }
   const server = createWorkerServer({
     actions,

@@ -49,6 +49,8 @@ export class Registry {
   readonly #fetch: typeof fetch;
   readonly #timeoutMs: number;
   readonly #tokens = new Map<string, string>();
+  /** A digest's revision never changes, so each is read once. */
+  readonly #revisions = new Map<string, string | undefined>();
 
   constructor({ base = GHCR, fetch: fetcher = fetch, timeoutMs = 15_000 }: RegistryOptions = {}) {
     this.#base = base;
@@ -78,6 +80,14 @@ export class Registry {
 
   /** The one commit an image (by tag or digest) says it was built from, or undefined if it names none or several. */
   async revision(image: string, reference: string): Promise<string | undefined> {
+    const key = `${image}@${reference}`;
+    if (reference.startsWith('sha256:') && this.#revisions.has(key)) return this.#revisions.get(key);
+    const revision = await this.#revision(image, reference);
+    if (reference.startsWith('sha256:')) this.#revisions.set(key, revision);
+    return revision;
+  }
+
+  async #revision(image: string, reference: string): Promise<string | undefined> {
     const manifest = (path: string) => this.#get(image, path, INDEX_TYPES).then((r) => json(r, MANIFEST, path));
     const index = await manifest(`/v2/${image}/manifests/${reference}`);
     // An index lists one manifest per platform, and attestations that name no OS; each platform's config has the labels.
