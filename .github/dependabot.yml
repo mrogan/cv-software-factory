@@ -11,6 +11,10 @@ updates:
       # Node's own types follow the Node version in mise.toml, which moves by hand.
       - dependency-name: '@types/node'
         update-types: [version-update:semver-major]
+      # Published by hand without provenance, between two releases with it. pnpm's trust policy refuses it, and with
+      # it the whole npm update, so it is skipped rather than allowed: 2.1.16 has provenance again.
+      - dependency-name: lefthook
+        versions: ['2.1.15']
     cooldown:
       default-days: 3
     commit-message:
