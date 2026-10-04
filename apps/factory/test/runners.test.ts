@@ -75,6 +75,7 @@ describe('a runner’s jobs', () => {
       gatewayUrl: 'http://gateway',
       handbackUrl: 'http://line/v1/handback',
       token: 'sfj_x',
+      hosts: [{ ip: '10.43.0.9', hostnames: ['gateway'] }],
     };
     const agentEnv = Object.fromEntries(
       agentJob(names, STEP, settings).spec.template.spec.containers[0]?.env.map((e) => [e.name, e.value]) ?? [],
@@ -89,6 +90,17 @@ describe('a runner’s jobs', () => {
     });
     expect(prepareEnv).not.toHaveProperty('ANTHROPIC_API_KEY');
     expect(JSON.parse(agentEnv.RUNNER_STEP ?? '{}')).toEqual(STEP);
+  });
+
+  it('give the agent pod the addresses it needs and no DNS, which would be a way out', () => {
+    const hosts = [{ ip: '10.43.0.9', hostnames: ['gateway'] }];
+    const settings = { image: 'runner', deadlineSeconds: 1200, gatewayUrl: '', handbackUrl: '', token: '', hosts };
+    expect(agentJob(names, STEP, settings).spec.template.spec).toMatchObject({
+      dnsPolicy: 'None',
+      dnsConfig: { nameservers: ['127.0.0.1'] },
+      hostAliases: hosts,
+    });
+    expect(prepareJob(names, STEP, settings).spec.template.spec).not.toHaveProperty('dnsPolicy');
   });
 });
 
@@ -150,9 +162,10 @@ async function line(agent: Parameters<typeof fakeKube>[0], prepare?: 'succeeded'
     kube,
     image: 'runner',
     gatewayUrl: 'http://gateway',
-    handbackUrl: '',
+    handbackUrl: 'http://line/v1/handback',
     log: quiet,
     pollMs: 10,
+    lookup: async () => '10.43.0.9',
   });
   const server: Server = createServer(runners.handback());
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -195,6 +208,13 @@ describe('running a step', () => {
       'DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1001-1-prepare',
       'DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1001-1-agent',
     ]);
+  });
+
+  it('deletes the work volume when the work item is over', async () => {
+    const { runners, calls, close } = await line(() => {});
+    await runners.finish('1001');
+    await close();
+    expect(calls).toEqual(['DELETE /api/v1/namespaces/runners/persistentvolumeclaims/work-1001']);
   });
 
   it('says so when the prepare pod fails, and never starts the agent', async () => {

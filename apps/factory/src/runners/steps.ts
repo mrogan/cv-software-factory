@@ -4,12 +4,15 @@
  *     token → volume → prepare Job → agent Job → handback (or the job failing, or its deadline) → token ended
  *
  * The job token is made before the agent pod starts and ended when the step is over, however it ends, so the gateway
- * and the handback refuse it from then on. The Jobs are deleted afterwards; the volume stays for the next step.
+ * and the handback refuse it from then on. The Jobs are deleted afterwards; the volume stays for the next step, until
+ * the work item is over (`finish`).
  *
  * The handback (`POST /v1/handback`) takes a job's result with its token, checked with Zod at the door, and hands it
  * to the step waiting for it. A job hands back once.
  */
+import { lookup } from 'node:dns/promises';
 import type { IncomingMessage, RequestListener } from 'node:http';
+import { isIP } from 'node:net';
 import { endJobToken, issueJobToken, jobForToken } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
@@ -53,9 +56,10 @@ export interface RunnersOptions {
   pollMs?: number;
   /** How long a handback may follow the agent pod's end: a pod hands back, then ends. */
   graceMs?: number;
-  /** Injected so tests need neither real waiting nor a real clock. */
+  /** Injected so tests need neither real waiting nor a real clock, nor real names. */
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  lookup?: (hostname: string) => Promise<string>;
 }
 
 const PREPARE_SECONDS = 600;
@@ -105,6 +109,7 @@ export class Runners {
           gatewayUrl: this.#o.gatewayUrl,
           handbackUrl: this.#o.handbackUrl,
           token,
+          hosts: await this.#hosts(),
         }),
       );
       log.info({ job, workItem, agent: step.agent }, 'the agent is working');
@@ -131,6 +136,23 @@ export class Runners {
           .catch((error: Error) => log.warn({ job, err: { message: error.message } }, 'could not delete a job'));
       }
     }
+  }
+
+  /** The work item is over: its volume goes. */
+  async finish(workItem: string): Promise<void> {
+    const path = `/api/v1/namespaces/${NAMESPACE}/persistentvolumeclaims/${volume(workItem).metadata.name}`;
+    await this.#o.kube.remove(path);
+    this.#o.log.info({ workItem }, 'the work item is over; its volume is deleted');
+  }
+
+  /** The addresses an agent pod needs, looked up here because it has no DNS of its own. */
+  async #hosts(): Promise<{ ip: string; hostnames: string[] }[]> {
+    const find = this.#o.lookup ?? (async (hostname: string) => (await lookup(hostname)).address);
+    const names = [...new Set([this.#o.gatewayUrl, this.#o.handbackUrl].map((url) => new URL(url).hostname))];
+    const hosts = await Promise.all(
+      names.filter((name) => !isIP(name)).map(async (name) => ({ ip: await find(name), hostnames: [name] })),
+    );
+    return hosts;
   }
 
   /** Waits for a Job to end, and says how. */

@@ -6,6 +6,7 @@
  *
  *     :8081  POST /v1/handback      a job's result, with its token (agent pods)
  *     :8080  POST /v1/steps         run one step (`StepRequest`) and answer with how it went
+ *            DELETE /v1/work-items/<id>  the work item is over: delete its volume
  *            POST /v1/smoke         the smoke run, from a commit of the app (`smoke.ts`)
  *            GET  /health
  */
@@ -58,6 +59,11 @@ export function lineServers({ runners, github, log }: { runners: Runners; github
     void (async () => {
       const { pathname } = new URL(req.url ?? '/', 'http://line');
       if (pathname === '/health') return send(res, 200, { status: 'ok' });
+      const ended = /^\/v1\/work-items\/([1-9]\d{0,8})$/.exec(pathname);
+      if (ended?.[1] && req.method === 'DELETE') {
+        await runners.finish(ended[1]);
+        return send(res, 200, { finished: ended[1] });
+      }
       if (req.method !== 'POST') return send(res, 404, { error: 'not found' });
       if (!/^application\/json(;|$)/i.test(req.headers['content-type'] ?? '')) {
         return send(res, 415, { error: 'Send the body as application/json.' });

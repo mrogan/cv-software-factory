@@ -15,8 +15,8 @@ import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
 import { git } from './git.ts';
 import { type Ending, type Handback, repoDir, stepFrom } from './step.ts';
 
-/** Somewhere on the internet the fence must keep the pod from. */
-const CANARY = 'https://api.github.com';
+/** Somewhere on the internet the fence must keep the pod from, by address: the pod has no DNS. */
+const CANARY = 'https://1.1.1.1';
 const FENCE_WAIT_MS = 60_000;
 const NOTE_LENGTH = 4000;
 /** What a pod can be asked to hand back. */

@@ -74,6 +74,10 @@ export async function smoke({
     maxTurns: 40,
     deadlineSeconds: 30 * 60,
   });
+  // One step is the whole smoke run's work item.
+  await runners
+    .finish(workItem)
+    .catch((error: Error) => log.warn({ err: { message: error.message } }, 'could not delete the work volume'));
   if (outcome.kind !== 'handed-back' || !outcome.handback.patch) return { outcome, fence: null, commit: null };
   const fenced = fence(outcome.handback.patch, SMOKE_SCOPE);
   log.info({ ok: fenced.ok, paths: fenced.paths }, 'the smoke run’s patch, fenced');

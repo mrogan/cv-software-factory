@@ -6,8 +6,9 @@
  * - The prepare Job checks out the commit and installs it. Its pod may reach GitHub and the npm registry, so it keeps
  *   its home, its settings and pnpm's store in an empty folder of its own, and runs nothing the agent could have left
  *   on the volume (apps/runner/src/prepare.ts).
- * - The agent Job runs the agent. Its pod reaches the gateway and the line's handback, and nothing else; it holds its
- *   job token, which is not a credential anywhere else.
+ * - The agent Job runs the agent. Its pod reaches the gateway and the line's handback, and nothing else, and has no
+ *   DNS; it holds its job token, which is not a credential anywhere else.
+ * - The volume goes when the work item is over (`Runners.finish`).
  *
  * Both run the `factory-runner` image under the restricted Pod Security Standard, with no service account token and
  * a read-only root file system, and each has a deadline.
@@ -55,11 +56,19 @@ export interface AgentSettings extends JobSettings {
   gatewayUrl: string;
   handbackUrl: string;
   token: string;
+  /** The addresses of the gateway's and the handback's names: the agent pod has no DNS to look them up. */
+  hosts: { ip: string; hostnames: string[] }[];
 }
 
 const env = (values: Record<string, string>) => Object.entries(values).map(([name, value]) => ({ name, value }));
 
-function job(names: JobNames, part: 'prepare' | 'agent', settings: JobSettings, variables: Record<string, string>) {
+function job(
+  names: JobNames,
+  part: 'prepare' | 'agent',
+  settings: JobSettings,
+  variables: Record<string, string>,
+  pod: Record<string, unknown> = {},
+) {
   const labels = {
     'app.kubernetes.io/part-of': 'software-factory',
     'app.kubernetes.io/component': 'runner',
@@ -81,6 +90,7 @@ function job(names: JobNames, part: 'prepare' | 'agent', settings: JobSettings, 
           restartPolicy: 'Never',
           automountServiceAccountToken: false,
           enableServiceLinks: false,
+          ...pod,
           securityContext: {
             runAsNonRoot: true,
             runAsUser: 65532,
@@ -130,11 +140,23 @@ export const prepareJob = (names: JobNames, step: Step, settings: JobSettings) =
   job(names, 'prepare', settings, { RUNNER_STEP: JSON.stringify(step) });
 
 export const agentJob = (names: JobNames, step: Step, settings: AgentSettings) =>
-  job(names, 'agent', settings, {
-    RUNNER_STEP: JSON.stringify(step),
-    ANTHROPIC_BASE_URL: settings.gatewayUrl,
-    // Its job token, where the Agent SDK looks for a key. The gateway and the handback take it, while the job runs. It
-    // is in the Job's spec, which only the line can read in `runners`; it is worth nothing once the job ends.
-    ANTHROPIC_API_KEY: settings.token,
-    HANDBACK_URL: settings.handbackUrl,
-  });
+  job(
+    names,
+    'agent',
+    settings,
+    {
+      RUNNER_STEP: JSON.stringify(step),
+      ANTHROPIC_BASE_URL: settings.gatewayUrl,
+      // Its job token, where the Agent SDK looks for a key. The gateway and the handback take it, while the job runs. It
+      // is in the Job's spec, which only the line can read in `runners`; it is worth nothing once the job ends.
+      ANTHROPIC_API_KEY: settings.token,
+      HANDBACK_URL: settings.handbackUrl,
+    },
+    {
+      // No DNS: a query for a name of its choosing would be a way out. It knows the gateway's and the handback's
+      // addresses, and asks a resolver that is not there for anything else, which fails at once.
+      dnsPolicy: 'None',
+      dnsConfig: { nameservers: ['127.0.0.1'] },
+      hostAliases: settings.hosts,
+    },
+  );
