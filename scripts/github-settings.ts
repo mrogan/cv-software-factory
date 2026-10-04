@@ -1,6 +1,6 @@
 /**
  * Applies the public repositories' GitHub settings, so they are reviewable like code and reproducible. Both get
- * the same ruleset and security settings; only the checks each requires differ. Safe to run again.
+ * the same rulesets and security settings; only the checks each requires differ. Safe to run again.
  *
  *     node scripts/github-settings.ts                  # every repository below
  *     node scripts/github-settings.ts <owner/repo>     # one of them
@@ -21,7 +21,14 @@ const REPOSITORIES: Record<string, string[]> = {
 /** GitHub Actions, as the app that reports check runs. */
 const GITHUB_ACTIONS = 15368;
 
-const ruleset = (requiredChecks: string[]) => ({
+/** Repository roles, as a ruleset's bypass list names them. */
+const ADMIN_ROLE = 5;
+
+/**
+ * Two rulesets on main (ADR 0009). The first holds everything but review, and nobody bypasses it: every change is a
+ * pull request, squash-merged, signed and linear, once its required checks pass.
+ */
+const rules = (requiredChecks: string[]) => ({
   name: 'main',
   target: 'branch',
   enforcement: 'active',
@@ -36,8 +43,6 @@ const ruleset = (requiredChecks: string[]) => ({
     {
       type: 'pull_request',
       parameters: {
-        // Code-owner review is switched on in milestone 5, when the factory opens pull requests and Martin
-        // reviews them. Until then every pull request is Martin's, and GitHub never counts an author's approval.
         required_approving_review_count: 0,
         require_code_owner_review: false,
         dismiss_stale_reviews_on_push: true,
@@ -56,6 +61,33 @@ const ruleset = (requiredChecks: string[]) => ({
     },
   ],
 });
+
+/**
+ * The second holds review: a code owner's approval, after the last push, on every pull request. Martin is the code
+ * owner and the author of every human pull request, and GitHub never counts an author's own approval, so the
+ * repository's admin may bypass this one, and only when merging a pull request. The merge records the bypass. The
+ * factory's App may not bypass it, so each of its pull requests waits for Martin.
+ */
+const review = {
+  name: 'main: review',
+  target: 'branch',
+  enforcement: 'active',
+  conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+  bypass_actors: [{ actor_id: ADMIN_ROLE, actor_type: 'RepositoryRole', bypass_mode: 'pull_request' }],
+  rules: [
+    {
+      type: 'pull_request',
+      parameters: {
+        required_approving_review_count: 1,
+        require_code_owner_review: true,
+        dismiss_stale_reviews_on_push: true,
+        require_last_push_approval: true,
+        required_review_thread_resolution: false,
+        allowed_merge_methods: ['squash'],
+      },
+    },
+  ],
+};
 
 let repo = '';
 
@@ -144,11 +176,16 @@ for (const [name, requiredChecks] of Object.entries(REPOSITORIES)) {
     else gh('POST', '/labels', deployLabel);
   });
 
-  const rules = ruleset(requiredChecks);
-  step(`ruleset "${rules.name}": pull requests only, linear and signed; requires ${requiredChecks.join('; ')}`, () => {
-    const existing = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
-    const id = existing.find((r) => r.name === rules.name)?.id;
-    if (id) gh('PUT', `/rulesets/${id}`, rules);
-    else gh('POST', '/rulesets', rules);
-  });
+  const existing = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
+  const apply = (ruleset: { name: string }) => {
+    const id = existing.find((r) => r.name === ruleset.name)?.id;
+    if (id) gh('PUT', `/rulesets/${id}`, ruleset);
+    else gh('POST', '/rulesets', ruleset);
+  };
+  step(`ruleset "main": pull requests only, linear and signed; requires ${requiredChecks.join('; ')}`, () =>
+    apply(rules(requiredChecks)),
+  );
+  step('ruleset "main: review": a code owner approves after the last push; the admin may bypass it to merge', () =>
+    apply(review),
+  );
 }

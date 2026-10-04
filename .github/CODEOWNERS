@@ -1,5 +1,5 @@
 # The rules of the line are human-owned (spec section 6, guardrail 1).
-# Review by a code owner is not yet required: see the README's "How changes land".
+# A code owner's approval is required on main (ADR 0009); the factory's App is never one.
 
 /.github/                    @mrogan
 /deploy/                     @mrogan
