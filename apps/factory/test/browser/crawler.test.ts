@@ -13,11 +13,17 @@ import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CLASSES, Crawler } from '../../src/crawler/index.ts';
 import type { Observation } from '../../src/senses/types.ts';
-import { type Fault, startSite } from './crawl-site.ts';
+import { type Fault, SLOW_ANSWER, startSite } from './crawl-site.ts';
 
 let browser: Browser;
 const store = new DiskArtifacts(mkdtempSync(join(tmpdir(), 'crawler-artifacts-')));
 const log = { warn: () => {} };
+/**
+ * Shorter than a real site's, so that the slow and hanging faults do not take long: an answer is slow after 500 ms,
+ * under the test site's slow answers and far over its others. A page has 5 s to open, room for one whose every
+ * request is slow (its HTML, then its script, stylesheet and image) and less than the usual 10 s for one that hangs.
+ */
+const timing = { slow: SLOW_ANSWER - 200, pageTimeout: 5_000 };
 
 beforeAll(async () => {
   browser = await chromium.launch();
@@ -27,7 +33,9 @@ afterAll(() => browser?.close());
 async function crawl(...faults: Fault[]): Promise<Observation[]> {
   const site = await startSite(...faults);
   try {
-    return await new Crawler({ app: site.url, store, log, launch: async () => browser }).pass('c'.repeat(40));
+    return await new Crawler({ app: site.url, store, log, launch: async () => browser, ...timing }).pass(
+      'c'.repeat(40),
+    );
   } finally {
     await site.close();
   }

@@ -14,7 +14,7 @@ import { capture } from '../capture.ts';
 import { SharedBrowser } from '../senses/browser.ts';
 import { templater } from '../senses/routes.ts';
 import type { Observation, Sense } from '../senses/types.ts';
-import { crawl } from './crawl.ts';
+import { crawl, PAGE_TIMEOUT } from './crawl.ts';
 import { askForErrors, type Issue, judge, RECORDED } from './judge.ts';
 
 /** Every class the crawler can find. */
@@ -43,6 +43,10 @@ export interface CrawlerOptions {
   launch?: () => Promise<Browser>;
   /** The most resources a crawl asks for. */
   limit?: number;
+  /** An answer slower than this, in milliseconds, is slow (`SLOW` in `judge.ts` by default). */
+  slow?: number;
+  /** How long a page may take to open in the browser, in milliseconds (`PAGE_TIMEOUT` in `crawl.ts` by default). */
+  pageTimeout?: number;
 }
 
 export class Crawler implements Sense {
@@ -65,6 +69,7 @@ export class Crawler implements Sense {
         context,
         record: RECORDED,
         ...(this.options.limit && { limit: this.options.limit }),
+        ...(this.options.pageTimeout && { pageTimeout: this.options.pageTimeout }),
       });
       if (reached.capped) log.warn({ resources: reached.resources.length }, 'the crawl stopped at its cap');
       const template = templater([...reached.resources.map((r) => r.path)]);
@@ -74,6 +79,7 @@ export class Crawler implements Sense {
         secure: new URL(app).protocol === 'https:',
         version,
         template,
+        ...(this.options.slow && { slow: this.options.slow }),
       });
       const pages = reached.pages.map((p) => p.path);
       const { findings, every } = collapse(issues, pages);
@@ -127,7 +133,10 @@ export class Crawler implements Sense {
     const page = await context.newPage();
     page.setDefaultTimeout(2_000);
     try {
-      await page.goto(new URL(found.at, app).href, { waitUntil: 'load', timeout: 10_000 });
+      await page.goto(new URL(found.at, app).href, {
+        waitUntil: 'load',
+        timeout: this.options.pageTimeout ?? PAGE_TIMEOUT,
+      });
       const route = template(found.at);
       const look = (found.look ?? []).slice(0, 4);
       for (const box of look)

@@ -57,13 +57,15 @@ export interface JudgeInput {
   version: string;
   /** Maps a path to its route template. */
   template(path: string): string;
+  /** An answer slower than this, in milliseconds, is slow: `SLOW` unless a test needs it shorter. */
+  slow?: number;
 }
 
 const STATIC = /\.(?:js|mjs|css|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf)$/i;
 
 const quoted = (path: string) => path.replaceAll('"', '');
 
-export function judge({ crawl, errors, secure, version, template }: JudgeInput): Judged {
+export function judge({ crawl, errors, secure, version, template, slow = SLOW }: JudgeInput): Judged {
   const issues: Issue[] = [];
   const trouble: Trouble[] = [];
   const byPath = new Map(crawl.resources.map((r) => [r.path, r]));
@@ -128,7 +130,7 @@ export function judge({ crawl, errors, secure, version, template }: JudgeInput):
       });
     }
     const totalMs = answer.evidence.timings.totalMs;
-    if (totalMs > SLOW) {
+    if (totalMs > slow) {
       issues.push({
         symptom: 'slow-response',
         route: target,

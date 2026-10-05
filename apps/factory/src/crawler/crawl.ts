@@ -63,6 +63,8 @@ export interface CrawlOptions {
   limit?: number;
   /** Headers to keep in each exchange's evidence besides the usual. */
   record: readonly string[];
+  /** How long a page may take to open in the browser, in milliseconds. */
+  pageTimeout?: number;
 }
 
 /** Axe rules that name a class of defect, and the class. Rules that fit no class are left out, not forced. */
@@ -78,6 +80,9 @@ const RULES: Record<string, AccessibilityIssue['symptom']> = {
   'aria-input-field-name': 'unlabelled-field',
 };
 
+/** How long a page may take to open in the browser, in milliseconds, unless the crawl says otherwise. */
+export const PAGE_TIMEOUT = 10_000;
+
 /** What the page holds, once its scripts have run: where it leads. Runs in the browser, so it is a string. */
 const REFERENCES = `(() => {
   const all = (selector, attribute) => [...document.querySelectorAll(selector)].map((e) => e[attribute]).filter(Boolean);
@@ -88,7 +93,13 @@ const REFERENCES = `(() => {
   };
 })()`;
 
-export async function crawl({ app, context, limit = 150, record }: CrawlOptions): Promise<Crawl> {
+export async function crawl({
+  app,
+  context,
+  limit = 150,
+  record,
+  pageTimeout = PAGE_TIMEOUT,
+}: CrawlOptions): Promise<Crawl> {
   const origin = new URL(app).origin;
   const result: Crawl = { resources: [], pages: [], unbrowsed: [], capped: false };
   const queued = new Map<string, { kind: Kind; from: string }>([['/', { kind: 'link', from: '/' }]]);
@@ -121,7 +132,7 @@ export async function crawl({ app, context, limit = 150, record }: CrawlOptions)
     result.resources.push({ path: next, kind, from, answer });
     if (kind !== 'link' || answer.status !== 200 || answer.type !== 'text/html') continue;
     // One page that will not open must not end the crawl: it is kept as a resource, and reported as trouble.
-    const browsed = await browse(context, new URL(next, app).href, next).catch((error: unknown) => {
+    const browsed = await browse(context, new URL(next, app).href, next, pageTimeout).catch((error: unknown) => {
       result.unbrowsed.push({
         path: next,
         message: (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '',
@@ -137,9 +148,9 @@ export async function crawl({ app, context, limit = 150, record }: CrawlOptions)
   return result;
 }
 
-async function browse(context: BrowserContext, url: string, path: string) {
+async function browse(context: BrowserContext, url: string, path: string, timeout: number) {
   const page = await context.newPage();
-  page.setDefaultTimeout(10_000);
+  page.setDefaultTimeout(timeout);
   const messages: Browsed['console'] = [];
   page.on('console', (message) => {
     // The browser also reports each failed request here; the crawl asks for those itself, and says more of them.
