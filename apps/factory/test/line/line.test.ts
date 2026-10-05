@@ -292,6 +292,48 @@ describe('the line', () => {
     );
   });
 
+  it('reads no gates on a work item while its step is in hand, when its push may not be recorded yet', async () => {
+    const workItem = await ticket();
+    let rounds = 0;
+    const coder = AGENTS.coder as Agent;
+    const { line: it, pass, steps, github } = line({ ...AGENTS, coder: (r) => (++rounds > 1 ? 'works on' : coder(r)) });
+    await pass();
+    await pass();
+    github.pass(12, 'failure');
+    await it.tick(); // the gates fail, and the coder's second round starts
+    while (steps.working === 0) await new Promise((resolve) => setTimeout(resolve, 5));
+    // The coder has pushed, and checks are running on its commit, but the push is not recorded yet.
+    const pr = github.pulls.get(12);
+    if (pr) pr.head.sha = 'e'.repeat(40);
+    github.pass();
+    await it.tick();
+    expect((await payloads(workItem, 'gates.started')).map((g) => g.commit)).not.toContain('e'.repeat(40));
+    await steps.cancel();
+    await it.idle();
+  });
+
+  it('ends a work item only once its volume is deleted, even one that ended while a step was in hand', async () => {
+    const workItem = await ticket();
+    const closed = event(workItem, 'work-item.closed', { outcome: 'no-change', reason: 'Closed by Martin' }, 'martin');
+    const planner = AGENTS.planner as Agent;
+    const { pass, steps } = line({
+      ...AGENTS,
+      planner: async (r) => {
+        await events.append(closed);
+        return planner(r);
+      },
+    });
+    steps.finishFails = 1;
+    await pass(); // the planner hands back after the work item closed
+    expect(await stage(workItem)).toBe('plan');
+    await pass(); // the volume cannot be deleted
+    expect(steps.finished).toEqual([]);
+    expect(await stage(workItem)).toBe('plan');
+    await pass();
+    expect(steps.finished).toEqual([workItem]);
+    expect(await stage(workItem)).toBe('ended');
+  });
+
   it('stops the step in hand when the line stops, records nothing of it, and runs it afresh when it starts', async () => {
     const workItem = await ticket();
     let stopped = false;

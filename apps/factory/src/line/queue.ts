@@ -82,14 +82,6 @@ export class Queue {
     return rows.map(item);
   }
 
-  /** Every work item on the line that has not ended, held or not. */
-  async working(): Promise<QueueItem[]> {
-    const rows = await this.#sql<Row[]>`
-      select work_item, stage, steps, failures, failure, issue, session from line
-      where stage <> 'ended' order by taken_at`;
-    return rows.map(item);
-  }
-
   /**
    * Holds a work item for this worker for a while, so no other acts on it meanwhile. Undefined if another holds it,
    * or it has ended. A step's lease outlasts the step's deadline; a crash leaves it to run out.

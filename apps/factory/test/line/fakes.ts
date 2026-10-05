@@ -20,6 +20,8 @@ export type Agent = (
 export class FakeSteps implements Steps {
   readonly requests: StepRequest[] = [];
   readonly finished: string[] = [];
+  /** How many times deleting a work item's volume fails before it works. */
+  finishFails = 0;
   readonly #agents: Partial<Record<string, Agent>>;
   readonly #sql: Sql;
   #working: (() => void)[] = [];
@@ -57,6 +59,7 @@ export class FakeSteps implements Steps {
   }
 
   async finish(workItem: string): Promise<void> {
+    if (this.finishFails-- > 0) throw new Error('The volume could not be deleted.');
     this.finished.push(workItem);
   }
 

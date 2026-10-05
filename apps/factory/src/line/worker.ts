@@ -204,19 +204,28 @@ export class Line {
       if (!claimed) return;
       try {
         await this.#act(claimed, next, fold(events));
-      } finally {
+      } catch (error) {
         await this.#release(item.workItem);
+        throw error;
       }
-      if (next.do === 'finish') return;
+      if (next.do === 'finish') {
+        await this.#queue.release(item.workItem, 'ended');
+        return;
+      }
+      await this.#release(item.workItem);
       item = await this.#queue.get(item.workItem);
     }
   }
 
-  /** Lets go of a work item, at the stage its events now put it in. */
+  /**
+   * Lets go of a work item, at the stage its events now put it in. Never at its end: only finishing ends a work item,
+   * once its volume has gone, so a work item that ended while a step was in hand is still taken up and finished.
+   */
   async #release(workItem: string): Promise<void> {
     const item = await this.#queue.get(workItem);
     if (!item) return;
-    await this.#queue.release(workItem, decide(await this.#events(workItem), item).stage);
+    const { stage } = decide(await this.#events(workItem), item);
+    await this.#queue.release(workItem, stage === 'ended' ? item.stage : stage);
   }
 
   /** An action that is not a step: quick, and done before the next. */
@@ -506,11 +515,15 @@ export class Line {
     return this.#o.github.act<number>('openIssue', this.#o.repo, { title: ticket.title, body });
   }
 
-  /** Reads every work item's pull request, and appends what its gates and merge say that it has not recorded. */
+  /**
+   * Reads the pull request of every work item nobody is acting on, and appends what its gates and merge say that it
+   * has not recorded. One with a step in hand is left until the step ends: a coder may have pushed its commit and not
+   * yet recorded the push, and gates read on that commit first would be judged against the push before it.
+   */
   async #readGates(): Promise<void> {
     const { github, repo, log } = this.#o;
     let required: string[] | undefined;
-    for (const item of await this.#queue.working()) {
+    for (const item of await this.#queue.free()) {
       try {
         const raw = await this.#raw(item.workItem);
         const state = fold(raw as LineEvent[]);
