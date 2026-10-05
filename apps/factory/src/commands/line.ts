@@ -4,6 +4,7 @@
  *     factory line stop [--reason <why>]
  *     factory line start [--autonomy supervised|guarded|lights-out]
  *     factory line serve
+ *     factory line bench [<agent> [<fixture>]] [--commit <sha>]
  *
  * `serve` runs the line's server (`runners/serve.ts`): the handback for runners' agent pods, and the steps it runs in
  * the `runners` namespace. With LINE_MODE set to `live` or `dry-run`, it also runs the line itself (`line/worker.ts`):
@@ -14,6 +15,11 @@
  * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
  * HANDBACK_PORT (8081); KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE.
+ *
+ * `bench` runs one agent's step on this machine, on a fixture's invented work (`line/bench/`), against the gateway at
+ * GATEWAY_URL (default http://localhost:8180), and prints what the agent handed back, whether its result fits the
+ * agent's schema, how many of its calls the cassettes replayed, and how long it took. Without a fixture, it lists
+ * them. Its folder is /tmp/factory-bench, the same on every run so that a run replays from the cassettes.
  *
  * Every worker checks the line before it takes work, so a stopped line finishes what is in hand and takes nothing
  * new; signals wait in the inbox until it starts again. Connects with DATABASE_URL, or the PG* variables, as the
@@ -26,7 +32,8 @@ import postgres from 'postgres';
 
 export const USAGE = `  factory line stop [--reason <why>]
   factory line start [--autonomy supervised|guarded|lights-out]
-  factory line serve`;
+  factory line serve
+  factory line bench [<agent> [<fixture>]] [--commit <sha>]`;
 
 export async function run(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -35,10 +42,12 @@ export async function run(args: string[]): Promise<number> {
     options: {
       reason: { type: 'string', default: 'Martin stopped the line' },
       autonomy: { type: 'string', default: 'supervised' },
+      commit: { type: 'string' },
     },
   });
   const [command] = positionals;
   if (command === 'serve') return serve();
+  if (command === 'bench') return bench(positionals.slice(1), values.commit);
   const autonomy = values.autonomy as Autonomy;
   if ((command !== 'stop' && command !== 'start') || !AUTONOMY.includes(autonomy)) {
     console.log(`Usage:\n${USAGE}`);
@@ -138,4 +147,42 @@ async function serve(): Promise<number> {
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
   await Promise.all([sql.end(), shutdownTelemetry()]);
   return 0;
+}
+
+/** Where the bench works: fixed, because the checkout's path is in the agent's prompt. */
+const BENCH_DIR = '/tmp/factory-bench';
+
+async function bench([agent, name]: string[], commit: string | undefined): Promise<number> {
+  const { FIXTURES } = await import('../line/bench/fixtures.ts');
+  const fixtures = agent && agent in FIXTURES ? FIXTURES[agent as keyof typeof FIXTURES] : undefined;
+  const fixture = fixtures && name ? fixtures[name] : undefined;
+  if (!agent || !fixtures || !fixture) {
+    console.log(`Usage:\n  factory line bench <agent> <fixture> [--commit <sha>]\n\nFixtures:`);
+    for (const [each, list] of Object.entries(FIXTURES)) {
+      for (const [fixtureName, f] of Object.entries(list)) console.log(`  ${each} ${fixtureName}: ${f.about}`);
+    }
+    return agent ? 2 : 0;
+  }
+  // The runner's own steps, which only the bench loads: the factory's image does not hold them.
+  const { prepare } = await import('../../../runner/src/prepare.ts');
+  const { runAgent } = await import('../../../runner/src/agent.ts');
+  const { bench: run } = await import('../line/bench/bench.ts');
+  const { DATABASE_URL, GATEWAY_URL } = process.env;
+  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  try {
+    const benched = await run({
+      agent: agent as keyof typeof FIXTURES,
+      fixture,
+      commit,
+      sql,
+      gateway: GATEWAY_URL ?? 'http://localhost:8180',
+      dir: BENCH_DIR,
+      runner: { prepare, runAgent },
+      log: (line) => console.error(line),
+    });
+    console.log(JSON.stringify(benched, null, 2));
+    return benched.handback.ending === 'finished' && benched.result.fits ? 0 : 1;
+  } finally {
+    await sql.end();
+  }
 }
