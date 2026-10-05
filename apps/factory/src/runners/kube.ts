@@ -4,7 +4,7 @@
  * `kubectl proxy` serves (KUBE_API_URL), which carries the person's own credentials.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { request } from 'node:https';
+import { request as httpsRequest } from 'node:https';
 import type { z } from 'zod';
 
 const ACCOUNT = '/var/run/secrets/kubernetes.io/serviceaccount';
@@ -34,7 +34,7 @@ export class KubeError extends Error {
 
 type Send = (method: string, path: string, body?: unknown) => Promise<{ status: number; text: string }>;
 
-function client(send: Send): Kube {
+export function client(send: Send): Kube {
   const check = (method: string, path: string, { status, text }: { status: number; text: string }) => {
     if (status >= 400) {
       const message = (() => {
@@ -63,7 +63,8 @@ function client(send: Send): Kube {
       check('POST', path, answer);
     },
     async remove(path: string) {
-      const answer = await send('DELETE', path, { propagationPolicy: 'Background' });
+      // In the query, not a body: a Job's pods go with it, in the background.
+      const answer = await send('DELETE', `${path}?propagationPolicy=Background`);
       if (answer.status === 404) return;
       check('DELETE', path, answer);
     },
@@ -86,35 +87,58 @@ export function kubeFrom(env = process.env): Kube {
   if (!existsSync(`${ACCOUNT}/token`)) {
     throw new Error('No service account here: set KUBE_API_URL to what `kubectl proxy` serves.');
   }
-  const ca = readFileSync(`${ACCOUNT}/ca.crt`);
   return client(
-    (method, path, body) =>
-      new Promise((resolve, reject) => {
-        const req = request(
-          {
-            host: env.KUBERNETES_SERVICE_HOST ?? 'kubernetes.default.svc',
-            port: Number(env.KUBERNETES_SERVICE_PORT ?? 443),
-            path,
-            method,
-            ca,
-            // The token is read again each time: Kubernetes rotates it.
-            headers: {
-              authorization: `Bearer ${readFileSync(`${ACCOUNT}/token`, 'utf-8').trim()}`,
-              'content-type': 'application/json',
-            },
-            timeout: 30_000,
-          },
-          (res) => {
-            const chunks: Buffer[] = [];
-            res.on('data', (chunk: Buffer) => chunks.push(chunk));
-            res.on('end', () =>
-              resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf-8') }),
-            );
-          },
-        );
-        req.on('error', reject);
-        req.on('timeout', () => req.destroy(new Error(`${method} ${path} timed out`)));
-        req.end(body === undefined ? undefined : JSON.stringify(body));
-      }),
+    accountSend({
+      host: env.KUBERNETES_SERVICE_HOST ?? 'kubernetes.default.svc',
+      port: Number(env.KUBERNETES_SERVICE_PORT ?? 443),
+      ca: readFileSync(`${ACCOUNT}/ca.crt`),
+      // Read again each time: Kubernetes rotates it.
+      token: () => readFileSync(`${ACCOUNT}/token`, 'utf-8').trim(),
+    }),
   );
+}
+
+/**
+ * Requests as the pod's service account. A body goes with its length: without one, Node sends a DELETE's body unframed,
+ * the API server reads the request as having none, and the bytes left over spoil the next request on the connection.
+ */
+export function accountSend({
+  host,
+  port,
+  ca,
+  token,
+  request = httpsRequest,
+}: {
+  host: string;
+  port: number;
+  ca?: Buffer;
+  token: () => string;
+  request?: typeof httpsRequest;
+}): Send {
+  return (method, path, body) =>
+    new Promise((resolve, reject) => {
+      const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
+      const req = request(
+        {
+          host,
+          port,
+          path,
+          method,
+          ...(ca && { ca }),
+          headers: {
+            authorization: `Bearer ${token()}`,
+            ...(payload && { 'content-type': 'application/json', 'content-length': payload.length }),
+          },
+          timeout: 30_000,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf-8') }));
+        },
+      );
+      req.on('error', reject);
+      req.on('timeout', () => req.destroy(new Error(`${method} ${path} timed out`)));
+      req.end(payload);
+    });
 }
