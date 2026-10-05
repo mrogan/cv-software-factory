@@ -101,6 +101,7 @@ export class FakeGitHub implements GitHubPort {
           mergeCommit: null,
           mergedBy: null,
           head: { ref: String(args.head), sha: this.lastCommit },
+          base: { ref: String(args.base), sha: MAIN },
           draft: Boolean(args.draft),
           nodeId: 'PR_12',
         });

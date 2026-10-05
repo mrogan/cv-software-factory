@@ -169,6 +169,10 @@ describe('the line', () => {
     await pass(); // the hold for Martin
     expect(await stage(workItem)).toBe('held');
     expect(github.acts.map((a) => a.action).slice(4)).toEqual(['review', 'updatePullRequest', 'readyForReview']);
+    // The reviewer starts from the pull request's head, and takes its diff against the pull request's base.
+    const head = github.pulls.get(12)?.head.sha;
+    expect(steps.requests[2]).toMatchObject({ agent: 'reviewer', commit: head });
+    expect(steps.requests[2]?.prompt).toContain(`the diff from ${MAIN} to the checkout's head`);
 
     github.merge();
     await pass();

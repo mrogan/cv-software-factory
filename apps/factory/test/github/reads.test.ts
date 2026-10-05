@@ -18,6 +18,7 @@ const PULL = {
   merge_commit_sha: OTHER_SHA,
   merged_by: { login: 'mrogan' },
   head: { ref: 'factory/1001-cart', sha: SHA },
+  base: { ref: 'main', sha: OTHER_SHA, repo: { full_name: REPO } },
   draft: false,
   node_id: 'PR_7',
   title: 'ignored',
@@ -73,6 +74,7 @@ describe('reading GitHub for the line', () => {
       mergeCommit: OTHER_SHA,
       mergedBy: 'mrogan',
       head: { ref: 'factory/1001-cart', sha: SHA },
+      base: { ref: 'main', sha: OTHER_SHA },
       draft: false,
       nodeId: 'PR_7',
     });

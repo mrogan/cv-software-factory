@@ -19,6 +19,8 @@ export interface PullRequestState {
   /** Who merged it, by login. */
   mergedBy: string | null;
   head: { ref: string; sha: string };
+  /** The branch it merges into, and that branch's commit its diff is taken against. */
+  base: { ref: string; sha: string };
   draft: boolean;
   /** GraphQL's id, which readying a draft needs. */
   nodeId: string;
@@ -56,6 +58,7 @@ const PULL = z.object({
   // GitHub gives a deleted account as null.
   merged_by: z.object({ login: z.string() }).nullable(),
   head: z.object({ ref: z.string(), sha: SHA }),
+  base: z.object({ ref: z.string(), sha: SHA }),
   draft: z.boolean().optional(),
   node_id: z.string().min(1),
 });
@@ -104,7 +107,8 @@ export class LiveReads implements Reads {
       merged: pr.merged,
       mergeCommit: pr.merged ? pr.merge_commit_sha : null,
       mergedBy: pr.merged_by?.login ?? null,
-      head: pr.head,
+      head: { ref: pr.head.ref, sha: pr.head.sha },
+      base: { ref: pr.base.ref, sha: pr.base.sha },
       draft: pr.draft ?? false,
       nodeId: pr.node_id,
     };

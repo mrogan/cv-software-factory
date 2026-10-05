@@ -330,10 +330,11 @@ export class Line {
     const { workItem } = item;
     const { agents, repo, github } = this.#o;
     const pullRequest = state.pullRequest;
-    // Before a pull request, a step starts from main; after, from the pull request's head.
-    const commit = pullRequest
-      ? (await github.read('pullRequest', repo, { number: pullRequest.number })).head.sha
-      : await github.read('head', repo, { branch: 'main' });
+    // Before a pull request, a step starts from main; after, from the pull request's head, and its diff is taken
+    // against the pull request's base.
+    const pr = pullRequest ? await github.read('pullRequest', repo, { number: pullRequest.number }) : undefined;
+    const commit = pr ? pr.head.sha : await github.read('head', repo, { branch: 'main' });
+    const base = pr?.base.sha ?? commit;
     const ticket = need(state.ticket, 'a ticket');
     switch (agent) {
       case 'planner':
@@ -350,7 +351,7 @@ export class Line {
             workItem,
             spec: need(state.spec, 'a spec'),
             pullRequest: need(pullRequest, 'a pull request').number,
-            base: commit,
+            base,
           }),
         };
       case 'describer':
@@ -361,7 +362,7 @@ export class Line {
             ticket,
             spec: need(state.spec, 'a spec'),
             pullRequest: need(pullRequest, 'a pull request').number,
-            base: commit,
+            base,
           }),
         };
     }

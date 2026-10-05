@@ -12,6 +12,7 @@ const pr = (change: Partial<PullRequestState> = {}): PullRequestState => ({
   mergeCommit: null,
   mergedBy: null,
   head: { ref: 'factory/1001-search', sha: SHA },
+  base: { ref: 'main', sha: MERGED },
   draft: true,
   nodeId: 'PR_12',
   ...change,
