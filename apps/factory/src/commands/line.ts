@@ -6,9 +6,14 @@
  *     factory line serve
  *
  * `serve` runs the line's server (`runners/serve.ts`): the handback for runners' agent pods, and the steps it runs in
- * the `runners` namespace. Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default
- * http://github:8080); RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the
- * handback; PORT (8080) and HANDBACK_PORT (8081); KUBE_API_URL on a host (what `kubectl proxy` serves).
+ * the `runners` namespace. With LINE_MODE set to `live` or `dry-run`, it also runs the line itself (`line/worker.ts`):
+ * it takes tickets and carries them through the agents, the gates and review to Martin's merge, acting in GitHub for
+ * real or recording what it would have done. LINE_MODE is `off` by default: the line takes no tickets, and only the
+ * step API and the smoke run work, and stopping the line still stops their agents.
+ *
+ * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
+ * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
+ * HANDBACK_PORT (8081); KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE.
  *
  * Every worker checks the line before it takes work, so a stopped line finishes what is in hand and takes nothing
  * new; signals wait in the inbox until it starts again. Connects with DATABASE_URL, or the PG* variables, as the
@@ -72,10 +77,18 @@ export async function run(args: string[]): Promise<number> {
   }
 }
 
+const MODES = ['off', 'dry-run', 'live'] as const;
+
 async function serve(): Promise<number> {
   const { RUNNER_IMAGE, DATABASE_URL } = process.env;
   if (!RUNNER_IMAGE) {
     console.error('Set RUNNER_IMAGE to the factory-runner image, by digest.');
+    return 2;
+  }
+  // The setting that lets the line act fails closed: anything but one of its values stops it starting.
+  const mode = (process.env.LINE_MODE || 'off').trim() as (typeof MODES)[number];
+  if (!MODES.includes(mode)) {
+    console.error(`LINE_MODE is ${JSON.stringify(process.env.LINE_MODE)}; it must be one of ${MODES.join(', ')}.`);
     return 2;
   }
   const { shutdownTelemetry } = await import('../telemetry.ts');
@@ -102,10 +115,26 @@ async function serve(): Promise<number> {
   // The step API on loopback only: a port-forward reaches it, and no pod can. Agent pods call the handback.
   await new Promise<void>((resolve) => api.listen(port, '127.0.0.1', resolve));
   await new Promise<void>((resolve) => handback.listen(handbackPort, resolve));
-  log.info({ port, handbackPort }, `line listening on :${port}, the handback on :${handbackPort}`);
+  log.info({ port, handbackPort, mode }, `line listening on :${port}, the handback on :${handbackPort}`);
+
+  // Off, the line takes no work, but still stops what the step API started when the line stops.
+  const { Line } = await import('../line/worker.ts');
+  const line = new Line({
+    sql,
+    // Line events carry no artifacts, so the writer never looks in the artifact store.
+    events: new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts('/nonexistent') }),
+    steps: runners,
+    github: new GitHubWorker(env.GITHUB_WORKER_URL ?? 'http://github:8080', { dryRun: mode !== 'live' }),
+    log,
+    takesWork: mode !== 'off',
+  });
+  const abort = new AbortController();
+  const working = line.run(abort.signal);
   await new Promise<void>((resolve) => {
     for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => resolve());
   });
+  abort.abort();
+  await working;
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
   await Promise.all([sql.end(), shutdownTelemetry()]);
   return 0;

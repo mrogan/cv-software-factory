@@ -72,6 +72,7 @@ describe('migrations', () => {
       { version: 2, name: 'store-kind-work-items-and-inbox' },
       { version: 3, name: 'model-calls' },
       { version: 4, name: 'job-tokens-and-agent-calls' },
+      { version: 5, name: 'line' },
     ]);
   });
 });
