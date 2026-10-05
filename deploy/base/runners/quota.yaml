@@ -1,6 +1,6 @@
 # What runners may take of the node, together: a few steps at a time. A loop in the line, or a flood of steps, stops
-# here rather than filling the node. The LimitRange gives every container a CPU limit and a default request; the Jobs
-# set their own memory (runners/jobs.ts).
+# here rather than filling the node. The quota counts memory and CPU limits, so the LimitRange gives every container
+# that sets none a default limit and request: the Jobs set their own (runners/jobs.ts), a pod made by hand gets these.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -24,6 +24,7 @@ spec:
     - type: Container
       default:
         cpu: "2"
+        memory: 1Gi
       defaultRequest:
         cpu: 100m
         memory: 256Mi
