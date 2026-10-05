@@ -36,12 +36,12 @@ export const VERSIONS = {
   'hold.started': 1,
   'hold.answered': 1,
   'action.refused': 1,
-  'model.called': 1,
+  'model.called': 2,
   // The line as a whole, with no work item
   'line.started': 1,
   'line.stopped': 1,
-  'spend.capped': 1,
-  'spend.cleared': 1,
+  'spend.capped': 2,
+  'spend.cleared': 2,
 } as const;
 
 export type EventType = keyof typeof VERSIONS;

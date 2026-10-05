@@ -31,8 +31,11 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   kubectl --context k3d-software-factory -n telemetry port-forward svc/tempo 3200 &
   export PGHOST=127.0.0.1 PGDATABASE=factory PGUSER=factory_writer \
     PGPASSWORD="$(kubectl --context k3d-software-factory -n factory get secret postgres-writer -o jsonpath='{.data.password}' | base64 -d)"
-  # The gateway, with the key from the Keychain (leave it out to replay only), on :8080.
+  # The gateway, with the keys from the Keychain (leave one out to replay that provider only), on :8080. It reaches LM
+  # Studio at 127.0.0.1:1234; ALL_LOCAL=true sends every agent there. Its cassettes hold whole prompts, reports and
+  # tool output: keep them out of the repository (only eval cassettes, made from invented reports, are committed).
   GATEWAY_MODE=replay-record CASSETTES_DIR=/tmp/cassettes TYPESAFE_API_KEY="$(security find-generic-password -s typesafe-api-key -w)" \
+    ANTHROPIC_API_KEY="$(security find-generic-password -s anthropic-api-key -w)" \
     node --import ./apps/factory/src/telemetry.ts apps/factory/src/cli.ts gateway &
   GATEWAY_URL=http://localhost:8080 ARTIFACTS_DIR=/tmp/artifacts node apps/factory/src/cli.ts triage
   APP_URL=http://website.localhost:8080 ARTIFACTS_DIR=/tmp/artifacts PORT=8090 node apps/factory/src/cli.ts probes run
@@ -45,6 +48,15 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
     GITHUB_DRY_RUN=true ARTIFACTS_DIR=/tmp/artifacts PORT=8091 node apps/factory/src/cli.ts github run
   ```
 
+  Runners need the cluster: their agent pods reach the cluster's gateway and the line's handback, and nothing else. The smoke run asks the line, through a port-forward to its step API, to have a coder fix an off-by-one seeded in a scratch copy of the app; the GitHub worker records the commit it would have made, and nothing reaches GitHub. The coder works on Claude, through the cluster's gateway, and the run costs money; with `ALL_LOCAL=true` on that gateway and LM Studio running, it works on Qwen, for nothing:
+
+  ```sh
+  kubectl --context k3d-software-factory -n factory port-forward svc/line 8092:8080 & sleep 2
+  curl -s localhost:8092/v1/smoke -H 'content-type: application/json' -d "{\"commit\":\"$(git ls-remote https://github.com/mrogan/cv-worlds-worst-website.git main | cut -f1)\"}"
+  ```
+
+  A runner's two steps also run as containers, for working on the runner itself: `docker build -f apps/runner/Dockerfile .`, then `runner prepare` and `runner agent` with the variables in `apps/runner/src/step.ts`.
+
   Scale the cluster's copy of a worker to nothing first (`kubectl -n factory scale deployment/triage --replicas=0`), and back to one after, so two do not take the same signals. Add `PAGES_URL=http://localhost:8090` to triage to have it read the pages reports name.
 - Node 24 runs TypeScript directly: erasable syntax only, `.ts` extensions in imports, no build step. The console's browser code is the exception: Vite builds it.
 - In the console, anything that runs every frame (a drag, a wipe, the reel settling) writes to the DOM through refs, and React state changes only when the movement ends. A test counts renders during a drag.
@@ -52,7 +64,7 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
 - Commits and pull request titles are Conventional Commits (`scripts/commit-msg.ts` checks both). Pull requests are squash-merged; nothing is pushed to `main`.
 - `deploy/` is GitOps: Argo CD deploys what is on `main`, so a change there reaches the cluster only when it merges. A deploy change that needs a new image (a migration, a new setting) waits for the pull request that pins that image.
 - Files listed in `.github/CODEOWNERS` are the rules of the line. Change them only when Martin asks.
-- Merging is Martin's call, and so is approving the held check runs on a pull request a workflow opened (deploy, release).
+- Merging is Martin's call. The factory's App opens the deploy and release pull requests; no workflow opens or approves one.
 - pnpm installs no release younger than a day, runs no dependency's install script unless `pnpm-workspace.yaml` allows it, and refuses a provenance downgrade. When it refuses, find out why; an exception goes in that file with its reason.
 - Refresh a Dependabot pull request with `@dependabot rebase` or `@dependabot recreate`. Don't close it: that tells Dependabot to skip the version.
 - A follow-up with no home yet goes in [`docs/PLAN/BACKLOG.md`](docs/PLAN/BACKLOG.md), not in a code comment.

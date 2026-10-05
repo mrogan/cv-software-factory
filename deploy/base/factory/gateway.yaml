@@ -1,6 +1,6 @@
-# The model gateway: the only way from the factory to a model, and the only pod that holds the TypeSafe key or may reach the
-# internet (network-policies.yaml). In record mode it asks Jev and keeps a cassette of each answer on its own volume, where
-# recordings of real reports stay: no other pod mounts it, and nothing commits it. Without a key it replays.
+# The model gateway: the only way from the factory to a model, and the only pod that holds a model provider's key (TypeSafe's
+# and Anthropic's). In record mode it asks the provider and keeps a cassette of each answer on its own volume, where recordings
+# of real reports and real work stay: no other pod mounts it, and nothing commits it. Without a key it replays that provider.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -77,6 +77,18 @@ spec:
                   name: typesafe
                   key: api-key
                   optional: true
+            # Anthropic's key, for the agents' calls. `make up` creates the Secret from the Keychain; with none, agents' calls
+            # to Claude replay only.
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic
+                  key: api-key
+                  optional: true
+            # LM Studio on the Mac, through OrbStack's address for the host. Only the local profile's network policy lets
+            # the gateway reach it (deploy/overlays/local/local-models.yaml).
+            - name: LOCAL_MODELS_URL
+              value: http://0.250.250.254:1234
           readinessProbe:
             httpGet:
               path: /health

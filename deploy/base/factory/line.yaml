@@ -1,0 +1,117 @@
+# The line: for now, the runners' side of it (apps/factory/src/runners). It starts each step's Jobs in `runners`,
+# with its own service account, which may do that and nothing else (deploy/base/runners/line-access.yaml), and takes
+# the agent pods' handbacks on :8081. Its step API on :8080 is reached only through a person's port-forward.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: line
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: line
+  labels: &labels
+    app.kubernetes.io/name: line
+    app.kubernetes.io/part-of: software-factory
+    app.kubernetes.io/component: worker
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # one at a time: a handback goes to the pod whose step waits for it
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: line
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      serviceAccountName: line
+      # The one worker that talks to the Kubernetes API, to start runners.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # The runner image, pinned by the profile like the others: this checks it is pullable before the line starts,
+        # and the profile copies its reference into RUNNER_IMAGE (deploy/overlays/local/factory-image).
+        - name: runner-image
+          image: factory-runner
+          args: ["--version"]
+          command: [node]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      containers:
+        - name: line
+          image: factory
+          args:
+            - --import
+            - ./src/telemetry.ts
+            - src/cli.ts
+            - line
+            - serve
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: handback
+              containerPort: 8081
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.telemetry:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "line"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=software-factory"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "15000"
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              value: factory
+            - name: PGUSER
+              value: factory_writer
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-writer
+                  key: password
+            - name: RUNNER_IMAGE
+              value: factory-runner
+            - name: GITHUB_WORKER_URL
+              value: http://github:8080
+            - name: RUNNER_GATEWAY_URL
+              value: http://gateway.factory.svc:8080
+            - name: RUNNER_HANDBACK_URL
+              value: http://line.factory.svc:8081/v1/handback
+          # The handback's port: the step API listens on loopback only, so the kubelet cannot reach it.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: handback
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

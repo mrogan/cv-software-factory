@@ -1,0 +1,7 @@
+# Only what the runner image copies in.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/runner/package.json
+!apps/runner/src

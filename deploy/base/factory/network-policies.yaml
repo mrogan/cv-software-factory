@@ -151,8 +151,9 @@ spec:
       ports:
         - { protocol: TCP, port: 4318 }
 ---
-# The gateway is called by triage, and is the one pod that may leave the cluster: TypeSafe, over TLS. Addresses inside
-# the cluster and on the local network are excepted, so this opens the internet and nothing else.
+# The gateway is called by triage and by runners' agent pods, and may leave the cluster for its providers: TypeSafe and
+# Anthropic, over TLS. Addresses inside the cluster, on the local network and of the host are excepted, so this opens the
+# internet and nothing else; the local profile adds LM Studio on the host (deploy/overlays/local/local-models.yaml).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -169,19 +170,26 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: triage
+        # Runners' agent pods, for their agents' calls.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: runners
+          podSelector:
+            matchLabels:
+              factory.mrogan.dev/runner: agent
       ports:
         - { protocol: TCP, port: 8080 }
   egress:
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
-            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 0.0.0.0/8]
       ports:
         - { protocol: TCP, port: 443 }
 ---
 # The GitHub worker reaches GitHub and GHCR, over TLS, and nothing else outside the cluster. Their addresses are many
 # and change, so, as for the gateway, the rule is the internet on 443 with the cluster's, the local network's and the
-# host's addresses excepted. Nothing calls it yet; the line will. It sends its telemetry, and touches no store.
+# host's addresses excepted. Only the line calls it. It sends its telemetry, and touches no store.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -193,7 +201,13 @@ spec:
     matchLabels:
       app.kubernetes.io/name: github
   policyTypes: [Ingress, Egress]
-  ingress: []
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: line
+      ports:
+        - { protocol: TCP, port: 8080 }
   egress:
     - to:
         - ipBlock:
@@ -329,3 +343,45 @@ spec:
               kubernetes.io/metadata.name: website
       ports:
         - { protocol: TCP, port: 8080 }
+---
+# The line takes runners' handbacks, starts their Jobs through the Kubernetes API, and asks the GitHub worker to act.
+# The API server listens on the k3d node's own address, which Docker chooses when the cluster is made, on 6443. A policy
+# sees a connection after the `kubernetes` Service has translated it, so 6443 on a private address is all the line
+# needs, and it reaches nothing else on the cluster's or the local network's addresses.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: line
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: line
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: runners
+          podSelector:
+            matchLabels:
+              factory.mrogan.dev/runner: agent
+      ports:
+        - { protocol: TCP, port: 8081 }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: github
+      ports:
+        - { protocol: TCP, port: 8080 }
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+        - ipBlock:
+            cidr: 172.16.0.0/12
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - { protocol: TCP, port: 6443 }

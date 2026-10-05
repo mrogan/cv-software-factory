@@ -1,7 +1,7 @@
 # The required checks on every pull request.
 name: check
 
-# Pull requests that workflows open (deploy, release) run these too, once Martin approves the runs on the pull request.
+# Pull requests the factory's App opens (deploy, release) run these too, at once: no workflow opens pull requests.
 # Theirs are lighter: no browser tests, and a deploy pull request's images are checked rather than built (the `kind`
 # job). They also run on main after each merge, which is what the README's badge reports.
 on:
@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Whether this is a release or deploy pull request that a workflow opened and nobody has changed. Only those skip
-  # checks, and a skipped job counts as passed for the ruleset, so the test is the author and the exact files and
+  # Whether this is a release or deploy pull request that the factory's App opened and nobody has changed. Only those
+  # skip checks, and a skipped job counts as passed for the ruleset, so the test is the author and the exact files and
   # lines that change. Anything else, or this job failing, is `code` and runs everything.
   kind:
     name: which checks apply
@@ -38,7 +38,7 @@ jobs:
           AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           kind=code
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$AUTHOR" = 'github-actions[bot]' ]; then
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$AUTHOR" = 'mrogan-software-factory[bot]' ]; then
             files=$(git diff --name-only HEAD^1 HEAD)
             # Every changed line of package.json is its version.
             other_lines=$(git diff --unified=0 HEAD^1 HEAD -- package.json | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | grep -vE '^[-+]  "version": "[^"]+",$' || true)
@@ -181,3 +181,11 @@ jobs:
           push: false
           cache-from: type=gha,scope=factory-browser
           cache-to: type=gha,mode=max,scope=factory-browser
+      - if: env.DEPLOY != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/runner/Dockerfile
+          push: false
+          cache-from: type=gha,scope=factory-runner
+          cache-to: type=gha,mode=max,scope=factory-runner

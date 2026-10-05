@@ -1,14 +1,30 @@
-# The factory images CI built last, pinned by digest, and with them the workers that run them (deploy/base/factory).
-# Empty until the first build: the build workflow's deploy pull request adds the workers and pins both images in one
-# change, so the cluster never has workers without an image to run. After that it moves only the two digests.
+# The factory images CI built last, pinned by digest, and with them the workers that run them (deploy/base/factory), so
+# the cluster never has workers without an image to run. The factory's GitHub worker moves the three digests together,
+# in a pull request, when CI has built all three from a newer commit.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:
 - ../../../base/factory
+- ../../../base/runners
 images:
-- digest: sha256:4e9fa5339240f915db681d1f38dd2c84d931d7cfb1ec447ec4a3e0cce4060e88
+- digest: sha256:49c432847358ee5ec24d3de1934b5cc5de3563b83c97193a4ad140ccc61a5ddd
   name: factory
   newName: ghcr.io/mrogan/cv-software-factory/factory
-- digest: sha256:80582511e301c3483114124da8ab90631781c309697ffa369a42385879da00b0
+- digest: sha256:817e2ef097521b3bd88ebd1179976b40c13fea02d940e3ec3845d9d628c96c06
   name: factory-browser
   newName: ghcr.io/mrogan/cv-software-factory/factory-browser
+- digest: sha256:94b22aff72f8fc06148a755d15e13656084581a9752e16f7783e315cf5aa0c22
+  name: factory-runner
+  newName: ghcr.io/mrogan/cv-software-factory/factory-runner
+# The line starts runners with the runner image it is pinned to here, so its reference goes into the line's settings.
+replacements:
+- source:
+    kind: Deployment
+    name: line
+    fieldPath: spec.template.spec.initContainers.[name=runner-image].image
+  targets:
+  - select:
+      kind: Deployment
+      name: line
+    fieldPaths:
+    - spec.template.spec.containers.[name=line].env.[name=RUNNER_IMAGE].value

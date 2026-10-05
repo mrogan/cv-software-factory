@@ -10,6 +10,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { Evidence, InboxSignal, NewEvent, PayloadOf, Screenshot } from '@software-factory/events';
+import { VERSIONS } from '@software-factory/events';
 import { idsFor, reportEvents, senseEvidence, senseTicket } from '../../../../packages/triage/src/events.ts';
 import type { Answer, Judge } from '../../../../packages/triage/src/judge.ts';
 import { MODEL, passageKey } from '../../../../packages/triage/src/questions.ts';
@@ -394,7 +395,7 @@ function line(): NewEvent[] {
       ts: ts.toISOString(),
       work_item: null,
       type,
-      version: 1,
+      version: VERSIONS[type],
       actor,
       summary,
       payload,

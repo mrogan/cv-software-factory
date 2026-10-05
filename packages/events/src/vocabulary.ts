@@ -75,7 +75,7 @@ export const SENSES = ['probe', 'crawler', 'metrics', 'logs', 'report'] as const
 export type Sense = (typeof SENSES)[number];
 
 /** The agents, each with its own budget and model settings. Triage is a Jev question set and routing code. */
-export const AGENTS = ['triage', 'planner', 'coder', 'reviewer', 'red-team'] as const;
+export const AGENTS = ['triage', 'planner', 'coder', 'reviewer', 'describer', 'red-team'] as const;
 export type Agent = (typeof AGENTS)[number];
 
 /** Who did it. People, agents, and the systems around them. A visitor is never named: their key is a credential. */
@@ -92,6 +92,14 @@ export const ACTORS = [
   'factory',
 ] as const;
 export type Actor = (typeof ACTORS)[number];
+
+/** Who answers a model call: Anthropic's API, Amazon Bedrock, or a model running on Martin's Mac (LM Studio). */
+export const MODEL_PROVIDERS = ['anthropic', 'bedrock', 'local'] as const;
+export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
+
+/** Why a provider refused to answer, when it is a cap the factory does not own. */
+export const PROVIDER_CAPS = ['credit', 'workspace-limit', 'unreachable'] as const;
+export type ProviderCap = (typeof PROVIDER_CAPS)[number];
 
 export const AUTONOMY = ['supervised', 'guarded', 'lights-out'] as const;
 export type Autonomy = (typeof AUTONOMY)[number];

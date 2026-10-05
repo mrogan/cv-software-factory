@@ -46,10 +46,22 @@ describe('validation', () => {
       ...opened,
       work_item: null,
       type: 'spend.capped',
+      version: 2,
       payload: { cap: 'day', limitUsd: 20, spentUsd: 20.01, resets: '2026-10-05T00:00:00.000Z' },
     };
     expect(validate(capped)).toEqual({ ok: true });
     expect(validate({ ...capped, type: 'spend.cleared', payload: { cap: 'day' } })).toEqual({ ok: true });
+    const provider = {
+      cap: 'provider',
+      provider: 'anthropic',
+      reason: 'credit',
+      message: 'Your credit balance is too low.',
+    };
+    expect(validate({ ...capped, payload: provider })).toEqual({ ok: true });
+    expect(validate({ ...capped, payload: { ...provider, limitUsd: 20 } }).ok).toBe(false);
+    expect(validate({ ...capped, type: 'spend.cleared', payload: { cap: 'provider', provider: 'local' } })).toEqual({
+      ok: true,
+    });
   });
 
   it('names the ticket a repeat joined, and only for a repeat', () => {
@@ -187,6 +199,30 @@ describe('public views', () => {
     const output = 'test/money.test.ts deleted   −42 lines, 6 tests\nrisk  high · tests removed';
     expect(redactSecrets(output)).toBe(output);
     expect(redactSecrets(`cassette ${'f'.repeat(64)}`)).toBe(`cassette ${'f'.repeat(64)}`);
+  });
+});
+
+describe('upcasting the real catalogue', () => {
+  it('reads version 1 of model.called as one call, and version 1 caps as they were', () => {
+    const v1 = {
+      agent: 'coder',
+      provider: 'anthropic',
+      model: 'claude-sonnet-5-5',
+      settings: { effort: 'medium' },
+      tokens: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+      costUsd: 0.01,
+      durationMs: 900,
+      cassette: 'c'.repeat(64),
+    };
+    const { cassette: _, ...rest } = v1;
+    expect(upcast({ type: 'model.called', version: 1, payload: v1 })).toMatchObject({
+      ok: true,
+      event: { version: 2, payload: { ...rest, calls: 1 } },
+    });
+    const day = { cap: 'day', limitUsd: 20, spentUsd: 21, resets: '2026-10-05T00:00:00.000Z' };
+    expect(upcast({ type: 'spend.capped', version: 1, payload: day })).toMatchObject({
+      event: { version: 2, payload: day },
+    });
   });
 });
 

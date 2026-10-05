@@ -79,6 +79,7 @@ const PROVIDER: Record<AgentRow['provider'], string> = {
   typesafe: 'TypeSafe',
   anthropic: 'Anthropic',
   bedrock: 'Amazon Bedrock',
+  local: 'local',
 };
 
 /** "Jev 1.13.0 · TypeSafe", "Claude Opus 5.5 · Anthropic". */

@@ -1,0 +1,91 @@
+# A runner's two pods, fenced apart (ADR 0008). Everything in `runners` is denied, in and out, and then:
+#
+# - the prepare pod may reach the internet on 443, outside the cluster's and the local network's addresses: GitHub,
+#   to check out the app, and the npm registry, to install it;
+# - the agent pod may reach the gateway and the line's handback, and nothing else: not even DNS, where a query for a
+#   name of its choosing would be a way out. The line writes the two addresses into its hosts (runners/jobs.ts).
+#
+# A pod is fenced a moment after it starts, so the agent pod checks its own fence before it runs the agent
+# (apps/runner/src/agent.ts). `make egress` shows the fences hold.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prepare-dns
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      factory.mrogan.dev/runner: prepare
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prepare
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      factory.mrogan.dev/runner: prepare
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 0.0.0.0/8]
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      factory.mrogan.dev/runner: agent
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: factory
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      ports:
+        - { protocol: TCP, port: 8080 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: factory
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: line
+      ports:
+        - { protocol: TCP, port: 8081 }

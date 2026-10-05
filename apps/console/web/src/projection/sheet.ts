@@ -230,7 +230,7 @@ function agents(item: ItemState): AgentRow[] {
         tokensOut: 0,
         cost: 0,
       };
-      row.calls += 1;
+      row.calls += event.payload.calls;
       row.tokensIn += tokens.input + tokens.cacheRead + tokens.cacheWrite;
       row.tokensOut += tokens.output;
       row.cost += costUsd;

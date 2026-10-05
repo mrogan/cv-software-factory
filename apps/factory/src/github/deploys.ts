@@ -53,6 +53,7 @@ export const DEPLOYS: DeployTarget[] = [
     images: [
       { name: 'factory', image: 'mrogan/cv-software-factory/factory' },
       { name: 'factory-browser', image: 'mrogan/cv-software-factory/factory-browser' },
+      { name: 'factory-runner', image: 'mrogan/cv-software-factory/factory-runner' },
     ],
   },
   {

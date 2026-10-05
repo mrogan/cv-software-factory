@@ -5,9 +5,10 @@ resources:
   - ../../base
   - console-ingress.yaml
   - website.yaml
+  - local-models.yaml
 
 components:
-  # The console image CI built last, pinned by digest. The build workflow edits only this file, in a pull request.
+  # The console image CI built last, pinned by digest. The factory's GitHub worker moves it in a pull request.
   - console-image
   # The factory's workers and the images they run, once CI has built them.
   - factory-image
