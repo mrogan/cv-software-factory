@@ -15,6 +15,7 @@ on:
     paths:
       - apps/console/**
       - apps/factory/**
+      - apps/runner/**
       - packages/events/**
       - packages/store/**
       - packages/triage/**
@@ -37,6 +38,7 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}/console
   FACTORY_IMAGE: ghcr.io/${{ github.repository }}/factory
   BROWSER_IMAGE: ghcr.io/${{ github.repository }}/factory-browser
+  RUNNER_IMAGE: ghcr.io/${{ github.repository }}/factory-runner
 
 jobs:
   # Which images to build: each one whose inputs changed since the commit its last deploy pull request pinned. Not
@@ -62,7 +64,7 @@ jobs:
           # What each image copies in (the Dockerfiles and their .dockerignore files say the same), and what they share.
           shared='^(packages/events/|packages/store/|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.github/workflows/build\.yml)'
           console="$shared|^(apps/console/|docs/design/system/(tokens\.css|station\.ts|mark/))"
-          factory="$shared|^(apps/factory/|packages/triage/|policy/)"
+          factory="$shared|^(apps/factory/|apps/runner/|packages/triage/|policy/)"
           # $1: the output, $2: the deploy commits' subject, $3: the image's inputs.
           decide() {
             # The squash-merged deploy pull request's subject names the commit it deployed, such as "run console 1f14f44".
@@ -167,3 +169,18 @@ jobs:
             org.opencontainers.image.licenses=MIT
           cache-from: type=gha,scope=factory-browser
           cache-to: type=gha,mode=max,scope=factory-browser
+      # The runners' image, built with the factory's so the three always come from one commit.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/runner/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.RUNNER_IMAGE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=Software Factory runner
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha,scope=factory-runner
+          cache-to: type=gha,mode=max,scope=factory-runner

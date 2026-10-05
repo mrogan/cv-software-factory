@@ -1,0 +1,93 @@
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { runAgent } from '../src/agent.ts';
+import { type ScriptedModel, scriptedModel, type Turn } from './model.ts';
+
+let model: ScriptedModel | undefined;
+afterEach(() => model?.close());
+
+/** A job's volume with a checkout of a tiny app in it, as the prepare pod leaves one. */
+function volume(): string {
+  const work = mkdtempSync(join(tmpdir(), 'runner-'));
+  const repo = join(work, 'repo');
+  mkdirSync(join(repo, 'src'), { recursive: true });
+  writeFileSync(join(repo, 'src/count.ts'), 'export const count = (xs: unknown[]) => xs.length - 1;\n');
+  writeFileSync(join(repo, 'README.md'), '# The shop\n');
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: repo });
+  git('init', '--quiet');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t.invalid', 'commit', '--quiet', '--message', 'base');
+  return work;
+}
+
+async function run(script: Turn[], { maxTurns = 6, repeat = false } = {}) {
+  model = await scriptedModel(script, { repeat });
+  const work = volume();
+  const env = {
+    ...process.env,
+    WORK: work,
+    HOME: join(work, 'home'),
+    ANTHROPIC_BASE_URL: model.url,
+    ANTHROPIC_API_KEY: 'sfj_job-token',
+    RUNNER_STEP: JSON.stringify({
+      agent: 'coder',
+      repository: 'https://example.invalid/app',
+      commit: 'a'.repeat(40),
+      prompt: 'Fix the count.',
+      maxTurns,
+    }),
+  };
+  return runAgent(env, { checkFence: false, log: () => {} });
+}
+
+const bash = (command: string): Turn => ({ tool: 'Bash', input: { command, description: command } });
+
+describe('a runner’s agent', () => {
+  it('edits one file, and hands back its patch, its note and its session', async () => {
+    const handback = await run([
+      bash("sed -i.bak 's/ - 1;/;/' src/count.ts && rm src/count.ts.bak"),
+      { text: 'Removed the off-by-one.' },
+    ]);
+    expect(handback).toMatchObject({
+      ending: 'finished',
+      note: 'Removed the off-by-one.',
+      turns: 2,
+      session: expect.any(String),
+    });
+    expect(handback.patch).toContain('--- a/src/count.ts\n+++ b/src/count.ts');
+    expect(handback.patch).toContain('+export const count = (xs: unknown[]) => xs.length;');
+    // Its calls carried the job token, and went to the gateway it was given.
+    expect(
+      model?.requests
+        .filter((r) => r.path.startsWith('/v1/messages'))
+        .every((r) => r.headers['x-api-key'] === 'sfj_job-token'),
+    ).toBe(true);
+  });
+
+  it('hands back a change outside its scope as it is: the line’s fence judges it, not the runner', async () => {
+    const handback = await run([
+      bash('mkdir -p .github/workflows && echo "on: push" > .github/workflows/sneak.yml'),
+      { text: 'Added a workflow.' },
+    ]);
+    expect(handback.ending).toBe('finished');
+    expect(handback.patch).toContain('+++ b/.github/workflows/sneak.yml');
+  });
+
+  it('stops at its turn limit, and says so', async () => {
+    const handback = await run([bash('echo still thinking')], { maxTurns: 2, repeat: true });
+    expect(handback).toMatchObject({ ending: 'max-turns', patch: '', turns: expect.any(Number) });
+    expect(handback.error).toMatch(/max_turns|turn/i);
+  });
+
+  it('hands back nothing when it changes nothing', async () => {
+    const handback = await run([{ text: 'The count is already right; nothing to change.' }]);
+    expect(handback).toMatchObject({
+      ending: 'finished',
+      patch: '',
+      note: 'The count is already right; nothing to change.',
+    });
+  });
+});

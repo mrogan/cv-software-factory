@@ -1,0 +1,14 @@
+{
+  "name": "@software-factory/runner",
+  "version": "0.0.0",
+  "private": true,
+  "description": "What runs inside a runner's two pods: the prepare step, which checks out the work and installs it, and the agent step, which runs an agent on the Agent SDK against the gateway and hands back a patch.",
+  "type": "module",
+  "bin": {
+    "runner": "src/cli.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.288",
+    "zod": "^4.6.5"
+  }
+}
