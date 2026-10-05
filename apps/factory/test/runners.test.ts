@@ -188,14 +188,20 @@ describe('running a step', () => {
   it('prepares, runs the agent, takes its handback once, ends its token and cleans up', async () => {
     let token = '';
     const answers: number[] = [];
-    const { runners, calls, handbackUrl, close } = await line(async (env) => {
+    let agentDone: Promise<void> = Promise.resolve();
+    const { runners, calls, handbackUrl, close } = await line((env) => {
       token = env.ANTHROPIC_API_KEY ?? '';
-      answers.push((await handBack(handbackUrl, 'sfj_not-this-one', DONE)).status);
-      answers.push((await handBack(handbackUrl, token, { ...DONE, patch: 7 })).status);
-      answers.push((await handBack(handbackUrl, token, DONE)).status);
-      answers.push((await handBack(handbackUrl, token, DONE)).status);
+      agentDone = (async () => {
+        answers.push((await handBack(handbackUrl, 'sfj_not-this-one', DONE)).status);
+        answers.push((await handBack(handbackUrl, token, { ...DONE, patch: 7 })).status);
+        answers.push((await handBack(handbackUrl, token, DONE)).status);
+      })();
+      return agentDone;
     });
     const outcome = await runners.run({ ...STEP, workItem: '1001', round: 1, deadlineSeconds: 60 });
+    await agentDone;
+    // Once the step is over, its token has ended.
+    answers.push((await handBack(handbackUrl, token, DONE)).status);
     await close();
     expect(outcome).toEqual({ kind: 'handed-back', job: 'coder-1001-1', handback: DONE });
     // A stranger's token, a body that is not a handback, the handback, and a second one, by when the token has ended.
