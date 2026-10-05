@@ -19,14 +19,14 @@ export const NAMESPACE = 'runners';
 const LABEL = 'factory.mrogan.dev';
 
 export interface JobNames {
-  /** The step's job, such as `coder-1001-2`: the agent, the work item and the round. */
+  /** The step's job, such as `coder-1001-2-5`: the agent, the work item, the round and the attempt. */
   job: string;
   workItem: string;
 }
 
 /** A Kubernetes name from parts: lower case, digits and dashes, and short enough. */
-export const jobName = (agent: string, workItem: string, round: number) =>
-  `${agent}-${workItem}-${round}`
+export const jobName = (agent: string, workItem: string, round: number, attempt = 1) =>
+  `${agent}-${workItem}-${round}-${attempt}`
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, '-')
     .slice(0, 52);

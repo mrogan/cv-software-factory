@@ -23,9 +23,8 @@ function volume(): string {
   return work;
 }
 
-async function run(script: Turn[], { maxTurns = 6, repeat = false } = {}) {
+async function run(script: Turn[], { maxTurns = 6, repeat = false, result = false, work = volume() } = {}) {
   model = await scriptedModel(script, { repeat });
-  const work = volume();
   const env = {
     ...process.env,
     WORK: work,
@@ -38,6 +37,7 @@ async function run(script: Turn[], { maxTurns = 6, repeat = false } = {}) {
       commit: 'a'.repeat(40),
       prompt: 'Fix the count.',
       maxTurns,
+      ...(result ? { result } : {}),
     }),
   };
   return runAgent(env, { checkFence: false, log: () => {} });
@@ -89,5 +89,35 @@ describe('a runner’s agent', () => {
       patch: '',
       note: 'The count is already right; nothing to change.',
     });
+  });
+
+  it('hands back the result it wrote outside the checkout, which is no part of the patch', async () => {
+    const handback = await run(
+      [bash(`echo '{"verdict":"spec","scope":["src/count.ts"]}' > "$WORK/out/result.json"`), { text: 'Planned.' }],
+      { result: true },
+    );
+    expect(handback).toMatchObject({
+      ending: 'finished',
+      patch: '',
+      result: { verdict: 'spec', scope: ['src/count.ts'] },
+    });
+    expect(handback.error).toBeUndefined();
+  });
+
+  it('hands back no result left by an earlier step, and says it wrote none', async () => {
+    const work = volume();
+    mkdirSync(join(work, 'out'));
+    writeFileSync(join(work, 'out/result.json'), '{"verdict":"stale"}');
+    const handback = await run([{ text: 'Done.' }], { result: true, work });
+    expect(handback).not.toHaveProperty('result');
+    expect(handback.error).toBe('The agent wrote no result.');
+  });
+
+  it('hands back no result that is not JSON', async () => {
+    const handback = await run([bash('echo "not json" > "$WORK/out/result.json"'), { text: 'Done.' }], {
+      result: true,
+    });
+    expect(handback).not.toHaveProperty('result');
+    expect(handback.error).toBe('The result is not JSON.');
   });
 });
