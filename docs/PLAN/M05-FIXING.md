@@ -152,10 +152,10 @@ The probe that follows the home page's links files a loop under the destination'
 ### Part A is done when
 
 - [ ] The App opens the deploy and release pull requests in both repositories, their checks run without Martin approving them, and no workflow can open or approve a pull request.
-- [ ] Code-owner review is required on `main` in both repositories; Martin's own pull requests merge through the bypass, and the merge records it. Scorecard's Branch-Protection score is recorded.
+- [x] Code-owner review is required on `main` in both repositories; Martin's own pull requests merge through the bypass, and the merge records it. Scorecard's Branch-Protection score is recorded.
 - [ ] A pull request to the app that breaks a journey, deletes a test, or adds a vulnerable dependency fails its checks, and one that only fixes a seeded defect passes them.
 - [ ] A runner, on the local model, fixes the scratch defect and hands back a patch that the dry-run worker would commit; the hand-written cassettes pass in CI with no key.
-- [ ] An agent pod reaches only the gateway and the handback, and the gateway refuses its token once the job ends.
+- [x] An agent pod reaches only the gateway and the handback, and the gateway refuses its token once the job ends.
 - [ ] With the workspace's limit reached, or LM Studio stopped, agent calls wait, the console says why, and they resume by themselves when the provider answers again.
 
 ## Part B: the agents
@@ -249,12 +249,14 @@ Spec sections 4.1, 7 and 9; `COMPONENTS.md` (the line, the agents and the App's 
 
 ### Part A
 
-All on 4 October 2026.
+On 4 and 5 October 2026.
 
 - **The App cannot change a workflow.** Asked for a signed commit adding a workflow, after a control commit it was allowed, GitHub answered `Resource not accessible by integration` in both repositories (`apps/factory/test/github/workflow-refusals.json`). The control commits were verified, signed by GitHub and authored by `mrogan-software-factory[bot]`.
 - **The app's gates, on a pull request that changes nothing they judge:** test integrity, dependency review and the image scan pass; tests first fails, as it must for a change with no tests. The journeys gate, run locally against a copy of the app whose about page answered 500, failed on that one check and passed over the 23 the base already fails, in 48 seconds.
 - **The gateway on Anthropic and on LM Studio.** A runner's call went to Claude Sonnet 5.5 at medium effort, the policy's choice, though it asked for Opus, and cost $0.0001; the same call on another day, in another session, replayed. On `local`, Qwen answered through the same endpoint, at no cost.
-- **A smoke run, outside the cluster.** The line's code, with each Job run as a container of the `factory-runner` image and the agent's container on a network that reached only the gateway and the handback: the coder on Qwen wrote the failing test, ran it, fixed the off-by-one, ran it again, and handed back a two-file patch in 2.8 minutes and 8 turns. The fence passed it, and the dry-run GitHub worker recorded the commit on the seeded base. The containers were set up by hand, for this run only. The same run in the cluster, through the line's `/v1/smoke`, is still to do: it waits for the line's deploy and a pinned runner image.
+- **A smoke run, outside the cluster.** The line's code, with each Job run as a container of the `factory-runner` image and the agent's container on a network that reached only the gateway and the handback: the coder on Qwen wrote the failing test, ran it, fixed the off-by-one, ran it again, and handed back a two-file patch in 2.8 minutes and 8 turns. The fence passed it, and the dry-run GitHub worker recorded the commit on the seeded base. The containers were set up by hand, for this run only.
+- **The smoke run in the cluster.** Through the line's `/v1/smoke`, on Claude Sonnet 5.5, from the app's `main` (`2018349`): prepare in 12 seconds, then the coder wrote the failing test, fixed the off-by-one and handed back the same two-file patch in 4 turns and 14 seconds. It made 4 calls, all answered, for $0.034, with 23,251 tokens read from the prompt cache and 8,739 written to it, though nothing in the factory asks for caching. The fence passed the patch, and the dry-run GitHub worker recorded the commit. The job's token ended when the step did, 24 seconds after it was issued, and from then the gateway and the handback refuse it. The run found a bug: the line deleted Jobs with a request body Node sent without its length, so the prepare Job's pod was orphaned and the agent's Job was not deleted (#90).
+- **The fences in the cluster.** `make egress`, all 42 checks: the workers, the line (the API server, and nothing else on its port or the node's), the agent pod (the gateway and the handback; no name resolves; not the internet, the Kubernetes API, the metadata address, Postgres, the console, the GitHub worker, the app or the host) and the prepare pod (GitHub and npm; nothing in the cluster). Getting there took two fixes the cluster found: the line's readiness probe asked the step API, which listens on loopback only (#88), and the quota in `runners` refused a pod with no memory limit, which the LimitRange did not supply (#89).
 - **Code-owner review, with the bypass.** Both repositories' rulesets match `scripts/github-settings.ts` (`--check`). #69, the first of Martin's pull requests merged after the change, merged through the bypass, and GitHub's rule-suite log records it as one. Scorecard on 5 October 2026 (commit `bd57672`): Branch-Protection 8, up from 4 in milestone 1. It docks the bypass ("settings apply to administrators" is off) and a single required approval. The total, 7.3, is below the 8 the spec asks for. Code-Review scores 0, because none of the last 24 changes was approved by a reviewer, and every merge through the bypass keeps it there until the factory's own pull requests, which Martin approves, make up most changes. Maintained, Contributors, Fuzzing and CII-Best-Practices score 0 as they did in milestone 1.
 - **A pod is fenced a moment after it starts.** A pod in `factory` reached LM Studio on the host in its first second, before kube-router had applied its policies; a moment later it could not. The agent pod therefore checks its own fence before it runs the agent.
 
@@ -262,7 +264,7 @@ All on 4 October 2026.
 
 ### Part A
 
-Written once Part A's pull requests (#62 to #73, and the app's #9 to #11) had been reviewed and their checks passed, and before they merged. Its criteria above wait on the merges and on the runs listed under "Still to run". What Part A taught, and where each lesson now lives.
+Written as Part A's pull requests (#62 to #73, and the app's #9 to #11) merged, with the fixes the first deploy needed (#88 to #90). Its criteria above that are not ticked wait on the runs listed under "Still to run". What Part A taught, and where each lesson now lives.
 
 **Decided**
 
@@ -278,6 +280,7 @@ Written once Part A's pull requests (#62 to #73, and the app's #9 to #11) had be
 
 **Learned about the cluster**
 
+- The first deploy found what tests could not: a readiness probe on a port that listens on loopback, a quota whose defaults did not cover it, and Node's `https.request` sending a DELETE's body with no length, which the API server read as no body. Each is fixed, and the last has a test against a server that keeps its connections open.
 - A pod is unfenced for about a second after it starts, so the agent pod checks its own fence before it runs the agent: the results above, and `apps/runner/src/agent.ts`.
 - A NetworkPolicy sees a connection after a Service has translated it. So the line needs only port 6443 on the node to reach the API server through `kubernetes:443`: the policy's comment.
 - The work volume outlives each step, so anything on it may be the agent's. The prepare pod checks out afresh each time, with a home, a store and settings of its own, and runs no lifecycle script or pnpmfile. pnpm is in the image, read-only, and runs once at build, because pnpm 12 fetches its native binary on first use. `runners/jobs.ts`, `apps/runner/src/prepare.ts` and the runner's Dockerfile.
@@ -290,8 +293,9 @@ Written once Part A's pull requests (#62 to #73, and the app's #9 to #11) had be
 
 **Still to run**
 
-- The merges in order, with the runner image's digest pinned in #72 from the commit that built the factory's images.
-- The smoke run in the cluster through `/v1/smoke`, on Qwen, and `make egress`.
+- #90 merged and deployed, and the smoke run again, cleaning up after itself.
+- The App keeping the release pull request (#77 was opened by the old workflow), and opening a deploy pull request in the app's repository.
+- The smoke run in the cluster on the local model. It ran on Claude: with Argo CD self-healing, `ALL_LOCAL=true` needs a change through Git, or self-heal paused for the run.
 - The workspace's limit set below its spend once, and LM Studio stopped once, to see agent calls wait, the console say why, and the calls resume.
 - A pull request to the app that breaks a journey, deletes a test or adds a vulnerable dependency, and one that only fixes a seeded defect.
 
