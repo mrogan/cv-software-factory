@@ -55,6 +55,8 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   curl -s localhost:8092/v1/smoke -H 'content-type: application/json' -d "{\"commit\":\"$(git ls-remote https://github.com/mrogan/cv-worlds-worst-website.git main | cut -f1)\"}"
   ```
 
+  The line itself (`factory line serve`) runs in the cluster only, for the same reason: its agent pods reach its handback there. `LINE_MODE` on its deployment turns it on, `dry-run` to have the GitHub worker record what it would do, and it is a deploy change like any other. The `factory` and `factory-runner` images move together.
+
   A runner's two steps also run as containers, for working on the runner itself: `docker build -f apps/runner/Dockerfile .`, then `runner prepare` and `runner agent` with the variables in `apps/runner/src/step.ts`.
 
   Scale the cluster's copy of a worker to nothing first (`kubectl -n factory scale deployment/triage --replicas=0`), and back to one after, so two do not take the same signals. Add `PAGES_URL=http://localhost:8090` to triage to have it read the pages reports name.
