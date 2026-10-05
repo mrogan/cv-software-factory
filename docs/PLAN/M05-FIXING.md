@@ -207,6 +207,7 @@ In `apps/factory/src/line`, run by `factory line`:
 - The readers of the version 2 events: the console's projections and the Grafana spend panel read `model.called` (one event per step), `spend.capped` and `spend.cleared` as Part A changed them, and a test holds each reader to the new shapes. Nothing tests that yet.
 - Every agent step's tokens, cache reads and cost, per agent and per fix, from the work items this part runs, in this file's results, with a proposed per-work-item cap for every profile in `policy/spend.ts`.
 - An overnight soak on the local model, with the GitHub worker in dry-run: the line takes ticket after ticket, and in the morning no lease is stuck, no job is left behind, every event is valid, and the spend is nothing.
+- The dry run answers for the pull requests it would have opened. Their numbers are made up and GitHub has nothing at them, so today a line in `dry-run` reads no checks and waits at Gates: the dry run needs to report checks that pass, and a merge after a while, for the soak to go round.
 
 ### 16. The fix
 
