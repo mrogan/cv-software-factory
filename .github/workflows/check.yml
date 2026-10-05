@@ -76,12 +76,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: make check
 
-  browser:
-    name: browser tests
+  # The browser tests are two jobs, side by side: the console's, and the factory's senses (the crawler and the probes).
+  # Each needs the pinned Playwright image, on arm64 like the laptops the snapshots are made on, so they match.
+  console-browser:
+    name: console browser tests
     needs: kind
     # Skipped only for a release or deploy pull request: they change nothing a browser test could see.
     if: ${{ !cancelled() && needs.kind.outputs.kind != 'release' && needs.kind.outputs.kind != 'deploy' }}
-    # The pinned Playwright image, on arm64 like the laptops the snapshots are made on, so they match.
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     container:
@@ -105,7 +106,6 @@ jobs:
       - run: pnpm --filter @software-factory/console build
       - run: pnpm exec playwright test
         working-directory: apps/console
-      - run: pnpm exec vitest run --project browser
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -114,6 +114,39 @@ jobs:
             apps/console/e2e-report
             apps/console/e2e-results
           retention-days: 7
+
+  senses-browser:
+    name: senses browser tests
+    needs: kind
+    if: ${{ !cancelled() && needs.kind.outputs.kind != 'release' && needs.kind.outputs.kind != 'deploy' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: corepack enable && pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm exec vitest run --project browser
+
+  # The one check the ruleset requires of the browser tests (scripts/github-settings.ts), so that it need not change
+  # when they are split differently. It passes when both passed, and is skipped, as they are, for a release or deploy
+  # pull request.
+  browser:
+    name: browser tests
+    needs: [kind, console-browser, senses-browser]
+    if: ${{ !cancelled() && needs.kind.outputs.kind != 'release' && needs.kind.outputs.kind != 'deploy' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - env:
+          CONSOLE: ${{ needs.console-browser.result }}
+          SENSES: ${{ needs.senses-browser.result }}
+        run: |
+          echo "console: $CONSOLE, senses: $SENSES"
+          [ "$CONSOLE" = success ] && [ "$SENSES" = success ]
 
   # A deploy pull request builds nothing: it checks that each image it pins was built from main. A release pull request
   # changes nothing an image holds, so it skips this.

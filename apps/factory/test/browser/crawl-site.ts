@@ -32,6 +32,12 @@ export type Fault =
 
 const ITEMS = ['a', 'b', 'c'];
 
+/**
+ * How long a slow answer takes, in milliseconds: over the threshold the tests give the crawler, which is shorter than
+ * a real site's so that the tests are quick.
+ */
+export const SLOW_ANSWER = 700;
+
 export interface Site {
   url: string;
   close(): Promise<void>;
@@ -77,7 +83,7 @@ ${body}${throws ? '<script>throw new Error("boom")</script>' : ''}</main></body>
     const path = raw.split('?')[0] as string;
     const asset = { 'cache-control': has('no-cache') ? 'no-store' : 'public, max-age=3600' };
     if (path === '/version') return send(res, 200, JSON.stringify({ commit: 'c'.repeat(40) }), 'application/json');
-    if (has('slow-all') && path !== '/version') await new Promise((resolve) => setTimeout(resolve, 2_300));
+    if (has('slow-all') && path !== '/version') await new Promise((resolve) => setTimeout(resolve, SLOW_ANSWER));
     if (path === '/reset') return req.socket.destroy();
     // A page whose script is never sent, so that it never finishes loading.
     if (path === '/static/hang.js') return;
@@ -100,7 +106,7 @@ ${body}${throws ? '<script>throw new Error("boom")</script>' : ''}</main></body>
     }
     if (path === '/' || path === '/about' || /^\/items\/[a-c]$/.test(path)) {
       if (path === '/items/b' && has('error-500')) return send(res, 500, '<h1>Broken</h1>');
-      if (path === '/about' && has('slow-about')) await new Promise((resolve) => setTimeout(resolve, 2_300));
+      if (path === '/about' && has('slow-about')) await new Promise((resolve) => setTimeout(resolve, SLOW_ANSWER));
       const extras = [
         path === '/' && has('dead-link') ? '<a href="/gone">Lost</a>' : '',
         path === '/' && has('page-hangs') ? '<a href="/hangs">Hangs</a>' : '',

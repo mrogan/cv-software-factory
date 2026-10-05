@@ -14,7 +14,8 @@ export default defineConfig({
   testDir: 'e2e',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
-  ...(process.env.CI && { workers: 2 }),
+  // One for each of the CI runner's four cores; the timed test runs alone after the rest (the `speed` project).
+  ...(process.env.CI && { workers: 4 }),
   reporter: process.env.CI ? [['github'], ['html', { open: 'never', outputFolder: 'e2e-report' }]] : 'list',
   outputDir: 'e2e-results',
   snapshotPathTemplate: '{testDir}/snapshots/{testFileName}/{arg}{ext}',
