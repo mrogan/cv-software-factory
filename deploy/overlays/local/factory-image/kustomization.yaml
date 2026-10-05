@@ -13,7 +13,7 @@ images:
 - digest: sha256:aefb3e22b4adfc892882ce74199560aa8002e21421b5af447b40fd1b241c212c
   name: factory-browser
   newName: ghcr.io/mrogan/cv-software-factory/factory-browser
-- digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+- digest: sha256:ebb2d18b94eaa29c2a1879d28dd71a01baea7b014b034f3fa348fa7b17b41a11
   name: factory-runner
   newName: ghcr.io/mrogan/cv-software-factory/factory-runner
 # The line starts runners with the runner image it is pinned to here, so its reference goes into the line's settings.
