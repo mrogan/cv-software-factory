@@ -29,7 +29,7 @@ function origin(): { url: string; commit: string } {
 }
 
 describe('the prepare step', () => {
-  it('starts from a fresh checkout each time, whatever the agent left behind, with the seed as its base', async () => {
+  it('starts from a fresh checkout each time, whatever the agent left behind, with the seed as the same base', async () => {
     const { url, commit } = origin();
     const work = mkdtempSync(join(tmpdir(), 'work-'));
     const own = mkdtempSync(join(tmpdir(), 'prepare-'));
@@ -52,6 +52,11 @@ describe('the prepare step', () => {
     await prepare(env, () => {});
     const repo = join(work, 'repo');
     expect(readFileSync(join(repo, 'seeded.ts'), 'utf-8')).toBe('export const seeded = true;\n');
+    const base = () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf-8' }).trim();
+    const first = base();
+    // Committed at a fixed time, so a later run makes the same sha.
+    const dates = execFileSync('git', ['log', '-1', '--format=%aI %cI'], { cwd: repo, encoding: 'utf-8' }).trim();
+    expect(dates).toBe('2026-01-01T00:00:00Z 2026-01-01T00:00:00Z');
     // What an agent might plant for the next prepare: a hook, a pnpmfile, a stray file.
     writeFileSync(join(repo, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\ntouch /tmp/planted\n', { mode: 0o755 });
     writeFileSync(join(repo, '.pnpmfile.cjs'), 'throw new Error("planted")');
@@ -60,6 +65,7 @@ describe('the prepare step', () => {
     expect(existsSync(join(repo, '.pnpmfile.cjs'))).toBe(false);
     expect(existsSync(join(repo, 'stray.ts'))).toBe(false);
     expect(existsSync(join(repo, '.git', 'hooks', 'post-checkout'))).toBe(false);
+    expect(base()).toBe(first);
   }, 60_000);
 });
 

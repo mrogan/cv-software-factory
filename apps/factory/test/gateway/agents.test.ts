@@ -392,6 +392,59 @@ describe('reading the provider', () => {
   it('keys a step without its session or its date', () => {
     expect(keyedRequest(agentRequest('2026-10-04', 'a'))).toEqual(keyedRequest(agentRequest('2027-01-31', 'b')));
   });
+
+  it('keys a step with the results of tools run at once in one order, whichever finished first', () => {
+    const results = (...ids: string[]) => ({
+      ...agentRequest(),
+      messages: [
+        { role: 'user', content: 'Fix the cart.' },
+        {
+          role: 'user',
+          content: [
+            ...ids.map((id) => ({ type: 'tool_result', tool_use_id: id, content: `read ${id}` })),
+            { type: 'text', text: 'Carry on.' },
+          ],
+        },
+      ],
+    });
+    expect(keyedRequest(results('toolu_2', 'toolu_1'))).toEqual(keyedRequest(results('toolu_1', 'toolu_2')));
+    expect(keyedRequest(results('toolu_1', 'toolu_3'))).not.toEqual(keyedRequest(results('toolu_1', 'toolu_2')));
+  });
+
+  it('keys a step without the times its tools printed, and with everything else they printed', () => {
+    const ran = (output: string) => ({
+      ...agentRequest(),
+      messages: [
+        { role: 'user', content: 'Fix the cart.' },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: output }] },
+      ],
+    });
+    const vitest = (start: string, file: string, test: string, duration: string, failed = 1) =>
+      [
+        ' RUN  v3.2.4 /work/repo',
+        '',
+        ` ❯ test/cart.test.ts (2 tests | ${failed} failed) ${file}`,
+        `   × cart > counts the last item ${test}`,
+        '',
+        ` Test Files  1 failed (1)`,
+        `      Tests  ${failed} failed | ${2 - failed} passed (2)`,
+        `   Start at  ${start}`,
+        `   Duration  ${duration}`,
+      ].join('\n');
+    const first = keyedRequest(ran(vitest('23:03:54', '4ms', '2ms', '483ms (tests 77%, import 16%, transform 6%)')));
+    const again = keyedRequest(ran(vitest('09:12:01', '11ms', '1.5s', '1.02s (transform 20ms, setup 0ms)')));
+    expect(again).toEqual(first);
+    expect(JSON.stringify(first)).toContain('counts the last item (how long)\\n');
+    const listed = (time: string) => ran(`total 8\n-rw-r--r--@  1 runner  wheel  1503 ${time} cart.test.ts\n`);
+    expect(keyedRequest(listed('Oct  5 23:14'))).toEqual(keyedRequest(listed('Jan 12  2027')));
+    expect(keyedRequest(listed('Oct  5 23:14'))).not.toEqual(keyedRequest(ran('total 8\n')));
+    // Biome, in colour.
+    const checked = (ms: number) =>
+      ran(`\u001b[34mChecked 2 files in ${ms}\u001b[0m\u001b[2mms\u001b[0m. No fixes applied.`);
+    expect(keyedRequest(checked(7))).toEqual(keyedRequest(checked(12)));
+    // A different outcome is a different call.
+    expect(keyedRequest(ran(vitest('23:03:54', '4ms', '2ms', '483ms', 2)))).not.toEqual(first);
+  });
 });
 
 /** A stream's events, written as Anthropic writes them. */

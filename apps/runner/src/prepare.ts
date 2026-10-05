@@ -8,15 +8,22 @@
  * branch's head on GitHub), with git, pnpm and pnpm's store, home and settings of its own (`PREPARE`, an empty
  * folder each time). No lifecycle script or pnpmfile runs. The agent's session, in its own home on the volume, stays,
  * so a later round resumes it.
+ *
+ * A seed is committed by a fixed author at a fixed time, so the same seed on the same commit makes the same base
+ * every time: its sha can reach the agent's prompt (Claude Code shows it the latest commits), and the gateway's
+ * cassettes replay only what is sent again exactly.
  */
 import { execFile } from 'node:child_process';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { git } from './git.ts';
+import { git, gitWith } from './git.ts';
 import { repoDir, stepFrom } from './step.ts';
 
 const exec = promisify(execFile);
+
+/** When every seed is committed. */
+const SEED_DATE = '2026-01-01T00:00:00Z';
 
 export async function prepare(env = process.env, log = (line: string) => console.log(line)): Promise<void> {
   const step = stepFrom(env);
@@ -34,7 +41,8 @@ export async function prepare(env = process.env, log = (line: string) => console
     await writeFile(seed, step.seed);
     await git(dir, 'apply', '--whitespace=nowarn', seed);
     await git(dir, 'add', '--all');
-    await git(
+    await gitWith(
+      { GIT_AUTHOR_DATE: SEED_DATE, GIT_COMMITTER_DATE: SEED_DATE },
       dir,
       '-c',
       'user.name=runner',
