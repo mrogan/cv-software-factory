@@ -10,6 +10,7 @@ import type { GitHubConfig } from './config.ts';
 import { currentWatch } from './current.ts';
 import { DEPLOYS, deployWatch } from './deploys.ts';
 import { Poller } from './poller.ts';
+import { LiveReads } from './reads.ts';
 import { Registry } from './registry.ts';
 import { quietReleasePlease, releaseWatch } from './releases.ts';
 import { createWorkerServer } from './server.ts';
@@ -47,6 +48,7 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
   }
   const server = createWorkerServer({
     actions,
+    reads: new LiveReads(github),
     dryRun,
     repositories: config.repositories,
     health: () => ({ mode, watching: poller.watching }),
