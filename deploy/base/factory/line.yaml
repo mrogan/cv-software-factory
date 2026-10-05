@@ -98,10 +98,11 @@ spec:
               value: http://gateway.factory.svc:8080
             - name: RUNNER_HANDBACK_URL
               value: http://line.factory.svc:8081/v1/handback
+          # The handback's port: the step API listens on loopback only, so the kubelet cannot reach it.
           readinessProbe:
             httpGet:
               path: /health
-              port: http
+              port: handback
             periodSeconds: 5
           resources:
             requests:
