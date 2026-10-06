@@ -46,12 +46,13 @@ describe('the coder', () => {
     expect(prompt).toContain('The line refused your patch');
     expect(prompt).toContain('    refused src/pages/cards.ts +3 −1');
     expect(prompt).toContain('the checkout is back where you started');
-    // Its session holds the spec already.
-    expect(prompt).not.toContain('Acceptance criteria');
+    // Its session holds the rest; the spec is told again, since the planner may have written it afresh.
+    expect(prompt).not.toContain('Read AGENTS.md first');
+    expect(prompt).toContain('Scope, the only files you may change: src/money.ts');
     // Without one, it is told everything again.
     const fresh = coderInputAfterRefusal(input, FENCED, null);
     expect(coder.resume?.(fresh)).toBeUndefined();
-    expect(coder.prompt(fresh)).toContain('Acceptance criteria');
+    expect(coder.prompt(fresh)).toContain('Read AGENTS.md first');
   });
 
   it('is sent back by the gates or review to the pull request’s head, told everything again without its session', () => {
@@ -62,11 +63,10 @@ describe('the coder', () => {
     expect(coder.prompt(resumed)).toContain(
       'The checkout is the pull request’s head, with the change you pushed before in it.',
     );
-    expect(coder.prompt(resumed)).not.toContain('Acceptance criteria');
+    expect(coder.prompt(resumed)).not.toContain('Read AGENTS.md first');
     const fresh = { ...input, round: 2, returned, session: null };
     expect(coder.resume?.(fresh)).toBeUndefined();
     expect(coder.prompt(fresh)).toContain('came back from review');
-    expect(coder.prompt(fresh)).toContain('Acceptance criteria');
     expect(coder.prompt(fresh)).toContain('Read AGENTS.md first');
   });
 
@@ -86,7 +86,7 @@ describe('the coder', () => {
     expect(prompt).toContain('The line refused your patch for this round');
     expect(prompt).toContain('    refused src/pages/cards.ts +3 −1');
     expect(prompt).toContain('the checkout is back where this round started');
-    expect(prompt).toContain('Acceptance criteria');
+    expect(prompt).toContain('Read AGENTS.md first');
   });
 
   it('is given Martin’s answer to the hold before its step', () => {

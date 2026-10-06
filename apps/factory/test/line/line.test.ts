@@ -481,6 +481,17 @@ describe('the line', () => {
     });
     expect(github.acts.map((a) => a.action)).toEqual(['openIssue']);
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'coder']);
+    // His answer sends it back to the planner, which is told what the fence printed and what he said.
+    await events.append(
+      event(workItem, 'hold.answered', { decision: 'answered', answer: 'The server is fine to change' }, 'martin'),
+    );
+    await pass();
+    const replan = steps.requests.at(-1);
+    expect(replan?.agent).toBe('planner');
+    expect(replan?.prompt).toContain(
+      'The scope fence printed: scope: src/search.ts, test/; refused src/server.ts +1 −1',
+    );
+    expect(replan?.prompt).toContain('He said: The server is fine to change');
   });
 
   it('refuses a patch that changes a path the app’s CODEOWNERS gives Martin at the commit, though the scope takes it in', async () => {

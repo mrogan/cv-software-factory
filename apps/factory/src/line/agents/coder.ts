@@ -137,8 +137,12 @@ function again(input: CoderInput): string[] {
   const why = [...back, ...refused];
   // Without its session, the coder needs everything a first step is told.
   if (!resumed(input)) return [...why, '', ...first(input)];
+  // The spec again, since the planner may have written it afresh since the session began.
   return [
     ...why,
+    '',
+    'The spec you are held to:',
+    ...specLines(input),
     ...(answer ? ['', `Martin answered: ${answer}`] : []),
     '',
     'Then write the result again, {"title","note"}: the note says what the whole change does, not only this round.',

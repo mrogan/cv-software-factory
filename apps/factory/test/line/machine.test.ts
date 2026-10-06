@@ -130,15 +130,15 @@ describe('what the line does next', () => {
     expect(fold(pushedAfter).fenced).toBeUndefined();
     expect(decide(pushedAfter, facts).next).toEqual({ do: 'step', agent: 'coder', round: 2 });
     expect(decide([...pushedAfter, refused()], facts)).toMatchObject({ stage: 'held' });
-    // Martin's answer to the hold gives the coder its next go, with the fence's last output.
+    // Martin's answer to the hold sends the work item back to Plan (below), and the new spec starts the count again.
     const hold: LineEvent = {
       type: 'hold.started',
       payload: { stage: 'build', kind: 'held', cause: 'scope', reason: 'Twice outside its scope' },
     };
-    const answered: LineEvent = { type: 'hold.answered', payload: { decision: 'answered', answer: 'Try again' } };
-    const after = [...once, refused(), hold, answered];
-    expect(decide(after, facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
-    expect(fold(after).fenced).toContain('refused src/server.ts');
+    const answered: LineEvent = { type: 'hold.answered', payload: { decision: 'answered', answer: 'Take it in' } };
+    const respecified = [...once, refused(), hold, answered, spec];
+    expect(decide(respecified, facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
+    expect(fold(respecified)).toMatchObject({ fenced: undefined, fenceRefusals: 0 });
     // The platform's refusals are not the fence's.
     const ruleset: LineEvent = {
       type: 'action.refused',
@@ -251,7 +251,7 @@ describe('Martin’s answer to a hold', () => {
       held('question', 'plan'),
       answer('approved'),
       spec,
-      held('scope', 'build'),
+      held('failures', 'build'),
       answer('answered', 'Try again'),
     ];
     expect(fold(events).answers).toEqual([
@@ -271,14 +271,33 @@ describe('Martin’s answer to a hold', () => {
     });
   });
 
-  it('runs the step it was held at again, for a change outside its scope or a step that kept failing', () => {
-    for (const cause of ['scope', 'failures'] as const) {
-      expect(decide([ticket, spec, held(cause, 'build'), answer('answered', 'Try again')], facts).next).toEqual({
-        do: 'step',
-        agent: 'coder',
-        round: 1,
-      });
-    }
+  it('runs a step that kept failing again, with his words', () => {
+    const events = [ticket, spec, held('failures', 'build'), answer('answered', 'The tests are in test/')];
+    expect(decide(events, facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
+    // The coder's input takes them (`answerOf`), until the work item moves on.
+    expect(fold(events).answer?.text).toBe('The tests are in test/');
+    expect(fold([...events, pushed()]).answer).toBeUndefined();
+  });
+
+  it('sends a scope the coder kept straying from back to Plan, with what the fence printed and what he said', () => {
+    const fenced = 'scope: src/search.ts, test/\nallowed src/search.ts +1 −1\nrefused src/cards.ts +2 −0';
+    const refused: LineEvent = {
+      type: 'action.refused',
+      payload: { mechanism: 'scope-fence', action: 'Push the coder’s round 1 to a new pull request', output: fenced },
+    };
+    const strayed = [ticket, spec, refused, refused, held('scope', 'build')];
+    const asked =
+      'Held for Martin. The scope fence printed: scope: src/search.ts, test/; allowed src/search.ts +1 −1; refused src/cards.ts +2 −0.';
+    const answered = [...strayed, answer('answered', 'The cards share the bug: take them in')];
+    expect(decide(answered, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
+    expect(fold(answered).answers).toEqual([{ asked, answer: 'The cards share the bug: take them in' }]);
+    // Approving says the coder needed those files.
+    const approved = [...strayed, answer('approved')];
+    expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
+    expect(fold(approved).answers).toEqual([
+      { asked, answer: 'Yes: the coder needed those files, so let the scope take them in.' },
+    ]);
+    expect(decide([...strayed, answer('rejected')], facts).next).toMatchObject({ do: 'close' });
   });
 
   it('sends the work back to the coder, with his words, from gates that kept failing', () => {
