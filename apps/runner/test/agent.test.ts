@@ -208,13 +208,16 @@ describe('reading a result', () => {
     );
   });
 
-  it('takes a folder for no file', async () => {
+  it('takes a folder or a pipe for no file, without waiting on the pipe', async () => {
     const dir = out();
     writeFileSync(join(dir, 'result.json'), '{}');
     mkdirSync(join(dir, 'body.md'));
-    expect(await readResult(join(dir, 'result.json'), { body: join(dir, 'body.md') })).toEqual({
-      problem: 'The agent wrote no body.',
-    });
+    execFileSync('mkfifo', [join(dir, 'note.md')]);
+    for (const file of ['body.md', 'note.md']) {
+      expect(await readResult(join(dir, 'result.json'), { body: join(dir, file) })).toEqual({
+        problem: 'The agent wrote no body.',
+      });
+    }
   });
 });
 

@@ -14,7 +14,8 @@
  *    step asks for one. The patch is data: the line checks it against the spec's scope, and the GitHub worker
  *    applies it outside the sandbox. The result is data too: the line reads it through the agent's schema.
  */
-import { access, mkdir, readFile, rm, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, mkdir, open, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -231,13 +232,31 @@ export async function readResult(
 ): Promise<{ result?: unknown; problem?: string }> {
   const tooBig = { problem: `The result is over ${RESULT_BYTES} bytes.` };
   let left = RESULT_BYTES;
-  /** A file's text, if it is a file and fits in what is left; `undefined` if there is none. */
+  /**
+   * A file's text, if it is a file and fits in what is left; `undefined` if there is none. It is opened once, without
+   * waiting (a pipe would never end), and measured and read through that one handle, never more than fits.
+   */
   const read = async (path: string): Promise<string | undefined | typeof tooBig> => {
-    const found = await stat(path).catch(() => undefined);
-    if (!found?.isFile()) return undefined;
-    if (found.size > left) return tooBig;
-    left -= found.size;
-    return readFile(path, 'utf-8');
+    const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK).catch(() => undefined);
+    if (!handle) return undefined;
+    try {
+      const found = await handle.stat();
+      if (!found.isFile()) return undefined;
+      if (found.size > left) return tooBig;
+      // One byte more than is left shows a file that grew since it was measured.
+      const buffer = Buffer.alloc(left + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length);
+        if (bytesRead === 0) break;
+        length += bytesRead;
+      }
+      if (length > left) return tooBig;
+      left -= length;
+      return buffer.toString('utf-8', 0, length);
+    } finally {
+      await handle.close();
+    }
   };
   const text = await read(file);
   if (text === undefined) return { problem: 'The agent wrote no result.' };
