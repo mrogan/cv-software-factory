@@ -96,7 +96,10 @@ export interface ItemState {
   captures: Capture[];
   evidence: { signal: Evidence | undefined; verified: Evidence | undefined };
   spend: number;
-  /** Model calls and Jev requests, so that none at all can be said as such. */
+  /**
+   * Agents' steps that called a model, and Jev's judgements, so that none at all can be said as such. A step is one
+   * `model.called` however many calls it made: the sheet counts the calls.
+   */
   calls: number;
   /** The ticket triage opened, if it has. */
   ticket: PayloadOf<'ticket.opened'> | undefined;

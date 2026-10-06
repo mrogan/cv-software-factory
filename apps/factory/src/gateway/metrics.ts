@@ -11,8 +11,13 @@ export const calls = meter.createCounter('gateway.calls', {
   description: 'Calls to the gateway, by agent, provider, model and outcome (answered, replayed, refused, failed)',
 });
 
-// Named with its unit, as the factory's dashboard reads it: `factory_gateway_spend_usd_total`.
-export const spend = meter.createCounter('factory_gateway_spend_usd', {
+/**
+ * Every priced call's cost, a judgement's or an agent's, as the gateway counts it, whatever event records it: the
+ * factory's dashboard reads it as `factory_gateway_spend_usd_total` (`deploy/base/telemetry/dashboards/factory.json`).
+ */
+export const SPEND_METRIC = 'factory_gateway_spend_usd';
+
+export const spend = meter.createCounter(SPEND_METRIC, {
   description: 'Model spend counted by the gateway, in US dollars',
 });
 

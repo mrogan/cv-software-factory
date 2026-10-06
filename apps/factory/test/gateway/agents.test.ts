@@ -4,13 +4,14 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DiskArtifacts, EventWriter, endJobToken, issueJobToken } from '@software-factory/store';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { SpendPolicy } from '../../../../policy/spend.ts';
 import { AgentCassettes, keyedRequest } from '../../src/gateway/agent-cassettes.ts';
 import { AgentCalls, usageOf } from '../../src/gateway/agents.ts';
 import { Cassettes } from '../../src/gateway/cassettes.ts';
 import { Gateway, type Mode } from '../../src/gateway/gateway.ts';
+import * as instruments from '../../src/gateway/metrics.ts';
 import { costOf } from '../../src/gateway/prices.ts';
 import { ProviderCaps } from '../../src/gateway/provider-caps.ts';
 import { Anthropic, capOf, LocalModels, type ProviderName } from '../../src/gateway/providers.ts';
@@ -244,6 +245,27 @@ describe('agents through the gateway', () => {
     });
     expect(Number(row?.cost_usd)).toBeCloseTo(costOf('claude-sonnet-5-5', usage), 8);
     expect(readdirSync(cassettesDir).filter((f) => f.endsWith('.json'))).toHaveLength(1);
+  });
+
+  it('adds each priced call to the spend the factory’s dashboard reads, at what the audit log says it cost', async () => {
+    // Without an OpenTelemetry SDK every instrument is the same no-op, so the spy sees every instrument's records.
+    const added = vi.spyOn(instruments.spend, 'add');
+    try {
+      const { sql, token } = await start();
+      await (await call(token, agentRequest())).text();
+      const [row] = await vi.waitFor(async () => {
+        const rows = await sql<{ cost_usd: string }[]>`select cost_usd from model_calls`;
+        if (!rows.length) throw new Error('not audited yet');
+        return rows;
+      });
+      // Never a work item, which would make a series for each.
+      expect(added.mock.calls).toContainEqual([
+        Number(row?.cost_usd),
+        { agent: 'coder', provider: 'anthropic', model: 'claude-sonnet-5-5' },
+      ]);
+    } finally {
+      added.mockRestore();
+    }
   });
 
   it('replays the same step on another day, in another session, without asking the provider', async () => {
