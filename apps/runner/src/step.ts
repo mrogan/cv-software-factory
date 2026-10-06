@@ -22,6 +22,12 @@ export interface Step {
   /** The app's repository, to clone over HTTPS, and the commit to start from. */
   repository: string;
   commit: string;
+  /**
+   * The commit a change is measured from, for a step that reads a change rather than making one (the reviewer's):
+   * fetched beside `commit` with every commit between them, and named `base` in the checkout, so `git diff base` is
+   * the change and `git log base..HEAD` its commits. Such a step takes no seed.
+   */
+  base?: string;
   /** What the agent is asked to do. */
   prompt: string;
   /** The skill the prompt names, which the runner tells the agent to use rather than leaving it to choose. */
@@ -64,17 +70,24 @@ export const repoDir = (env = process.env) => join(work(env), 'repo');
 /** Where the agent writes its result: on the volume, beside the checkout and not in it. */
 export const resultPath = (env = process.env) => join(work(env), 'out', 'result.json');
 
-const STEP = z.strictObject({
-  agent: z.string().min(1),
-  repository: z.url(),
-  commit: z.string().regex(/^[0-9a-f]{40}$/, 'a full commit sha'),
-  prompt: z.string().min(1),
-  skill: z.string().optional(),
-  maxTurns: z.number().int().positive(),
-  resume: z.string().optional(),
-  seed: z.string().optional(),
-  result: z.boolean().optional(),
-});
+const STEP = z
+  .strictObject({
+    agent: z.string().min(1),
+    repository: z.url(),
+    commit: z.string().regex(/^[0-9a-f]{40}$/, 'a full commit sha'),
+    base: z
+      .string()
+      .regex(/^[0-9a-f]{40}$/, 'a full commit sha')
+      .optional(),
+    prompt: z.string().min(1),
+    skill: z.string().optional(),
+    maxTurns: z.number().int().positive(),
+    resume: z.string().optional(),
+    seed: z.string().optional(),
+    result: z.boolean().optional(),
+  })
+  // A seed is committed on the commit, so `git diff base` would show it as part of the change.
+  .refine((step) => !(step.seed && step.base), { message: 'a step with a base reads a change, and takes no seed' });
 
 export function stepFrom(env = process.env): Step {
   const text = env.RUNNER_STEP;
