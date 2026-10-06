@@ -5,3 +5,4 @@
 !pnpm-workspace.yaml
 !apps/runner/package.json
 !apps/runner/src
+!apps/runner/plugin

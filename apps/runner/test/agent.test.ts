@@ -23,7 +23,19 @@ function volume(): string {
   return work;
 }
 
-async function run(script: Turn[], { maxTurns = 6, repeat = false, result = false, work = volume() } = {}) {
+interface RunOptions {
+  maxTurns?: number;
+  repeat?: boolean;
+  result?: boolean;
+  work?: string;
+  skill?: string;
+  resultFiles?: Record<string, string>;
+}
+
+async function run(
+  script: Turn[],
+  { maxTurns = 6, repeat = false, result = false, work = volume(), skill, resultFiles }: RunOptions = {},
+) {
   model = await scriptedModel(script, { repeat });
   const env = {
     ...process.env,
@@ -38,6 +50,8 @@ async function run(script: Turn[], { maxTurns = 6, repeat = false, result = fals
       prompt: 'Fix the count.',
       maxTurns,
       ...(result ? { result } : {}),
+      ...(skill ? { skill } : {}),
+      ...(resultFiles ? { resultFiles } : {}),
     }),
   };
   return runAgent(env, { checkFence: false, log: () => {} });
@@ -142,5 +156,67 @@ describe('a runner’s agent', () => {
     });
     expect(handback).not.toHaveProperty('result');
     expect(handback.error).toBe('The result is not JSON.');
+  });
+
+  it('hands back a field written as a file of its own inside its result', async () => {
+    const handback = await run(
+      [
+        bash(`echo '{"title":"fix: count"}' > "$WORK/out/result.json" && printf 'It counts.\\n' > "$WORK/out/body.md"`),
+        { text: 'Described.' },
+      ],
+      { result: true, resultFiles: { body: 'body.md' } },
+    );
+    expect(handback.result).toEqual({ title: 'fix: count', body: 'It counts.\n' });
+    expect(handback.error).toBeUndefined();
+  });
+
+  it('hands back no result when a field it writes as a file is missing', async () => {
+    const handback = await run([bash(`echo '{"title":"fix: count"}' > "$WORK/out/result.json"`), { text: 'Done.' }], {
+      result: true,
+      resultFiles: { body: 'body.md' },
+    });
+    expect(handback).not.toHaveProperty('result');
+    expect(handback.error).toBe('The agent wrote no body.');
+  });
+});
+
+describe('a runner’s skills', () => {
+  /** What the model was offered on the step's last call: its tools, and the skills its context lists. */
+  function offered() {
+    const call = model?.requests.filter((r) => r.path.startsWith('/v1/messages')).at(-1)?.body as {
+      tools: { name: string }[];
+      messages: unknown[];
+    };
+    const context = JSON.stringify(call.messages);
+    return { tools: call.tools.map((t) => t.name), context };
+  }
+
+  it('gives a step the skill it names, alone, from the runner’s plugin, and tells it to use it', async () => {
+    const handback = await run([{ tool: 'Skill', input: { skill: 'factory:visual-pr' } }, { text: 'Read it.' }], {
+      skill: 'visual-pr',
+    });
+    expect(handback.ending).toBe('finished');
+    const { tools, context } = offered();
+    expect(tools).toContain('Skill');
+    expect(context).toContain('- factory:visual-pr:');
+    // Claude Code's own skills are not offered: only the one the step names.
+    expect(context).not.toMatch(/- (?!factory:visual-pr)[a-z-]+(:[a-z-]+)?: /);
+    // Using it loads the vendored skill's text.
+    expect(context).toContain('Write the description of a pull request');
+    const system = JSON.stringify(model?.requests.find((r) => r.path.startsWith('/v1/messages'))?.body);
+    expect(system).toContain('Use the factory:visual-pr skill for this step.');
+  });
+
+  it('gives a step that names no skill no skills, and no tool to load one', async () => {
+    await run([{ text: 'Nothing to do.' }]);
+    const { tools, context } = offered();
+    expect(tools).not.toContain('Skill');
+    expect(context).not.toContain('visual-pr');
+  });
+
+  it('refuses a skill the runner does not hold', async () => {
+    await expect(run([{ text: 'Done.' }], { skill: 'not-here' })).rejects.toThrow(
+      'The runner holds no skill called not-here.',
+    );
   });
 });
