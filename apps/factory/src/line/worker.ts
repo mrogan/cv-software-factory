@@ -321,12 +321,16 @@ export class Line {
     try {
       const attempt = await this.#queue.startStep(workItem);
       // Before a pull request, a step starts from main; after, from the pull request's head, and its diff is taken
-      // against the pull request's base.
+      // against the pull request's base. A step that reads the change measures it from where the pull request's
+      // branch left its base, as GitHub's diff does: main may have moved on since.
       const { github, repo } = this.#o;
       const number = state.pullRequest?.number;
       const pr = number ? await github.read('pullRequest', repo, { number }) : undefined;
       const commit = pr ? pr.head.sha : await github.read('head', repo, { branch: 'main' });
-      const base = pr?.base.sha ?? commit;
+      const reads = pr && definition.readsChange;
+      const base = reads
+        ? (await github.read('comparison', repo, { base: pr.base.ref, head: commit })).mergeBase
+        : (pr?.base.sha ?? commit);
       let started: Awaited<ReturnType<typeof definition.start>>;
       try {
         started = await definition.start(this.#context(item, round, state, commit, base));
@@ -341,6 +345,7 @@ export class Line {
         agent,
         repository: `https://github.com/${repo}.git`,
         commit,
+        ...(reads ? { base } : {}),
         prompt: started.prompt,
         ...(definition.skill ? { skill: definition.skill } : {}),
         maxTurns: definition.maxTurns,

@@ -33,8 +33,8 @@ export default new Item('1282', '2026-10-02T11:30:00+01:00')
   .at('5:30', 'review.submitted', 'reviewer', 'Approved; a dependency change, so it waits for Martin', {
     pullRequest: 1283,
     verdict: 'approved',
-    comments: 0,
     note: 'A patch release with two security fixes and no other change.',
+    findings: [],
   })
   .at('5:31', 'hold.started', 'factory', 'Waiting for Martin: dependency changes carry a risk tag', {
     stage: 'review',

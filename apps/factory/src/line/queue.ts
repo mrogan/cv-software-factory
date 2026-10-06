@@ -182,10 +182,14 @@ export class Queue {
       where work_item = ${workItem} and effects is not null`;
   }
 
-  /** Records what one of a kept handback's writes gave back, once it is made. */
+  /**
+   * Records what one of a kept handback's writes gave back, once it is made. A write that gave back nothing is kept
+   * as JSON's null: SQL's null would make `jsonb_set` lose the whole handback.
+   */
   async done(workItem: string, name: string, result: JSONValue): Promise<void> {
     await this.#sql`
-      update line set effects = jsonb_set(effects, array['done', ${name}::text], ${this.#sql.json(result)})
+      update line set effects = jsonb_set(
+        effects, array['done', ${name}::text], coalesce(${this.#sql.json(result)}::jsonb, 'null'::jsonb))
       where work_item = ${workItem} and effects is not null`;
   }
 

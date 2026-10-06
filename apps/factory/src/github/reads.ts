@@ -1,8 +1,10 @@
 /**
  * What the other workers may read from GitHub through the worker: a pull request's state, the check runs on a commit,
- * the checks a branch's ruleset requires, a branch's head, and the paths no patch may change at a commit. The line
- * reads them to see its pull requests through their gates and to Martin's merge, and appends what it sees as events,
- * and holds a spec's scope to the protected paths; the worker itself touches no store.
+ * the checks a branch's ruleset requires, a branch's head, the paths no patch may change at a commit, and how a
+ * commit compares with a branch. The line reads them to see its pull requests through their gates and to Martin's
+ * merge, and appends what it sees as events; holds a spec's scope to the protected paths; and gives the reviewer the
+ * base its change is measured from, and anchors its findings to lines the change shows. The worker itself touches no
+ * store.
  *
  * Every read is a conditional request, so asking again about something that has not changed costs nothing against
  * the rate limit, and every answer is read through a Zod schema. Reading is harmless, so a dry run reads as a live
@@ -41,6 +43,17 @@ export interface CheckRun {
   title: string | null;
 }
 
+/** A commit compared with a branch, as a pull request's diff is taken. */
+export interface Comparison {
+  /** Where the commit's history left the branch's: what the change is measured from. */
+  mergeBase: string;
+  /**
+   * Each file the commit changes since then, with its patch as GitHub shows it: none for a binary file, or one too
+   * large to show.
+   */
+  files: { path: string; patch: string | null }[];
+}
+
 export interface Reads {
   pullRequest(repo: string, number: number): Promise<PullRequestState>;
   checkRuns(repo: string, sha: string): Promise<CheckRun[]>;
@@ -55,6 +68,8 @@ export interface Reads {
    * repository's CODEOWNERS gives a person (`paths.ts`, as the worker's guard reads them).
    */
   protectedPaths(repo: string, ref: string): Promise<string[]>;
+  /** How a commit compares with a branch: its merge base, and the files it changes since. */
+  comparison(repo: string, base: string, head: string): Promise<Comparison>;
 }
 
 const SHA = z.string().regex(/^[0-9a-f]{40}$/);
@@ -115,6 +130,11 @@ const pullRequestState = (pr: z.infer<typeof PULL>): PullRequestState => ({
   base: { ref: pr.base.ref, sha: pr.base.sha },
   draft: pr.draft ?? false,
   nodeId: pr.node_id,
+});
+
+const COMPARE = z.object({
+  merge_base_commit: z.object({ sha: SHA }),
+  files: z.array(z.object({ filename: z.string(), patch: z.string().optional() })).optional(),
 });
 
 const segments = (branch: string) => branch.split('/').map(encodeURIComponent).join('/');
@@ -183,5 +203,18 @@ export class LiveReads implements Reads {
       if (error instanceof GitHubError && error.kind === 'not-found') return null;
       throw error;
     }
+  }
+
+  async comparison(repo: string, base: string, head: string): Promise<Comparison> {
+    // One page of files: a fix's scope names a few, and GitHub lists up to 300 on its first.
+    const { body } = await this.#github.poll(
+      repo,
+      `/repos/${repo}/compare/${segments(base)}...${head}?per_page=100`,
+      COMPARE,
+    );
+    return {
+      mergeBase: body.merge_base_commit.sha,
+      files: (body.files ?? []).map((file) => ({ path: file.filename, patch: file.patch ?? null })),
+    };
   }
 }

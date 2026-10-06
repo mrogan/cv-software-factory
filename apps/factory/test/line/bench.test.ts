@@ -1,13 +1,15 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { jobForToken } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
+import { commitPatch } from '../../../runner/src/prepare.ts';
 import { stepFrom } from '../../../runner/src/step.ts';
 import { coder, coderInputAfterRefusal } from '../../src/line/agents/coder.ts';
 import { BENCH_DIR, bench, lastStep, type RunnerSteps } from '../../src/line/bench/bench.ts';
-import { FIXTURE_WORK_ITEM, FIXTURES } from '../../src/line/bench/fixtures.ts';
+import { FIXTURE_WORK_ITEM, FIXTURES, type Fixture } from '../../src/line/bench/fixtures.ts';
 import { LIMITS } from '../../src/line/machine.ts';
 
 let database: Database;
@@ -41,6 +43,7 @@ function runner(answer: (env: NodeJS.ProcessEnv) => Promise<unknown>, patches: s
     prepare: async (env) => {
       seen.prepare = env;
     },
+    commitPatch,
     runAgent: async (env, options) => {
       expect(options.checkFence).toBe(false);
       seen.agent = env;
@@ -213,5 +216,60 @@ describe('the bench', () => {
     expect(ran).toBe(LIMITS.fenceRefusals);
     expect(lastStep(benched).fence).toMatchObject({ ok: false });
     expect(lastStep(benched).again).toBeUndefined();
+  });
+
+  it('commits a reviewer’s change on the base as the head, the same every run, with the base named', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bench-'));
+    const review: Fixture<'reviewer'> = {
+      about: 'a change to review',
+      commit: 'a'.repeat(40),
+      change: { patch: PATCH('count.ts'), message: 'fix(count): count anew\n\nIt counts anew.' },
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        spec: fixture.input.spec,
+        pullRequest: 101,
+        title: 'fix(count): count anew',
+        round: 1,
+      },
+    };
+    const heads: string[] = [];
+    const { steps } = runner(async (env) => {
+      const repo = join(String(env.WORK), 'repo');
+      const at = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf-8' }).trim();
+      heads.push(at('rev-parse', 'HEAD'));
+      expect(at('rev-parse', 'base')).toBe(at('rev-parse', 'HEAD~1'));
+      expect(at('diff', 'base')).toContain('+new');
+      expect(at('log', '-1', '--format=%s%n%b')).toBe('fix(count): count anew\nIt counts anew.');
+      return { verdict: 'approved', note: 'It counts anew.', findings: [] };
+    });
+    // The prepare step's checkout: the base, as a seed leaves it.
+    const prepare: RunnerSteps['prepare'] = async (env) => {
+      const repo = join(String(env.WORK), 'repo');
+      execFileSync('rm', ['-rf', repo]);
+      mkdirSync(repo, { recursive: true });
+      writeFileSync(join(repo, 'count.ts'), 'old\n');
+      const date = '2026-01-01T00:00:00Z';
+      const at = (...args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.invalid', ...args], {
+          cwd: repo,
+          env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+        });
+      at('init', '--quiet');
+      at('add', '.');
+      at('commit', '--quiet', '--message', 'chore: the starting point');
+    };
+    const options = {
+      agent: 'reviewer' as const,
+      fixture: review,
+      sql: database.writer,
+      gateway: 'http://gw',
+      dir,
+      log: () => {},
+    };
+    const once = await bench({ ...options, runner: { ...steps, prepare } });
+    expect(once.result).toMatchObject({ fits: true });
+    await bench({ ...options, runner: { ...steps, prepare } });
+    expect(heads).toHaveLength(2);
+    expect(heads[1]).toBe(heads[0]);
   });
 });

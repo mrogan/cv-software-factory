@@ -23,7 +23,7 @@ export const VERSIONS = {
   'gates.started': 1,
   'gate.finished': 1,
   'gates.finished': 1,
-  'review.submitted': 1,
+  'review.submitted': 2,
   'pull-request.merged': 1,
   // Release and verify
   'release.started': 1,

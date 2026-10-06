@@ -64,8 +64,8 @@ export default new Item('1296', '2026-10-03T09:02:00+01:00')
   .at('12:00', 'review.submitted', 'reviewer', 'Approved', {
     pullRequest: 1298,
     verdict: 'approved',
-    comments: 0,
     note: 'Fixes the sign at its source and guards against it ever reaching a page again.',
+    findings: [],
   })
   .at('12:05', 'pull-request.merged', 'factory', 'PR #1298 merged: low risk, so no one needed to approve it', {
     number: 1298,

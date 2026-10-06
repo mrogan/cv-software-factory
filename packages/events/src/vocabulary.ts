@@ -138,3 +138,6 @@ export type Risk = (typeof RISKS)[number];
 /** The only types an artifact may have. The console serves each with the type it was stored with, never a guess. */
 export const ARTIFACT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'text/plain', 'application/json'] as const;
 export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
+
+/** The most findings one review carries, so each reaches the events whole. */
+export const MAX_FINDINGS = 20;

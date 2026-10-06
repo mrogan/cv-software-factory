@@ -25,8 +25,8 @@ export default new Item('1262', '2026-09-29T09:30:00+01:00')
   .at('4:20', 'review.submitted', 'reviewer', 'Approved; a dependency change, so it waits for Martin', {
     pullRequest: 1263,
     verdict: 'approved',
-    comments: 0,
     note: 'A minor release: its changelog lists one fix to log rotation, which the app does not use.',
+    findings: [],
   })
   .at('4:21', 'hold.started', 'factory', 'Waiting for Martin: dependency changes carry a risk tag', {
     stage: 'review',
