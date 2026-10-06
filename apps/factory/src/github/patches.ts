@@ -9,6 +9,7 @@
  */
 import { applyPatch, parsePatch, type StructuredPatch } from 'diff';
 import type { FileChanges } from './actions.ts';
+import { plainPath } from './paths.ts';
 
 export type PatchProblem = 'unsupported' | 'path' | 'protected' | 'does-not-apply';
 
@@ -20,15 +21,6 @@ export class PatchRefused extends Error {
     super(message);
     this.kind = kind;
   }
-}
-
-/** A path a patch may name: relative, with no empty, `.` or `..` segment. */
-export function plainPath(path: string): boolean {
-  return (
-    !path.startsWith('/') &&
-    !/[\\\0]/.test(path) &&
-    path.split('/').every((part) => part !== '' && part !== '.' && part !== '..')
-  );
 }
 
 export interface FilePatch {

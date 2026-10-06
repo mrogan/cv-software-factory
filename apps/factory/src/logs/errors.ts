@@ -47,7 +47,6 @@ export async function signalForPattern(found: NewPattern, tempo: Tempo): Promise
   if (!latest || !version || !VERSION.test(version)) return undefined;
 
   const route = records.find((r) => r.fields.route)?.fields.route;
-  const path = records.find((r) => r.fields.path)?.fields.path;
   const traceId = records.map((r) => r.fields.trace_id).find((id) => id && TRACE_ID.test(id));
   const spans = traceId ? await withinSeconds(3, tempo.spans(traceId)) : undefined;
 
@@ -62,8 +61,9 @@ export async function signalForPattern(found: NewPattern, tempo: Tempo): Promise
     evidence: [
       {
         kind: 'logs',
-        // The evidence names a path, never every route: when no request raised the error, the closest is the root.
-        route: route ?? path ?? '/',
+        // The evidence names a route, never every route, and never the request's own path, which holds what a
+        // visitor typed: when no route served the error, the closest is the root.
+        route: route ?? '/',
         version,
         requests: found.records.length,
         lines: records.map((r) => ({

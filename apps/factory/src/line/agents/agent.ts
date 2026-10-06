@@ -16,6 +16,7 @@ import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResu
 import type { Handback } from '../../runners/steps.ts';
 import type { Draft } from '../gates.ts';
 import type { LineAgent, WorkItemState } from '../machine.ts';
+import type { Signal } from './evidence.ts';
 
 /** A step that went wrong in a way the line counts against it: no handback, a result refused, an action refused. */
 export class StepFailed extends Error {
@@ -28,14 +29,6 @@ export class StepFailed extends Error {
  */
 export class StepStale extends Error {
   override name = 'StepStale';
-}
-
-/** What a sense saw, by its typed fields only. */
-export interface Signal {
-  sense: string;
-  check: string;
-  route: string;
-  symptom?: string | undefined;
 }
 
 /** What an agent's step may know of its work item as it starts. */
@@ -52,11 +45,17 @@ export interface StepContext {
   base: string;
   /** The session the agent's last step ended with, which a later round may carry on. */
   session: string | null;
-  /** What each sense saw of the work item. */
+  /** Why the step's last attempt failed, if it did, so the agent can be told what not to hand back again. */
+  failure: string | null;
+  /** The work item's ticket, as its public view has it. Throws `StepFailed` when there is none. */
+  ticket(): Promise<PayloadOf<'ticket.opened'>>;
+  /** What each sense saw of the work item, from their public views, without a report's signal (`evidence.ts`). */
   signals(): Promise<Signal[]>;
+  /** Reads GitHub through the worker. Reading is harmless, so a step may read as it starts. */
+  read<K extends ReadName>(read: K, args: ReadArgs[K]): Promise<ReadResult<K>>;
 }
 
-/** What an agent's result may do: read and act in GitHub, each write at most once, and keep its session. */
+/** What an agent's result may do: act in GitHub, each write at most once, and keep its session. */
 export interface EffectsContext extends StepContext {
   /**
    * Does `write` once for this handback. A write already done gives back what it gave then. One begun and never
@@ -65,7 +64,6 @@ export interface EffectsContext extends StepContext {
    */
   once<T>(name: string, write: (again: boolean) => Promise<T>): Promise<T>;
   act<K extends ActionName>(action: K, args: ActionArgs[K]): Promise<ActionResult<K>>;
-  read<K extends ReadName>(read: K, args: ReadArgs[K]): Promise<ReadResult<K>>;
   /** Keeps the agent's session, for its next round to resume. */
   keepSession(session: string | null): Promise<void>;
 }

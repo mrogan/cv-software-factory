@@ -96,6 +96,8 @@ export class FakeGitHub implements GitHubPort {
   readonly pulls = new Map<number, PullRequestState>();
   readonly checks = new Map<string, CheckRun[]>();
   required = ['test'];
+  /** What the app's CODEOWNERS gives Martin, beside the workflows and the deployment. */
+  protectedPaths = ['.github/', 'deploy/', 'Dockerfile', '**/AGENTS.md'];
   #commits = 0;
 
   async act<K extends ActionName>(action: K, _repo: string, given: ActionArgs[K]): Promise<ActionResult<K>> {
@@ -160,6 +162,8 @@ export class FakeGitHub implements GitHubPort {
         return answer(MAIN);
       case 'requiredChecks':
         return answer(this.required);
+      case 'protectedPaths':
+        return answer(this.protectedPaths);
       case 'checkRuns':
         return answer(this.checks.get(String(args.sha)) ?? []);
       case 'pullRequest': {

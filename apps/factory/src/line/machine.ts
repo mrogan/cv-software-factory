@@ -50,15 +50,16 @@ export type Resolution =
   | 'close';
 
 /**
- * What each answer does, for each cause of a hold. Rejecting closes the work item, except a hold where the planner
- * rejected the ticket: there, rejecting overrules the planner, and approving agrees with it.
+ * What each answer does, for each cause of a hold. Rejecting closes the work item, whatever the cause. Where the
+ * planner rejected the ticket, approving agrees with it and closes the work item too; only an answer, which tells the
+ * planner what it missed, sends the ticket back to it.
  */
 export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
   // Triage's: a suggestion never comes onto the line.
   suggestion: { approved: 'wait', rejected: 'close', answered: 'wait' },
   spec: { approved: 'carry-on', rejected: 'close', answered: 'replan' },
   question: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
-  'ticket-rejected': { approved: 'close', rejected: 'carry-on', answered: 'carry-on' },
+  'ticket-rejected': { approved: 'close', rejected: 'close', answered: 'carry-on' },
   scope: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
   failures: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
   gates: { approved: 'return', rejected: 'close', answered: 'return' },
@@ -111,6 +112,11 @@ export interface WorkItemState {
   answer:
     | { cause: HoldCause; stage: Stage; decision: Answer; resolution: Resolution; text: string | undefined }
     | undefined;
+  /**
+   * Martin's answers to the holds at Plan, each with what he was asked (the planner's question, or why it was
+   * held), for every later step of the planner's: a second question should not forget the first answer.
+   */
+  answers: { asked: string; answer: string }[];
   merged: boolean;
   closed: boolean;
 }
@@ -130,6 +136,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
     described: false,
     hold: undefined,
     answer: undefined,
+    answers: [],
     merged: false,
     closed: false,
   };
@@ -182,6 +189,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         const { cause, stage } = state.hold;
         const resolution = ANSWERS[cause][event.payload.decision];
         state.answer = { cause, stage, decision: event.payload.decision, resolution, text: event.payload.answer };
+        if (stage === 'plan' && event.payload.answer) {
+          state.answers.push({ asked: state.hold.question ?? state.hold.reason, answer: event.payload.answer });
+        }
         state.hold = undefined;
         if (resolution === 'replan') state.spec = undefined;
         if (resolution === 'approve' && state.review) state.review = { ...state.review, verdict: 'approved' };
@@ -329,8 +339,11 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
 function afterAnswer(answer: NonNullable<WorkItemState['answer']>): Decision | undefined {
   const said = answer.text ? `: ${answer.text}` : '';
   switch (answer.resolution) {
-    case 'close':
-      return { stage: 'held', next: { do: 'close', reason: `Martin rejected it${said}`.slice(0, 200) } };
+    case 'close': {
+      // Approving closes only a planner's rejection: he agrees with the planner.
+      const why = answer.decision === 'approved' ? 'Martin agreed with the planner' : 'Martin rejected it';
+      return { stage: 'held', next: { do: 'close', reason: `${why}${said}`.slice(0, 200) } };
+    }
     case 'wait':
       return { stage: 'held', next: { do: 'wait', for: 'martin' } };
     case 'return':
