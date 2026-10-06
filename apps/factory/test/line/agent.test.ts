@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { closesAnIssue, commitTitle, mentions } from '../../src/line/agents/agent.ts';
+import { closesAnIssue, commitTitle, mentions, stepFrom } from '../../src/line/agents/agent.ts';
+import { AGENTS } from '../../src/line/agents/index.ts';
 
 describe('a fix’s title', () => {
   it('is a Conventional Commit of a fix’s type', () => {
@@ -51,5 +52,31 @@ describe('what a published text may not do from the App’s account', () => {
     ]) {
       expect(mentions(fine), fine).toBe(false);
     }
+  });
+});
+
+describe('an agent’s step', () => {
+  const given = { repository: 'mrogan/app', commit: 'c'.repeat(40), prompt: 'Do it.' };
+
+  it('names a skill, and the result’s files, only for an agent that has them', () => {
+    expect(stepFrom(AGENTS.describer, given)).toMatchObject({
+      skill: 'visual-pr',
+      resultFiles: { body: 'description.md' },
+    });
+    for (const agent of ['planner', 'coder', 'reviewer'] as const) {
+      expect(Object.keys(stepFrom(AGENTS[agent], given)).sort(), agent).toEqual(
+        ['agent', 'commit', 'maxTurns', 'prompt', 'repository', 'result'].sort(),
+      );
+    }
+  });
+
+  it('carries a base, a session and a seed only when it has them', () => {
+    expect(stepFrom(AGENTS.reviewer, { ...given, base: 'b'.repeat(40), resume: 's', seed: 'diff' })).toMatchObject({
+      repository: 'https://github.com/mrogan/app.git',
+      base: 'b'.repeat(40),
+      resume: 's',
+      seed: 'diff',
+    });
+    expect(stepFrom(AGENTS.reviewer, { ...given, base: undefined, resume: undefined })).not.toHaveProperty('base');
   });
 });

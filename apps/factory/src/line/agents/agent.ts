@@ -13,7 +13,7 @@
 import type { NewEvent, PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../github/server.ts';
-import type { Handback } from '../../runners/steps.ts';
+import type { Handback, Step } from '../../runners/steps.ts';
 import type { Draft } from '../gates.ts';
 import type { LineAgent, WorkItemState } from '../machine.ts';
 import type { Signal } from './evidence.ts';
@@ -156,6 +156,42 @@ export function defineAgent<Input, Result>(
         },
       };
     },
+  };
+}
+
+/** What one step is given beside its agent's definition: where it starts, and what it is asked. */
+export interface StepOf {
+  /** The app's repository, as `owner/name`. */
+  repository: string;
+  commit: string;
+  /** For a step that reads a change, where its pull request's branch left main. */
+  base?: string | undefined;
+  prompt: string;
+  resume?: string | undefined;
+  /** A defect the bench commits as the step's starting point. */
+  seed?: string | undefined;
+}
+
+/**
+ * The runner's step for an agent: what its definition says of every step it takes, with what this one is given. The
+ * line and the bench both make their steps here, so a step on the bench is the step the line would send.
+ */
+export function stepFrom(
+  definition: Pick<Agent, 'agent' | 'skill' | 'maxTurns' | 'resultFiles'>,
+  { repository, commit, base, prompt, resume, seed }: StepOf,
+): Step {
+  return {
+    agent: definition.agent,
+    repository: `https://github.com/${repository}.git`,
+    commit,
+    ...(base ? { base } : {}),
+    prompt,
+    ...(definition.skill ? { skill: definition.skill } : {}),
+    maxTurns: definition.maxTurns,
+    result: true,
+    ...(definition.resultFiles ? { resultFiles: definition.resultFiles } : {}),
+    ...(seed ? { seed } : {}),
+    ...(resume ? { resume } : {}),
   };
 }
 

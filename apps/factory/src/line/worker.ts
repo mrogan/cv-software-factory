@@ -36,6 +36,7 @@ import {
   type StepContext,
   StepFailed,
   StepStale,
+  stepFrom,
 } from './agents/agent.ts';
 import type { Signal } from './agents/evidence.ts';
 import { AGENTS, type Agents } from './agents/index.ts';
@@ -339,20 +340,17 @@ export class Line {
         return await this.#failed(workItem, agent, null, [], error.message);
       }
       const outcome = await this.#o.steps.run({
+        ...stepFrom(definition, {
+          repository: repo,
+          commit,
+          base: reads ? base : undefined,
+          prompt: started.prompt,
+          resume: started.resume,
+        }),
         workItem,
         round,
         attempt,
-        agent,
-        repository: `https://github.com/${repo}.git`,
-        commit,
-        ...(reads ? { base } : {}),
-        prompt: started.prompt,
-        ...(definition.skill ? { skill: definition.skill } : {}),
-        maxTurns: definition.maxTurns,
         deadlineSeconds: definition.deadlineSeconds,
-        result: true,
-        ...(definition.resultFiles ? { resultFiles: definition.resultFiles } : {}),
-        ...(started.resume ? { resume: started.resume } : {}),
         signal,
       });
       if (outcome.kind === 'stopped') {
