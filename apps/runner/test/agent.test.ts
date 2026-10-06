@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, truncateSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { readResult, runAgent } from '../src/agent.ts';
+import { PLUGIN, readResult, runAgent } from '../src/agent.ts';
 import { RESULT_BYTES, stepFrom } from '../src/step.ts';
 import { type ScriptedModel, scriptedModel, type Turn } from './model.ts';
 
@@ -256,8 +256,20 @@ describe('a runner’s skills', () => {
     expect(context).not.toMatch(/- (?!factory:visual-pr)[a-z-]+(:[a-z-]+)?: /);
     // Using it loads the vendored skill's text.
     expect(context).toContain('Write the description of a pull request');
+    // Its reference is named by where it is: Claude Code fills in the skill's folder.
+    expect(context).toContain(`${join(PLUGIN.path, 'skills', 'visual-pr')}/references/show-me.md`);
     const system = JSON.stringify(model?.requests.find((r) => r.path.startsWith('/v1/messages'))?.body);
     expect(system).toContain('Use the factory:visual-pr skill for this step.');
+  });
+
+  it('holds only skills: no hooks, MCP servers, agents or commands, which would reach every step', () => {
+    const files = readdirSync(PLUGIN.path, { recursive: true, withFileTypes: true })
+      .filter((f) => f.isFile())
+      .map((f) => relative(PLUGIN.path, join(f.parentPath, f.name)))
+      .sort();
+    for (const file of files) expect(file, file).toMatch(/^(README\.md|\.claude-plugin\/plugin\.json|skills\/.+)$/);
+    const manifest = JSON.parse(readFileSync(join(PLUGIN.path, '.claude-plugin', 'plugin.json'), 'utf-8')) as object;
+    expect(Object.keys(manifest).sort()).toEqual(['description', 'name', 'version']);
   });
 
   it('gives a step that names no skill no skills, and no tool to load one', async () => {

@@ -13,7 +13,7 @@ Write the description of a pull request: one that helps a reviewer understand wh
    - Read what the step gives you: the ticket, the spec, the review and anything else it names.
    - Read the complete diff (`git diff base`), the commit messages (`git log base..HEAD`), and enough surrounding code to understand behavior and ownership.
    - If the repository has a pull request template, read it as it is at the base (`git show base:.github/pull_request_template.md`). Its sections are the questions a reviewer there expects answered: answer the ones this change raises, in the description's own shape. They are guidance, not headings to fill.
-   - Read `{SKILLBASE}/references/show-me.md` for the visual-outline conventions used in the description.
+   - Read `${CLAUDE_SKILL_DIR}/references/show-me.md` for the visual-outline conventions used in the description.
 
 2. Write the description to fit the change:
    - Start with why the change exists, in one sentence: the problem it solves and what is true once it ships.
