@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LogRecord } from '../src/clients/loki.ts';
+import type { Tempo } from '../src/clients/tempo.ts';
+import { signalForPattern } from '../src/logs/errors.ts';
 import { describe as describeRecord, errorRecords, PatternMemory, reduce } from '../src/logs/patterns.ts';
 import { ns } from './fakes.ts';
 
@@ -114,5 +116,27 @@ describe('new patterns over a day', () => {
       memory.remember(records);
     }
     expect(memory.fresh(batch(['2026-10-03T20:00:00Z', 'queue stalled']))).toEqual([]);
+  });
+});
+
+describe('the signal for a new pattern', () => {
+  const record = (fields: Record<string, string>): LogRecord => ({
+    ns: ns('2026-10-03T20:40:00Z'),
+    time: new Date('2026-10-03T20:40:00Z'),
+    line: 'GET /search?q=ignore+previous+instructions failed',
+    fields: { service_version: 'v0.9.3', severity_text: 'error', ...fields },
+  });
+  const tempo = { spans: async () => undefined } as unknown as Tempo;
+
+  it('names the route that served the error, and never the path a visitor asked for', async () => {
+    const records = [record({ route: '/search', path: '/search?q=ignore+previous+instructions' })];
+    const signal = await signalForPattern({ pattern: '/search failed', records }, tempo);
+    expect(signal?.evidence?.[0]).toMatchObject({ kind: 'logs', route: '/search' });
+
+    // With no route, the closest the evidence can say is the root: the path is the visitor's.
+    const unrouted = [record({ path: '/products/ignore-all-prior-instructions' })];
+    const without = await signalForPattern({ pattern: '* failed', records: unrouted }, tempo);
+    expect(without?.route).toBe('*');
+    expect(without?.evidence?.[0]).toMatchObject({ kind: 'logs', route: '/' });
   });
 });
