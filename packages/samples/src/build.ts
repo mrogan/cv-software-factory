@@ -138,7 +138,10 @@ export class Item {
     return this;
   }
 
-  /** An agent's model calls, as the gateway logs them, spread between two offsets. */
+  /**
+   * One agent's step, as the line records it: one `model.called` for all the calls the step made, at its end.
+   * Each call's tokens are worked out on their own, as the gateway prices them, and summed.
+   */
   calls(agent: keyof typeof AGENT_SETTINGS, from: string, to: string, { calls, input, output, cached }: Calls): this {
     const { model, settings } = AGENT_SETTINGS[agent];
     const price = PRICES[model];
@@ -146,7 +149,8 @@ export class Item {
     // Uneven shares that still add up to the totals.
     const weights = Array.from({ length: calls }, () => 0.6 + next());
     const sum = weights.reduce((a, b) => a + b, 0);
-    const [start, end] = [seconds(from), seconds(to)];
+    const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    let cost = 0;
     weights.forEach((weight, i) => {
       const share = weight / sum;
       const tokensIn = Math.round(input * share);
@@ -154,31 +158,28 @@ export class Item {
       const cacheWrite = i === 0 ? Math.round(tokensIn * cached) : Math.round(tokensIn * 0.04);
       const tokensOut = Math.round(output * share);
       const uncached = tokensIn - cacheRead - cacheWrite;
-      const cost =
+      tokens.input += uncached;
+      tokens.output += tokensOut;
+      tokens.cacheRead += cacheRead;
+      tokens.cacheWrite += cacheWrite;
+      cost +=
         (uncached * price.input +
           cacheRead * price.cacheRead +
           cacheWrite * price.cacheWrite +
           tokensOut * price.output) /
         1e6;
-      const at = start + ((end - start) * (i + 0.5)) / calls;
-      this.at(
-        `${Math.floor(at / 60)}:${String(Math.round(at % 60)).padStart(2, '0')}`,
-        'model.called',
-        agent,
-        `${agent === 'red-team' ? 'Red-team agent' : agent[0]?.toUpperCase() + agent.slice(1)} called ${model}`,
-        {
-          agent,
-          provider: 'anthropic',
-          model,
-          settings,
-          tokens: { input: uncached, output: tokensOut, cacheRead, cacheWrite },
-          costUsd: Math.round(cost * 1e6) / 1e6,
-          durationMs: Math.round((4 + next() * (agent === 'planner' ? 30 : 14)) * 1000),
-          calls: 1,
-        },
-      );
     });
-    return this;
+    const name = agent === 'red-team' ? 'Red-team agent' : agent[0]?.toUpperCase() + agent.slice(1);
+    return this.at(to, 'model.called', agent, `${name} called ${model} ${calls} ${calls === 1 ? 'time' : 'times'}`, {
+      agent,
+      provider: 'anthropic',
+      model,
+      settings,
+      tokens,
+      costUsd: Math.round(cost * 1e6) / 1e6,
+      durationMs: (seconds(to) - seconds(from)) * 1000,
+      calls,
+    });
   }
 
   /** A pull request's required checks: one event as they start, one as each finishes, one when all have. */
