@@ -5,6 +5,7 @@
  *     factory line start [--autonomy supervised|guarded|lights-out]
  *     factory line serve
  *     factory line bench [<agent> [<fixture>]] [--commit <sha>]
+ *     factory line soak-check [--since <time>] [--json]
  *
  * `serve` runs the line's server (`runners/serve.ts`): the handback for runners' agent pods, and the steps it runs in
  * the `runners` namespace. With LINE_MODE set to `live` or `dry-run`, it also runs the line itself (`line/worker.ts`):
@@ -24,6 +25,12 @@
  * fence, and one it refuses goes back to the coder, as on the line. Without a fixture, it lists them. It works in the
  * bench's own folder (`BENCH_DIR`), the same on every run so that a run replays.
  *
+ * `soak-check` reads the store and the cluster the morning after a soak (`line/soak.ts`): leases held past their
+ * expiry, runners' Jobs and volumes left for ended work items, events that are not valid, the spend, and the work
+ * items taken since `--since` (an ISO time; by default a day ago), by how each ended, with their minutes in each
+ * stage. It prints a few lines, or the report as JSON, and exits 1 if anything is not as a soak should leave it. On
+ * a host it reads the cluster through KUBE_API_URL (what `kubectl proxy` serves).
+ *
  * Every worker checks the line before it takes work, so a stopped line finishes what is in hand and takes nothing
  * new; signals wait in the inbox until it starts again. Connects with DATABASE_URL, or the PG* variables, as the
  * factory's writer.
@@ -36,10 +43,12 @@ import postgres from 'postgres';
 export const USAGE = `  factory line stop [--reason <why>]
   factory line start [--autonomy supervised|guarded|lights-out]
   factory line serve
-  factory line bench [<agent> [<fixture>]] [--commit <sha>]`;
+  factory line bench [<agent> [<fixture>]] [--commit <sha>]
+  factory line soak-check [--since <time>] [--json]`;
 
 export async function run(args: string[]): Promise<number> {
   if (args[0] === 'bench') return bench(args.slice(1));
+  if (args[0] === 'soak-check') return soakCheck(args.slice(1));
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
@@ -203,6 +212,27 @@ async function bench(args: string[]): Promise<number> {
     console.log(JSON.stringify(benched, null, 2));
     const last = lastStep(benched);
     return last.handback.ending === 'finished' && last.result.fits && last.fence?.ok !== false ? 0 : 1;
+  } finally {
+    await sql.end();
+  }
+}
+
+async function soakCheck(args: string[]): Promise<number> {
+  const { values } = parseArgs({ args, options: { since: { type: 'string' }, json: { type: 'boolean' } } });
+  const now = new Date();
+  const since = values.since ? new Date(values.since) : new Date(now.getTime() - 24 * 3_600_000);
+  if (Number.isNaN(since.getTime())) {
+    console.error(`--since is ${JSON.stringify(values.since)}; give a time, such as 2026-10-06T22:00:00Z.`);
+    return 2;
+  }
+  const { soakFacts, soakReport, soakText } = await import('../line/soak.ts');
+  const { kubeFrom } = await import('../runners/kube.ts');
+  const { DATABASE_URL } = process.env;
+  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  try {
+    const report = soakReport(await soakFacts({ sql, kube: () => kubeFrom(process.env), now, since }));
+    console.log(values.json ? JSON.stringify(report, null, 2) : soakText(report));
+    return report.ok ? 0 : 1;
   } finally {
     await sql.end();
   }
