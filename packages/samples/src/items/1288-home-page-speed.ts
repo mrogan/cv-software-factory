@@ -70,8 +70,17 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
   .at('13:50', 'review.submitted', 'reviewer', 'Changes requested: last week’s selection could outlast the week', {
     pullRequest: 1290,
     verdict: 'changes-requested',
-    comments: 1,
     note: 'Kept for an hour from the first visit, last week’s sundries could still show at ten to one on a Monday morning. Keep the selection until the week turns instead.',
+    findings: [
+      {
+        path: 'src/shop.ts',
+        line: 41,
+        blocking: true,
+        criterion: 2,
+        comment:
+          'Kept for an hour from the first visit, last week’s sundries can still show early on a Monday. Keep the selection until the week turns.',
+      },
+    ],
   })
   .at('13:51', 'work.returned', 'factory', 'Review sent #1288 back · changes asked for', {
     from: 'review',
@@ -96,8 +105,8 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
   .at('20:30', 'review.submitted', 'reviewer', 'Approved', {
     pullRequest: 1290,
     verdict: 'approved',
-    comments: 0,
     note: 'The selection now turns at midnight on Monday; the test pins the clock either side of it.',
+    findings: [],
   })
   .at('20:40', 'pull-request.merged', 'factory', 'PR #1290 merged: low risk, so no one needed to approve it', {
     number: 1290,

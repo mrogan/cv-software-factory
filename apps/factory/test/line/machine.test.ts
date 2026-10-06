@@ -46,7 +46,7 @@ const finished = (conclusion: 'passed' | 'failed', commit = SHA): LineEvent => (
 });
 const review = (verdict: PayloadOf<'review.submitted'>['verdict']): LineEvent => ({
   type: 'review.submitted',
-  payload: { pullRequest: 12, verdict, comments: 1, note: 'One blocking finding.' },
+  payload: { pullRequest: 12, verdict, note: 'One blocking finding.', findings: [] },
 });
 const returned = (from: 'gates' | 'review'): LineEvent => ({
   type: 'work.returned',

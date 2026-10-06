@@ -5,7 +5,7 @@
  *
  * The prompt here is the least that does the job; milestone 5's task 12 writes the reviewer properly.
  */
-import type { PayloadOf } from '@software-factory/events';
+import { MAX_FINDINGS, type PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
 import { defineAgent, need, words } from './agent.ts';
 
@@ -74,7 +74,18 @@ export const reviewer = defineAgent<ReviewerInput, ReviewerResult>({
         type: 'review.submitted',
         actor: 'reviewer',
         summary: `Review of PR #${number}: ${review.verdict.replace('-', ' ')}`,
-        payload: { pullRequest: number, verdict: review.verdict, comments: review.findings.length, note: review.note },
+        payload: {
+          pullRequest: number,
+          verdict: review.verdict,
+          note: review.note,
+          findings: review.findings.slice(0, MAX_FINDINGS).map(({ path, line, blocking, rule, body }) => ({
+            path,
+            line,
+            blocking,
+            rule,
+            comment: body.slice(0, 300),
+          })),
+        },
       },
     ];
   },

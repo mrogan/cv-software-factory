@@ -70,8 +70,16 @@ export default new Item('1265', '2026-09-29T14:10:00+01:00')
   .at('13:00', 'review.submitted', 'reviewer', 'Approved', {
     pullRequest: 1266,
     verdict: 'approved',
-    comments: 1,
     note: 'The new test covers every route, not only search, so the next route to forget cannot.',
+    findings: [
+      {
+        path: 'test/logging.test.ts',
+        line: 12,
+        blocking: false,
+        rule: 3,
+        comment: 'Name the route in each case’s title, so a failure says which route forgot to log.',
+      },
+    ],
   })
   .at('13:10', 'pull-request.merged', 'factory', 'PR #1266 merged: low risk, so no one needed to approve it', {
     number: 1266,

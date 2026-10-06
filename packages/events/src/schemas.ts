@@ -326,11 +326,28 @@ export const PAYLOADS = {
     passed: count,
     failed: z.array(text(80)).max(40),
   }),
+  /**
+   * The reviewer's review of a pull request's latest push, with each finding: the line it is anchored to, whether it
+   * blocks, what it cites (a rule of the repository's `docs/REVIEWERS.md`, a criterion of the spec, or both) and its
+   * comment, so the console can show the thread and the rules can be counted by how often they are cited.
+   */
   'review.submitted': z.strictObject({
     pullRequest,
     verdict: z.enum(['approved', 'changes-requested', 'escalated']),
-    comments: count,
     note: text(300),
+    findings: z
+      .array(
+        z.strictObject({
+          path: text(200),
+          /** In the change's version of the file. */
+          line: z.number().int().positive(),
+          blocking: z.boolean(),
+          rule: z.number().int().min(1).max(50).optional(),
+          criterion: z.number().int().min(1).max(12).optional(),
+          comment: text(300),
+        }),
+      )
+      .max(V.MAX_FINDINGS),
   }),
   'pull-request.merged': z.strictObject({ number: pullRequest, commit, by: z.enum(['martin', 'factory']) }),
 

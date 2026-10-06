@@ -239,6 +239,22 @@ describe('upcasting the real catalogue', () => {
     expect(cause('held', 'build')).toBe('unknown');
   });
 
+  it('reads version 1 of review.submitted as a review with no findings, and takes each finding at version 2', () => {
+    const v1 = { pullRequest: 12, verdict: 'approved', comments: 2, note: 'Fine.' };
+    expect(upcast({ type: 'review.submitted', version: 1, payload: v1 })).toMatchObject({
+      event: { version: 2, payload: { pullRequest: 12, verdict: 'approved', note: 'Fine.', findings: [] } },
+    });
+    const finding = { path: 'src/money.ts', line: 3, blocking: true, rule: 4, comment: 'Format once, at the edge.' };
+    const v2 = { pullRequest: 12, verdict: 'changes-requested', note: 'One blocking finding.', findings: [finding] };
+    expect(validate({ ...opened, type: 'review.submitted', version: 2, actor: 'reviewer', payload: v2 })).toEqual({
+      ok: true,
+    });
+    const long = { ...v2, findings: [{ ...finding, comment: 'x'.repeat(301) }] };
+    expect(validate({ ...opened, type: 'review.submitted', version: 2, actor: 'reviewer', payload: long }).ok).toBe(
+      false,
+    );
+  });
+
   it('reads version 1 of action.refused as it was, and takes the scope fence at version 2', () => {
     const v1 = { mechanism: 'ruleset', action: 'Push to main', output: 'Protected branch update failed.' };
     expect(upcast({ type: 'action.refused', version: 1, payload: v1 })).toMatchObject({

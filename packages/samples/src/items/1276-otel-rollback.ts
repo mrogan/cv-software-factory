@@ -25,8 +25,8 @@ export default new Item('1276', '2026-10-02T08:10:00+01:00')
   .at('5:10', 'review.submitted', 'reviewer', 'Approved; a dependency change, so it waits for Martin', {
     pullRequest: 1277,
     verdict: 'approved',
-    comments: 0,
     note: 'Eight minor releases at once, with a new default for how spans are batched. Nothing in the app overrides it.',
+    findings: [],
   })
   .at('5:11', 'hold.started', 'factory', 'Waiting for Martin: dependency changes carry a risk tag', {
     stage: 'review',

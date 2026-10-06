@@ -59,8 +59,16 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
   .at('19:40', 'review.submitted', 'reviewer', 'Approved, with one suggestion taken', {
     pullRequest: 1273,
     verdict: 'approved',
-    comments: 1,
     note: 'Suggested the tag be words as well as colour, so it reads without the green; the coder made it so.',
+    findings: [
+      {
+        path: 'src/pages/cards.ts',
+        line: 18,
+        blocking: false,
+        criterion: 1,
+        comment: 'Say it in words as well as colour, so the tag reads without the green.',
+      },
+    ],
   })
   .at('19:50', 'pull-request.merged', 'factory', 'PR #1273 merged: low risk, so no one needed to approve it', {
     number: 1273,

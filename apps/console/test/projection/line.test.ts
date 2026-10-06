@@ -54,7 +54,7 @@ describe('a station’s state', () => {
         .open()
         .add(1, 'gates.started', 'actions', payloads.gatesStarted)
         .add(3, 'gates.finished', 'actions', payloads.gatesPassed)
-        .add(4, 'review.submitted', 'reviewer', { pullRequest: 7, verdict: 'approved', comments: 0, note: 'Fine' })
+        .add(4, 'review.submitted', 'reviewer', { pullRequest: 7, verdict: 'approved', note: 'Fine', findings: [] })
         .events,
       at(4) + PASSING_MS - 1000,
       'passing',
@@ -65,7 +65,7 @@ describe('a station’s state', () => {
         .open()
         .add(1, 'gates.started', 'actions', payloads.gatesStarted)
         .add(3, 'gates.finished', 'actions', payloads.gatesPassed)
-        .add(4, 'review.submitted', 'reviewer', { pullRequest: 7, verdict: 'approved', comments: 0, note: 'Fine' })
+        .add(4, 'review.submitted', 'reviewer', { pullRequest: 7, verdict: 'approved', note: 'Fine', findings: [] })
         .events,
       at(4) + PASSING_MS + 1000,
       'idle',
@@ -113,8 +113,8 @@ describe('a station’s figure', () => {
     one.add(3, 'gates.finished', 'actions', payloads.gatesPassed).add(4, 'review.submitted', 'reviewer', {
       pullRequest: 7,
       verdict: 'approved',
-      comments: 0,
       note: 'Fine',
+      findings: [],
     });
     expect(project(one.events, one.at(5)).stations.find((s) => s.stage === 'gates')?.figure).toBe('1 today');
   });

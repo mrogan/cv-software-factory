@@ -100,8 +100,8 @@ export default new Item('1302', '2026-10-03T10:12:00+01:00')
   .at('16:25', 'review.submitted', 'reviewer', 'Approved', {
     pullRequest: 1303,
     verdict: 'approved',
-    comments: 0,
     note: 'The second attempt removes the limit instead of raising it, and tests a nine-letter word to prove it.',
+    findings: [],
   })
   .at('16:30', 'pull-request.merged', 'factory', 'PR #1303 merged: low risk, so no one needed to approve it', {
     number: 1303,

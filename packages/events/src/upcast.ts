@@ -37,6 +37,9 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   },
   // Version 2 adds the line's scope fence to the mechanisms; a version 1 refusal reads as it was.
   'action.refused': { 1: (payload) => payload },
+  // Version 1 counted a review's comments; version 2 carries each finding. What a version 1 comment said was never
+  // recorded, so a version 1 review reads as one with no findings.
+  'review.submitted': { 1: ({ comments: _, ...payload }) => ({ ...payload, findings: [] }) },
 };
 
 export const CATALOGUE: Catalogue = { versions: VERSIONS, upcasters: UPCASTERS };
