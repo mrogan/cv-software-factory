@@ -14,7 +14,7 @@ import { Gateway, type Mode } from '../../src/gateway/gateway.ts';
 import * as instruments from '../../src/gateway/metrics.ts';
 import { costOf } from '../../src/gateway/prices.ts';
 import { ProviderCaps } from '../../src/gateway/provider-caps.ts';
-import { Anthropic, capOf, LocalModels, type ProviderName } from '../../src/gateway/providers.ts';
+import { Anthropic, capOf, LocalModels, type ProviderName, systemInPlace } from '../../src/gateway/providers.ts';
 import { createGatewayServer } from '../../src/gateway/server.ts';
 import { Spend } from '../../src/gateway/spend.ts';
 import { capturingLog } from './helpers.ts';
@@ -474,6 +474,71 @@ describe('reading the provider', () => {
 /** A stream's events, written as Anthropic writes them. */
 const events = (...list: [string, unknown][]) =>
   list.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('');
+
+describe('what a local model is sent', () => {
+  // As the Agent SDK sends a step's calls: the environment after the prompt, and the tokens left after each result.
+  const env = {
+    role: 'system',
+    content: [{ type: 'text', text: '# Environment', cache_control: { type: 'ephemeral' } }],
+  };
+  const left = (n: number, last: boolean) =>
+    last
+      ? { role: 'system', content: [{ type: 'text', text: `${n} tokens left`, cache_control: { type: 'ephemeral' } }] }
+      : { role: 'system', content: `${n} tokens left` };
+  const used = (id: string) => ({ role: 'assistant', content: [{ type: 'tool_use', id, name: 'Read', input: {} }] });
+  const result = (id: string) => ({ role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'x' }] });
+  const call = (turns: number) => ({
+    system: [{ type: 'text', text: 'You are the planner.' }],
+    messages: [
+      { role: 'user', content: 'Plan the fix.' },
+      turns ? { ...env, content: '# Environment' } : env,
+      ...Array.from({ length: turns }, (_, i) => [
+        used(`t${i}`),
+        result(`t${i}`),
+        left(100 - i, i === turns - 1),
+      ]).flat(),
+    ],
+  });
+  const reminder = (text: string) => ({ type: 'text', text: `<system-reminder>\n${text}\n</system-reminder>` });
+
+  it('has each system message among the turns in the user’s turn where it stood, after any tool’s results', () => {
+    expect(systemInPlace(call(1))).toEqual({
+      system: [{ type: 'text', text: 'You are the planner.' }],
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'Plan the fix.' }, reminder('# Environment')] },
+        used('t0'),
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't0', content: 'x' }, reminder('100 tokens left')],
+        },
+      ],
+    });
+    const plain = { messages: [{ role: 'user', content: 'Hello' }] };
+    expect(systemInPlace(plain)).toBe(plain);
+  });
+
+  it('sends each call as the one before it with more on the end, so the model’s cache holds', () => {
+    for (let turns = 0; turns < 4; turns++) {
+      const before = systemInPlace(call(turns)).messages;
+      const after = systemInPlace(call(turns + 1)).messages;
+      expect(after.slice(0, before.length)).toEqual(before);
+      expect(after.length).toBeGreaterThan(before.length);
+    }
+  });
+
+  it('is what LM Studio is sent, and only for a message', async () => {
+    const sent: { url: string; body: string }[] = [];
+    const fetcher = (async (url: string, init: RequestInit) => {
+      sent.push({ url, body: String(init.body) });
+      return new Response('{}');
+    }) as typeof fetch;
+    const local = new LocalModels({ base: 'http://lm', fetch: fetcher });
+    await local.send('/v1/messages', JSON.stringify(call(1)), {});
+    await local.send('/v1/messages/count_tokens', JSON.stringify(call(1)), {});
+    expect(JSON.parse(sent[0]?.body ?? '')).toEqual(systemInPlace(call(1)));
+    expect(JSON.parse(sent[1]?.body ?? '')).toEqual(call(1));
+  });
+});
 
 describe('what the gateway lets through', () => {
   it('refuses a beta it does not know, a server tool, and a field it does not take, before calling anyone', async () => {
