@@ -21,9 +21,13 @@ import { endJobToken, issueJobToken, jobForToken } from '@software-factory/store
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { type Handback, RESULT_BYTES, type Step } from '../../../runner/src/step.ts';
+// Types only: the factory image holds no runner, so a value from it would fail to load there (`test/image.test.ts`).
+import type { Handback, Step } from '../../../runner/src/step.ts';
 import { agentJob, jobName, NAMESPACE, prepareJob, volume } from './jobs.ts';
 import type { Kube } from './kube.ts';
+
+/** The most a result may be, as JSON: the runner's own bound (`apps/runner/src/step.ts`), which a test holds equal. */
+export const RESULT_BYTES = 64 * 1024;
 
 export const handbackBody = z.strictObject({
   ending: z.enum(['finished', 'max-turns', 'failed']),
@@ -37,7 +41,7 @@ export const handbackBody = z.strictObject({
     .json()
     .optional()
     .refine(
-      (result) => JSON.stringify(result ?? null).length <= RESULT_BYTES,
+      (result) => Buffer.byteLength(JSON.stringify(result ?? null)) <= RESULT_BYTES,
       `a result is at most ${RESULT_BYTES} bytes`,
     ),
 });

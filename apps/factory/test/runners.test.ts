@@ -3,11 +3,11 @@ import type { AddressInfo } from 'node:net';
 import { issueJobToken, jobForToken } from '@software-factory/store';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../packages/store/test/database.ts';
-import type { Handback, Step } from '../../runner/src/step.ts';
+import { type Handback, RESULT_BYTES as RUNNER_RESULT_BYTES, type Step } from '../../runner/src/step.ts';
 import { agentJob, prepareJob } from '../src/runners/jobs.ts';
 import type { Kube } from '../src/runners/kube.ts';
 import { fence, ownedPaths } from '../src/runners/scope.ts';
-import { Runners } from '../src/runners/steps.ts';
+import { RESULT_BYTES, Runners } from '../src/runners/steps.ts';
 import { quiet } from './github/fake.ts';
 
 const PATCH = (path: string) => `diff --git a/${path} b/${path}
@@ -262,6 +262,16 @@ describe('a step’s attempts and results', () => {
     const { handbackUrl, close } = await line(() => {});
     const token = await issueJobToken(database.writer, { job: 'coder-1006-1-1', workItem: '1006', agent: 'coder' });
     const answer = await handBack(handbackUrl, token, { ...DONE, result: { text: 'x'.repeat(70_000) } });
+    await close();
+    expect(answer.status).toBe(400);
+  });
+
+  it('measures a result in bytes, as the runner does, and to the runner’s own bound', async () => {
+    expect(RESULT_BYTES).toBe(RUNNER_RESULT_BYTES);
+    const { handbackUrl, close } = await line(() => {});
+    const token = await issueJobToken(database.writer, { job: 'coder-1008-1-1', workItem: '1008', agent: 'coder' });
+    // Fewer characters than the bound, but more bytes: each is three in UTF-8.
+    const answer = await handBack(handbackUrl, token, { ...DONE, result: { text: '€'.repeat(30_000) } });
     await close();
     expect(answer.status).toBe(400);
   });
