@@ -1,5 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -21,6 +30,8 @@ function origin(): { url: string; commit: string } {
     "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n",
   );
   writeFileSync(join(dir, 'count.ts'), 'export const count = 1;\n');
+  // A link to nothing, which a checkout may hold.
+  symlinkSync('nowhere.ts', join(dir, 'gone.ts'));
   git('add', '.');
   git('commit', '--quiet', '--message', 'base');
   // Fetching a commit by its sha, as GitHub allows.
@@ -57,6 +68,14 @@ describe('the prepare step', () => {
     // Committed at a fixed time, so a later run makes the same sha.
     const dates = execFileSync('git', ['log', '-1', '--format=%aI %cI'], { cwd: repo, encoding: 'utf-8' }).trim();
     expect(dates).toBe('2026-01-01T00:00:00Z 2026-01-01T00:00:00Z');
+    // Its message, which the agent sees, says nothing of what the seed is.
+    const message = execFileSync('git', ['log', '-1', '--format=%s'], { cwd: repo, encoding: 'utf-8' }).trim();
+    expect(message).toBe('chore: the starting point');
+    // Every file has that time too, so the agent's searches, which list files by when they changed, list them alike.
+    for (const file of ['count.ts', 'seeded.ts']) {
+      expect(statSync(join(repo, file)).mtime.toISOString()).toBe('2026-01-01T00:00:00.000Z');
+    }
+    expect(lstatSync(join(repo, 'gone.ts')).mtime.toISOString()).toBe('2026-01-01T00:00:00.000Z');
     // What an agent might plant for the next prepare: a hook, a pnpmfile, a stray file.
     writeFileSync(join(repo, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\ntouch /tmp/planted\n', { mode: 0o755 });
     writeFileSync(join(repo, '.pnpmfile.cjs'), 'throw new Error("planted")');
