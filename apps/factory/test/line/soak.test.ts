@@ -1,10 +1,13 @@
 import { VERSIONS } from '@software-factory/events';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import {
   type LineRow,
   problemOf,
   type SoakFacts,
+  type SpendLimit,
   type StoredEvent,
+  soakFacts,
   soakReport,
   soakText,
   stageMinutes,
@@ -79,6 +82,10 @@ describe('an event’s validity', () => {
   });
 });
 
+/** The local profile's cap on a work item, as `policy/spend.ts` has it while milestone 5 measures. */
+const CAPPED: SpendLimit = { kind: 'capped', profile: 'local', workItemUsd: 5 };
+const NONE: SpendLimit = { kind: 'none' };
+
 describe('the morning’s report', () => {
   const facts = (more: Partial<SoakFacts> = {}): SoakFacts => ({
     now: new Date(at('23:59')),
@@ -92,11 +99,15 @@ describe('the morning’s report', () => {
     invalid: [],
     runners: [{ kind: 'volume', name: 'work-2', workItem: '2' }],
     spend: [{ provider: 'local', calls: 41, usd: 0 }],
+    workItemSpend: [
+      { workItem: '1', calls: 30, usd: 0 },
+      { workItem: '2', calls: 11, usd: 0 },
+    ],
     ...more,
   });
 
   it('is all clear for a night that left nothing behind and spent nothing', () => {
-    const report = soakReport(facts());
+    const report = soakReport(facts(), NONE);
     expect(report.ok).toBe(true);
     expect(report.workItems).toMatchObject({ taken: 2, byEnd: { merged: 1, plan: 1 } });
     expect(report.workItems.stages.plan).toEqual({ items: 2, medianMinutes: (20 + 119) / 2, maxMinutes: 119 });
@@ -104,7 +115,7 @@ describe('the morning’s report', () => {
     expect(soakText(report).split('\n')[0]).toContain('all clear');
   });
 
-  it('names a lease held past its expiry, a runner left for an ended work item, an event not valid, and any spend', () => {
+  it('names a lease held past its expiry, a runner left for an ended work item, an event not valid, and any spend when none is allowed', () => {
     const report = soakReport(
       facts({
         line: [
@@ -118,7 +129,9 @@ describe('the morning’s report', () => {
         ],
         invalid: [{ seq: 7, type: 'line.stopped', version: 1, problem: 'reason: Required' }],
         spend: [{ provider: 'anthropic', calls: 2, usd: 0.04 }],
+        workItemSpend: [{ workItem: '1', calls: 2, usd: 0.04 }],
       }),
+      NONE,
     );
     expect(report.ok).toBe(false);
     expect(report.leases.stuck).toEqual([
@@ -130,12 +143,97 @@ describe('the morning’s report', () => {
     expect(text).toContain('NO  leases: 1 held past expiry (#2 by line-a)');
     expect(text).toContain('left for ended work items: job reviewer-1-1-3-agent, volume work-1');
     expect(text).toContain('#7 line.stopped v1: reason: Required');
-    expect(text).toContain('NO  spend: $0.0400 over 2 calls');
+    expect(text).toContain('NO  spend: $0.0400 over 2 calls (anthropic 2, $0.0400); none allowed');
+  });
+
+  it('is clear for a night on Claude whose work items each spent within the cap on one, and says the total', () => {
+    const report = soakReport(
+      facts({
+        spend: [{ provider: 'anthropic', calls: 60, usd: 7.5 }],
+        workItemSpend: [
+          { workItem: '1', calls: 35, usd: 4.25 },
+          { workItem: '2', calls: 25, usd: 3.25 },
+        ],
+      }),
+      CAPPED,
+    );
+    expect(report.ok).toBe(true);
+    expect(report.spend).toMatchObject({ ok: true, usd: 7.5, calls: 60, over: [] });
+    expect(soakText(report)).toContain(
+      "ok  spend: $7.5000 over 60 calls (anthropic 60, $7.5000); each work item within the local profile's $5.00 cap on a work item",
+    );
+  });
+
+  it('names a work item that spent more than the cap on one', () => {
+    const report = soakReport(
+      facts({
+        spend: [{ provider: 'anthropic', calls: 60, usd: 8.5 }],
+        workItemSpend: [
+          { workItem: '1', calls: 40, usd: 5.25 },
+          { workItem: '2', calls: 20, usd: 3.25 },
+        ],
+      }),
+      CAPPED,
+    );
+    expect(report.ok).toBe(false);
+    expect(report.spend.over).toEqual([{ workItem: '1', usd: 5.25 }]);
+    expect(soakText(report)).toContain(
+      "NO  spend: $8.5000 over 60 calls (anthropic 60, $8.5000); over the local profile's $5.00 cap on a work item: #1 $5.2500",
+    );
+  });
+
+  it('still allows nothing at all when asked, however small', () => {
+    const report = soakReport(
+      facts({
+        spend: [{ provider: 'anthropic', calls: 1, usd: 0.0001 }],
+        workItemSpend: [{ workItem: '1', calls: 1, usd: 0.0001 }],
+      }),
+      NONE,
+    );
+    expect(report.ok).toBe(false);
+    expect(soakReport(facts({ spend: [{ provider: 'anthropic', calls: 1, usd: 0.0001 }] }), CAPPED).ok).toBe(true);
   });
 
   it('is not clear when it could not read the cluster', () => {
-    const report = soakReport(facts({ runners: { error: 'No service account here' } }));
+    const report = soakReport(facts({ runners: { error: 'No service account here' } }), CAPPED);
     expect(report.ok).toBe(false);
     expect(soakText(report)).toContain('NO  runners: not read (No service account here)');
+  });
+});
+
+describe('the spend, as read from the gateway’s audit log', () => {
+  let database: Database;
+  beforeEach(async () => {
+    database = await freshDatabase('soak');
+  });
+  afterEach(() => database?.end());
+
+  const call = (workItem: string | null, usd: number, at: string, provider = 'anthropic') => database.writer`
+    insert into model_calls (id, at, agent, work_item, provider, model, question_set, cost_usd, duration_ms, outcome)
+    values (${crypto.randomUUID()}, ${at}, 'coder', ${workItem}, ${provider}, 'claude', 'messages', ${usd}, 1000,
+            'answered')`;
+
+  it('totals the calls since the soak began, and gives each of its work items all it has spent, as the gateway counts', async () => {
+    await call('7', 1.5, at('20:00')); // before the soak, on a work item it went on with
+    await call('7', 2, at('22:00'));
+    await call('8', 0.25, at('22:30'));
+    await call('6', 4, at('20:00')); // a work item the soak did not touch
+    await call(null, 0.1, at('22:40'), 'typesafe'); // triage, for no work item
+    const facts = await soakFacts({
+      sql: database.writer,
+      kube: () => {
+        throw new Error('No cluster here');
+      },
+      now: new Date(at('23:59')),
+      since: new Date(at('21:30')),
+    });
+    expect(facts.spend).toEqual([
+      { provider: 'anthropic', calls: 2, usd: 2.25 },
+      { provider: 'typesafe', calls: 1, usd: 0.1 },
+    ]);
+    expect(facts.workItemSpend).toEqual([
+      { workItem: '7', calls: 2, usd: 3.5 },
+      { workItem: '8', calls: 1, usd: 0.25 },
+    ]);
   });
 });

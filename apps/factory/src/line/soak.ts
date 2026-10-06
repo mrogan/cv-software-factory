@@ -6,7 +6,8 @@
  * - No runner Job or volume left for a work item that has ended: each step's Jobs go when it ends, and a work item's
  *   volume when it ends.
  * - Every event in the store valid against its type's schema, once upcast to the current version.
- * - The spend, from the gateway's audit log: nothing, on the local model.
+ * - The spend, from the gateway's audit log: each work item's within the profile's cap on one work item, with the total
+ *   said too. A soak on the local model must spend nothing at all, and asks for that (`{ kind: 'none' }`).
  * - How many work items went round, by how each ended or where each waits, and how long each spent in each stage.
  *
  * The decision is `soakReport`, a pure function of what was read, so tests drive it with plain values. A stage's
@@ -64,7 +65,15 @@ export interface SoakFacts {
   runners: Runner[] | { error: string };
   /** The gateway's audit log since `since`, by provider. */
   spend: { provider: string; calls: number; usd: number }[];
+  /** What each work item with a call since `since` has spent in all, as the gateway counts it against its cap. */
+  workItemSpend: { workItem: string; calls: number; usd: number }[];
 }
+
+/**
+ * What a soak may spend: up to the profile's cap on each work item (`policy/spend.ts`), as a night on Claude does by
+ * design, or nothing at all, as a night on the local model must.
+ */
+export type SpendLimit = { kind: 'capped'; profile: string; workItemUsd: number } | { kind: 'none' };
 
 const STAGES = ['plan', 'build', 'gates', 'review', 'held'] as const;
 type TimedStage = (typeof STAGES)[number];
@@ -76,7 +85,15 @@ export interface SoakReport {
   leases: { stuck: { workItem: string; stage: QueueStage; heldBy: string; heldUntil: string }[] };
   runners: { read: boolean; error?: string; jobs: number; volumes: number; left: Runner[] };
   events: { checked: number; invalid: number; first: InvalidEvent[] };
-  spend: { usd: number; calls: number; byProvider: { provider: string; calls: number; usd: number }[] };
+  spend: {
+    ok: boolean;
+    usd: number;
+    calls: number;
+    byProvider: { provider: string; calls: number; usd: number }[];
+    limit: SpendLimit;
+    /** The work items that spent more than the cap on one, with what each spent. */
+    over: { workItem: string; usd: number }[];
+  };
   workItems: {
     taken: number;
     /** By how each ended (`merged`, `closed`), or where each waits (`held: <cause>`, or a stage). */
@@ -157,7 +174,7 @@ const median = (values: number[]) => {
 
 const round = (n: number, places = 1) => Math.round(n * 10 ** places) / 10 ** places;
 
-export function soakReport(facts: SoakFacts): SoakReport {
+export function soakReport(facts: SoakFacts, limit: SpendLimit): SoakReport {
   const now = facts.now.getTime();
   const stuck = facts.line
     .filter((row) => row.heldBy !== null && row.heldUntil !== null && row.heldUntil.getTime() < now)
@@ -180,6 +197,13 @@ export function soakReport(facts: SoakFacts): SoakReport {
 
   const usd = facts.spend.reduce((sum, row) => sum + row.usd, 0);
   const calls = facts.spend.reduce((sum, row) => sum + row.calls, 0);
+  const over =
+    limit.kind === 'capped'
+      ? facts.workItemSpend
+          .filter((row) => row.usd > limit.workItemUsd)
+          .map((row) => ({ workItem: row.workItem, usd: round(row.usd, 6) }))
+      : [];
+  const spendOk = limit.kind === 'none' ? usd === 0 : !over.length;
 
   const soak = facts.line.filter((row) => row.takenAt.getTime() >= facts.since.getTime());
   const items = soak.map((row) => {
@@ -214,10 +238,10 @@ export function soakReport(facts: SoakFacts): SoakReport {
     leases: { stuck },
     runners,
     events: { checked: facts.checked, invalid: facts.invalid.length, first: facts.invalid.slice(0, 20) },
-    spend: { usd: round(usd, 6), calls, byProvider: facts.spend },
+    spend: { ok: spendOk, usd: round(usd, 6), calls, byProvider: facts.spend, limit, over },
     workItems: { taken: items.length, byEnd, stages, items },
   };
-  report.ok = !stuck.length && runners.read && !runners.left.length && !facts.invalid.length && usd === 0;
+  report.ok = !stuck.length && runners.read && !runners.left.length && !facts.invalid.length && spendOk;
   return report;
 }
 
@@ -232,7 +256,7 @@ export function soakText(report: SoakReport): string {
       ? `${mark(!runners.left.length)} runners: ${runners.jobs} jobs and ${runners.volumes} volumes; ${runners.left.length ? `left for ended work items: ${runners.left.map((r) => `${r.kind} ${r.name}`).join(', ')}` : 'none left for an ended work item'}`
       : `NO  runners: not read (${runners.error})`,
     `${mark(!events.invalid)} events: ${events.checked} checked, ${events.invalid ? `${events.invalid} not valid, first #${events.first[0]?.seq} ${events.first[0]?.type} v${events.first[0]?.version}: ${events.first[0]?.problem}` : 'all valid'}`,
-    `${mark(spend.usd === 0)} spend: $${spend.usd.toFixed(4)} over ${spend.calls} calls${spend.byProvider.length ? ` (${spend.byProvider.map((p) => `${p.provider} ${p.calls}, $${p.usd.toFixed(4)}`).join('; ')})` : ''}`,
+    `${mark(spend.ok)} spend: $${spend.usd.toFixed(4)} over ${spend.calls} calls${spend.byProvider.length ? ` (${spend.byProvider.map((p) => `${p.provider} ${p.calls}, $${p.usd.toFixed(4)}`).join('; ')})` : ''}; ${spendLimitText(spend)}`,
     `    work items taken: ${workItems.taken}${
       Object.keys(workItems.byEnd).length
         ? ` (${Object.entries(workItems.byEnd)
@@ -246,6 +270,13 @@ export function soakText(report: SoakReport): string {
     ),
   ];
   return lines.join('\n');
+}
+
+function spendLimitText({ limit, over }: SoakReport['spend']): string {
+  if (limit.kind === 'none') return 'none allowed';
+  const cap = `the ${limit.profile} profile's $${limit.workItemUsd.toFixed(2)} cap on a work item`;
+  if (!over.length) return `each work item within ${cap}`;
+  return `over ${cap}: ${over.map((o) => `#${o.workItem} $${o.usd.toFixed(4)}`).join(', ')}`;
 }
 
 const LIST = z.object({
@@ -316,6 +347,11 @@ export async function soakFacts({
   const spend = await sql<{ provider: string; calls: number; usd: number }[]>`
     select provider, count(*)::int as calls, coalesce(sum(cost_usd), 0)::float8 as usd
     from model_calls where at >= ${since} group by provider order by provider`;
+  const workItemSpend = await sql<{ workItem: string; calls: number; usd: number }[]>`
+    select work_item as "workItem", count(*)::int as calls, coalesce(sum(cost_usd), 0)::float8 as usd
+    from model_calls
+    where work_item in (select work_item from model_calls where at >= ${since} and work_item is not null)
+    group by work_item order by work_item`;
 
   let runners: SoakFacts['runners'];
   try {
@@ -334,5 +370,5 @@ export async function soakFacts({
     runners = { error: error instanceof Error ? error.message : String(error) };
   }
 
-  return { now, since, line, events, checked, invalid, runners, spend: [...spend] };
+  return { now, since, line, events, checked, invalid, runners, spend: [...spend], workItemSpend: [...workItemSpend] };
 }
