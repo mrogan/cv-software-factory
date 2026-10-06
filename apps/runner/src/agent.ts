@@ -106,6 +106,8 @@ export async function runAgent(
   if (!gateway || !env.ANTHROPIC_API_KEY) throw new Error('The gateway and the job token are not set.');
   if (checkFence) await awaitFence(gateway);
   const cwd = repoDir(env);
+  // What the step started from, so a commit the agent makes is still part of its patch.
+  const base = (await git(cwd, 'rev-parse', 'HEAD')).trim();
   // The volume outlives the step: a result left by an earlier one must not be handed back as this one's.
   const resultFile = resultPath(env);
   await rm(resultFile, { force: true });
@@ -153,7 +155,7 @@ export async function runAgent(
   if (!error && result?.subtype !== 'success') error = result?.errors.join('; ') || result?.subtype;
   const ending: Ending =
     result?.subtype === 'success' ? 'finished' : result?.subtype === 'error_max_turns' ? 'max-turns' : 'failed';
-  let patch = await changes(cwd);
+  let patch = await changes(cwd, base);
   const tooBig = Buffer.byteLength(patch) > PATCH_BYTES;
   if (tooBig) {
     patch = '';
@@ -192,14 +194,16 @@ export async function readResult(file: string): Promise<{ result?: unknown; prob
 }
 
 /**
- * What the agent changed since the commit the step started from, as a patch. Nothing is committed in the sandbox:
- * each step starts from a fresh checkout of the branch's head on GitHub, so a round's patch holds that round's
- * changes on what GitHub has, and a refused patch leaves nothing behind. Renames are written as a deletion and an
- * addition, which every patch reader understands.
+ * What the agent changed since the commit the step started from, as a patch: committed or not, since an agent may
+ * commit its work. Nothing of the sandbox's history leaves it: each step starts from a fresh checkout of the branch's
+ * head on GitHub, so a round's patch holds that round's changes on what GitHub has, and a refused patch leaves nothing
+ * behind. Renames are written as a deletion and an addition, which every patch reader understands.
  */
-export async function changes(cwd: string): Promise<string> {
-  await git(cwd, 'add', '--all', '--', '.', ':(exclude).claude');
-  return git(cwd, 'diff', '--cached', '--no-renames', '--no-ext-diff', '--no-color');
+export async function changes(cwd: string, base: string): Promise<string> {
+  // The runner's own `.claude/` is no part of the work, whether the agent left it alone or committed it.
+  const work = ['--', '.', ':(exclude).claude'];
+  await git(cwd, 'add', '--all', ...work);
+  return git(cwd, 'diff', '--cached', '--no-renames', '--no-ext-diff', '--no-color', base, ...work);
 }
 
 /** Hands the result back to the line, with the job token. */

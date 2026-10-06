@@ -67,6 +67,29 @@ describe('a runner’s agent', () => {
     ).toBe(true);
   });
 
+  it('hands back what the agent committed as well as what it left uncommitted', async () => {
+    const handback = await run([
+      bash(
+        "sed -i.bak 's/ - 1;/;/' src/count.ts && rm src/count.ts.bak && git -c user.name=a -c user.email=a@a.invalid commit -qam fix",
+      ),
+      bash("echo '# The shop, counted' > README.md"),
+      { text: 'Fixed and committed the count.' },
+    ]);
+    expect(handback.patch).toContain('+export const count = (xs: unknown[]) => xs.length;');
+    expect(handback.patch).toContain('+# The shop, counted');
+  });
+
+  it('hands back nothing under .claude/, even when the agent committed it', async () => {
+    const handback = await run([
+      bash(
+        "mkdir -p .claude && echo '{}' > .claude/settings.json && sed -i.bak 's/ - 1;/;/' src/count.ts && rm src/count.ts.bak && git add -A && git -c user.name=a -c user.email=a@a.invalid commit -qm fix",
+      ),
+      { text: 'Fixed and committed the count.' },
+    ]);
+    expect(handback.patch).toContain('+export const count = (xs: unknown[]) => xs.length;');
+    expect(handback.patch).not.toContain('.claude');
+  });
+
   it('hands back a change outside its scope as it is: the line’s fence judges it, not the runner', async () => {
     const handback = await run([
       bash('mkdir -p .github/workflows && echo "on: push" > .github/workflows/sneak.yml'),
