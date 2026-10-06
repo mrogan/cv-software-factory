@@ -14,14 +14,17 @@
  * questions a reviewer there expects answered, not headings to fill. The description is Markdown, so the agent writes
  * it as a file of its own beside the result, not inside the JSON.
  *
- * The title and the description are set before the pull request leaves draft, each once for a handback
- * (`EffectsContext.once`).
+ * The line publishes the description as the agent wrote it, and the squash commit takes it as its message, so the
+ * schema refuses what would act from the App's account: a closing keyword, which would close the ticket's issue on
+ * merge, before the fix is verified in production, and an @mention, which would notify someone. The line adds the
+ * line that refers to the issue itself. The title and the description are set before the pull request leaves draft,
+ * each once for a handback (`EffectsContext.once`).
  */
 import type { PayloadOf, Stage } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { cites } from '../review.ts';
-import { answerOf, commitTitle, defineAgent, need, words } from './agent.ts';
+import { answerOf, closesAnIssue, commitTitle, defineAgent, mentions, need, words } from './agent.ts';
 import { refersTo } from './coder.ts';
 import { type Signal, seen, ticketLines } from './evidence.ts';
 
@@ -51,7 +54,9 @@ export const describerResult = z.strictObject({
   /** The pull request's title, and so its squash commit's headline. */
   title: commitTitle,
   /** Its description, in Markdown: written by the agent as a file of its own, and read into the result. */
-  body: words(30_000),
+  body: words(30_000)
+    .refine((body) => !closesAnIssue(body), 'no closing keyword before an issue: the issue closes once verified')
+    .refine((body) => !mentions(body), 'no @mention outside code: it would notify someone from the App’s account'),
   summary: PAYLOADS['work-item.summarised'],
 });
 
@@ -109,7 +114,7 @@ function prompt(input: DescriberInput): string {
     '',
     'Write three things.',
     '',
-    '1. The pull request’s description, with the visual-pr skill, which says how. It replaces the draft’s, which held the spec: give a reviewer what they need of the spec, such as which test shows each criterion, not the spec again. Mention a suggestion the review left only if the change leaves it unanswered. The line adds the line that refers to the ticket’s issue, so leave that out.',
+    '1. The pull request’s description, with the visual-pr skill, which says how. It replaces the draft’s, which held the spec: give a reviewer what they need of the spec, such as which test shows each criterion, not the spec again. Mention a suggestion the review left only if the change leaves it unanswered. The line adds the line that refers to the ticket’s issue, so leave that out, and write no closing keyword before an issue (“Fixes #12”): the issue closes once the fix is verified in production, not on merge. Mention nobody with an @ outside code.',
     '',
     '2. The pull request’s title: a Conventional Commit of at most 80 characters, such as "fix(cart): count the last item". It becomes the squash commit’s headline. Keep the coder’s if it says what the change does.',
     '',

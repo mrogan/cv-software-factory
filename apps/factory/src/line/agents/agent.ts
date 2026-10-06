@@ -184,9 +184,31 @@ export function holdDraft(actor: NewEvent['actor'], hold: PayloadOf<'hold.starte
   return { type: 'hold.started', actor, summary, payload: hold };
 }
 
+/** An issue as GitHub reads a reference to one: `#12`, `owner/repo#12`, `GH-12`, or its address. */
+const ISSUE = String.raw`(?:(?:[\w.-]+\/[\w.-]+)?#\d+|GH-\d+|https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+)`;
+
+/** Any of GitHub's closing keywords, with or without a colon, before an issue. */
+const CLOSES = new RegExp(String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+${ISSUE}`, 'i');
+
+/**
+ * Whether text would close an issue when it reaches main: in a pull request's description, which the squash commit
+ * takes as its message, or in a commit's. Wherever it stands, code included, since a commit's message has no code.
+ * The line closes a ticket's issue itself, once the fix is verified in production, never on merge.
+ */
+export const closesAnIssue = (text: string) => CLOSES.test(text);
+
+/** Markdown's code, fenced or inline, where GitHub notifies nobody. */
+const CODE = /(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g;
+
+/**
+ * Whether Markdown mentions someone (`@name`, or a team's `@org/name`) outside code: published from the App's
+ * account, it would notify them. An email address is no mention.
+ */
+export const mentions = (markdown: string) => /(?:^|[^\w`@./])@[a-z\d]/im.test(markdown.replace(CODE, ''));
+
 /**
  * A fix's pull request title, and so its squash commit's headline: a Conventional Commit of 80 characters at most,
- * which both the coder and the describer write.
+ * which both the coder and the describer write, closing no issue.
  */
 export const commitTitle = z
   .string()
@@ -195,4 +217,5 @@ export const commitTitle = z
   .regex(
     /^(fix|test|refactor|perf)(\([a-z0-9-]+\))?: \S.{0,70}$/,
     'a Conventional Commit title of 80 characters at most',
-  );
+  )
+  .refine((title) => !closesAnIssue(title), 'no closing keyword before an issue: the issue closes once verified');

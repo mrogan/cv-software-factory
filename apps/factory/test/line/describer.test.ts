@@ -55,11 +55,13 @@ describe('the describer', () => {
     expect(describerResult.parse(result)).toEqual(result);
   });
 
-  it('refuses a title that is not a Conventional Commit, an empty description, or a story too long for the sheet', () => {
+  it('refuses a title that is not a Conventional Commit, an empty description, a description that closes an issue or mentions someone, or a story too long for the sheet', () => {
     const ok = { title: 'fix: count from zero', body: 'It counted from one.', summary };
     for (const wrong of [
       { ...ok, title: 'Count from zero' },
       { ...ok, body: '  ' },
+      { ...ok, body: 'It counted from one.\n\nFixes #12' },
+      { ...ok, body: 'It counted from one, as @someone saw.' },
       { ...ok, summary: { ...summary, story: 'x'.repeat(1201) } },
       { ...ok, extra: true },
     ]) {
