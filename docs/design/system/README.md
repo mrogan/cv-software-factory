@@ -125,7 +125,7 @@ A failure that a mechanism hands to a human (the test-integrity gate holding a p
 
 An item whose last step is `ticket.opened` has left Triage and sits at Plan, waiting for the planner, until something happens there; another sense's evidence or a report that repeats the ticket does not take it back up the line. At a spend cap (`spend.capped`, until `spend.cleared`), Triage uses the blocked drawing with its own word, **capped**: it takes no reports until the cap resets, and the senses' tickets still open, because they call no model.
 
-The figure in each caption counts the items in the stage (`2 PRs`), gives a canary's share of traffic at Release (`25%`), says how many are held or waiting when the station is blocked, counts the tickets queued for an idle stage (`7 waiting`), gives a cap's reset time at a capped Triage (`until 01:00`), and otherwise counts what left the stage today (`3 today`), or says `none`.
+The figure in each caption counts the items in the stage (`2 PRs`), gives a canary's share of traffic at Release (`25%`), says how many are held (a mechanism stopped them) or waiting (the line asked Martin something) when the station is blocked, counts the tickets queued for an idle stage (`7 waiting`), gives a cap's reset time at a capped Triage (`until 01:00`), and otherwise counts what left the stage today (`3 today`), or says `none`.
 
 ### On the line
 
@@ -161,7 +161,7 @@ Top to bottom, and nothing else:
 2. **The picture**, 16:10. See below.
 3. **Title** in Instrument Serif 28, and a description clamped to two lines.
 4. **One line of facts** in `t-data`: number, version (a pill), pull request, start, duration, model spend. Before a release, the pill says what a sense saw it on ("seen on v0.9.3") or, for a visitor's report, the page it came from at its path only ("from /about"); work that called no model says "no model", not "$0.00".
-5. **Eight segments**, one per stage: `ok` for passed, a dashed outline for skipped, a solid `text-muted` outline for queued (a ticket waiting for the planner), `signal` (blinking) for now, `attn` where it stopped or waits on a human, `text-muted` where triage closed it. The segments have an accessible label such as "Stopped at Release".
+5. **Eight segments**, one per stage: `ok` for passed, a dashed outline for skipped, a solid `text-muted` outline for queued (a ticket waiting for the planner, or a merged fix waiting for a release), `signal` (blinking) for now, `attn` where it stopped or waits on a human, `text-muted` where triage closed it. The segments have an accessible label such as "Stopped at Release".
 
 The outcomes, each a word and a tone. Work nobody needs to act on is in the quiet tone:
 
@@ -172,6 +172,7 @@ The outcomes, each a word and a tone. Work nobody needs to act on is in the quie
 | Held for a human, Needs you | Held for a human, Needs you | `attn`, flashing |
 | In progress | In progress | `signal`, blinking |
 | A ticket waiting for the planner | Waiting for the planner | `text-muted`, hollow |
+| A fix Martin merged, before a release takes it | Merged · waiting for release | `text-muted`, hollow: Martin has done his part, and nothing has verified it, so not green |
 | Closed with no change | Closed · no change | `text-muted` |
 | A report that described nothing wrong | Closed · no ticket | `text-muted` |
 | A report that gave orders to the system | Quarantined | `text-muted`: a guardrail worked, and nobody needs to act |
@@ -191,7 +192,12 @@ The picture is evidence, so it is always something the factory captured, never a
 | Red-team attack | The gate's or policy's own refusal, verbatim, on the station face colour; "the site never changed" |
 | Not a defect, or a report's ticket | The page the report was about, and Jev's typed answers with their probabilities: what kind of report, how badly it hurts, and whether it gives orders to a system |
 | Observability | Log lines before and after, and the trace they now link to |
-| Waiting on Martin | The spec: outcome, acceptance criteria and the planner's question, with the `attn` rule |
+| Waiting on Martin for a spec | The spec: outcome, acceptance criteria and the planner's question, with the `attn` rule |
+| Waiting for Martin's merge | The pull request, in the same `attn`-ruled panel: "PR #1312 · waiting for Martin's merge", its title in mono, and three ticks that answer "is it safe to merge?" (every required check passed, its tests fail without the fix, the reviewer approved), with the size of the whole change at the foot: every round together, as the merge brings it in. A dependency update keeps its package picture |
+| Held by the scope fence | "Held at Build · patch outside its scope, twice", and the fence's own output on the terminal face ("scope fence · patch 2 refused"), each refused path in `attn`, with a line for the patch sent back before it |
+| Held by the tests-first check | "Held at Gates · its tests pass without the fix", the check's own output, and a line saying a test that passes before the fix proves nothing about it |
+| Held at the spend cap | "Held at Build · its spend cap reached", what the work item spent as a big figure, a bar of it by agent in ink (the money is not the fault), and the cap |
+| Held, still blocking after two reviews | "Held at Review · still blocking after two reviews", each open finding with its line and its rule, and the reviews it blocked; Martin decides: merge, close or send back |
 | A sense's ticket, waiting | What the sense captured: its screenshot with the mark, tagged SEEN and the version; where there is nothing on the page to point at, what it recorded instead (below) |
 | A problem on every page (`*`) | Four of the pages, each with its mark and its route, and a tag: EVERY PAGE · +N MORE. The sheet has them all |
 | An HTTP exchange | Structured, on the card's surface: the request, the status (or "No response", dashed), each redirect (a loop drawn once, with an arrow back to the start), each header the check read with a tick or a cross and its value ("absent" in `attn`), and the timings |
@@ -209,8 +215,8 @@ Package logos come from [theSVG](https://github.com/glincker/thesvg) (MIT; the m
 ### The sheet
 
 - Rises from the bottom to 90% of the viewport height (94% on a phone) over a `scrim`, with `--shadow-popover` and 14px top corners. Escape, the close button or the scrim close it, and focus returns to where it was. Previous and next step between work items, and the reel follows behind.
-- **Main column:** a paragraph saying what happened; for a visitor's report, the report (below); **How it went**, the stage scrubber with the site's screenshot at each step; **Evidence**, the picture at full size, the screenshots captured at signal, canary and rollout, and every page compared with the version before; **The change**, acceptance criteria and the files touched.
-- **Side column:** the facts (including "Code written by humans: 0 lines"), **Agents and models** (each agent's model, settings, calls, tokens and cost, with a total), and **Gates** (each check, its result and time).
+- **Main column:** a paragraph saying what happened, and who wrote it once the describer has; for a visitor's report, the report (below); **How it went**, the stage scrubber with the site's screenshot at each step; **Evidence**, the problem's own evidence at full size (while the card shows what Martin is asked to decide, the sheet still shows what was wrong), the screenshots captured at signal, canary and rollout, and every page compared with the version before; **The spec** (or **The change**, where there is no spec), **Rounds** and **Review** (below).
+- **Side column:** the facts (including "Code written by humans: 0 lines"), **Agents and models** (each agent's model, settings, steps, calls, tokens and cost, with a total), and **Gates** (each check, its result and time).
 - Each evidence block ends with a one-line **Source**: where the factory got it.
 
 **A ticket's sheet** says who saw the problem and who was asked:
@@ -281,6 +287,20 @@ Each panel does one job:
 ## Sensing and triage (milestone 4)
 
 The states the factory's first real work brings, agreed as a set: a sense's ticket waiting at Plan, the pictures for what a screenshot can't show, reports quarantined, parked or closed, a ticket's sheet, where Triage's work comes from, the spend cap, and an empty store for real events. Each is described above where it belongs. The console's tests draw every one from invented test data (`apps/console/test/fixture`), which the console never ships: in Paper at all three widths, the spend cap and a ticket's sheet in Ink too, and with axe in both themes on a laptop and a phone.
+
+## Fixing (milestone 5)
+
+The states real fixes bring, agreed as a set: a fix's spec and scope, its rounds, its review thread, its gates by attempt, a round on the line, the wait for Martin's merge, the four ways a fix is held, a merge waiting for a release, a local model at no cost, and the describer's step. Each is drawn from the samples' last seven work items: in Paper at all three widths, the sheet's new parts in Ink too, and with axe in both themes on a laptop and a phone.
+
+- **The spec:** the outcome in Instrument Serif, the criteria, then the scope as a table of the paths it allows, each with the lines the pull request adds and removes there, every round together, or "untouched", and any path changed outside the scope. When the fence refused the coder's last patch, the table shows that patch ("May change · patch 2, refused") and each path outside the scope is struck through in `attn`, and named as refused to a screen reader. Risks and rollout under it. The scope is the fence the line enforces, so a reader sees the fence a refusal is about.
+- **Rounds:** a grid, one row per attempt (the coder's round of the same number, as the line counts it) and one column each for Build, Gates and Review, with the line's dashed return arc between two rows and the reason in its pill ("Review → Build · 2 blocking"). Under the last row, what the work waits for now. A round is ordinary work, in ink; "Changes asked" is never `attn`. On a phone the grid keeps its three columns, narrower. The facts count reviews, not rounds, against the most there may be ("Reviews 1 of 2"): a return from the gates is a round, and no review.
+- **Review:** each review as the reviewer posted it ("Review 1 · attempt 2"), its verdict and note, then each finding: where it is (`path:line`), whether it blocks, what it says, and the rule it cites by number and in full, as the app's `docs/REVIEWERS.md` words it, or the spec's criterion it cites. Blocking is solid ink and a suggestion dashed, so shape tells them apart in greyscale; a finding still blocking when the work is held turns `attn`, because then a person must act.
+- **Gates** says which attempt it shows, lists the required checks, then, under "Signals, not required", the tests-first check and the reviewer's check run, each with its own one line. A line for each earlier attempt says how it went.
+- **Agents and models:** a model run on the local model has a laptop glyph instead of a company's logo, a readable name ("Qwen3.8 27B · local"), and costs "$0" in `text-muted`, never "$0.00". When every call was local, the total says "all local" and the card's fact "$0 · local". Each row counts its agent's steps; the describer is last.
+- **The describer:** the story's source line says the describer wrote it, from what; the scrubber has a DESCRIBED chapter; the facts link the pull request on GitHub, where its description lives. A sample's pull request links nowhere.
+- **On the line:** a return's pill names the work item, the round and why ("#1311 · round 2 · 2 blocking"), from what the return records, in the words the line writes in its summary; on a phone the line under the stations names the stages too. Review's panel lists the wait for Martin's merge as "Needs you · waiting for Martin's merge", and a return as "Sent back to Build".
+- **Holds:** each picture follows the cause the hold records (`merge`, `scope`, `tests-first`, `spend`, `review`). A hold with another cause, or whose events lack what its picture shows, keeps the problem's evidence on the card, and its reason says why it waits.
+- **A merge:** the scrubber gets a MERGED chapter; for a fix waiting for a release it is the last, drawn as the hollow waiting ring, and Release counts it as "1 waiting", with a parcel on the belt.
 
 ## Not decided yet
 
