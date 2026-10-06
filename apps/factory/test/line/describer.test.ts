@@ -35,6 +35,7 @@ describe('the describer', () => {
     expect(prompt).toContain('- Review 2 approved it: The test now shows criterion 1');
     expect(prompt).toContain('with the visual-pr skill');
     expect(prompt).toContain('{"title","summary":{"title","description","story"}}');
+    expect(prompt).toContain('do not run the tests, start the app, send it requests or change anything');
   });
 
   it('says one round when the first review approved', () => {

@@ -7,6 +7,10 @@
  * What it is told is the ticket's public view and what the senses saw, by their typed fields (`evidence.ts`): never
  * a visitor's words, and never a log message, which may carry them.
  *
+ * It stops at a diagnosis: the code at fault, and why. Reproducing the defect (a server, requests, a script) is the
+ * coder's, whose first step is a failing test. On Qwen, planners that reproduced it found the cause in a few minutes
+ * and spent the rest of their 30 to 45 doing so.
+ *
  * The planner has the checkout's tools, but nothing it changes leaves the sandbox: the line reads only its result,
  * and the coder's step starts from a fresh checkout. Its scope is held to the line's rules here, by the schema: a
  * plain path in the repository, never naming the workflows, the deployment, or a path the app's CODEOWNERS gives
@@ -123,7 +127,8 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
         : []),
       ...(failure ? ['', `Your last attempt at this plan failed: ${failure}. Do not hand back the same again.`] : []),
       '',
-      'Find the cause in the repository: start from the route, read the code that serves it and its tests, and run them if that helps. You plan; the coder fixes. Change nothing: no change of yours leaves this checkout.',
+      'Find the cause in the repository: start from the route, and read the code that serves it and its tests. Stop as soon as you can name the code at fault and say why it does what the evidence shows: that diagnosis is all the plan needs, and most plans need a dozen tool calls or fewer.',
+      'Do not reproduce the defect: start no server, send no requests, write no scripts, and run no tests. The coder’s first step is a failing test that reproduces it, and your criteria say what that test shows. You plan; the coder fixes. Change nothing: no change of yours leaves this checkout.',
       '',
       'Then write the result, one of three:',
       '1. {"verdict":"spec","spec":{"outcome","criteria":[{"given","when","expect"}],"scope":[],"risks":[],"rollout"}}, the spec the coder will be held to:',

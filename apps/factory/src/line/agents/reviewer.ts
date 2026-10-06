@@ -105,7 +105,7 @@ function prompt({ workItem, spec, pullRequest, title, round, blocked }: Reviewer
     '2. Read the whole diff. For each criterion, find the code that meets it and the test that shows it. A criterion that nothing in the change meets is a blocking finding that cites it, whatever the commit messages say.',
     '3. Hold the change to each rule. A finding about a rule cites its number.',
     '4. Review the diff, not the code around it. The shop is bad on purpose: ask for nothing outside the ticket, and nothing outside the scope.',
-    'The gates have passed: the tests, types and lint are green, so do not run them again. Read a test to see what it shows.',
+    'The gates have passed: the tests, types and lint are green, so do not run them again, and do not start the app or send it requests. Read a test to see what it shows.',
     '',
     `Anchor each finding to a line the diff shows in the change’s version of a file it changes, and give at most ${MAX_FINDINGS}. A finding blocks only if the change is wrong without it: a criterion not met, a rule broken, a test that does not show what it claims. Taste is a suggestion. Say in each comment, in at most 300 characters, what is wrong and what would put it right.`,
     '',

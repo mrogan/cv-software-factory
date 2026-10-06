@@ -150,6 +150,13 @@ describe('the planner’s prompt', () => {
     expect(prompt).toContain('no scope may name: .github/, deploy/, Dockerfile.');
   });
 
+  it('stops it at a diagnosis, and leaves reproducing the defect to the coder’s failing test', () => {
+    const prompt = planner.prompt(INPUT);
+    expect(prompt).toContain('Stop as soon as you can name the code at fault');
+    expect(prompt).toContain('Do not reproduce the defect: start no server, send no requests, write no scripts');
+    expect(prompt).toContain('The coder’s first step is a failing test that reproduces it');
+  });
+
   it('tells it why its last attempt failed', () => {
     const failure =
       "The planner's result does not fit its schema (spec.scope.0: deploy names a path no patch may change)";
