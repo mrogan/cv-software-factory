@@ -12,7 +12,8 @@
  *
  * Each attempt at a step has a job of its own, named by its attempt as well as its round: a job's name, and so its
  * token, is used once, and a retry never finds the Jobs of the attempt before it. `cancel` deletes the Jobs of every
- * step in hand, for the line stopping; each of those steps ends `stopped`, and nothing it did counts.
+ * step in hand, for the line stopping, as aborting a step's own `signal` deletes its Jobs; each of those steps ends
+ * `stopped`, and nothing it did counts. A step whose signal has aborted before it starts never starts.
  */
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage, RequestListener } from 'node:http';
@@ -23,6 +24,9 @@ import type { Sql } from 'postgres';
 import { z } from 'zod';
 // Types only: the factory image holds no runner, so a value from it would fail to load there (`test/image.test.ts`).
 import type { Handback, Step } from '../../../runner/src/step.ts';
+
+export type { Handback };
+
 import { agentJob, jobName, NAMESPACE, prepareJob, volume } from './jobs.ts';
 import type { Kube } from './kube.ts';
 
@@ -54,6 +58,8 @@ export interface StepRequest extends Step {
   attempt?: number;
   /** How long the agent may run, in seconds. Preparing has ten minutes of its own. */
   deadlineSeconds: number;
+  /** Stops the step, at any point, as `cancel` does: the line aborts it when it stops. */
+  signal?: AbortSignal;
 }
 
 export type StepOutcome =
@@ -111,13 +117,19 @@ export class Runners {
 
   async run(request: StepRequest): Promise<StepOutcome> {
     const { sql, kube, log } = this.#o;
-    const { workItem, round, attempt = 1, deadlineSeconds, ...step } = request;
+    const { workItem, round, attempt = 1, deadlineSeconds, signal, ...step } = request;
     const job = jobName(step.agent, workItem, round, attempt);
     const names = { job, workItem };
     const jobs = `/apis/batch/v1/namespaces/${NAMESPACE}/jobs`;
+    if (signal?.aborted) return { kind: 'stopped', job };
     const token = await issueJobToken(sql, { job, workItem, agent: step.agent });
     this.#running.add(job);
+    const stop = () => void this.#stop(job);
+    signal?.addEventListener('abort', stop);
     try {
+      // Stopped while the token was made: nothing has started yet.
+      if (signal?.aborted) this.#stopped.add(job);
+      if (this.#stopped.has(job)) return { kind: 'stopped', job };
       await kube.create(`/api/v1/namespaces/${NAMESPACE}/persistentvolumeclaims`, volume(workItem));
       await kube.create(jobs, prepareJob(names, step, { image: this.#o.image, deadlineSeconds: PREPARE_SECONDS }));
       log.info({ job, workItem, agent: step.agent }, 'preparing');
@@ -126,6 +138,7 @@ export class Runners {
       if (prepared !== 'succeeded') return { kind: 'failed', job, reason: `The prepare pod ${prepared}.` };
 
       const handedBack = new Promise<Handback>((resolve) => this.#waiting.set(job, resolve));
+      if (this.#stopped.has(job)) return { kind: 'stopped', job };
       await kube.create(
         jobs,
         agentJob(names, step, {
@@ -151,6 +164,7 @@ export class Runners {
       if ('handback' in first) return { kind: 'handed-back', job, handback: first.handback };
       return { kind: 'failed', job, reason: `The agent pod ${first.state} without handing anything back.` };
     } finally {
+      signal?.removeEventListener('abort', stop);
       this.#waiting.delete(job);
       this.#running.delete(job);
       this.#stopped.delete(job);
@@ -171,18 +185,20 @@ export class Runners {
    * `stopped` within a poll, and ends its token as any step does.
    */
   async cancel(): Promise<void> {
+    for (const job of this.#running) await this.#stop(job);
+  }
+
+  /** Stops one step in hand: its Jobs go, and it ends `stopped`. */
+  async #stop(job: string): Promise<void> {
+    if (!this.#running.has(job) || this.#stopped.has(job)) return;
+    this.#stopped.add(job);
     const jobs = `/apis/batch/v1/namespaces/${NAMESPACE}/jobs`;
-    for (const job of this.#running) {
-      this.#stopped.add(job);
-      for (const part of ['prepare', 'agent']) {
-        await this.#o.kube
-          .remove(`${jobs}/${job}-${part}`)
-          .catch((error: Error) =>
-            this.#o.log.warn({ job, err: { message: error.message } }, 'could not delete a job'),
-          );
-      }
-      this.#o.log.info({ job }, 'the line stopped; the step’s jobs are deleted');
+    for (const part of ['prepare', 'agent']) {
+      await this.#o.kube
+        .remove(`${jobs}/${job}-${part}`)
+        .catch((error: Error) => this.#o.log.warn({ job, err: { message: error.message } }, 'could not delete a job'));
     }
+    this.#o.log.info({ job }, 'the line stopped; the step’s jobs are deleted');
   }
 
   /** The work item is over: its volume goes. */

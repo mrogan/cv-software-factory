@@ -292,6 +292,31 @@ describe('a step’s attempts and results', () => {
     expect(calls).toContain('DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1007-1-1-agent');
     expect(await jobForToken(database.writer, token)).toBeUndefined();
   });
+
+  it('stops a step when its signal aborts, and starts none whose signal aborted before it began', async () => {
+    let token = '';
+    const { runners, calls, close } = await line((env) => {
+      token = env.ANTHROPIC_API_KEY ?? '';
+      return new Promise<void>(() => {});
+    });
+    const before = new AbortController();
+    before.abort();
+    const step = { ...STEP, round: 1, deadlineSeconds: 60 };
+    expect(await runners.run({ ...step, workItem: '1009', signal: before.signal })).toEqual({
+      kind: 'stopped',
+      job: 'coder-1009-1-1',
+    });
+    expect(calls.filter((call) => call.includes('1009'))).toEqual([]);
+
+    const halt = new AbortController();
+    const running = runners.run({ ...step, workItem: '1010', signal: halt.signal });
+    while (!token) await new Promise((resolve) => setTimeout(resolve, 5));
+    halt.abort();
+    const outcome = await running;
+    await close();
+    expect(outcome).toEqual({ kind: 'stopped', job: 'coder-1010-1-1' });
+    expect(calls).toContain('DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1010-1-1-agent');
+  });
 });
 
 describe('the handback', () => {
