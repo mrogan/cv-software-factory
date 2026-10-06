@@ -1,7 +1,8 @@
 # The line (apps/factory/src/line): carries work items from triage's tickets through the agents, the gates and review
-# to Martin's merge. LINE_MODE, unset here, is `off`: it takes no tickets, and only the step API and the smoke run work.
-# LINE_ONLY, a work item's number, also unset here, has it act on that work item alone, leaving every other as it is.
-# LINE_TAKE, a number, also unset here, has it take that many work items in all, by its own rule, and then no more.
+# to Martin's merge. LINE_MODE is `live` here: it acts in GitHub through the GitHub worker; `off`, its default, takes no
+# tickets, and only the step API and the smoke run work. LINE_TAKE, 1 here, has it take that many work items in all,
+# by its own rule, and then no more, while it carries those on it to their end. LINE_ONLY, a work item's number, unset
+# here, has it act on that work item alone, leaving every other as it is.
 # It starts each step's Jobs in `runners` (apps/factory/src/runners), with its own service account, which may do that
 # and nothing else (deploy/base/runners/line-access.yaml), and takes the agent pods' handbacks on :8081. Its step API
 # on :8080 is reached only through a person's port-forward.
@@ -107,6 +108,11 @@ spec:
             # the local model is given longer.
             - name: FACTORY_PROFILE
               value: local
+            # The line on Claude, over the senses' tickets: the first that comes onto it by its rule, and no other.
+            - name: LINE_MODE
+              value: live
+            - name: LINE_TAKE
+              value: "1"
           # The handback's port: the step API listens on loopback only, so the kubelet cannot reach it.
           readinessProbe:
             httpGet:
