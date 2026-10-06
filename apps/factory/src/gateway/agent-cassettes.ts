@@ -46,10 +46,12 @@ const UNSTEADY: [RegExp, string][] = [
   // A terminal's colours, as `\u001b[34m`: they fall between the words a pattern below looks for.
   [/\\u001b\[[0-9;]*m/g, ''],
   [/Today's date is [^.\n"\\]+/g, "Today's date is (the day of the run)"],
-  // Vitest: when it started, how long it took, and how long each test file and test took.
+  // Vitest: when it started, how long it took, and how long each test file and test took. It prints a test's time
+  // only when the test is slow, so one near the threshold has a time in one run and none in the next: the key
+  // drops that time rather than standing in for it. A test whose own name ends in a time loses it too, harmlessly.
   [/Start at {2}\d{2}:\d{2}:\d{2}/g, 'Start at  (the time)'],
   [/Duration {2}\d+(?:\.\d+)?m?s(?: \([^)"\\]*\))?/g, 'Duration  (how long)'],
-  [/([✓×❯↓] [^"\\]*?) \d+(?:\.\d+)?m?s(?=\\n|")/g, '$1 (how long)'],
+  [/([✓×❯↓] [^"\\]*?) \d+(?:\.\d+)?m?s(?=\\n|")/g, '$1'],
   // Biome: `Checked 2 files in 7ms.`
   [/(Checked \d+ files? in )\d+(?:\.\d+)?(?:µs|ms|s)/g, '$1(how long)'],
   // `ls -l`: a file's time, `Oct  5 23:14`, or its year when it is older, `Oct  5  2025`.

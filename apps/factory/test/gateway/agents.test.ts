@@ -423,8 +423,8 @@ describe('reading the provider', () => {
       [
         ' RUN  v3.2.4 /work/repo',
         '',
-        ` ❯ test/cart.test.ts (2 tests | ${failed} failed) ${file}`,
-        `   × cart > counts the last item ${test}`,
+        ` ❯ test/cart.test.ts (2 tests | ${failed} failed)${file && ` ${file}`}`,
+        `   × cart > counts the last item${test && ` ${test}`}`,
         '',
         ` Test Files  1 failed (1)`,
         `      Tests  ${failed} failed | ${2 - failed} passed (2)`,
@@ -434,7 +434,9 @@ describe('reading the provider', () => {
     const first = keyedRequest(ran(vitest('23:03:54', '4ms', '2ms', '483ms (tests 77%, import 16%, transform 6%)')));
     const again = keyedRequest(ran(vitest('09:12:01', '11ms', '1.5s', '1.02s (transform 20ms, setup 0ms)')));
     expect(again).toEqual(first);
-    expect(JSON.stringify(first)).toContain('counts the last item (how long)\\n');
+    expect(JSON.stringify(first)).toContain('counts the last item\\n');
+    // Vitest prints a test's time only when the test is slow: printed once and not the other time, it keys the same.
+    expect(keyedRequest(ran(vitest('10:00:00', '', '', '290ms')))).toEqual(first);
     const listed = (time: string) => ran(`total 8\n-rw-r--r--@  1 runner  wheel  1503 ${time} cart.test.ts\n`);
     expect(keyedRequest(listed('Oct  5 23:14'))).toEqual(keyedRequest(listed('Jan 12  2027')));
     expect(keyedRequest(listed('Oct  5 23:14'))).not.toEqual(keyedRequest(ran('total 8\n')));
