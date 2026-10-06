@@ -38,3 +38,15 @@ describe('a kept handback', () => {
     expect(kept).toMatchObject({ begun: ['check-run', 'review'], done: { 'check-run': 42, review: null } });
   });
 });
+
+describe('a queue of one work item', () => {
+  it('sees only that work item on the line, and the whole line sees them all', async () => {
+    await database.writer`insert into line (work_item, stage) values ('1001', 'build'), ('1002', 'plan'), ('1003', 'review')`;
+    const one = new Queue(database.writer, 'test', { only: '1002' });
+    expect((await one.free()).map((i) => i.workItem)).toEqual(['1002']);
+    expect(await one.claim('1002', 60)).toMatchObject({ workItem: '1002' });
+    expect(await one.free()).toEqual([]);
+    const all = new Queue(database.writer, 'other');
+    expect((await all.free()).map((i) => i.workItem).sort()).toEqual(['1001', '1003']);
+  });
+});

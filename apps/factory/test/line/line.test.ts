@@ -485,6 +485,31 @@ describe('the line', () => {
     await working.line.idle();
   });
 
+  it('acts on one work item only when told to, taking its ticket whatever else is on the line, and leaves the rest', async () => {
+    const broken = await ticket('broken', '/search');
+    const cosmetic = await ticket('cosmetic', '/');
+    const waiting = await ticket('broken', '/products');
+    const before = line({ ...AGENTS, coder: () => 'works on' });
+    await before.pass(); // the broken ticket comes on, and is planned: it waits for Build
+    expect(await stage(broken)).toBe('build');
+    const untouched = { events: await types(broken), stage: await stage(broken) };
+
+    const one = line(AGENTS, events, { only: cosmetic });
+    await one.pass(); // the planner
+    await one.pass(); // the coder
+    one.github.pass();
+    await one.pass(); // the gates, and the reviewer
+    await one.pass(); // the describer
+    await one.pass(); // the hold for Martin's merge
+    expect(await stage(cosmetic)).toBe('held');
+    // The cosmetic ticket came on although another waits for Build, and went round on its own.
+    expect(new Set(one.steps.requests.map((r) => r.workItem))).toEqual(new Set([cosmetic]));
+    expect(one.steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'reviewer', 'describer']);
+    // Nothing else: no step, no read, no event, and no ticket taken in its turn.
+    expect({ events: await types(broken), stage: await stage(broken) }).toEqual(untouched);
+    expect(await stage(waiting)).toBeUndefined();
+  });
+
   it('gives a step on a local model longer, and more turns, as the policy routes its agent, and Claude’s none', async () => {
     const workItem = await ticket();
     const local = line(AGENTS, events, { providerOf: (agent) => (agent === 'planner' ? 'local' : 'anthropic') });

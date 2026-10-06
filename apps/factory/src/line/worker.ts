@@ -13,6 +13,8 @@
  * - At most one step at a time in each of Plan, Build and Review, and a ticket comes onto the line only when nothing
  *   is in Plan or waiting for Build (`queue.ts`). Each work item is leased while it is acted on.
  * - It reads its pull requests' gates and merges through the GitHub worker about once a minute (`gates.ts`).
+ * - With `only`, it acts on that one work item, taking its ticket onto the line if it is not there: it starts no
+ *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end.
  * - When the line stops, it stops every step in hand, wherever it is, and takes nothing new; their work is lost and
  *   nothing of it is recorded, so starting again runs those steps afresh from the last event.
  * - When a work item ends, merged or closed, its runners' volume is deleted.
@@ -102,6 +104,8 @@ export interface LineOptions {
    * longer bounds (`boundsOn`). By default, a provider that is not local.
    */
   providerOf?: (agent: LineAgent) => 'anthropic' | 'bedrock' | 'local';
+  /** The one work item the line acts on, leaving every other as it is; null, as by default, for them all. */
+  only?: string | null;
 }
 
 export const APP_REPOSITORY = 'mrogan/cv-worlds-worst-website';
@@ -134,9 +138,10 @@ export class Line {
       takesWork: true,
       workItemLimitUsd: null,
       providerOf: () => 'anthropic',
+      only: null,
       ...options,
     };
-    this.#queue = new Queue(options.sql, options.me ?? `line-${hostname()}`);
+    this.#queue = new Queue(options.sql, options.me ?? `line-${hostname()}`, { only: this.#o.only });
   }
 
   /**
