@@ -255,6 +255,20 @@ export class Line {
         ]);
         await this.#queue.moved(workItem);
         return;
+      case 'close':
+        // The issue goes with it; closing one already closed changes nothing.
+        if (item.issue) {
+          await this.#o.github.act('closeIssue', this.#o.repo, { number: item.issue, reason: 'not_planned' });
+        }
+        await this.#append(workItem, [
+          {
+            type: 'work-item.closed',
+            actor: 'factory',
+            summary: 'Closed unmerged, as Martin answered',
+            payload: { outcome: 'no-change', reason: next.reason },
+          },
+        ]);
+        return;
       case 'finish':
         await this.#o.steps.finish(workItem);
         this.#o.log.info({ workItem }, 'the work item is over');

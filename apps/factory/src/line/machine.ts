@@ -11,8 +11,11 @@
  * action either appends events, which moves the work item on, or waits for something outside the line: the gates
  * (GitHub's checks, which the line reads and appends as events) or Martin. The bounds a step has (its turns and
  * deadline) are each agent's (`agents/`); the bounds on the loop are `LIMITS`.
+ *
+ * A hold waits for Martin's answer, and what the answer does depends on why the work item is held: `ANSWERS` has a
+ * rule for each cause and each answer.
  */
-import type { PayloadOf, Stage } from '@software-factory/events';
+import { type HoldCause, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
 
 /** The agents the line runs, each in a runner. */
 export type LineAgent = 'planner' | 'coder' | 'reviewer' | 'describer';
@@ -26,6 +29,41 @@ export const LIMITS = {
   /** Failed attempts at one step (no handback, no result, a result its schema refuses) before it holds. */
   failures: 2,
 } as const;
+
+type Answer = PayloadOf<'hold.answered'>['decision'];
+
+/** What Martin's answer to a hold does to the work item. */
+export type Resolution =
+  /** It carries on from where it was held: the step it was held at runs again, with his answer. */
+  | 'carry-on'
+  /** The planner writes the spec again, with his answer. */
+  | 'replan'
+  /** His approval stands in for the reviewer's, and the change goes on to its description and his merge. */
+  | 'approve'
+  /** The work goes back to the coder, with his answer as the reason. */
+  | 'return'
+  /** Nothing for the line to do: it waits for him, as for his merge. */
+  | 'wait'
+  /** The work item closes unmerged. */
+  | 'close';
+
+/**
+ * What each answer does, for each cause of a hold. Rejecting closes the work item, except a hold where the planner
+ * rejected the ticket: there, rejecting overrules the planner, and approving agrees with it.
+ */
+export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
+  // Triage's: a suggestion never comes onto the line.
+  suggestion: { approved: 'wait', rejected: 'close', answered: 'wait' },
+  spec: { approved: 'carry-on', rejected: 'close', answered: 'replan' },
+  question: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
+  'ticket-rejected': { approved: 'close', rejected: 'carry-on', answered: 'carry-on' },
+  scope: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
+  failures: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
+  gates: { approved: 'return', rejected: 'close', answered: 'return' },
+  review: { approved: 'approve', rejected: 'close', answered: 'return' },
+  merge: { approved: 'wait', rejected: 'close', answered: 'return' },
+  unknown: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
+};
 
 /** An event as the line reads it: its type and payload, upcast to the current version. */
 export type LineEvent = { [K in keyof Payloads]: { type: K; payload: Payloads[K] } }[keyof Payloads];
@@ -45,21 +83,6 @@ type Payloads = {
     | 'pull-request.merged'
     | 'work-item.closed']: PayloadOf<K>;
 };
-
-export const LINE_EVENT_TYPES = [
-  'ticket.opened',
-  'spec.written',
-  'pull-request.pushed',
-  'gates.started',
-  'gates.finished',
-  'review.submitted',
-  'work-item.summarised',
-  'work.returned',
-  'hold.started',
-  'hold.answered',
-  'pull-request.merged',
-  'work-item.closed',
-] as const satisfies readonly (keyof Payloads)[];
 
 /** Where a work item is, from its events. */
 export interface WorkItemState {
@@ -82,6 +105,10 @@ export interface WorkItemState {
   described: boolean;
   /** The hold in force, if any. */
   hold: PayloadOf<'hold.started'> | undefined;
+  /** Martin's answer to the last hold, until the work item moves on from it: what it does, and what he said. */
+  answer:
+    | { cause: HoldCause; stage: Stage; decision: Answer; resolution: Resolution; text: string | undefined }
+    | undefined;
   merged: boolean;
   closed: boolean;
 }
@@ -100,10 +127,13 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
     reviews: 0,
     described: false,
     hold: undefined,
+    answer: undefined,
     merged: false,
     closed: false,
   };
   for (const event of events) {
+    // Anything that moves the work item on is past the answer that moved it.
+    if (MOVES_ON.has(event.type)) state.answer = undefined;
     switch (event.type) {
       case 'ticket.opened':
         state.ticket = event.payload;
@@ -145,9 +175,16 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
       case 'hold.started':
         state.hold = event.payload;
         break;
-      case 'hold.answered':
+      case 'hold.answered': {
+        if (!state.hold) break;
+        const { cause, stage } = state.hold;
+        const resolution = ANSWERS[cause][event.payload.decision];
+        state.answer = { cause, stage, decision: event.payload.decision, resolution, text: event.payload.answer };
         state.hold = undefined;
+        if (resolution === 'replan') state.spec = undefined;
+        if (resolution === 'approve' && state.review) state.review = { ...state.review, verdict: 'approved' };
         break;
+      }
       case 'pull-request.merged':
         state.merged = true;
         break;
@@ -158,6 +195,15 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
   }
   return state;
 }
+
+const MOVES_ON = new Set<LineEvent['type']>([
+  'spec.written',
+  'pull-request.pushed',
+  'review.submitted',
+  'work-item.summarised',
+  'work.returned',
+  'hold.started',
+]);
 
 /** One thing to do next. */
 export type Next =
@@ -171,6 +217,8 @@ export type Next =
   | { do: 'hold'; hold: PayloadOf<'hold.started'> }
   /** Nothing to do until something outside the line happens. */
   | { do: 'wait'; for: 'gates' | 'martin' }
+  /** Close the work item unmerged, as Martin answered. */
+  | { do: 'close'; reason: string }
   /** The work item is over: merged, or closed. */
   | { do: 'finish' };
 
@@ -201,6 +249,8 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   const s = fold(events);
   if (s.merged || s.closed) return { stage: 'ended', next: { do: 'finish' } };
   if (s.hold) return { stage: 'held', next: { do: 'wait', for: 'martin' } };
+  const answered = s.answer && afterAnswer(s.answer);
+  if (answered) return answered;
 
   const step = (agent: LineAgent): Decision => {
     const stage = STAGE_OF[agent];
@@ -269,5 +319,25 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
           },
         },
       };
+  }
+}
+
+/** What the line does straight after Martin's answer, or undefined to carry on as the work item's events say. */
+function afterAnswer(answer: NonNullable<WorkItemState['answer']>): Decision | undefined {
+  const said = answer.text ? `: ${answer.text}` : '';
+  switch (answer.resolution) {
+    case 'close':
+      return { stage: 'held', next: { do: 'close', reason: `Martin rejected it${said}`.slice(0, 200) } };
+    case 'wait':
+      return { stage: 'held', next: { do: 'wait', for: 'martin' } };
+    case 'return':
+      // Only from a stage after Build; the rules never ask for more.
+      if (STAGES.indexOf(answer.stage) <= STAGES.indexOf('build')) return undefined;
+      return {
+        stage: 'build',
+        next: { do: 'return', from: answer.stage, to: 'build', reason: `Martin sent it back${said}`.slice(0, 200) },
+      };
+    default:
+      return undefined;
   }
 }

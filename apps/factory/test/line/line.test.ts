@@ -362,4 +362,28 @@ describe('the line', () => {
     expect(steps.requests.map((r) => r.attempt)).toEqual([1, 2]);
     expect(await types(workItem)).toContain('spec.written');
   });
+
+  it('acts on Martin’s answer: an answered question plans again, and a rejection closes the work item', async () => {
+    const workItem = await ticket();
+    let asked = 0;
+    const { pass, steps, github } = line({
+      ...AGENTS,
+      planner: () => handback({ verdict: 'question', question: `Which page? (${++asked})` }),
+    });
+    await pass(); // the planner asks
+    expect(await stage(workItem)).toBe('held');
+    expect((await payloads(workItem, 'hold.started'))[0]).toMatchObject({ kind: 'question', cause: 'question' });
+    await events.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'The home page' }, 'martin'));
+    await pass(); // the planner again, which asks again
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'planner']);
+    await events.append(event(workItem, 'hold.answered', { decision: 'rejected' }, 'martin'));
+    await pass(); // closed, and over
+    expect((await payloads(workItem, 'work-item.closed'))[0]).toEqual({
+      outcome: 'no-change',
+      reason: 'Martin rejected it',
+    });
+    expect(github.acts.at(-1)).toEqual({ action: 'closeIssue', args: { number: 41, reason: 'not_planned' } });
+    expect(steps.finished).toEqual([workItem]);
+    expect(await stage(workItem)).toBe('ended');
+  });
 });

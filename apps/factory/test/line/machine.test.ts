@@ -1,6 +1,6 @@
-import type { PayloadOf } from '@software-factory/events';
+import { HOLD_CAUSES, type HoldCause, type PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
-import { decide, type Facts, LIMITS, type LineEvent } from '../../src/line/machine.ts';
+import { ANSWERS, decide, type Facts, LIMITS, type LineEvent } from '../../src/line/machine.ts';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
@@ -136,5 +136,123 @@ describe('what the line does next', () => {
       payload: { outcome: 'no-change', reason: 'Closed unmerged' },
     };
     expect(decide([ticket, closed], facts)).toEqual({ stage: 'ended', next: { do: 'finish' } });
+  });
+});
+
+const held = (cause: HoldCause, stage: PayloadOf<'hold.started'>['stage']): LineEvent => ({
+  type: 'hold.started',
+  payload: { stage, kind: cause === 'merge' ? 'approval' : 'held', cause, reason: 'Held for Martin' },
+});
+const answer = (decision: PayloadOf<'hold.answered'>['decision'], text?: string): LineEvent => ({
+  type: 'hold.answered',
+  payload: { decision, ...(text ? { answer: text } : {}) },
+});
+
+describe('Martin’s answer to a hold', () => {
+  const approvedAndDescribed = [ticket, spec, pushed(), started(), finished('passed'), review('approved'), summarised];
+
+  it('has a rule for every cause and every answer', () => {
+    for (const cause of HOLD_CAUSES) {
+      expect(Object.keys(ANSWERS[cause]).sort()).toEqual(['answered', 'approved', 'rejected']);
+    }
+  });
+
+  it('closes the work item when he rejects it', () => {
+    for (const cause of HOLD_CAUSES.filter((c) => c !== 'ticket-rejected')) {
+      expect(decide([ticket, spec, held(cause, 'build'), answer('rejected', 'Not worth it')], facts)).toEqual({
+        stage: 'held',
+        next: { do: 'close', reason: 'Martin rejected it: Not worth it' },
+      });
+    }
+  });
+
+  it('runs the planner again on an answered question, and on a rejection he overrules', () => {
+    for (const [cause, decision] of [
+      ['question', 'answered'],
+      ['ticket-rejected', 'rejected'],
+      ['ticket-rejected', 'answered'],
+    ] as const) {
+      expect(decide([ticket, held(cause, 'plan'), answer(decision, 'The home page')], facts).next).toEqual({
+        do: 'step',
+        agent: 'planner',
+        round: 1,
+      });
+    }
+    // Agreeing with the planner closes the ticket.
+    expect(decide([ticket, held('ticket-rejected', 'plan'), answer('approved')], facts).next).toMatchObject({
+      do: 'close',
+    });
+  });
+
+  it('has the planner write a spec again when he answers it, and builds it when he approves', () => {
+    expect(decide([ticket, spec, held('spec', 'plan'), answer('answered', 'Smaller')], facts).next).toMatchObject({
+      do: 'step',
+      agent: 'planner',
+    });
+    expect(decide([ticket, spec, held('spec', 'plan'), answer('approved')], facts).next).toMatchObject({
+      do: 'step',
+      agent: 'coder',
+    });
+  });
+
+  it('runs the step it was held at again, for a change outside its scope or a step that kept failing', () => {
+    for (const cause of ['scope', 'failures'] as const) {
+      expect(decide([ticket, spec, held(cause, 'build'), answer('answered', 'Try again')], facts).next).toEqual({
+        do: 'step',
+        agent: 'coder',
+        round: 1,
+      });
+    }
+  });
+
+  it('sends the work back to the coder, with his words, from gates that kept failing', () => {
+    const gates = [ticket, spec, pushed(), started(), finished('failed'), held('gates', 'gates')];
+    expect(decide([...gates, answer('answered', 'The test is wrong')], facts).next).toEqual({
+      do: 'return',
+      from: 'gates',
+      to: 'build',
+      reason: 'Martin sent it back: The test is wrong',
+    });
+    // Once it has gone back, the coder works the next round.
+    const back = [...gates, answer('answered', 'The test is wrong'), returned('gates')];
+    expect(decide(back, facts).next).toEqual({ do: 'step', agent: 'coder', round: 2 });
+  });
+
+  it('takes his approval of a held review in place of the reviewer’s', () => {
+    const escalated = [
+      ticket,
+      spec,
+      pushed(),
+      started(),
+      finished('passed'),
+      review('escalated'),
+      held('review', 'review'),
+    ];
+    expect(decide([...escalated, answer('approved')], facts).next).toEqual({
+      do: 'step',
+      agent: 'describer',
+      round: 1,
+    });
+    expect(decide([...escalated, answer('answered', 'Rename it')], facts).next).toMatchObject({
+      do: 'return',
+      from: 'review',
+    });
+  });
+
+  it('waits for his merge when he approves it, and sends it back when he answers', () => {
+    const merge = [...approvedAndDescribed, held('merge', 'review')];
+    expect(decide([...merge, answer('approved')], facts)).toEqual({
+      stage: 'held',
+      next: { do: 'wait', for: 'martin' },
+    });
+    expect(decide([...merge, answer('answered', 'Add a test')], facts).next).toMatchObject({
+      do: 'return',
+      from: 'review',
+      reason: 'Martin sent it back: Add a test',
+    });
+  });
+
+  it('ignores an answer when nothing is held', () => {
+    expect(decide([ticket, spec, answer('rejected')], facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
   });
 });
