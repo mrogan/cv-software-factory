@@ -5,8 +5,9 @@
  *
  * A pull request the dry run opened reads as open, its head the last commit it would have pushed. Each commit it
  * would have made has every check main's ruleset requires, each passing once `checksAfterMs` has passed since the
- * commit; and the pull request reads as merged, by the App, once `mergeAfterMs` has passed since it was opened, so
- * the work item ends and a soak goes round. Nothing ran: each check's title says so, and the gate's summary carries
+ * commit; and the pull request reads as merged, by the App, once it is ready for review and `mergeAfterMs` has
+ * passed since it was readied, so the work item ends and a soak goes round. A draft is never merged: GitHub cannot
+ * merge one, and Martin merges only what the describer has readied. Nothing ran: each check's title says so, and the gate's summary carries
  * it. A comparison of a commit the dry run made is taken against the real commit its first one went on, from the
  * files as they really are there and as the dry run left them. A step that starts from such a commit checks out that
  * real commit and makes the dry run's commits on it (`checkout`), so the reviewer, the describer and a later round of
@@ -24,7 +25,7 @@ import type { Checkout, CheckRun, Comparison, PullRequestState, Reads } from './
 export interface DryRunTimes {
   /** How long after a commit the dry run's checks on it pass. */
   checksAfterMs: number;
-  /** How long after a pull request opens the dry run merges it. */
+  /** How long after a pull request is readied (or opens ready) the dry run merges it. */
   mergeAfterMs: number;
 }
 
@@ -153,7 +154,8 @@ export class DryRunReads implements Reads {
 
   #state(pull: DryRunPull): PullRequestState {
     const sha = this.#made.branchMade(pull.repo, pull.head) ?? shaFor(`${pull.repo}#${pull.number} head`);
-    const merged = this.#now().getTime() - pull.openedAt.getTime() >= this.#times.mergeAfterMs;
+    const merged =
+      pull.readiedAt !== null && this.#now().getTime() - pull.readiedAt.getTime() >= this.#times.mergeAfterMs;
     return {
       number: pull.number,
       state: merged ? 'closed' : 'open',

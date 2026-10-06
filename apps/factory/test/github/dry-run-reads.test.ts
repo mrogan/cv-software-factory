@@ -124,9 +124,14 @@ describe('a dry run’s reads', () => {
     expect(drafts[1]?.payload).toMatchObject({ check: 'Unit tests', required: true, summary: DRY_RUN_CHECK_TITLE });
   });
 
-  it('merge it as the App after a while, so the work item ends', async () => {
-    const { reads, number, later } = await dryRun();
-    later(TIMES.mergeAfterMs);
+  it('never merge it while it is a draft, and merge it as the App a while after it is readied', async () => {
+    const { made, reads, number, later } = await dryRun();
+    later(TIMES.mergeAfterMs * 3);
+    expect(await reads.pullRequest(REPO, number)).toMatchObject({ state: 'open', merged: false, draft: true });
+    await made.readyForReview(REPO, { number, url: '', nodeId: `dry-run-${number}` });
+    later(TIMES.mergeAfterMs - 1);
+    expect(await reads.pullRequest(REPO, number)).toMatchObject({ state: 'open', merged: false, draft: false });
+    later(1);
     const pr = await reads.pullRequest(REPO, number);
     expect(pr).toMatchObject({ state: 'closed', merged: true, mergedBy: APP_LOGIN });
     expect(pr.mergeCommit).toMatch(/^[0-9a-f]{40}$/);

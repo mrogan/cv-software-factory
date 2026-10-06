@@ -362,6 +362,8 @@ export interface DryRunPull {
   base: string;
   openedAt: Date;
   draft: boolean;
+  /** When it left draft, or opened ready; null while it is a draft. */
+  readiedAt: Date | null;
   nodeId: string;
 }
 
@@ -514,6 +516,7 @@ export class DryRunActions implements Actions {
       base: draft.base,
       openedAt: this.#now(),
       draft: draft.draft ?? false,
+      readiedAt: draft.draft ? null : this.#now(),
       nodeId,
     });
     return { number, url: `dry-run:${repo}#${number}`, nodeId };
@@ -530,7 +533,7 @@ export class DryRunActions implements Actions {
   async readyForReview(repo: string, pullRequest: PullRequestRef): Promise<void> {
     await this.#record('readyForReview', repo, { number: pullRequest.number });
     const pull = this.#pulls.get(pullRequest.number);
-    if (pull) pull.draft = false;
+    if (pull?.draft) Object.assign(pull, { draft: false, readiedAt: this.#now() });
   }
 
   async updateBranch(repo: string, number: number, expectedHead: string): Promise<void> {

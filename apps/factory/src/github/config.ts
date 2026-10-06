@@ -8,7 +8,7 @@
  *                                     instead
  *     ARTIFACTS_DIR                   the artifact store, for a dry run's records
  *     GITHUB_DRY_RUN_CHECKS_SECONDS   how long after a dry run's commit its checks pass (default 120)
- *     GITHUB_DRY_RUN_MERGE_SECONDS    how long after a dry run's pull request opens it is merged (default 1200)
+ *     GITHUB_DRY_RUN_MERGE_SECONDS    how long after a dry run's pull request is readied it is merged (default 1200)
  *     GITHUB_REPOSITORIES             the repositories it acts on, separated by commas (default: both public ones)
  *     GITHUB_POLL_SECONDS             how often it polls (default 60)
  *     GITHUB_API_URL, GHCR_URL        GitHub's API and GHCR, for a stand-in
