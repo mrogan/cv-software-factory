@@ -5,9 +5,10 @@ import { jobForToken } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import { stepFrom } from '../../../runner/src/step.ts';
-import { coder } from '../../src/line/agents/coder.ts';
-import { BENCH_DIR, bench, type RunnerSteps } from '../../src/line/bench/bench.ts';
+import { coder, coderInputAfterRefusal } from '../../src/line/agents/coder.ts';
+import { BENCH_DIR, bench, lastStep, type RunnerSteps } from '../../src/line/bench/bench.ts';
 import { FIXTURE_WORK_ITEM, FIXTURES } from '../../src/line/bench/fixtures.ts';
+import { LIMITS } from '../../src/line/machine.ts';
 
 let database: Database;
 beforeEach(async () => {
@@ -20,10 +21,21 @@ const fixture =
   (() => {
     throw new Error('The coder has no off-by-one fixture.');
   })();
-const handback = { ending: 'finished' as const, patch: 'diff', note: 'Fixed it.', turns: 9, session: 's' };
+const handback = { ending: 'finished' as const, patch: '', note: 'Fixed it.', turns: 9, session: 's' };
+const CODED = {
+  title: 'fix(smoke): count the last index from zero',
+  note: 'lastIndex counted from one; a test shows it.',
+};
+const PATCH = (path: string) => `diff --git a/${path} b/${path}
+--- a/${path}
++++ b/${path}
+@@ -1 +1 @@
+-old
++new
+`;
 
 /** The runner's steps as the bench calls them, keeping what each was given and what the agent saw. */
-function runner(answer: (env: NodeJS.ProcessEnv) => Promise<unknown>) {
+function runner(answer: (env: NodeJS.ProcessEnv) => Promise<unknown>, patches: string[] = []) {
   const seen: { prepare?: NodeJS.ProcessEnv; agent?: NodeJS.ProcessEnv; home?: string[]; token?: unknown } = {};
   const steps: RunnerSteps = {
     prepare: async (env) => {
@@ -41,7 +53,7 @@ function runner(answer: (env: NodeJS.ProcessEnv) => Promise<unknown>) {
           values (${crypto.randomUUID()}, 'coder', ${workItem}, 'local', 'qwen/qwen3.8-27b', 'messages', 10,
                   ${outcome}, ${job})`;
       }
-      return { ...handback, result: await answer(env) };
+      return { ...handback, patch: patches.shift() ?? '', result: await answer(env) };
     },
   };
   return { seen, steps };
@@ -53,7 +65,7 @@ describe('the bench', () => {
     // What an earlier run, or the developer's own Claude Code, left in the agent's home.
     mkdirSync(join(dir, 'home', '.claude'), { recursive: true });
     writeFileSync(join(dir, 'home', '.claude.json'), '{}');
-    const { seen, steps } = runner(async () => ({ title: 'fix(smoke): count the last index from zero' }));
+    const { seen, steps } = runner(async () => CODED);
     const benched = await bench({
       agent: 'coder',
       fixture,
@@ -93,7 +105,7 @@ describe('the bench', () => {
     expect(seen.token).toMatchObject({ workItem: expect.stringMatching(/^bench-/), agent: 'coder' });
     expect(await jobForToken(database.writer, seen.agent?.ANTHROPIC_API_KEY ?? '')).toBeUndefined();
 
-    expect(benched.result).toEqual({ fits: true, value: { title: 'fix(smoke): count the last index from zero' } });
+    expect(benched.result).toEqual({ fits: true, value: CODED });
     expect(benched.calls).toEqual({ answered: 1, replayed: 2 });
 
     // A second run caps its spend apart from the first, with the same prompt.
@@ -127,7 +139,10 @@ describe('the bench', () => {
       dir,
       log: () => {},
     };
-    const misfit = await bench({ ...options, runner: runner(async () => ({ title: 'Fixed the bug' })).steps });
+    const misfit = await bench({
+      ...options,
+      runner: runner(async () => ({ ...CODED, title: 'Fixed the bug' })).steps,
+    });
     expect(misfit.result).toMatchObject({ fits: false, problems: [expect.stringMatching(/^title: /)] });
 
     const { seen, steps } = runner(async () => {
@@ -136,5 +151,67 @@ describe('the bench', () => {
     await expect(bench({ ...options, commit: 'b'.repeat(40), runner: steps })).rejects.toThrow('The SDK fell over.');
     expect(stepFrom(seen.agent).commit).toBe('b'.repeat(40));
     expect(await jobForToken(database.writer, seen.agent?.ANTHROPIC_API_KEY ?? '')).toBeUndefined();
+  });
+
+  it('sends a coder’s patch the fence refuses back once, resuming its session in the same home', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bench-'));
+    const homes: boolean[] = [];
+    const prompts: string[] = [];
+    const { steps } = runner(
+      async (env) => {
+        prompts.push(stepFrom(env).prompt);
+        homes.push(existsSync(join(String(env.HOME), 'kept')));
+        writeFileSync(join(String(env.HOME), 'kept'), 'the session');
+        return CODED;
+      },
+      [PATCH('src/smoke.ts') + PATCH('src/app.ts'), PATCH('src/smoke.ts')],
+    );
+    const resumed: (string | undefined)[] = [];
+    const benched = await bench({
+      agent: 'coder',
+      fixture,
+      sql: database.writer,
+      gateway: 'http://gw',
+      dir,
+      runner: {
+        ...steps,
+        runAgent: (env, options) => {
+          resumed.push(stepFrom(env).resume);
+          return steps.runAgent(env, options);
+        },
+      },
+      log: () => {},
+    });
+    expect(benched.fence).toMatchObject({ ok: false, outside: ['src/app.ts'] });
+    expect(benched.fence?.output).toContain('refused src/app.ts +1 −1');
+    expect(benched.again?.fence).toMatchObject({ ok: true });
+    expect(resumed).toEqual([undefined, 's']);
+    expect(homes).toEqual([false, true]);
+    expect(prompts[1]).toBe(coder.prompt(coderInputAfterRefusal(fixture.input, String(benched.fence?.output), 's')));
+  });
+
+  it('sends a coder back no more often than the line does, and fails the run when the fence refuses the last step', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bench-'));
+    const strays = Array.from({ length: LIMITS.fenceRefusals + 1 }, () => PATCH('src/smoke.ts') + PATCH('src/app.ts'));
+    const { steps } = runner(async () => CODED, strays);
+    let ran = 0;
+    const benched = await bench({
+      agent: 'coder',
+      fixture,
+      sql: database.writer,
+      gateway: 'http://gw',
+      dir,
+      runner: {
+        ...steps,
+        runAgent: (env, options) => {
+          ran += 1;
+          return steps.runAgent(env, options);
+        },
+      },
+      log: () => {},
+    });
+    expect(ran).toBe(LIMITS.fenceRefusals);
+    expect(lastStep(benched).fence).toMatchObject({ ok: false });
+    expect(lastStep(benched).again).toBeUndefined();
   });
 });

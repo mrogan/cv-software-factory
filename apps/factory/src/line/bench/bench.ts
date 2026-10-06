@@ -1,7 +1,7 @@
 /**
  * The bench: one agent's step on a developer's machine, with no cluster, for working on the agent's prompt. It runs
  * the step as a runner does, with the runner's own prepare and agent steps, on a fixture's invented work, against a
- * gateway on the host; it does not fence the agent, which has the machine's network.
+ * gateway on the host. It has no network fence: the agent has the machine's network.
  *
  * What makes a second run send the same requests, so the gateway's cassettes replay it: the step works in a fixed
  * folder, `BENCH_DIR`, since its path is in the prompt; the agent's home is emptied before each run, so no session,
@@ -15,6 +15,10 @@
  * bench counts from there how many calls a model answered and how many the cassettes replayed. The token names a work
  * item of its own for each run, not the fixture's: the gateway caps what a work item spends over all time, so runs
  * that shared one would soon use up its cap for good. The prompt keeps the fixture's, so the cassettes still replay.
+ *
+ * A coder's patch meets the scope fence, as on the line (`fenceFor`). One the fence refuses goes back to the coder,
+ * as the line sends it (`coderInputAfterRefusal`), up to `LIMITS.fenceRefusals`: another step, from a fresh
+ * checkout, carrying on the coder's session as its definition says (`resume`).
  */
 import { mkdir, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -23,10 +27,13 @@ import { endJobToken, issueJobToken } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import type { AgentOptions } from '../../../../runner/src/agent.ts';
 import type { Handback, Step } from '../../../../runner/src/step.ts';
+import { PatchRefused } from '../../github/patches.ts';
+import type { Fenced } from '../../runners/scope.ts';
 import { oneRunWorkItem } from '../../runners/smoke.ts';
 import type { AgentDefinition } from '../agents/agent.ts';
+import { type CoderInput, coderInputAfterRefusal, fenceFor } from '../agents/coder.ts';
 import { AGENTS } from '../agents/index.ts';
-import type { LineAgent } from '../machine.ts';
+import { LIMITS, type LineAgent } from '../machine.ts';
 import { APP_REPOSITORY } from '../worker.ts';
 import type { Fixture, InputOf } from './fixtures.ts';
 
@@ -61,14 +68,63 @@ export interface Benched {
   /** The step's calls, by what came of them: `answered` by a model, `replayed` from a cassette, and so on. */
   calls: Record<string, number>;
   seconds: { prepare: number; agent: number };
+  /** For a coder: what the scope fence made of its patch, and the step a refusal sent it back to. */
+  fence?: Fenced;
+  again?: Benched;
+}
+
+/** The last step a bench ran: the first, or the one the last refusal sent the coder back to. */
+export function lastStep(benched: Benched): Benched {
+  let last = benched;
+  while (last.again) last = last.again;
+  return last;
 }
 
 export async function bench<A extends LineAgent>(o: BenchOptions<A>): Promise<Benched> {
+  const dir = o.dir ?? BENCH_DIR;
+  const home = join(dir, 'home');
+  await rm(home, { recursive: true, force: true });
+  await mkdir(home, { recursive: true });
+  const workItem = oneRunWorkItem('bench');
+  let input = o.fixture.input;
+  const steps: Benched[] = [];
+  for (let attempt = 1; ; attempt++) {
+    const benched = await step(o, dir, workItem, attempt, input);
+    steps.push(benched);
+    if (o.agent !== 'coder' || !benched.handback.patch) break;
+    const coderInput = input as CoderInput;
+    const fenced = fenceOf(benched.handback.patch, coderInput);
+    if (!fenced) break;
+    benched.fence = fenced;
+    if (fenced.ok || attempt >= LIMITS.fenceRefusals) break;
+    input = coderInputAfterRefusal(coderInput, fenced.output, benched.handback.session) as InputOf<A>;
+  }
+  // Each step, with the one after it.
+  return steps.reduceRight((after, benched) => ({ ...benched, again: after }));
+}
+
+/** The fence's verdict, or nothing for a patch it cannot read, which the line fails the step for. */
+function fenceOf(patch: string, input: CoderInput): Fenced | undefined {
+  try {
+    return fenceFor(patch, input);
+  } catch (error) {
+    if (error instanceof PatchRefused) return undefined;
+    throw error;
+  }
+}
+
+/** One step, from a fresh checkout and with a token of its own, carrying on a session when its definition says so. */
+async function step<A extends LineAgent>(
+  o: BenchOptions<A>,
+  dir: string,
+  workItem: string,
+  attempt: number,
+  input: InputOf<A>,
+): Promise<Benched> {
   // Each agent's input fits only its own definition, which the fixture's type holds to.
   const definition = AGENTS[o.agent] as unknown as AgentDefinition<InputOf<A>, unknown>;
-  const { input } = o.fixture;
-  const dir = o.dir ?? BENCH_DIR;
-  const step: Step = {
+  const resume = definition.resume?.(input);
+  const runnerStep: Step = {
     agent: o.agent,
     repository: `https://github.com/${APP_REPOSITORY}.git`,
     commit: o.commit ?? o.fixture.commit,
@@ -77,16 +133,14 @@ export async function bench<A extends LineAgent>(o: BenchOptions<A>): Promise<Be
     maxTurns: definition.maxTurns,
     result: true,
     ...(o.fixture.seed ? { seed: o.fixture.seed } : {}),
+    ...(resume ? { resume } : {}),
   };
   const home = join(dir, 'home');
   const prepareDir = join(dir, 'prepare');
-  for (const fresh of [home, prepareDir]) {
-    await rm(fresh, { recursive: true, force: true });
-    await mkdir(fresh, { recursive: true });
-  }
-  const shared = { WORK: join(dir, 'work'), RUNNER_STEP: JSON.stringify(step) };
-  const workItem = oneRunWorkItem('bench');
-  const job = `${o.agent}-${workItem}-1`;
+  await rm(prepareDir, { recursive: true, force: true });
+  await mkdir(prepareDir, { recursive: true });
+  const shared = { WORK: join(dir, 'work'), RUNNER_STEP: JSON.stringify(runnerStep) };
+  const job = `${o.agent}-${workItem}-${attempt}`;
   const token = await issueJobToken(o.sql, { job, workItem, agent: o.agent });
   try {
     const started = Date.now();

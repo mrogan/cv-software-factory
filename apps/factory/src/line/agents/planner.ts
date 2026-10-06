@@ -11,8 +11,8 @@
  * and the coder's step starts from a fresh checkout. Its scope is held to the line's rules here, by the schema: a
  * plain path in the repository, never naming the workflows, the deployment, or a path the app's CODEOWNERS gives
  * Martin, as the repository has them at that commit. A fix that needs one is not the line's to make, and the planner
- * says so by rejecting the ticket. Here the line's own fence refuses only the workflows and the deployment; the
- * GitHub worker refuses every protected file a patch changes, as the last word.
+ * says so by rejecting the ticket. The line's fence holds the coder's patch to the same paths at its commit
+ * (`coder.ts`), and the GitHub worker refuses every protected file a patch changes, as the last word.
  */
 import type { PayloadOf } from '@software-factory/events';
 import { RISKS } from '@software-factory/events';

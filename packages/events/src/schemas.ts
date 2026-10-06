@@ -402,8 +402,12 @@ export const PAYLOADS = {
     decision: z.enum(['approved', 'rejected', 'answered']),
     answer: text(300).optional(),
   }),
+  /**
+   * A mechanism stopped an action: the platform's (a token's permissions, a ruleset, the egress policy, admission
+   * control) or the line's own scope fence, which refuses a coder's patch that changes a file outside its spec's scope.
+   */
   'action.refused': z.strictObject({
-    mechanism: z.enum(['token-permission', 'ruleset', 'egress-policy', 'admission-control']),
+    mechanism: z.enum(['token-permission', 'ruleset', 'egress-policy', 'admission-control', 'scope-fence']),
     action: text(200),
     /** The mechanism's own refusal, verbatim. */
     output: z.string().min(1).max(4000),

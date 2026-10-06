@@ -93,9 +93,14 @@ const SPEC = {
   rollout: 'Ships as it is.',
 };
 
+const CODED = {
+  title: 'fix(search): escape the query',
+  note: 'Search passed the query to the database as it was. A test searches for a quote; the query is escaped now.',
+};
+
 const AGENTS: Record<string, Agent> = {
   planner: () => handback({ verdict: 'spec', spec: SPEC }),
-  coder: () => handback({ title: 'fix(search): escape the query' }, PATCH),
+  coder: () => handback(CODED, PATCH),
   reviewer: () => handback({ verdict: 'approved', note: 'It does what the spec says.', findings: [] }),
   describer: () =>
     handback({
@@ -171,7 +176,13 @@ describe('the line', () => {
       force: true,
     });
     expect(github.acts[3]?.args).toMatchObject({ draft: true, base: 'main' });
+    // A draft, with the ticket's issue and the spec, until the describer writes its description.
     expect(String(github.acts[3]?.args.body)).toContain('Refers to #41.');
+    expect(String(github.acts[3]?.args.body)).toContain('**Scope.** `src/search.ts`, `test/`');
+    expect(github.pulls.get(12)?.draft).toBe(true);
+    expect(steps.requests[1]?.prompt).toContain('Fix ticket #');
+    expect(steps.requests[1]?.prompt).toContain('Scope, the only files you may change: src/search.ts, test/.');
+    expect(steps.requests[1]?.resume).toBeUndefined();
     expect(await stage(workItem)).toBe('gates');
 
     await pass(); // nothing has run on the pull request yet
@@ -299,7 +310,7 @@ describe('the line', () => {
     expect(hold?.reason).toMatch(/^The planner failed 2 times: The planner's result does not fit its schema/);
   });
 
-  it('tells the planner the ticket and what the senses saw, and never a visitor’s words', async () => {
+  it('tells the planner and the coder the ticket and what the senses saw, and never a visitor’s words', async () => {
     const workItem = await ticket();
     const signal = (payload: PayloadOf<'signal.received'>, actor: NewEvent['actor']) =>
       event(workItem, 'signal.received', payload, actor);
@@ -349,6 +360,11 @@ describe('the line', () => {
     expect(prompt).toContain('1 request to /search logged 1 line at error');
     expect(prompt).not.toMatch(/ignore|instructions|every.price|Ignore your/);
     expect(prompt).toContain('no scope may name: .github/, deploy/, Dockerfile, **/AGENTS.md.');
+    await pass();
+    const coding = String(steps.requests[1]?.prompt);
+    expect(coding).toContain('The log watcher\'s check "new error pattern" on /search');
+    expect(coding).toContain('1 request to /search logged 1 line at error');
+    expect(coding).not.toMatch(/every price|Ignore your instructions/);
   });
 
   it('fails a planner whose scope names a path the app’s CODEOWNERS gives Martin, as GitHub has it at the commit', async () => {
@@ -436,16 +452,75 @@ describe('the line', () => {
     expect(await types(workItem)).toContain('work-item.closed');
   });
 
-  it('holds a patch outside the spec’s scope, and never sends it to GitHub', async () => {
+  it('refuses a patch outside the spec’s scope back to the coder once, then holds, and none reaches GitHub', async () => {
     const workItem = await ticket();
     const outside = PATCH.replaceAll('src/search.ts', 'src/server.ts');
-    const { pass, github } = line({ ...AGENTS, coder: () => handback({ title: 'fix(search): escape it' }, outside) });
-    await pass();
-    await pass();
+    const { pass, steps, github } = line({ ...AGENTS, coder: () => handback(CODED, outside) });
+    await pass(); // the planner
+    await pass(); // the coder strays, and the fence refuses its patch
+    expect((await payloads(workItem, 'action.refused'))[0]).toEqual({
+      mechanism: 'scope-fence',
+      action: 'Push the coder’s round 1 to a new pull request',
+      output: ['scope: src/search.ts, test/', 'refused src/server.ts +1 −1', 'allowed test/search.test.ts +2 −0'].join(
+        '\n',
+      ),
+    });
+    expect(await stage(workItem)).toBe('build');
+    await pass(); // back to the coder, which resumes its session from a fresh checkout and strays again
+    const back = steps.requests.at(-1);
+    expect(back).toMatchObject({ agent: 'coder', round: 1, attempt: 3, resume: 'session-1', commit: MAIN });
+    expect(back?.prompt).toContain('The line refused your patch');
+    expect(back?.prompt).toContain('    refused src/server.ts +1 −1');
+    await pass(); // the second refusal holds the work item
+    expect(await stage(workItem)).toBe('held');
+    expect((await payloads(workItem, 'hold.started'))[0]).toEqual({
+      stage: 'build',
+      kind: 'held',
+      cause: 'scope',
+      reason: 'The scope fence refused the coder’s patch 2 times: it changed files outside the spec’s scope',
+    });
     expect(github.acts.map((a) => a.action)).toEqual(['openIssue']);
-    expect((await payloads(workItem, 'hold.started'))[0]?.reason).toBe(
-      'The coder changed files outside the spec’s scope: src/server.ts',
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'coder']);
+  });
+
+  it('refuses a patch that changes a path the app’s CODEOWNERS gives Martin at the commit, though the scope takes it in', async () => {
+    const workItem = await ticket();
+    const { pass, github } = line({ ...AGENTS, coder: () => handback(CODED, PATCH) });
+    await pass(); // the planner, before the test file was Martin's
+    github.protectedPaths = [...github.protectedPaths, 'test/search.test.ts'];
+    await pass();
+    expect((await payloads(workItem, 'action.refused'))[0]?.output).toBe(
+      ['scope: src/search.ts, test/', 'allowed src/search.ts +1 −1', 'refused test/search.test.ts +2 −0'].join('\n'),
     );
+    expect(github.acts.map((a) => a.action)).toEqual(['openIssue']);
+  });
+
+  it('pushes the patch a refused coder brings back inside the scope, as a draft pull request', async () => {
+    const workItem = await ticket();
+    let tries = 0;
+    const outside = PATCH.replaceAll('src/search.ts', 'src/server.ts');
+    const { pass, steps, github } = line({
+      ...AGENTS,
+      coder: () => handback(CODED, ++tries === 1 ? outside : PATCH),
+    });
+    await pass();
+    await pass();
+    await pass();
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'coder']);
+    expect(github.acts.map((a) => a.action)).toEqual(['openIssue', 'setBranch', 'applyPatch', 'openPullRequest']);
+    expect(github.acts[2]?.args.message).toBe(`${CODED.title}\n\n${CODED.note}`);
+    expect(github.acts[3]?.args).toMatchObject({ draft: true, title: CODED.title });
+    expect(await types(workItem)).toEqual([
+      'work-item.opened',
+      'ticket.opened',
+      'model.called',
+      'spec.written',
+      'model.called',
+      'action.refused',
+      'model.called',
+      'pull-request.pushed',
+    ]);
+    expect(await stage(workItem)).toBe('gates');
   });
 
   it('reads no gates on a work item while its step is in hand, when its push may not be recorded yet', async () => {
@@ -644,7 +719,10 @@ describe('the line', () => {
   it('counts a change the factory cannot read against the coder', async () => {
     const workItem = await ticket();
     const binary = `${PATCH}diff --git a/src/logo.png b/src/logo.png\nBinary files a/src/logo.png and b/src/logo.png differ\n`;
-    const { pass } = line({ ...AGENTS, coder: () => handback({ title: 'fix(search): escape it' }, binary) });
+    const { pass } = line({
+      ...AGENTS,
+      coder: () => handback({ title: 'fix(search): escape it', note: 'Escaped it.' }, binary),
+    });
     await pass();
     await pass();
     expect((await failures(workItem))?.failure).toBe(

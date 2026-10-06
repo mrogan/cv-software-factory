@@ -35,6 +35,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
             : (({ gates: 'gates', review: 'review' } as Record<string, string>)[String(payload.stage)] ?? 'unknown'),
     }),
   },
+  // Version 2 adds the line's scope fence to the mechanisms; a version 1 refusal reads as it was.
+  'action.refused': { 1: (payload) => payload },
 };
 
 export const CATALOGUE: Catalogue = { versions: VERSIONS, upcasters: UPCASTERS };

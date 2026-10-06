@@ -181,6 +181,7 @@ const MECHANISMS: Record<PayloadOf<'action.refused'>['mechanism'], string> = {
   ruleset: 'The ruleset on main',
   'egress-policy': 'The egress policy',
   'admission-control': 'Admission control',
+  'scope-fence': 'The scope fence',
 };
 
 /** The pages verification found unchanged, for the strip under a picture of something with nothing to see. */

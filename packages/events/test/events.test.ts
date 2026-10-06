@@ -238,6 +238,21 @@ describe('upcasting the real catalogue', () => {
     expect(cause('held', 'review')).toBe('review');
     expect(cause('held', 'build')).toBe('unknown');
   });
+
+  it('reads version 1 of action.refused as it was, and takes the scope fence at version 2', () => {
+    const v1 = { mechanism: 'ruleset', action: 'Push to main', output: 'Protected branch update failed.' };
+    expect(upcast({ type: 'action.refused', version: 1, payload: v1 })).toMatchObject({
+      event: { version: 2, payload: v1 },
+    });
+    const fenced = {
+      mechanism: 'scope-fence',
+      action: 'Push the coder’s patch',
+      output: 'refused src/server.ts +1 −1',
+    };
+    expect(validate({ ...opened, type: 'action.refused', version: 2, actor: 'factory', payload: fenced })).toEqual({
+      ok: true,
+    });
+  });
 });
 
 describe('upcasting', () => {

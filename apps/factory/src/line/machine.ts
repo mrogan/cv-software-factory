@@ -7,6 +7,9 @@
  *                                            ▲                      │          │
  *                                            └──── work returned ───┴──────────┘
  *
+ * The coder's patch passes the scope fence before it reaches GitHub. One the fence refuses goes back to the coder
+ * once, with the fence's output, and stays in Build; a second refusal holds the work item for Martin.
+ *
  * The events are folded into where the work item is (`fold`), and `decide` turns that into one next action. Each
  * action either appends events, which moves the work item on, or waits for something outside the line: the gates
  * (GitHub's checks, which the line reads and appends as events) or Martin. The bounds a step has (its turns and
@@ -30,6 +33,11 @@ export const LIMITS = {
   failures: 2,
   /** Tries at a handback's effects, when GitHub or the store fails, before the work item holds. */
   effects: 6,
+  /**
+   * Patches the scope fence refuses before the work item holds: the first goes back to the coder with the fence's
+   * output, and the second holds. Martin's answer to the hold starts the count again.
+   */
+  fenceRefusals: 2,
 } as const;
 
 type Answer = PayloadOf<'hold.answered'>['decision'];
@@ -83,6 +91,7 @@ type Payloads = {
     | 'work.returned'
     | 'hold.started'
     | 'hold.answered'
+    | 'action.refused'
     | 'pull-request.merged'
     | 'work-item.closed']: PayloadOf<K>;
 };
@@ -96,6 +105,10 @@ export interface WorkItemState {
   rebuild: { from: Stage; reason: string } | undefined;
   /** The coder's round: 1, and one more each time work returns to Build. */
   round: number;
+  /** The scope fence's output on the coder's last patch, when it refused that patch and nothing was pushed since. */
+  fenced: string | undefined;
+  /** The coder's patches the scope fence has refused, since Martin last answered a hold. */
+  fenceRefusals: number;
   /** The gates on the latest push: the commit they started on, and how they ended, once they have. */
   gates: { commit: string; conclusion: 'passed' | 'failed' | undefined; failed: string[] } | undefined;
   /** Whether the gates have passed on the latest push: a later run on the same push (main merged in) is the console's. */
@@ -128,6 +141,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
     pullRequest: undefined,
     rebuild: undefined,
     round: 1,
+    fenced: undefined,
+    fenceRefusals: 0,
     gates: undefined,
     gatesPassed: false,
     gateReturns: 0,
@@ -153,6 +168,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
       case 'pull-request.pushed':
         state.pullRequest = event.payload;
         state.rebuild = undefined;
+        state.fenced = undefined;
         state.gates = undefined;
         state.gatesPassed = false;
         state.review = undefined;
@@ -193,10 +209,17 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
           state.answers.push({ asked: state.hold.question ?? state.hold.reason, answer: event.payload.answer });
         }
         state.hold = undefined;
+        state.fenceRefusals = 0;
         if (resolution === 'replan') state.spec = undefined;
         if (resolution === 'approve' && state.review) state.review = { ...state.review, verdict: 'approved' };
         break;
       }
+      case 'action.refused':
+        if (event.payload.mechanism === 'scope-fence') {
+          state.fenced = event.payload.output;
+          state.fenceRefusals += 1;
+        }
+        break;
       case 'pull-request.merged':
         state.merged = true;
         break;
@@ -289,7 +312,16 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
     if (facts.issue === null) return { stage: 'plan', next: { do: 'open-issue' } };
     return step('planner');
   }
-  if (!s.pullRequest || s.rebuild) return step('coder');
+  if (!s.pullRequest || s.rebuild) {
+    if (s.fenceRefusals >= LIMITS.fenceRefusals) {
+      const reason = `The scope fence refused the coder’s patch ${s.fenceRefusals} times: it changed files outside the spec’s scope`;
+      return {
+        stage: 'held',
+        next: { do: 'hold', hold: { stage: 'build', kind: 'held', cause: 'scope', reason } },
+      };
+    }
+    return step('coder');
+  }
   if (!s.gatesPassed) {
     if (s.gates?.conclusion !== 'failed') return { stage: 'gates', next: { do: 'wait', for: 'gates' } };
     const reason = `The gates failed: ${s.gates.failed.join(', ') || 'a check'}`.slice(0, 200);
