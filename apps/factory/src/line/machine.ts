@@ -213,6 +213,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
           hold: {
             stage: stage as Stage,
             kind: 'held',
+            cause: 'failures',
             reason: `The ${agent} failed ${facts.failures} times${why}`.slice(0, 300),
           },
         },
@@ -230,7 +231,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
     if (s.gates?.conclusion !== 'failed') return { stage: 'gates', next: { do: 'wait', for: 'gates' } };
     const reason = `The gates failed: ${s.gates.failed.join(', ') || 'a check'}`.slice(0, 200);
     if (s.gateReturns >= LIMITS.gateReturns) {
-      return { stage: 'held', next: { do: 'hold', hold: { stage: 'gates', kind: 'held', reason } } };
+      return { stage: 'held', next: { do: 'hold', hold: { stage: 'gates', kind: 'held', cause: 'gates', reason } } };
     }
     return { stage: 'build', next: { do: 'return', from: 'gates', to: 'build', reason } };
   }
@@ -239,12 +240,18 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
     case 'escalated':
       return {
         stage: 'held',
-        next: { do: 'hold', hold: { stage: 'review', kind: 'held', reason: s.review.note.slice(0, 300) } },
+        next: {
+          do: 'hold',
+          hold: { stage: 'review', kind: 'held', cause: 'review', reason: s.review.note.slice(0, 300) },
+        },
       };
     case 'changes-requested': {
       const reason = `Review asked for changes: ${s.review.note}`.slice(0, 200);
       if (s.reviews >= LIMITS.reviews) {
-        return { stage: 'held', next: { do: 'hold', hold: { stage: 'review', kind: 'held', reason } } };
+        return {
+          stage: 'held',
+          next: { do: 'hold', hold: { stage: 'review', kind: 'held', cause: 'review', reason } },
+        };
       }
       return { stage: 'build', next: { do: 'return', from: 'review', to: 'build', reason } };
     }
@@ -257,6 +264,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
           hold: {
             stage: 'review',
             kind: 'approval',
+            cause: 'merge',
             reason: `The fix in pull request #${s.pullRequest.number} has passed its gates and review, and waits for Martin to merge it`,
           },
         },

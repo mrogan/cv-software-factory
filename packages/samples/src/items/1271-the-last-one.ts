@@ -36,6 +36,7 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
   .at('3:11', 'hold.started', 'factory', 'Waiting for Martin to approve the spec', {
     stage: 'plan',
     kind: 'approval',
+    cause: 'spec',
     reason: 'An improvement is built only once Martin has approved its spec.',
   })
   .at('5:00', 'hold.answered', 'martin', 'Martin approved the spec', { decision: 'approved' })

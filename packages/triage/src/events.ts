@@ -206,6 +206,7 @@ export function reportEvents(
       writer.add('hold.started', 'triage', 'Waiting for Martin: a visitor suggested a change', {
         stage: 'triage',
         kind: 'approval',
+        cause: 'suggestion',
         reason:
           'A visitor asked for something new, and only Martin asks for improvements: it waits for Martin to decide.',
       });

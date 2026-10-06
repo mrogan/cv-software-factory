@@ -396,10 +396,11 @@ export class Line {
         }
         const hold: PayloadOf<'hold.started'> =
           planned.verdict === 'reject'
-            ? { stage: 'plan', kind: 'held', reason: planned.reason }
+            ? { stage: 'plan', kind: 'held', cause: 'ticket-rejected', reason: planned.reason }
             : {
                 stage: 'plan',
                 kind: 'question',
+                cause: 'question',
                 reason: 'The planner needs an answer to write the spec',
                 question: planned.question,
               };
@@ -414,6 +415,7 @@ export class Line {
           const hold: PayloadOf<'hold.started'> = {
             stage: 'build',
             kind: 'held',
+            cause: 'scope',
             reason: `The coder changed files outside the spec’s scope: ${fenced.outside.join(', ')}`.slice(0, 300),
           };
           return [{ type: 'hold.started', actor: 'factory', summary: holdLine(hold), payload: hold }];

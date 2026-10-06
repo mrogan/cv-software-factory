@@ -114,11 +114,14 @@ describe('what the line does next', () => {
   it('holds a step that keeps failing, and waits on any hold until it is answered', () => {
     expect(decide([ticket, spec], { ...facts, failures: LIMITS.failures, failure: 'no result' })).toEqual({
       stage: 'held',
-      next: { do: 'hold', hold: { stage: 'build', kind: 'held', reason: 'The coder failed 2 times: no result' } },
+      next: {
+        do: 'hold',
+        hold: { stage: 'build', kind: 'held', cause: 'failures', reason: 'The coder failed 2 times: no result' },
+      },
     });
     const hold: LineEvent = {
       type: 'hold.started',
-      payload: { stage: 'plan', kind: 'question', reason: 'Which page?' },
+      payload: { stage: 'plan', kind: 'question', cause: 'question', reason: 'Which page?' },
     };
     expect(decide([ticket, hold], facts)).toEqual({ stage: 'held', next: { do: 'wait', for: 'martin' } });
     const answered: LineEvent = { type: 'hold.answered', payload: { decision: 'answered', answer: 'The home page' } };

@@ -23,6 +23,18 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   // Version 2 adds the provider's own caps beside the day's and the month's, which read as they did.
   'spend.capped': { 1: (payload) => payload },
   'spend.cleared': { 1: (payload) => payload },
+  // Version 2 adds the hold's cause. A version 1 hold reads as the cause its kind and stage imply, where they imply one.
+  'hold.started': {
+    1: (payload) => ({
+      ...payload,
+      cause:
+        payload.kind === 'question'
+          ? 'question'
+          : payload.kind === 'approval'
+            ? (({ triage: 'suggestion', plan: 'spec' } as Record<string, string>)[String(payload.stage)] ?? 'merge')
+            : (({ gates: 'gates', review: 'review' } as Record<string, string>)[String(payload.stage)] ?? 'unknown'),
+    }),
+  },
 };
 
 export const CATALOGUE: Catalogue = { versions: VERSIONS, upcasters: UPCASTERS };

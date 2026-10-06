@@ -393,6 +393,8 @@ export const PAYLOADS = {
     stage,
     /** Approval and questions are the line asking; held means a mechanism stopped the work for a human to decide. */
     kind: z.enum(['approval', 'question', 'held']),
+    /** Why, so that Martin's answer has a meaning: what each answer does depends on it. */
+    cause: z.enum(V.HOLD_CAUSES),
     reason: text(300),
     question: text(300).optional(),
   }),

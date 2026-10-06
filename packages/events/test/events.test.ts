@@ -224,6 +224,20 @@ describe('upcasting the real catalogue', () => {
       event: { version: 2, payload: day },
     });
   });
+
+  it('reads a version 1 hold as the cause its kind and stage imply, and as unknown where they imply none', () => {
+    const cause = (kind: string, stage: string) => {
+      const read = upcast({ type: 'hold.started', version: 1, payload: { stage, kind, reason: 'Held' } });
+      return read.ok ? (read.event.payload as { cause: string }).cause : read.reason;
+    };
+    expect(cause('approval', 'triage')).toBe('suggestion');
+    expect(cause('approval', 'plan')).toBe('spec');
+    expect(cause('approval', 'review')).toBe('merge');
+    expect(cause('question', 'plan')).toBe('question');
+    expect(cause('held', 'gates')).toBe('gates');
+    expect(cause('held', 'review')).toBe('review');
+    expect(cause('held', 'build')).toBe('unknown');
+  });
 });
 
 describe('upcasting', () => {

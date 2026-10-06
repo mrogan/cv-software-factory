@@ -27,7 +27,8 @@ describe('a station’s state', () => {
         .open()
         .add(1, 'gates.started', 'actions', payloads.gatesStarted)
         .add(3, 'gates.finished', 'actions', payloads.gatesFailed)
-        .add(3.1, 'hold.started', 'factory', { stage: 'gates', kind: 'held', reason: 'Tests removed' }).events,
+        .add(3.1, 'hold.started', 'factory', { stage: 'gates', kind: 'held', cause: 'gates', reason: 'Tests removed' })
+        .events,
       at(4),
       'blocked',
     ],

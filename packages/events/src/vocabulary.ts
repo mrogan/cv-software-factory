@@ -101,6 +101,33 @@ export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
 export const PROVIDER_CAPS = ['credit', 'workspace-limit', 'unreachable'] as const;
 export type ProviderCap = (typeof PROVIDER_CAPS)[number];
 
+/**
+ * Why a work item is held for Martin, so the line knows what his answer means (the line's `machine.ts` has a rule for
+ * each). `unknown` is a hold that recorded no cause.
+ */
+export const HOLD_CAUSES = [
+  /** Triage parked a visitor's suggestion: only Martin asks for improvements. */
+  'suggestion',
+  /** An improvement's spec waits for Martin's approval before anything is built. */
+  'spec',
+  /** An agent asks Martin something only he can say. */
+  'question',
+  /** The planner judged the ticket one it cannot turn into a testable fix. */
+  'ticket-rejected',
+  /** The coder changed files outside the spec's scope. */
+  'scope',
+  /** A step failed as often as the line allows. */
+  'failures',
+  /** The gates kept failing after the returns to the coder the line allows. */
+  'gates',
+  /** The reviewer escalated, or still asked for changes after the last review the line allows. */
+  'review',
+  /** The change passed its gates and review, and waits for Martin to merge it. */
+  'merge',
+  'unknown',
+] as const;
+export type HoldCause = (typeof HOLD_CAUSES)[number];
+
 export const AUTONOMY = ['supervised', 'guarded', 'lights-out'] as const;
 export type Autonomy = (typeof AUTONOMY)[number];
 
