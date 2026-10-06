@@ -68,6 +68,8 @@ export interface Handback {
 
 /** The most a result may be, as JSON. */
 export const RESULT_BYTES = 64 * 1024;
+/** The most fields of a result a step may have written as files of their own. */
+export const RESULT_FILES = 4;
 
 export const work = (env = process.env) => env.WORK ?? '/work';
 export const repoDir = (env = process.env) => join(work(env), 'repo');
@@ -96,10 +98,13 @@ const STEP = z
     result: z.boolean().optional(),
     resultFiles: z
       .record(z.string().regex(/^[a-z][A-Za-z]{0,30}$/), z.string().regex(/^[a-z][a-z0-9-]{0,40}\.md$/, 'a file name'))
+      .refine((files) => Object.keys(files).length <= RESULT_FILES, `at most ${RESULT_FILES} files`)
       .optional(),
   })
   // A seed is committed on the commit, so `git diff base` would show it as part of the change.
-  .refine((step) => !(step.seed && step.base), { message: 'a step with a base reads a change, and takes no seed' });
+  .refine((step) => !(step.seed && step.base), { message: 'a step with a base reads a change, and takes no seed' })
+  // The files are fields of the result: with no result, nothing would read them.
+  .refine((step) => !step.resultFiles || step.result, { message: 'a step’s result files are part of its result' });
 
 export function stepFrom(env = process.env): Step {
   const text = env.RUNNER_STEP;

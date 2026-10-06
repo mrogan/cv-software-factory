@@ -14,7 +14,7 @@
  *    step asks for one. The patch is data: the line checks it against the spec's scope, and the GitHub worker
  *    applies it outside the sandbox. The result is data too: the line reads it through the agent's schema.
  */
-import { access, mkdir, readFile, rm } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -221,18 +221,27 @@ export async function runAgent(
 
 /**
  * The result the agent wrote, if it is JSON and small enough, with each field it wrote as a file of its own read in.
- * What it says is the line's to judge, against the agent's schema; here it is only carried.
+ * What it says is the line's to judge, against the agent's schema; here it is only carried. Each file's size is
+ * checked before it is read, against what is left of `RESULT_BYTES`, so a runaway file ends in a clean refusal rather
+ * than in the pod running out of memory.
  */
 export async function readResult(
   file: string,
   files: Record<string, string> = {},
 ): Promise<{ result?: unknown; problem?: string }> {
-  let text: string;
-  try {
-    text = await readFile(file, 'utf-8');
-  } catch {
-    return { problem: 'The agent wrote no result.' };
-  }
+  const tooBig = { problem: `The result is over ${RESULT_BYTES} bytes.` };
+  let left = RESULT_BYTES;
+  /** A file's text, if it is a file and fits in what is left; `undefined` if there is none. */
+  const read = async (path: string): Promise<string | undefined | typeof tooBig> => {
+    const found = await stat(path).catch(() => undefined);
+    if (!found?.isFile()) return undefined;
+    if (found.size > left) return tooBig;
+    left -= found.size;
+    return readFile(path, 'utf-8');
+  };
+  const text = await read(file);
+  if (text === undefined) return { problem: 'The agent wrote no result.' };
+  if (typeof text !== 'string') return text;
   let result: unknown;
   try {
     result = JSON.parse(text) as unknown;
@@ -244,16 +253,14 @@ export async function readResult(
       return { problem: 'The result is not a JSON object, so it cannot take the fields written as files.' };
     }
     for (const [field, path] of Object.entries(files)) {
-      try {
-        (result as Record<string, unknown>)[field] = await readFile(path, 'utf-8');
-      } catch {
-        return { problem: `The agent wrote no ${field}.` };
-      }
+      const written = await read(path);
+      if (written === undefined) return { problem: `The agent wrote no ${field}.` };
+      if (typeof written !== 'string') return written;
+      (result as Record<string, unknown>)[field] = written;
     }
   }
-  if (Buffer.byteLength(JSON.stringify(result)) > RESULT_BYTES) {
-    return { problem: `The result is over ${RESULT_BYTES} bytes.` };
-  }
+  // JSON escapes some characters as several, so the whole is measured again as it is handed back.
+  if (Buffer.byteLength(JSON.stringify(result)) > RESULT_BYTES) return tooBig;
   return { result };
 }
 

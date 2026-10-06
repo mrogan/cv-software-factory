@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { runAgent } from '../src/agent.ts';
+import { readResult, runAgent } from '../src/agent.ts';
+import { RESULT_BYTES, stepFrom } from '../src/step.ts';
 import { type ScriptedModel, scriptedModel, type Turn } from './model.ts';
 
 let model: ScriptedModel | undefined;
@@ -177,6 +178,58 @@ describe('a runner’s agent', () => {
     });
     expect(handback).not.toHaveProperty('result');
     expect(handback.error).toBe('The agent wrote no body.');
+  });
+});
+
+describe('reading a result', () => {
+  const out = () => mkdtempSync(join(tmpdir(), 'result-'));
+
+  it('refuses a result file over the bound before it reads it', async () => {
+    const dir = out();
+    writeFileSync(join(dir, 'result.json'), '{"title":"fix: count"}');
+    // Sparse: as big as it says, and nothing to read.
+    writeFileSync(join(dir, 'body.md'), '');
+    truncateSync(join(dir, 'body.md'), RESULT_BYTES + 1);
+    expect(await readResult(join(dir, 'result.json'), { body: join(dir, 'body.md') })).toEqual({
+      problem: `The result is over ${RESULT_BYTES} bytes.`,
+    });
+    truncateSync(join(dir, 'result.json'), RESULT_BYTES + 1);
+    expect(await readResult(join(dir, 'result.json'))).toEqual({
+      problem: `The result is over ${RESULT_BYTES} bytes.`,
+    });
+  });
+
+  it('bounds the result and its files together', async () => {
+    const dir = out();
+    writeFileSync(join(dir, 'result.json'), JSON.stringify({ title: 'x'.repeat(RESULT_BYTES / 2) }));
+    writeFileSync(join(dir, 'body.md'), 'y'.repeat(RESULT_BYTES / 2));
+    expect((await readResult(join(dir, 'result.json'), { body: join(dir, 'body.md') })).problem).toBe(
+      `The result is over ${RESULT_BYTES} bytes.`,
+    );
+  });
+
+  it('takes a folder for no file', async () => {
+    const dir = out();
+    writeFileSync(join(dir, 'result.json'), '{}');
+    mkdirSync(join(dir, 'body.md'));
+    expect(await readResult(join(dir, 'result.json'), { body: join(dir, 'body.md') })).toEqual({
+      problem: 'The agent wrote no body.',
+    });
+  });
+});
+
+describe('a step’s result files', () => {
+  const step = { agent: 'describer', repository: 'https://github.com/o/r.git', commit: 'c'.repeat(40) };
+  const of = (fields: object) => () =>
+    stepFrom({ RUNNER_STEP: JSON.stringify({ ...step, prompt: 'Go.', maxTurns: 1, ...fields }) });
+
+  it('are part of its result, and few', () => {
+    expect(of({ result: true, resultFiles: { body: 'description.md' } })().resultFiles).toEqual({
+      body: 'description.md',
+    });
+    expect(of({ resultFiles: { body: 'description.md' } })).toThrow('part of its result');
+    const many = Object.fromEntries(['a', 'b', 'c', 'd', 'e'].map((f) => [f, `${f}.md`]));
+    expect(of({ result: true, resultFiles: many })).toThrow('at most 4 files');
   });
 });
 
