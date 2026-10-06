@@ -112,17 +112,42 @@ export async function ready(page: Page): Promise<void> {
 }
 
 /**
- * Waits until every picture in a part of the page is loaded, decoded and drawn, the lazy ones included, so a failure
- * says so here and not as a pixel difference. The console decodes pictures off the main thread, and a picture
- * decoded that way can be left out of the frames a snapshot is taken from, so here they decode as they are drawn.
+ * Has every picture on the page load at once and decode as it is drawn, from the first frame it is in. The console
+ * loads pictures lazily and decodes them off the main thread, and Chromium can draw such a picture blank until its
+ * decode comes round, one picture after another: on a slow runner the last of a card's four was still blank when
+ * the snapshot settled. Asking a picture to decode as it is drawn once it has been drawn is too late, as it keeps
+ * the way it was first drawn, so this asks as each one reaches the page, before any frame. Call it before `goto`.
+ */
+export async function picturesDecodeAsDrawn(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const now = (img: HTMLImageElement) => {
+      if (img.loading !== 'eager') img.loading = 'eager';
+      if (img.decoding !== 'sync') img.decoding = 'sync';
+    };
+    new MutationObserver((records) => {
+      for (const record of records) {
+        const nodes = record.type === 'attributes' ? [record.target] : [...record.addedNodes];
+        for (const node of nodes) {
+          if (node instanceof HTMLImageElement) now(node);
+          if (node instanceof Element) for (const img of node.querySelectorAll('img')) now(img);
+        }
+      }
+    }).observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['loading', 'decoding'],
+    });
+  });
+}
+
+/**
+ * Waits until every picture in a part of the page is loaded, decoded and drawn, so a failure says so here and not
+ * as a pixel difference. The pictures decode as they are drawn (`picturesDecodeAsDrawn`).
  */
 export async function picturesShown(part: Locator): Promise<void> {
   await part.evaluate(async (el) => {
     const pictures = [...el.querySelectorAll('img')];
-    for (const img of pictures) {
-      img.loading = 'eager';
-      img.decoding = 'sync';
-    }
     await Promise.all(pictures.map((img) => img.decode()));
     const empty = pictures.filter((img) => !img.naturalWidth).map((img) => img.src);
     if (empty.length) throw new Error(`No pixels in ${empty.join(', ')}`);

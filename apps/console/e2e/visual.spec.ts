@@ -6,7 +6,20 @@
  * empty store for real events.
  */
 import { STAGES as KINDS } from '@software-factory/events';
-import { consoleUrl, emptyStore, expect, fixtureUrl, picturesShown, ready, THEMES, test, WIDTHS } from './support.ts';
+import {
+  consoleUrl,
+  emptyStore,
+  expect,
+  fixtureUrl,
+  picturesDecodeAsDrawn,
+  picturesShown,
+  ready,
+  THEMES,
+  test,
+  WIDTHS,
+} from './support.ts';
+
+test.beforeEach(({ page }) => picturesDecodeAsDrawn(page));
 
 /** The station kit's states (the design system's README); its module defines an element, so Node cannot load it. */
 const STATUSES = ['idle', 'working', 'returning', 'passing', 'blocked', 'failed'] as const;
