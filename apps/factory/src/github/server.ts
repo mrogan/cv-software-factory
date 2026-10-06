@@ -143,6 +143,7 @@ const READS = {
   requiredChecks: z.strictObject({ branch }),
   head: z.strictObject({ branch }),
   pullRequestFrom: z.strictObject({ branch }),
+  protectedPaths: z.strictObject({ ref: sha }),
 } satisfies Record<keyof Reads, z.ZodType>;
 
 type ReadName = keyof typeof READS;
@@ -160,6 +161,7 @@ const READ_CALLS: {
   requiredChecks: (r, repo, { branch }) => r.requiredChecks(repo, branch),
   head: (r, repo, { branch }) => r.head(repo, branch),
   pullRequestFrom: (r, repo, { branch }) => r.pullRequestFrom(repo, branch),
+  protectedPaths: (r, repo, { ref }) => r.protectedPaths(repo, ref),
 };
 
 /** An object without its undefined fields, as the actions' optional fields expect: absent, never undefined. */

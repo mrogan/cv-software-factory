@@ -117,6 +117,53 @@ describe('reading GitHub for the line', () => {
   });
 });
 
+describe('the paths no patch may change', () => {
+  it('are the workflows, the deployment and what CODEOWNERS gives a person, at the commit asked about', async () => {
+    const asked: string[] = [];
+    const { github } = client([
+      {
+        method: 'GET',
+        path: /\/contents\//,
+        answer: ({ path }) => {
+          asked.push(path);
+          return path.startsWith(`/repos/${REPO}/contents/.github/CODEOWNERS?ref=${SHA}`)
+            ? {
+                body: {
+                  type: 'file',
+                  encoding: 'base64',
+                  content: Buffer.from(
+                    '# The rules\n/Dockerfile @mrogan\nAGENTS.md @mrogan\n/deploy/ @mrogan\n',
+                  ).toString('base64'),
+                },
+              }
+            : { status: 404, body: { message: 'Not Found' } };
+        },
+      },
+    ]);
+    expect(await new LiveReads(github).protectedPaths(REPO, SHA)).toEqual([
+      '.github/',
+      'deploy/',
+      'Dockerfile',
+      '**/AGENTS.md',
+    ]);
+    expect(asked.every((path) => path.endsWith(`?ref=${SHA}`))).toBe(true);
+  });
+
+  it('are the rules of the line alone where every CODEOWNERS path is missing or a folder', async () => {
+    const { github } = client([
+      {
+        method: 'GET',
+        path: /\/contents\//,
+        answer: ({ path }) =>
+          path.includes('/contents/CODEOWNERS?')
+            ? { body: [{ type: 'file', name: 'README.md' }] }
+            : { status: 404, body: { message: 'Not Found' } },
+      },
+    ]);
+    expect(await new LiveReads(github).protectedPaths(REPO, SHA)).toEqual(['.github/', 'deploy/']);
+  });
+});
+
 describe('the factory’s branches', () => {
   it('are those under factory/ and the deploy branches, and nothing else', () => {
     expect(ownsBranch('factory/1296-prices')).toBe(true);

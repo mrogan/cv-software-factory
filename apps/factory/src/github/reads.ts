@@ -1,14 +1,16 @@
 /**
  * What the other workers may read from GitHub through the worker: a pull request's state, the check runs on a commit,
- * the checks a branch's ruleset requires, and a branch's head. The line reads them to see its pull requests through
- * their gates and to Martin's merge, and appends what it sees as events; the worker itself touches no store.
+ * the checks a branch's ruleset requires, a branch's head, and the paths no patch may change at a commit. The line
+ * reads them to see its pull requests through their gates and to Martin's merge, and appends what it sees as events,
+ * and holds a spec's scope to the protected paths; the worker itself touches no store.
  *
  * Every read is a conditional request, so asking again about something that has not changed costs nothing against
  * the rate limit, and every answer is read through a Zod schema. Reading is harmless, so a dry run reads as a live
  * worker does; and a worker with no key reads the public repositories as anyone may.
  */
 import { z } from 'zod';
-import type { GitHub } from './client.ts';
+import { type GitHub, GitHubError } from './client.ts';
+import { CODEOWNERS_PATHS, protectedFrom } from './paths.ts';
 
 export interface PullRequestState {
   number: number;
@@ -48,6 +50,11 @@ export interface Reads {
   head(repo: string, branch: string): Promise<string>;
   /** The open pull request from one of the repository's branches, if there is one. */
   pullRequestFrom(repo: string, branch: string): Promise<PullRequestState | null>;
+  /**
+   * The paths no patch may change at a commit, as scope entries: the workflows, the deployment, and what the
+   * repository's CODEOWNERS gives a person (`paths.ts`, as the worker's guard reads them).
+   */
+  protectedPaths(repo: string, ref: string): Promise<string[]>;
 }
 
 const SHA = z.string().regex(/^[0-9a-f]{40}$/);
@@ -91,6 +98,12 @@ const RULES = z.array(
 );
 
 const REF = z.object({ object: z.object({ sha: SHA }) });
+
+/** What the contents API answers for a path: a file, or a folder's listing. */
+const CONTENTS = z.union([
+  z.object({ type: z.string(), encoding: z.string().optional(), content: z.string().optional() }),
+  z.array(z.unknown()),
+]);
 
 const pullRequestState = (pr: z.infer<typeof PULL>): PullRequestState => ({
   number: pr.number,
@@ -151,5 +164,24 @@ export class LiveReads implements Reads {
   async head(repo: string, branch: string): Promise<string> {
     const { body } = await this.#github.poll(repo, `/repos/${repo}/git/ref/heads/${segments(branch)}`, REF);
     return body.object.sha;
+  }
+
+  async protectedPaths(repo: string, ref: string): Promise<string[]> {
+    const files = await Promise.all(CODEOWNERS_PATHS.map((path) => this.#text(repo, path, ref)));
+    return protectedFrom(files.find((text) => text !== null) ?? null);
+  }
+
+  /** A text file at a commit, or null where there is none: no such path, a folder, or a file the API will not send. */
+  async #text(repo: string, path: string, ref: string): Promise<string | null> {
+    const url = `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`;
+    try {
+      const { body } = await this.#github.poll(repo, url, CONTENTS);
+      if (Array.isArray(body) || body.type !== 'file' || body.encoding !== 'base64' || body.content === undefined)
+        return null;
+      return Buffer.from(body.content, 'base64').toString('utf8');
+    } catch (error) {
+      if (error instanceof GitHubError && error.kind === 'not-found') return null;
+      throw error;
+    }
   }
 }

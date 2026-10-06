@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { guardBranch } from './branches.ts';
 import { type GitHub, GitHubError } from './client.ts';
 import { applyTo, filesIn, PatchRefused } from './patches.ts';
-import { CODEOWNERS_PATHS, inScope, NEVER, ownedPaths } from './paths.ts';
+import { CODEOWNERS_PATHS, inScope, protectedFrom } from './paths.ts';
 
 export interface FileChanges {
   /** Files to add or replace, with their whole new contents. */
@@ -94,8 +94,8 @@ export function contentsReader(github: GitHub): ReadFile {
  * CODEOWNERS (at the commit the patch goes on) gives a person. The line's fence asks the same; this is the last word.
  */
 export async function guard(patch: string, read: (path: string) => Promise<string | null>): Promise<void> {
-  const owners = (await Promise.all(CODEOWNERS_PATHS.map(read))).find((text) => text !== null) ?? '';
-  const forbidden = [...NEVER, ...ownedPaths(owners)];
+  const owners = (await Promise.all(CODEOWNERS_PATHS.map(read))).find((text) => text !== null) ?? null;
+  const forbidden = protectedFrom(owners);
   const blocked = filesIn(patch)
     .map((f) => f.path)
     .filter((path) => inScope(path, forbidden));

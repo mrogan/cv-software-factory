@@ -37,6 +37,7 @@ import {
   StepFailed,
   StepStale,
 } from './agents/agent.ts';
+import type { Signal } from './agents/evidence.ts';
 import { AGENTS, type Agents } from './agents/index.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
 import {
@@ -451,7 +452,10 @@ export class Line {
       commit,
       base,
       session: item.session,
+      failure: item.failure,
+      ticket: () => this.#publicTicket(workItem, state),
       signals: () => this.#signals(workItem),
+      read: (read, args) => this.#o.github.read(read, this.#o.repo, args),
     };
   }
 
@@ -475,16 +479,13 @@ export class Line {
         return result;
       },
       act: (action, args) => github.act(action, repo, args),
-      read: (read, args) => github.read(read, repo, args),
       keepSession: (session) => this.#queue.setSession(workItem, session),
     };
   }
 
   /** Opens the ticket's issue in the app's repository, from the ticket's public view. */
   async #openIssue(workItem: string, state: WorkItemState): Promise<number> {
-    const [row] = await this.#o.sql<{ public: { payload: PayloadOf<'ticket.opened'> } }[]>`
-      select public from events where work_item = ${workItem} and type = 'ticket.opened' order by seq limit 1`;
-    const ticket = row?.public.payload ?? need(state.ticket, 'a ticket');
+    const ticket = await this.#publicTicket(workItem, state);
     const where =
       'class' in ticket.fingerprint
         ? `\`${ticket.fingerprint.class}\` on \`${ticket.fingerprint.route}\``
@@ -527,13 +528,21 @@ export class Line {
     }
   }
 
-  /** What each sense saw, by its typed fields only. */
-  async #signals(workItem: string) {
-    const rows = await this.#o.sql<{ payload: PayloadOf<'signal.received'> }[]>`
-      select payload from events where work_item = ${workItem} and type = 'signal.received' order by seq`;
+  /** The ticket as its public view has it: what anyone may read, and so what may reach GitHub or an agent. */
+  async #publicTicket(workItem: string, state: WorkItemState): Promise<PayloadOf<'ticket.opened'>> {
+    const [row] = await this.#o.sql<{ public: { payload: PayloadOf<'ticket.opened'> } }[]>`
+      select public from events where work_item = ${workItem} and type = 'ticket.opened' order by seq limit 1`;
+    return row?.public.payload ?? need(state.ticket, 'a ticket');
+  }
+
+  /** What each sense saw, from their public views. A visitor's report is left out whole, not only its text. */
+  async #signals(workItem: string): Promise<Signal[]> {
+    const rows = await this.#o.sql<{ public: { payload: PayloadOf<'signal.received'> } }[]>`
+      select public from events where work_item = ${workItem} and type = 'signal.received' order by seq`;
     return rows
-      .filter(({ payload }) => payload.sense !== 'report')
-      .map(({ payload: { sense, check, route, symptom } }) => ({ sense, check, route, symptom }));
+      .map((row) => row.public.payload)
+      .filter((payload) => payload.sense !== 'report' && !payload.report)
+      .map(({ report: _report, ...signal }) => signal);
   }
 
   /** A work item's events, upcast, and the last of them by its place in the store. */

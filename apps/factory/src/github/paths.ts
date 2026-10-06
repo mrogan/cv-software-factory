@@ -10,6 +10,15 @@
 /** Never in a patch: the rules of the line, in the app's repository. */
 export const NEVER = ['.github/', 'deploy/'];
 
+/** A path a patch may name: relative, with no empty, `.` or `..` segment, and no backslash or NUL. */
+export function plainPath(path: string): boolean {
+  return (
+    !path.startsWith('/') &&
+    !/[\\\0]/.test(path) &&
+    path.split('/').every((part) => part !== '' && part !== '.' && part !== '..')
+  );
+}
+
 /** Where GitHub looks for a CODEOWNERS file. */
 export const CODEOWNERS_PATHS = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'];
 
@@ -37,4 +46,12 @@ export function ownedPaths(codeowners: string): string[] {
     .map((line) => line.split(/\s+/)[0] ?? '')
     .filter(Boolean)
     .map((path) => (path.startsWith('/') ? path.slice(1) : `**/${path}`));
+}
+
+/**
+ * The paths no patch may change, as scope entries: the workflows, the deployment, and those a CODEOWNERS file (the
+ * first GitHub finds at a commit, or none) gives a person.
+ */
+export function protectedFrom(codeowners: string | null): string[] {
+  return [...new Set([...NEVER, ...ownedPaths(codeowners ?? '')])];
 }

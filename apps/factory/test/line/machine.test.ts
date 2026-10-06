@@ -1,6 +1,6 @@
 import { HOLD_CAUSES, type HoldCause, type PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
-import { ANSWERS, decide, type Facts, LIMITS, type LineEvent } from '../../src/line/machine.ts';
+import { ANSWERS, decide, type Facts, fold, LIMITS, type LineEvent } from '../../src/line/machine.ts';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
@@ -157,8 +157,8 @@ describe('Martin’s answer to a hold', () => {
     }
   });
 
-  it('closes the work item when he rejects it', () => {
-    for (const cause of HOLD_CAUSES.filter((c) => c !== 'ticket-rejected')) {
+  it('closes the work item when he rejects it, whatever the cause', () => {
+    for (const cause of HOLD_CAUSES) {
       expect(decide([ticket, spec, held(cause, 'build'), answer('rejected', 'Not worth it')], facts)).toEqual({
         stage: 'held',
         next: { do: 'close', reason: 'Martin rejected it: Not worth it' },
@@ -166,22 +166,55 @@ describe('Martin’s answer to a hold', () => {
     }
   });
 
-  it('runs the planner again on an answered question, and on a rejection he overrules', () => {
-    for (const [cause, decision] of [
-      ['question', 'answered'],
-      ['ticket-rejected', 'rejected'],
-      ['ticket-rejected', 'answered'],
-    ] as const) {
-      expect(decide([ticket, held(cause, 'plan'), answer(decision, 'The home page')], facts).next).toEqual({
+  it('runs the planner again on an answer to its question or its rejection', () => {
+    for (const cause of ['question', 'ticket-rejected'] as const) {
+      expect(decide([ticket, held(cause, 'plan'), answer('answered', 'The home page')], facts).next).toEqual({
         do: 'step',
         agent: 'planner',
         round: 1,
       });
     }
-    // Agreeing with the planner closes the ticket.
-    expect(decide([ticket, held('ticket-rejected', 'plan'), answer('approved')], facts).next).toMatchObject({
-      do: 'close',
+    // Approving a question asks the planner to carry on as it sees fit.
+    expect(decide([ticket, held('question', 'plan'), answer('approved')], facts).next).toMatchObject({
+      do: 'step',
+      agent: 'planner',
     });
+  });
+
+  it('closes the work item when he agrees with the planner’s rejection, or rejects the ticket himself', () => {
+    for (const [decision, reason] of [
+      ['approved', 'Martin agreed with the planner'],
+      ['rejected', 'Martin rejected it'],
+    ] as const) {
+      expect(decide([ticket, held('ticket-rejected', 'plan'), answer(decision)], facts)).toEqual({
+        stage: 'held',
+        next: { do: 'close', reason },
+      });
+    }
+  });
+
+  it('keeps every answer at Plan, with what he was asked, whatever kind of hold it answered', () => {
+    const asked: LineEvent = {
+      type: 'hold.started',
+      payload: { stage: 'plan', kind: 'question', cause: 'question', reason: 'A question', question: 'Which page?' },
+    };
+    const events = [
+      ticket,
+      asked,
+      answer('answered', 'The home page'),
+      held('ticket-rejected', 'plan'),
+      answer('answered', 'It is in src/price.ts'),
+      // An answer with no words, and one to a hold after Plan, are not the planner's.
+      held('question', 'plan'),
+      answer('approved'),
+      spec,
+      held('scope', 'build'),
+      answer('answered', 'Try again'),
+    ];
+    expect(fold(events).answers).toEqual([
+      { asked: 'Which page?', answer: 'The home page' },
+      { asked: 'Held for Martin', answer: 'It is in src/price.ts' },
+    ]);
   });
 
   it('has the planner write a spec again when he answers it, and builds it when he approves', () => {
