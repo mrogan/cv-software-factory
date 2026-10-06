@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { Handback } from '../../../runner/src/step.ts';
 import { GitHubWorkerError } from '../../src/github/worker-client.ts';
-import { Line } from '../../src/line/worker.ts';
+import { Line, type LineOptions } from '../../src/line/worker.ts';
 import { quiet } from '../github/fake.ts';
 import { type Agent, FakeGitHub, FakeSteps, MAIN } from './fakes.ts';
 
@@ -113,7 +113,11 @@ const AGENTS: Record<string, Agent> = {
 /** The time as the line sees it, which a test can move on. */
 let now = Date.parse('2026-10-06T09:00:00Z');
 
-function line(agents: Partial<Record<string, Agent>> = AGENTS, store: Pick<EventWriter, 'append'> = events) {
+function line(
+  agents: Partial<Record<string, Agent>> = AGENTS,
+  store: Pick<EventWriter, 'append'> = events,
+  options: Partial<LineOptions> = {},
+) {
   const steps = new FakeSteps(database.writer, agents);
   const github = new FakeGitHub();
   const it = new Line({
@@ -125,6 +129,7 @@ function line(agents: Partial<Record<string, Agent>> = AGENTS, store: Pick<Event
     gatesEveryMs: 0,
     me: 'test',
     now: () => new Date(now),
+    ...options,
   });
   /** A pass of the line, and whatever steps it started, to their end. */
   const pass = async () => {
@@ -144,6 +149,12 @@ async function payloads<K extends NewEvent['type']>(workItem: string, type: K): 
   const rows = await database.writer<{ payload: PayloadOf<K> }[]>`
     select payload from events where work_item = ${workItem} and type = ${type} order by seq`;
   return rows.map((r) => r.payload);
+}
+
+async function summaries(workItem: string, type: NewEvent['type']): Promise<string[]> {
+  const rows = await database.writer<{ summary: string }[]>`
+    select summary from events where work_item = ${workItem} and type = ${type} order by seq`;
+  return rows.map((r) => r.summary);
 }
 
 const stage = async (workItem: string) =>
@@ -244,6 +255,10 @@ describe('the line', () => {
         { path: 'src/search.ts', added: 1, removed: 1 },
         { path: 'test/search.test.ts', added: 2, removed: 0 },
       ],
+      whole: [
+        { path: 'src/search.ts', added: 1, removed: 1 },
+        { path: 'test/search.test.ts', added: 2, removed: 0 },
+      ],
     });
     // Each step's calls, summed from the gateway's audit log: the refused one is not among them.
     expect((await payloads(workItem, 'model.called'))[0]).toEqual({
@@ -283,8 +298,18 @@ describe('the line', () => {
       from: 'gates',
       to: 'build',
       reason: 'The gates failed: test',
+      round: 2,
+      failed: ['test'],
     });
-    expect((await payloads(workItem, 'pull-request.pushed')).map((p) => p.attempt)).toEqual([1, 2]);
+    // The console draws the same words in the return's pill on the line, from the payload.
+    expect(await summaries(workItem, 'work.returned')).toEqual([`#${workItem} · round 2 · 1 check failed`]);
+    const pushes = await payloads(workItem, 'pull-request.pushed');
+    expect(pushes.map((p) => p.attempt)).toEqual([1, 2]);
+    // Each push records its own files, and the pull request's whole change as GitHub compares it: both rounds.
+    expect(pushes[1]?.whole).toEqual(github.diff.map(({ path, added, removed }) => ({ path, added, removed })));
+    expect(pushes[1]?.whole.find((f) => f.path === 'src/search.ts')?.added).toBeGreaterThan(
+      pushes[1]?.files.find((f) => f.path === 'src/search.ts')?.added ?? 0,
+    );
   });
 
   it('sends blocking findings back to the coder’s session, reviews its second round afresh, and then holds', async () => {
@@ -335,7 +360,13 @@ describe('the line', () => {
     });
 
     await pass(); // back to the coder, which resumes its session with the blocking finding
-    expect((await payloads(workItem, 'work.returned'))[0]).toMatchObject({ from: 'review', to: 'build' });
+    expect((await payloads(workItem, 'work.returned'))[0]).toMatchObject({
+      from: 'review',
+      to: 'build',
+      round: 2,
+      blocking: 1,
+    });
+    expect(await summaries(workItem, 'work.returned')).toEqual([`#${workItem} · round 2 · 1 blocking`]);
     const coder = steps.requests.at(-1);
     expect(coder).toMatchObject({ agent: 'coder', round: 2, resume: 'session-1' });
     expect(coder?.prompt).toContain(
@@ -619,6 +650,27 @@ describe('the line', () => {
     expect(await types(workItem)).toContain('work-item.closed');
   });
 
+  it('holds a work item at its spend cap before the step that would pass it, and says what the cap was', async () => {
+    const workItem = await ticket();
+    // Each fake step costs $0.03: the planner's and the coder's pass a $0.05 cap, and the reviewer's never starts.
+    const { pass, steps, github } = line(AGENTS, events, { workItemLimitUsd: 0.05 });
+    await pass(); // the planner
+    await pass(); // the coder
+    github.pass(12);
+    await pass(); // the gates pass, and the reviewer would be next
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
+    expect(await stage(workItem)).toBe('held');
+    expect(await payloads(workItem, 'hold.started')).toEqual([
+      {
+        stage: 'review',
+        kind: 'held',
+        cause: 'spend',
+        reason: 'The work item has spent $0.06 on models, and may spend $0.05',
+        limitUsd: 0.05,
+      },
+    ]);
+  });
+
   it('refuses a patch outside the spec’s scope back to the coder once, then holds, and none reaches GitHub', async () => {
     const workItem = await ticket();
     const outside = PATCH.replaceAll('src/search.ts', 'src/server.ts');
@@ -631,6 +683,10 @@ describe('the line', () => {
       output: ['scope: src/search.ts, test/', 'refused src/server.ts +1 −1', 'allowed test/search.test.ts +2 −0'].join(
         '\n',
       ),
+      files: [
+        { path: 'src/server.ts', added: 1, removed: 1, allowed: false },
+        { path: 'test/search.test.ts', added: 2, removed: 0, allowed: true },
+      ],
     });
     expect(await stage(workItem)).toBe('build');
     await pass(); // back to the coder, which resumes its session from a fresh checkout and strays again

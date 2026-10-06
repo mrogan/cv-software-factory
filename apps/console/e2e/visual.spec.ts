@@ -3,8 +3,10 @@
  * and t fixed: every station in every state in both themes, and the line, one card per picture and the sheet at
  * all three widths. Milestone 4's states come from its test data: a card for each new picture and outcome, the line
  * with tickets waiting and with a spend cap, Triage's panel, a ticket's and a quarantined report's sheets, and an
- * empty store for real events.
+ * empty store for real events. Milestone 5's come from the samples: a card for each wait and hold, Review's panel,
+ * and a fix's spec, rounds, review, gates and models, the sheet in Ink too.
  */
+import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
 import {
   consoleUrl,
@@ -184,5 +186,83 @@ test.describe('the line in Ink, sensing and triage', () => {
     await page.evaluate(() => document.fonts.ready);
     await page.waitForLoadState('networkidle');
     await expect(page).toHaveScreenshot('m04-sheet-ticket-ink.png');
+  });
+});
+
+/** Milestone 5's states, from the samples: a card for each wait and hold, and a merge waiting for a release. */
+const FIXING = {
+  'merge-wait': '1311',
+  'held-scope': '1315',
+  'held-tests-first': '1317',
+  'held-spend': '1319',
+  'held-still-blocking': '1323',
+  merged: '1304',
+};
+
+/** A fix's sheet, a part at a time: the parts below the fold are the new ones. */
+async function sheetParts(page: Page, item: string, theme: 'paper' | 'ink' = 'paper') {
+  await page.goto(consoleUrl({ item, sheet: true, theme }));
+  await page.getByRole('dialog').first().waitFor();
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForLoadState('networkidle');
+  const section = (title: string) =>
+    page.locator('.sheet .sec').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+  const side = (title: string) =>
+    page.locator('.sheet .side-card').filter({ has: page.getByRole('heading', { name: title }) });
+  return { section, side };
+}
+
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, fixing`, () => {
+    test.use({ viewport });
+
+    for (const [state, item] of Object.entries(FIXING)) {
+      test(`a card: ${state}`, async ({ page }) => {
+        await page.goto(consoleUrl({ item }));
+        await ready(page);
+        const card = page.locator('.card[data-place="centre"]');
+        await card.scrollIntoViewIfNeeded();
+        await picturesShown(card);
+        await expect(card).toHaveScreenshot(`m05-card-${state}-${width}.png`);
+      });
+    }
+
+    test('Review’s panel, with a merge waiting and a round sent back', async ({ page }) => {
+      await page.goto(consoleUrl());
+      await ready(page);
+      await page.getByRole('button', { name: /^Review:/ }).click();
+      await expect(page.getByRole('dialog', { name: 'Review' })).toHaveScreenshot(`m05-review-panel-${width}.png`);
+    });
+
+    test('a fix’s sheet: the spec, its rounds and its review', async ({ page }) => {
+      const { section } = await sheetParts(page, '1311');
+      for (const [title, name] of [
+        ['The spec', 'spec'],
+        ['Rounds', 'rounds'],
+        ['Review', 'review'],
+      ] as const) {
+        await expect(section(title)).toHaveScreenshot(`m05-sheet-${name}-${width}.png`);
+      }
+    });
+
+    test('a fix’s sheet: its gates by attempt, and its agents and models', async ({ page }) => {
+      const { side } = await sheetParts(page, '1311');
+      await expect(side('Gates')).toHaveScreenshot(`m05-sheet-gates-${width}.png`);
+      await expect(side('Agents and models')).toHaveScreenshot(`m05-sheet-models-${width}.png`);
+      const local = await sheetParts(page, '1304');
+      await expect(local.side('Agents and models')).toHaveScreenshot(`m05-sheet-models-local-${width}.png`);
+    });
+  });
+}
+
+test.describe('a fix’s sheet in Ink', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('the spec, its rounds, its review and its gates', async ({ page }) => {
+    const { section, side } = await sheetParts(page, '1311', 'ink');
+    await expect(section('The spec')).toHaveScreenshot('m05-sheet-spec-ink.png');
+    await expect(section('Rounds')).toHaveScreenshot('m05-sheet-rounds-ink.png');
+    await expect(section('Review')).toHaveScreenshot('m05-sheet-review-ink.png');
+    await expect(side('Gates')).toHaveScreenshot('m05-sheet-gates-ink.png');
   });
 });

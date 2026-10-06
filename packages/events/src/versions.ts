@@ -18,7 +18,7 @@ export const VERSIONS = {
   'ticket.opened': 1,
   // Plan and build
   'spec.written': 1,
-  'pull-request.pushed': 1,
+  'pull-request.pushed': 2,
   // Gates and review
   'gates.started': 1,
   'gate.finished': 1,
@@ -32,7 +32,7 @@ export const VERSIONS = {
   'release.rolled-back': 1,
   'verification.finished': 1,
   // Anywhere on the line
-  'work.returned': 1,
+  'work.returned': 2,
   'hold.started': 2,
   'hold.answered': 1,
   'action.refused': 2,

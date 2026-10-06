@@ -52,7 +52,7 @@ async function drawn(page: Page) {
 
 test.use({ viewport: { width: 1440, height: 2200 } });
 
-for (const item of [undefined, '1271', '1302']) {
+for (const item of [undefined, '1271', '1302', '1311']) {
   test(`draws the same page from a file as live${item ? `, at #${item}` : ''}`, async ({ page, context }) => {
     await page.goto(consoleUrl({ item }));
     const live = await drawn(page);

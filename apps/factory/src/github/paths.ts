@@ -7,6 +7,8 @@
  * path the repository's CODEOWNERS gives a person.
  */
 
+import { inScope, pattern } from '@software-factory/events';
+
 /** Never in a patch: the rules of the line, in the app's repository. */
 export const NEVER = ['.github/', 'deploy/'];
 
@@ -22,17 +24,8 @@ export function plainPath(path: string): boolean {
 /** Where GitHub looks for a CODEOWNERS file. */
 export const CODEOWNERS_PATHS = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'];
 
-export const pattern = (entry: string) =>
-  new RegExp(
-    `^${entry
-      .split(/(\*\*\/?|\*)/)
-      .map((part) =>
-        part.startsWith('**') ? '.*' : part === '*' ? '[^/]*' : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'),
-      )
-      .join('')}${entry.endsWith('/') ? '.*' : ''}$`,
-  );
-
-export const inScope = (path: string, scope: readonly string[]) => scope.some((entry) => pattern(entry).test(path));
+/** The scope's path rule, shared with the console, which marks each path a spec's scope allows. */
+export { inScope, pattern };
 
 /**
  * The paths a CODEOWNERS file gives anyone, as scope entries: `/deploy/` is `deploy/`, `/Dockerfile` is `Dockerfile`,

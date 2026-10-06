@@ -24,7 +24,7 @@ const BLURB: Record<Stage, string> = {
   plan: 'Specs and questions. Improvements wait here for approval.',
   build: 'Coder agents write a failing test first, then the fix.',
   gates: 'Deterministic checks every pull request must pass. Always enforced.',
-  review: 'An agent reviewer reads what passed the gates.',
+  review: 'The reviewer’s rounds, the describer, and the wait for Martin’s merge.',
   release: 'Signed images behind a canary that can roll itself back.',
   verify: 'Has the original signal cleared in production? New problems it finds go back to Sense.',
 };
@@ -227,7 +227,7 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
         {current && (
           <>
             <Glyph name="back" />
-            {current.text}
+            {STAGE_NAME[current.from]} → {STAGE_NAME[current.to]} · {current.text}
           </>
         )}
       </p>
@@ -405,7 +405,7 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
       <p>{BLURB[stage]}</p>
       {senses && <Sources senses={senses} />}
       {stage === 'plan' && queued > 0 && (
-        <p className="queue-note">Tickets wait here for the planner, which isn’t built yet.</p>
+        <p className="queue-note">Tickets wait here for the planner, which takes one at a time.</p>
       )}
       {rows.length === 0 && returns.length === 0 && caps.length === 0 && (
         <div className="empty">Nothing in {STAGE_NAME[stage]} today.</div>
@@ -417,8 +417,10 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
         <div key={`return-${r.item}-${r.at}`} className="srow">
           <span className="id">#{r.item}</span>
           <span>
-            {r.text}
-            <small>sent back {duration(view.t - r.at)} ago</small>
+            Sent back to {STAGE_NAME[r.to]}
+            <small>
+              {r.detail} · {duration(view.t - r.at)} ago
+            </small>
           </span>
           <span className="aside">↩</span>
         </div>

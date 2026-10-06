@@ -79,8 +79,14 @@ const ROUTES = [
         merge_base_commit: { sha: OTHER_SHA },
         status: 'ahead',
         files: [
-          { filename: 'src/money.ts', status: 'modified', patch: '@@ -1,2 +1,2 @@\n-a\n+b\n c' },
-          { filename: 'public/logo.png', status: 'added' },
+          {
+            filename: 'src/money.ts',
+            status: 'modified',
+            patch: '@@ -1,2 +1,2 @@\n-a\n+b\n c',
+            additions: 1,
+            deletions: 1,
+          },
+          { filename: 'public/logo.png', status: 'added', additions: 0, deletions: 0 },
         ],
       },
     }),
@@ -130,13 +136,13 @@ describe('reading GitHub for the line', () => {
     expect(await reads.pullRequestFrom(REPO, 'factory/1002-none')).toBeNull();
   });
 
-  it('compares a commit with a branch: where it left it, and each file it changes since, with its patch', async () => {
+  it('compares a commit with a branch: where it left it, and each file it changes since, with its patch and lines', async () => {
     const { github } = client(ROUTES);
     expect(await new LiveReads(github).comparison(REPO, 'main', SHA)).toEqual({
       mergeBase: OTHER_SHA,
       files: [
-        { path: 'src/money.ts', patch: '@@ -1,2 +1,2 @@\n-a\n+b\n c' },
-        { path: 'public/logo.png', patch: null },
+        { path: 'src/money.ts', patch: '@@ -1,2 +1,2 @@\n-a\n+b\n c', added: 1, removed: 1 },
+        { path: 'public/logo.png', patch: null, added: 0, removed: 0 },
       ],
     });
   });

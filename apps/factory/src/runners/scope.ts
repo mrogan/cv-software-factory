@@ -21,6 +21,8 @@ export interface Fenced {
   paths: string[];
   /** Those outside the scope, or always out of bounds. */
   outside: string[];
+  /** Its verdict on each file, with the lines the patch adds and removes there: what its output prints. */
+  files: { path: string; added: number; removed: number; allowed: boolean }[];
   /** What the fence prints: the scope, then each file it allowed or refused, with its lines, at most `OUTPUT_CHARS`. */
   output: string;
 }
@@ -38,9 +40,9 @@ export function fence(patch: string, scope: readonly string[], owned: readonly s
     const lines = file.hunks.flatMap((hunk) => hunk.lines);
     return {
       path,
-      allowed: inScope(path, scope) && !inScope(path, forbidden),
       added: lines.filter((l) => l.startsWith('+')).length,
       removed: lines.filter((l) => l.startsWith('-')).length,
+      allowed: inScope(path, scope) && !inScope(path, forbidden),
     };
   });
   const paths = [...new Set(files.map((f) => f.path))];
@@ -49,7 +51,7 @@ export function fence(patch: string, scope: readonly string[], owned: readonly s
     `scope: ${scope.join(', ')}`,
     ...files.map((f) => `${f.allowed ? 'allowed' : 'refused'} ${f.path} +${f.added} −${f.removed}`),
   ];
-  return { ok: outside.length === 0, paths, outside, output: whole(lines, OUTPUT_CHARS) };
+  return { ok: outside.length === 0, paths, outside, files, output: whole(lines, OUTPUT_CHARS) };
 }
 
 /** As many whole lines as fit in `max` characters, and how many more there were. */

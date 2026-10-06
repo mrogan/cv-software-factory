@@ -14,7 +14,8 @@
  *
  * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
- * HANDBACK_PORT (8081); KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE.
+ * HANDBACK_PORT (8081); KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; FACTORY_PROFILE (default
+ * local), as the gateway's, for the work item's spend cap the line holds at.
  *
  * `bench` runs one agent's step on this machine, on a fixture's invented work (`line/bench/`), against the gateway at
  * GATEWAY_URL (default http://localhost:8180), and prints what the agent handed back, whether its result fits the
@@ -100,6 +101,13 @@ async function serve(): Promise<number> {
     console.error(`LINE_MODE is ${JSON.stringify(process.env.LINE_MODE)}; it must be one of ${MODES.join(', ')}.`);
     return 2;
   }
+  // The work item's cap the gateway keeps, from the same profile, so the line holds a work item that reached it.
+  const { PROFILES, SPEND } = await import('../../../../policy/spend.ts');
+  const profile = (process.env.FACTORY_PROFILE || 'local').trim() as (typeof PROFILES)[number];
+  if (!PROFILES.includes(profile)) {
+    console.error(`FACTORY_PROFILE is ${JSON.stringify(profile)}; it must be one of ${PROFILES.join(', ')}.`);
+    return 2;
+  }
   const { shutdownTelemetry } = await import('../telemetry.ts');
   const { log } = await import('../log.ts');
   const { kubeFrom } = await import('../runners/kube.ts');
@@ -136,6 +144,7 @@ async function serve(): Promise<number> {
     github: new GitHubWorker(env.GITHUB_WORKER_URL ?? 'http://github:8080', { dryRun: mode !== 'live' }),
     log,
     takesWork: mode !== 'off',
+    workItemLimitUsd: SPEND[profile].workItemUsd,
   });
   const abort = new AbortController();
   const working = line.run(abort.signal);

@@ -59,3 +59,13 @@ export async function stepCalls(
     calls: sum('calls'),
   };
 }
+
+/**
+ * What a work item has spent on models, as the gateway counts it against the work item's cap: every call its agents
+ * made, triage's among them, whatever step made it.
+ */
+export async function workItemSpend(sql: Sql, workItem: string): Promise<number> {
+  const [row] = await sql<{ spent: number }[]>`
+    select coalesce(sum(cost_usd), 0)::float8 as spent from model_calls where work_item = ${workItem}`;
+  return row?.spent ?? 0;
+}

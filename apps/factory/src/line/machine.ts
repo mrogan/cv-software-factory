@@ -16,6 +16,9 @@
  * findings, and the gates and a fresh reviewer run again on what it pushes. A review that still blocks after the
  * second holds the work item for Martin, as does one the reviewer escalates.
  *
+ * A work item that has spent as much on models as one may holds before its next step, since the gateway would refuse
+ * every call that step made.
+ *
  * The events are folded into where the work item is (`fold`), and `decide` turns that into one next action. Each
  * action either appends events, which moves the work item on, or waits for something outside the line: the gates
  * (GitHub's checks, which the line reads and appends as events) or Martin. The bounds a step has (its turns and
@@ -24,27 +27,13 @@
  * A hold waits for Martin's answer, and what the answer does depends on why the work item is held: `ANSWERS` has a
  * rule for each cause and each answer.
  */
-import { type HoldCause, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
+import { type HoldCause, LIMITS, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
 
 /** The agents the line runs, each in a runner. */
 export type LineAgent = 'planner' | 'coder' | 'reviewer' | 'describer';
 
-/** How far the line lets a work item go round before it holds for Martin. */
-export const LIMITS = {
-  /** Reviews a work item has: blocking findings after the last of them hold it (the decisions: two rounds). */
-  reviews: 2,
-  /** Times failing gates send the coder back before the work item holds. */
-  gateReturns: 2,
-  /** Failed attempts at one step (no handback, no result, a result its schema refuses) before it holds. */
-  failures: 2,
-  /** Tries at a handback's effects, when GitHub or the store fails, before the work item holds. */
-  effects: 6,
-  /**
-   * Patches the scope fence refuses before the work item holds: the first goes back to the coder with the fence's
-   * output, and the second holds. Martin's answer to the hold starts the count again.
-   */
-  fenceRefusals: 2,
-} as const;
+/** The bounds on the loop, shared with the console, which draws how near a work item is to them. */
+export { LIMITS };
 
 type Answer = PayloadOf<'hold.answered'>['decision'];
 
@@ -81,6 +70,10 @@ export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
   gates: { approved: 'return', rejected: 'close', answered: 'return' },
   review: { approved: 'approve', rejected: 'close', answered: 'return' },
   merge: { approved: 'wait', rejected: 'close', answered: 'return' },
+  // The cap is policy's: approving carries on, and the line holds again until the cap is raised.
+  spend: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
+  // The line makes no such hold yet (BACKLOG): approving accepts the tests as they are, answering says what to test.
+  'tests-first': { approved: 'carry-on', rejected: 'close', answered: 'return' },
   unknown: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
 };
 
@@ -278,8 +271,11 @@ export type Next =
   | { do: 'open-issue' }
   /** Run an agent's step in a runner. A coder's later round resumes its own session. */
   | { do: 'step'; agent: LineAgent; round: number }
-  /** Send the work back to an earlier stage. */
-  | { do: 'return'; from: Stage; to: Stage; reason: string }
+  /**
+   * Send the work back to an earlier stage, with what sent it as figures: the review's blocking findings, or the
+   * required checks that failed. Martin's answer sends it back with neither.
+   */
+  | { do: 'return'; from: Stage; to: Stage; reason: string; blocking?: number; failed?: string[] }
   /** Hold the work item for Martin. */
   | { do: 'hold'; hold: PayloadOf<'hold.started'> }
   /** Nothing to do until something outside the line happens. */
@@ -295,6 +291,11 @@ export interface Facts {
   failures: number;
   /** Why the last attempt failed. */
   failure: string | null;
+  /**
+   * What the work item has spent on models, as the gateway counts it, and the most it may: the gateway refuses its
+   * agents' calls from then on, so the line holds it rather than start a step that cannot finish. None, no cap.
+   */
+  spend?: { spentUsd: number; limitUsd: number };
 }
 
 /** The stage a decision puts a work item in, as the line's table records it. */
@@ -322,6 +323,14 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
 
   const step = (agent: LineAgent): Decision => {
     const stage = STAGE_OF[agent];
+    if (facts.spend && facts.spend.spentUsd >= facts.spend.limitUsd) {
+      const { spentUsd, limitUsd } = facts.spend;
+      const reason = `The work item has spent $${spentUsd.toFixed(2)} on models, and may spend $${limitUsd.toFixed(2)}`;
+      return {
+        stage: 'held',
+        next: { do: 'hold', hold: { stage, kind: 'held', cause: 'spend', reason, limitUsd } },
+      };
+    }
     if (facts.failures >= LIMITS.failures) {
       const why = facts.failure ? `: ${facts.failure}` : '';
       return {
@@ -360,7 +369,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
     if (s.gateReturns >= LIMITS.gateReturns) {
       return { stage: 'held', next: { do: 'hold', hold: { stage: 'gates', kind: 'held', cause: 'gates', reason } } };
     }
-    return { stage: 'build', next: { do: 'return', from: 'gates', to: 'build', reason } };
+    return { stage: 'build', next: { do: 'return', from: 'gates', to: 'build', reason, failed: s.gates.failed } };
   }
   if (!s.review) return step('reviewer');
   switch (s.review.verdict) {
@@ -380,7 +389,8 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
           next: { do: 'hold', hold: { stage: 'review', kind: 'held', cause: 'review', reason } },
         };
       }
-      return { stage: 'build', next: { do: 'return', from: 'review', to: 'build', reason } };
+      const blocking = s.review.findings.filter((f) => f.blocking).length;
+      return { stage: 'build', next: { do: 'return', from: 'review', to: 'build', reason, blocking } };
     }
     case 'approved':
       if (!s.described) return step('describer');

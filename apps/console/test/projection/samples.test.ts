@@ -9,13 +9,16 @@ const card = (number: string) => view.cards.find((c) => c.number === number);
 describe('the samples, projected', () => {
   it('show every outcome', () => {
     expect(new Set(view.cards.map((c) => c.outcome))).toEqual(
-      new Set(['verified', 'rolled-back', 'held', 'closed', 'no-ticket', 'needs-you', 'in-progress']),
+      new Set(['verified', 'rolled-back', 'held', 'closed', 'no-ticket', 'needs-you', 'merged', 'in-progress']),
     );
   });
 
   it('show every picture in the design system’s table', () => {
     expect(new Set(view.cards.map((c) => c.picture.type))).toEqual(
-      new Set(['wipe', 'metric', 'logs', 'package', 'scan', 'rollback', 'refusal', 'judgement', 'spec']),
+      new Set([
+        ...['wipe', 'metric', 'logs', 'package', 'scan', 'rollback', 'refusal', 'judgement', 'spec', 'http'],
+        ...['merge', 'scope', 'tests-pass', 'spend', 'blocking'],
+      ]),
     );
   });
 
@@ -28,20 +31,25 @@ describe('the samples, projected', () => {
     expect(seen).toEqual(new Set(['idle', 'working', 'returning', 'passing', 'blocked', 'failed']));
   });
 
-  it('end with the line working: a release on its canary', () => {
+  it('end with the line working: the reviewer has just sent a fix back, and the coder is at it', () => {
     expect(view.header).toMatchObject({ running: true, autonomy: 'guarded' });
-    expect(view.stations.find((s) => s.stage === 'release')).toMatchObject({ status: 'working', figure: '25%' });
-    expect(card('1302')).toMatchObject({
-      outcome: 'in-progress',
-      versions: { from: 'v0.9.6', to: 'v0.9.7', onCanary: true },
+    expect(card('1325')?.outcome).toBe('in-progress');
+    expect(view.returns[0]).toMatchObject({
+      item: '1325',
+      from: 'review',
+      to: 'build',
+      text: '#1325 · round 3 · 1 blocking',
     });
   });
 
-  it('keep what waits on Martin in the reel', () => {
+  it('keep what waits on Martin in the reel, held when a mechanism stopped it and waiting when the line asked', () => {
     expect(card('1300')?.outcome).toBe('needs-you');
     expect(card('1274')?.outcome).toBe('held');
-    expect(view.stations.find((s) => s.stage === 'plan')).toMatchObject({ status: 'blocked', figure: '1 waiting' });
-    expect(view.stations.find((s) => s.stage === 'gates')).toMatchObject({ status: 'blocked', figure: '1 held' });
+    const station = (stage: string) => view.stations.find((s) => s.stage === stage);
+    expect(station('plan')).toMatchObject({ status: 'blocked', figure: '1 waiting' });
+    expect(station('build')).toMatchObject({ status: 'blocked', figure: '2 held' });
+    expect(station('gates')).toMatchObject({ status: 'blocked', figure: '2 held' });
+    expect(station('review')).toMatchObject({ status: 'blocked', figure: '2 waiting' });
   });
 
   it('say how far each item got, and where it stopped', () => {
@@ -68,12 +76,14 @@ describe('the samples, projected', () => {
     ]);
     expect(card('1268')?.segments).toEqual(['passed', 'closed', ...Array(6).fill('none')]);
     expect(card('1300')?.segments).toEqual(['skipped', 'skipped', 'waiting', ...Array(5).fill('none')]);
-    expect(card('1302')?.segments).toEqual([...Array(6).fill('passed'), 'now', 'none']);
+    expect(card('1302')?.segments).toEqual(Array(8).fill('passed'));
+    expect(card('1311')?.segments).toEqual([...Array(5).fill('passed'), 'waiting', 'none', 'none']);
+    expect(card('1315')?.segments).toEqual([...Array(3).fill('passed'), 'stopped', ...Array(4).fill('none')]);
   });
 
   it('strike through a version that was rolled back, on the timeline', () => {
     expect(view.timeline.versions).toContainEqual({ index: 5, version: 'v0.9.1', rolledBack: true });
-    expect(view.timeline.days).toHaveLength(5);
+    expect(view.timeline.days).toHaveLength(8);
   });
 
   it('say which work a visitor started, and nothing about the visitor', () => {
@@ -89,7 +99,7 @@ describe('the samples, projected', () => {
 });
 
 describe('a sheet', () => {
-  it('steps through the item’s story, ending at now while it is still on the line', () => {
+  it('steps through the item’s story, from the injection to its verification', () => {
     const sheet = projectSheet(SAMPLES, '1302', END);
     expect(sheet?.chapters.map((c) => c.label)).toEqual([
       'INJECT',
@@ -103,13 +113,19 @@ describe('a sheet', () => {
       'TRY 2',
       'GATES',
       'REVIEW',
+      'MERGED',
       'CANARY',
-      'NOW',
+      'ROLLED OUT',
+      'VERIFIED',
     ]);
     const positions = sheet?.chapters.map((c) => c.position) ?? [];
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(positions[0]).toBe(0);
     expect(positions.at(-1)).toBe(100);
+  });
+
+  it('ends at now while the item is still on the line', () => {
+    expect(projectSheet(SAMPLES, '1325', END)?.chapters.at(-1)).toMatchObject({ label: 'NOW', position: 100 });
   });
 
   it('shows the site as it stood at each step', () => {
@@ -141,6 +157,7 @@ describe('a sheet', () => {
     expect(sheet?.facts).toEqual({
       foundBy: 'Probe · home journey',
       humanLines: 0,
+      reviews: { done: 1, of: 2 },
       ticket: { category: 'functional', severity: 'broken', fingerprint: '/ · wrong-result' },
     });
   });
@@ -181,7 +198,7 @@ describe('replay', () => {
 
   it('draws the same sheet at t, the same way', () => {
     for (const t of instants.filter((_, i) => i % 7 === 0)) {
-      for (const number of ['1271', '1296', '1302']) {
+      for (const number of ['1271', '1296', '1302', '1304', '1311', '1315', '1319', '1323']) {
         expect(projectSheet(SAMPLES, number, t)).toEqual(projectSheet(upTo(SAMPLES, t), number, t));
       }
     }

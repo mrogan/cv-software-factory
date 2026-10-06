@@ -141,9 +141,17 @@ export class FakeGitHub implements GitHubPort {
           .slice(1)) {
           const path = file.slice(0, file.indexOf('\n'));
           const patch = file.slice(file.indexOf('@@'));
+          const lines = patch.split('\n');
+          const added = lines.filter((l) => l.startsWith('+')).length;
+          const removed = lines.filter((l) => l.startsWith('-')).length;
           const before = this.diff.find((f) => f.path === path);
-          if (before) before.patch = `${before.patch ?? ''}\n${patch}`;
-          else this.diff.push({ path, patch });
+          if (before)
+            Object.assign(before, {
+              patch: `${before.patch ?? ''}\n${patch}`,
+              added: before.added + added,
+              removed: before.removed + removed,
+            });
+          else this.diff.push({ path, patch, added, removed });
         }
         return sha;
       }

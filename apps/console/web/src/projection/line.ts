@@ -3,7 +3,7 @@
  * each stage panel lists.
  */
 import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-factory/events';
-import { SENSES, STAGES } from '@software-factory/events';
+import { returnWords, SENSES, STAGES } from '@software-factory/events';
 import type { ItemState } from './items.ts';
 
 export type Status = 'idle' | 'working' | 'returning' | 'passing' | 'blocked' | 'failed';
@@ -69,7 +69,10 @@ export interface Return {
   item: string;
   from: Stage;
   to: Stage;
+  /** What the pill says: "#1311 · round 2 · 2 blocking". */
   text: string;
+  /** The same without the work item, for a row that names it already: "round 2 · 2 blocking". */
+  detail: string;
   at: number;
 }
 
@@ -231,7 +234,8 @@ export function station(
 
   const canary = here.find((item) => item.canary)?.canary;
   let figure: string;
-  if (held.length) figure = `${held.length} ${stage === 'gates' ? 'held' : 'waiting'}`;
+  // Held when a mechanism stopped every one of them; waiting when the line asked Martin something.
+  if (held.length) figure = `${held.length} ${held.every((item) => item.hold?.kind === 'held') ? 'held' : 'waiting'}`;
   else if (stage === 'release' && canary) figure = canary.weight ? `${canary.weight}%` : 'starting';
   else if (here.length) figure = count(here.length, NOUNS[stage]);
   else if (queued.length) figure = `${queued.length} waiting`;
@@ -252,23 +256,27 @@ export function returnsAt(events: readonly PublicEvent[], t: number): Return[] {
   return events
     .flatMap((event) =>
       event.type === 'work.returned' && event.work_item && t - Date.parse(event.ts) <= RETURNS_MS
-        ? [
-            {
-              item: event.work_item,
-              from: event.payload.from,
-              to: event.payload.to,
-              text: event.summary,
-              at: Date.parse(event.ts),
-            },
-          ]
+        ? [returnOf(event.work_item, event.payload, event.summary, Date.parse(event.ts))]
         : [],
     )
     .reverse();
 }
 
+/**
+ * A return in words, from what its event records: the round the coder starts and what sent it back, as the line
+ * writes them in its summary. A return that recorded no round (version 1) has only its summary to say.
+ */
+function returnOf(item: string, returned: PayloadOf<'work.returned'>, summary: string, at: number): Return {
+  const { from, to, round } = returned;
+  if (round === undefined) return { item, from, to, text: summary, detail: summary, at };
+  const detail = `round ${round} · ${returnWords(returned)}`;
+  return { item, from, to, text: `#${item} · ${detail}`, detail, at };
+}
+
 /** A row's note for an item in a stage now: what it waits for, or the last thing that happened to it there. */
 function noteOf(item: ItemState, stage: Stage): string {
-  if (item.queued) return 'Waiting for the planner';
+  if (item.queued) return item.stage === 'release' ? 'Merged · waiting for release' : 'Waiting for the planner';
+  if (item.hold?.cause === 'merge') return 'Needs you · waiting for Martin’s merge';
   // Only Martin asks for improvements, so a visitor's suggestion waits for Martin. A report that became a ticket
   // and is held later, at Gates say, shows that hold's own reason.
   if (item.hold?.stage === 'triage' && item.kind === 'visitor-report') return 'Needs you · parked for Martin';

@@ -1,4 +1,4 @@
-/** A defect a visitor injected, still on the line: sent back once by Gates, and now on the canary. */
+/** A defect a visitor injected: sent back once by Gates, then fixed, rolled out and verified. */
 import { commitFor, digestFor, Item, traceFor } from '../build.ts';
 import { shot } from '../captures.ts';
 
@@ -59,7 +59,7 @@ export default new Item('1302', '2026-10-03T10:12:00+01:00')
     rollout: 'Ships as a normal release behind the canary.',
   })
   .calls('coder', '6:05', '8:30', { calls: 11, input: 260_000, output: 6_100, cached: 0.85 })
-  .at('8:40', 'pull-request.pushed', 'coder', 'Failing test first, then the fix · PR #1303', {
+  .pushed('8:40', 'coder', 'Failing test first, then the fix · PR #1303', {
     number: 1303,
     title: 'fix(search): take words of any length',
     branch: 'factory/1302-search',
@@ -78,19 +78,25 @@ export default new Item('1302', '2026-10-03T10:12:00+01:00')
       output: JOURNEY_FAILED,
     },
   })
-  .at('11:43', 'work.returned', 'factory', 'Gates sent #1302 back · 1 check failed', {
+  .at('11:43', 'work.returned', 'factory', '#1302 · round 2 · 1 check failed', {
     from: 'gates',
     to: 'build',
     reason: 'End-to-end journeys failed: a search for sandpaper was still turned away',
+    round: 2,
+    failed: ['End-to-end journeys'],
   })
   .calls('coder', '11:50', '13:10', { calls: 7, input: 180_000, output: 3_900, cached: 0.88 })
-  .at('13:20', 'pull-request.pushed', 'coder', 'Second attempt on PR #1303: the limit removed, not raised', {
+  .pushed('13:20', 'coder', 'Second attempt on PR #1303: the limit removed, not raised', {
     number: 1303,
     title: 'fix(search): take words of any length',
     branch: 'factory/1302-search',
     attempt: 2,
     testsFirst: true,
     files: [
+      { path: 'src/pages/search.ts', added: 2, removed: 4 },
+      { path: 'test/search.test.ts', added: 8, removed: 0 },
+    ],
+    whole: [
       { path: 'src/pages/search.ts', added: 3, removed: 5 },
       { path: 'test/search.test.ts', added: 27, removed: 0 },
     ],
@@ -131,10 +137,21 @@ export default new Item('1302', '2026-10-03T10:12:00+01:00')
     },
     [shot('published/search', 'v0.9.7')],
   )
-  .at('18:31', 'work-item.summarised', 'factory', 'Summary written', {
+  .at('22:40', 'release.promoted', 'rollouts', 'v0.9.7 promoted to 100%', { version: 'v0.9.7', previous: 'v0.9.6' })
+  .verify('25:10', 'A search for sandpaper finds it; every page matches v0.9.5, before the injection', {
+    check: 'A search for a nine-letter word finds it',
+    against: 'v0.9.5',
+    version: 'v0.9.7',
+    marked: shot('published/search-fixed', 'v0.9.7'),
+  })
+  .at('25:11', 'work-item.closed', 'factory', 'Closed: verified', {
+    outcome: 'verified',
+    reason: 'A search for a word of any length finds it, and every page matches the version before the injection',
+  })
+  .at('25:12', 'work-item.summarised', 'factory', 'Summary written', {
     title: 'Search turns away long words',
     description:
-      'Search for anything longer than four letters and the shop asks for a shorter word. The fix is on the canary at 25%, and every check is passing.',
+      'Search for anything longer than four letters and the shop asked for a shorter word. Sent back once by Gates; the second fix was verified 25 minutes after the injection.',
     story:
-      'A visitor chose “Search turns away long words”. It went live as v0.9.6, and the search journey noticed within two minutes. The first fix raised the limit to eight letters instead of removing it: an end-to-end journey searched for sandpaper, was turned away, and Gates sent the change back to Build. The second attempt passed. It is on the canary now, as v0.9.7.',
+      'A visitor chose “Search turns away long words”. It went live as v0.9.6, and the search journey noticed within two minutes. The first fix raised the limit to eight letters instead of removing it: an end-to-end journey searched for sandpaper, was turned away, and Gates sent the change back to Build. The second attempt removed the limit. It went out as v0.9.7, and once it was rolled out every page matched the version before the injection.',
   });

@@ -2,13 +2,22 @@
  * Each work item's state at a time t, folded from its events. Everything else the console shows is derived from
  * these states and the events behind them.
  */
-import type { Category, Evidence, Kind, PayloadOf, PublicEvent, Screenshot, Stage } from '@software-factory/events';
+import type {
+  Category,
+  Evidence,
+  HoldCause,
+  Kind,
+  PayloadOf,
+  PublicEvent,
+  Screenshot,
+  Stage,
+} from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
 
 /**
  * How a work item stands. Besides the line's own: `waiting`, a ticket queued for the planner, with nothing being
- * done to it yet; `quarantined`, a report that gave orders to the system; `no-ticket`, a report that described
- * nothing wrong.
+ * done to it yet; `merged`, a fix Martin merged, queued at Release for a release to take it; `quarantined`, a report
+ * that gave orders to the system; `no-ticket`, a report that described nothing wrong.
  */
 export type Outcome =
   | 'verified'
@@ -19,12 +28,17 @@ export type Outcome =
   | 'held'
   | 'needs-you'
   | 'waiting'
+  | 'merged'
   | 'in-progress';
 
 export interface Hold {
   stage: Stage;
   kind: 'approval' | 'question' | 'held';
+  /** Why the line holds it, which decides the picture the card draws for it. */
+  cause: HoldCause;
   reason: string;
+  /** A spend hold's cap. */
+  limitUsd: number | undefined;
   question: string | undefined;
   since: number;
 }
@@ -86,7 +100,10 @@ export interface ItemState {
   calls: number;
   /** The ticket triage opened, if it has. */
   ticket: PayloadOf<'ticket.opened'> | undefined;
-  /** A ticket that waits for the planner: its last step was the ticket, and nothing has happened at Plan since. */
+  /**
+   * Work queued at a stage that has not taken it: a ticket waiting for the planner, its last step the ticket; or a
+   * merged fix waiting for a release, its last step the merge.
+   */
   queued: boolean;
   /** The app's version when a sense first saw the problem. */
   seenOn: string | undefined;
@@ -112,8 +129,10 @@ export function stageOf(event: PublicEvent): Stage | null {
     case 'gates.finished':
       return 'gates';
     case 'review.submitted':
-    case 'pull-request.merged':
       return 'review';
+    // A merge leaves Review: the fix waits at Release for a release to take it.
+    case 'pull-request.merged':
+      return 'release';
     case 'release.started':
     case 'canary.stepped':
     case 'release.promoted':
@@ -256,11 +275,18 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       case 'pull-request.pushed':
         state.pullRequest = event.payload.number;
         break;
+      case 'pull-request.merged':
+        // The merge is Martin's answer to a wait for it: the line writes no other.
+        state.hold = undefined;
+        state.queued = true;
+        break;
       case 'hold.started':
         state.hold = {
           stage: event.payload.stage,
           kind: event.payload.kind,
+          cause: event.payload.cause,
           reason: event.payload.reason,
+          limitUsd: event.payload.limitUsd,
           question: event.payload.question,
           since: time,
         };
@@ -313,7 +339,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
 
   if (!state.closedAt) {
     if (state.hold) state.outcome = state.hold.kind === 'held' ? 'held' : 'needs-you';
-    else state.outcome = state.queued ? 'waiting' : 'in-progress';
+    else if (state.queued) state.outcome = state.stage === 'release' ? 'merged' : 'waiting';
+    else state.outcome = 'in-progress';
   }
   return state;
 }

@@ -9,7 +9,7 @@ export default new Item('1276', '2026-10-02T08:10:00+01:00')
     category: 'dependency',
     dependency: { name: '@opentelemetry/sdk-node', ecosystem: 'npm', from: '0.222.0', to: '0.230.1', security: false },
   })
-  .at('0:02', 'pull-request.pushed', 'dependabot', 'Dependabot opened PR #1277: sdk-node 0.222.0 → 0.230.1', {
+  .pushed('0:02', 'dependabot', 'Dependabot opened PR #1277: sdk-node 0.222.0 → 0.230.1', {
     number: 1277,
     title: 'chore(deps): bump @opentelemetry/sdk-node from 0.222.0 to 0.230.1',
     branch: 'dependabot/npm_and_yarn/opentelemetry/sdk-node-0.230.1',

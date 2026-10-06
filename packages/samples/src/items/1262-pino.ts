@@ -9,7 +9,7 @@ export default new Item('1262', '2026-09-29T09:30:00+01:00')
     category: 'dependency',
     dependency: { name: 'pino', ecosystem: 'npm', from: '10.3.1', to: '10.4.0', security: false },
   })
-  .at('0:02', 'pull-request.pushed', 'dependabot', 'Dependabot opened PR #1263: pino 10.3.1 → 10.4.0', {
+  .pushed('0:02', 'dependabot', 'Dependabot opened PR #1263: pino 10.3.1 → 10.4.0', {
     number: 1263,
     title: 'chore(deps): bump pino from 10.3.1 to 10.4.0',
     branch: 'dependabot/npm_and_yarn/pino-10.4.0',

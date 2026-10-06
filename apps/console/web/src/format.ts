@@ -70,3 +70,21 @@ export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n ==
 
 /** Sentence case for a stage or other lower-case name. */
 export const capital = (word: string) => (word[0]?.toUpperCase() ?? '') + word.slice(1);
+
+const SMALL = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+
+/** "one suggestion", "two rounds", "12 files": small counts in words, as a sentence says them. */
+export const inWords = (n: number, one: string, many = `${one}s`) => `${SMALL[n] ?? n} ${n === 1 ? one : many}`;
+
+/** once, twice, three times */
+export const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${SMALL[n] ?? n} times`);
+
+/** The agents, as the console names them. */
+export const AGENT_NAME: Record<string, string> = {
+  triage: 'Triage',
+  planner: 'Planner',
+  coder: 'Coder',
+  reviewer: 'Reviewer',
+  describer: 'Describer',
+  'red-team': 'Red-team agent',
+};

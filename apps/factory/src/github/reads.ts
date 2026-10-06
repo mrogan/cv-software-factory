@@ -48,10 +48,10 @@ export interface Comparison {
   /** Where the commit's history left the branch's: what the change is measured from. */
   mergeBase: string;
   /**
-   * Each file the commit changes since then, with its patch as GitHub shows it: none for a binary file, or one too
-   * large to show.
+   * Each file the commit changes since then, with its patch as GitHub shows it (none for a binary file, or one too
+   * large to show), and the lines it adds and removes, which GitHub counts even then.
    */
-  files: { path: string; patch: string | null }[];
+  files: { path: string; patch: string | null; added: number; removed: number }[];
 }
 
 export interface Reads {
@@ -134,7 +134,16 @@ const pullRequestState = (pr: z.infer<typeof PULL>): PullRequestState => ({
 
 const COMPARE = z.object({
   merge_base_commit: z.object({ sha: SHA }),
-  files: z.array(z.object({ filename: z.string(), patch: z.string().optional() })).optional(),
+  files: z
+    .array(
+      z.object({
+        filename: z.string(),
+        patch: z.string().optional(),
+        additions: z.number().int().nonnegative(),
+        deletions: z.number().int().nonnegative(),
+      }),
+    )
+    .optional(),
 });
 
 const segments = (branch: string) => branch.split('/').map(encodeURIComponent).join('/');
@@ -214,7 +223,12 @@ export class LiveReads implements Reads {
     );
     return {
       mergeBase: body.merge_base_commit.sha,
-      files: (body.files ?? []).map((file) => ({ path: file.filename, patch: file.patch ?? null })),
+      files: (body.files ?? []).map((file) => ({
+        path: file.filename,
+        patch: file.patch ?? null,
+        added: file.additions,
+        removed: file.deletions,
+      })),
     };
   }
 }

@@ -34,6 +34,7 @@ const pushed = (attempt = 1): LineEvent => ({
     attempt,
     testsFirst: true,
     files: [{ path: 'src/search.ts', added: 1, removed: 1 }],
+    whole: [{ path: 'src/search.ts', added: 1, removed: 1 }],
   },
 });
 const started = (commit = SHA): LineEvent => ({
@@ -91,6 +92,7 @@ describe('what the line does next', () => {
       from: 'gates',
       to: 'build',
       reason: 'The gates failed: test',
+      failed: ['test'],
     });
     expect(decide([...failed, returned('gates')], facts).next).toEqual({ do: 'step', agent: 'coder', round: 2 });
     let events = failed;
@@ -106,7 +108,13 @@ describe('what the line does next', () => {
     const first = [ticket, spec, ...passed(1), review('changes-requested')];
     expect(decide(first, facts)).toEqual({
       stage: 'build',
-      next: { do: 'return', from: 'review', to: 'build', reason: 'Review asked for changes: One blocking finding.' },
+      next: {
+        do: 'return',
+        from: 'review',
+        to: 'build',
+        reason: 'Review asked for changes: One blocking finding.',
+        blocking: 1,
+      },
     });
     // The coder's round 2, with the findings that sent it back still to hand.
     const back = [...first, returned('review')];
@@ -205,6 +213,32 @@ describe('what the line does next', () => {
     expect(decide([ticket, hold], facts)).toEqual({ stage: 'held', next: { do: 'wait', for: 'martin' } });
     const answered: LineEvent = { type: 'hold.answered', payload: { decision: 'answered', answer: 'The home page' } };
     expect(decide([ticket, hold, answered], facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
+  });
+
+  it('holds a work item that has spent its cap before its next step, with the cap, and not before', () => {
+    const spend = { spentUsd: 5.03, limitUsd: 5 };
+    expect(decide([ticket, spec], { ...facts, spend })).toEqual({
+      stage: 'held',
+      next: {
+        do: 'hold',
+        hold: {
+          stage: 'build',
+          kind: 'held',
+          cause: 'spend',
+          reason: 'The work item has spent $5.03 on models, and may spend $5.00',
+          limitUsd: 5,
+        },
+      },
+    });
+    // Under the cap the step runs; waiting for the gates needs no model.
+    expect(decide([ticket, spec], { ...facts, spend: { ...spend, spentUsd: 4.99 } }).next).toMatchObject({
+      do: 'step',
+      agent: 'coder',
+    });
+    expect(decide([ticket, spec, pushed(), started()], { ...facts, spend }).next).toEqual({
+      do: 'wait',
+      for: 'gates',
+    });
   });
 
   it('ends a work item that is merged, or closed', () => {
@@ -447,6 +481,24 @@ describe('Martin’s answer to a hold', () => {
       do: 'return',
       from: 'review',
       reason: 'Martin sent it back: Add a test',
+    });
+  });
+
+  it('carries on from a spend hold when he approves, and holds again while the cap stands', () => {
+    const spend = { spentUsd: 5.03, limitUsd: 5 };
+    const capped = [ticket, spec, held('spend', 'build'), answer('approved')];
+    expect(decide(capped, facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
+    expect(decide(capped, { ...facts, spend }).next).toMatchObject({ do: 'hold', hold: { cause: 'spend' } });
+  });
+
+  it('accepts tests that pass without the fix when he approves, and sends them back when he answers', () => {
+    const tests = [ticket, spec, pushed(), started(), finished('passed'), held('tests-first', 'gates')];
+    expect(decide([...tests, answer('approved')], facts).next).toEqual({ do: 'step', agent: 'reviewer', round: 1 });
+    expect(decide([...tests, answer('answered', 'Test the Friday case')], facts).next).toEqual({
+      do: 'return',
+      from: 'gates',
+      to: 'build',
+      reason: 'Martin sent it back: Test the Friday case',
     });
   });
 

@@ -28,7 +28,8 @@ export function kindName({ kind, byVisitor }: Pick<CardData, 'kind' | 'byVisitor
 
 /**
  * An outcome's word and tone, and whether it waits on a human. Work nobody needs to act on is in the quiet tone:
- * closed work, a quarantined report (a guardrail that worked), and a ticket waiting for the planner.
+ * closed work, a quarantined report (a guardrail that worked), a ticket waiting for the planner, and a fix Martin
+ * merged, waiting for a release: not green, because nothing has verified it.
  */
 export const OUTCOME: Record<Outcome, [word: string, tone: 'ok' | 'attn' | 'faint' | 'signal', waits: boolean]> = {
   verified: ['Verified', 'ok', false],
@@ -39,6 +40,7 @@ export const OUTCOME: Record<Outcome, [word: string, tone: 'ok' | 'attn' | 'fain
   'no-ticket': ['Closed · no ticket', 'faint', false],
   'needs-you': ['Needs you', 'attn', true],
   waiting: ['Waiting for the planner', 'faint', false],
+  merged: ['Merged · waiting for release', 'faint', false],
   'in-progress': ['In progress', 'signal', false],
 };
 
@@ -48,7 +50,7 @@ export function OutcomeWord({ outcome }: { outcome: Outcome }) {
   const dot =
     outcome === 'in-progress'
       ? 'blink'
-      : outcome === 'waiting'
+      : outcome === 'waiting' || outcome === 'merged'
         ? 'hollow'
         : waits
           ? 'ring alarm'
@@ -98,7 +100,11 @@ export function VersionPill({
 }
 
 /** Outcomes still under way, whose duration is so far. */
-export const ONGOING = new Set<Outcome>(['in-progress', 'needs-you', 'held', 'waiting']);
+export const ONGOING = new Set<Outcome>(['in-progress', 'needs-you', 'held', 'waiting', 'merged']);
+
+/** What the work spent on models: "no model" when nothing was called, and "$0 · local" when the local model did it all. */
+export const spendWords = ({ calls, local, spend }: Pick<CardData, 'calls' | 'local' | 'spend'>) =>
+  !calls ? 'no model' : local ? '$0 · local' : money(spend);
 
 const SEGMENT_CLASS = {
   passed: 'o',
@@ -152,7 +158,7 @@ export const Card = memo(function Card({ card, index, count, ref }: CardProps) {
           {ONGOING.has(card.outcome) ? ' so far' : ''}
         </span>
         {/* No model at all is a choice, not a missing figure: a sense knows what it saw. */}
-        <span>{card.calls ? money(card.spend) : 'no model'}</span>
+        <span>{spendWords(card)}</span>
       </div>
       <div className="card-foot">
         <span className="prog" role="img" aria-label={segmentsLabel(card.segments)}>

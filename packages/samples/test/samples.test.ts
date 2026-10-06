@@ -28,11 +28,15 @@ describe('the samples', () => {
     expect(new Set(of('work-item.opened').map((event) => event.payload.kind))).toEqual(new Set(KINDS));
   });
 
-  it('have model calls from every agent but the describer, and a Jev judgement', () => {
+  it('have model calls from every agent, on Claude and on the local model, and a Jev judgement', () => {
     const agents = new Set([...of('model.called').map((event) => event.payload.agent), 'triage']);
-    // The describer joined the agents after the samples were written; the console shows it with the rest.
-    expect(agents).toEqual(new Set(AGENTS.filter((agent) => agent !== 'describer')));
+    expect(agents).toEqual(new Set(AGENTS));
+    expect(new Set(of('model.called').map((event) => event.payload.provider))).toEqual(new Set(['anthropic', 'local']));
     expect(of('judgement.made').length).toBeGreaterThan(0);
+  });
+
+  it('record one model call event for each agent’s step, as the line does', () => {
+    expect(of('model.called').some((event) => event.payload.calls > 1)).toBe(true);
   });
 
   it('send work back upstream at least once', () => {

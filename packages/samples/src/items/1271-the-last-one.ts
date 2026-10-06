@@ -41,7 +41,7 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
   })
   .at('5:00', 'hold.answered', 'martin', 'Martin approved the spec', { decision: 'approved' })
   .calls('coder', '5:10', '14:20', { calls: 22, input: 610_000, output: 13_500, cached: 0.87 })
-  .at('14:30', 'pull-request.pushed', 'coder', 'Tests first, then the change · PR #1273', {
+  .pushed('14:30', 'coder', 'Tests first, then the change · PR #1273', {
     number: 1273,
     title: 'feat(cards): say when it is the last one',
     branch: 'factory/1271-the-last-one',
