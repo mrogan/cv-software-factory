@@ -61,10 +61,20 @@ const ROUTES = [
     }),
   },
   { method: 'GET', path: `/repos/${REPO}/git/ref/heads/main`, answer: () => ({ body: { object: { sha: SHA } } }) },
+  {
+    method: 'GET',
+    path: `/repos/${REPO}/pulls?head=${encodeURIComponent(`${REPO.split('/')[0]}:factory/1001-cart`)}&state=open&per_page=1`,
+    answer: () => ({ body: [{ ...PULL, state: 'open', merged: false, merged_by: null }] }),
+  },
+  {
+    method: 'GET',
+    path: `/repos/${REPO}/pulls?head=${encodeURIComponent(`${REPO.split('/')[0]}:factory/1002-none`)}&state=open&per_page=1`,
+    answer: () => ({ body: [] }),
+  },
 ];
 
 describe('reading GitHub for the line', () => {
-  it('reads a pull request, the check runs on a commit, the checks main requires, and a branch’s head', async () => {
+  it('reads a pull request, the check runs on a commit, the checks main requires, a branch’s head and its pull request', async () => {
     const { github } = client(ROUTES);
     const reads = new LiveReads(github);
     expect(await reads.pullRequest(REPO, 7)).toEqual({
@@ -102,6 +112,8 @@ describe('reading GitHub for the line', () => {
     ]);
     expect(await reads.requiredChecks(REPO, 'main')).toEqual(['test', 'journeys']);
     expect(await reads.head(REPO, 'main')).toBe(SHA);
+    expect(await reads.pullRequestFrom(REPO, 'factory/1001-cart')).toMatchObject({ number: 7, state: 'open' });
+    expect(await reads.pullRequestFrom(REPO, 'factory/1002-none')).toBeNull();
   });
 });
 

@@ -28,6 +28,8 @@ export const LIMITS = {
   gateReturns: 2,
   /** Failed attempts at one step (no handback, no result, a result its schema refuses) before it holds. */
   failures: 2,
+  /** Tries at a handback's effects, when GitHub or the store fails, before the work item holds. */
+  effects: 6,
 } as const;
 
 type Answer = PayloadOf<'hold.answered'>['decision'];
@@ -238,7 +240,8 @@ export interface Decision {
   next: Next;
 }
 
-const STAGE_OF: Record<LineAgent, QueueStage> = {
+/** The stage each agent works in. */
+export const STAGE_OF: Record<LineAgent, 'plan' | 'build' | 'review'> = {
   planner: 'plan',
   coder: 'build',
   reviewer: 'review',
@@ -261,7 +264,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
         next: {
           do: 'hold',
           hold: {
-            stage: stage as Stage,
+            stage,
             kind: 'held',
             cause: 'failures',
             reason: `The ${agent} failed ${facts.failures} times${why}`.slice(0, 300),

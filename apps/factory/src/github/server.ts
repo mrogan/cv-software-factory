@@ -105,6 +105,11 @@ const ARGS = {
 
 type Name = keyof typeof ARGS;
 
+/** The actions a worker may ask for, each with its arguments after the repository, and what it gives back. */
+export type ActionName = Name;
+export type ActionArgs = { [K in Name]: z.input<(typeof ARGS)[K]> };
+export type ActionResult<K extends Name> = Awaited<ReturnType<Actions[K]>>;
+
 /** Each action's call, from its checked arguments. */
 const CALLS: { [K in Name]: (actions: Actions, repo: string, args: z.infer<(typeof ARGS)[K]>) => Promise<unknown> } = {
   setBranch: (x, repo, { branch, sha, force }) => x.setBranch(repo, branch, sha, force === undefined ? {} : { force }),
@@ -137,9 +142,15 @@ const READS = {
   checkRuns: z.strictObject({ sha }),
   requiredChecks: z.strictObject({ branch }),
   head: z.strictObject({ branch }),
+  pullRequestFrom: z.strictObject({ branch }),
 } satisfies Record<keyof Reads, z.ZodType>;
 
 type ReadName = keyof typeof READS;
+
+/** The reads a worker may ask for, each with its arguments after the repository, and what it gives back. */
+export type { ReadName };
+export type ReadArgs = { [K in ReadName]: z.input<(typeof READS)[K]> };
+export type ReadResult<K extends ReadName> = Awaited<ReturnType<Reads[K]>>;
 
 const READ_CALLS: {
   [K in ReadName]: (reads: Reads, repo: string, args: z.infer<(typeof READS)[K]>) => Promise<unknown>;
@@ -148,6 +159,7 @@ const READ_CALLS: {
   checkRuns: (r, repo, { sha }) => r.checkRuns(repo, sha),
   requiredChecks: (r, repo, { branch }) => r.requiredChecks(repo, branch),
   head: (r, repo, { branch }) => r.head(repo, branch),
+  pullRequestFrom: (r, repo, { branch }) => r.pullRequestFrom(repo, branch),
 };
 
 /** An object without its undefined fields, as the actions' optional fields expect: absent, never undefined. */

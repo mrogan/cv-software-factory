@@ -7,7 +7,7 @@
  */
 import type { PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
-import { type AgentDefinition, words } from './agent.ts';
+import { defineAgent, need, words } from './agent.ts';
 
 export interface ReviewerInput {
   workItem: string;
@@ -37,11 +37,17 @@ export const reviewerResult = z.strictObject({
 
 export type ReviewerResult = z.infer<typeof reviewerResult>;
 
-export const reviewer: AgentDefinition<ReviewerInput, ReviewerResult> = {
+export const reviewer = defineAgent<ReviewerInput, ReviewerResult>({
   agent: 'reviewer',
   maxTurns: 30,
   deadlineSeconds: 15 * 60,
-  result: reviewerResult,
+  input: ({ workItem, state, base }) => ({
+    workItem,
+    spec: need(state.spec, 'a spec'),
+    pullRequest: need(state.pullRequest, 'a pull request').number,
+    base,
+  }),
+  schema: () => reviewerResult,
   prompt: ({ workItem, spec, pullRequest, base }) =>
     [
       `Review pull request #${pullRequest}, the fix for ticket #${workItem}: the diff from ${base} to the checkout's head.`,
@@ -50,4 +56,26 @@ export const reviewer: AgentDefinition<ReviewerInput, ReviewerResult> = {
       'Review it against docs/REVIEWERS.md as it is at the base. Ask for nothing outside the ticket.',
       'The result is {"verdict","note","findings":[{"path","line","body","blocking","rule"}]}; the verdict is approved, changes-requested or escalated.',
     ].join('\n'),
-};
+  apply: async (review, _handback, { pullRequest: number }, context) => {
+    await context.once('review', () =>
+      context.act('review', {
+        number,
+        commit: context.commit,
+        body: review.note,
+        comments: review.findings.map((f) => ({
+          path: f.path,
+          line: f.line,
+          body: `${f.blocking ? 'Blocking' : 'Suggestion'}${f.rule ? ` · rule ${f.rule}` : ''}: ${f.body}`,
+        })),
+      }),
+    );
+    return [
+      {
+        type: 'review.submitted',
+        actor: 'reviewer',
+        summary: `Review of PR #${number}: ${review.verdict.replace('-', ' ')}`,
+        payload: { pullRequest: number, verdict: review.verdict, comments: review.findings.length, note: review.note },
+      },
+    ];
+  },
+});

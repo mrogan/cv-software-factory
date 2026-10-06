@@ -8,7 +8,8 @@
 import type { PayloadOf } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
-import { type AgentDefinition, words } from './agent.ts';
+import { defineAgent, need, words } from './agent.ts';
+import { refersTo } from './coder.ts';
 
 export interface DescriberInput {
   workItem: string;
@@ -28,11 +29,18 @@ export const describerResult = z.strictObject({
 
 export type DescriberResult = z.infer<typeof describerResult>;
 
-export const describer: AgentDefinition<DescriberInput, DescriberResult> = {
+export const describer = defineAgent<DescriberInput, DescriberResult>({
   agent: 'describer',
   maxTurns: 20,
   deadlineSeconds: 10 * 60,
-  result: describerResult,
+  input: ({ workItem, state, base }) => ({
+    workItem,
+    ticket: need(state.ticket, 'a ticket'),
+    spec: need(state.spec, 'a spec'),
+    pullRequest: need(state.pullRequest, 'a pull request').number,
+    base,
+  }),
+  schema: () => describerResult,
   prompt: ({ workItem, ticket, spec, pullRequest, base }) =>
     [
       `Describe pull request #${pullRequest}, the fix for ticket #${workItem} (${ticket.title}): the diff from ${base} to the checkout's head.`,
@@ -41,4 +49,17 @@ export const describer: AgentDefinition<DescriberInput, DescriberResult> = {
       'Then a summary for the work item: a title, two lines for its card (`description`), and a paragraph (`story`).',
       'The result is {"title","body","summary":{"title","description","story"}}.',
     ].join('\n'),
-};
+  // Each write here leaves the pull request as it says, however often it is done: no `once` is needed.
+  apply: async (described, _handback, { pullRequest: number }, context) => {
+    const pr = await context.read('pullRequest', { number });
+    await context.act('updatePullRequest', {
+      number,
+      title: described.title,
+      body: `${described.body}\n\n${refersTo(context.issue)}`.trim(),
+    });
+    if (pr.draft) await context.act('readyForReview', { pullRequest: { number, url: '', nodeId: pr.nodeId } });
+    return [
+      { type: 'work-item.summarised', actor: 'describer', summary: 'Summary written', payload: described.summary },
+    ];
+  },
+});

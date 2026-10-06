@@ -5,7 +5,8 @@
  */
 import type { Sql } from 'postgres';
 import type { Handback } from '../../../runner/src/step.ts';
-import type { CheckRun, PullRequestState, Reads } from '../../src/github/reads.ts';
+import type { CheckRun, PullRequestState } from '../../src/github/reads.ts';
+import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../src/github/server.ts';
 import type { GitHubPort, Steps } from '../../src/line/worker.ts';
 import { jobName } from '../../src/runners/jobs.ts';
 import type { StepOutcome, StepRequest } from '../../src/runners/steps.ts';
@@ -32,13 +33,21 @@ export class FakeSteps implements Steps {
   }
 
   async run(request: StepRequest): Promise<StepOutcome> {
-    this.requests.push(request);
     const job = jobName(request.agent, request.workItem, request.round, request.attempt);
+    // As the runners do: a step stopped before it starts never reaches its agent.
+    if (request.signal?.aborted) return { kind: 'stopped', job };
+    this.requests.push(request);
     const agent = this.#agents[request.agent];
     if (!agent) throw new Error(`No fake ${request.agent}`);
     const answer = await agent(request);
     if (answer === 'works on') {
-      await new Promise<void>((resolve) => this.#working.push(resolve));
+      let stop = () => {};
+      await new Promise<void>((resolve) => {
+        stop = resolve;
+        this.#working.push(resolve);
+        request.signal?.addEventListener('abort', () => resolve());
+      });
+      this.#working = this.#working.filter((other) => other !== stop);
       return { kind: 'stopped', job };
     }
     // Two calls through the gateway, and one it refused, which is not counted.
@@ -76,21 +85,42 @@ export class FakeSteps implements Steps {
 /** The app's repository in memory, as the GitHub worker would read and change it. */
 export class FakeGitHub implements GitHubPort {
   readonly acts: { action: string; args: Record<string, unknown> }[] = [];
+  /** Actions that fail, as GitHub failing does, and how many times each will. */
+  readonly failing = new Map<ActionName, number>();
+  /** An action that is done, and then fails as though the line crashed before it heard back: once. */
+  crashAfter: ActionName | undefined;
+  /** A read that waits until the test lets it go. */
+  holdReads: Promise<void> | undefined;
   readonly pulls = new Map<number, PullRequestState>();
   readonly checks = new Map<string, CheckRun[]>();
   required = ['test'];
   #commits = 0;
 
-  async act<T>(action: string, _repo: string, args: Record<string, unknown>): Promise<T> {
+  async act<K extends ActionName>(action: K, _repo: string, given: ActionArgs[K]): Promise<ActionResult<K>> {
+    const args = given as Record<string, unknown>;
+    const failures = this.failing.get(action) ?? 0;
+    if (failures > 0) {
+      this.failing.set(action, failures - 1);
+      throw new Error(`GitHub failed: ${action} (502)`);
+    }
     this.acts.push({ action, args });
+    const result = this.#act(action, args) as ActionResult<K>;
+    if (this.crashAfter === action) {
+      this.crashAfter = undefined;
+      throw new Error('The line crashed');
+    }
+    return result;
+  }
+
+  #act(action: ActionName, args: Record<string, unknown>): unknown {
     switch (action) {
       case 'openIssue':
-        return 41 as T;
+        return 41;
       case 'applyPatch': {
         const sha = String(++this.#commits).padStart(40, 'f');
         for (const pr of this.pulls.values()) if (pr.head.ref === args.branch) pr.head.sha = sha;
         this.lastCommit = sha;
-        return sha as T;
+        return sha;
       }
       case 'openPullRequest': {
         const number = 12;
@@ -105,21 +135,19 @@ export class FakeGitHub implements GitHubPort {
           draft: Boolean(args.draft),
           nodeId: 'PR_12',
         });
-        return { number, url: 'https://github.test/pull/12', nodeId: 'PR_12' } as T;
+        return { number, url: 'https://github.test/pull/12', nodeId: 'PR_12' };
       }
       default:
-        return null as T;
+        return undefined;
     }
   }
 
   lastCommit = MAIN;
 
-  async read<K extends keyof Reads>(
-    read: K,
-    _repo: string,
-    args: Record<string, unknown>,
-  ): Promise<Awaited<ReturnType<Reads[K]>>> {
-    const answer = (value: unknown) => value as Awaited<ReturnType<Reads[K]>>;
+  async read<K extends ReadName>(read: K, _repo: string, given: ReadArgs[K]): Promise<ReadResult<K>> {
+    await this.holdReads;
+    const args = given as Record<string, unknown>;
+    const answer = (value: unknown) => value as ReadResult<K>;
     switch (read) {
       case 'head':
         return answer(MAIN);
@@ -131,6 +159,10 @@ export class FakeGitHub implements GitHubPort {
         const pr = this.pulls.get(Number(args.number));
         if (!pr) throw new Error(`No pull request #${args.number}`);
         return answer(structuredClone(pr));
+      }
+      case 'pullRequestFrom': {
+        const pr = [...this.pulls.values()].find((p) => p.head.ref === args.branch && p.state === 'open');
+        return answer(pr ? structuredClone(pr) : null);
       }
     }
     throw new Error(`No fake read ${read}`);

@@ -9,13 +9,15 @@ import type { PayloadOf } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { inScope, NEVER } from '../../github/paths.ts';
-import { type AgentDefinition, words } from './agent.ts';
+import { answerOf, count, defineAgent, holdDraft, need, type Signal, words } from './agent.ts';
 
 export interface PlannerInput {
   workItem: string;
   ticket: PayloadOf<'ticket.opened'>;
   /** What each sense saw, by its typed fields. A report's text is not here. */
-  signals: { sense: string; check: string; route: string; symptom?: string | undefined }[];
+  signals: Signal[];
+  /** Martin's answer to the hold before this step, if there was one. */
+  answer?: string | undefined;
 }
 
 const spec = PAYLOADS['spec.written'].refine(
@@ -33,12 +35,18 @@ export const plannerResult = z.discriminatedUnion('verdict', [
 
 export type PlannerResult = z.infer<typeof plannerResult>;
 
-export const planner: AgentDefinition<PlannerInput, PlannerResult> = {
+export const planner = defineAgent<PlannerInput, PlannerResult>({
   agent: 'planner',
   maxTurns: 30,
   deadlineSeconds: 15 * 60,
-  result: plannerResult,
-  prompt: ({ workItem, ticket, signals }) => {
+  input: async ({ workItem, state, signals }) => ({
+    workItem,
+    ticket: need(state.ticket, 'a ticket'),
+    signals: await signals(),
+    answer: answerOf(state),
+  }),
+  schema: () => plannerResult,
+  prompt: ({ workItem, ticket, signals, answer }) => {
     const fingerprint =
       'class' in ticket.fingerprint
         ? `${ticket.fingerprint.class} on ${ticket.fingerprint.route}`
@@ -48,10 +56,34 @@ export const planner: AgentDefinition<PlannerInput, PlannerResult> = {
       `Ticket #${workItem}: ${ticket.title}.`,
       `Category ${ticket.category}, severity ${ticket.severity}, fingerprint ${fingerprint}.`,
       ...(seen.length ? ['What the senses saw:', ...seen] : []),
+      ...(answer ? [`Martin answered: ${answer}`] : []),
       '',
       'Read the repository and find the cause. Change nothing.',
       'Write a spec for the fix: the outcome, Given/When/Then acceptance criteria (`given`, `when`, `expect`), the files that may change (`scope`), risk tags from test-loosening, dependency-change, security-headers and out-of-scope, and a rollout note.',
       'The result is {"verdict":"spec","spec":{"outcome","criteria","scope","risks","rollout"}}; or {"verdict":"reject","reason"} if it cannot be made testable; or {"verdict":"question","question"} if only Martin can settle it.',
     ].join('\n');
   },
-};
+  apply: async (planned) => {
+    switch (planned.verdict) {
+      case 'spec': {
+        const { spec } = planned;
+        const summary = `Spec written: ${count(spec.criteria.length, 'criterion', 'criteria')}, ${count(spec.scope.length, 'path')} in scope`;
+        return [{ type: 'spec.written', actor: 'planner', summary, payload: spec }];
+      }
+      case 'reject':
+        return [
+          holdDraft('planner', { stage: 'plan', kind: 'held', cause: 'ticket-rejected', reason: planned.reason }),
+        ];
+      case 'question':
+        return [
+          holdDraft('planner', {
+            stage: 'plan',
+            kind: 'question',
+            cause: 'question',
+            reason: 'The planner needs an answer to write the spec',
+            question: planned.question,
+          }),
+        ];
+    }
+  },
+});

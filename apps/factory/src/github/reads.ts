@@ -46,6 +46,8 @@ export interface Reads {
   requiredChecks(repo: string, branch: string): Promise<string[]>;
   /** The commit a branch points at. */
   head(repo: string, branch: string): Promise<string>;
+  /** The open pull request from one of the repository's branches, if there is one. */
+  pullRequestFrom(repo: string, branch: string): Promise<PullRequestState | null>;
 }
 
 const SHA = z.string().regex(/^[0-9a-f]{40}$/);
@@ -90,6 +92,18 @@ const RULES = z.array(
 
 const REF = z.object({ object: z.object({ sha: SHA }) });
 
+const pullRequestState = (pr: z.infer<typeof PULL>): PullRequestState => ({
+  number: pr.number,
+  state: pr.state,
+  merged: pr.merged,
+  mergeCommit: pr.merged ? pr.merge_commit_sha : null,
+  mergedBy: pr.merged_by?.login ?? null,
+  head: { ref: pr.head.ref, sha: pr.head.sha },
+  base: { ref: pr.base.ref, sha: pr.base.sha },
+  draft: pr.draft ?? false,
+  nodeId: pr.node_id,
+});
+
 const segments = (branch: string) => branch.split('/').map(encodeURIComponent).join('/');
 
 export class LiveReads implements Reads {
@@ -101,17 +115,14 @@ export class LiveReads implements Reads {
 
   async pullRequest(repo: string, number: number): Promise<PullRequestState> {
     const { body: pr } = await this.#github.poll(repo, `/repos/${repo}/pulls/${number}`, PULL);
-    return {
-      number: pr.number,
-      state: pr.state,
-      merged: pr.merged,
-      mergeCommit: pr.merged ? pr.merge_commit_sha : null,
-      mergedBy: pr.merged_by?.login ?? null,
-      head: { ref: pr.head.ref, sha: pr.head.sha },
-      base: { ref: pr.base.ref, sha: pr.base.sha },
-      draft: pr.draft ?? false,
-      nodeId: pr.node_id,
-    };
+    return pullRequestState(pr);
+  }
+
+  async pullRequestFrom(repo: string, branch: string): Promise<PullRequestState | null> {
+    const head = `${repo.split('/')[0]}:${branch}`;
+    const path = `/repos/${repo}/pulls?head=${encodeURIComponent(head)}&state=open&per_page=1`;
+    const { body } = await this.#github.poll(repo, path, z.array(PULL));
+    return body[0] ? pullRequestState(body[0]) : null;
   }
 
   async checkRuns(repo: string, sha: string): Promise<CheckRun[]> {

@@ -7,8 +7,31 @@
  * pace of its slowest step rather than piling up specs: the oldest open ticket of the highest severity, from the
  * real events only. One decision at a time takes it (an advisory lock), so two workers cannot take the same ticket.
  */
-import type { Sql } from 'postgres';
-import type { QueueStage } from './machine.ts';
+import type { JSONValue, Sql } from 'postgres';
+import type { Handback } from '../runners/steps.ts';
+import type { Draft } from './gates.ts';
+import type { LineAgent, QueueStage } from './machine.ts';
+
+/** A handback whose effects are not all done yet, kept so they can be tried again without the agent. */
+export interface Pending {
+  agent: LineAgent;
+  round: number;
+  job: string;
+  /** The last of the work item's events when the step started. One appended since makes this out of date. */
+  since: number;
+  commit: string;
+  base: string;
+  handback: Handback;
+  /** The step's `model.called`, appended with the effects' events. */
+  called: Draft[];
+  /** The writes begun, and what each one done gave back, by name. */
+  begun: string[];
+  done: Record<string, JSONValue>;
+  /** Failed tries at the effects, why the last one failed, and when to try again. */
+  tries: number;
+  failure: string | null;
+  retryAt: string | null;
+}
 
 export interface QueueItem {
   workItem: string;
@@ -19,6 +42,7 @@ export interface QueueItem {
   failure: string | null;
   issue: number | null;
   session: string | null;
+  effects: Pending | null;
 }
 
 interface Row {
@@ -29,6 +53,7 @@ interface Row {
   failure: string | null;
   issue: number | null;
   session: string | null;
+  effects: Pending | null;
 }
 
 const item = (row: Row): QueueItem => ({
@@ -39,7 +64,10 @@ const item = (row: Row): QueueItem => ({
   failure: row.failure,
   issue: row.issue,
   session: row.session,
+  effects: row.effects,
 });
+
+const COLUMNS = ['work_item', 'stage', 'steps', 'failures', 'failure', 'issue', 'session', 'effects'];
 
 export class Queue {
   readonly #sql: Sql;
@@ -76,7 +104,7 @@ export class Queue {
   /** The work items on the line that nobody holds, longest on it first. */
   async free(): Promise<QueueItem[]> {
     const rows = await this.#sql<Row[]>`
-      select work_item, stage, steps, failures, failure, issue, session from line
+      select ${this.#sql(COLUMNS)} from line
       where stage <> 'ended' and (held_until is null or held_until < clock_timestamp())
       order by taken_at`;
     return rows.map(item);
@@ -91,14 +119,14 @@ export class Queue {
       update line set held_by = ${this.#me}, held_until = clock_timestamp() + make_interval(secs => ${seconds})
       where work_item = ${workItem} and stage <> 'ended'
         and (held_until is null or held_until < clock_timestamp() or held_by = ${this.#me})
-      returning work_item, stage, steps, failures, failure, issue, session`;
+      returning ${this.#sql(COLUMNS)}`;
     return row && item(row);
   }
 
   /** A work item on the line, ended or not. */
   async get(workItem: string): Promise<QueueItem | undefined> {
     const [row] = await this.#sql<Row[]>`
-      select work_item, stage, steps, failures, failure, issue, session from line where work_item = ${workItem}`;
+      select ${this.#sql(COLUMNS)} from line where work_item = ${workItem}`;
     return row && item(row);
   }
 
@@ -125,15 +153,49 @@ export class Queue {
     return row.steps;
   }
 
-  /** Counts a failed attempt at the step in hand, with why. */
+  /** Counts a failed attempt at the step in hand, with why: its handback, if one was kept, is over. */
   async failed(workItem: string, reason: string): Promise<void> {
-    await this.#sql`update line set failures = failures + 1, failure = ${reason.slice(0, 500)}
+    await this.#sql`update line set failures = failures + 1, failure = ${reason.slice(0, 500)}, effects = null
                     where work_item = ${workItem}`;
   }
 
-  /** The work item moved on: its step in hand has not failed yet. */
+  /** The work item moved on: its step in hand has not failed yet, and no handback waits for its effects. */
   async moved(workItem: string): Promise<void> {
-    await this.#sql`update line set failures = 0, failure = null where work_item = ${workItem}`;
+    await this.#sql`update line set failures = 0, failure = null, effects = null where work_item = ${workItem}`;
+  }
+
+  /** Keeps a handback until its effects are done. */
+  async keep(workItem: string, pending: Pending): Promise<void> {
+    await this.#sql`update line set effects = ${this.#sql.json(pending as unknown as JSONValue)}
+                    where work_item = ${workItem}`;
+  }
+
+  /** Lets go of a handback whose effects will not be tried again. */
+  async drop(workItem: string): Promise<void> {
+    await this.#sql`update line set effects = null where work_item = ${workItem}`;
+  }
+
+  /** Records that one of a kept handback's writes has begun, before it is made. */
+  async begun(workItem: string, name: string): Promise<void> {
+    await this.#sql`
+      update line set effects = jsonb_set(effects, '{begun}', (effects->'begun') || to_jsonb(${name}::text))
+      where work_item = ${workItem} and effects is not null`;
+  }
+
+  /** Records what one of a kept handback's writes gave back, once it is made. */
+  async done(workItem: string, name: string, result: JSONValue): Promise<void> {
+    await this.#sql`
+      update line set effects = jsonb_set(effects, array['done', ${name}::text], ${this.#sql.json(result)})
+      where work_item = ${workItem} and effects is not null`;
+  }
+
+  /** Counts a failed try at a kept handback's effects, with why and when to try again. */
+  async effectsFailed(workItem: string, reason: string, retryAt: Date): Promise<void> {
+    await this.#sql`
+      update line set effects = effects || jsonb_build_object(
+        'tries', (effects->>'tries')::int + 1, 'failure', ${reason.slice(0, 500)}::text,
+        'retryAt', ${retryAt.toISOString()}::text)
+      where work_item = ${workItem} and effects is not null`;
   }
 
   async setIssue(workItem: string, issue: number): Promise<void> {

@@ -104,10 +104,22 @@ const AGENTS: Record<string, Agent> = {
     }),
 };
 
-function line(agents: Partial<Record<string, Agent>> = AGENTS) {
+/** The time as the line sees it, which a test can move on. */
+let now = Date.parse('2026-10-06T09:00:00Z');
+
+function line(agents: Partial<Record<string, Agent>> = AGENTS, store: Pick<EventWriter, 'append'> = events) {
   const steps = new FakeSteps(database.writer, agents);
   const github = new FakeGitHub();
-  const it = new Line({ sql: database.writer, events, steps, github, log: quiet, gatesEveryMs: 0, me: 'test' });
+  const it = new Line({
+    sql: database.writer,
+    events: store,
+    steps,
+    github,
+    log: quiet,
+    gatesEveryMs: 0,
+    me: 'test',
+    now: () => new Date(now),
+  });
   /** A pass of the line, and whatever steps it started, to their end. */
   const pass = async () => {
     await it.tick();
@@ -386,4 +398,126 @@ describe('the line', () => {
     expect(steps.finished).toEqual([workItem]);
     expect(await stage(workItem)).toBe('ended');
   });
+
+  it('counts a step that ran out of turns as failed, whatever result it wrote first', async () => {
+    const workItem = await ticket();
+    const unfinished = { ...handback({ verdict: 'spec', spec: SPEC }), ending: 'max-turns' as const };
+    const { pass, steps } = line({ ...AGENTS, planner: () => unfinished });
+    await pass();
+    expect(await types(workItem)).toEqual(['work-item.opened', 'ticket.opened', 'model.called']);
+    expect(await failures(workItem)).toEqual({ failures: 1, failure: 'The planner ran out of turns' });
+    await pass();
+    expect(steps.requests.map((r) => r.attempt)).toEqual([1, 2]);
+  });
+
+  it('tries the effects again when GitHub fails, without running the agent again or counting it against the step', async () => {
+    const workItem = await ticket();
+    const { pass, steps, github } = line();
+    await pass(); // the planner
+    github.failing.set('applyPatch', 1);
+    await pass(); // the coder hands back, and GitHub fails
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
+    expect(await failures(workItem)).toEqual({ failures: 0, failure: null });
+    expect(await types(workItem)).not.toContain('pull-request.pushed');
+    await pass(); // too soon to try again
+    expect(github.acts.filter((a) => a.action === 'applyPatch')).toHaveLength(0);
+    now += 60_000;
+    await pass(); // the effects again, and not the coder
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
+    expect(github.acts.map((a) => a.action)).toEqual([
+      'openIssue',
+      'setBranch',
+      'setBranch',
+      'applyPatch',
+      'openPullRequest',
+    ]);
+    expect(await types(workItem)).toEqual([
+      'work-item.opened',
+      'ticket.opened',
+      'model.called',
+      'spec.written',
+      'model.called',
+      'pull-request.pushed',
+    ]);
+  });
+
+  it('opens no second pull request when the push could not be recorded after the first was opened', async () => {
+    const workItem = await ticket();
+    let fail = true;
+    const store: Pick<EventWriter, 'append'> = {
+      append: async (batch) => {
+        const all = Array.isArray(batch) ? batch : [batch];
+        if (fail && all.some((e) => e.type === 'pull-request.pushed')) {
+          fail = false;
+          throw new Error('The store failed');
+        }
+        return events.append(batch);
+      },
+    };
+    const { pass, steps, github } = line(AGENTS, store);
+    await pass();
+    await pass(); // the pull request is opened, and recording the push fails
+    expect(github.acts.map((a) => a.action)).toEqual(['openIssue', 'setBranch', 'applyPatch', 'openPullRequest']);
+    expect(await types(workItem)).not.toContain('pull-request.pushed');
+    now += 60_000;
+    await pass();
+    expect(github.acts.map((a) => a.action)).toEqual(['openIssue', 'setBranch', 'applyPatch', 'openPullRequest']);
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
+    expect((await payloads(workItem, 'pull-request.pushed')).map((p) => p.number)).toEqual([12]);
+    expect(await stage(workItem)).toBe('gates');
+  });
+
+  it('finds the pull request it opened when what it got back was lost, and opens no other', async () => {
+    const workItem = await ticket();
+    const { pass, github } = line();
+    await pass();
+    // Opened, and then the line crashed before it heard back: the kept handback has the push, and not this.
+    github.crashAfter = 'openPullRequest';
+    await pass();
+    now += 60_000;
+    await pass();
+    expect(github.acts.filter((a) => a.action === 'openPullRequest')).toHaveLength(1);
+    expect((await payloads(workItem, 'pull-request.pushed')).map((p) => p.number)).toEqual([12]);
+  });
+
+  it('holds the work item when its effects keep failing', async () => {
+    const workItem = await ticket();
+    const { pass, steps, github } = line();
+    await pass();
+    github.failing.set('applyPatch', 100);
+    for (let i = 0; i < 8; i++) {
+      await pass();
+      now += 15 * 60_000;
+    }
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
+    const [hold] = await payloads(workItem, 'hold.started');
+    expect(hold).toMatchObject({ stage: 'build', cause: 'failures' });
+    expect(hold?.reason).toMatch(/^The coder's work could not be put in GitHub 6 times: GitHub failed: applyPatch/);
+  });
+
+  it('starts no step that was still preparing when the line stopped, and counts nothing against it', async () => {
+    const workItem = await ticket();
+    const { line: it, pass, steps, github } = line();
+    await pass(); // the issue, and the planner
+    // The coder's step reads main's head as it prepares, and GitHub is slow.
+    const slow = Promise.withResolvers<void>();
+    github.holdReads = slow.promise;
+    await it.tick();
+    await events.append(event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin'));
+    await it.tick();
+    github.holdReads = undefined;
+    slow.resolve();
+    await it.idle();
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner']);
+    expect(await failures(workItem)).toEqual({ failures: 0, failure: null });
+    await events.append(event(null, 'line.started', { autonomy: 'supervised' }, 'martin'));
+    await pass();
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
+  });
 });
+
+async function failures(workItem: string) {
+  const [row] = await database.writer<{ failures: number; failure: string | null }[]>`
+    select failures, failure from line where work_item = ${workItem}`;
+  return row;
+}

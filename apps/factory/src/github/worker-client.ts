@@ -3,7 +3,7 @@
  * holds the App's key, and nothing else does. Reads go through it too (`reads.ts`), so it is the one place that
  * talks to GitHub.
  */
-import type { Reads } from './reads.ts';
+import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from './server.ts';
 
 export class GitHubWorkerError extends Error {
   readonly status: number;
@@ -26,29 +26,16 @@ export class GitHubWorker {
     this.#dryRun = dryRun;
   }
 
-  get dryRun(): boolean {
-    return this.#dryRun;
-  }
-
-  async act<T>(action: string, repo: string, args: Record<string, unknown>): Promise<T> {
-    return this.#post<T>(`actions/${action}`, repo, args, this.#dryRun ? { 'x-factory-dry-run': 'true' } : {});
+  async act<K extends ActionName>(action: K, repo: string, args: ActionArgs[K]): Promise<ActionResult<K>> {
+    return this.#post(`actions/${action}`, repo, args, this.#dryRun ? { 'x-factory-dry-run': 'true' } : {});
   }
 
   /** Reads from GitHub. A read is the same in a dry run: it changes nothing. */
-  async read<K extends keyof Reads>(
-    read: K,
-    repo: string,
-    args: Record<string, unknown>,
-  ): Promise<Awaited<ReturnType<Reads[K]>>> {
-    return this.#post<Awaited<ReturnType<Reads[K]>>>(`reads/${read}`, repo, args, {});
+  async read<K extends ReadName>(read: K, repo: string, args: ReadArgs[K]): Promise<ReadResult<K>> {
+    return this.#post(`reads/${read}`, repo, args, {});
   }
 
-  async #post<T>(
-    path: string,
-    repo: string,
-    args: Record<string, unknown>,
-    headers: Record<string, string>,
-  ): Promise<T> {
+  async #post<T>(path: string, repo: string, args: object, headers: Record<string, string>): Promise<T> {
     const response = await fetch(`${this.#url}/v1/${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...headers },
