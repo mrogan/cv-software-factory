@@ -10,10 +10,11 @@
  * The handback (`POST /v1/handback`) takes a job's result with its token, checked with Zod at the door, and hands it
  * to the step waiting for it. A job hands back once.
  *
- * Each attempt at a step has a job of its own, named by its attempt as well as its round: a job's name, and so its
- * token, is used once, and a retry never finds the Jobs of the attempt before it. `cancel` deletes the Jobs of every
- * step in hand, for the line stopping, as aborting a step's own `signal` deletes its Jobs; each of those steps ends
- * `stopped`, and nothing it did counts. A step whose signal has aborted before it starts never starts.
+ * Each attempt at a step has a job of its own, named by the agent, the round and a count of the work item's steps:
+ * a job's name, and so its token, is used once, and a retry never finds the Jobs of the attempt before it. `cancel`
+ * deletes the Jobs of every step in hand, for the line stopping, as aborting a step's own `signal` deletes its Jobs;
+ * each of those steps ends `stopped`, and nothing it did counts. A step whose signal has aborted before it starts
+ * never starts.
  */
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage, RequestListener } from 'node:http';
@@ -54,7 +55,10 @@ export interface StepRequest extends Step {
   workItem: string;
   /** Which round of this agent's work this is, from 1: a coder sent back by review works a second round. */
   round: number;
-  /** Which attempt at the step this is, from 1, unique within the work item: with the round, it names the job. */
+  /**
+   * How many steps the work item has started, this one included, whichever agent ran them: from 1, and never used
+   * twice for one work item. With the agent and the round, it names the job.
+   */
   attempt?: number;
   /** How long the agent may run, in seconds. Preparing has ten minutes of its own. */
   deadlineSeconds: number;
