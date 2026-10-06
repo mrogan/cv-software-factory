@@ -5,49 +5,32 @@ description: Only use when the user explicitly invokes this skill by name.
 
 # Describe a Pull Request
 
-Create or update the pull request for the current task with a concise description that helps a reviewer understand why the change exists and the shape of the implementation.
+Write the description of a pull request: one that helps a reviewer understand why the change exists and the shape of the implementation, at the length the change needs.
 
 ## Workflow
 
-1. Read the description template:
+1. Gather only the context needed to explain the change:
+   - Read what the step gives you: the ticket, the spec, the review and anything else it names.
+   - Read the complete diff (`git diff base`), the commit messages (`git log base..HEAD`), and enough surrounding code to understand behavior and ownership.
+   - If the repository has a pull request template, read it as it is at the base (`git show base:.github/pull_request_template.md`). Its sections are the questions a reviewer there expects answered: answer the ones this change raises, in the description's own shape. They are guidance, not headings to fill.
+   - Read `{SKILLBASE}/references/show-me.md` for the visual-outline conventions used in the description.
 
-   `Read({SKILLBASE}/references/pr_description_template.md)`
-
-2. Identify or create the pull request:
-   - Check the current branch for a PR with `gh pr view --json url,number,title,state,baseRefName,headRefName 2>/dev/null`.
-   - If no PR exists, inspect `git status --short --branch` and the commits on the current branch.
-   - Commit task-related changes when needed, push the branch with an upstream, and create a PR for it. Follow the repository's git safety protocol.
-   - Ask the user to select a PR only when the current branch has no relevant work and there is no safe current-branch PR to create.
-
-3. Gather only the context needed to explain the change:
-   - Read the ticket and any relevant task artifacts.
-   - Read the complete PR diff and enough surrounding code to understand behavior and ownership.
-   - Use `gh pr view` to collect PR metadata and changed files.
-   - Read `{SKILLBASE}/references/show-me.md` for the visual-outline conventions used in the PR body.
-
-4. Write the PR description using the template:
-   - Keep **Why the change** to exactly one sentence.
-   - Keep **Special things to note** to 1-3 bullets. Prioritize reviewer warnings, migrations, compatibility constraints, deliberate omissions, or surprising decisions. Write `- None.` when there are no special considerations.
-   - Make **Change outline** a compact, `/show-me`-inspired structural view rather than prose or a file-by-file changelog.
-   - Include only the views that help explain this PR:
+2. Write the description to fit the change:
+   - Start with why the change exists, in one sentence: the problem it solves and what is true once it ships.
+   - A change that needs a line gets a line. Add more only where a reviewer needs it to judge the change.
+   - Note what a reviewer should not miss, in 1-3 bullets, when there is anything: warnings, migrations, compatibility constraints, deliberate omissions, or surprising decisions. Leave it out when there is nothing.
+   - When the shape of the change helps explain it, add a compact, `/show-me`-inspired structural view rather than prose or a file-by-file changelog. Include only the views that help explain this change:
      - SQL table and endpoint contract changes, plus pseudocode for business logic.
      - key data structure / type changes
      - A shallow file tree showing changed responsibilities.
      - React component tree changes, including important hooks, state, and package boundaries.
      - Call-tree, call-stack, control-flow, or data-flow changes.
    - Prefer `diff` blocks when showing changes to an existing shape. Show the complete target shape when most of it is new or diff notation would obscure ownership or order.
-   - Keep each view focused on what a reviewer needs. Omit categories that did not change.
-   - optionaL: if you are aware of a ticket id/url, a humanlayer task url, or related plan/document urls, or other relevant links, include them in the header, otherwise omit the header
+   - Keep each view focused on what a reviewer needs, with a short sentence before it saying what it shows.
+   - Tell the story in the order that makes it easiest to understand. Use headings only when the description is long enough to need them, and name them for this change, never from a fixed template.
 
-5. Save and publish the description:
-   - Use `.humanlayer/tasks/{task-slug}/pr-description.md` when the task directory exists; otherwise use `.humanlayer/tasks/pr-{number}/description.md`.
-   - Update the PR with `gh pr edit {number} --body-file {output-path}`.
-   - Confirm the update succeeded.
-
-6. Report completion:
-   - Read `{SKILLBASE}/references/describe_pr_final_answer.md`.
-   - Respond using that final answer template with the PR URL, saved description URL, and concise list of changed files.
-
-Always read and follow `{SKILLBASE}/references/pr_description_template.md`. Do not expand the PR body beyond that template.
+3. Save the description:
+   - Write it, as Markdown, to the file the step names. It is the description's whole text: no title, and nothing about how it was written.
+   - Do not open, edit or push a pull request, or commit anything: the step publishes the description.
 
 Write as one human talking to another: avoid jargon and slang, and use simple, coherent, concise language.
