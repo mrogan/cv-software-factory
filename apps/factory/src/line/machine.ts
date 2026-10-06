@@ -122,10 +122,15 @@ export interface WorkItemState {
   /** Whether the gates have passed on the latest push: a later run on the same push (main merged in) is the console's. */
   gatesPassed: boolean;
   gateReturns: number;
-  /** The review of the latest push, the latest review of any push, and how many reviews there have been. */
+  /** The review of the latest push, if it has one. */
   review: PayloadOf<'review.submitted'> | undefined;
-  lastReview: PayloadOf<'review.submitted'> | undefined;
-  reviews: number;
+  /**
+   * Every review of any push, in order: the thread the describer reads. Its length is what `LIMITS.reviews` bounds,
+   * and its last is the review a later reviewer checks first.
+   */
+  reviews: PayloadOf<'review.submitted'>[];
+  /** Each time the work went back to Build, in order, and why. */
+  returns: { from: Stage; reason: string }[];
   /** Whether the describer has written up the approved change. */
   described: boolean;
   /** The hold in force, if any. */
@@ -157,8 +162,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
     gatesPassed: false,
     gateReturns: 0,
     review: undefined,
-    lastReview: undefined,
-    reviews: 0,
+    reviews: [],
+    returns: [],
     described: false,
     hold: undefined,
     answer: undefined,
@@ -197,8 +202,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         break;
       case 'review.submitted':
         state.review = event.payload;
-        state.lastReview = event.payload;
-        state.reviews += 1;
+        state.reviews.push(event.payload);
         break;
       case 'work-item.summarised':
         // Triage writes the first summary; the describer's follows an approving review.
@@ -207,6 +211,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
       case 'work.returned':
         if (event.payload.to === 'build') {
           state.rebuild = { from: event.payload.from, reason: event.payload.reason };
+          state.returns.push(state.rebuild);
           state.round += 1;
           if (event.payload.from === 'gates') state.gateReturns += 1;
         }
@@ -369,7 +374,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
       };
     case 'changes-requested': {
       const reason = `Review asked for changes: ${s.review.note}`.slice(0, 200);
-      if (s.reviews >= LIMITS.reviews) {
+      if (s.reviews.length >= LIMITS.reviews) {
         return {
           stage: 'held',
           next: { do: 'hold', hold: { stage: 'review', kind: 'held', cause: 'review', reason } },

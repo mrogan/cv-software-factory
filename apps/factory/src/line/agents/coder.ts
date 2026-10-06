@@ -22,7 +22,7 @@ import { filesIn, PatchRefused } from '../../github/patches.ts';
 import { GitHubWorkerError } from '../../github/worker-client.ts';
 import { type Fenced, fence } from '../../runners/scope.ts';
 import { cites, type Finding } from '../review.ts';
-import { answerOf, defineAgent, need, StepFailed, StepStale, words } from './agent.ts';
+import { answerOf, commitTitle, defineAgent, need, StepFailed, StepStale, words } from './agent.ts';
 import { type Signal, seen, ticketLines } from './evidence.ts';
 
 export interface CoderInput {
@@ -49,14 +49,7 @@ export interface CoderInput {
 
 export const coderResult = z.strictObject({
   /** The pull request's title, and its commit's headline, as a Conventional Commit. */
-  title: z
-    .string()
-    .trim()
-    .max(80)
-    .regex(
-      /^(fix|test|refactor|perf)(\([a-z0-9-]+\))?: \S.{0,70}$/,
-      'a Conventional Commit title of 80 characters at most',
-    ),
+  title: commitTitle,
   /** The commit's body: what was wrong, which test shows it, what changed, and anything noticed and left alone. */
   note: words(1000),
 });

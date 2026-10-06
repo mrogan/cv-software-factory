@@ -26,6 +26,8 @@ COPY apps/runner/package.json apps/runner/
 # No lifecycle scripts: the only one is the repository's own, which installs git hooks.
 RUN pnpm install --frozen-lockfile --ignore-scripts --prod --filter @software-factory/runner...
 COPY apps/runner/src apps/runner/src
+# The skills a step can name, as a plugin the agent step loads (`plugin/README.md`).
+COPY apps/runner/plugin apps/runner/plugin
 # Readable by the unprivileged runtime user, and by nobody's writes.
 RUN chmod -R a+rX,go-w /repo
 

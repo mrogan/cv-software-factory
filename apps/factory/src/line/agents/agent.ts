@@ -13,7 +13,7 @@
 import type { NewEvent, PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../github/server.ts';
-import type { Handback } from '../../runners/steps.ts';
+import type { Handback, Step } from '../../runners/steps.ts';
 import type { Draft } from '../gates.ts';
 import type { LineAgent, WorkItemState } from '../machine.ts';
 import type { Signal } from './evidence.ts';
@@ -73,7 +73,10 @@ export interface EffectsContext extends StepContext {
 
 export interface AgentDefinition<Input, Result> {
   agent: LineAgent;
-  /** The skill the prompt names, which the runner tells the agent to use. */
+  /**
+   * The skill the step names, from the runner's plugin (`apps/runner/plugin`): the runner gives the agent that skill
+   * alone, and tells it to use it.
+   */
   skill?: string;
   /** Turns, and seconds of work, before the step ends unfinished. */
   maxTurns: number;
@@ -86,6 +89,11 @@ export interface AgentDefinition<Input, Result> {
   readsChange?: boolean;
   /** What the step is given, from its work item. Throws `StepFailed` when the work item lacks something it needs. */
   input(context: StepContext): Input | Promise<Input>;
+  /**
+   * Fields of the result the agent writes as files of their own, by field, with their names: prose, such as a pull
+   * request's description, is easier to write well as a Markdown file than inside a JSON string.
+   */
+  resultFiles?: Record<string, `${string}.md`>;
   prompt(input: Input): string;
   /**
    * The session the step carries on, if it resumes one. The definition decides it from the input alone, as it decides
@@ -108,6 +116,7 @@ export interface Agent {
   maxTurns: number;
   deadlineSeconds: number;
   readsChange?: boolean;
+  resultFiles?: Record<string, `${string}.md`>;
   /** Begins a step: what the agent is asked, and what to make of what it hands back. */
   start(context: StepContext): Promise<Started>;
 }
@@ -150,6 +159,42 @@ export function defineAgent<Input, Result>(
   };
 }
 
+/** What one step is given beside its agent's definition: where it starts, and what it is asked. */
+export interface StepOf {
+  /** The app's repository, as `owner/name`. */
+  repository: string;
+  commit: string;
+  /** For a step that reads a change, where its pull request's branch left main. */
+  base?: string | undefined;
+  prompt: string;
+  resume?: string | undefined;
+  /** A defect the bench commits as the step's starting point. */
+  seed?: string | undefined;
+}
+
+/**
+ * The runner's step for an agent: what its definition says of every step it takes, with what this one is given. The
+ * line and the bench both make their steps here, so a step on the bench is the step the line would send.
+ */
+export function stepFrom(
+  definition: Pick<Agent, 'agent' | 'skill' | 'maxTurns' | 'resultFiles'>,
+  { repository, commit, base, prompt, resume, seed }: StepOf,
+): Step {
+  return {
+    agent: definition.agent,
+    repository: `https://github.com/${repository}.git`,
+    commit,
+    ...(base ? { base } : {}),
+    prompt,
+    ...(definition.skill ? { skill: definition.skill } : {}),
+    maxTurns: definition.maxTurns,
+    result: true,
+    ...(definition.resultFiles ? { resultFiles: definition.resultFiles } : {}),
+    ...(seed ? { seed } : {}),
+    ...(resume ? { resume } : {}),
+  };
+}
+
 /** Text a person reads, as the events take it: trimmed, and not empty. */
 export const words = (max: number) => z.string().trim().min(1).max(max);
 
@@ -174,3 +219,39 @@ export function holdDraft(actor: NewEvent['actor'], hold: PayloadOf<'hold.starte
         : `Held for Martin at ${hold.stage}`;
   return { type: 'hold.started', actor, summary, payload: hold };
 }
+
+/** An issue as GitHub reads a reference to one: `#12`, `owner/repo#12`, `GH-12`, or its address. */
+const ISSUE = String.raw`(?:(?:[\w.-]+\/[\w.-]+)?#\d+|GH-\d+|https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+)`;
+
+/** Any of GitHub's closing keywords, with or without a colon, before an issue. */
+const CLOSES = new RegExp(String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+${ISSUE}`, 'i');
+
+/**
+ * Whether text would close an issue when it reaches main: in a pull request's description, which the squash commit
+ * takes as its message, or in a commit's. Wherever it stands, code included, since a commit's message has no code.
+ * The line closes a ticket's issue itself, once the fix is verified in production, never on merge.
+ */
+export const closesAnIssue = (text: string) => CLOSES.test(text);
+
+/** Markdown's code, fenced or inline, where GitHub notifies nobody. */
+const CODE = /(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g;
+
+/**
+ * Whether Markdown mentions someone (`@name`, or a team's `@org/name`) outside code: published from the App's
+ * account, it would notify them. An email address is no mention.
+ */
+export const mentions = (markdown: string) => /(?:^|[^\w`@./])@[a-z\d]/im.test(markdown.replace(CODE, ''));
+
+/**
+ * A fix's pull request title, and so its squash commit's headline: a Conventional Commit of 80 characters at most,
+ * which both the coder and the describer write, closing no issue.
+ */
+export const commitTitle = z
+  .string()
+  .trim()
+  .max(80)
+  .regex(
+    /^(fix|test|refactor|perf)(\([a-z0-9-]+\))?: \S.{0,70}$/,
+    'a Conventional Commit title of 80 characters at most',
+  )
+  .refine((title) => !closesAnIssue(title), 'no closing keyword before an issue: the issue closes once verified');

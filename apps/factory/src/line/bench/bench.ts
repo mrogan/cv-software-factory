@@ -31,11 +31,11 @@ import { promisify } from 'node:util';
 import { endJobToken, issueJobToken } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import type { AgentOptions } from '../../../../runner/src/agent.ts';
-import type { Handback, Step } from '../../../../runner/src/step.ts';
+import type { Handback } from '../../../../runner/src/step.ts';
 import { PatchRefused } from '../../github/patches.ts';
 import type { Fenced } from '../../runners/scope.ts';
 import { oneRunWorkItem } from '../../runners/smoke.ts';
-import type { AgentDefinition } from '../agents/agent.ts';
+import { type AgentDefinition, stepFrom } from '../agents/agent.ts';
 import { type CoderInput, coderInputAfterRefusal, fenceFor } from '../agents/coder.ts';
 import { AGENTS } from '../agents/index.ts';
 import { LIMITS, type LineAgent } from '../machine.ts';
@@ -129,18 +129,13 @@ async function step<A extends LineAgent>(
 ): Promise<Benched> {
   // Each agent's input fits only its own definition, which the fixture's type holds to.
   const definition = AGENTS[o.agent] as unknown as AgentDefinition<InputOf<A>, unknown>;
-  const resume = definition.resume?.(input);
-  const runnerStep: Step = {
-    agent: o.agent,
-    repository: `https://github.com/${APP_REPOSITORY}.git`,
+  const runnerStep = stepFrom(definition, {
+    repository: APP_REPOSITORY,
     commit: o.commit ?? o.fixture.commit,
     prompt: definition.prompt(input),
-    ...(definition.skill ? { skill: definition.skill } : {}),
-    maxTurns: definition.maxTurns,
-    result: true,
-    ...(o.fixture.seed ? { seed: o.fixture.seed } : {}),
-    ...(resume ? { resume } : {}),
-  };
+    resume: definition.resume?.(input),
+    seed: o.fixture.seed,
+  });
   const home = join(dir, 'home');
   const prepareDir = join(dir, 'prepare');
   await rm(prepareDir, { recursive: true, force: true });

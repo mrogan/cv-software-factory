@@ -11,7 +11,9 @@
  *
  * A step that asks for a result has the agent write it as JSON to `$WORK/out/result.json`: on the volume, outside the
  * checkout, so it is never part of the patch. The agent pod reads it and hands it back beside the patch; the line
- * checks it against the agent's own schema.
+ * checks it against the agent's own schema. A field of prose, such as a pull request's description, the agent writes
+ * as a file of its own beside the result (`resultFiles`): Markdown is easier to write well as a file than inside a
+ * JSON string. The agent pod reads each into its field.
  */
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -42,6 +44,8 @@ export interface Step {
   seed?: string;
   /** Whether the step ends with a structured result, written to `resultPath`. */
   result?: boolean;
+  /** Fields of the result the agent writes as files of their own beside it, by field: their file names in `out/`. */
+  resultFiles?: Record<string, string>;
 }
 
 export type Ending = 'finished' | 'max-turns' | 'failed';
@@ -64,11 +68,15 @@ export interface Handback {
 
 /** The most a result may be, as JSON. */
 export const RESULT_BYTES = 64 * 1024;
+/** The most fields of a result a step may have written as files of their own. */
+export const RESULT_FILES = 4;
 
 export const work = (env = process.env) => env.WORK ?? '/work';
 export const repoDir = (env = process.env) => join(work(env), 'repo');
 /** Where the agent writes its result: on the volume, beside the checkout and not in it. */
 export const resultPath = (env = process.env) => join(work(env), 'out', 'result.json');
+/** Where the agent writes a field of its result that is a file of its own. */
+export const resultFilePath = (name: string, env = process.env) => join(work(env), 'out', name);
 
 const STEP = z
   .strictObject({
@@ -80,14 +88,23 @@ const STEP = z
       .regex(/^[0-9a-f]{40}$/, 'a full commit sha')
       .optional(),
     prompt: z.string().min(1),
-    skill: z.string().optional(),
+    skill: z
+      .string()
+      .regex(/^[a-z][a-z0-9-]{0,40}$/, 'a skill’s name')
+      .optional(),
     maxTurns: z.number().int().positive(),
     resume: z.string().optional(),
     seed: z.string().optional(),
     result: z.boolean().optional(),
+    resultFiles: z
+      .record(z.string().regex(/^[a-z][A-Za-z]{0,30}$/), z.string().regex(/^[a-z][a-z0-9-]{0,40}\.md$/, 'a file name'))
+      .refine((files) => Object.keys(files).length <= RESULT_FILES, `at most ${RESULT_FILES} files`)
+      .optional(),
   })
   // A seed is committed on the commit, so `git diff base` would show it as part of the change.
-  .refine((step) => !(step.seed && step.base), { message: 'a step with a base reads a change, and takes no seed' });
+  .refine((step) => !(step.seed && step.base), { message: 'a step with a base reads a change, and takes no seed' })
+  // The files are fields of the result: with no result, nothing would read them.
+  .refine((step) => !step.resultFiles || step.result, { message: 'a step’s result files are part of its result' });
 
 export function stepFrom(env = process.env): Step {
   const text = env.RUNNER_STEP;

@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { runAgent } from '../src/agent.ts';
+import { PLUGIN, readResult, runAgent } from '../src/agent.ts';
+import { RESULT_BYTES, stepFrom } from '../src/step.ts';
 import { type ScriptedModel, scriptedModel, type Turn } from './model.ts';
 
 let model: ScriptedModel | undefined;
@@ -23,7 +24,19 @@ function volume(): string {
   return work;
 }
 
-async function run(script: Turn[], { maxTurns = 6, repeat = false, result = false, work = volume() } = {}) {
+interface RunOptions {
+  maxTurns?: number;
+  repeat?: boolean;
+  result?: boolean;
+  work?: string;
+  skill?: string;
+  resultFiles?: Record<string, string>;
+}
+
+async function run(
+  script: Turn[],
+  { maxTurns = 6, repeat = false, result = false, work = volume(), skill, resultFiles }: RunOptions = {},
+) {
   model = await scriptedModel(script, { repeat });
   const env = {
     ...process.env,
@@ -38,6 +51,8 @@ async function run(script: Turn[], { maxTurns = 6, repeat = false, result = fals
       prompt: 'Fix the count.',
       maxTurns,
       ...(result ? { result } : {}),
+      ...(skill ? { skill } : {}),
+      ...(resultFiles ? { resultFiles } : {}),
     }),
   };
   return runAgent(env, { checkFence: false, log: () => {} });
@@ -142,5 +157,134 @@ describe('a runner’s agent', () => {
     });
     expect(handback).not.toHaveProperty('result');
     expect(handback.error).toBe('The result is not JSON.');
+  });
+
+  it('hands back a field written as a file of its own inside its result', async () => {
+    const handback = await run(
+      [
+        bash(`echo '{"title":"fix: count"}' > "$WORK/out/result.json" && printf 'It counts.\\n' > "$WORK/out/body.md"`),
+        { text: 'Described.' },
+      ],
+      { result: true, resultFiles: { body: 'body.md' } },
+    );
+    expect(handback.result).toEqual({ title: 'fix: count', body: 'It counts.\n' });
+    expect(handback.error).toBeUndefined();
+  });
+
+  it('hands back no result when a field it writes as a file is missing', async () => {
+    const handback = await run([bash(`echo '{"title":"fix: count"}' > "$WORK/out/result.json"`), { text: 'Done.' }], {
+      result: true,
+      resultFiles: { body: 'body.md' },
+    });
+    expect(handback).not.toHaveProperty('result');
+    expect(handback.error).toBe('The agent wrote no body.');
+  });
+});
+
+describe('reading a result', () => {
+  const out = () => mkdtempSync(join(tmpdir(), 'result-'));
+
+  it('refuses a result file over the bound before it reads it', async () => {
+    const dir = out();
+    writeFileSync(join(dir, 'result.json'), '{"title":"fix: count"}');
+    // Sparse: as big as it says, and nothing to read.
+    writeFileSync(join(dir, 'body.md'), '');
+    truncateSync(join(dir, 'body.md'), RESULT_BYTES + 1);
+    expect(await readResult(join(dir, 'result.json'), { body: join(dir, 'body.md') })).toEqual({
+      problem: `The result is over ${RESULT_BYTES} bytes.`,
+    });
+    truncateSync(join(dir, 'result.json'), RESULT_BYTES + 1);
+    expect(await readResult(join(dir, 'result.json'))).toEqual({
+      problem: `The result is over ${RESULT_BYTES} bytes.`,
+    });
+  });
+
+  it('bounds the result and its files together', async () => {
+    const dir = out();
+    writeFileSync(join(dir, 'result.json'), JSON.stringify({ title: 'x'.repeat(RESULT_BYTES / 2) }));
+    writeFileSync(join(dir, 'body.md'), 'y'.repeat(RESULT_BYTES / 2));
+    expect((await readResult(join(dir, 'result.json'), { body: join(dir, 'body.md') })).problem).toBe(
+      `The result is over ${RESULT_BYTES} bytes.`,
+    );
+  });
+
+  it('takes a folder or a pipe for no file, without waiting on the pipe', async () => {
+    const dir = out();
+    writeFileSync(join(dir, 'result.json'), '{}');
+    mkdirSync(join(dir, 'body.md'));
+    execFileSync('mkfifo', [join(dir, 'note.md')]);
+    for (const file of ['body.md', 'note.md']) {
+      expect(await readResult(join(dir, 'result.json'), { body: join(dir, file) })).toEqual({
+        problem: 'The agent wrote no body.',
+      });
+    }
+  });
+});
+
+describe('a step’s result files', () => {
+  const step = { agent: 'describer', repository: 'https://github.com/o/r.git', commit: 'c'.repeat(40) };
+  const of = (fields: object) => () =>
+    stepFrom({ RUNNER_STEP: JSON.stringify({ ...step, prompt: 'Go.', maxTurns: 1, ...fields }) });
+
+  it('are part of its result, and few', () => {
+    expect(of({ result: true, resultFiles: { body: 'description.md' } })().resultFiles).toEqual({
+      body: 'description.md',
+    });
+    expect(of({ resultFiles: { body: 'description.md' } })).toThrow('part of its result');
+    const many = Object.fromEntries(['a', 'b', 'c', 'd', 'e'].map((f) => [f, `${f}.md`]));
+    expect(of({ result: true, resultFiles: many })).toThrow('at most 4 files');
+  });
+});
+
+describe('a runner’s skills', () => {
+  /** What the model was offered on the step's last call: its tools, and the skills its context lists. */
+  function offered() {
+    const call = model?.requests.filter((r) => r.path.startsWith('/v1/messages')).at(-1)?.body as {
+      tools: { name: string }[];
+      messages: unknown[];
+    };
+    const context = JSON.stringify(call.messages);
+    return { tools: call.tools.map((t) => t.name), context };
+  }
+
+  it('gives a step the skill it names, alone, from the runner’s plugin, and tells it to use it', async () => {
+    const handback = await run([{ tool: 'Skill', input: { skill: 'factory:visual-pr' } }, { text: 'Read it.' }], {
+      skill: 'visual-pr',
+    });
+    expect(handback.ending).toBe('finished');
+    const { tools, context } = offered();
+    expect(tools).toContain('Skill');
+    expect(context).toContain('- factory:visual-pr:');
+    // Claude Code's own skills are not offered: only the one the step names.
+    expect(context).not.toMatch(/- (?!factory:visual-pr)[a-z-]+(:[a-z-]+)?: /);
+    // Using it loads the vendored skill's text.
+    expect(context).toContain('Write the description of a pull request');
+    // Its reference is named by where it is: Claude Code fills in the skill's folder.
+    expect(context).toContain(`${join(PLUGIN.path, 'skills', 'visual-pr')}/references/show-me.md`);
+    const system = JSON.stringify(model?.requests.find((r) => r.path.startsWith('/v1/messages'))?.body);
+    expect(system).toContain('Use the factory:visual-pr skill for this step.');
+  });
+
+  it('holds only skills: no hooks, MCP servers, agents or commands, which would reach every step', () => {
+    const files = readdirSync(PLUGIN.path, { recursive: true, withFileTypes: true })
+      .filter((f) => f.isFile())
+      .map((f) => relative(PLUGIN.path, join(f.parentPath, f.name)))
+      .sort();
+    for (const file of files) expect(file, file).toMatch(/^(README\.md|\.claude-plugin\/plugin\.json|skills\/.+)$/);
+    const manifest = JSON.parse(readFileSync(join(PLUGIN.path, '.claude-plugin', 'plugin.json'), 'utf-8')) as object;
+    expect(Object.keys(manifest).sort()).toEqual(['description', 'name', 'version']);
+  });
+
+  it('gives a step that names no skill no skills, and no tool to load one', async () => {
+    await run([{ text: 'Nothing to do.' }]);
+    const { tools, context } = offered();
+    expect(tools).not.toContain('Skill');
+    expect(context).not.toContain('visual-pr');
+  });
+
+  it('refuses a skill the runner does not hold', async () => {
+    await expect(run([{ text: 'Done.' }], { skill: 'not-here' })).rejects.toThrow(
+      'The runner holds no skill called not-here.',
+    );
   });
 });

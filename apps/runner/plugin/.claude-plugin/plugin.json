@@ -1,0 +1,5 @@
+{
+  "name": "factory",
+  "description": "The skills a runner's step can name, read-only in the factory-runner image.",
+  "version": "1.0.0"
+}
