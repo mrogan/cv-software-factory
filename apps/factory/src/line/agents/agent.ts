@@ -196,6 +196,8 @@ export interface StepOf {
   resume?: string | undefined;
   /** A defect the bench commits as the step's starting point. */
   seed?: string | undefined;
+  /** A dry run's commits on `commit`, which GitHub never had, for the step to make before it starts. */
+  commits?: { message: string; patch: string }[] | undefined;
 }
 
 /**
@@ -204,7 +206,7 @@ export interface StepOf {
  */
 export function stepFrom(
   definition: Pick<Agent, 'agent' | 'skill' | 'maxTurns' | 'resultFiles'>,
-  { repository, commit, base, prompt, resume, seed }: StepOf,
+  { repository, commit, base, prompt, resume, seed, commits }: StepOf,
 ): Step {
   return {
     agent: definition.agent,
@@ -217,6 +219,7 @@ export function stepFrom(
     result: true,
     ...(definition.resultFiles ? { resultFiles: definition.resultFiles } : {}),
     ...(seed ? { seed } : {}),
+    ...(commits?.length ? { commits } : {}),
     ...(resume ? { resume } : {}),
   };
 }

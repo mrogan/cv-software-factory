@@ -17,6 +17,9 @@
  *   nothing of it is recorded, so starting again runs those steps afresh from the last event.
  * - When a work item ends, merged or closed, its runners' volume is deleted.
  *
+ * In a dry run, a pull request's head is a commit GitHub never had: the GitHub worker says which real commit it went
+ * on and what the dry run's commits were, and the runner makes them before the step starts.
+ *
  * It acts in GitHub only through the GitHub worker, and every agent's model through the gateway: it holds no key.
  */
 import { hostname } from 'node:os';
@@ -352,6 +355,9 @@ export class Line {
       const base = reads
         ? (await github.read('comparison', repo, { base: pr.base.ref, head: commit })).mergeBase
         : (pr?.base.sha ?? commit);
+      // A pull request's head is checked out as GitHub has it; a dry run's, which GitHub never had, as the real
+      // commit under it with the dry run's commits made on it in the runner.
+      const checkout = pr ? await github.read('checkout', repo, { sha: commit }) : { commit, commits: [] };
       let started: Awaited<ReturnType<typeof definition.start>>;
       try {
         started = await definition.start(this.#context(item, round, state, commit, base));
@@ -364,7 +370,8 @@ export class Line {
           { ...definition, maxTurns: bounds.maxTurns },
           {
             repository: repo,
-            commit,
+            commit: checkout.commit,
+            commits: checkout.commits,
             base: reads ? base : undefined,
             prompt: started.prompt,
             resume: started.resume,

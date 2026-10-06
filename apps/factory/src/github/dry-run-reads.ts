@@ -8,7 +8,9 @@
  * commit; and the pull request reads as merged, by the App, once `mergeAfterMs` has passed since it was opened, so
  * the work item ends and a soak goes round. Nothing ran: each check's title says so, and the gate's summary carries
  * it. A comparison of a commit the dry run made is taken against the real commit its first one went on, from the
- * files as they really are there and as the dry run left them.
+ * files as they really are there and as the dry run left them. A step that starts from such a commit checks out that
+ * real commit and makes the dry run's commits on it (`checkout`), so the reviewer, the describer and a later round of
+ * the coder see the change as GitHub would have held it.
  *
  * Its memory is the dry run's (`DryRunActions`), and lasts as long as the worker: a worker started again has
  * forgotten the pull requests it opened, and GitHub answers that it has none at those numbers.
@@ -17,7 +19,7 @@ import { createHash } from 'node:crypto';
 import { structuredPatch } from 'diff';
 import type { DryRunActions, DryRunPull } from './actions.ts';
 import { APP_LOGIN } from './current.ts';
-import type { CheckRun, Comparison, PullRequestState, Reads } from './reads.ts';
+import type { Checkout, CheckRun, Comparison, PullRequestState, Reads } from './reads.ts';
 
 export interface DryRunTimes {
   /** How long after a commit the dry run's checks on it pass. */
@@ -109,6 +111,46 @@ export class DryRunReads implements Reads {
     return { mergeBase: root, files };
   }
 
+  /** The real commit under one the dry run made, and its commits on it, each as a patch, oldest first. */
+  async checkout(repo: string, sha: string): Promise<Checkout> {
+    const chain: { sha: string; parent: string; message: string; patch: string | undefined; paths: string[] }[] = [];
+    for (let at = sha, made = this.#made.commitMade(at); made; at = made.parent, made = this.#made.commitMade(at)) {
+      chain.unshift({
+        sha: at,
+        parent: made.parent,
+        message: made.message,
+        patch: made.patch,
+        paths: [...made.files.keys()],
+      });
+    }
+    if (!chain.length) return this.#live.checkout(repo, sha);
+    const commits: Checkout['commits'] = [];
+    for (const commit of chain) {
+      commits.push({ message: commit.message, patch: commit.patch ?? (await this.#patch(repo, commit)) });
+    }
+    return { commit: this.#made.rootOf(sha), commits };
+  }
+
+  /** A commit made from whole files, as `git diff` would show it against its parent. */
+  async #patch(repo: string, commit: { sha: string; parent: string; paths: string[] }): Promise<string> {
+    const parts: string[] = [];
+    for (const path of [...commit.paths].sort()) {
+      const [before, after] = await Promise.all([
+        this.#made.file(repo, path, commit.parent),
+        this.#made.file(repo, path, commit.sha),
+      ]);
+      if (before === after) continue;
+      const header = [
+        `diff --git a/${path} b/${path}`,
+        ...(before === null ? ['new file mode 100644'] : after === null ? ['deleted file mode 100644'] : []),
+        `--- ${before === null ? '/dev/null' : `a/${path}`}`,
+        `+++ ${after === null ? '/dev/null' : `b/${path}`}`,
+      ];
+      parts.push([...header, hunks(path, before ?? '', after ?? '').patch].join('\n'));
+    }
+    return `${parts.join('\n')}\n`;
+  }
+
   #state(pull: DryRunPull): PullRequestState {
     const sha = this.#made.branchMade(pull.repo, pull.head) ?? shaFor(`${pull.repo}#${pull.number} head`);
     const merged = this.#now().getTime() - pull.openedAt.getTime() >= this.#times.mergeAfterMs;
@@ -127,13 +169,16 @@ export class DryRunReads implements Reads {
   }
 }
 
+/** A hunk's side as git writes it: a side with no lines names the line before it. */
+const at = (start: number, lines: number) => `${lines === 0 ? start - 1 : start},${lines}`;
+
 /** A file's change as GitHub's comparison shows it: its hunks, and the lines added and removed. */
 function hunks(path: string, before: string, after: string): { patch: string; added: number; removed: number } {
   const { hunks: parts } = structuredPatch(path, path, before, after, '', '', { context: 3 });
   const lines = parts.flatMap((h) => h.lines);
   return {
     patch: parts
-      .map((h) => [`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, ...h.lines].join('\n'))
+      .map((h) => [`@@ -${at(h.oldStart, h.oldLines)} +${at(h.newStart, h.newLines)} @@`, ...h.lines].join('\n'))
       .join('\n'),
     added: lines.filter((line) => line.startsWith('+')).length,
     removed: lines.filter((line) => line.startsWith('-')).length,

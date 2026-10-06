@@ -347,6 +347,9 @@ export interface DryRunRecord {
 export interface DryRunCommit {
   parent: string;
   at: Date;
+  message: string;
+  /** The runner's patch it was made from, when it was made from one. */
+  patch: string | undefined;
   files: Map<string, string | null>;
 }
 
@@ -450,7 +453,7 @@ export class DryRunActions implements Actions {
     const read = (path: string) => this.file(repo, path, expectedHead);
     await guard(patch, read);
     const changes = await applyTo(patch, read);
-    return this.commit(repo, { branch, expectedHead, message, changes });
+    return this.#commit(repo, { branch, expectedHead, message, changes }, patch);
   }
 
   async #record(action: DryRunRecord['action'], repo: string, args: unknown): Promise<string> {
@@ -477,7 +480,11 @@ export class DryRunActions implements Actions {
     this.#branches.delete(`${repo} ${branch}`);
   }
 
-  async commit(repo: string, commit: Commit): Promise<string> {
+  commit(repo: string, commit: Commit): Promise<string> {
+    return this.#commit(repo, commit, undefined);
+  }
+
+  async #commit(repo: string, commit: Commit, patch: string | undefined): Promise<string> {
     guardBranch(commit.branch);
     const { changes, ...rest } = commit;
     const hash = await this.#record('commit', repo, {
@@ -491,7 +498,7 @@ export class DryRunActions implements Actions {
     const sha = hash.slice(0, 40);
     const files = new Map<string, string | null>(changes.deletions.map((path) => [path, null]));
     for (const a of changes.additions) files.set(a.path, new TextDecoder().decode(a.contents));
-    this.#commits.set(sha, { parent: commit.expectedHead, at: this.#now(), files });
+    this.#commits.set(sha, { parent: commit.expectedHead, at: this.#now(), message: commit.message, patch, files });
     this.#branches.set(`${repo} ${commit.branch}`, sha);
     return sha;
   }

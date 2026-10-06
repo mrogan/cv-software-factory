@@ -1,4 +1,5 @@
-import { mkdtemp } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -49,6 +50,7 @@ function live(asked: string[] = []): Reads {
       return ['.github/', 'deploy/'];
     },
     comparison: no('comparison'),
+    checkout: async (_repo, sha) => ({ commit: sha, commits: [] }),
   };
 }
 
@@ -156,6 +158,44 @@ describe('a dry run’s reads', () => {
     expect((await reads.pullRequest(REPO, 7)).nodeId).toBe('PR_real');
     await reads.checkRuns(REPO, SHA);
     expect(asked).toContain(`checkRuns ${SHA}`);
+  });
+});
+
+describe('a dry run’s checkout', () => {
+  it('names the real commit under its pull request, and its commits on it as patches git applies, oldest first', async () => {
+    const { made, reads, commit } = await dryRun();
+    // A later commit made from whole files, as the worker's commit action makes one: a change, a new file, and none
+    // of the first.
+    const second = await made.commit(REPO, {
+      branch: BRANCH,
+      expectedHead: commit,
+      message: 'test(cart): count c',
+      changes: {
+        additions: [
+          { path: 'src/cart.ts', contents: new TextEncoder().encode('const a = 1;\nconst b = 20;\nconst c = 30;\n') },
+          { path: 'test/cart.test.ts', contents: new TextEncoder().encode('c is 30\n') },
+        ],
+        deletions: [],
+      },
+    });
+    const checkout = await reads.checkout(REPO, second);
+    expect(checkout.commit).toBe(SHA);
+    expect(checkout.commits.map((c) => c.message)).toEqual(['fix(cart): count b', 'test(cart): count c']);
+
+    // As the runner's prepare step makes them: on the real commit's files, with git.
+    const dir = await mkdtemp(join(tmpdir(), 'checkout-'));
+    const git = (args: string[], input?: string) => execFileSync('git', args, { cwd: dir, input, encoding: 'utf-8' });
+    git(['init', '--quiet']);
+    await mkdir(join(dir, 'src'));
+    await writeFile(join(dir, 'src/cart.ts'), 'const a = 1;\nconst b = 2;\nconst c = 3;\n');
+    for (const { patch } of checkout.commits) git(['apply', '-'], patch);
+    expect(await readFile(join(dir, 'src/cart.ts'), 'utf-8')).toBe('const a = 1;\nconst b = 20;\nconst c = 30;\n');
+    expect(await readFile(join(dir, 'test/cart.test.ts'), 'utf-8')).toBe('c is 30\n');
+  });
+
+  it('leaves a commit GitHub has to GitHub', async () => {
+    const { reads } = await dryRun();
+    expect(await reads.checkout(REPO, SHA)).toEqual({ commit: SHA, commits: [] });
   });
 });
 
