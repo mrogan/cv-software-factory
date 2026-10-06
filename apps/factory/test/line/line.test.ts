@@ -271,6 +271,8 @@ describe('the line', () => {
     expect(await stage(alsoBroken)).toBeUndefined();
     const working = line({ ...AGENTS, coder: () => 'works on' });
     await working.line.tick(); // the coder is working on it: nothing else comes on
+    // The step starts after the tick returns; cancelling before it has would leave it working.
+    while (working.steps.working === 0) await new Promise((resolve) => setTimeout(resolve, 5));
     expect(await stage(alsoBroken)).toBeUndefined();
     expect(await stage(cosmetic)).toBeUndefined();
     await working.steps.cancel();
