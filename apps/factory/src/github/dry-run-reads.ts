@@ -100,7 +100,7 @@ export class DryRunReads implements Reads {
     const root = this.#made.rootOf(head);
     // Every path a commit of the chain changed, as the latest of them left it.
     const changed = new Set<string>();
-    for (let at = head, made = this.#made.commitMade(at); made; at = made.parent, made = this.#made.commitMade(at)) {
+    for (let made = this.#made.commitMade(head); made; made = this.#made.commitMade(made.parent)) {
       for (const path of made.files.keys()) changed.add(path);
     }
     const files: Comparison['files'] = [];
