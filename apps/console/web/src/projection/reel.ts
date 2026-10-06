@@ -153,7 +153,7 @@ export interface Card {
   seenOn: string | undefined;
   /** The page a visitor's report came from, at its path only. */
   from: string | undefined;
-  /** Model calls and Jev requests: none at all is said as "no model". */
+  /** Agents' steps that called a model, and Jev's judgements: none at all is said as "no model". */
   calls: number;
   /** Every model call was served by the local model, at no cost. */
   local: boolean;

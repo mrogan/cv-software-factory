@@ -197,6 +197,8 @@ export class FakeGitHub implements GitHubPort {
         if (!pr) throw new Error(`No pull request #${args.number}`);
         return answer(structuredClone(pr));
       }
+      case 'checkout':
+        return answer({ commit: args.sha, commits: [] });
       case 'pullRequestFrom': {
         const pr = [...this.pulls.values()].find((p) => p.head.ref === args.branch && p.state === 'open');
         return answer(pr ? structuredClone(pr) : null);

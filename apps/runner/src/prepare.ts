@@ -14,6 +14,10 @@
  * `git log base..HEAD` its commits, every round's, and `git show base:<path>` a file as it was before it, such as the
  * rules a review holds the change to.
  *
+ * A dry run's pull request has commits GitHub never had: the step names the real commit they went on, and each of
+ * them as a patch and its message, and they are committed here on it, after the base is fetched, as the pull
+ * request's own commits.
+ *
  * A seed is committed by a fixed author, under a fixed message, at a fixed time, so the same seed on the same commit
  * makes the same base every time: its sha can reach the agent's prompt (Claude Code shows it the latest commits), and
  * the gateway's cassettes replay only what is sent again exactly. The message says nothing of what the seed is, since
@@ -48,6 +52,10 @@ export async function prepare(env = process.env, log = (line: string) => console
     await fetchBase(dir, step.repository, step.commit, step.base);
     log(`named its base, ${step.base.slice(0, 7)}, with the commits since`);
   }
+  for (const { message, patch } of step.commits ?? []) {
+    await commitPatch(dir, patch, { message, author: 'dry-run' });
+  }
+  if (step.commits?.length) log(`made the dry run's ${step.commits.length} commits on it`);
   if (step.seed) {
     await commitPatch(dir, step.seed, { message: SEED_MESSAGE, author: 'runner' });
     log('applied the seed, and committed it as the base');

@@ -43,6 +43,15 @@ export interface CheckRun {
   title: string | null;
 }
 
+/**
+ * Where a step that starts from a commit checks it out: the commit itself, or, for a commit a dry run made, the real
+ * commit under it and the dry run's commits, each a patch and its message, oldest first.
+ */
+export interface Checkout {
+  commit: string;
+  commits: { message: string; patch: string }[];
+}
+
 /** A commit compared with a branch, as a pull request's diff is taken. */
 export interface Comparison {
   /** Where the commit's history left the branch's: what the change is measured from. */
@@ -70,6 +79,8 @@ export interface Reads {
   protectedPaths(repo: string, ref: string): Promise<string[]>;
   /** How a commit compares with a branch: its merge base, and the files it changes since. */
   comparison(repo: string, base: string, head: string): Promise<Comparison>;
+  /** Where a step checks a commit out from: GitHub has every commit but a dry run's. */
+  checkout(repo: string, sha: string): Promise<Checkout>;
 }
 
 const SHA = z.string().regex(/^[0-9a-f]{40}$/);
@@ -212,6 +223,11 @@ export class LiveReads implements Reads {
       if (error instanceof GitHubError && error.kind === 'not-found') return null;
       throw error;
     }
+  }
+
+  /** GitHub has the commit: nothing to read. */
+  async checkout(_repo: string, sha: string): Promise<Checkout> {
+    return { commit: sha, commits: [] };
   }
 
   async comparison(repo: string, base: string, head: string): Promise<Comparison> {

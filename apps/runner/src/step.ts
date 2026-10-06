@@ -42,6 +42,12 @@ export interface Step {
    * defect, in a scratch copy of the app. Never set for real work.
    */
   seed?: string;
+  /**
+   * Commits to make on `commit` before the step starts, each a patch and its message, oldest first: a dry run's
+   * pushes, which GitHub never had. They are the pull request's own commits, so with a base they are part of the
+   * change, and `git log base..HEAD` lists them. Never set for live work, whose commits GitHub has.
+   */
+  commits?: { message: string; patch: string }[];
   /** Whether the step ends with a structured result, written to `resultPath`. */
   result?: boolean;
   /** Fields of the result the agent writes as files of their own beside it, by field: their file names in `out/`. */
@@ -95,6 +101,10 @@ const STEP = z
     maxTurns: z.number().int().positive(),
     resume: z.string().optional(),
     seed: z.string().optional(),
+    commits: z
+      .array(z.strictObject({ message: z.string().min(1).max(10_000), patch: z.string().min(1) }))
+      .max(20)
+      .optional(),
     result: z.boolean().optional(),
     resultFiles: z
       .record(z.string().regex(/^[a-z][A-Za-z]{0,30}$/), z.string().regex(/^[a-z][a-z0-9-]{0,40}\.md$/, 'a file name'))

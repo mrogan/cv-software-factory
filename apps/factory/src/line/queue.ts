@@ -6,6 +6,9 @@
  * A ticket comes onto the line only when nothing is in Plan or waiting for Build, so the line pulls work at the
  * pace of its slowest step rather than piling up specs: the oldest open ticket of the highest severity, from the
  * real events only. One decision at a time takes it (an advisory lock), so two workers cannot take the same ticket.
+ *
+ * A queue for one work item only (`only`, the line's LINE_ONLY) sees nothing else on the line, and takes that ticket
+ * onto it whatever else is in Plan or Build: every other work item is left as it is, so it holds up nothing.
  */
 import type { JSONValue, Sql } from 'postgres';
 import type { Handback } from '../runners/steps.ts';
@@ -73,25 +76,30 @@ export class Queue {
   readonly #sql: Sql;
   /** Who this worker is, as its leases name it. */
   readonly #me: string;
+  /** The one work item this queue sees, if it sees only one. */
+  readonly #only: string | null;
 
-  constructor(sql: Sql, me: string) {
+  constructor(sql: Sql, me: string, { only = null }: { only?: string | null } = {}) {
     this.#sql = sql;
     this.#me = me;
+    this.#only = only;
   }
 
   /**
    * Takes the next ticket into Plan, if nothing is in Plan or waiting for Build: the oldest open ticket of the
-   * highest severity that has never been on the line. Returns its work item, or undefined.
+   * highest severity that has never been on the line. Returns its work item, or undefined. A queue of one takes its
+   * own ticket, if it is open and not yet on the line, and no other.
    */
   async admit(): Promise<string | undefined> {
+    const only = this.#only;
     return this.#sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(hashtext('line'))`;
-      const [busy] = await tx`select 1 from line where stage in ('plan', 'build') limit 1`;
+      const [busy] = only ? [] : await tx`select 1 from line where stage in ('plan', 'build') limit 1`;
       if (busy) return undefined;
       const [taken] = await tx<{ work_item: string }[]>`
         insert into line (work_item, stage)
         select t.work_item, 'plan' from events t
-        where t.type = 'ticket.opened' and not t.sample
+        where t.type = 'ticket.opened' and not t.sample ${only ? tx`and t.work_item = ${only}` : tx``}
           and not exists (select 1 from events c where c.work_item = t.work_item and c.type = 'work-item.closed')
           and not exists (select 1 from line l where l.work_item = t.work_item)
         order by case t.payload->>'severity' when 'broken' then 3 when 'degraded' then 2 else 1 end desc, t.seq
@@ -101,11 +109,12 @@ export class Queue {
     }) as Promise<string | undefined>;
   }
 
-  /** The work items on the line that nobody holds, longest on it first. */
+  /** The work items on the line that nobody holds, longest on it first: only the one, for a queue of one. */
   async free(): Promise<QueueItem[]> {
     const rows = await this.#sql<Row[]>`
       select ${this.#sql(COLUMNS)} from line
       where stage <> 'ended' and (held_until is null or held_until < clock_timestamp())
+        ${this.#only ? this.#sql`and work_item = ${this.#only}` : this.#sql``}
       order by taken_at`;
     return rows.map(item);
   }

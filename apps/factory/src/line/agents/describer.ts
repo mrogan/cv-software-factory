@@ -110,7 +110,7 @@ function prompt(input: DescriberInput): string {
     ...(failure
       ? [`Your last attempt at this description failed: ${failure}. Do not hand back the same again.`, '']
       : []),
-    'The gates and the reviewer have passed the change: do not run the tests or change anything. Read what you need to explain it, and no more.',
+    'The gates and the reviewer have passed the change: do not run the tests, start the app, send it requests or change anything. Read what you need to explain it, and no more.',
     '',
     'Write three things.',
     '',

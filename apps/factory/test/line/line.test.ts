@@ -6,8 +6,12 @@ import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/stor
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { Handback } from '../../../runner/src/step.ts';
-import { GitHubWorkerError } from '../../src/github/worker-client.ts';
-import { Line, type LineOptions } from '../../src/line/worker.ts';
+import { DryRunActions } from '../../src/github/actions.ts';
+import { DryRunReads } from '../../src/github/dry-run-reads.ts';
+import type { Reads } from '../../src/github/reads.ts';
+import { createWorkerServer } from '../../src/github/server.ts';
+import { GitHubWorker, GitHubWorkerError } from '../../src/github/worker-client.ts';
+import { APP_REPOSITORY, Line, type LineOptions } from '../../src/line/worker.ts';
 import { quiet } from '../github/fake.ts';
 import { type Agent, FakeGitHub, FakeSteps, MAIN } from './fakes.ts';
 
@@ -481,6 +485,48 @@ describe('the line', () => {
     await working.line.idle();
   });
 
+  it('acts on one work item only when told to, taking its ticket whatever else is on the line, and leaves the rest', async () => {
+    const broken = await ticket('broken', '/search');
+    const cosmetic = await ticket('cosmetic', '/');
+    const waiting = await ticket('broken', '/products');
+    const before = line({ ...AGENTS, coder: () => 'works on' });
+    await before.pass(); // the broken ticket comes on, and is planned: it waits for Build
+    expect(await stage(broken)).toBe('build');
+    const untouched = { events: await types(broken), stage: await stage(broken) };
+
+    const one = line(AGENTS, events, { only: cosmetic });
+    await one.pass(); // the planner
+    await one.pass(); // the coder
+    one.github.pass();
+    await one.pass(); // the gates, and the reviewer
+    await one.pass(); // the describer
+    await one.pass(); // the hold for Martin's merge
+    expect(await stage(cosmetic)).toBe('held');
+    // The cosmetic ticket came on although another waits for Build, and went round on its own.
+    expect(new Set(one.steps.requests.map((r) => r.workItem))).toEqual(new Set([cosmetic]));
+    expect(one.steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'reviewer', 'describer']);
+    // Nothing else: no step, no read, no event, and no ticket taken in its turn.
+    expect({ events: await types(broken), stage: await stage(broken) }).toEqual(untouched);
+    expect(await stage(waiting)).toBeUndefined();
+  });
+
+  it('gives a step on a local model longer, and more turns, as the policy routes its agent, and Claude’s none', async () => {
+    const workItem = await ticket();
+    const local = line(AGENTS, events, { providerOf: (agent) => (agent === 'planner' ? 'local' : 'anthropic') });
+    await local.pass(); // the planner, on the local model
+    await local.pass(); // the coder, on Claude
+    const [planner, coder] = local.steps.requests;
+    expect(planner).toMatchObject({ agent: 'planner', maxTurns: 60, deadlineSeconds: 60 * 60 });
+    expect(coder).toMatchObject({ agent: 'coder', maxTurns: 50, deadlineSeconds: 30 * 60 });
+    // The step's own record says what bounds it had.
+    expect((await payloads(workItem, 'model.called')).map((p) => p.settings.maxTurns)).toEqual([60, 50]);
+
+    await ticket('broken', '/products');
+    const claude = line();
+    await claude.pass();
+    expect(claude.steps.requests[0]).toMatchObject({ agent: 'planner', maxTurns: 30, deadlineSeconds: 15 * 60 });
+  });
+
   it('runs a failed step again as a new job, and holds the work item when it keeps failing', async () => {
     const workItem = await ticket();
     const { pass, steps } = line({ ...AGENTS, planner: () => handback({ verdict: 'maybe' }) });
@@ -775,6 +821,96 @@ describe('the line', () => {
     expect((await payloads(workItem, 'gates.started')).map((g) => g.commit)).not.toContain('e'.repeat(40));
     await steps.cancel();
     await it.idle();
+  });
+
+  it('goes all the way round in a dry run, through the GitHub worker’s dry run, with each step on the change', async () => {
+    // GitHub as it is: main, its ruleset and its CODEOWNERS. Nothing else is there.
+    const no = (what: string) => () => Promise.reject(new Error(`GitHub has no ${what}`));
+    const github: Reads = {
+      head: async () => MAIN,
+      requiredChecks: async () => ['test'],
+      protectedPaths: async () => ['.github/', 'deploy/'],
+      pullRequestFrom: async () => null,
+      checkRuns: async () => [],
+      pullRequest: no('such pull request'),
+      comparison: no('such commit'),
+      checkout: async (_repo, sha) => ({ commit: sha, commits: [] }),
+    };
+    const files: Record<string, string> = { 'src/search.ts': 'old\n' };
+    const made = new DryRunActions(
+      new DiskArtifacts(mkdtempSync(join(tmpdir(), 'dry-run-'))),
+      quiet,
+      () => new Date(now),
+      async (_repo, path, ref) => (ref === MAIN ? (files[path] ?? null) : null),
+    );
+    const mergeAfterMs = 20 * 60_000;
+    const server = createWorkerServer({
+      actions: made,
+      reads: github,
+      dryRun: made,
+      dryRunReads: new DryRunReads(made, github, { checksAfterMs: 0, mergeAfterMs }, () => new Date(now)),
+      repositories: [APP_REPOSITORY],
+      health: () => ({}),
+      log: quiet,
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = server.address() as { port: number };
+      const blocking = { path: 'src/search.ts', line: 1, blocking: true, criterion: 1, comment: 'Not escaped yet.' };
+      const reviews = [
+        { verdict: 'changes-requested', note: 'The quote is still not escaped.', findings: [blocking] },
+        { verdict: 'approved', note: 'The quote is escaped now.', findings: [] },
+      ];
+      const rounds = [PATCH, PATCH.split('\ndiff --git a/test')[0]?.replace('-old\n+new', '-new\n+newer')];
+      const workItem = await ticket();
+      const { pass, steps } = line(
+        {
+          ...AGENTS,
+          coder: () => handback(CODED, rounds.shift()),
+          reviewer: () => handback(reviews.shift()),
+        },
+        events,
+        { github: new GitHubWorker(`http://127.0.0.1:${port}`, { dryRun: true }) },
+      );
+      for (let passes = 0; passes < 10 && !(await types(workItem)).includes('hold.started'); passes++) await pass();
+      expect(steps.requests.map((r) => r.agent)).toEqual([
+        'planner',
+        'coder',
+        'reviewer',
+        'coder',
+        'reviewer',
+        'describer',
+      ]);
+      // Before the pull request, from main; after it, from main with the dry run's commits made on it, which the
+      // reviewer and the describer read as the change.
+      const [planner, coder, reviewer, again, second, describer] = steps.requests;
+      expect(planner).toMatchObject({ commit: MAIN });
+      expect(planner).not.toHaveProperty('commits');
+      expect(coder).not.toHaveProperty('commits');
+      expect(reviewer).toMatchObject({ commit: MAIN, base: MAIN });
+      expect(reviewer?.commits).toEqual([{ message: expect.stringContaining(CODED.title), patch: PATCH }]);
+      expect(again).toMatchObject({ commit: MAIN, round: 2, resume: 'session-1' });
+      expect(again?.commits).toHaveLength(1);
+      expect(second?.commits).toHaveLength(2);
+      expect(describer).toMatchObject({ commit: MAIN, base: MAIN });
+      expect(describer?.commits?.map((c) => c.patch)).toEqual([PATCH, expect.stringContaining('+newer')]);
+      expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({ kind: 'approval', cause: 'merge' });
+
+      now += mergeAfterMs;
+      await pass(); // the dry run merges it, and the work item ends
+      await pass();
+      expect(await stage(workItem)).toBe('ended');
+      expect(steps.finished).toEqual([workItem]);
+      const ended = await types(workItem);
+      expect(ended.filter((t) => t === 'gates.finished')).toHaveLength(2);
+      expect(ended.filter((t) => t === 'review.submitted')).toHaveLength(2);
+      expect(ended).toContain('work.returned');
+      expect(ended).toContain('work-item.summarised');
+      expect(ended.at(-1)).toBe('pull-request.merged');
+      expect((await payloads(workItem, 'pull-request.merged'))[0]).toMatchObject({ by: 'factory' });
+    } finally {
+      server.close();
+    }
   });
 
   it('ends a work item only once its volume is deleted, even one that ended while a step was in hand', async () => {

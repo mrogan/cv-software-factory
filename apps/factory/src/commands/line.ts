@@ -5,23 +5,36 @@
  *     factory line start [--autonomy supervised|guarded|lights-out]
  *     factory line serve
  *     factory line bench [<agent> [<fixture>]] [--commit <sha>]
+ *     factory line soak-check [--since <time>] [--no-spend] [--json]
  *
  * `serve` runs the line's server (`runners/serve.ts`): the handback for runners' agent pods, and the steps it runs in
  * the `runners` namespace. With LINE_MODE set to `live` or `dry-run`, it also runs the line itself (`line/worker.ts`):
  * it takes tickets and carries them through the agents, the gates and review to Martin's merge, acting in GitHub for
  * real or recording what it would have done. LINE_MODE is `off` by default: the line takes no tickets, and only the
- * step API and the smoke run work, and stopping the line still stops their agents.
+ * step API and the smoke run work, and stopping the line still stops their agents. LINE_ONLY, a work item, has the
+ * line act on that one alone: it takes the work item's ticket onto the line if it is not there, whatever else is in
+ * Plan or Build, and starts no step for any other, reads nothing for it and appends nothing. It is unset by default,
+ * when the line acts on every work item; a soak sets it to take one ticket end to end, with one step at a time on
+ * the local model.
  *
  * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
- * HANDBACK_PORT (8081); KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; FACTORY_PROFILE (default
- * local), as the gateway's, for the work item's spend cap the line holds at.
+ * HANDBACK_PORT (8081); KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; FACTORY_PROFILE (default
+ * local) and ALL_LOCAL, as the gateway's: the profile's cap on a work item's spend, which the line holds at, and
+ * where `policy/models.ts` sends each agent's calls, so a step on a local model is given longer to finish.
  *
  * `bench` runs one agent's step on this machine, on a fixture's invented work (`line/bench/`), against the gateway at
  * GATEWAY_URL (default http://localhost:8180), and prints what the agent handed back, whether its result fits the
  * agent's schema, how many of its calls the cassettes replayed, and how long it took. A coder's patch meets the scope
  * fence, and one it refuses goes back to the coder, as on the line. Without a fixture, it lists them. It works in the
  * bench's own folder (`BENCH_DIR`), the same on every run so that a run replays.
+ *
+ * `soak-check` reads the store and the cluster the morning after a soak (`line/soak.ts`): leases held past their
+ * expiry, runners' Jobs and volumes left for ended work items, events that are not valid, the spend, and the work
+ * items taken since `--since` (an ISO time; by default a day ago), by how each ended, with their minutes in each
+ * stage. The spend is as it should be when each work item's is within FACTORY_PROFILE's cap on one, as on Claude;
+ * `--no-spend`, for a soak on the local model, allows nothing at all. It prints a few lines, or the report as JSON, and exits 1 if anything is not as a soak should leave it. On
+ * a host it reads the cluster through KUBE_API_URL (what `kubectl proxy` serves).
  *
  * Every worker checks the line before it takes work, so a stopped line finishes what is in hand and takes nothing
  * new; signals wait in the inbox until it starts again. Connects with DATABASE_URL, or the PG* variables, as the
@@ -35,10 +48,12 @@ import postgres from 'postgres';
 export const USAGE = `  factory line stop [--reason <why>]
   factory line start [--autonomy supervised|guarded|lights-out]
   factory line serve
-  factory line bench [<agent> [<fixture>]] [--commit <sha>]`;
+  factory line bench [<agent> [<fixture>]] [--commit <sha>]
+  factory line soak-check [--since <time>] [--no-spend] [--json]`;
 
 export async function run(args: string[]): Promise<number> {
   if (args[0] === 'bench') return bench(args.slice(1));
+  if (args[0] === 'soak-check') return soakCheck(args.slice(1));
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
@@ -101,11 +116,28 @@ async function serve(): Promise<number> {
     console.error(`LINE_MODE is ${JSON.stringify(process.env.LINE_MODE)}; it must be one of ${MODES.join(', ')}.`);
     return 2;
   }
+  // One work item, by its number, or none: anything else stops it starting, rather than the line acting on them all.
+  const only = (process.env.LINE_ONLY ?? '').trim() || null;
+  if (only !== null && !/^\d{1,12}$/.test(only)) {
+    console.error(`LINE_ONLY is ${JSON.stringify(process.env.LINE_ONLY)}; it must be a work item's number, or unset.`);
+    return 2;
+  }
   // The work item's cap the gateway keeps, from the same profile, so the line holds a work item that reached it.
   const { PROFILES, SPEND } = await import('../../../../policy/spend.ts');
   const profile = (process.env.FACTORY_PROFILE || 'local').trim() as (typeof PROFILES)[number];
   if (!PROFILES.includes(profile)) {
     console.error(`FACTORY_PROFILE is ${JSON.stringify(profile)}; it must be one of ${PROFILES.join(', ')}.`);
+    return 2;
+  }
+  // Where the gateway sends each agent's calls, from the same settings: the policy decides, and the line only reads it.
+  const { MODEL_AGENTS, modelFor } = await import('../../../../policy/models.ts');
+  const allLocal = process.env.ALL_LOCAL === 'true';
+  let providerOf: (agent: Parameters<typeof modelFor>[1]) => 'anthropic' | 'bedrock' | 'local';
+  try {
+    for (const agent of MODEL_AGENTS) modelFor(profile, agent, allLocal);
+    providerOf = (agent) => modelFor(profile, agent, allLocal).provider;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
     return 2;
   }
   const { shutdownTelemetry } = await import('../telemetry.ts');
@@ -132,7 +164,7 @@ async function serve(): Promise<number> {
   // The step API on loopback only: a port-forward reaches it, and no pod can. Agent pods call the handback.
   await new Promise<void>((resolve) => api.listen(port, '127.0.0.1', resolve));
   await new Promise<void>((resolve) => handback.listen(handbackPort, resolve));
-  log.info({ port, handbackPort, mode }, `line listening on :${port}, the handback on :${handbackPort}`);
+  log.info({ port, handbackPort, mode, only }, `line listening on :${port}, the handback on :${handbackPort}`);
 
   // Off, the line takes no work, but still stops what the step API started when the line stops.
   const { Line } = await import('../line/worker.ts');
@@ -145,6 +177,8 @@ async function serve(): Promise<number> {
     log,
     takesWork: mode !== 'off',
     workItemLimitUsd: SPEND[profile].workItemUsd,
+    providerOf,
+    only,
   });
   const abort = new AbortController();
   const working = line.run(abort.signal);
@@ -190,6 +224,39 @@ async function bench(args: string[]): Promise<number> {
     console.log(JSON.stringify(benched, null, 2));
     const last = lastStep(benched);
     return last.handback.ending === 'finished' && last.result.fits && last.fence?.ok !== false ? 0 : 1;
+  } finally {
+    await sql.end();
+  }
+}
+
+async function soakCheck(args: string[]): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: { since: { type: 'string' }, 'no-spend': { type: 'boolean' }, json: { type: 'boolean' } },
+  });
+  const now = new Date();
+  const since = values.since ? new Date(values.since) : new Date(now.getTime() - 24 * 3_600_000);
+  if (Number.isNaN(since.getTime())) {
+    console.error(`--since is ${JSON.stringify(values.since)}; give a time, such as 2026-10-06T22:00:00Z.`);
+    return 2;
+  }
+  const { PROFILES, SPEND } = await import('../../../../policy/spend.ts');
+  const profile = (process.env.FACTORY_PROFILE || 'local').trim() as (typeof PROFILES)[number];
+  if (!PROFILES.includes(profile)) {
+    console.error(`FACTORY_PROFILE is ${JSON.stringify(profile)}; it must be one of ${PROFILES.join(', ')}.`);
+    return 2;
+  }
+  const { soakFacts, soakReport, soakText } = await import('../line/soak.ts');
+  const { kubeFrom } = await import('../runners/kube.ts');
+  const { DATABASE_URL } = process.env;
+  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  try {
+    const report = soakReport(
+      await soakFacts({ sql, kube: () => kubeFrom(process.env), now, since }),
+      values['no-spend'] ? { kind: 'none' } : { kind: 'capped', profile, workItemUsd: SPEND[profile].workItemUsd },
+    );
+    console.log(values.json ? JSON.stringify(report, null, 2) : soakText(report));
+    return report.ok ? 0 : 1;
   } finally {
     await sql.end();
   }

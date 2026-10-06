@@ -30,9 +30,12 @@ export class GitHubWorker {
     return this.#post(`actions/${action}`, repo, args, this.#dryRun ? { 'x-factory-dry-run': 'true' } : {});
   }
 
-  /** Reads from GitHub. A read is the same in a dry run: it changes nothing. */
+  /**
+   * Reads from GitHub. In a dry run, what the dry run made (a branch, a commit, a pull request) reads as it would
+   * have been, and anything else as GitHub has it.
+   */
   async read<K extends ReadName>(read: K, repo: string, args: ReadArgs[K]): Promise<ReadResult<K>> {
-    return this.#post(`reads/${read}`, repo, args, {});
+    return this.#post(`reads/${read}`, repo, args, this.#dryRun ? { 'x-factory-dry-run': 'true' } : {});
   }
 
   async #post<T>(path: string, repo: string, args: object, headers: Record<string, string>): Promise<T> {

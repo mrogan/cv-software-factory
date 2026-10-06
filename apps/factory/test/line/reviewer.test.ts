@@ -32,6 +32,8 @@ describe('the reviewer', () => {
     );
     expect(prompt).toContain('`git show base:docs/REVIEWERS.md`');
     expect(prompt).toContain('ask for nothing outside the ticket');
+    // The gates have run the tests: the reviewer reads.
+    expect(prompt).toContain('do not run them again, and do not start the app or send it requests');
     expect(prompt).not.toContain('in its round');
   });
 

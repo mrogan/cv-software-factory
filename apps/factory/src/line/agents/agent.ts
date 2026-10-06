@@ -159,6 +159,36 @@ export function defineAgent<Input, Result>(
   };
 }
 
+/**
+ * How much longer, and how many more turns, an agent has on a local model. Each agent's bounds are set for Claude;
+ * Qwen 27B on a laptop is slower and less sure-footed: it took twice Claude's turns on the same fix. Its pace is
+ * measured: it reads a prompt at about 330 tokens a second and writes about 13 a second, alone on the laptop, and a
+ * call that writes for 15 minutes ends at the gateway's limit, to be tried again. In the first soak, a step that
+ * finished took up to 44 minutes (a planner that reproduced the defect) and the coder up to 54. With the prompt
+ * cached from call to call and the planner stopping at its diagnosis, those calls come to 25 minutes at most. Four
+ * times Claude's deadline, an hour for a planner, holds that, one lost 15-minute call, and as long again to spare.
+ * Only a step on a local model is given these: Claude's bounds stay as they are.
+ */
+export const LOCAL_MODEL_PACE = { deadline: 4, turns: 2 } as const;
+
+/** An agent's bounds for one step: its turns, and its seconds of work. */
+export interface Bounds {
+  maxTurns: number;
+  deadlineSeconds: number;
+}
+
+/**
+ * An agent's bounds on the provider `policy/models.ts` sends its calls to. The line never chooses the model: it is
+ * told where the calls go, and gives a step on a local model the time it needs.
+ */
+export function boundsOn(definition: Bounds, provider: 'anthropic' | 'bedrock' | 'local'): Bounds {
+  if (provider !== 'local') return { maxTurns: definition.maxTurns, deadlineSeconds: definition.deadlineSeconds };
+  return {
+    maxTurns: definition.maxTurns * LOCAL_MODEL_PACE.turns,
+    deadlineSeconds: definition.deadlineSeconds * LOCAL_MODEL_PACE.deadline,
+  };
+}
+
 /** What one step is given beside its agent's definition: where it starts, and what it is asked. */
 export interface StepOf {
   /** The app's repository, as `owner/name`. */
@@ -170,6 +200,8 @@ export interface StepOf {
   resume?: string | undefined;
   /** A defect the bench commits as the step's starting point. */
   seed?: string | undefined;
+  /** A dry run's commits on `commit`, which GitHub never had, for the step to make before it starts. */
+  commits?: { message: string; patch: string }[] | undefined;
 }
 
 /**
@@ -178,7 +210,7 @@ export interface StepOf {
  */
 export function stepFrom(
   definition: Pick<Agent, 'agent' | 'skill' | 'maxTurns' | 'resultFiles'>,
-  { repository, commit, base, prompt, resume, seed }: StepOf,
+  { repository, commit, base, prompt, resume, seed, commits }: StepOf,
 ): Step {
   return {
     agent: definition.agent,
@@ -191,6 +223,7 @@ export function stepFrom(
     result: true,
     ...(definition.resultFiles ? { resultFiles: definition.resultFiles } : {}),
     ...(seed ? { seed } : {}),
+    ...(commits?.length ? { commits } : {}),
     ...(resume ? { resume } : {}),
   };
 }

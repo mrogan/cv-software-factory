@@ -4,7 +4,9 @@
  *
  *     POST /v1/actions/<action>   one of `Actions`, with its arguments as JSON; its result out. With the header
  *                                 `x-factory-dry-run: true` it is recorded in the artifact store and not done
- *     POST /v1/reads/<read>       one of `Reads` (`reads.ts`), with its arguments as JSON; what GitHub says out
+ *     POST /v1/reads/<read>       one of `Reads` (`reads.ts`), with its arguments as JSON; what GitHub says out.
+ *                                 With `x-factory-dry-run: true`, what the dry run made reads as it would have
+ *                                 been (`dry-run-reads.ts`), and anything else as GitHub says
  *     GET  /health                whether it can write, whether it is a dry run, and what it is watching
  *
  * A body must say it is JSON: a web page cannot send that without the browser asking first, and the worker answers
@@ -145,6 +147,7 @@ const READS = {
   pullRequestFrom: z.strictObject({ branch }),
   protectedPaths: z.strictObject({ ref: sha }),
   comparison: z.strictObject({ base: branch, head: sha }),
+  checkout: z.strictObject({ sha }),
 } satisfies Record<keyof Reads, z.ZodType>;
 
 type ReadName = keyof typeof READS;
@@ -164,6 +167,7 @@ const READ_CALLS: {
   pullRequestFrom: (r, repo, { branch }) => r.pullRequestFrom(repo, branch),
   protectedPaths: (r, repo, { ref }) => r.protectedPaths(repo, ref),
   comparison: (r, repo, { base, head }) => r.comparison(repo, base, head),
+  checkout: (r, repo, { sha }) => r.checkout(repo, sha),
 };
 
 /** An object without its undefined fields, as the actions' optional fields expect: absent, never undefined. */
@@ -201,6 +205,8 @@ export interface WorkerServerOptions {
   reads?: Reads | undefined;
   /** What a request asking for a dry run (`x-factory-dry-run: true`) gets: one memory of what it would have done. */
   dryRun?: Actions | undefined;
+  /** What a read asking for a dry run gets: what that memory would have made, as it would read. */
+  dryRunReads?: Reads | undefined;
   /** The repositories the worker acts on, as `owner/name`. */
   repositories: readonly string[];
   /** What the worker says about itself at `/health`. */
@@ -210,8 +216,9 @@ export interface WorkerServerOptions {
 
 export function createWorkerServer({
   actions: live,
-  reads,
+  reads: liveReads,
   dryRun,
+  dryRunReads,
   repositories,
   health,
   log,
@@ -225,7 +232,9 @@ export function createWorkerServer({
     const { pathname } = new URL(req.url ?? '/', 'http://github');
     if (pathname === '/health') return send(res, 200, { status: 'ok', ...health() });
     // A dry run when asked for, such as the smoke run's, even from a worker that acts.
-    const actions = req.headers['x-factory-dry-run'] === 'true' && dryRun ? dryRun : live;
+    const dry = req.headers['x-factory-dry-run'] === 'true';
+    const actions = dry && dryRun ? dryRun : live;
+    const reads = dry && dryRunReads ? dryRunReads : liveReads;
     const [, kind, name = ''] = /^\/v1\/(actions|reads)\/([A-Za-z]+)$/.exec(pathname) ?? [];
     const known =
       kind === 'actions' ? Object.hasOwn(ARGS, name) : kind === 'reads' && reads && Object.hasOwn(READS, name);

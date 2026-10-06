@@ -136,6 +136,22 @@ describe('the prepare step', () => {
     ]);
     // Still without the whole history.
     expect(existsSync(join(repo, '.git', 'shallow'))).toBe(true);
+    // A dry run's commits, which the origin never had, made on the head as the pull request's own.
+    const dry = {
+      ...step,
+      commits: [
+        {
+          message: 'fix(count): round 3, in a dry run',
+          patch:
+            'diff --git a/count.ts b/count.ts\n--- a/count.ts\n+++ b/count.ts\n@@ -1 +1 @@\n-export const count = 2;\n+export const count = 3;\n',
+        },
+      ],
+    };
+    await prepare({ ...env, RUNNER_STEP: JSON.stringify(dry) }, () => {});
+    expect(readFileSync(join(repo, 'count.ts'), 'utf-8')).toBe('export const count = 3;\n');
+    expect(inRepo('rev-parse', 'HEAD~1')).toBe(head);
+    expect(inRepo('log', '--format=%s', 'base..HEAD').split('\n')[0]).toBe('fix(count): round 3, in a dry run');
+    expect(inRepo('diff', '--name-only', 'HEAD')).toBe('');
     // A seed would be part of the change: a step that reads one takes none.
     await expect(prepare({ ...env, RUNNER_STEP: JSON.stringify({ ...step, seed: 'x' }) }, () => {})).rejects.toThrow(
       'takes no seed',
