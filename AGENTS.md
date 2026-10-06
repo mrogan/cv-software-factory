@@ -57,6 +57,13 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
 
   The line itself (`factory line serve`) runs in the cluster only, for the same reason: its agent pods reach its handback there. `LINE_MODE` on its deployment turns it on, `dry-run` to have the GitHub worker record what it would do, and it is a deploy change like any other. The `factory` and `factory-runner` images move together.
 
+  One agent's step also runs on the host, for working on its prompt, with no cluster but Postgres for its job token (the one forwarded above, or a throwaway container migrated by `packages/store/src/migrate.ts`). `factory line bench <agent> <fixture>` runs the runner's own prepare and agent steps on a fixture's invented work (`apps/factory/src/line/bench/fixtures.ts`), against a gateway on the host, and prints the handback, whether its result fits the agent's schema, how many of its calls the cassettes replayed, and how long it took; alone, it lists the fixtures. Work on Qwen, as here; then without `ALL_LOCAL` and with the Anthropic key, to record Claude's cassettes, which costs money; then with `GATEWAY_MODE=replay`, which replays a step in seconds up to its first changed call. Cassettes made from fixtures hold only invented work and the app's public code:
+
+  ```sh
+  ALL_LOCAL=true GATEWAY_MODE=replay-record CASSETTES_DIR=/tmp/bench-cassettes PORT=8180 node apps/factory/src/cli.ts gateway &
+  GATEWAY_URL=http://localhost:8180 node apps/factory/src/cli.ts line bench coder off-by-one
+  ```
+
   A runner's two steps also run as containers, for working on the runner itself: `docker build -f apps/runner/Dockerfile .`, then `runner prepare` and `runner agent` with the variables in `apps/runner/src/step.ts`.
 
   Scale the cluster's copy of a worker to nothing first (`kubectl -n factory scale deployment/triage --replicas=0`), and back to one after, so two do not take the same signals. Add `PAGES_URL=http://localhost:8090` to triage to have it read the pages reports name.

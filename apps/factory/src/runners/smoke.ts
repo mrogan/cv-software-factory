@@ -5,7 +5,12 @@
  * the seeded base outside the sandbox and records the commit it would have made. Nothing reaches GitHub.
  *
  * The seed is a module of its own, so the run touches none of the app's own defects.
+ *
+ * Each run is a work item of its own, which no ticket has (`oneRunWorkItem`): the gateway caps what a work item
+ * spends over all time, so runs that shared one would soon use up its cap, and from then on every run would be
+ * refused.
  */
+import { randomBytes } from 'node:crypto';
 import type { Logger } from 'pino';
 import type { GitHubWorker } from '../github/worker-client.ts';
 import { type Fenced, fence } from './scope.ts';
@@ -32,6 +37,13 @@ export const SMOKE_PROMPT = `\`lastIndex\` in src/smoke.ts should return the ind
 
 Fix it, test first: add test/smoke.test.ts with a Vitest test that fails because of the bug, and run it to see it fail; then fix src/smoke.ts and run the test again to see it pass. Change no other file.`;
 
+/**
+ * A work item for one run of the smoke run or the bench: no ticket's, since a ticket's is a number, and new each
+ * time, so the work-item cap is each run's own. It names the run's Jobs and volume, so it fits a Kubernetes name.
+ */
+export const oneRunWorkItem = (kind: 'smoke' | 'bench') =>
+  `${kind}-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
+
 export interface SmokeResult {
   outcome: StepOutcome;
   fence: Fenced | null;
@@ -43,7 +55,7 @@ export async function smoke({
   runners,
   github,
   commit,
-  workItem = '999999999',
+  workItem = oneRunWorkItem('smoke'),
   round = 1,
   log,
 }: {
