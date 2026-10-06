@@ -11,9 +11,11 @@ import type {
   Sense,
   SymptomClass,
 } from '@software-factory/events';
-import { SENSES } from '@software-factory/events';
-import type { Capture, ItemState } from './items.ts';
-import { type Card, card, type Picture, pictureOfSignal } from './reel.ts';
+import { inScope, LIMITS, SENSES } from '@software-factory/events';
+import { clock } from '../format.ts';
+import { type Attempt, attempts, reviewThread, type ThreadReview } from './fixing.ts';
+import type { Capture, Hold, ItemState } from './items.ts';
+import { type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
 
 export interface Chapter {
   label: string;
@@ -37,6 +39,8 @@ export interface AgentRow {
   /** The settings, or for Jev each question set asked and how many questions it holds. */
   details: string[];
   calls: number;
+  /** The agent's steps: each `model.called` is one. A resumed coder is one agent over two steps. */
+  steps: number;
   tokensIn: number;
   tokensOut: number;
   cost: number;
@@ -44,8 +48,35 @@ export interface AgentRow {
 
 export interface GateRow {
   check: string;
-  conclusion: 'success' | 'failure' | 'skipped';
-  durationMs: number;
+  /** Neutral is a review that asked for changes: a signal, and nothing failed. */
+  conclusion: 'success' | 'failure' | 'skipped' | 'neutral';
+  durationMs: number | undefined;
+  /** The check's own one line, where it gave one. */
+  summary: string | undefined;
+  /** Required by the rules on main; a signal otherwise, which informs the line and never blocks a merge. */
+  required: boolean;
+}
+
+/** One path the spec lets the coder change, or one changed outside it. */
+export interface ScopeRow {
+  path: string;
+  /** The lines added and removed there; nothing when it is untouched. */
+  added: number | undefined;
+  removed: number | undefined;
+  /** A path outside the scope: refused by the fence, or pushed anyway. */
+  outside: boolean;
+}
+
+/**
+ * What the scope's rows measure: the pull request's whole change, every round together, or the coder's last patch
+ * when the fence refused it since. Nothing before the coder has handed anything back.
+ */
+export type ScopeOf = { pullRequest: number } | { refused: number } | undefined;
+
+/** What the work item waits for now, under its rounds. */
+export interface After {
+  outcome: Card['outcome'];
+  text: string;
 }
 
 export interface PageComparison {
@@ -82,11 +113,24 @@ export interface Sheet {
   /** Screenshots taken at the signal, on the canary and at rollout, for the evidence. */
   captures: Capture[];
   pages: { against: string; list: PageComparison[] } | undefined;
+  /** Who wrote the paragraph at the top: the describer, once it has. */
+  storyBy: 'describer' | undefined;
+  /** The evidence of the problem, which the card's picture stands in for while the work waits on Martin. */
+  evidence: Picture;
   spec: PayloadOf<'spec.written'> | undefined;
-  files: PayloadOf<'pull-request.pushed'>['files'] | undefined;
+  /** The spec's scope, with what the pull request, or a patch the fence refused since, changes in it. */
+  scope: { of: ScopeOf; rows: ScopeRow[] } | undefined;
+  /** The pull request's whole change, as of its latest push. */
+  files: PayloadOf<'pull-request.pushed'>['whole'] | undefined;
+  /** Each attempt the coder pushed, and what the work item waits for after the last. */
+  rounds: Attempt[];
+  after: After | undefined;
+  review: ThreadReview[];
   facts: {
     foundBy: string;
     humanLines: number;
+    /** The reviews a fix has had, of the most it may before what still blocks waits for Martin. */
+    reviews: { done: number; of: number } | undefined;
     /** A ticket's category and severity, and its fingerprint in words. */
     ticket: { category: string; severity: string; fingerprint: string } | undefined;
   };
@@ -97,7 +141,11 @@ export interface Sheet {
   agents: AgentRow[];
   /** Why no model was called, when none was. */
   noModel: string | undefined;
+  /** The required checks on the latest attempt, the signals beside them, and a line for each attempt before. */
   gates: GateRow[];
+  signals: GateRow[];
+  gatesAttempt: number | undefined;
+  earlier: string[];
 }
 
 const SENSE: Record<Sense, string> = {
@@ -162,6 +210,11 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
       return { label: 'SENT BACK', tone: 'attn' };
     case 'review.submitted':
       return { label: 'REVIEW', tone: 'signal' };
+    case 'work-item.summarised':
+      // Triage writes the first summary; the describer's is a step of Review.
+      return event.actor === 'describer' ? { label: 'DESCRIBED', tone: 'signal' } : undefined;
+    case 'pull-request.merged':
+      return { label: 'MERGED', tone: 'signal' };
     case 'canary.stepped':
       return { label: 'CANARY', tone: 'signal' };
     case 'release.promoted':
@@ -224,13 +277,17 @@ function agents(item: ItemState): AgentRow[] {
         agent,
         provider,
         model,
-        details: [SETTINGS(settings)].filter(Boolean),
+        details: [],
         calls: 0,
+        steps: 0,
         tokensIn: 0,
         tokensOut: 0,
         cost: 0,
       };
       row.calls += event.payload.calls;
+      row.steps += 1;
+      const line = [SETTINGS(settings), row.steps > 1 && `${row.steps} steps`].filter(Boolean).join(' · ');
+      row.details = line ? [line] : [];
       row.tokensIn += tokens.input + tokens.cacheRead + tokens.cacheWrite;
       row.tokensOut += tokens.output;
       row.cost += costUsd;
@@ -243,6 +300,7 @@ function agents(item: ItemState): AgentRow[] {
         model: event.payload.model,
         details: [],
         calls: 0,
+        steps: 0,
         tokensIn: 0,
         tokensOut: 0,
         cost: 0,
@@ -254,25 +312,118 @@ function agents(item: ItemState): AgentRow[] {
       rows.set(key, row);
     }
   }
-  const order = ['triage', 'planner', 'coder', 'reviewer', 'red-team'];
+  const order = ['triage', 'planner', 'coder', 'reviewer', 'describer', 'red-team'];
   return [...rows.values()].sort((a, b) => order.indexOf(a.agent) - order.indexOf(b.agent));
 }
 
-/** The checks on the latest commit that went through Gates. */
+/** The checks on the latest commit that went through Gates, in the order they started: required ones and signals. */
 function gates(item: ItemState): GateRow[] {
   const started = [...item.events].reverse().find((event) => event.type === 'gates.started');
   if (started?.type !== 'gates.started') return [];
   const results = new Map<string, GateRow>();
   for (const event of item.events) {
     if (event.type === 'gate.finished' && event.payload.commit === started.payload.commit) {
-      results.set(event.payload.check, {
-        check: event.payload.check,
-        conclusion: event.payload.conclusion,
-        durationMs: event.payload.durationMs,
-      });
+      const { check, conclusion, durationMs, summary, required } = event.payload;
+      results.set(check, { check, conclusion, durationMs, summary, required });
     }
   }
   return started.payload.checks.flatMap((check) => results.get(check) ?? []);
+}
+
+/** The reviewer's latest verdict, as a signal beside the gates: it informs the line, and never blocks a merge. */
+function reviewSignal(item: ItemState, reviews: readonly ThreadReview[]): GateRow | undefined {
+  const review = reviews.at(-1);
+  if (!review) return undefined;
+  const step = [...item.events]
+    .reverse()
+    .find((event) => event.type === 'model.called' && event.payload.agent === 'reviewer');
+  const words = { approved: 'approved', 'changes-requested': 'changes asked', escalated: 'escalated to Martin' };
+  return {
+    // The check run the reviewer's step posts beside its review (the line's `REVIEW_CHECK`).
+    check: 'factory review',
+    required: false,
+    conclusion: review.verdict === 'approved' ? 'success' : 'neutral',
+    durationMs: step?.type === 'model.called' ? step.payload.durationMs : undefined,
+    summary: `${words[review.verdict]}, review ${review.number}`,
+  };
+}
+
+/** One line for each attempt before the latest: how its gates went, and what sent it back. */
+function earlierAttempts(list: readonly Attempt[]): string[] {
+  return list.slice(0, -1).map((a) => {
+    const gates =
+      a.gates?.state === 'failed'
+        ? `failed ${a.gates.failed.join(', ') || 'a required check'}`
+        : a.gates?.state === 'passed'
+          ? 'passed every required check'
+          : 'did not finish its checks';
+    const back =
+      a.returned?.from === 'review'
+        ? 'the reviewer sent it back'
+        : a.returned?.from === 'gates'
+          ? 'Gates sent it back'
+          : 'the coder pushed again';
+    return `Attempt ${a.attempt} ${gates}; ${back}.`;
+  });
+}
+
+/**
+ * The spec's scope, each path with what changed there, and anything changed outside it. What changed is the pull
+ * request's whole change, every round together, since that is what a merge brings in; or, when the fence refused the
+ * coder's last patch, that patch, with its own verdict on each file.
+ */
+function scopeOf(item: ItemState, spec: PayloadOf<'spec.written'>): Sheet['scope'] {
+  let patches = 0;
+  let of: ScopeOf;
+  let files: { path: string; added: number; removed: number }[] = [];
+  for (const event of item.events) {
+    if (event.type === 'pull-request.pushed' && event.actor === 'coder') {
+      patches += 1;
+      of = { pullRequest: event.payload.number };
+      files = event.payload.whole;
+    }
+    if (event.type === 'action.refused' && event.payload.mechanism === 'scope-fence') {
+      patches += 1;
+      of = { refused: patches };
+      files = event.payload.files ?? [];
+    }
+  }
+  const rows = spec.scope.map((entry): ScopeRow => {
+    const touched = files.filter((file) => inScope(file.path, [entry]));
+    return {
+      path: entry,
+      added: touched.length ? touched.reduce((n, f) => n + f.added, 0) : undefined,
+      removed: touched.length ? touched.reduce((n, f) => n + f.removed, 0) : undefined,
+      outside: false,
+    };
+  });
+  const outside = files
+    .filter((file) => !inScope(file.path, spec.scope))
+    .map(({ path, added, removed }): ScopeRow => ({ path, added, removed, outside: true }));
+  return { of, rows: [...rows, ...outside] };
+}
+
+/** What the work item waits for once its rounds are done: Martin's merge, Martin's decision, or a release. */
+function afterRounds(item: ItemState, hold: Hold | undefined, described: boolean): After | undefined {
+  if (item.outcome === 'merged') {
+    const merged = [...item.events].reverse().find((event) => event.type === 'pull-request.merged');
+    const by = merged?.type === 'pull-request.merged' && merged.payload.by === 'martin' ? 'Martin' : 'the factory';
+    return {
+      outcome: 'merged',
+      text: `Merged by ${by} at ${clock(merged ? Date.parse(merged.ts) : item.lastAt)}; it ships with the next release`,
+    };
+  }
+  if (!hold || (item.outcome !== 'needs-you' && item.outcome !== 'held')) return undefined;
+  if (hold.cause === 'merge') {
+    const since = clock(hold.since);
+    return {
+      outcome: item.outcome,
+      text: described
+        ? `Described, ready, and waiting for Martin’s merge since ${since}`
+        : `Waiting for Martin’s merge since ${since}`,
+    };
+  }
+  return { outcome: item.outcome, text: hold.reason };
 }
 
 /** How each sense is named in a sighting. */
@@ -384,8 +535,11 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
       return chapter ? [{ event, ...chapter }] : [];
     },
   );
-  // Work still on the line ends at now, or, for a ticket queued for the planner, waiting at Plan.
-  if (item.closedAt === undefined) {
+  // Work still on the line ends at now, or, for a ticket queued for the planner, waiting at Plan. Work waiting on
+  // Martin ends at its wait, and a merged fix at its merge, drawn as work queued for a release.
+  const waits = item.outcome === 'needs-you' || item.outcome === 'held';
+  const merged = item.outcome === 'merged';
+  if (item.closedAt === undefined && !waits && !merged) {
     marks.push(
       item.queued
         ? { event: undefined, label: 'WAITING · PLAN', tone: 'faint' }
@@ -402,8 +556,8 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
       text: m.event ? m.event.summary : item.queued ? 'Waiting for the planner' : 'Still on the line',
       position: positions[i] ?? 100,
       site: [...item.captures].reverse().find((c) => c.at <= (times[i] ?? t) && c.side !== 'page'),
-      tone: m.tone,
-      ...(!m.event && item.queued && { waiting: true }),
+      tone: merged && i === marks.length - 1 ? 'faint' : m.tone,
+      ...(((!m.event && item.queued) || (merged && i === marks.length - 1)) && { waiting: true }),
     }),
   );
 
@@ -425,6 +579,13 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
       0,
     );
 
+  const specPayload = spec?.type === 'spec.written' ? spec.payload : undefined;
+  const tried = attempts(item);
+  const thread = reviewThread(item, specPayload);
+  const summarised = [...item.events].reverse().find((event) => event.type === 'work-item.summarised');
+  const latestGates = gates(item);
+  const signal = reviewSignal(item, thread);
+  const coded = tried.length > 0;
   return {
     card: card(item, events, t),
     report:
@@ -432,6 +593,8 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
         ? { page: report.payload.report.page, quarantined: item.outcome === 'quarantined' }
         : undefined,
     story: item.story ?? item.description ?? item.title,
+    storyBy: summarised?.actor === 'describer' ? 'describer' : undefined,
+    evidence: picture(item, { waits: false }),
     chapters,
     captures: item.captures.filter(
       (c) => c.side === 'broken' || c.side === 'canary' || c.side === 'fixed' || c.side === 'after',
@@ -448,11 +611,17 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
             })),
           }
         : undefined,
-    spec: spec?.type === 'spec.written' ? spec.payload : undefined,
-    files: pushed?.type === 'pull-request.pushed' ? pushed.payload.files : undefined,
+    spec: specPayload,
+    scope: specPayload && scopeOf(item, specPayload),
+    // What a merge brings in: every round together, not only the last round's own files.
+    files: pushed?.type === 'pull-request.pushed' ? pushed.payload.whole : undefined,
+    rounds: tried,
+    after: coded ? afterRounds(item, item.hold, Boolean(summarised && summarised.actor === 'describer')) : undefined,
+    review: thread,
     facts: {
       foundBy: foundBy(item),
       humanLines,
+      reviews: coded ? { done: thread.length, of: LIMITS.reviews } : undefined,
       ticket: item.ticket && {
         category: item.ticket.category,
         severity: item.ticket.severity,
@@ -466,6 +635,9 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
     senseEvidence: item.ticket ? senseEvidence(item) : [],
     agents: agents(item),
     noModel: noModel(item),
-    gates: gates(item),
+    gates: latestGates.filter((g) => g.required),
+    signals: [...latestGates.filter((g) => !g.required), ...(coded && signal ? [signal] : [])],
+    gatesAttempt: tried.length > 1 ? tried.at(-1)?.attempt : undefined,
+    earlier: earlierAttempts(tried),
   };
 }

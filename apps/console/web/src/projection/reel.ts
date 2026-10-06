@@ -12,6 +12,7 @@ import type {
   Stage,
 } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
+import { waitPicture } from './fixing.ts';
 import type { Capture, ItemState, Outcome } from './items.ts';
 
 export type Segment = 'passed' | 'skipped' | 'now' | 'queued' | 'stopped' | 'waiting' | 'closed' | 'none';
@@ -66,6 +67,53 @@ export type Picture =
   /** A visitor's suggestion, parked for Martin: the page it named and Jev's answers, waiting on him. */
   | { type: 'suggestion'; page: Screenshot | undefined; judgement: Judgement }
   | { type: 'spec'; spec: PayloadOf<'spec.written'>; question: string | undefined }
+  /** A fix waiting for Martin's merge: the pull request, and what says it is safe to merge. */
+  | {
+      type: 'merge';
+      pullRequest: number;
+      title: string;
+      /** The required checks on its last commit. */
+      checks: { passed: number; total: number };
+      testsFirst: { failedOnBase: boolean; figure: string | undefined } | undefined;
+      /** The review that approved it, by number, and its suggestions. */
+      review: { suggestions: number; number: number } | undefined;
+      /** The pull request's whole change, every round together: what a merge brings in. */
+      files: number;
+      added: number;
+      removed: number;
+      /** Every file it changes is one its spec allows. */
+      inScope: boolean;
+    }
+  /** Held: the scope fence refused the coder's patch again. Its own output, and the refusal before it. */
+  | {
+      type: 'scope';
+      /** The coder's patch it refused, counting every patch the fence judged, pushed or refused. */
+      patch: number;
+      /** Its refusals since Martin last answered a hold: the count the line holds at. */
+      refusals: number;
+      output: string;
+      earlier: { patch: number; same: boolean } | undefined;
+      /** Whether an earlier patch reached GitHub; a refused one never does. */
+      reachedGitHub: boolean;
+    }
+  /** Held: the change's new tests pass on the base, without the fix. The tests-first check's own output. */
+  | { type: 'tests-pass'; output: string }
+  /** Held: the work item reached its spend cap. What it spent, and on which agent. */
+  | {
+      type: 'spend';
+      stage: Stage;
+      spent: number;
+      cap: number;
+      agents: { agent: string; cost: number; steps: number }[];
+      stopped: { agent: string; step: number } | undefined;
+    }
+  /** Held: findings still blocking after the last review. */
+  | {
+      type: 'blocking';
+      reviews: number;
+      /** Each open finding, and the reviews that blocked the same file on the same rule or criterion. */
+      findings: { where: string; cites: string | undefined; comment: string; reviews: number[] }[];
+    }
   /** A problem found on every page: a few of the pages, each marked, and how many more. */
   | { type: 'pages'; shots: Screenshot[]; more: number; source: Source }
   /** A request and what came back: what a screenshot cannot show, such as a redirect or a missing header. */
@@ -107,6 +155,8 @@ export interface Card {
   from: string | undefined;
   /** Model calls and Jev requests: none at all is said as "no model". */
   calls: number;
+  /** Every model call was served by the local model, at no cost. */
+  local: boolean;
   pullRequest: number | undefined;
   startedAt: number;
   /** Start to finish, or so far. */
@@ -143,6 +193,7 @@ export function segments(item: ItemState): Segment[] {
       case 'needs-you':
         return 'waiting';
       case 'waiting':
+      case 'merged':
         return 'queued';
       case 'closed':
       case 'quarantined':
@@ -195,8 +246,11 @@ function unchangedPages(item: ItemState): Screenshot[] {
   });
 }
 
-/** The picture for a card: the evidence that best shows what changed. */
-export function picture(item: ItemState): Picture {
+/**
+ * The picture for a card: the evidence that best shows what changed, or, while the work waits on Martin, the thing
+ * he is asked to decide. Without `waits`, the evidence alone, which the sheet shows whatever the card shows.
+ */
+export function picture(item: ItemState, { waits = true }: { waits?: boolean } = {}): Picture {
   const rolledBack = last(ofType(item, 'release.rolled-back'), () => true);
   if (rolledBack) return { type: 'rollback', dependency: item.dependency, rollback: rolledBack.payload };
 
@@ -222,7 +276,12 @@ export function picture(item: ItemState): Picture {
   }
 
   const spec = last(ofType(item, 'spec.written'), () => true);
-  if (item.outcome === 'needs-you' && spec) return { type: 'spec', spec: spec.payload, question: item.hold?.question };
+  if (waits) {
+    const waiting = waitPicture(item);
+    if (waiting) return waiting;
+    if (item.outcome === 'needs-you' && spec)
+      return { type: 'spec', spec: spec.payload, question: item.hold?.question };
+  }
 
   if (item.dependency) {
     const findings = last(ofType(item, 'gate.finished'), (event) => Boolean(event.payload.findings))?.payload.findings;
@@ -317,6 +376,12 @@ export function shopVersion(events: readonly PublicEvent[], at: number): string 
   return version;
 }
 
+/** Every call the work made was to the local model: something was called, and it cost nothing. */
+function isLocal(item: ItemState): boolean {
+  const called = ofType(item, 'model.called');
+  return called.length > 0 && called.length === item.calls && called.every((e) => e.payload.provider === 'local');
+}
+
 export function card(item: ItemState, events: readonly PublicEvent[], t: number): Card {
   const end = item.closedAt ?? t;
   return {
@@ -338,6 +403,7 @@ export function card(item: ItemState, events: readonly PublicEvent[], t: number)
     seenOn: item.seenOn,
     from: item.reportPage,
     calls: item.calls,
+    local: isLocal(item),
     pullRequest: item.pullRequest,
     startedAt: item.openedAt,
     durationMs: Math.max(0, end - item.openedAt),

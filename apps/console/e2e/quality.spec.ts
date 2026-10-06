@@ -47,7 +47,7 @@ test('makes no request to another origin, and breaks no policy, as it plays and 
   // The guard fixture fails the test on either; this walks through everything that loads something.
   await page.goto(consoleUrl({ motion: true }));
   await ready(page);
-  for (const item of ['1262', '1268', '1271', '1276', '1288', '1296', '1302']) {
+  for (const item of ['1262', '1268', '1271', '1276', '1288', '1296', '1302', '1304', '1311', '1323']) {
     await page.goto(consoleUrl({ item, sheet: true }));
     await page.getByRole('dialog').waitFor();
     // Lazy images load as they come into view: scroll the sheet to the end.

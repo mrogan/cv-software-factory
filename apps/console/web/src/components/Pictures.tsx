@@ -5,7 +5,7 @@
 import type { Evidence, PayloadOf, Screenshot } from '@software-factory/events';
 import { type KeyboardEvent, type PointerEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { useArtifactUrl } from '../artifacts.ts';
-import { axis, clock, figure, plural } from '../format.ts';
+import { AGENT_NAME, axis, capital, clock, figure, inWords, money, plural, times } from '../format.ts';
 import type { Picture as PictureData, Source, Tag } from '../projection/index.ts';
 import { QUARANTINE_AT } from '../projection/index.ts';
 import { Glyph } from './Glyph.tsx';
@@ -985,6 +985,176 @@ function SpecPicture({ spec, question }: Extract<PictureData, { type: 'spec' }>)
   );
 }
 
+/** One line of a waiting panel: a tick or a cross, what it says, and its figure. */
+function Tick({ ok, children, num }: { ok: boolean; children: ReactNode; num?: string | undefined }) {
+  return (
+    <div className={ok ? '' : 'x'}>
+      <Glyph name={ok ? 'check' : 'cross'} />
+      <span>{children}</span>
+      <span className="num">{num}</span>
+    </div>
+  );
+}
+
+/** Output printed as it came, each line toned by a test of its own: the lines that say no, in the alarm colour. */
+function Output({ lines, bad, dim }: { lines: string; bad: RegExp; dim?: RegExp }) {
+  return keyedLines(lines).map(({ text, key }) => (
+    <span key={key} className={bad.test(text) ? 't-bad' : dim?.test(text) ? 't-dim' : ''}>
+      {text}
+      {'\n'}
+    </span>
+  ));
+}
+
+/**
+ * A fix waiting for Martin's merge: the decision he is asked to make, in the waiting-on-Martin panel. Its title in
+ * mono, because it is a commit title, and three ticks that answer "is it safe to merge?".
+ */
+function MergePicture(picture: Extract<PictureData, { type: 'merge' }>) {
+  const { checks, testsFirst, review } = picture;
+  // No check finished is not every check passed.
+  const passed = checks.total > 0 && checks.passed === checks.total;
+  return (
+    <div className="pad">
+      <div className="waits">
+        <div className="cap attn">PR #{picture.pullRequest} · waiting for Martin’s merge</div>
+        <div className="head mono">{picture.title}</div>
+        <div className="ticks">
+          <Tick ok={passed} num={`${checks.passed} of ${checks.total}`}>
+            {passed ? 'Every required check passed' : 'Not every required check passed'}
+          </Tick>
+          {testsFirst && (
+            <Tick ok={testsFirst.failedOnBase} num={testsFirst.figure}>
+              {testsFirst.failedOnBase ? 'Its tests fail without the fix' : 'Its tests pass without the fix'}
+            </Tick>
+          )}
+          {review && (
+            <Tick ok num={`review ${review.number}`}>
+              The reviewer approved{review.suggestions ? `, ${inWords(review.suggestions, 'suggestion')}` : ''}
+            </Tick>
+          )}
+        </div>
+        <div className="foot">
+          <span>
+            {plural(picture.files, 'file')} · <span className="plus">+{picture.added}</span>{' '}
+            <span className="minus">−{picture.removed}</span>
+          </span>
+          <span>{picture.inScope ? 'in scope · ' : ''}signed by the App</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Held: the scope fence refused the coder's patch again. Its own output, and what became of the patch before. */
+function ScopePicture({ patch, refusals, output, earlier, reachedGitHub }: Extract<PictureData, { type: 'scope' }>) {
+  return (
+    <div className="pad">
+      <div className="waits">
+        <div className="cap attn">Held at Build · patch outside its scope, {times(refusals)}</div>
+        <pre className="term">
+          {`scope fence · patch ${patch} refused\n`}
+          <Output lines={output} bad={/^refused /} dim={/^scope: /} />
+          {earlier && (
+            <span className="t-dim">
+              patch {earlier.patch} was sent back {earlier.same ? 'with the same path' : 'too'}
+            </span>
+          )}
+        </pre>
+        <div className="foot">
+          <span>{reachedGitHub ? 'the refused patches never reached GitHub' : 'nothing reached GitHub'}</span>
+          <span>refused by the line</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Held: the change's new tests pass on the base. Ember on a pass reads oddly, so the foot says why it is the fault. */
+function TestsPassPicture({ output }: Extract<PictureData, { type: 'tests-pass' }>) {
+  return (
+    <div className="pad">
+      <div className="waits">
+        <div className="cap attn">Held at Gates · its tests pass without the fix</div>
+        <pre className="term">
+          <Output lines={output} bad={/✓|passes/} dim={/^\d+ of \d+/} />
+        </pre>
+        <div className="foot">
+          <span>a test that passes before the fix proves nothing about it</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const ORDINAL = ['', 'first', 'second', 'third', 'fourth', 'fifth'];
+
+/** Held: the work item reached its spend cap. What it cost, and which agent spent it, in ink: money is not the fault. */
+function SpendPicture({ stage, spent, cap, agents, stopped }: Extract<PictureData, { type: 'spend' }>) {
+  return (
+    <div className="pad">
+      <div className="waits">
+        <div className="cap attn">Held at {capital(stage)} · its spend cap reached</div>
+        <div className="figure-big">
+          {money(spent)} <small>spent on this work item</small>
+        </div>
+        <div className="spendbar" aria-hidden="true">
+          {agents.map((a) => (
+            <i key={a.agent} style={{ width: `${(a.cost / Math.max(spent, 0.01)) * 100}%` }} />
+          ))}
+        </div>
+        <div className="spendkey">
+          {agents.map((a) => (
+            <span key={a.agent}>
+              {AGENT_NAME[a.agent] ?? a.agent} {money(a.cost)}
+              {a.steps > 1 ? ` · ${a.steps} steps` : ''}
+            </span>
+          ))}
+        </div>
+        <div className="foot">
+          <span>
+            {stopped
+              ? `the ${(AGENT_NAME[stopped.agent] ?? stopped.agent).toLowerCase()}’s ${ORDINAL[stopped.step] ?? `${stopped.step}th`} step stopped part way`
+              : ''}
+          </span>
+          <span>cap {money(cap)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Held: findings still blocking after the last review. The open finding turns ember here, and only here. */
+function BlockingPicture({ reviews, findings }: Extract<PictureData, { type: 'blocking' }>) {
+  const [first] = findings;
+  return (
+    <div className="pad">
+      <div className="waits">
+        <div className="cap attn">Held at Review · still blocking after {inWords(reviews, 'review')}</div>
+        <div className="ticks">
+          {findings.map((f) => (
+            <Tick
+              key={f.where}
+              ok={false}
+              num={`${f.reviews.length > 1 ? 'reviews' : 'review'} ${f.reviews.join(', ')}`}
+            >
+              {f.where}
+              {f.cites ? ` · ${f.cites}` : ''}
+            </Tick>
+          ))}
+        </div>
+        {first && <div className="head comment">{first.comment}</div>}
+        <div className="foot">
+          <span>
+            {plural(reviews, 'review')} · {plural(findings.length, 'finding')} open
+          </span>
+          <span>Martin decides: merge, close or send back</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Picture({ picture, interactive }: { picture: PictureData; interactive: boolean }) {
   return (
     <div className={`vis vis-${picture.type}`}>
@@ -1038,6 +1208,11 @@ export function Picture({ picture, interactive }: { picture: PictureData; intera
       {picture.type === 'refusal' && <RefusalPicture {...picture} />}
       {picture.type === 'judgement' && <JudgementPicture {...picture} />}
       {picture.type === 'spec' && <SpecPicture {...picture} />}
+      {picture.type === 'merge' && <MergePicture {...picture} />}
+      {picture.type === 'scope' && <ScopePicture {...picture} />}
+      {picture.type === 'tests-pass' && <TestsPassPicture {...picture} />}
+      {picture.type === 'spend' && <SpendPicture {...picture} />}
+      {picture.type === 'blocking' && <BlockingPicture {...picture} />}
       {picture.type === 'none' && (
         <div className="pad empty-picture">
           <span className="cap">Nothing captured yet</span>

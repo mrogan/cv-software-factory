@@ -4,7 +4,16 @@
  * time and `make check` can tell when the event log is out of date.
  */
 import { createHash } from 'node:crypto';
-import type { Actor, Agent, ArtifactRef, EventType, NewEvent, PayloadOf, Screenshot } from '@software-factory/events';
+import type {
+  Actor,
+  Agent,
+  ArtifactRef,
+  EventType,
+  Evidence,
+  NewEvent,
+  PayloadOf,
+  Screenshot,
+} from '@software-factory/events';
 import { VERSIONS } from '@software-factory/events';
 import { changed, shot } from './captures.ts';
 
@@ -46,6 +55,8 @@ function seconds(offset: string): number {
 const PRICES = {
   'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
   'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+  // LM Studio on Martin's Mac: counted and capped like any other, and priced at nothing.
+  'qwen/qwen3.8-27b': { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 } as const;
 
 type Model = keyof typeof PRICES;
@@ -55,8 +66,12 @@ export const AGENT_SETTINGS = {
   planner: { model: 'claude-opus-5-5', settings: { effort: 'high' } },
   coder: { model: 'claude-sonnet-5-5', settings: { effort: 'medium', maxTurns: 40 } },
   reviewer: { model: 'claude-sonnet-5-5', settings: { effort: 'high' } },
+  describer: { model: 'claude-sonnet-5-5', settings: { effort: 'low' } },
   'red-team': { model: 'claude-sonnet-5-5', settings: { effort: 'low', maxTurns: 20 } },
 } as const satisfies Partial<Record<Agent, { model: Model; settings: PayloadOf<'model.called'>['settings'] }>>;
+
+/** Every agent on the local model, as `ALL_LOCAL` on a gateway sends them for an unattended run. */
+const LOCAL = { model: 'qwen/qwen3.8-27b', settings: {} } as const;
 
 export interface Calls {
   /** How many calls, spread evenly between the two offsets. */
@@ -84,6 +99,9 @@ export const GATES: [name: string, seconds: number][] = [
   ['Image scan', 48],
 ];
 
+/** The tests-first check: not required, so it never blocks a merge, and the line reads it. */
+const TESTS_FIRST = 'Tests first';
+
 export interface GateRun {
   pullRequest: number;
   /** Names the commit, so a second attempt is checked as a new one. */
@@ -92,6 +110,11 @@ export interface GateRun {
   failure?: { check: string; summary: string; output: string };
   /** Extra detail for a check that passes. */
   details?: Record<string, Partial<PayloadOf<'gate.finished'>>>;
+  /**
+   * The tests-first check, a signal and not required: how many of the change's new tests fail on the base, of how
+   * many, and its output. It passes when at least one fails there.
+   */
+  testsFirst?: { failing: number; of: number; output?: string };
 }
 
 /** The pages verification compares with the version before, and the names of their screenshots. */
@@ -163,10 +186,17 @@ export class Item {
 
   /**
    * One agent's step, as the line records it: one `model.called` for all the calls the step made, at its end.
-   * Each call's tokens are worked out on their own, as the gateway prices them, and summed.
+   * Each call's tokens are worked out on their own, as the gateway prices them, and summed. With `local`, the step
+   * ran on the local model, which is priced at nothing.
    */
-  calls(agent: keyof typeof AGENT_SETTINGS, from: string, to: string, { calls, input, output, cached }: Calls): this {
-    const { model, settings } = AGENT_SETTINGS[agent];
+  calls(
+    agent: keyof typeof AGENT_SETTINGS,
+    from: string,
+    to: string,
+    { calls, input, output, cached }: Calls,
+    { local = false }: { local?: boolean } = {},
+  ): this {
+    const { model, settings } = local ? LOCAL : AGENT_SETTINGS[agent];
     const price = PRICES[model];
     const next = random(`${this.number}/${agent}/${from}`);
     // Uneven shares that still add up to the totals.
@@ -195,7 +225,7 @@ export class Item {
     const name = agent === 'red-team' ? 'Red-team agent' : agent[0]?.toUpperCase() + agent.slice(1);
     return this.at(to, 'model.called', agent, `${name} called ${model} ${calls} ${calls === 1 ? 'time' : 'times'}`, {
       agent,
-      provider: 'anthropic',
+      provider: local ? 'local' : 'anthropic',
       model,
       settings,
       tokens,
@@ -205,55 +235,100 @@ export class Item {
     });
   }
 
-  /** A pull request's required checks: one event as they start, one as each finishes, one when all have. */
+  /**
+   * A pull request's checks: one event as they start, one as each finishes, one when all have. The required checks,
+   * and the tests-first signal beside them when the run has one.
+   */
   gates(offset: string, run: GateRun): this {
     const commit = commitFor(`${this.number}/${run.pullRequest}/${run.attempt ?? 1}`);
-    const { pullRequest } = run;
+    const { pullRequest, testsFirst } = run;
     const start = seconds(offset);
     const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
-    this.at(offset, 'gates.started', 'actions', `${GATES.length} required checks started on PR #${pullRequest}`, {
+    const checks = [...GATES.map(([name]) => name), ...(testsFirst ? [TESTS_FIRST] : [])];
+    this.at(offset, 'gates.started', 'actions', `${checks.length} checks started on PR #${pullRequest}`, {
       pullRequest,
       commit,
-      checks: GATES.map(([name]) => name),
+      checks,
     });
-    const order = [...GATES].sort((a, b) => a[1] - b[1]);
+    const signal = testsFirst && {
+      conclusion: testsFirst.failing > 0 ? ('success' as const) : ('failure' as const),
+      summary: `${testsFirst.failing} of ${testsFirst.of} new tests fail on the base`,
+    };
+    const order = [...GATES, ...(testsFirst ? [[TESTS_FIRST, 41] as [string, number]] : [])].sort(
+      (a, b) => a[1] - b[1],
+    );
     for (const [check, duration] of order) {
       const failed = run.failure?.check === check;
+      const tests = check === TESTS_FIRST && signal;
       this.at(
         clock(start + duration + 6),
         'gate.finished',
         'actions',
-        failed ? `${check} failed: ${run.failure?.summary}` : `${check} passed`,
+        tests
+          ? `${check} ${tests.conclusion === 'success' ? 'passed' : 'failed'}: ${tests.summary}`
+          : failed
+            ? `${check} failed: ${run.failure?.summary}`
+            : `${check} passed`,
         {
           pullRequest,
           commit,
           check,
-          conclusion: failed ? 'failure' : 'success',
-          required: true,
+          conclusion: tests ? tests.conclusion : failed ? 'failure' : 'success',
+          required: !tests,
           durationMs: duration * 1000,
+          ...(tests && { summary: tests.summary, ...(testsFirst.output && { output: testsFirst.output }) }),
           ...(failed && { summary: run.failure?.summary, output: run.failure?.output }),
           ...run.details?.[check],
         },
       );
     }
-    const last = start + Math.max(...GATES.map(([, d]) => d)) + 8;
+    const last = start + Math.max(...order.map(([, d]) => d)) + 8;
     const failed = run.failure ? [run.failure.check] : [];
+    const passed = GATES.length - failed.length + (signal?.conclusion === 'success' ? 1 : 0);
     this.at(
       clock(last),
       'gates.finished',
       'actions',
       failed.length
-        ? `${failed[0]} failed; ${GATES.length - 1} of ${GATES.length} checks passed`
+        ? `${failed[0]} failed; ${GATES.length - 1} of ${GATES.length} required checks passed`
         : `All ${GATES.length} required checks passed`,
-      {
-        pullRequest,
-        commit,
-        conclusion: failed.length ? 'failed' : 'passed',
-        passed: GATES.length - failed.length,
-        failed,
-      },
+      { pullRequest, commit, conclusion: failed.length ? 'failed' : 'passed', passed, failed },
     );
     return this;
+  }
+
+  /**
+   * A probe's ticket, as triage opens one: the work item, the probe's signal with the HTTP exchange it made, the
+   * ticket, and triage's summary, all at once. A sense knows what it saw, so no model is asked.
+   */
+  probeTicket(offset: string, ticket: ProbeTicket): this {
+    const { check, route, version, symptom, summary, exchange, title, category, severity } = ticket;
+    return this.at(offset, 'work-item.opened', 'triage', 'Probe opened a work item', {
+      kind: 'defect-fix',
+      title,
+      sample: true,
+      category,
+    })
+      .at(offset, 'signal.received', 'probe', summary, {
+        sense: 'probe',
+        check,
+        route,
+        version,
+        symptom,
+        evidence: [{ kind: 'http', headers: {}, redirects: [], ...exchange }],
+      })
+      .at(offset, 'ticket.opened', 'triage', `Ticket #${this.number}: ${category}, ${severity}`, {
+        title,
+        category,
+        severity,
+        fingerprint: { route, class: symptom },
+        traces: [traceFor(`${this.number}/signal`)],
+      })
+      .at(offset, 'work-item.summarised', 'triage', 'Summary written', {
+        title,
+        description: ticket.description,
+        story: ticket.story,
+      });
   }
 
   /** Every page, compared with the version before; `variant` names the screenshots of the app as it now is. */
@@ -282,6 +357,20 @@ export class Item {
       marked ? [marked, ...screenshots] : screenshots,
     );
   }
+}
+
+interface ProbeTicket {
+  check: string;
+  route: string;
+  version: string;
+  symptom: NonNullable<PayloadOf<'signal.received'>['symptom']>;
+  summary: string;
+  exchange: Pick<Extract<Evidence, { kind: 'http' }>, 'method' | 'url' | 'status' | 'timings'>;
+  title: string;
+  category: PayloadOf<'ticket.opened'>['category'];
+  severity: PayloadOf<'ticket.opened'>['severity'];
+  description: string;
+  story: string;
 }
 
 interface Verification {

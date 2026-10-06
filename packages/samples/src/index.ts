@@ -1,7 +1,9 @@
 /**
- * The samples: about twelve hand-written work items over five days, with one still on the line at the end. They
- * cover every kind of work item, every outcome, every picture the design system draws and every station state.
- * Nothing in them happened: the console labels each as a sample.
+ * The samples: nineteen hand-written work items over eight days, with one still on the line at the end. They cover
+ * every kind of work item, every outcome, every picture the design system draws and every station state. The last
+ * seven are fixes as milestone 5's line makes them: rounds of review, a wait for Martin's merge, the four ways a
+ * mechanism holds a fix, a merge waiting for a release, and a run on the local model. Nothing in them happened: the
+ * console labels each as a sample.
  */
 import type { NewEvent } from '@software-factory/events';
 import { uuidFor } from './build.ts';
@@ -17,6 +19,13 @@ import unsignedImage from './items/1293-unsigned-image.ts';
 import pricesGoNegative from './items/1296-prices-go-negative.ts';
 import sortByPrice from './items/1300-sort-by-price.ts';
 import longWords from './items/1302-long-words.ts';
+import apostrophe from './items/1304-apostrophe.ts';
+import quantities from './items/1311-quantities.ts';
+import stockCount from './items/1315-stock-count.ts';
+import deliveryDates from './items/1317-delivery-dates.ts';
+import wishlist from './items/1319-wishlist.ts';
+import discountCodes from './items/1323-discount-codes.ts';
+import repeatedResult from './items/1325-repeated-result.ts';
 
 export const ITEMS = [
   pino,
@@ -31,6 +40,13 @@ export const ITEMS = [
   pricesGoNegative,
   sortByPrice,
   longWords,
+  apostrophe,
+  quantities,
+  stockCount,
+  deliveryDates,
+  wishlist,
+  discountCodes,
+  repeatedResult,
 ];
 
 /** The line, running at Guarded autonomy from before the first sample. */

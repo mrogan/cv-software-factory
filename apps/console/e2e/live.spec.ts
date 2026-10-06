@@ -78,7 +78,7 @@ test.beforeAll(async () => {
   const given = process.env.TEST_DATABASE_URL;
   postgres = given ? { url: given, stop: () => {} } : await startPostgres();
   database = await createDatabase(postgres.url, 'live');
-  // Every sample but the last, which the tests append themselves, once its screenshots are in the store.
+  // Every sample but #1302, which the tests append themselves, once its screenshots are in the store.
   await load(database.writer, artifacts, SAMPLES, { except: ['1302'] });
   for (const event of live())
     for (const { hash } of event.artifacts) await artifacts.put(readFileSync(logArtifactPath(SAMPLES, hash)));
@@ -97,19 +97,19 @@ const now = (event: NewEvent) => ({ ...event, ts: new Date().toISOString() }) as
 
 test('moves an open console within a second of an append, with no refresh', async ({ page }) => {
   await page.goto('/?motion=off&debug=events');
-  await expect(page.locator('.transport .count')).toHaveText('11 of 11');
+  await expect(page.locator('.transport .count')).toHaveText('18 of 18');
   const [opened] = live();
   if (!opened) throw new Error('No events for #1302');
   const writer = new EventWriter(database.writer, { kind: 'sample', artifacts });
   const appended = Date.now();
   await writer.append(now(opened));
-  await expect(page.locator('.transport .count')).toHaveText('12 of 12', { timeout: 1000 });
+  await expect(page.locator('.transport .count')).toHaveText('19 of 19', { timeout: 1000 });
   console.log(`The console showed the new work item ${Date.now() - appended} ms after the append`);
 });
 
 test('resumes after the stream drops mid-play, with nothing missed and nothing twice', async ({ page }) => {
   await page.goto('/?motion=off&debug=events');
-  await expect(page.locator('.transport .count')).toHaveText('12 of 12');
+  await expect(page.locator('.transport .count')).toHaveText('19 of 19');
   const writer = new EventWriter(database.writer, { kind: 'sample', artifacts });
   const rest = live().slice(1);
   const half = Math.floor(rest.length / 2);

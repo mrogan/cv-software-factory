@@ -941,3 +941,119 @@ svg.chart {
     grid-template-columns: 34cqw 1fr;
   }
 }
+
+/* Waiting on Martin: the spec's ember-ruled panel, holding the pull request to merge or what a mechanism held. */
+.waits {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.7cqw;
+  padding: 3cqw 3.4cqw;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-left: max(2px, 0.4cqw) solid var(--attn);
+  border-radius: 0.4cqw 0.8cqw 0.8cqw 0.4cqw;
+  font-size: max(9px, 2.1cqw);
+  overflow: hidden;
+}
+.vis .waits .cap {
+  font-size: max(9px, 1.9cqw);
+}
+.waits .head {
+  font: 400 max(13px, 3.4cqw) / 1.1 var(--font-display);
+}
+.waits .head.mono {
+  font: max(10px, 2.4cqw) / 1.25 var(--font-mono);
+}
+.waits .head.comment {
+  font-size: max(12px, 2.6cqw);
+}
+.ticks {
+  display: grid;
+  gap: 0.9cqw;
+}
+.ticks > div {
+  display: grid;
+  grid-template-columns: max(10px, 2.4cqw) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1.2cqw;
+  color: var(--text-2);
+}
+.vis .ticks .glyph {
+  width: max(10px, 2.4cqw);
+  height: max(10px, 2.4cqw);
+  color: var(--ok);
+}
+.vis .ticks .x .glyph {
+  color: var(--attn);
+}
+.ticks .num {
+  font: max(9px, 1.9cqw) / 1 var(--font-mono);
+  color: var(--text-muted);
+}
+.waits .foot {
+  margin-top: auto;
+  padding-top: 1.4cqw;
+  display: flex;
+  justify-content: space-between;
+  gap: 2cqw;
+  border-top: 1px solid var(--line);
+  font: max(9px, 1.8cqw) / 1.3 var(--font-mono);
+  color: var(--text-muted);
+}
+.waits .plus {
+  color: var(--ok);
+}
+.waits .minus {
+  color: var(--attn);
+}
+.vis .waits .term {
+  font-size: max(9px, 1.85cqw);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.figure-big {
+  font: 400 max(20px, 6.4cqw) / 1 var(--font-mono);
+  letter-spacing: -0.2cqw;
+  font-variant-numeric: tabular-nums;
+}
+.vis .figure-big small {
+  font-size: max(9px, 2cqw);
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+.spendbar {
+  display: flex;
+  height: max(8px, 2.2cqw);
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.5cqw;
+}
+.vis .spendbar i {
+  height: 100%;
+  background: var(--signal);
+}
+.vis .spendbar i + i {
+  border-left: 1px solid var(--raised);
+}
+.vis .spendbar i:nth-child(2) {
+  opacity: 0.7;
+}
+.vis .spendbar i:nth-child(n + 3) {
+  opacity: 0.45;
+}
+.spendkey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6cqw 2.4cqw;
+  font: max(9px, 1.8cqw) / 1.3 var(--font-mono);
+  color: var(--text-2);
+}
+
+/* A small waiting panel keeps its cap, its headline and its ticks; the foot line drops first. */
+@container (max-width: 420px) {
+  .vis .waits .foot {
+    display: none;
+  }
+}

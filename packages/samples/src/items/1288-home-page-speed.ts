@@ -82,10 +82,12 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
       },
     ],
   })
-  .at('13:51', 'work.returned', 'factory', 'Review sent #1288 back · changes asked for', {
+  .at('13:51', 'work.returned', 'reviewer', '#1288 · round 2 · 1 blocking', {
     from: 'review',
     to: 'build',
     reason: 'The reviewer asked for the selection to change when the week does, not an hour after the first visit',
+    round: 2,
+    blocking: 1,
   })
   .calls('coder', '14:00', '17:00', { calls: 8, input: 210_000, output: 4_600, cached: 0.88 })
   .pushed('17:10', 'coder', 'Second attempt on PR #1290: kept until the week turns', {
@@ -95,9 +97,8 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
     attempt: 2,
     testsFirst: true,
     files: [
-      { path: 'src/pages/home.ts', added: 14, removed: 6 },
-      { path: 'src/shop.ts', added: 25, removed: 2 },
-      { path: 'test/home.test.ts', added: 48, removed: 0 },
+      { path: 'src/shop.ts', added: 5, removed: 2 },
+      { path: 'test/home.test.ts', added: 12, removed: 0 },
     ],
     whole: [
       { path: 'src/pages/home.ts', added: 14, removed: 6 },

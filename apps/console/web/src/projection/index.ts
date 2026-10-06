@@ -11,6 +11,7 @@ import { type Header, header, panel, type Return, returnsAt, type StagePanel, ty
 import { type Card, card, type Timeline, timeline } from './reel.ts';
 import { type Sheet, sheet } from './sheet.ts';
 
+export type { Attempt, Finding, ThreadReview } from './fixing.ts';
 export type { Capture, ItemState, Outcome } from './items.ts';
 export type {
   CapSpell,
@@ -26,7 +27,17 @@ export type {
 export { whileSending } from './line.ts';
 export type { Card, Picture, Segment, Source, Tag, Timeline, Versions } from './reel.ts';
 export { QUARANTINE_AT, segmentsLabel } from './reel.ts';
-export type { AgentRow, Chapter, GateRow, PageComparison, SenseEvidence, Sheet, Sighting } from './sheet.ts';
+export type {
+  After,
+  AgentRow,
+  Chapter,
+  GateRow,
+  PageComparison,
+  ScopeRow,
+  SenseEvidence,
+  Sheet,
+  Sighting,
+} from './sheet.ts';
 
 export interface View {
   t: number;

@@ -353,7 +353,7 @@ html[data-motion="off"] .scrim {
   font-size: 13.5px;
 }
 .criteria .glyph {
-  color: var(--ok);
+  color: var(--text-muted);
   margin-top: 2px;
 }
 .criteria em {
@@ -637,5 +637,344 @@ table.models {
   }
   .ch.here:not(.waiting) ~ .ch.waiting span {
     display: none;
+  }
+}
+
+/* Fixing: who wrote the story, the spec with its scope, the rounds, and the review thread. */
+.byline::before {
+  content: "WRITTEN BY";
+}
+.spec-outcome {
+  margin: 0 0 12px;
+  font: 400 21px / 1.2 var(--font-display);
+}
+/* Once verified, each criterion is ticked, in the colour that means verified. */
+.criteria.met .glyph {
+  color: var(--ok);
+}
+table.scope {
+  width: 100%;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  background: var(--raised);
+  font: 12px / 1.4 var(--font-mono);
+}
+table.scope th,
+table.scope td {
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+}
+table.scope th {
+  border-top: 0;
+  background: var(--surface);
+  font: 10px / 1.4 var(--font-mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.scope .num {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+.scope .path {
+  overflow-wrap: anywhere;
+}
+.scope .muted,
+.risks .muted {
+  color: var(--text-muted);
+}
+.scope .plus {
+  color: var(--ok);
+}
+.scope .minus,
+.scope .refused .path {
+  color: var(--attn);
+}
+.scope .refused .path {
+  text-decoration: line-through;
+}
+.risks {
+  margin: 10px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.rounds {
+  display: grid;
+  grid-template-columns: 54px repeat(3, minmax(0, 1fr));
+  gap: 0 8px;
+}
+.rounds .colh,
+.rounds .rn {
+  font: 10px / 1.4 var(--font-mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.rounds .colh {
+  padding-bottom: 6px;
+}
+.rounds .rn {
+  padding-top: 10px;
+}
+.rounds .rn b {
+  display: block;
+  font: 400 22px / 1 var(--font-mono);
+  color: var(--text);
+  letter-spacing: 0;
+}
+.cell {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 11px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  font-size: 12.5px;
+}
+.cell .t {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.cell .t.muted {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.cell .t .glyph {
+  width: 14px;
+  height: 14px;
+}
+.t.ok .glyph {
+  color: var(--ok);
+}
+.rounds .cell small {
+  font: 11px / 1.4 var(--font-mono);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.cell .plus {
+  color: var(--ok);
+}
+.cell .minus {
+  color: var(--attn);
+}
+/* The return between two rounds, drawn as the line draws it: a dashed arc from the sender back to Build. */
+.ret-row {
+  grid-column: 2 / -1;
+  position: relative;
+  height: 54px;
+}
+.ret-row > svg {
+  position: absolute;
+  overflow: visible;
+}
+.ret-row .arc {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.ret-row .arc .ret-arc {
+  vector-effect: non-scaling-stroke;
+}
+.ret-row .head {
+  left: calc(100% / 6 - 6px);
+  bottom: -3px;
+  width: 12px;
+  height: 10px;
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ret-row .ret-pill {
+  left: 50%;
+  top: 50%;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ret-row .ret-pill .glyph {
+  width: 13px;
+  height: 13px;
+}
+.rounds .after {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--attn);
+  border-radius: var(--radius-rule) var(--radius-card) var(--radius-card) var(--radius-rule);
+  font-size: 13px;
+}
+.rounds .after:has(.tone-faint) {
+  border-left-color: var(--line-strong);
+}
+
+.round + .round {
+  margin-top: 20px;
+}
+.round-h {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+}
+.round .round-h b {
+  font-weight: 500;
+}
+.round .round-h .mono {
+  font-size: 11px;
+}
+.round .note {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--line-strong);
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.remarks {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.remark {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 11px 13px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.remark .top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.remark .where {
+  font: 11.5px / 1.4 var(--font-mono);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.remark p {
+  margin: 0;
+  font-size: 13.5px;
+}
+/* Blocking is solid ink and a suggestion dashed: shape tells them apart in greyscale. Ember is for a held one. */
+.weight {
+  padding: 2px 7px;
+  border: 1px solid var(--signal);
+  border-radius: 999px;
+  font: 9.5px / 1.4 var(--font-mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.weight.blocking {
+  background: var(--signal);
+  color: var(--on-signal);
+}
+.weight.suggestion {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  color: var(--text-2);
+}
+.weight.open {
+  background: var(--attn);
+  border-color: var(--attn);
+  color: var(--on-attn);
+}
+.cites {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border-radius: var(--radius-small);
+  font-size: 12.5px;
+}
+.cites .n {
+  grid-row: span 2;
+  font: 10.5px / 1.6 var(--font-mono);
+  letter-spacing: 1px;
+  color: var(--text-muted);
+}
+.remark .cites b {
+  font-weight: 500;
+}
+.cites span:not(.n) {
+  color: var(--text-2);
+}
+
+/* The side column: a local model's row, the attempt the gates are for, and the signals beside the gates. */
+.models .who .glyph.logo {
+  stroke-width: 1.5;
+}
+.models .free {
+  color: var(--text-muted);
+}
+.side-card h3 .attempt {
+  font: 11px / 1 var(--font-mono);
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+.gates .gate small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.gate.neutral .glyph {
+  color: var(--text-muted);
+}
+.gates .sub {
+  margin: 12px 0 2px;
+}
+
+@media (max-width: 720px) {
+  .rounds {
+    grid-template-columns: 30px repeat(3, minmax(0, 1fr));
+    gap: 0 5px;
+  }
+  .rounds .rn {
+    font-size: 0;
+  }
+  .rounds .rn b {
+    font-size: 18px;
+  }
+  .cell {
+    padding: 8px 7px;
+    font-size: 11.5px;
+  }
+  .cell small {
+    font-size: 10px;
+  }
+  .ret-row .ret-pill {
+    padding: 4px 9px;
+    font-size: 10.5px;
   }
 }
