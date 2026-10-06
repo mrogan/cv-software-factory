@@ -5,7 +5,9 @@
  * - `LiveActions` does it, through the client.
  * - `DryRunActions` does nothing in GitHub. It writes each action it would have taken to the artifact store, as
  *   JSON with the files a commit would have held, and logs the artifact's hash. The unattended passes run with it,
- *   so a night on the local model leaves a record and no trace in either repository.
+ *   so a night on the local model leaves a record and no trace in either repository. It remembers the branches,
+ *   commits and pull requests it would have made, for as long as the worker runs, so the dry run's reads
+ *   (`dry-run-reads.ts`) can answer for them.
  *
  * Commits go through GraphQL's `createCommitOnBranch`, never `git push`: GitHub makes the commit and signs it as the
  * App, which `main`'s ruleset requires, and the factory never runs git in a working tree it does not control.
@@ -341,6 +343,25 @@ export interface DryRunRecord {
   args: unknown;
 }
 
+/** A commit a dry run would have made: on what, when, and each file it changed, with its new text or null if deleted. */
+export interface DryRunCommit {
+  parent: string;
+  at: Date;
+  files: Map<string, string | null>;
+}
+
+/** A pull request a dry run would have opened. */
+export interface DryRunPull {
+  number: number;
+  repo: string;
+  /** Its branch, and the branch it would merge into. */
+  head: string;
+  base: string;
+  openedAt: Date;
+  draft: boolean;
+  nodeId: string;
+}
+
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
 /** File contents as they will read in the record. */
@@ -359,10 +380,14 @@ export class DryRunActions implements Actions {
   readonly #now: () => Date;
   readonly #read: ReadFile;
   /**
-   * The commits it would have made, each with its parent and the files it changed, so a patch can go on one: the
-   * smoke run's seeded base, or a second round's fix on top of the first.
+   * The commits it would have made, each with its parent, when, and the files it changed, so a patch can go on one:
+   * the smoke run's seeded base, or a second round's fix on top of the first.
    */
-  readonly #commits = new Map<string, { parent: string; files: Map<string, string | null> }>();
+  readonly #commits = new Map<string, DryRunCommit>();
+  /** Where the branches it would have moved would point, by repository and branch. */
+  readonly #branches = new Map<string, string>();
+  /** The pull requests it would have opened, by number. */
+  readonly #pulls = new Map<number, DryRunPull>();
   /**
    * Numbers for what would have been made, from a billion up: positive, as every action that takes one requires,
    * and far beyond any this repository will reach, so none can be taken for a real one.
@@ -383,8 +408,35 @@ export class DryRunActions implements Actions {
     this.#read = read;
   }
 
+  /** A commit this dry run would have made, or undefined for any other. */
+  commitMade(sha: string): DryRunCommit | undefined {
+    return this.#commits.get(sha);
+  }
+
+  /** The real commit under a chain of commits this dry run made: where its first one would have gone. */
+  rootOf(sha: string): string {
+    let at = sha;
+    for (let made = this.#commits.get(at); made; made = this.#commits.get(at)) at = made.parent;
+    return at;
+  }
+
+  /** Where a branch this dry run moved would point, or undefined for one it never touched. */
+  branchMade(repo: string, branch: string): string | undefined {
+    return this.#branches.get(`${repo} ${branch}`);
+  }
+
+  /** A pull request this dry run would have opened, or undefined for any other number. */
+  pullRequestMade(number: number): DryRunPull | undefined {
+    return this.#pulls.get(number);
+  }
+
+  /** The pull requests this dry run would have opened, in order. */
+  pullRequestsMade(): DryRunPull[] {
+    return [...this.#pulls.values()];
+  }
+
   /** A file at a commit: as a commit this dry run made left it, or as it really is. */
-  async #file(repo: string, path: string, ref: string): Promise<string | null> {
+  async file(repo: string, path: string, ref: string): Promise<string | null> {
     let at = ref;
     for (let made = this.#commits.get(at); made; made = this.#commits.get(at)) {
       if (made.files.has(path)) return made.files.get(path) ?? null;
@@ -395,7 +447,7 @@ export class DryRunActions implements Actions {
 
   async applyPatch(repo: string, { branch, expectedHead, patch, message }: PatchCommit): Promise<string> {
     guardBranch(branch);
-    const read = (path: string) => this.#file(repo, path, expectedHead);
+    const read = (path: string) => this.file(repo, path, expectedHead);
     await guard(patch, read);
     const changes = await applyTo(patch, read);
     return this.commit(repo, { branch, expectedHead, message, changes });
@@ -416,11 +468,13 @@ export class DryRunActions implements Actions {
   async setBranch(repo: string, branch: string, sha: string, options: { force?: boolean } = {}): Promise<void> {
     guardBranch(branch);
     await this.#record('setBranch', repo, { branch, sha, ...options });
+    this.#branches.set(`${repo} ${branch}`, sha);
   }
 
   async deleteBranch(repo: string, branch: string): Promise<void> {
     guardBranch(branch);
     await this.#record('deleteBranch', repo, { branch });
+    this.#branches.delete(`${repo} ${branch}`);
   }
 
   async commit(repo: string, commit: Commit): Promise<string> {
@@ -437,14 +491,25 @@ export class DryRunActions implements Actions {
     const sha = hash.slice(0, 40);
     const files = new Map<string, string | null>(changes.deletions.map((path) => [path, null]));
     for (const a of changes.additions) files.set(a.path, new TextDecoder().decode(a.contents));
-    this.#commits.set(sha, { parent: commit.expectedHead, files });
+    this.#commits.set(sha, { parent: commit.expectedHead, at: this.#now(), files });
+    this.#branches.set(`${repo} ${commit.branch}`, sha);
     return sha;
   }
 
   async openPullRequest(repo: string, draft: PullRequestDraft): Promise<PullRequestRef> {
     await this.#record('openPullRequest', repo, draft);
     const number = this.#number();
-    return { number, url: `dry-run:${repo}#${number}`, nodeId: `dry-run-${number}` };
+    const nodeId = `dry-run-${number}`;
+    this.#pulls.set(number, {
+      number,
+      repo,
+      head: draft.head,
+      base: draft.base,
+      openedAt: this.#now(),
+      draft: draft.draft ?? false,
+      nodeId,
+    });
+    return { number, url: `dry-run:${repo}#${number}`, nodeId };
   }
 
   async updatePullRequest(repo: string, number: number, change: { title?: string; body?: string }): Promise<void> {
@@ -457,6 +522,8 @@ export class DryRunActions implements Actions {
 
   async readyForReview(repo: string, pullRequest: PullRequestRef): Promise<void> {
     await this.#record('readyForReview', repo, { number: pullRequest.number });
+    const pull = this.#pulls.get(pullRequest.number);
+    if (pull) pull.draft = false;
   }
 
   async updateBranch(repo: string, number: number, expectedHead: string): Promise<void> {

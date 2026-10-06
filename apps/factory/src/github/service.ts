@@ -9,6 +9,7 @@ import { GitHub } from './client.ts';
 import type { GitHubConfig } from './config.ts';
 import { currentWatch } from './current.ts';
 import { DEPLOYS, deployWatch } from './deploys.ts';
+import { DryRunReads } from './dry-run-reads.ts';
 import { Poller } from './poller.ts';
 import { LiveReads } from './reads.ts';
 import { Registry } from './registry.ts';
@@ -25,6 +26,8 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
     ? new DryRunActions(new DiskArtifacts(config.artifactsDir), log, undefined, contentsReader(github))
     : undefined;
   const actions: Actions = config.dryRun && dryRun ? dryRun : new LiveActions(github);
+  const liveReads = new LiveReads(github);
+  const dryRunReads = dryRun ? new DryRunReads(dryRun, liveReads, config.dryRunTimes) : undefined;
   const poller = new Poller({ intervalMs: config.pollMs, log });
 
   const mode = config.dryRun ? 'dry-run' : github.writable ? 'live' : 'read-only';
@@ -48,8 +51,9 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
   }
   const server = createWorkerServer({
     actions,
-    reads: new LiveReads(github),
+    reads: config.dryRun && dryRunReads ? dryRunReads : liveReads,
     dryRun,
+    dryRunReads,
     repositories: config.repositories,
     health: () => ({ mode, watching: poller.watching }),
     log,

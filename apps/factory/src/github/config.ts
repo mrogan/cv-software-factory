@@ -1,18 +1,24 @@
 /**
  * The GitHub worker's settings, read from the environment.
  *
- *     GITHUB_APP_CLIENT_ID     the App's Client ID; with the key, the worker acts as the App
- *     GITHUB_APP_PRIVATE_KEY   the App's private key, as PEM. Without it the worker reads, writes nothing, and says so
- *     GITHUB_DRY_RUN           true: write nothing to GitHub, and record each action in the artifact store instead
- *     ARTIFACTS_DIR            the artifact store, for a dry run's records
- *     GITHUB_REPOSITORIES      the repositories it acts on, separated by commas (default: both public ones)
- *     GITHUB_POLL_SECONDS      how often it polls (default 60)
- *     GITHUB_API_URL, GHCR_URL GitHub's API and GHCR, for a stand-in
- *     PORT                     default 8080
- *     HOST                     the address to listen on (default 127.0.0.1; the cluster's Deployment says 0.0.0.0)
+ *     GITHUB_APP_CLIENT_ID            the App's Client ID; with the key, the worker acts as the App
+ *     GITHUB_APP_PRIVATE_KEY          the App's private key, as PEM. Without it the worker reads, writes nothing,
+ *                                     and says so
+ *     GITHUB_DRY_RUN                  true: write nothing to GitHub, and record each action in the artifact store
+ *                                     instead
+ *     ARTIFACTS_DIR                   the artifact store, for a dry run's records
+ *     GITHUB_DRY_RUN_CHECKS_SECONDS   how long after a dry run's commit its checks pass (default 120)
+ *     GITHUB_DRY_RUN_MERGE_SECONDS    how long after a dry run's pull request opens it is merged (default 1200)
+ *     GITHUB_REPOSITORIES             the repositories it acts on, separated by commas (default: both public ones)
+ *     GITHUB_POLL_SECONDS             how often it polls (default 60)
+ *     GITHUB_API_URL, GHCR_URL        GitHub's API and GHCR, for a stand-in
+ *     PORT                            default 8080
+ *     HOST                            the address to listen on (default 127.0.0.1; the cluster's Deployment says
+ *                                     0.0.0.0)
  */
 import type { AppCredentials } from './app.ts';
 import { API } from './client.ts';
+import type { DryRunTimes } from './dry-run-reads.ts';
 import { GHCR } from './registry.ts';
 
 /** The two public repositories: the factory's own, and the app it looks after. */
@@ -22,6 +28,8 @@ export interface GitHubConfig {
   credentials: AppCredentials | undefined;
   dryRun: boolean;
   artifactsDir: string | undefined;
+  /** When the dry run's checks pass, and its pull requests merge, so a line in dry-run goes round. */
+  dryRunTimes: DryRunTimes;
   repositories: string[];
   pollMs: number;
   api: string;
@@ -44,6 +52,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv): GitHubConfig {
     credentials: clientId && privateKey ? { clientId, privateKey } : undefined,
     dryRun,
     artifactsDir: env.ARTIFACTS_DIR || undefined,
+    dryRunTimes: {
+      checksAfterMs: seconds(env, 'GITHUB_DRY_RUN_CHECKS_SECONDS', 120) * 1000,
+      mergeAfterMs: seconds(env, 'GITHUB_DRY_RUN_MERGE_SECONDS', 1200) * 1000,
+    },
     repositories: (env.GITHUB_REPOSITORIES || REPOSITORIES.join(','))
       .split(',')
       .map((r) => r.trim())
@@ -65,4 +77,12 @@ export function configFromEnv(env: NodeJS.ProcessEnv): GitHubConfig {
   }
   if (!(config.pollMs >= 10_000)) throw new Error('GITHUB_POLL_SECONDS must be at least 10.');
   return config;
+}
+
+/** A number of seconds from the environment, or its default: whole, and not negative. */
+function seconds(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const value = env[name]?.trim() ? Number(env[name]) : fallback;
+  if (!Number.isInteger(value) || value < 0)
+    throw new Error(`${name} is ${JSON.stringify(env[name])}; it must be whole seconds.`);
+  return value;
 }
