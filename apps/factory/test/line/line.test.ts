@@ -491,7 +491,7 @@ describe('the line', () => {
     await local.pass(); // the planner, on the local model
     await local.pass(); // the coder, on Claude
     const [planner, coder] = local.steps.requests;
-    expect(planner).toMatchObject({ agent: 'planner', maxTurns: 60, deadlineSeconds: 45 * 60 });
+    expect(planner).toMatchObject({ agent: 'planner', maxTurns: 60, deadlineSeconds: 60 * 60 });
     expect(coder).toMatchObject({ agent: 'coder', maxTurns: 50, deadlineSeconds: 30 * 60 });
     // The step's own record says what bounds it had.
     expect((await payloads(workItem, 'model.called')).map((p) => p.settings.maxTurns)).toEqual([60, 50]);

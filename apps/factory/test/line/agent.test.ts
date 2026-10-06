@@ -89,11 +89,13 @@ describe('an agent’s bounds', () => {
       expect(boundsOn(AGENTS[agent], 'bedrock'), agent).toEqual({ maxTurns, deadlineSeconds });
       expect(boundsOn(AGENTS[agent], 'local'), agent).toEqual({
         maxTurns: maxTurns * 2,
-        deadlineSeconds: deadlineSeconds * 3,
+        deadlineSeconds: deadlineSeconds * 4,
       });
     }
-    // The describer and the planner took up to 23 minutes on Qwen.
-    expect(boundsOn(AGENTS.describer, 'local').deadlineSeconds).toBeGreaterThan(23 * 60);
-    expect(boundsOn(AGENTS.planner, 'local').deadlineSeconds).toBeGreaterThan(23 * 60);
+    // In the first soak a planner that finished took up to 44 minutes on Qwen, and the coder 54.
+    for (const agent of ['planner', 'reviewer', 'describer'] as const) {
+      expect(boundsOn(AGENTS[agent], 'local').deadlineSeconds, agent).toBeGreaterThan(44 * 60);
+    }
+    expect(boundsOn(AGENTS.coder, 'local').deadlineSeconds).toBeGreaterThan(54 * 60);
   });
 });

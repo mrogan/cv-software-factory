@@ -161,11 +161,15 @@ export function defineAgent<Input, Result>(
 
 /**
  * How much longer, and how many more turns, an agent has on a local model. Each agent's bounds are set for Claude;
- * Qwen 27B on a laptop is slower and less sure-footed, and serves one call at a time to every stage. On it the
- * describer took about 20 minutes and the planner 15 to 23, against a deadline of 15 set for Claude, and the coder
- * took 8 to 12 turns where Claude took 4 on the same fix. Only a step on a local model is given these: Claude's bounds stay as they are.
+ * Qwen 27B on a laptop is slower and less sure-footed: it took twice Claude's turns on the same fix. Its pace is
+ * measured: it reads a prompt at about 330 tokens a second and writes about 13 a second, alone on the laptop, and a
+ * call that writes for 15 minutes ends at the gateway's limit, to be tried again. In the first soak, a step that
+ * finished took up to 44 minutes (a planner that reproduced the defect) and the coder up to 54. With the prompt
+ * cached from call to call and the planner stopping at its diagnosis, those calls come to 25 minutes at most. Four
+ * times Claude's deadline, an hour for a planner, holds that, one lost 15-minute call, and as long again to spare.
+ * Only a step on a local model is given these: Claude's bounds stay as they are.
  */
-export const LOCAL_MODEL_PACE = { deadline: 3, turns: 2 } as const;
+export const LOCAL_MODEL_PACE = { deadline: 4, turns: 2 } as const;
 
 /** An agent's bounds for one step: its turns, and its seconds of work. */
 export interface Bounds {
