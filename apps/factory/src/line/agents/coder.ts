@@ -6,9 +6,10 @@
  */
 import type { PayloadOf, Stage } from '@software-factory/events';
 import { z } from 'zod';
-import { filesIn } from '../../github/patches.ts';
+import { filesIn, PatchRefused } from '../../github/patches.ts';
+import { GitHubWorkerError } from '../../github/worker-client.ts';
 import { fence } from '../../runners/scope.ts';
-import { answerOf, defineAgent, holdDraft, need, StepFailed } from './agent.ts';
+import { answerOf, defineAgent, holdDraft, need, StepFailed, StepStale } from './agent.ts';
 
 export interface CoderInput {
   workItem: string;
@@ -69,7 +70,7 @@ export const coder = defineAgent<CoderInput, CoderResult>({
     const { workItem, issue, state, commit } = context;
     const { patch } = handback;
     if (!patch) throw new StepFailed('The coder handed back no change');
-    const fenced = fence(patch, spec.scope);
+    const fenced = refusing(() => fence(patch, spec.scope));
     if (!fenced.ok) {
       const reason = `The coder changed files outside the spec’s scope: ${fenced.outside.join(', ')}`.slice(0, 300);
       return [holdDraft('factory', { stage: 'build', kind: 'held', cause: 'scope', reason })];
@@ -80,7 +81,9 @@ export const coder = defineAgent<CoderInput, CoderResult>({
       // A first round starts the branch at the commit; so does a push that was begun and may have been made, so
       // the patch is never applied on top of itself.
       if (!state.pullRequest || again) await context.act('setBranch', { branch, sha: commit, force: true });
-      return context.act('applyPatch', { branch, expectedHead: commit, patch, message });
+      return context.act('applyPatch', { branch, expectedHead: commit, patch, message }).catch((error: unknown) => {
+        throw judged(error);
+      });
     });
     const number =
       state.pullRequest?.number ??
@@ -100,7 +103,7 @@ export const coder = defineAgent<CoderInput, CoderResult>({
           ).number,
       ));
     await context.keepSession(handback.session);
-    const files = changedFiles(patch);
+    const files = refusing(() => changedFiles(patch));
     return [
       {
         type: 'pull-request.pushed',
@@ -118,6 +121,29 @@ export const coder = defineAgent<CoderInput, CoderResult>({
     ];
   },
 });
+
+/** A patch the factory cannot read is the coder's failure. */
+function refusing<T>(read: () => T): T {
+  try {
+    return read();
+  } catch (error) {
+    if (error instanceof PatchRefused) throw new StepFailed(`The coder's change cannot be applied: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * What GitHub refusing the push means. A patch it will not apply is the coder's failure; a branch that moved while
+ * the coder worked (Martin's push, or main merged in) makes the step start again from the branch as it is.
+ * Anything else is GitHub's, and the push is tried again.
+ */
+function judged(error: unknown): unknown {
+  if (!(error instanceof GitHubWorkerError)) return error;
+  if (error.kind === 'patch-refused')
+    return new StepFailed(`GitHub would not take the coder's change: ${error.message}`);
+  if (error.status === 409) return new StepStale(`The branch moved while the coder worked: ${error.message}`);
+  return error;
+}
 
 /** A fix's branch: the factory's prefix, the work item, and a few words of its ticket's title. */
 export function branchFor(workItem: string, title: string): string {

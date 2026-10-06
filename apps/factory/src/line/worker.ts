@@ -28,7 +28,15 @@ import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../github/server.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
-import { count, type EffectsContext, holdDraft, need, type StepContext, StepFailed } from './agents/agent.ts';
+import {
+  count,
+  type EffectsContext,
+  holdDraft,
+  need,
+  type StepContext,
+  StepFailed,
+  StepStale,
+} from './agents/agent.ts';
 import { AGENTS, type Agents } from './agents/index.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
 import {
@@ -379,8 +387,9 @@ export class Line {
   }
 
   /**
-   * Does what a kept handback says, in GitHub and as events. A `StepFailed` counts against the step; anything else
-   * (GitHub or the store failing) keeps the handback for another try, without the agent.
+   * Does what a kept handback says, in GitHub and as events. A `StepFailed` counts against the step, and a
+   * `StepStale` runs it again uncounted; anything else (GitHub or the store failing) keeps the handback for another
+   * try, without the agent.
    */
   async #effects(item: QueueItem, state: WorkItemState, pending: Pending): Promise<void> {
     const { workItem } = item;
@@ -395,6 +404,12 @@ export class Line {
     } catch (error) {
       if (error instanceof StepFailed)
         return await this.#failed(workItem, agent, pending.job, pending.called, error.message);
+      if (error instanceof StepStale) {
+        await this.#append(workItem, pending.called);
+        await this.#queue.drop(workItem);
+        this.#o.log.info({ workItem, agent, job: pending.job, reason: error.message }, 'a step is out of date: again');
+        return;
+      }
       const reason = errorOf(error).message;
       const tries = pending.tries + 1;
       if (tries >= LIMITS.effects) {

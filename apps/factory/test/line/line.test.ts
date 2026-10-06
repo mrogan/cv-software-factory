@@ -6,6 +6,7 @@ import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/stor
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { Handback } from '../../../runner/src/step.ts';
+import { GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { Line } from '../../src/line/worker.ts';
 import { quiet } from '../github/fake.ts';
 import { type Agent, FakeGitHub, FakeSteps, MAIN } from './fakes.ts';
@@ -478,6 +479,38 @@ describe('the line', () => {
     await pass();
     expect(github.acts.filter((a) => a.action === 'openPullRequest')).toHaveLength(1);
     expect((await payloads(workItem, 'pull-request.pushed')).map((p) => p.number)).toEqual([12]);
+  });
+
+  it('counts a patch GitHub will not apply against the coder, and a branch that moved not at all', async () => {
+    const workItem = await ticket();
+    const { pass, steps, github } = line();
+    await pass();
+    github.refusing.set('applyPatch', new GitHubWorkerError(422, 'patch-refused', 'The patch does not apply.'));
+    await pass();
+    expect(await failures(workItem)).toEqual({
+      failures: 1,
+      failure: "GitHub would not take the coder's change: The patch does not apply.",
+    });
+    github.refusing.set('applyPatch', new GitHubWorkerError(409, 'conflict', 'The branch is not at the commit.'));
+    await pass(); // the coder again, and the branch has moved under it
+    expect(await failures(workItem)).toEqual({
+      failures: 1,
+      failure: "GitHub would not take the coder's change: The patch does not apply.",
+    });
+    await pass(); // and again, from the branch as it is
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'coder', 'coder']);
+    expect(await types(workItem)).toContain('pull-request.pushed');
+  });
+
+  it('counts a change the factory cannot read against the coder', async () => {
+    const workItem = await ticket();
+    const binary = `${PATCH}diff --git a/src/logo.png b/src/logo.png\nBinary files a/src/logo.png and b/src/logo.png differ\n`;
+    const { pass } = line({ ...AGENTS, coder: () => handback({ title: 'fix(search): escape it' }, binary) });
+    await pass();
+    await pass();
+    expect((await failures(workItem))?.failure).toBe(
+      "The coder's change cannot be applied: The patch changes a binary file.",
+    );
   });
 
   it('holds the work item when its effects keep failing', async () => {

@@ -22,6 +22,14 @@ export class StepFailed extends Error {
   override name = 'StepFailed';
 }
 
+/**
+ * The work item moved under a step, as when its branch moved while the agent worked: the handback is no use, and
+ * the step runs again from where the work item is now, without counting against it.
+ */
+export class StepStale extends Error {
+  override name = 'StepStale';
+}
+
 /** What a sense saw, by its typed fields only. */
 export interface Signal {
   sense: string;
