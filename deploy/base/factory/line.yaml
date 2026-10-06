@@ -100,6 +100,11 @@ spec:
               value: http://gateway.factory.svc:8080
             - name: RUNNER_HANDBACK_URL
               value: http://line.factory.svc:8081/v1/handback
+            # The gateway's profile (gateway.yaml), for the cap on a work item's spend that the line holds at, and for
+            # where policy/models.ts sends each agent's calls. With ALL_LOCAL, set here as on the gateway, a step on
+            # the local model is given longer.
+            - name: FACTORY_PROFILE
+              value: local
           # The handback's port: the step API listens on loopback only, so the kubelet cannot reach it.
           readinessProbe:
             httpGet:
