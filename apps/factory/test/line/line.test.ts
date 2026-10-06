@@ -510,6 +510,25 @@ describe('the line', () => {
     expect(await stage(waiting)).toBeUndefined();
   });
 
+  it('takes as many tickets as it is told by its own rule, carries them to the end, and then takes no more', async () => {
+    const cosmetic = await ticket('cosmetic', '/');
+    const broken = await ticket('broken', '/search');
+    const one = line(AGENTS, events, { take: 1 });
+    await one.pass(); // the planner
+    await one.pass(); // the coder
+    one.github.pass();
+    await one.pass(); // the gates, and the reviewer
+    await one.pass(); // the describer
+    await one.pass(); // the hold for Martin's merge
+    expect(await stage(broken)).toBe('held');
+    expect(one.steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'reviewer', 'describer']);
+    // Nothing is in Plan or Build, but the line has taken its one: the cosmetic ticket waits, after a restart too.
+    await one.pass();
+    await line(AGENTS, events, { take: 1 }).pass();
+    expect(await stage(cosmetic)).toBeUndefined();
+    expect(new Set(one.steps.requests.map((r) => r.workItem))).toEqual(new Set([broken]));
+  });
+
   it('gives a step on a local model longer, and more turns, as the policy routes its agent, and Claude’s none', async () => {
     const workItem = await ticket();
     const local = line(AGENTS, events, { providerOf: (agent) => (agent === 'planner' ? 'local' : 'anthropic') });

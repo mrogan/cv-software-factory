@@ -106,6 +106,11 @@ export interface LineOptions {
   providerOf?: (agent: LineAgent) => 'anthropic' | 'bedrock' | 'local';
   /** The one work item the line acts on, leaving every other as it is; null, as by default, for them all. */
   only?: string | null;
+  /**
+   * How many work items the line takes in all, counting every one it has taken, before it takes no more; null, as by
+   * default, for no limit. Those already on it go on to their end.
+   */
+  take?: number | null;
 }
 
 export const APP_REPOSITORY = 'mrogan/cv-worlds-worst-website';
@@ -139,9 +144,13 @@ export class Line {
       workItemLimitUsd: null,
       providerOf: () => 'anthropic',
       only: null,
+      take: null,
       ...options,
     };
-    this.#queue = new Queue(options.sql, options.me ?? `line-${hostname()}`, { only: this.#o.only });
+    this.#queue = new Queue(options.sql, options.me ?? `line-${hostname()}`, {
+      only: this.#o.only,
+      take: this.#o.take,
+    });
   }
 
   /**
