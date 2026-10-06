@@ -24,27 +24,13 @@
  * A hold waits for Martin's answer, and what the answer does depends on why the work item is held: `ANSWERS` has a
  * rule for each cause and each answer.
  */
-import { type HoldCause, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
+import { type HoldCause, LIMITS, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
 
 /** The agents the line runs, each in a runner. */
 export type LineAgent = 'planner' | 'coder' | 'reviewer' | 'describer';
 
-/** How far the line lets a work item go round before it holds for Martin. */
-export const LIMITS = {
-  /** Reviews a work item has: blocking findings after the last of them hold it (the decisions: two rounds). */
-  reviews: 2,
-  /** Times failing gates send the coder back before the work item holds. */
-  gateReturns: 2,
-  /** Failed attempts at one step (no handback, no result, a result its schema refuses) before it holds. */
-  failures: 2,
-  /** Tries at a handback's effects, when GitHub or the store fails, before the work item holds. */
-  effects: 6,
-  /**
-   * Patches the scope fence refuses before the work item holds: the first goes back to the coder with the fence's
-   * output, and the second holds. Martin's answer to the hold starts the count again.
-   */
-  fenceRefusals: 2,
-} as const;
+/** The bounds on the loop, shared with the console, which draws how near a work item is to them. */
+export { LIMITS };
 
 type Answer = PayloadOf<'hold.answered'>['decision'];
 

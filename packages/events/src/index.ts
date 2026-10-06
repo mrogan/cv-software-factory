@@ -3,6 +3,7 @@
  * in the browser. Node-only parts are separate entry points: `schemas` (validation, with Zod), `public` (public
  * views) and `log` (event-log folders on disk).
  */
+export * from './line.ts';
 export * from './log-format.ts';
 export type * from './types.ts';
 export * from './upcast.ts';
