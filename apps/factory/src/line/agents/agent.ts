@@ -73,7 +73,10 @@ export interface EffectsContext extends StepContext {
 
 export interface AgentDefinition<Input, Result> {
   agent: LineAgent;
-  /** The skill the prompt names, which the runner tells the agent to use. */
+  /**
+   * The skill the step names, from the runner's plugin (`apps/runner/plugin`): the runner gives the agent that skill
+   * alone, and tells it to use it.
+   */
   skill?: string;
   /** Turns, and seconds of work, before the step ends unfinished. */
   maxTurns: number;
@@ -86,6 +89,11 @@ export interface AgentDefinition<Input, Result> {
   readsChange?: boolean;
   /** What the step is given, from its work item. Throws `StepFailed` when the work item lacks something it needs. */
   input(context: StepContext): Input | Promise<Input>;
+  /**
+   * Fields of the result the agent writes as files of their own, by field, with their names: prose, such as a pull
+   * request's description, is easier to write well as a Markdown file than inside a JSON string.
+   */
+  resultFiles?: Record<string, `${string}.md`>;
   prompt(input: Input): string;
   /**
    * The session the step carries on, if it resumes one. The definition decides it from the input alone, as it decides
@@ -108,6 +116,7 @@ export interface Agent {
   maxTurns: number;
   deadlineSeconds: number;
   readsChange?: boolean;
+  resultFiles?: Record<string, `${string}.md`>;
   /** Begins a step: what the agent is asked, and what to make of what it hands back. */
   start(context: StepContext): Promise<Started>;
 }
@@ -174,3 +183,16 @@ export function holdDraft(actor: NewEvent['actor'], hold: PayloadOf<'hold.starte
         : `Held for Martin at ${hold.stage}`;
   return { type: 'hold.started', actor, summary, payload: hold };
 }
+
+/**
+ * A fix's pull request title, and so its squash commit's headline: a Conventional Commit of 80 characters at most,
+ * which both the coder and the describer write.
+ */
+export const commitTitle = z
+  .string()
+  .trim()
+  .max(80)
+  .regex(
+    /^(fix|test|refactor|perf)(\([a-z0-9-]+\))?: \S.{0,70}$/,
+    'a Conventional Commit title of 80 characters at most',
+  );

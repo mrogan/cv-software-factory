@@ -138,6 +138,7 @@ async function step<A extends LineAgent>(
     ...(definition.skill ? { skill: definition.skill } : {}),
     maxTurns: definition.maxTurns,
     result: true,
+    ...(definition.resultFiles ? { resultFiles: definition.resultFiles } : {}),
     ...(o.fixture.seed ? { seed: o.fixture.seed } : {}),
     ...(resume ? { resume } : {}),
   };

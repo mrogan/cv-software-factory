@@ -116,7 +116,7 @@ describe('what the line does next', () => {
     expect(decide([...back, pushed(2)], facts).next).toEqual({ do: 'wait', for: 'gates' });
     const reviewing = [...back, ...passed(2)];
     expect(decide(reviewing, facts)).toEqual({ stage: 'review', next: { do: 'step', agent: 'reviewer', round: 2 } });
-    expect(fold(reviewing)).toMatchObject({ review: undefined, lastReview: { findings: [finding] }, reviews: 1 });
+    expect(fold(reviewing)).toMatchObject({ review: undefined, reviews: [{ findings: [finding] }] });
     // Round 2 still blocks: two reviews are the limit, and Martin decides.
     expect(LIMITS.reviews).toBe(2);
     expect(decide([...reviewing, review('changes-requested')], facts)).toEqual({
@@ -131,12 +131,11 @@ describe('what the line does next', () => {
         },
       },
     });
-    // Round 2 approves: on to the describer.
-    expect(decide([...reviewing, review('approved')], facts).next).toEqual({
-      do: 'step',
-      agent: 'describer',
-      round: 2,
-    });
+    // Round 2 approves: on to the describer, which reads the whole thread and the way back.
+    const approved = [...reviewing, review('approved')];
+    expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'describer', round: 2 });
+    expect(fold(approved).reviews.map((r) => r.verdict)).toEqual(['changes-requested', 'approved']);
+    expect(fold(approved).returns).toEqual([{ from: 'review', reason: expect.any(String) }]);
     // An escalation holds at once.
     expect(decide([ticket, spec, ...passed(1), review('escalated')], facts)).toMatchObject({ stage: 'held' });
   });
@@ -418,6 +417,23 @@ describe('Martin’s answer to a hold', () => {
       agent: 'reviewer',
       round: 1,
     });
+    expect(decide([...failed, answer('rejected')], facts).next).toMatchObject({ do: 'close' });
+  });
+
+  it('runs a describer that kept failing again when he answers, and closes it when he rejects', () => {
+    const failed = [
+      ticket,
+      spec,
+      pushed(),
+      started(),
+      finished('passed'),
+      review('approved'),
+      held('failures', 'review'),
+    ];
+    for (const decision of [answer('approved'), answer('answered', 'Keep it short')]) {
+      expect(decide([...failed, decision], facts).next).toEqual({ do: 'step', agent: 'describer', round: 1 });
+    }
+    expect(fold([...failed, answer('answered', 'Keep it short')]).answer?.text).toBe('Keep it short');
     expect(decide([...failed, answer('rejected')], facts).next).toMatchObject({ do: 'close' });
   });
 

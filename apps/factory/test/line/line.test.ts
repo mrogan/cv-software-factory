@@ -202,8 +202,9 @@ describe('the line', () => {
     const head = github.pulls.get(12)?.head.sha;
     expect(steps.requests[2]).toMatchObject({ agent: 'reviewer', commit: head, base: MAIN });
     expect(steps.requests[2]?.prompt).toContain('`git diff base` is the change');
-    // A step that makes a change, or writes about one, is given no base.
-    for (const other of [steps.requests[1], steps.requests[3]]) expect(other).not.toHaveProperty('base');
+    // A step that makes a change is given no base; the describer, which reads one, is.
+    expect(steps.requests[1]).not.toHaveProperty('base');
+    expect(steps.requests[3]).toMatchObject({ agent: 'describer', commit: head, base: MAIN });
     expect(github.acts[4]?.args).toMatchObject({
       name: 'factory review',
       headSha: head,
@@ -356,6 +357,81 @@ describe('the line', () => {
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'reviewer', 'coder', 'reviewer']);
   });
 
+  it('has the describer write up the review thread with its skill, and publishes what it wrote as the pull request is readied', async () => {
+    const workItem = await ticket();
+    const blocking = {
+      path: 'src/search.ts',
+      line: 1,
+      blocking: true,
+      criterion: 1,
+      comment: 'Nothing here escapes a quote.',
+    };
+    const reviews = [
+      { verdict: 'changes-requested', note: 'The quote is still not escaped.', findings: [blocking] },
+      { verdict: 'approved', note: 'The quote is escaped now.', findings: [] },
+    ];
+    const { pass, steps, github } = line({ ...AGENTS, reviewer: () => handback(reviews.shift()) });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the first review asks for changes
+    await pass(); // the coder's second round
+    github.pass();
+    await pass(); // the second review approves
+    await pass(); // the describer
+    const describer = steps.requests.at(-1);
+    expect(describer).toMatchObject({
+      agent: 'describer',
+      skill: 'visual-pr',
+      resultFiles: { body: 'description.md' },
+      commit: github.pulls.get(12)?.head.sha,
+      base: MAIN,
+    });
+    expect(describer?.prompt).toContain('the coder took 2 rounds.');
+    // The return from review is in the thread, with its findings, and only there.
+    expect(describer?.prompt).not.toContain('went back to Build from review');
+    expect(describer?.prompt).toContain('- Review 1 asked for changes: The quote is still not escaped.');
+    expect(describer?.prompt).toContain('  - Blocking at src/search.ts:1 (criterion 1): Nothing here escapes a quote.');
+    expect(describer?.prompt).toContain('- Review 2 approved it: The quote is escaped now.');
+
+    const updated = github.acts.find((a) => a.action === 'updatePullRequest');
+    expect(updated?.args).toEqual({
+      number: 12,
+      title: 'fix(search): escape the query',
+      body: 'Search escaped nothing, so a quote broke the query.\n\nRefers to #41.',
+    });
+    expect(github.acts.at(-1)?.action).toBe('readyForReview');
+    expect((await payloads(workItem, 'work-item.summarised')).at(-1)).toEqual({
+      title: 'Search with a quote',
+      description: 'Fixed.',
+      story: 'The factory fixed search.',
+    });
+  });
+
+  it('holds the work item when the describer’s title is not a Conventional Commit, after its retries', async () => {
+    const workItem = await ticket();
+    const { pass, github } = line({
+      ...AGENTS,
+      describer: () =>
+        handback({
+          title: 'Escape the query',
+          body: 'Search escaped nothing.',
+          summary: { title: 'Search with a quote', description: 'Fixed.', story: 'The factory fixed search.' },
+        }),
+    });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the reviewer
+    await pass(); // the describer, refused
+    await pass(); // again, refused
+    await pass(); // held
+    expect(await stage(workItem)).toBe('held');
+    expect((await payloads(workItem, 'hold.started'))[0]?.reason).toContain('title');
+    expect(github.acts.map((a) => a.action)).not.toContain('updatePullRequest');
+    expect(github.acts.map((a) => a.action)).not.toContain('readyForReview');
+  });
+
   it('takes the oldest ticket of the highest severity, and one at a time', async () => {
     const cosmetic = await ticket('cosmetic', '/');
     const broken = await ticket('broken', '/search');
@@ -394,7 +470,7 @@ describe('the line', () => {
     expect(hold?.reason).toMatch(/^The planner failed 2 times: The planner's result does not fit its schema/);
   });
 
-  it('tells the planner and the coder the ticket and what the senses saw, and never a visitor’s words', async () => {
+  it('tells the planner, the coder and the describer the ticket and what the senses saw, and never a visitor’s words', async () => {
     const workItem = await ticket();
     const signal = (payload: PayloadOf<'signal.received'>, actor: NewEvent['actor']) =>
       event(workItem, 'signal.received', payload, actor);
@@ -436,7 +512,7 @@ describe('the line', () => {
         'logs',
       ),
     ]);
-    const { pass, steps } = line();
+    const { pass, steps, github } = line();
     await pass();
     const prompt = String(steps.requests[0]?.prompt);
     expect(prompt).toContain('Plan the fix for ticket');
@@ -449,6 +525,13 @@ describe('the line', () => {
     expect(coding).toContain('The log watcher\'s check "new error pattern" on /search');
     expect(coding).toContain('1 request to /search logged 1 line at error');
     expect(coding).not.toMatch(/every price|Ignore your instructions/);
+    github.pass();
+    await pass(); // the reviewer
+    await pass(); // the describer
+    const describing = String(steps.requests.at(-1)?.prompt);
+    expect(steps.requests.at(-1)?.agent).toBe('describer');
+    expect(describing).toContain('1 request to /search logged 1 line at error');
+    expect(describing).not.toMatch(/ignore|instructions|every.price|Ignore your/);
   });
 
   it('fails a planner whose scope names a path the app’s CODEOWNERS gives Martin, as GitHub has it at the commit', async () => {

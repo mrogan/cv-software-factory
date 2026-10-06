@@ -2,8 +2,8 @@
  * The bench's fixtures: invented work for each agent, from which its module builds the prompt the line would send.
  * A fixture names the app's commit it starts from, pinned, so a step recorded from it replays from the cassettes
  * for as long as they are kept; and, for a defect the app does not have, a seed the prepare step commits as the base.
- * A fixture for a step that reads a change (the reviewer's) has the change too: a coder's patch, which the bench
- * commits on the base as the pull request's head.
+ * A fixture for a step that reads a change (the reviewer's, the describer's) has the change too: a coder's patch,
+ * which the bench commits on the base as the pull request's head.
  *
  * Every fixture is invented: a ticket, a spec or a pull request no visitor wrote. A cassette recorded from one holds
  * only that and the app's public code.
@@ -169,6 +169,13 @@ diff --git a/test/pages-product.test.ts b/test/pages-product.test.ts
      expect(textOf(body)).toContain('Item 5 Department Garden Stock 1 in stock');
 `;
 
+/** The commit message of the coder's fix for the wrong price: its title, and its note. */
+const PRICE_FIX_MESSAGE = [
+  'fix(money): always show two digits of pence',
+  '',
+  'pounds() printed the pence remainder without padding, so 600 pence showed as £6.0 and 705 pence as £7.5. The remainder is now padded to two digits. Tests added in test/money.test.ts (600, 705, 10 pence) and test/pages-product.test.ts (a whole-pound price on the product page shows £2.00); they failed before the fix and pass now, with the rest of the suite.',
+].join('\n');
+
 /**
  * The coder's fix from the `cards-outside-scope` fixture, as Claude wrote it: inside the scope, so `pounds` is fixed
  * and the cards, which no longer call it, are not; its note says they are.
@@ -210,6 +217,35 @@ diff --git a/test/pages-product.test.ts b/test/pages-product.test.ts
    it('gives its item number, department and stock', async () => {
      const { body } = await shop.get('/products/thing-5');
      expect(textOf(body)).toContain('Item 5 Department Garden Stock 1 in stock');
+`;
+
+/** The coder's fix for the smoke run's off-by-one, after a review sent its first test back: test first, then the fix. */
+const SMOKE_FIX = `diff --git a/src/smoke.ts b/src/smoke.ts
+--- a/src/smoke.ts
++++ b/src/smoke.ts
+@@ -1,4 +1,4 @@
+ /** The index of a list's last item. */
+ export function lastIndex(items: readonly unknown[]): number {
+-  return items.length;
++  return items.length - 1;
+ }
+diff --git a/test/smoke.test.ts b/test/smoke.test.ts
+new file mode 100644
+--- /dev/null
++++ b/test/smoke.test.ts
+@@ -0,0 +1,12 @@
++import { describe, expect, it } from 'vitest';
++import { lastIndex } from '../src/smoke.ts';
++
++describe('lastIndex', () => {
++  it('gives the index of the last of three items', () => {
++    expect(lastIndex(['a', 'b', 'c'])).toBe(2);
++  });
++
++  it('gives the index of the only item', () => {
++    expect(lastIndex(['a'])).toBe(0);
++  });
++});
 `;
 
 /** The ticket triage would open for the wrong price, as its public view has it. */
@@ -431,11 +467,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       seed: PRICE_SEED,
       change: {
         patch: PRICE_FIX,
-        message: [
-          'fix(money): always show two digits of pence',
-          '',
-          'pounds() printed the pence remainder without padding, so 600 pence showed as £6.0 and 705 pence as £7.5. The remainder is now padded to two digits. Tests added in test/money.test.ts (600, 705, 10 pence) and test/pages-product.test.ts (a whole-pound price on the product page shows £2.00); they failed before the fix and pass now, with the rest of the suite.',
-        ].join('\n'),
+        message: PRICE_FIX_MESSAGE,
       },
       input: {
         workItem: FIXTURE_WORK_ITEM,
@@ -467,5 +499,101 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       },
     },
   },
-  describer: {},
+  describer: {
+    'wrong-price': {
+      about: "the coder's fix for the wrong price, which the gates and the reviewer passed in one round",
+      commit: APP_MAIN,
+      seed: PRICE_SEED,
+      change: { patch: PRICE_FIX, message: PRICE_FIX_MESSAGE },
+      input: {
+        workItem: '999999999',
+        ticket: PRICE_TICKET,
+        signals: PRICE_SIGNALS,
+        spec: PRICE_SPEC,
+        pullRequest: 101,
+        title: 'fix(money): always show two digits of pence',
+        reviews: [
+          {
+            pullRequest: 101,
+            verdict: 'approved',
+            note: 'Every criterion has a test that fails on the base and passes here, and the change stays inside its scope.',
+            findings: [
+              {
+                path: 'test/money.test.ts',
+                line: 10,
+                blocking: false,
+                rule: 5,
+                comment: 'A case of 3500 pence would show the £35.00 the outcome names.',
+              },
+            ],
+          },
+        ],
+        returns: [],
+      },
+    },
+    'off-by-one': {
+      about:
+        "the smoke run's off-by-one, fixed in a second round after the review sent back a test that showed nothing",
+      commit: APP_MAIN,
+      seed: SMOKE_SEED,
+      change: {
+        patch: SMOKE_FIX,
+        message: [
+          'fix(smoke): give the index of the last item, not one past it',
+          '',
+          'lastIndex returned the length of the list, one past its last index. It returns the length less one now. test/smoke.test.ts checks a list of three items (2) and a list of one (0); both failed before the fix. The first round tested only an empty list, which the review said shows nothing of the criterion.',
+        ].join('\n'),
+      },
+      input: {
+        workItem: '999999999',
+        ticket: {
+          title: 'A wrong result from lastIndex',
+          category: 'functional',
+          severity: 'degraded',
+          fingerprint: { route: '/', class: 'wrong-result' },
+          traces: [],
+        },
+        signals: [],
+        spec: {
+          outcome: "`lastIndex` in src/smoke.ts returns the index of a list's last item.",
+          criteria: [
+            { given: 'a list of three items', when: '`lastIndex` is asked for its last index', expect: 'it returns 2' },
+          ],
+          scope: SMOKE_SCOPE,
+          risks: [],
+          rollout: 'Nothing calls `lastIndex` yet, so the fix ships as it is.',
+        },
+        pullRequest: 103,
+        title: 'fix(smoke): give the index of the last item, not one past it',
+        reviews: [
+          {
+            pullRequest: 103,
+            verdict: 'changes-requested',
+            note: 'The test checks only an empty list, so nothing shows criterion 1.',
+            findings: [
+              {
+                path: 'test/smoke.test.ts',
+                line: 5,
+                blocking: true,
+                criterion: 1,
+                comment: 'An empty list says nothing of a list of three: test that lastIndex of three items is 2.',
+              },
+            ],
+          },
+          {
+            pullRequest: 103,
+            verdict: 'approved',
+            note: 'The test now shows criterion 1, and fails on the base.',
+            findings: [],
+          },
+        ],
+        returns: [
+          {
+            from: 'review',
+            reason: 'Review asked for changes: The test checks only an empty list, so nothing shows criterion 1.',
+          },
+        ],
+      },
+    },
+  },
 };

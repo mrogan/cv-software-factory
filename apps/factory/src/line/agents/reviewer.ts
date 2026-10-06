@@ -137,7 +137,7 @@ export const reviewer = defineAgent<ReviewerInput, ReviewerResult>({
       title: pushed.title,
       round,
       // A later review checks first what the review before it blocked on.
-      blocked: state.lastReview?.findings.filter((f) => f.blocking),
+      blocked: state.reviews.at(-1)?.findings.filter((f) => f.blocking),
     };
   },
   schema: ({ spec }) => reviewerResult(spec.criteria.length),
@@ -146,7 +146,7 @@ export const reviewer = defineAgent<ReviewerInput, ReviewerResult>({
     const { workItem, commit, state } = context;
     // The files the change touches, as GitHub's diff of the pull request shows them, to anchor the findings to.
     const { files } = await context.read('comparison', { base: MAIN, head: commit });
-    const number = state.reviews + 1;
+    const number = state.reviews.length + 1;
     const shown = reviewInGitHub(review, files, { commit, workItem, review: number, last: number >= LIMITS.reviews });
     await context.once('check-run', () => context.act('createCheckRun', shown.check));
     await context.once('review', () =>

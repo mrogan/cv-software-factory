@@ -351,6 +351,7 @@ export class Line {
         maxTurns: definition.maxTurns,
         deadlineSeconds: definition.deadlineSeconds,
         result: true,
+        ...(definition.resultFiles ? { resultFiles: definition.resultFiles } : {}),
         ...(started.resume ? { resume: started.resume } : {}),
         signal,
       });
