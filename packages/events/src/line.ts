@@ -1,8 +1,9 @@
 /**
- * What the line decides by and the console draws with: the bounds on a work item's loop, and how a spec's scope
- * matches a path. One copy, here, because the console's image holds the events package and not the factory's code,
- * and two copies of a rule drift apart. Plain values, so the browser can import them.
+ * What the line decides by and the console draws with: the bounds on a work item's loop, how a spec's scope matches a
+ * path, and a return's few words. One copy, here, because the console's image holds the events package and not the
+ * factory's code, and two copies of a rule drift apart. Plain values, so the browser can import them.
  */
+import type { Stage } from './vocabulary.ts';
 
 /** How far the line lets a work item go round before it holds for Martin. */
 export const LIMITS = {
@@ -37,3 +38,20 @@ export const pattern = (entry: string) =>
 
 /** Whether any entry of a scope matches a path: the scope fence's rule, and the GitHub worker's. */
 export const inScope = (path: string, scope: readonly string[]) => scope.some((entry) => pattern(entry).test(path));
+
+const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Why work went back to Build, in a few words, from what its `work.returned` records: "2 blocking", "1 check failed".
+ * The line writes them in the event's summary and the console draws them, so both say the same.
+ */
+export function returnWords(returned: {
+  from: Stage;
+  blocking?: number | undefined;
+  failed?: readonly string[] | undefined;
+}): string {
+  if (returned.blocking !== undefined) return `${returned.blocking} blocking`;
+  // The gates hold a run with no failed check named as failed all the same: one check, unnamed.
+  if (returned.failed !== undefined) return `${count(returned.failed.length || 1, 'check')} failed`;
+  return `sent back from ${returned.from}`;
+}

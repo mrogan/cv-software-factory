@@ -300,10 +300,16 @@ export const PAYLOADS = {
     branch: text(120),
     attempt: z.number().int().positive(),
     testsFirst: z.boolean(),
+    /** What this push changed: from its round's start, so a later round's are only what it added. */
     files: z
       .array(z.strictObject({ path: text(200), added: count, removed: count }))
       .min(1)
       .max(200),
+    /**
+     * The pull request's whole change after this push, as GitHub compares its head with main: what a merge would
+     * bring in, every round together. Empty when a round undid every other.
+     */
+    whole: z.array(z.strictObject({ path: text(200), added: count, removed: count })).max(200),
   }),
 
   'gates.started': z.strictObject({ pullRequest, commit, checks: z.array(text(80)).min(1).max(40) }),
@@ -404,7 +410,17 @@ export const PAYLOADS = {
   }),
 
   'work.returned': z
-    .strictObject({ from: stage, to: stage, reason: text(200) })
+    .strictObject({
+      from: stage,
+      to: stage,
+      reason: text(200),
+      /** The coder's round the return starts. A version 1 return did not record it. */
+      round: z.number().int().positive().optional(),
+      /** From review: how many of its findings block. */
+      blocking: count.optional(),
+      /** From the gates: the required checks that failed, which may name none. */
+      failed: z.array(text(80)).max(40).optional(),
+    })
     .refine((r) => V.STAGES.indexOf(r.to) < V.STAGES.indexOf(r.from), 'work returns upstream, to an earlier stage'),
   'hold.started': z.strictObject({
     stage,
@@ -414,6 +430,8 @@ export const PAYLOADS = {
     cause: z.enum(V.HOLD_CAUSES),
     reason: text(300),
     question: text(300).optional(),
+    /** A spend hold's cap: the most the work item may spend on models, in the profile the line runs in. */
+    limitUsd: usd.optional(),
   }),
   'hold.answered': z.strictObject({
     decision: z.enum(['approved', 'rejected', 'answered']),
@@ -428,6 +446,11 @@ export const PAYLOADS = {
     action: text(200),
     /** The mechanism's own refusal, verbatim. */
     output: z.string().min(1).max(4000),
+    /** The scope fence's verdict on each file the patch changed, which its output prints. */
+    files: z
+      .array(z.strictObject({ path: text(200), added: count, removed: count, allowed: z.boolean() }))
+      .max(200)
+      .optional(),
   }),
   /** One agent's step: every call it made, summed. The gateway's `model_calls` table keeps each call. */
   'model.called': z.strictObject({

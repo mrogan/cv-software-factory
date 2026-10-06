@@ -24,6 +24,8 @@ export const digestFor = (name: string) => `sha256:${hex(`image:${name}`)}`;
 export const traceFor = (name: string) => hex(`trace:${name}`, 32);
 const cassetteFor = (name: string) => hex(`cassette:${name}`);
 
+type Files = PayloadOf<'pull-request.pushed'>['files'];
+
 /** A small, repeatable source of variety: the same name always gives the same sequence. */
 function random(name: string): () => number {
   let state = Number.parseInt(hex(`seed:${name}`, 8), 16);
@@ -136,6 +138,27 @@ export class Item {
       artifacts,
     } as NewEvent);
     return this;
+  }
+
+  /**
+   * A push to a pull request. Its whole change, unless given, is every push to the branch so far added up by file,
+   * which is what GitHub's comparison shows when no round undoes another's lines.
+   */
+  pushed(
+    offset: string,
+    actor: Actor,
+    summary: string,
+    { whole, ...payload }: Omit<PayloadOf<'pull-request.pushed'>, 'whole'> & { whole?: Files },
+  ): this {
+    const pushes = this.events.flatMap((event) =>
+      event.type === 'pull-request.pushed' && event.payload.branch === payload.branch ? [event.payload.files] : [],
+    );
+    const files = new Map<string, Files[number]>();
+    for (const file of [...pushes, payload.files].flat()) {
+      const sum = files.get(file.path) ?? { path: file.path, added: 0, removed: 0 };
+      files.set(file.path, { ...sum, added: sum.added + file.added, removed: sum.removed + file.removed });
+    }
+    return this.at(offset, 'pull-request.pushed', actor, summary, { ...payload, whole: whole ?? [...files.values()] });
   }
 
   /**

@@ -14,7 +14,7 @@ export default new Item('1282', '2026-10-02T11:30:00+01:00')
     category: 'security',
     dependency: { name: 'Node.js base image', ecosystem: 'docker', from: '24.21.0', to: '24.21.1', security: true },
   })
-  .at('0:02', 'pull-request.pushed', 'dependabot', 'Dependabot opened PR #1283: node 24.21.0 → 24.21.1', {
+  .pushed('0:02', 'dependabot', 'Dependabot opened PR #1283: node 24.21.0 → 24.21.1', {
     number: 1283,
     title: 'chore(deps): bump node from 24.21.0 to 24.21.1',
     branch: 'dependabot/docker/node-24.21.1',

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { returnWords } from '../src/line.ts';
 import { formatLog, parseLog } from '../src/log-format.ts';
 import { PUBLIC_VIEWS, publicView, redactSecrets } from '../src/public.ts';
 import { validate, validateSignal } from '../src/schemas.ts';
@@ -130,7 +131,8 @@ describe('validation', () => {
     const back = {
       ...opened,
       type: 'work.returned',
-      payload: { from: 'gates', to: 'build', reason: 'A check failed' },
+      version: 2,
+      payload: { from: 'gates', to: 'build', reason: 'A check failed', round: 2, failed: ['test'] },
     };
     expect(validate(back)).toEqual({ ok: true });
     expect(validate({ ...back, payload: { from: 'build', to: 'gates', reason: 'Onwards' } }).ok).toBe(false);
@@ -264,9 +266,25 @@ describe('upcasting the real catalogue', () => {
       mechanism: 'scope-fence',
       action: 'Push the coder’s patch',
       output: 'refused src/server.ts +1 −1',
+      files: [{ path: 'src/server.ts', added: 1, removed: 1, allowed: false }],
     };
     expect(validate({ ...opened, type: 'action.refused', version: 2, actor: 'factory', payload: fenced })).toEqual({
       ok: true,
+    });
+  });
+
+  it('reads version 1 of pull-request.pushed with its own files as the whole change', () => {
+    const files = [{ path: 'src/search.ts', added: 3, removed: 5 }];
+    const v1 = { number: 12, title: 'fix: search', branch: 'factory/1', attempt: 1, testsFirst: true, files };
+    expect(upcast({ type: 'pull-request.pushed', version: 1, payload: v1 })).toMatchObject({
+      event: { version: 2, payload: { ...v1, whole: files } },
+    });
+  });
+
+  it('reads version 1 of work.returned as it was, with no round', () => {
+    const v1 = { from: 'review', to: 'build', reason: 'Review asked for changes' };
+    expect(upcast({ type: 'work.returned', version: 1, payload: v1 })).toMatchObject({
+      event: { version: 2, payload: v1 },
     });
   });
 });
@@ -328,5 +346,16 @@ describe('the event-log format', () => {
 
   it('names the line that is not JSON', () => {
     expect(() => parseLog('{}\n{nope}\n')).toThrow('Line 2 of the event log is not JSON');
+  });
+});
+
+describe('a return in words', () => {
+  it('says how many findings blocked, or how many checks failed, and only what the return records', () => {
+    expect(returnWords({ from: 'review', blocking: 2 })).toBe('2 blocking');
+    expect(returnWords({ from: 'gates', failed: ['test'] })).toBe('1 check failed');
+    expect(returnWords({ from: 'gates', failed: ['test', 'lint'] })).toBe('2 checks failed');
+    // The gates fail a run that names no check all the same.
+    expect(returnWords({ from: 'gates', failed: [] })).toBe('1 check failed');
+    expect(returnWords({ from: 'review' })).toBe('sent back from review');
   });
 });

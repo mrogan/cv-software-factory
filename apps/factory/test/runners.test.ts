@@ -48,6 +48,10 @@ describe('the scope fence', () => {
       ok: false,
       paths: ['src/money.ts', 'src/pages/cards.ts'],
       outside: ['src/pages/cards.ts'],
+      files: [
+        { path: 'src/money.ts', added: 1, removed: 1, allowed: true },
+        { path: 'src/pages/cards.ts', added: 1, removed: 1, allowed: false },
+      ],
       output: [
         'scope: src/money.ts, test/money.test.ts',
         'allowed src/money.ts +1 −1',

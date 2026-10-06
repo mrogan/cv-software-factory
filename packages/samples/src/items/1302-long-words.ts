@@ -59,7 +59,7 @@ export default new Item('1302', '2026-10-03T10:12:00+01:00')
     rollout: 'Ships as a normal release behind the canary.',
   })
   .calls('coder', '6:05', '8:30', { calls: 11, input: 260_000, output: 6_100, cached: 0.85 })
-  .at('8:40', 'pull-request.pushed', 'coder', 'Failing test first, then the fix · PR #1303', {
+  .pushed('8:40', 'coder', 'Failing test first, then the fix · PR #1303', {
     number: 1303,
     title: 'fix(search): take words of any length',
     branch: 'factory/1302-search',
@@ -84,13 +84,17 @@ export default new Item('1302', '2026-10-03T10:12:00+01:00')
     reason: 'End-to-end journeys failed: a search for sandpaper was still turned away',
   })
   .calls('coder', '11:50', '13:10', { calls: 7, input: 180_000, output: 3_900, cached: 0.88 })
-  .at('13:20', 'pull-request.pushed', 'coder', 'Second attempt on PR #1303: the limit removed, not raised', {
+  .pushed('13:20', 'coder', 'Second attempt on PR #1303: the limit removed, not raised', {
     number: 1303,
     title: 'fix(search): take words of any length',
     branch: 'factory/1302-search',
     attempt: 2,
     testsFirst: true,
     files: [
+      { path: 'src/pages/search.ts', added: 3, removed: 5 },
+      { path: 'test/search.test.ts', added: 27, removed: 0 },
+    ],
+    whole: [
       { path: 'src/pages/search.ts', added: 3, removed: 5 },
       { path: 'test/search.test.ts', added: 27, removed: 0 },
     ],

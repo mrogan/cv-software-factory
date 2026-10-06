@@ -54,7 +54,7 @@ export default new Item('1265', '2026-09-29T14:10:00+01:00')
     rollout: 'Ships as a normal release behind the canary.',
   })
   .calls('coder', '2:40', '8:50', { calls: 17, input: 470_000, output: 10_400, cached: 0.86 })
-  .at('9:00', 'pull-request.pushed', 'coder', 'Failing test first, then the fix · PR #1266', {
+  .pushed('9:00', 'coder', 'Failing test first, then the fix · PR #1266', {
     number: 1266,
     title: 'fix(search): log every search, like every other request',
     branch: 'factory/1265-search-logs',

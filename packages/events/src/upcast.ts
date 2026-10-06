@@ -35,6 +35,11 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
             : (({ gates: 'gates', review: 'review' } as Record<string, string>)[String(payload.stage)] ?? 'unknown'),
     }),
   },
+  // Version 2 adds the pull request's whole change. A version 1 push recorded only its own files, which are the whole
+  // change for a first push, and the nearest the event has for a later one.
+  'pull-request.pushed': { 1: (payload) => ({ ...payload, whole: payload.files }) },
+  // Version 2 adds the round the return starts and what sent it back as figures; a version 1 return reads as it was.
+  'work.returned': { 1: (payload) => payload },
   // Version 2 adds the line's scope fence to the mechanisms; a version 1 refusal reads as it was.
   'action.refused': { 1: (payload) => payload },
   // Version 1 counted a review's comments; version 2 carries each finding. What a version 1 comment said was never

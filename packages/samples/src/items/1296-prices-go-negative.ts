@@ -46,7 +46,7 @@ export default new Item('1296', '2026-10-03T09:02:00+01:00')
     rollout: 'Ships as a normal release behind the canary.',
   })
   .calls('coder', '5:45', '8:05', { calls: 14, input: 330_000, output: 7_900, cached: 0.85 })
-  .at('8:15', 'pull-request.pushed', 'coder', 'Failing test first, then the fix · PR #1298', {
+  .pushed('8:15', 'coder', 'Failing test first, then the fix · PR #1298', {
     number: 1298,
     title: 'fix(cards): show each price as it is stored',
     branch: 'factory/1296-prices',

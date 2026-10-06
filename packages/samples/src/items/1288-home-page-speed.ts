@@ -53,7 +53,7 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
     rollout: 'Ships as a normal release behind the canary.',
   })
   .calls('coder', '2:40', '9:10', { calls: 20, input: 520_000, output: 11_800, cached: 0.86 })
-  .at('9:20', 'pull-request.pushed', 'coder', 'Timing test first, then the selection kept for an hour · PR #1290', {
+  .pushed('9:20', 'coder', 'Timing test first, then the selection kept for an hour · PR #1290', {
     number: 1290,
     title: 'perf(home): choose this week’s sundries once an hour',
     branch: 'factory/1288-home-page-speed',
@@ -88,13 +88,18 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
     reason: 'The reviewer asked for the selection to change when the week does, not an hour after the first visit',
   })
   .calls('coder', '14:00', '17:00', { calls: 8, input: 210_000, output: 4_600, cached: 0.88 })
-  .at('17:10', 'pull-request.pushed', 'coder', 'Second attempt on PR #1290: kept until the week turns', {
+  .pushed('17:10', 'coder', 'Second attempt on PR #1290: kept until the week turns', {
     number: 1290,
     title: 'perf(home): choose this week’s sundries once a week',
     branch: 'factory/1288-home-page-speed',
     attempt: 2,
     testsFirst: true,
     files: [
+      { path: 'src/pages/home.ts', added: 14, removed: 6 },
+      { path: 'src/shop.ts', added: 25, removed: 2 },
+      { path: 'test/home.test.ts', added: 48, removed: 0 },
+    ],
+    whole: [
       { path: 'src/pages/home.ts', added: 14, removed: 6 },
       { path: 'src/shop.ts', added: 25, removed: 2 },
       { path: 'test/home.test.ts', added: 48, removed: 0 },

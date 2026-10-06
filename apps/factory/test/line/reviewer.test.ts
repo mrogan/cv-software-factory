@@ -74,9 +74,16 @@ const DIFF = [
       '+  return `£${(pence / 100).toFixed(2)}`;',
       ' }',
     ].join('\n'),
+    added: 1,
+    removed: 1,
   },
-  { path: 'test/money.test.ts', patch: "@@ -5,2 +5,3 @@\n   it.each([\n+    [600, '£6.00'],\n     [1250, '£12.50']," },
-  { path: 'public/logo.png', patch: null },
+  {
+    path: 'test/money.test.ts',
+    patch: "@@ -5,2 +5,3 @@\n   it.each([\n+    [600, '£6.00'],\n     [1250, '£12.50'],",
+    added: 1,
+    removed: 0,
+  },
+  { path: 'public/logo.png', patch: null, added: 0, removed: 0 },
 ];
 
 describe('a review in GitHub', () => {

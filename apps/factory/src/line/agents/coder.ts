@@ -191,13 +191,14 @@ export const coder = defineAgent<CoderInput, CoderResult>({
             mechanism: 'scope-fence',
             action: `Push the coder’s round ${round} to ${to}`,
             output: fenced.output,
+            files: fenced.files.slice(0, 200),
           },
         },
       ];
     }
     const branch = state.pullRequest?.branch ?? branchFor(workItem, need(state.ticket, 'a ticket').title);
     const message = `${title}\n\n${note}`.slice(0, 9_000);
-    await context.once('push', async (again) => {
+    const head = await context.once('push', async (again) => {
       // A first round starts the branch at the commit; so does a push that was begun and may have been made, so
       // the patch is never applied on top of itself.
       if (!state.pullRequest || again) await context.act('setBranch', { branch, sha: commit, force: true });
@@ -224,6 +225,9 @@ export const coder = defineAgent<CoderInput, CoderResult>({
       ));
     await context.keepSession(handback.session);
     const files = refusing(() => changedFiles(patch));
+    // What a merge would bring in, every round together: GitHub's comparison of the new head with main.
+    const compared = await context.read('comparison', { base: 'main', head });
+    const whole = compared.files.map(({ path, added, removed }) => ({ path, added, removed }));
     return [
       {
         type: 'pull-request.pushed',
@@ -236,6 +240,7 @@ export const coder = defineAgent<CoderInput, CoderResult>({
           attempt: round,
           testsFirst: files.some((f) => isTest(f.path)),
           files: files.slice(0, 200),
+          whole: whole.slice(0, 200),
         },
       },
     ];

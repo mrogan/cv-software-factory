@@ -21,7 +21,7 @@
  */
 import { hostname } from 'node:os';
 import type { PayloadOf, RawEvent } from '@software-factory/events';
-import { upcast } from '@software-factory/events';
+import { returnWords, upcast } from '@software-factory/events';
 import type { EventWriter } from '@software-factory/store';
 import { lineStopped } from '@software-factory/triage';
 import type { Logger } from 'pino';
@@ -43,6 +43,7 @@ import { AGENTS, type Agents } from './agents/index.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
 import {
   decide,
+  type Facts,
   fold,
   LIMITS,
   type LineAgent,
@@ -51,7 +52,7 @@ import {
   STAGE_OF,
   type WorkItemState,
 } from './machine.ts';
-import { stepCalls } from './model-calls.ts';
+import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Pending, Queue, type QueueItem } from './queue.ts';
 
 /** The runners, as the line uses them (`runners/steps.ts`). */
@@ -86,6 +87,11 @@ export interface LineOptions {
    * False for a line that takes no work and only stops the steps in hand (the step API's) when the line stops.
    */
   takesWork?: boolean;
+  /**
+   * The most one work item may spend on models: the gateway's cap, from the same profile (policy/spend.ts). Null, as
+   * by default, holds nothing for spend: the gateway still refuses the calls, and the step fails.
+   */
+  workItemLimitUsd?: number | null;
 }
 
 export const APP_REPOSITORY = 'mrogan/cv-worlds-worst-website';
@@ -116,6 +122,7 @@ export class Line {
       now: () => new Date(),
       gatesEveryMs: 60_000,
       takesWork: true,
+      workItemLimitUsd: null,
       ...options,
     };
     this.#queue = new Queue(options.sql, options.me ?? `line-${hostname()}`);
@@ -197,7 +204,7 @@ export class Line {
     // A few quick actions in a row (open the issue, then start the planner), never a loop without end.
     for (let actions = 0; item && actions < 5; actions++) {
       const { events, last } = await this.#events(item.workItem);
-      const { stage, next } = decide(events, item);
+      const { stage, next } = decide(events, await this.#facts(item));
       // A kept handback is for the step the work item still needs, with nothing appended since; any other is over.
       const pending = item.effects;
       const kept =
@@ -258,7 +265,7 @@ export class Line {
   async #release(workItem: string): Promise<void> {
     const item = await this.#queue.get(workItem);
     if (!item) return;
-    const { stage } = decide((await this.#events(workItem)).events, item);
+    const { stage } = decide((await this.#events(workItem)).events, await this.#facts(item));
     await this.#queue.release(workItem, stage === 'ended' ? item.stage : stage);
   }
 
@@ -272,17 +279,21 @@ export class Line {
         this.#o.log.info({ workItem, issue }, 'opened the ticket’s issue');
         return;
       }
-      case 'return':
+      case 'return': {
+        const { do: _, ...returned } = next;
+        const payload = { ...returned, round: state.round + 1 };
         await this.#append(workItem, [
           {
             type: 'work.returned',
             actor: next.from === 'review' ? 'reviewer' : 'factory',
-            summary: `Sent back to ${next.to} from ${next.from}`,
-            payload: { from: next.from, to: next.to, reason: next.reason },
+            // The console draws the same words, from the payload, in the return's pill on the line.
+            summary: `#${workItem} · round ${payload.round} · ${returnWords(payload)}`,
+            payload,
           },
         ]);
         await this.#queue.moved(workItem);
         return;
+      }
       case 'hold':
         await this.#append(workItem, [holdDraft('factory', next.hold)]);
         await this.#queue.moved(workItem);
@@ -558,6 +569,13 @@ export class Line {
       return read.ok ? [{ type: read.event.type, payload: read.event.payload }] : [];
     });
     return { raw, last: Number(rows.at(-1)?.seq ?? 0) };
+  }
+
+  /** What the line knows of a work item beside its events: its row in the queue, and its spend against the cap. */
+  async #facts(item: QueueItem): Promise<Facts> {
+    const limitUsd = this.#o.workItemLimitUsd;
+    if (limitUsd === null) return item;
+    return { ...item, spend: { spentUsd: await workItemSpend(this.#o.sql, item.workItem), limitUsd } };
   }
 
   async #events(workItem: string): Promise<{ events: LineEvent[]; last: number }> {

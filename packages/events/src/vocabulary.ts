@@ -124,6 +124,10 @@ export const HOLD_CAUSES = [
   'review',
   /** The change passed its gates and review, and waits for Martin to merge it. */
   'merge',
+  /** The work item has spent as much on models as one may: the gateway refuses its agents' calls. */
+  'spend',
+  /** The change's new tests pass without the fix (the tests-first check), so they prove nothing about it. */
+  'tests-first',
   'unknown',
 ] as const;
 export type HoldCause = (typeof HOLD_CAUSES)[number];
