@@ -7,8 +7,15 @@
  * only that and the app's public code.
  */
 import { SMOKE_SCOPE, SMOKE_SEED } from '../../runners/smoke.ts';
-import type { Agents } from '../agents/index.ts';
+import type { AgentDefinition } from '../agents/agent.ts';
+import type { AGENTS } from '../agents/index.ts';
 import type { LineAgent } from '../machine.ts';
+
+/** What an agent's step is given, as its definition takes it. */
+export type InputOf<A extends LineAgent> = (typeof AGENTS)[A] extends AgentDefinition<infer I, unknown> ? I : never;
+
+/** The work item a fixture's prompt names: one no ticket has. */
+export const FIXTURE_WORK_ITEM = '999999999';
 
 export interface Fixture<A extends LineAgent> {
   /** What the fixture asks of the agent, in a line. */
@@ -17,7 +24,7 @@ export interface Fixture<A extends LineAgent> {
   commit: string;
   /** A patch committed on the commit as the step's base. */
   seed?: string;
-  input: Parameters<Agents[A]['prompt']>[0];
+  input: InputOf<A>;
 }
 
 /** The app's main when the smoke run's seed was last tried on it. */
@@ -31,7 +38,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       commit: APP_MAIN,
       seed: SMOKE_SEED,
       input: {
-        workItem: '999999999',
+        workItem: FIXTURE_WORK_ITEM,
         round: 1,
         spec: {
           outcome: "`lastIndex` in src/smoke.ts returns the index of a list's last item.",

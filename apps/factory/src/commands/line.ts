@@ -19,7 +19,7 @@
  * `bench` runs one agent's step on this machine, on a fixture's invented work (`line/bench/`), against the gateway at
  * GATEWAY_URL (default http://localhost:8180), and prints what the agent handed back, whether its result fits the
  * agent's schema, how many of its calls the cassettes replayed, and how long it took. Without a fixture, it lists
- * them. Its folder is /tmp/factory-bench, the same on every run so that a run replays from the cassettes.
+ * them. It works in the bench's own folder (`BENCH_DIR`), the same on every run so that a run replays.
  *
  * Every worker checks the line before it takes work, so a stopped line finishes what is in hand and takes nothing
  * new; signals wait in the inbox until it starts again. Connects with DATABASE_URL, or the PG* variables, as the
@@ -36,18 +36,17 @@ export const USAGE = `  factory line stop [--reason <why>]
   factory line bench [<agent> [<fixture>]] [--commit <sha>]`;
 
 export async function run(args: string[]): Promise<number> {
+  if (args[0] === 'bench') return bench(args.slice(1));
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
     options: {
       reason: { type: 'string', default: 'Martin stopped the line' },
       autonomy: { type: 'string', default: 'supervised' },
-      commit: { type: 'string' },
     },
   });
   const [command] = positionals;
   if (command === 'serve') return serve();
-  if (command === 'bench') return bench(positionals.slice(1), values.commit);
   const autonomy = values.autonomy as Autonomy;
   if ((command !== 'stop' && command !== 'start') || !AUTONOMY.includes(autonomy)) {
     console.log(`Usage:\n${USAGE}`);
@@ -149,13 +148,12 @@ async function serve(): Promise<number> {
   return 0;
 }
 
-/** Where the bench works: fixed, because the checkout's path is in the agent's prompt. */
-const BENCH_DIR = '/tmp/factory-bench';
-
-async function bench([agent, name]: string[], commit: string | undefined): Promise<number> {
+async function bench(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { commit: { type: 'string' } } });
+  const [agent, name] = positionals;
   const { FIXTURES } = await import('../line/bench/fixtures.ts');
-  const fixtures = agent && agent in FIXTURES ? FIXTURES[agent as keyof typeof FIXTURES] : undefined;
-  const fixture = fixtures && name ? fixtures[name] : undefined;
+  const fixtures = agent && Object.hasOwn(FIXTURES, agent) ? FIXTURES[agent as keyof typeof FIXTURES] : undefined;
+  const fixture = fixtures && name && Object.hasOwn(fixtures, name) ? fixtures[name] : undefined;
   if (!agent || !fixtures || !fixture) {
     console.log(`Usage:\n  factory line bench <agent> <fixture> [--commit <sha>]\n\nFixtures:`);
     for (const [each, list] of Object.entries(FIXTURES)) {
@@ -173,10 +171,9 @@ async function bench([agent, name]: string[], commit: string | undefined): Promi
     const benched = await run({
       agent: agent as keyof typeof FIXTURES,
       fixture,
-      commit,
+      commit: values.commit,
       sql,
       gateway: GATEWAY_URL ?? 'http://localhost:8180',
-      dir: BENCH_DIR,
       runner: { prepare, runAgent },
       log: (line) => console.error(line),
     });

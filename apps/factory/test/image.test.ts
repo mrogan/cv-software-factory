@@ -64,6 +64,12 @@ const WORKSPACE: Record<string, string> = {
   '@software-factory/factory': 'apps/factory',
 };
 
+/**
+ * Modules only `factory line bench` loads, which runs on a developer's machine with the whole repository: the
+ * runner's own steps, which the image does not hold and the factory never runs in the cluster.
+ */
+const HOST_ONLY = ['apps/runner/src/agent.ts', 'apps/runner/src/prepare.ts'];
+
 /** Every problem with loading the CLI in the image: a file it does not hold, or a package nobody installs there. */
 function walk(): { problems: string[]; loaded: string[] } {
   const paths = copied();
@@ -74,6 +80,7 @@ function walk(): { problems: string[]; loaded: string[] } {
     const file = queue.pop() as string;
     if (seen.has(file)) continue;
     seen.add(file);
+    if (HOST_ONLY.includes(relative(ROOT, file))) continue;
     if (!inImage(file, paths)) {
       found.push(`${relative(ROOT, file)} is not in the image`);
       continue;
@@ -110,6 +117,8 @@ describe('the factory image', () => {
     // It reached the line's worker, which `factory line serve` imports only once it runs.
     expect(loaded).toContain('apps/factory/src/line/worker.ts');
     expect(loaded).toContain('packages/events/src/schemas.ts');
+    // Each module let off is one the CLI still reaches, so the list never outlives its reason.
+    expect(loaded).toEqual(expect.arrayContaining(HOST_ONLY));
   });
 
   it('finds the imports Node runs, and not the ones it erases', () => {
