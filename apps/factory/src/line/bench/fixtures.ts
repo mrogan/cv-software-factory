@@ -6,9 +6,11 @@
  * Every fixture is invented: a ticket, a spec or a pull request no visitor wrote. A cassette recorded from one holds
  * only that and the app's public code.
  */
+import type { PayloadOf } from '@software-factory/events';
 import { protectedFrom } from '../../github/paths.ts';
 import { SMOKE_SCOPE, SMOKE_SEED } from '../../runners/smoke.ts';
 import type { AgentDefinition } from '../agents/agent.ts';
+import type { Signal } from '../agents/evidence.ts';
 import type { AGENTS } from '../agents/index.ts';
 import type { LineAgent } from '../machine.ts';
 
@@ -84,6 +86,29 @@ diff --git a/test/money.test.ts b/test/money.test.ts
      expect(pounds(pence)).toBe(expected);
 `;
 
+/** The wrong price, seeded twice: in `pounds`, and copied into the product cards, which no longer call it. */
+const CARDS_SEED = `${PRICE_SEED}diff --git a/src/pages/cards.ts b/src/pages/cards.ts
+--- a/src/pages/cards.ts
++++ b/src/pages/cards.ts
+@@ -3,7 +3,6 @@
+  */
+ import type { Product } from '../catalogue.ts';
+ import { type Html, html } from '../html.ts';
+-import { pounds } from '../money.ts';
+ 
+ export function stockLine(stock: number): string {
+   if (stock === 0) return 'None in stock';
+@@ -14,7 +13,7 @@ export function productCard(product: Product): Html {
+   return html\`<li class="card">
+     <img src="/assets/drawings/\${product.drawing}" width="120" height="120">
+     <h3><a href="/products/\${product.slug}">\${product.name}</a></h3>
+-    <p class="price">\${pounds(product.pricePence)}</p>
++    <p class="price">£\${Math.trunc(product.pricePence / 100)}.\${product.pricePence % 100}</p>
+     <p>\${product.summary}</p>
+     <p class="quiet">Item \${product.id} · \${stockLine(product.stock)}</p>
+   </li>\`;
+`;
+
 /** The image leaves out every file under public/ but the style sheet, though the server and its tests have them. */
 const ASSETS_SEED = `diff --git a/.dockerignore b/.dockerignore
 --- a/.dockerignore
@@ -98,6 +123,58 @@ const ASSETS_SEED = `diff --git a/.dockerignore b/.dockerignore
  !data/catalogue.json
 `;
 
+/** The ticket triage would open for the wrong price, as its public view has it. */
+const PRICE_TICKET: PayloadOf<'ticket.opened'> = {
+  title: 'A wrong result on /products/:slug',
+  category: 'functional',
+  severity: 'broken',
+  fingerprint: { route: '/products/:slug', class: 'wrong-result' },
+  traces: [],
+};
+
+/** What the probe saw of the wrong price. */
+const PRICE_SIGNALS: Signal[] = [
+  {
+    sense: 'probe',
+    check: 'a price is in pounds and two digits of pence',
+    route: '/products/:slug',
+    version: 'd487739',
+    symptom: 'wrong-result',
+    evidence: [
+      {
+        kind: 'http',
+        method: 'GET',
+        url: '/products/camera',
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+        timings: { firstByteMs: 12, totalMs: 15 },
+        redirects: [],
+      },
+    ],
+  },
+];
+
+/**
+ * A spec for the wrong price, as the planner writes one: invented, like the ticket, after the spec Claude wrote from
+ * the planner's `wrong-price` fixture.
+ */
+const PRICE_SPEC: PayloadOf<'spec.written'> = {
+  outcome: 'Every price shows pounds and exactly two digits of pence, so 3500 pence is £35.00 and 705 pence is £7.05.',
+  criteria: [
+    { given: 'a price of 600 pence', when: 'pounds is called with it', expect: 'it returns £6.00' },
+    { given: 'a price of 705 pence', when: 'pounds is called with it', expect: 'it returns £7.05' },
+    { given: 'a price of 10 pence', when: 'pounds is called with it', expect: 'it returns £0.10' },
+    {
+      given: 'a product that costs a whole number of pounds',
+      when: 'a visitor opens its page',
+      expect: 'the price shows two zeros of pence, such as £2.00',
+    },
+  ],
+  scope: ['src/money.ts', 'test/money.test.ts', 'test/pages-product.test.ts'],
+  risks: [],
+  rollout: 'Ships in the next release; product pages, cards and the API then show two digits of pence.',
+};
+
 export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
   planner: {
     'wrong-price': {
@@ -106,33 +183,8 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       seed: PRICE_SEED,
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: {
-          title: 'A wrong result on /products/:slug',
-          category: 'functional',
-          severity: 'broken',
-          fingerprint: { route: '/products/:slug', class: 'wrong-result' },
-          traces: [],
-        },
-        signals: [
-          {
-            sense: 'probe',
-            check: 'a price is in pounds and two digits of pence',
-            route: '/products/:slug',
-            version: 'd487739',
-            symptom: 'wrong-result',
-            evidence: [
-              {
-                kind: 'http',
-                method: 'GET',
-                url: '/products/camera',
-                status: 200,
-                headers: { 'content-type': 'text/html; charset=utf-8' },
-                timings: { firstByteMs: 12, totalMs: 15 },
-                redirects: [],
-              },
-            ],
-          },
-        ],
+        ticket: PRICE_TICKET,
+        signals: PRICE_SIGNALS,
         protectedPaths: APP_PROTECTED,
         answers: [],
       },
@@ -221,7 +273,16 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       seed: SMOKE_SEED,
       input: {
         workItem: FIXTURE_WORK_ITEM,
+        ticket: {
+          title: 'A wrong result from lastIndex',
+          category: 'functional',
+          severity: 'degraded',
+          fingerprint: { route: '/', class: 'wrong-result' },
+          traces: [],
+        },
+        signals: [],
         round: 1,
+        protectedPaths: APP_PROTECTED,
         spec: {
           outcome: "`lastIndex` in src/smoke.ts returns the index of a list's last item.",
           criteria: [
@@ -231,6 +292,43 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
           risks: [],
           rollout: 'Nothing calls `lastIndex` yet, so the fix ships as it is.',
         },
+      },
+    },
+    'wrong-price': {
+      about: "the planner's wrong price, seeded, from a spec like the one it wrote: `pounds` drops a digit of pence",
+      commit: APP_MAIN,
+      seed: PRICE_SEED,
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        ticket: PRICE_TICKET,
+        signals: PRICE_SIGNALS,
+        spec: PRICE_SPEC,
+        round: 1,
+        protectedPaths: APP_PROTECTED,
+      },
+    },
+    'cards-outside-scope': {
+      about:
+        'the wrong price, seeded in `pounds` and copied into the product cards, with a criterion on the cards but `src/pages/cards.ts` outside the scope',
+      commit: APP_MAIN,
+      seed: CARDS_SEED,
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        ticket: PRICE_TICKET,
+        signals: PRICE_SIGNALS,
+        spec: {
+          ...PRICE_SPEC,
+          criteria: [
+            ...PRICE_SPEC.criteria,
+            {
+              given: 'a product that costs a whole number of pounds',
+              when: 'a visitor opens the product list',
+              expect: 'its card shows the price with two zeros of pence, such as £2.00',
+            },
+          ],
+        },
+        round: 1,
+        protectedPaths: APP_PROTECTED,
       },
     },
   },

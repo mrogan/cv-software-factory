@@ -40,6 +40,30 @@ describe('the scope fence', () => {
     );
     expect(result.outside).toEqual(['.github/workflows/check.yml', 'Dockerfile', 'apps/package.json']);
   });
+
+  it('prints the scope, then each file it allowed or refused, with its lines', () => {
+    const patch = PATCH('src/money.ts') + PATCH('src/pages/cards.ts');
+    const scope = ['src/money.ts', 'test/money.test.ts'];
+    expect(fence(patch, scope)).toEqual({
+      ok: false,
+      paths: ['src/money.ts', 'src/pages/cards.ts'],
+      outside: ['src/pages/cards.ts'],
+      output: [
+        'scope: src/money.ts, test/money.test.ts',
+        'allowed src/money.ts +1 −1',
+        'refused src/pages/cards.ts +1 −1',
+      ].join('\n'),
+    });
+  });
+
+  it('cuts its output at a whole line, and says how many more there were', () => {
+    const patch = Array.from({ length: 300 }, (_, i) => PATCH(`src/pages/page-${i}.ts`)).join('');
+    const { output } = fence(patch, ['src/money.ts']);
+    expect(output.length).toBeLessThanOrEqual(4000);
+    const lines = output.split('\n');
+    expect(lines.slice(1, -1).every((line) => /^refused src\/pages\/page-\d+\.ts \+1 −1$/.test(line))).toBe(true);
+    expect(lines.at(-1)).toBe(`… and ${300 - (lines.length - 2)} more`);
+  });
 });
 
 const STEP: Step = {

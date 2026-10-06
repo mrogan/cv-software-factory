@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { attempt } from '../src/agent.ts';
-import { prepare } from '../src/prepare.ts';
+import { prepare, SEED_MESSAGE } from '../src/prepare.ts';
 
 /** A repository the prepare step can fetch from by path, with a package that needs nothing installed. */
 function origin(): { url: string; commit: string } {
@@ -70,7 +70,7 @@ describe('the prepare step', () => {
     expect(dates).toBe('2026-01-01T00:00:00Z 2026-01-01T00:00:00Z');
     // Its message, which the agent sees, says nothing of what the seed is.
     const message = execFileSync('git', ['log', '-1', '--format=%s'], { cwd: repo, encoding: 'utf-8' }).trim();
-    expect(message).toBe('chore: the starting point');
+    expect(message).toBe(SEED_MESSAGE);
     // Every file has that time too, so the agent's searches, which list files by when they changed, list them alike.
     for (const file of ['count.ts', 'seeded.ts']) {
       expect(statSync(join(repo, file)).mtime.toISOString()).toBe('2026-01-01T00:00:00.000Z');

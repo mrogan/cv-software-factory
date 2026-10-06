@@ -104,6 +104,49 @@ describe('what the line does next', () => {
     expect(decide([ticket, spec, ...passed(1), review('escalated')], facts)).toMatchObject({ stage: 'held' });
   });
 
+  it('sends a patch the scope fence refuses back to the coder once, with its output, and holds at the second', () => {
+    const refused = (output = 'scope: src/search.ts, test/\nrefused src/server.ts +1 −1'): LineEvent => ({
+      type: 'action.refused',
+      payload: { mechanism: 'scope-fence', action: 'Push the coder’s round 1 to a new pull request', output },
+    });
+    const once = [ticket, spec, refused()];
+    expect(decide(once, facts)).toEqual({ stage: 'build', next: { do: 'step', agent: 'coder', round: 1 } });
+    expect(fold(once).fenced).toBe('scope: src/search.ts, test/\nrefused src/server.ts +1 −1');
+    expect(decide([...once, refused()], facts)).toEqual({
+      stage: 'held',
+      next: {
+        do: 'hold',
+        hold: {
+          stage: 'build',
+          kind: 'held',
+          cause: 'scope',
+          reason: 'The scope fence refused the coder’s patch 2 times: it changed files outside the spec’s scope',
+        },
+      },
+    });
+    expect(LIMITS.fenceRefusals).toBe(2);
+    // A push clears the refusal it followed, but the count stays: a later round that strays once more holds.
+    const pushedAfter = [...once, pushed(), started(), finished('failed'), returned('gates')];
+    expect(fold(pushedAfter).fenced).toBeUndefined();
+    expect(decide(pushedAfter, facts).next).toEqual({ do: 'step', agent: 'coder', round: 2 });
+    expect(decide([...pushedAfter, refused()], facts)).toMatchObject({ stage: 'held' });
+    // Martin's answer to the hold sends the work item back to Plan (below), and the new spec starts the count again.
+    const hold: LineEvent = {
+      type: 'hold.started',
+      payload: { stage: 'build', kind: 'held', cause: 'scope', reason: 'Twice outside its scope' },
+    };
+    const answered: LineEvent = { type: 'hold.answered', payload: { decision: 'answered', answer: 'Take it in' } };
+    const respecified = [...once, refused(), hold, answered, spec];
+    expect(decide(respecified, facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
+    expect(fold(respecified)).toMatchObject({ fenced: undefined, fenceRefusals: 0 });
+    // The platform's refusals are not the fence's.
+    const ruleset: LineEvent = {
+      type: 'action.refused',
+      payload: { mechanism: 'ruleset', action: 'Push to main', output: 'Protected branch' },
+    };
+    expect(fold([ticket, spec, ruleset, ruleset]).fenceRefusals).toBe(0);
+  });
+
   it('judges the gates on the latest push only, and ignores a later run once they have passed', () => {
     const later = [ticket, spec, pushed(), started(), finished('passed'), started(OTHER), finished('failed', OTHER)];
     expect(decide(later, facts).next).toEqual({ do: 'step', agent: 'reviewer', round: 1 });
@@ -208,7 +251,7 @@ describe('Martin’s answer to a hold', () => {
       held('question', 'plan'),
       answer('approved'),
       spec,
-      held('scope', 'build'),
+      held('failures', 'build'),
       answer('answered', 'Try again'),
     ];
     expect(fold(events).answers).toEqual([
@@ -228,14 +271,33 @@ describe('Martin’s answer to a hold', () => {
     });
   });
 
-  it('runs the step it was held at again, for a change outside its scope or a step that kept failing', () => {
-    for (const cause of ['scope', 'failures'] as const) {
-      expect(decide([ticket, spec, held(cause, 'build'), answer('answered', 'Try again')], facts).next).toEqual({
-        do: 'step',
-        agent: 'coder',
-        round: 1,
-      });
-    }
+  it('runs a step that kept failing again, with his words', () => {
+    const events = [ticket, spec, held('failures', 'build'), answer('answered', 'The tests are in test/')];
+    expect(decide(events, facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
+    // The coder's input takes them (`answerOf`), until the work item moves on.
+    expect(fold(events).answer?.text).toBe('The tests are in test/');
+    expect(fold([...events, pushed()]).answer).toBeUndefined();
+  });
+
+  it('sends a scope the coder kept straying from back to Plan, with what the fence printed and what he said', () => {
+    const fenced = 'scope: src/search.ts, test/\nallowed src/search.ts +1 −1\nrefused src/cards.ts +2 −0';
+    const refused: LineEvent = {
+      type: 'action.refused',
+      payload: { mechanism: 'scope-fence', action: 'Push the coder’s round 1 to a new pull request', output: fenced },
+    };
+    const strayed = [ticket, spec, refused, refused, held('scope', 'build')];
+    const asked =
+      'Held for Martin. The scope fence printed: scope: src/search.ts, test/; allowed src/search.ts +1 −1; refused src/cards.ts +2 −0.';
+    const answered = [...strayed, answer('answered', 'The cards share the bug: take them in')];
+    expect(decide(answered, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
+    expect(fold(answered).answers).toEqual([{ asked, answer: 'The cards share the bug: take them in' }]);
+    // Approving says the coder needed those files.
+    const approved = [...strayed, answer('approved')];
+    expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
+    expect(fold(approved).answers).toEqual([
+      { asked, answer: 'Yes: the coder needed those files, so let the scope take them in.' },
+    ]);
+    expect(decide([...strayed, answer('rejected')], facts).next).toMatchObject({ do: 'close' });
   });
 
   it('sends the work back to the coder, with his words, from gates that kept failing', () => {

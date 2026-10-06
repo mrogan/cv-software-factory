@@ -78,8 +78,11 @@ export interface AgentDefinition<Input, Result> {
   /** What the step is given, from its work item. Throws `StepFailed` when the work item lacks something it needs. */
   input(context: StepContext): Input | Promise<Input>;
   prompt(input: Input): string;
-  /** The session the step carries on, if it resumes one. */
-  resume?(input: Input, context: StepContext): string | undefined;
+  /**
+   * The session the step carries on, if it resumes one. The definition decides it from the input alone, as it decides
+   * the prompt, so the line and the bench resume the same steps, each with the prompt that fits.
+   */
+  resume?(input: Input): string | undefined;
   /**
    * The result the agent writes beside its changes, read through this schema. A result that is missing or that the
    * schema refuses makes a failed step.
@@ -117,7 +120,7 @@ export function defineAgent<Input, Result>(
       const input = await definition.input(context);
       return {
         prompt: definition.prompt(input),
-        resume: definition.resume?.(input, context),
+        resume: definition.resume?.(input),
         async finish(handback, effects) {
           const parsed = definition.schema(input).safeParse(handback.result);
           if (!parsed.success) {

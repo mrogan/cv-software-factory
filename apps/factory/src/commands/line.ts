@@ -18,8 +18,9 @@
  *
  * `bench` runs one agent's step on this machine, on a fixture's invented work (`line/bench/`), against the gateway at
  * GATEWAY_URL (default http://localhost:8180), and prints what the agent handed back, whether its result fits the
- * agent's schema, how many of its calls the cassettes replayed, and how long it took. Without a fixture, it lists
- * them. It works in the bench's own folder (`BENCH_DIR`), the same on every run so that a run replays.
+ * agent's schema, how many of its calls the cassettes replayed, and how long it took. A coder's patch meets the scope
+ * fence, and one it refuses goes back to the coder, as on the line. Without a fixture, it lists them. It works in the
+ * bench's own folder (`BENCH_DIR`), the same on every run so that a run replays.
  *
  * Every worker checks the line before it takes work, so a stopped line finishes what is in hand and takes nothing
  * new; signals wait in the inbox until it starts again. Connects with DATABASE_URL, or the PG* variables, as the
@@ -164,7 +165,7 @@ async function bench(args: string[]): Promise<number> {
   // The runner's own steps, which only the bench loads: the factory's image does not hold them.
   const { prepare } = await import('../../../runner/src/prepare.ts');
   const { runAgent } = await import('../../../runner/src/agent.ts');
-  const { bench: run } = await import('../line/bench/bench.ts');
+  const { bench: run, lastStep } = await import('../line/bench/bench.ts');
   const { DATABASE_URL, GATEWAY_URL } = process.env;
   const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
   try {
@@ -178,7 +179,8 @@ async function bench(args: string[]): Promise<number> {
       log: (line) => console.error(line),
     });
     console.log(JSON.stringify(benched, null, 2));
-    return benched.handback.ending === 'finished' && benched.result.fits ? 0 : 1;
+    const last = lastStep(benched);
+    return last.handback.ending === 'finished' && last.result.fits && last.fence?.ok !== false ? 0 : 1;
   } finally {
     await sql.end();
   }
