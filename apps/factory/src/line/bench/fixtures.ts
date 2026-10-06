@@ -2,6 +2,8 @@
  * The bench's fixtures: invented work for each agent, from which its module builds the prompt the line would send.
  * A fixture names the app's commit it starts from, pinned, so a step recorded from it replays from the cassettes
  * for as long as they are kept; and, for a defect the app does not have, a seed the prepare step commits as the base.
+ * A fixture for a step that reads a change (the reviewer's) has the change too: a coder's patch, which the bench
+ * commits on the base as the pull request's head.
  *
  * Every fixture is invented: a ticket, a spec or a pull request no visitor wrote. A cassette recorded from one holds
  * only that and the app's public code.
@@ -27,6 +29,8 @@ export interface Fixture<A extends LineAgent> {
   commit: string;
   /** A patch committed on the commit as the step's base. */
   seed?: string;
+  /** A change committed on the base as the head, with its message, for a step that reads one. */
+  change?: { patch: string; message: string };
   input: InputOf<A>;
 }
 
@@ -123,6 +127,91 @@ const ASSETS_SEED = `diff --git a/.dockerignore b/.dockerignore
  !data/catalogue.json
 `;
 
+/**
+ * The coder's fix for the wrong price in `pounds`, as Claude wrote it from the `wrong-price` fixture, with the page's
+ * test from its `cards-outside-scope` run: it meets every criterion, inside the scope.
+ */
+const PRICE_FIX = `diff --git a/src/money.ts b/src/money.ts
+--- a/src/money.ts
++++ b/src/money.ts
+@@ -1,4 +1,4 @@
+ /** Prices are whole pence in the database and pounds on the page: 1250 → "£12.50". */
+ export function pounds(pence: number): string {
+-  return \`£\${Math.trunc(pence / 100)}.\${pence % 100}\`;
++  return \`£\${Math.trunc(pence / 100)}.\${String(pence % 100).padStart(2, '0')}\`;
+ }
+diff --git a/test/money.test.ts b/test/money.test.ts
+--- a/test/money.test.ts
++++ b/test/money.test.ts
+@@ -5,6 +5,9 @@ describe('pounds', () => {
+   it.each([
+     [1250, '£12.50'],
+     [199, '£1.99'],
++    [600, '£6.00'],
++    [705, '£7.05'],
++    [10, '£0.10'],
+   ])('writes %i pence as %s', (pence, expected) => {
+     expect(pounds(pence)).toBe(expected);
+   });
+diff --git a/test/pages-product.test.ts b/test/pages-product.test.ts
+--- a/test/pages-product.test.ts
++++ b/test/pages-product.test.ts
+@@ -14,6 +14,10 @@ describe('a product page', () => {
+     expect(textOf(body)).toContain('Thing, number 5 £2.25 A thing for the garden.');
+   });
+ 
++  it('shows two zeros of pence for a price in whole pounds', async () => {
++    expect(textOf((await shop.get('/products/thing-4')).body)).toContain('Thing, number 4 £2.00');
++  });
++
+   it('gives its item number, department and stock', async () => {
+     const { body } = await shop.get('/products/thing-5');
+     expect(textOf(body)).toContain('Item 5 Department Garden Stock 1 in stock');
+`;
+
+/**
+ * The coder's fix from the `cards-outside-scope` fixture, as Claude wrote it: inside the scope, so `pounds` is fixed
+ * and the cards, which no longer call it, are not; its note says they are.
+ */
+const CARDS_FIX = `diff --git a/src/money.ts b/src/money.ts
+--- a/src/money.ts
++++ b/src/money.ts
+@@ -1,4 +1,4 @@
+ /** Prices are whole pence in the database and pounds on the page: 1250 → "£12.50". */
+ export function pounds(pence: number): string {
+-  return \`£\${Math.trunc(pence / 100)}.\${pence % 100}\`;
++  return \`£\${Math.trunc(pence / 100)}.\${String(pence % 100).padStart(2, '0')}\`;
+ }
+diff --git a/test/money.test.ts b/test/money.test.ts
+--- a/test/money.test.ts
++++ b/test/money.test.ts
+@@ -5,6 +5,10 @@ describe('pounds', () => {
+   it.each([
+     [1250, '£12.50'],
+     [199, '£1.99'],
++    [600, '£6.00'],
++    [705, '£7.05'],
++    [10, '£0.10'],
++    [3500, '£35.00'],
+   ])('writes %i pence as %s', (pence, expected) => {
+     expect(pounds(pence)).toBe(expected);
+   });
+diff --git a/test/pages-product.test.ts b/test/pages-product.test.ts
+--- a/test/pages-product.test.ts
++++ b/test/pages-product.test.ts
+@@ -14,6 +14,10 @@ describe('a product page', () => {
+     expect(textOf(body)).toContain('Thing, number 5 £2.25 A thing for the garden.');
+   });
+ 
++  it('shows two zeros of pence for a price in whole pounds', async () => {
++    expect(textOf((await shop.get('/products/thing-4')).body)).toContain('Thing, number 4 £2.00');
++  });
++
+   it('gives its item number, department and stock', async () => {
+     const { body } = await shop.get('/products/thing-5');
+     expect(textOf(body)).toContain('Item 5 Department Garden Stock 1 in stock');
+`;
+
 /** The ticket triage would open for the wrong price, as its public view has it. */
 const PRICE_TICKET: PayloadOf<'ticket.opened'> = {
   title: 'A wrong result on /products/:slug',
@@ -173,6 +262,19 @@ const PRICE_SPEC: PayloadOf<'spec.written'> = {
   scope: ['src/money.ts', 'test/money.test.ts', 'test/pages-product.test.ts'],
   risks: [],
   rollout: 'Ships in the next release; product pages, cards and the API then show two digits of pence.',
+};
+
+/** The wrong price's spec, with a criterion on the product cards, whose file is outside its scope. */
+const CARDS_SPEC: PayloadOf<'spec.written'> = {
+  ...PRICE_SPEC,
+  criteria: [
+    ...PRICE_SPEC.criteria,
+    {
+      given: 'a product that costs a whole number of pounds',
+      when: 'a visitor opens the product list',
+      expect: 'its card shows the price with two zeros of pence, such as £2.00',
+    },
+  ],
 };
 
 export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
@@ -316,22 +418,54 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
         workItem: FIXTURE_WORK_ITEM,
         ticket: PRICE_TICKET,
         signals: PRICE_SIGNALS,
-        spec: {
-          ...PRICE_SPEC,
-          criteria: [
-            ...PRICE_SPEC.criteria,
-            {
-              given: 'a product that costs a whole number of pounds',
-              when: 'a visitor opens the product list',
-              expect: 'its card shows the price with two zeros of pence, such as £2.00',
-            },
-          ],
-        },
+        spec: CARDS_SPEC,
         round: 1,
         protectedPaths: APP_PROTECTED,
       },
     },
   },
-  reviewer: {},
+  reviewer: {
+    'price-fixed': {
+      about: "the coder's fix for the wrong price: every criterion met, inside the scope, so one to approve",
+      commit: APP_MAIN,
+      seed: PRICE_SEED,
+      change: {
+        patch: PRICE_FIX,
+        message: [
+          'fix(money): always show two digits of pence',
+          '',
+          'pounds() printed the pence remainder without padding, so 600 pence showed as £6.0 and 705 pence as £7.5. The remainder is now padded to two digits. Tests added in test/money.test.ts (600, 705, 10 pence) and test/pages-product.test.ts (a whole-pound price on the product page shows £2.00); they failed before the fix and pass now, with the rest of the suite.',
+        ].join('\n'),
+      },
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        spec: PRICE_SPEC,
+        pullRequest: 101,
+        title: 'fix(money): always show two digits of pence',
+        round: 1,
+      },
+    },
+    'cards-claimed': {
+      about:
+        "the coder's fix for the wrong price in `pounds` and the cards, inside a scope without the cards: its note says the cards are fixed, and they are not",
+      commit: APP_MAIN,
+      seed: CARDS_SEED,
+      change: {
+        patch: CARDS_FIX,
+        message: [
+          'fix(money): pad pence to two digits in prices',
+          '',
+          "pounds() printed the remainder of pence / 100 without padding, so 600 pence showed as £6.0, 705 as £7.5 and 3500 as £35.0. It now pads the pence to two digits. Tests in test/money.test.ts cover 600, 705, 10 and 3500 pence; test/pages-product.test.ts checks that /products/thing-4 (200 pence) shows £2.00. The product list and the API use the same pounds(), so the card is fixed too; the test catalogue's list page is outside the allowed scope, so it has no new test of its own. Nothing else was changed.",
+        ].join('\n'),
+      },
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        spec: CARDS_SPEC,
+        pullRequest: 102,
+        title: 'fix(money): pad pence to two digits in prices',
+        round: 1,
+      },
+    },
+  },
   describer: {},
 };

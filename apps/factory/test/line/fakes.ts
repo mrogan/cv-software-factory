@@ -5,7 +5,7 @@
  */
 import type { Sql } from 'postgres';
 import type { Handback } from '../../../runner/src/step.ts';
-import type { CheckRun, PullRequestState } from '../../src/github/reads.ts';
+import type { CheckRun, Comparison, PullRequestState } from '../../src/github/reads.ts';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../src/github/server.ts';
 import type { GitHubPort, Steps } from '../../src/line/worker.ts';
 import { jobName } from '../../src/runners/jobs.ts';
@@ -98,6 +98,13 @@ export class FakeGitHub implements GitHubPort {
   required = ['test'];
   /** What the app's CODEOWNERS gives Martin, beside the workflows and the deployment. */
   protectedPaths = ['.github/', 'deploy/', 'Dockerfile', '**/AGENTS.md'];
+  /**
+   * The files the pull request changes since main, as GitHub compares them: every file a patch has changed, with the
+   * hunks of each patch that changed it. GitHub's comparison is one diff from the merge base, whose hunks would merge
+   * and renumber those of an earlier round; here each round's hunks keep their own lines, so a line any round showed
+   * stays one a finding can be anchored to, as it is on GitHub unless a later round removed it.
+   */
+  diff: Comparison['files'] = [];
   #commits = 0;
 
   async act<K extends ActionName>(action: K, _repo: string, given: ActionArgs[K]): Promise<ActionResult<K>> {
@@ -129,6 +136,15 @@ export class FakeGitHub implements GitHubPort {
         const sha = String(++this.#commits).padStart(40, 'f');
         for (const pr of this.pulls.values()) if (pr.head.ref === args.branch) pr.head.sha = sha;
         this.lastCommit = sha;
+        for (const file of String(args.patch)
+          .split(/^diff --git a\/\S+ b\//m)
+          .slice(1)) {
+          const path = file.slice(0, file.indexOf('\n'));
+          const patch = file.slice(file.indexOf('@@'));
+          const before = this.diff.find((f) => f.path === path);
+          if (before) before.patch = `${before.patch ?? ''}\n${patch}`;
+          else this.diff.push({ path, patch });
+        }
         return sha;
       }
       case 'openPullRequest': {
@@ -164,6 +180,8 @@ export class FakeGitHub implements GitHubPort {
         return answer(this.required);
       case 'protectedPaths':
         return answer(this.protectedPaths);
+      case 'comparison':
+        return answer({ mergeBase: MAIN, files: this.diff });
       case 'checkRuns':
         return answer(this.checks.get(String(args.sha)) ?? []);
       case 'pullRequest': {

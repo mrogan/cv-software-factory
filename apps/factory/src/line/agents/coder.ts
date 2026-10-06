@@ -11,15 +11,17 @@
  * change (the workflows, the deployment, and what the app's CODEOWNERS gives a person at the step's commit), whole,
  * before it reaches GitHub. The refusal is recorded with the fence's output (`action.refused`), and the next step
  * comes back here with it; the checkout is fresh, since nothing of a refused patch is kept. A later round, sent back
- * by the gates or the reviewer, starts from the pull request's head. Either way the coder resumes its own session
- * when it has one, which holds the spec and what it tried; without one, it is told everything a first step is. This
- * module decides both, from its input alone (`resume`, `prompt`), so the line and the bench agree.
+ * by the gates or the reviewer, starts from the pull request's head, with the review's blocking findings when it was
+ * the reviewer that sent it. Either way the coder resumes its own session when it has one, which holds the spec and
+ * what it tried; without one, it is told everything a first step is. This module decides both, from its input alone
+ * (`resume`, `prompt`), so the line and the bench agree.
  */
 import type { PayloadOf, Stage } from '@software-factory/events';
 import { z } from 'zod';
 import { filesIn, PatchRefused } from '../../github/patches.ts';
 import { GitHubWorkerError } from '../../github/worker-client.ts';
 import { type Fenced, fence } from '../../runners/scope.ts';
+import { cites, type Finding } from '../review.ts';
 import { answerOf, defineAgent, need, StepFailed, StepStale, words } from './agent.ts';
 import { type Signal, seen, ticketLines } from './evidence.ts';
 
@@ -37,6 +39,8 @@ export interface CoderInput {
   session?: string | null | undefined;
   /** What sent the work back, for a later round. */
   returned?: { from: Stage; reason: string } | undefined;
+  /** The review's blocking findings, when review sent the work back. */
+  findings?: Finding[] | undefined;
   /** The scope fence's output on the coder's last patch, which it refused. */
   fenced?: string | undefined;
   /** Martin's answer to the hold before this step, if he wrote one. */
@@ -119,11 +123,17 @@ function first(input: CoderInput): string[] {
 
 /** A later step: why it came back, from review or the gates, from the fence, or both. */
 function again(input: CoderInput): string[] {
-  const { workItem, round, returned, fenced, answer } = input;
+  const { workItem, round, returned, findings, fenced, answer } = input;
   const back =
     round > 1
       ? [
           `Your change for ticket #${workItem} came back from ${returned?.from ?? 'review'}, for round ${round}: ${returned?.reason ?? 'it needs another look'}.`,
+          ...(findings?.length
+            ? [
+                'The reviewer’s blocking findings, each at a line of your change, with the rule or criterion it cites:',
+                ...findings.map((f) => `- ${f.path}:${f.line}${cites(f) ? ` (${cites(f)})` : ''}: ${f.comment}`),
+              ]
+            : []),
           'The checkout is the pull request’s head, with the change you pushed before in it.',
         ]
       : [];
@@ -162,6 +172,7 @@ export const coder = defineAgent<CoderInput, CoderResult>({
     round,
     session,
     returned: state.rebuild,
+    findings: state.rebuild?.from === 'review' ? state.review?.findings.filter((f) => f.blocking) : undefined,
     fenced: state.fenced,
     answer: answerOf(state),
   }),

@@ -64,6 +64,16 @@ describe('the coder', () => {
       'The checkout is the pull request’s head, with the change you pushed before in it.',
     );
     expect(coder.prompt(resumed)).not.toContain('Read AGENTS.md first');
+    const finding = {
+      path: 'test/money.test.ts',
+      line: 6,
+      blocking: true,
+      rule: 3,
+      comment: 'Show it through a page.',
+    };
+    expect(coder.prompt({ ...resumed, findings: [finding] })).toContain(
+      '- test/money.test.ts:6 (rule 3): Show it through a page.',
+    );
     const fresh = { ...input, round: 2, returned, session: null };
     expect(coder.resume?.(fresh)).toBeUndefined();
     expect(coder.prompt(fresh)).toContain('came back from review');

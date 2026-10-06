@@ -192,11 +192,25 @@ describe('the line', () => {
     await pass(); // the describer
     await pass(); // the hold for Martin
     expect(await stage(workItem)).toBe('held');
-    expect(github.acts.map((a) => a.action).slice(4)).toEqual(['review', 'updatePullRequest', 'readyForReview']);
-    // The reviewer starts from the pull request's head, and takes its diff against the pull request's base.
+    expect(github.acts.map((a) => a.action).slice(4)).toEqual([
+      'createCheckRun',
+      'review',
+      'updatePullRequest',
+      'readyForReview',
+    ]);
+    // The reviewer starts from the pull request's head, with the base its branch left beside it.
     const head = github.pulls.get(12)?.head.sha;
-    expect(steps.requests[2]).toMatchObject({ agent: 'reviewer', commit: head });
-    expect(steps.requests[2]?.prompt).toContain(`the diff from ${MAIN} to the checkout's head`);
+    expect(steps.requests[2]).toMatchObject({ agent: 'reviewer', commit: head, base: MAIN });
+    expect(steps.requests[2]?.prompt).toContain('`git diff base` is the change');
+    // A step that makes a change, or writes about one, is given no base.
+    for (const other of [steps.requests[1], steps.requests[3]]) expect(other).not.toHaveProperty('base');
+    expect(github.acts[4]?.args).toMatchObject({
+      name: 'factory review',
+      headSha: head,
+      status: 'completed',
+      conclusion: 'success',
+      title: 'Approved',
+    });
 
     github.merge();
     await pass();
@@ -270,6 +284,76 @@ describe('the line', () => {
       reason: 'The gates failed: test',
     });
     expect((await payloads(workItem, 'pull-request.pushed')).map((p) => p.attempt)).toEqual([1, 2]);
+  });
+
+  it('sends blocking findings back to the coder’s session, reviews its second round afresh, and then holds', async () => {
+    const workItem = await ticket();
+    const blocking = {
+      path: 'src/search.ts',
+      line: 1,
+      blocking: true,
+      criterion: 1,
+      comment: 'Nothing here escapes a quote: the criterion is not met.',
+    };
+    // Anchored where the diff shows nothing, so GitHub would refuse it as a comment.
+    const elsewhere = {
+      path: 'src/server.ts',
+      line: 40,
+      blocking: false,
+      rule: 1,
+      comment: 'Read through the catalogue.',
+    };
+    const review = {
+      verdict: 'changes-requested',
+      note: 'The quote is still not escaped.',
+      findings: [blocking, elsewhere],
+    };
+    const { pass, steps, github } = line({ ...AGENTS, reviewer: () => handback(review) });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the gates pass, and the reviewer's first round
+    const posted = github.acts.find((a) => a.action === 'review');
+    const check = github.acts.find((a) => a.action === 'createCheckRun');
+    expect(posted?.args.comments).toEqual([
+      {
+        path: 'src/search.ts',
+        line: 1,
+        body: '**Blocking** · criterion 1\n\nNothing here escapes a quote: the criterion is not met.',
+      },
+    ]);
+    expect(String(posted?.args.body)).toContain(
+      '- `src/server.ts:40`: **Suggestion** · rule 1: Read through the catalogue.',
+    );
+    expect(check?.args).toMatchObject({ conclusion: 'failure', title: 'Changes requested: 1 blocking finding' });
+    expect((await payloads(workItem, 'review.submitted'))[0]).toEqual({
+      pullRequest: 12,
+      verdict: 'changes-requested',
+      note: 'The quote is still not escaped.',
+      findings: [blocking, elsewhere],
+    });
+
+    await pass(); // back to the coder, which resumes its session with the blocking finding
+    expect((await payloads(workItem, 'work.returned'))[0]).toMatchObject({ from: 'review', to: 'build' });
+    const coder = steps.requests.at(-1);
+    expect(coder).toMatchObject({ agent: 'coder', round: 2, resume: 'session-1' });
+    expect(coder?.prompt).toContain(
+      '- src/search.ts:1 (criterion 1): Nothing here escapes a quote: the criterion is not met.',
+    );
+    expect(coder?.prompt).not.toContain('Read through the catalogue');
+
+    github.pass();
+    await pass(); // the gates pass on the second round, and a fresh reviewer checks what blocked first
+    const reviewer = steps.requests.at(-1);
+    expect(reviewer).toMatchObject({ agent: 'reviewer', round: 2 });
+    expect(reviewer?.resume).toBeUndefined();
+    expect(reviewer?.prompt).toContain('The review before this one blocked on these.');
+    expect(reviewer?.prompt).toContain('- src/search.ts:1 (criterion 1): Nothing here escapes a quote');
+
+    await pass(); // still blocking after two reviews: Martin's
+    expect(await stage(workItem)).toBe('held');
+    expect((await payloads(workItem, 'hold.started'))[0]).toMatchObject({ stage: 'review', kind: 'held' });
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'reviewer', 'coder', 'reviewer']);
   });
 
   it('takes the oldest ticket of the highest severity, and one at a time', async () => {
@@ -665,6 +749,25 @@ describe('the line', () => {
       'model.called',
       'pull-request.pushed',
     ]);
+  });
+
+  it('posts the review once when GitHub fails after the check run, and never runs the reviewer again', async () => {
+    const workItem = await ticket();
+    const { pass, steps, github } = line();
+    await pass(); // the planner
+    await pass(); // the coder
+    github.pass();
+    github.failing.set('review', 1);
+    await pass(); // the gates pass, the reviewer hands back, its check run is made and its review fails
+    expect(await failures(workItem)).toEqual({ failures: 0, failure: null });
+    expect(await types(workItem)).not.toContain('review.submitted');
+    now += 60_000;
+    await pass(); // the review alone, from the kept handback
+    const reviewed = (action: string) => github.acts.filter((a) => a.action === action);
+    expect(reviewed('createCheckRun')).toHaveLength(1);
+    expect(reviewed('review')).toHaveLength(1);
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'reviewer']);
+    expect(await payloads(workItem, 'review.submitted')).toHaveLength(1);
   });
 
   it('opens no second pull request when the push could not be recorded after the first was opened', async () => {

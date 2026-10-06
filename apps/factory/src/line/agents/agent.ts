@@ -41,7 +41,10 @@ export interface StepContext {
   state: WorkItemState;
   /** The commit the step starts from: main's head before a pull request, and its head after. */
   commit: string;
-  /** The commit a pull request's diff is taken against: its base, or the start before there is one. */
+  /**
+   * The commit a pull request's diff is taken against: where its branch left main for a step that reads the change
+   * (`readsChange`), its base's head for any other, and the start before there is a pull request.
+   */
   base: string;
   /** The session the agent's last step ended with, which a later round may carry on. */
   session: string | null;
@@ -75,6 +78,12 @@ export interface AgentDefinition<Input, Result> {
   /** Turns, and seconds of work, before the step ends unfinished. */
   maxTurns: number;
   deadlineSeconds: number;
+  /**
+   * Whether the step reads the pull request's change rather than making one. Its base, where the pull request's
+   * branch left main as GitHub's diff takes it, is then fetched beside its commit with every commit between, so
+   * `git diff base` is the change and `git log base..HEAD` what the coder said of it in each round.
+   */
+  readsChange?: boolean;
   /** What the step is given, from its work item. Throws `StepFailed` when the work item lacks something it needs. */
   input(context: StepContext): Input | Promise<Input>;
   prompt(input: Input): string;
@@ -98,6 +107,7 @@ export interface Agent {
   skill?: string;
   maxTurns: number;
   deadlineSeconds: number;
+  readsChange?: boolean;
   /** Begins a step: what the agent is asked, and what to make of what it hands back. */
   start(context: StepContext): Promise<Started>;
 }

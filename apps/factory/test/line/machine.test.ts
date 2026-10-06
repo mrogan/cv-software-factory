@@ -44,9 +44,15 @@ const finished = (conclusion: 'passed' | 'failed', commit = SHA): LineEvent => (
   type: 'gates.finished',
   payload: { pullRequest: 12, commit, conclusion, passed: 1, failed: conclusion === 'failed' ? ['test'] : [] },
 });
+const finding = { path: 'src/search.ts', line: 3, blocking: true, rule: 4, comment: 'Escape the query once.' };
 const review = (verdict: PayloadOf<'review.submitted'>['verdict']): LineEvent => ({
   type: 'review.submitted',
-  payload: { pullRequest: 12, verdict, note: 'One blocking finding.', findings: [] },
+  payload: {
+    pullRequest: 12,
+    verdict,
+    note: 'One blocking finding.',
+    findings: verdict === 'approved' ? [] : [finding],
+  },
 });
 const returned = (from: 'gates' | 'review'): LineEvent => ({
   type: 'work.returned',
@@ -94,13 +100,44 @@ describe('what the line does next', () => {
     expect(decide(events, facts)).toMatchObject({ stage: 'held', next: { do: 'hold', hold: { stage: 'gates' } } });
   });
 
-  it('sends blocking findings back, and holds what still blocks after two reviews', () => {
+  it('sends blocking findings back to the coder, reviews its second round, and holds what still blocks', () => {
     const passed = (attempt: number) => [pushed(attempt), started(), finished('passed')];
+    // Round 1: the review blocks, and the work goes back to Build.
     const first = [ticket, spec, ...passed(1), review('changes-requested')];
-    expect(decide(first, facts).next).toMatchObject({ do: 'return', from: 'review', to: 'build' });
-    const second = [...first, returned('review'), ...passed(2), review('changes-requested')];
+    expect(decide(first, facts)).toEqual({
+      stage: 'build',
+      next: { do: 'return', from: 'review', to: 'build', reason: 'Review asked for changes: One blocking finding.' },
+    });
+    // The coder's round 2, with the findings that sent it back still to hand.
+    const back = [...first, returned('review')];
+    expect(decide(back, facts)).toEqual({ stage: 'build', next: { do: 'step', agent: 'coder', round: 2 } });
+    expect(fold(back).review?.findings).toEqual([finding]);
+    // Its push waits for the gates, and a passing run brings the reviewer back for round 2, which knows round 1's.
+    expect(decide([...back, pushed(2)], facts).next).toEqual({ do: 'wait', for: 'gates' });
+    const reviewing = [...back, ...passed(2)];
+    expect(decide(reviewing, facts)).toEqual({ stage: 'review', next: { do: 'step', agent: 'reviewer', round: 2 } });
+    expect(fold(reviewing)).toMatchObject({ review: undefined, lastReview: { findings: [finding] }, reviews: 1 });
+    // Round 2 still blocks: two reviews are the limit, and Martin decides.
     expect(LIMITS.reviews).toBe(2);
-    expect(decide(second, facts)).toMatchObject({ stage: 'held', next: { do: 'hold', hold: { kind: 'held' } } });
+    expect(decide([...reviewing, review('changes-requested')], facts)).toEqual({
+      stage: 'held',
+      next: {
+        do: 'hold',
+        hold: {
+          stage: 'review',
+          kind: 'held',
+          cause: 'review',
+          reason: 'Review asked for changes: One blocking finding.',
+        },
+      },
+    });
+    // Round 2 approves: on to the describer.
+    expect(decide([...reviewing, review('approved')], facts).next).toEqual({
+      do: 'step',
+      agent: 'describer',
+      round: 2,
+    });
+    // An escalation holds at once.
     expect(decide([ticket, spec, ...passed(1), review('escalated')], facts)).toMatchObject({ stage: 'held' });
   });
 
@@ -332,6 +369,56 @@ describe('Martin’s answer to a hold', () => {
       do: 'return',
       from: 'review',
     });
+  });
+
+  it('moves a review still blocking after the last round on by his answer: another round, his approval, or a close', () => {
+    const second = [ticket, spec, pushed(1), started(), finished('passed'), review('changes-requested')];
+    const last = [
+      ...second,
+      returned('review'),
+      pushed(2),
+      started(OTHER),
+      finished('passed', OTHER),
+      review('changes-requested'),
+    ];
+    const holding = decide(last, facts).next;
+    expect(holding).toMatchObject({ do: 'hold', hold: { cause: 'review' } });
+    const heldAtLast = [...last, held('review', 'review')];
+
+    // An answer is another round: back to the coder with his words, then the gates and a fresh reviewer.
+    const answered = [...heldAtLast, answer('answered', 'Escape it in the query builder')];
+    expect(decide(answered, facts).next).toEqual({
+      do: 'return',
+      from: 'review',
+      to: 'build',
+      reason: 'Martin sent it back: Escape it in the query builder',
+    });
+    const third = [...answered, returned('review')];
+    expect(decide(third, facts).next).toEqual({ do: 'step', agent: 'coder', round: 3 });
+    expect(fold(third).rebuild).toEqual({ from: 'review', reason: 'Put it right' });
+    expect(fold(third).review?.findings.filter((f) => f.blocking)).toEqual([finding]);
+    const reviewed = [...third, pushed(3), started(SHA), finished('passed', SHA)];
+    expect(decide(reviewed, facts).next).toEqual({ do: 'step', agent: 'reviewer', round: 3 });
+    expect(decide([...reviewed, review('approved')], facts).next).toMatchObject({ agent: 'describer' });
+
+    // His approval stands in for the reviewer's; rejecting closes the work item.
+    expect(decide([...heldAtLast, answer('approved')], facts).next).toEqual({
+      do: 'step',
+      agent: 'describer',
+      round: 2,
+    });
+    expect(decide([...heldAtLast, answer('rejected')], facts).next).toMatchObject({ do: 'close' });
+  });
+
+  it('runs a reviewer that kept failing again when he answers, and closes it when he rejects', () => {
+    const failed = [ticket, spec, pushed(), started(), finished('passed'), held('failures', 'review')];
+    expect(decide([...failed, answer('approved')], facts).next).toEqual({ do: 'step', agent: 'reviewer', round: 1 });
+    expect(decide([...failed, answer('answered', 'Try again')], facts).next).toEqual({
+      do: 'step',
+      agent: 'reviewer',
+      round: 1,
+    });
+    expect(decide([...failed, answer('rejected')], facts).next).toMatchObject({ do: 'close' });
   });
 
   it('waits for his merge when he approves it, and sends it back when he answers', () => {

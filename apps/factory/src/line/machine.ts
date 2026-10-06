@@ -12,6 +12,10 @@
  * coder keeps straying from is the planner's to fix, so his answer sends the work item back to Plan, and the planner
  * is told what the fence printed and what he said.
  *
+ * A review that blocks sends the work back to the coder, whose next round resumes its session with the blocking
+ * findings, and the gates and a fresh reviewer run again on what it pushes. A review that still blocks after the
+ * second holds the work item for Martin, as does one the reviewer escalates.
+ *
  * The events are folded into where the work item is (`fold`), and `decide` turns that into one next action. Each
  * action either appends events, which moves the work item on, or waits for something outside the line: the gates
  * (GitHub's checks, which the line reads and appends as events) or Martin. The bounds a step has (its turns and
@@ -118,8 +122,9 @@ export interface WorkItemState {
   /** Whether the gates have passed on the latest push: a later run on the same push (main merged in) is the console's. */
   gatesPassed: boolean;
   gateReturns: number;
-  /** The review of the latest push, and how many reviews there have been. */
+  /** The review of the latest push, the latest review of any push, and how many reviews there have been. */
   review: PayloadOf<'review.submitted'> | undefined;
+  lastReview: PayloadOf<'review.submitted'> | undefined;
   reviews: number;
   /** Whether the describer has written up the approved change. */
   described: boolean;
@@ -152,6 +157,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
     gatesPassed: false,
     gateReturns: 0,
     review: undefined,
+    lastReview: undefined,
     reviews: 0,
     described: false,
     hold: undefined,
@@ -191,6 +197,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         break;
       case 'review.submitted':
         state.review = event.payload;
+        state.lastReview = event.payload;
         state.reviews += 1;
         break;
       case 'work-item.summarised':

@@ -19,10 +19,15 @@
  * A coder's patch meets the scope fence, as on the line (`fenceFor`). One the fence refuses goes back to the coder,
  * as the line sends it (`coderInputAfterRefusal`), up to `LIMITS.fenceRefusals`: another step, from a fresh
  * checkout, carrying on the coder's session as its definition says (`resume`).
+ *
+ * A step that reads a change, the reviewer's, has it committed on the base after the prepare step, at the seed's
+ * time, as a pull request's head; the base is named `base`, as the prepare step names a real step's base.
  */
+import { execFile } from 'node:child_process';
 import { mkdir, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { endJobToken, issueJobToken } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import type { AgentOptions } from '../../../../runner/src/agent.ts';
@@ -40,10 +45,11 @@ import type { Fixture, InputOf } from './fixtures.ts';
 /** Where the bench works, the same on every run: the checkout's path is in the agent's prompt. */
 export const BENCH_DIR = join(homedir(), '.cache', 'factory-bench');
 
-/** The runner's two steps, as `apps/runner` has them. */
+/** The runner's two steps, as `apps/runner` has them, and the prepare step's commit of a seed. */
 export interface RunnerSteps {
   prepare(env: NodeJS.ProcessEnv, log: (line: string) => void): Promise<void>;
   runAgent(env: NodeJS.ProcessEnv, options: AgentOptions): Promise<Handback>;
+  commitPatch(dir: string, patch: string, commit: { message: string; author: string }): Promise<void>;
 }
 
 export interface BenchOptions<A extends LineAgent> {
@@ -146,6 +152,7 @@ async function step<A extends LineAgent>(
     const started = Date.now();
     // The prepare step has the developer's environment, for pnpm's store; the agent never sees it.
     await o.runner.prepare({ ...process.env, ...shared, PREPARE: prepareDir }, o.log);
+    if (o.fixture.change) await commitChange(o.runner, join(shared.WORK, 'repo'), o.fixture.change);
     const prepared = Date.now();
     const handback = await o.runner.runAgent(
       {
@@ -175,4 +182,15 @@ async function step<A extends LineAgent>(
   } finally {
     await endJobToken(o.sql, job);
   }
+}
+
+const exec = promisify(execFile);
+
+/**
+ * Commits a fixture's change on the base the prepare step left, as the pull request's head would be, and names the
+ * base `base`. It is committed as a seed is, so the head's sha is the same on every run, and so is every file's time.
+ */
+async function commitChange(runner: RunnerSteps, repo: string, change: { patch: string; message: string }) {
+  await exec('git', ['branch', 'base', 'HEAD'], { cwd: repo });
+  await runner.commitPatch(repo, change.patch, { message: change.message, author: 'factory' });
 }
