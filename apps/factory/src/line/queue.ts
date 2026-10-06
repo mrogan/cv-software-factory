@@ -9,6 +9,10 @@
  *
  * A queue for one work item only (`only`, the line's LINE_ONLY) sees nothing else on the line, and takes that ticket
  * onto it whatever else is in Plan or Build: every other work item is left as it is, so it holds up nothing.
+ *
+ * A queue with a limit (`take`, the line's LINE_TAKE) takes tickets by the same rule until that many work items have
+ * come onto the line in all, and then no more, while those on it go on to their end. It counts the line's own rows,
+ * which are never deleted, under the same lock: a restart, or a second worker, takes none beyond the limit.
  */
 import type { JSONValue, Sql } from 'postgres';
 import type { Handback } from '../runners/steps.ts';
@@ -78,22 +82,31 @@ export class Queue {
   readonly #me: string;
   /** The one work item this queue sees, if it sees only one. */
   readonly #only: string | null;
+  /** How many work items the line takes in all, if it takes only so many. */
+  readonly #take: number | null;
 
-  constructor(sql: Sql, me: string, { only = null }: { only?: string | null } = {}) {
+  constructor(sql: Sql, me: string, { only = null, take = null }: { only?: string | null; take?: number | null } = {}) {
     this.#sql = sql;
     this.#me = me;
     this.#only = only;
+    this.#take = take;
   }
 
   /**
    * Takes the next ticket into Plan, if nothing is in Plan or waiting for Build: the oldest open ticket of the
    * highest severity that has never been on the line. Returns its work item, or undefined. A queue of one takes its
-   * own ticket, if it is open and not yet on the line, and no other.
+   * own ticket, if it is open and not yet on the line, and no other. A queue with a limit takes none once the line
+   * has taken that many work items, whichever they were.
    */
   async admit(): Promise<string | undefined> {
     const only = this.#only;
+    const take = this.#take;
     return this.#sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(hashtext('line'))`;
+      if (take !== null) {
+        const [row] = await tx<{ taken: number }[]>`select count(*)::int as taken from line`;
+        if ((row?.taken ?? 0) >= take) return undefined;
+      }
       const [busy] = only ? [] : await tx`select 1 from line where stage in ('plan', 'build') limit 1`;
       if (busy) return undefined;
       const [taken] = await tx<{ work_item: string }[]>`
