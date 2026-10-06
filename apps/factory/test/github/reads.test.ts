@@ -71,6 +71,20 @@ const ROUTES = [
     path: `/repos/${REPO}/pulls?head=${encodeURIComponent(`${REPO.split('/')[0]}:factory/1002-none`)}&state=open&per_page=1`,
     answer: () => ({ body: [] }),
   },
+  {
+    method: 'GET',
+    path: `/repos/${REPO}/compare/main...${SHA}?per_page=100`,
+    answer: () => ({
+      body: {
+        merge_base_commit: { sha: OTHER_SHA },
+        status: 'ahead',
+        files: [
+          { filename: 'src/money.ts', status: 'modified', patch: '@@ -1,2 +1,2 @@\n-a\n+b\n c' },
+          { filename: 'public/logo.png', status: 'added' },
+        ],
+      },
+    }),
+  },
 ];
 
 describe('reading GitHub for the line', () => {
@@ -114,6 +128,17 @@ describe('reading GitHub for the line', () => {
     expect(await reads.head(REPO, 'main')).toBe(SHA);
     expect(await reads.pullRequestFrom(REPO, 'factory/1001-cart')).toMatchObject({ number: 7, state: 'open' });
     expect(await reads.pullRequestFrom(REPO, 'factory/1002-none')).toBeNull();
+  });
+
+  it('compares a commit with a branch: where it left it, and each file it changes since, with its patch', async () => {
+    const { github } = client(ROUTES);
+    expect(await new LiveReads(github).comparison(REPO, 'main', SHA)).toEqual({
+      mergeBase: OTHER_SHA,
+      files: [
+        { path: 'src/money.ts', patch: '@@ -1,2 +1,2 @@\n-a\n+b\n c' },
+        { path: 'public/logo.png', patch: null },
+      ],
+    });
   });
 });
 
