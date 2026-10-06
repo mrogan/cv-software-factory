@@ -83,9 +83,14 @@ test.describe('the reel', () => {
   });
 
   test('settles on a whole card when the drag ends, carried a little further by a flick', async ({ page }) => {
+    await page.clock.install({ time: END });
     await page.goto(consoleUrl());
     await ready(page);
+    // A flick is a speed, read from the page's clock: held still, the drag takes no time at all, however slow the
+    // machine, and is always a flick.
+    await page.clock.pauseAt(END + 60_000);
     await drag(page, 20);
+    await page.clock.resume();
     await expect(page.locator('.reel')).not.toHaveClass(/dragging/);
     // A card and a third to the left, and half a card more for the flick.
     await expect(page.locator('.transport .count')).toHaveText('10 of 12');

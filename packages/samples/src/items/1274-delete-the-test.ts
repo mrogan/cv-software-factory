@@ -38,6 +38,7 @@ export default new Item('1274', '2026-10-01T14:42:00+01:00')
   .at('5:00', 'hold.started', 'factory', 'Held for a human, with the gate’s reason', {
     stage: 'gates',
     kind: 'held',
+    cause: 'gates',
     reason: 'The test-integrity gate holds any pull request that removes tests, for a human to decide.',
   })
   .at('5:01', 'work-item.summarised', 'factory', 'Summary written', {

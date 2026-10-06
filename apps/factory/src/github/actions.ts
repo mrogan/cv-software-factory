@@ -9,10 +9,13 @@
  *
  * Commits go through GraphQL's `createCommitOnBranch`, never `git push`: GitHub makes the commit and signs it as the
  * App, which `main`'s ruleset requires, and the factory never runs git in a working tree it does not control.
+ *
+ * Both refuse to move, delete or commit to a branch the factory does not own (`branches.ts`), whatever they are asked.
  */
 import type { ArtifactStore } from '@software-factory/store';
 import type { Logger } from 'pino';
 import { z } from 'zod';
+import { guardBranch } from './branches.ts';
 import { type GitHub, GitHubError } from './client.ts';
 import { applyTo, filesIn, PatchRefused } from './patches.ts';
 import { CODEOWNERS_PATHS, inScope, NEVER, ownedPaths } from './paths.ts';
@@ -201,6 +204,7 @@ export class LiveActions implements Actions {
   }
 
   async applyPatch(repo: string, { branch, expectedHead, patch, message }: PatchCommit): Promise<string> {
+    guardBranch(branch);
     const read = (path: string) => this.#read(repo, path, expectedHead);
     await guard(patch, read);
     const changes = await applyTo(patch, read);
@@ -208,6 +212,7 @@ export class LiveActions implements Actions {
   }
 
   async setBranch(repo: string, branch: string, sha: string, { force = false } = {}): Promise<void> {
+    guardBranch(branch);
     // Whether the branch is there decides between moving it and making it: asked, not read off an error's words.
     let exists = true;
     try {
@@ -221,10 +226,12 @@ export class LiveActions implements Actions {
   }
 
   async deleteBranch(repo: string, branch: string): Promise<void> {
+    guardBranch(branch);
     await this.#github.write(repo, 'DELETE', `/repos/${repo}/git/refs/heads/${branch}`);
   }
 
   async commit(repo: string, { branch, expectedHead, message, changes }: Commit): Promise<string> {
+    guardBranch(branch);
     const [headline = '', ...rest] = message.split('\n');
     const body = rest.join('\n').trim();
     const answer = await this.#github.graphql(
@@ -387,6 +394,7 @@ export class DryRunActions implements Actions {
   }
 
   async applyPatch(repo: string, { branch, expectedHead, patch, message }: PatchCommit): Promise<string> {
+    guardBranch(branch);
     const read = (path: string) => this.#file(repo, path, expectedHead);
     await guard(patch, read);
     const changes = await applyTo(patch, read);
@@ -406,14 +414,17 @@ export class DryRunActions implements Actions {
   }
 
   async setBranch(repo: string, branch: string, sha: string, options: { force?: boolean } = {}): Promise<void> {
+    guardBranch(branch);
     await this.#record('setBranch', repo, { branch, sha, ...options });
   }
 
   async deleteBranch(repo: string, branch: string): Promise<void> {
+    guardBranch(branch);
     await this.#record('deleteBranch', repo, { branch });
   }
 
   async commit(repo: string, commit: Commit): Promise<string> {
+    guardBranch(commit.branch);
     const { changes, ...rest } = commit;
     const hash = await this.#record('commit', repo, {
       ...rest,

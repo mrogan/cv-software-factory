@@ -19,14 +19,21 @@ export const NAMESPACE = 'runners';
 const LABEL = 'factory.mrogan.dev';
 
 export interface JobNames {
-  /** The step's job, such as `coder-1001-2`: the agent, the work item and the round. */
+  /**
+   * The step's job, such as `reviewer-1002-1-4`: the agent, the work item, the agent's round, and how many steps the
+   * work item has started, whichever agent ran them. That one is the reviewer's first round and the work item's
+   * fourth step. The count makes each job's name unique.
+   */
   job: string;
   workItem: string;
 }
 
-/** A Kubernetes name from parts: lower case, digits and dashes, and short enough. */
-export const jobName = (agent: string, workItem: string, round: number) =>
-  `${agent}-${workItem}-${round}`
+/**
+ * A Kubernetes name from parts (`attempt` is the work item's count of steps): lower case, digits and dashes, and
+ * short enough.
+ */
+export const jobName = (agent: string, workItem: string, round: number, attempt = 1) =>
+  `${agent}-${workItem}-${round}-${attempt}`
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, '-')
     .slice(0, 52);

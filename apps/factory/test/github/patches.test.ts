@@ -76,7 +76,7 @@ describe('applying a patch outside the sandbox', () => {
       },
     ]);
     const oid = await new LiveActions(github).applyPatch(REPO, {
-      branch: 'fix/1',
+      branch: 'factory/1-cart',
       expectedHead: SHA,
       patch: FIX,
       message: 'fix: count',
@@ -104,7 +104,7 @@ describe('applying a patch outside the sandbox', () => {
       async (_repo, path) => BASE[path] ?? null,
     );
     const first = await actions.applyPatch(REPO, {
-      branch: 'fix/1',
+      branch: 'factory/1-cart',
       expectedHead: SHA,
       patch: FIX,
       message: 'fix: count',
@@ -116,7 +116,7 @@ describe('applying a patch outside the sandbox', () => {
 +export const count = (xs: readonly unknown[]) => xs.length;
 `;
     await actions.applyPatch(REPO, {
-      branch: 'fix/1',
+      branch: 'factory/1-cart',
       expectedHead: first,
       patch: second,
       message: 'fix: count, round two',
@@ -166,11 +166,16 @@ describe('what a patch may not do', () => {
       `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`;
     for (const path of ['src/money.ts', 'Dockerfile']) {
       await expect(
-        actions.applyPatch(REPO, { branch: 'fix/1', expectedHead: SHA, patch: change(path), message: 'm' }),
+        actions.applyPatch(REPO, { branch: 'factory/1-cart', expectedHead: SHA, patch: change(path), message: 'm' }),
       ).rejects.toMatchObject({ kind: 'protected' });
     }
     await expect(
-      actions.applyPatch(REPO, { branch: 'fix/1', expectedHead: SHA, patch: header('deploy/x.yaml'), message: 'm' }),
+      actions.applyPatch(REPO, {
+        branch: 'factory/1-cart',
+        expectedHead: SHA,
+        patch: header('deploy/x.yaml'),
+        message: 'm',
+      }),
     ).rejects.toMatchObject({ kind: 'protected' });
   });
 

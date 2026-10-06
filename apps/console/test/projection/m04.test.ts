@@ -122,7 +122,7 @@ describe('a report that became a ticket, later on the line', () => {
     testsFirst: true,
     files: [{ path: 'src/pages/about.ts', added: 2, removed: 2 }],
   });
-  const held = later('hold.started', { stage: 'gates', kind: 'held', reason: 'A test was removed' }, 2);
+  const held = later('hold.started', { stage: 'gates', kind: 'held', cause: 'gates', reason: 'A test was removed' }, 2);
   const events = [...FIXTURE, pushed, held] as typeof FIXTURE;
 
   it('leaves Jev’s answers behind once the line has evidence of its own', () => {

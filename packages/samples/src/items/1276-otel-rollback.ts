@@ -31,6 +31,7 @@ export default new Item('1276', '2026-10-02T08:10:00+01:00')
   .at('5:11', 'hold.started', 'factory', 'Waiting for Martin: dependency changes carry a risk tag', {
     stage: 'review',
     kind: 'approval',
+    cause: 'merge',
     reason: 'A dependency change carries a risk tag, so it waits for Martin to approve the merge.',
   })
   .at('9:00', 'hold.answered', 'martin', 'Martin approved the merge', { decision: 'approved' })

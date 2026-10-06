@@ -8,12 +8,15 @@
  * 2. It runs the agent on the Agent SDK (Claude Code), in the checkout the prepare pod left, with the gateway as
  *    its API and the step's turn limit. The working folder and the system prompt are the same on every run, so the
  *    gateway's cassettes replay a step run again.
- * 3. It hands back a patch of what the agent changed and the agent's last word. The patch is data: the line checks
- *    it against the spec's scope, and the GitHub worker applies it outside the sandbox.
+ * 3. It hands back a patch of what the agent changed and the agent's last word, and its structured result when the
+ *    step asks for one. The patch is data: the line checks it against the spec's scope, and the GitHub worker
+ *    applies it outside the sandbox. The result is data too: the line reads it through the agent's schema.
  */
+import { mkdir, readFile, rm } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
 import { git } from './git.ts';
-import { type Ending, type Handback, repoDir, stepFrom } from './step.ts';
+import { type Ending, type Handback, RESULT_BYTES, repoDir, resultPath, type Step, stepFrom } from './step.ts';
 
 /** Somewhere on the internet the fence must keep the pod from, by address: the pod has no DNS. */
 const CANARY = 'https://1.1.1.1';
@@ -71,11 +74,17 @@ export async function awaitFence(gateway: string, canary = CANARY, waitMs = FENC
  */
 export const TOOLS = ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep'];
 
-/** The system prompt's addition: who the agent is, which skill to use, and what its last message is for. */
-function instructions(agent: string, skill: string | undefined): string {
+/**
+ * The system prompt's addition: who the agent is, which skill to use, where its result goes, and what its last
+ * message is for.
+ */
+function instructions(step: Step, result: string): string {
   return [
-    `You are the factory's ${agent}, working in a checkout of the app's repository with no network.`,
-    skill ? `Use the ${skill} skill for this step.` : '',
+    `You are the factory's ${step.agent}, working in a checkout of the app's repository with no network.`,
+    step.skill ? `Use the ${step.skill} skill for this step.` : '',
+    step.result
+      ? `Write the step's result, as JSON, to ${result}: it is handed back beside your changes and is not one of them.`
+      : '',
     'Your last message is handed back with your changes: make it a short note of the decisions you made, for the next reader.',
   ]
     .filter(Boolean)
@@ -97,6 +106,10 @@ export async function runAgent(
   if (!gateway || !env.ANTHROPIC_API_KEY) throw new Error('The gateway and the job token are not set.');
   if (checkFence) await awaitFence(gateway);
   const cwd = repoDir(env);
+  // The volume outlives the step: a result left by an earlier one must not be handed back as this one's.
+  const resultFile = resultPath(env);
+  await rm(resultFile, { force: true });
+  await mkdir(dirname(resultFile), { recursive: true });
 
   let result: SDKResultMessage | undefined;
   let error: string | undefined;
@@ -116,7 +129,7 @@ export async function runAgent(
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: instructions(step.agent, step.skill),
+          append: instructions(step, resultFile),
           excludeDynamicSections: true,
         },
         env: {
@@ -146,6 +159,8 @@ export async function runAgent(
     patch = '';
     error = `The patch is over ${PATCH_BYTES} bytes, so none is handed back.`;
   }
+  const written: { result?: unknown; problem?: string } = step.result ? await readResult(resultFile) : {};
+  if (!error && written.problem) error = written.problem;
   return {
     ending: tooBig ? 'failed' : ending,
     patch,
@@ -153,7 +168,27 @@ export async function runAgent(
     turns: result?.num_turns ?? 0,
     session: result?.session_id ?? null,
     ...(error ? { error: error.slice(0, NOTE_LENGTH) } : {}),
+    ...('result' in written ? { result: written.result } : {}),
   };
+}
+
+/**
+ * The result the agent wrote, if it is JSON and small enough. What it says is the line's to judge, against the
+ * agent's schema; here it is only carried.
+ */
+export async function readResult(file: string): Promise<{ result?: unknown; problem?: string }> {
+  let text: string;
+  try {
+    text = await readFile(file, 'utf-8');
+  } catch {
+    return { problem: 'The agent wrote no result.' };
+  }
+  if (Buffer.byteLength(text) > RESULT_BYTES) return { problem: `The result is over ${RESULT_BYTES} bytes.` };
+  try {
+    return { result: JSON.parse(text) as unknown };
+  } catch {
+    return { problem: 'The result is not JSON.' };
+  }
 }
 
 /**

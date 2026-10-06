@@ -8,6 +8,10 @@
  *
  * The agent pod also has ANTHROPIC_BASE_URL (the gateway), ANTHROPIC_API_KEY (its job token, which is not a key) and
  * HANDBACK_URL (the line's handback endpoint). The prepare pod has neither.
+ *
+ * A step that asks for a result has the agent write it as JSON to `$WORK/out/result.json`: on the volume, outside the
+ * checkout, so it is never part of the patch. The agent pod reads it and hands it back beside the patch; the line
+ * checks it against the agent's own schema.
  */
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -30,6 +34,8 @@ export interface Step {
    * defect, in a scratch copy of the app. Never set for real work.
    */
   seed?: string;
+  /** Whether the step ends with a structured result, written to `resultPath`. */
+  result?: boolean;
 }
 
 export type Ending = 'finished' | 'max-turns' | 'failed';
@@ -46,10 +52,17 @@ export interface Handback {
   session: string | null;
   /** Why the step failed, when it did: the SDK's own words. */
   error?: string;
+  /** The agent's structured result, when the step asked for one and the agent wrote it as JSON. */
+  result?: unknown;
 }
+
+/** The most a result may be, as JSON. */
+export const RESULT_BYTES = 64 * 1024;
 
 export const work = (env = process.env) => env.WORK ?? '/work';
 export const repoDir = (env = process.env) => join(work(env), 'repo');
+/** Where the agent writes its result: on the volume, beside the checkout and not in it. */
+export const resultPath = (env = process.env) => join(work(env), 'out', 'result.json');
 
 const STEP = z.strictObject({
   agent: z.string().min(1),
@@ -60,6 +73,7 @@ const STEP = z.strictObject({
   maxTurns: z.number().int().positive(),
   resume: z.string().optional(),
   seed: z.string().optional(),
+  result: z.boolean().optional(),
 });
 
 export function stepFrom(env = process.env): Step {

@@ -4,19 +4,23 @@
  *
  *     POST /v1/actions/<action>   one of `Actions`, with its arguments as JSON; its result out. With the header
  *                                 `x-factory-dry-run: true` it is recorded in the artifact store and not done
+ *     POST /v1/reads/<read>       one of `Reads` (`reads.ts`), with its arguments as JSON; what GitHub says out
  *     GET  /health                whether it can write, whether it is a dry run, and what it is watching
  *
  * A body must say it is JSON: a web page cannot send that without the browser asking first, and the worker answers
  * no browser, so a page open on the same machine cannot make it act. Each body is checked with Zod at the door, and names a repository the worker is configured for, or it is refused.
  * A GitHub failure keeps its meaning: refused 403, not found 404, conflict 409, rate limited 429, GitHub or the
- * network failing 502, and a write with no key 503. A patch that will not apply is 422.
+ * network failing 502, and a write with no key 503. A patch that will not apply, or a branch the factory does not
+ * own, is 422.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import type { Actions } from './actions.ts';
+import { BranchRefused } from './branches.ts';
 import { GitHubError } from './client.ts';
 import { PatchRefused } from './patches.ts';
+import type { Reads } from './reads.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
@@ -101,6 +105,11 @@ const ARGS = {
 
 type Name = keyof typeof ARGS;
 
+/** The actions a worker may ask for, each with its arguments after the repository, and what it gives back. */
+export type ActionName = Name;
+export type ActionArgs = { [K in Name]: z.input<(typeof ARGS)[K]> };
+export type ActionResult<K extends Name> = Awaited<ReturnType<Actions[K]>>;
+
 /** Each action's call, from its checked arguments. */
 const CALLS: { [K in Name]: (actions: Actions, repo: string, args: z.infer<(typeof ARGS)[K]>) => Promise<unknown> } = {
   setBranch: (x, repo, { branch, sha, force }) => x.setBranch(repo, branch, sha, force === undefined ? {} : { force }),
@@ -125,6 +134,32 @@ const CALLS: { [K in Name]: (actions: Actions, repo: string, args: z.infer<(type
   openIssue: (x, repo, issue) => x.openIssue(repo, defined(issue)),
   closeIssue: (x, repo, { number, reason }) => x.closeIssue(repo, number, reason),
   comment: (x, repo, { number, body }) => x.comment(repo, number, body),
+};
+
+/** Each read's arguments after the repository. */
+const READS = {
+  pullRequest: z.strictObject({ number }),
+  checkRuns: z.strictObject({ sha }),
+  requiredChecks: z.strictObject({ branch }),
+  head: z.strictObject({ branch }),
+  pullRequestFrom: z.strictObject({ branch }),
+} satisfies Record<keyof Reads, z.ZodType>;
+
+type ReadName = keyof typeof READS;
+
+/** The reads a worker may ask for, each with its arguments after the repository, and what it gives back. */
+export type { ReadName };
+export type ReadArgs = { [K in ReadName]: z.input<(typeof READS)[K]> };
+export type ReadResult<K extends ReadName> = Awaited<ReturnType<Reads[K]>>;
+
+const READ_CALLS: {
+  [K in ReadName]: (reads: Reads, repo: string, args: z.infer<(typeof READS)[K]>) => Promise<unknown>;
+} = {
+  pullRequest: (r, repo, { number }) => r.pullRequest(repo, number),
+  checkRuns: (r, repo, { sha }) => r.checkRuns(repo, sha),
+  requiredChecks: (r, repo, { branch }) => r.requiredChecks(repo, branch),
+  head: (r, repo, { branch }) => r.head(repo, branch),
+  pullRequestFrom: (r, repo, { branch }) => r.pullRequestFrom(repo, branch),
 };
 
 /** An object without its undefined fields, as the actions' optional fields expect: absent, never undefined. */
@@ -158,6 +193,8 @@ const STATUS: Record<GitHubError['kind'], number> = {
 
 export interface WorkerServerOptions {
   actions: Actions;
+  /** What the other workers may read; without it, every read is not found. */
+  reads?: Reads | undefined;
   /** What a request asking for a dry run (`x-factory-dry-run: true`) gets: one memory of what it would have done. */
   dryRun?: Actions | undefined;
   /** The repositories the worker acts on, as `owner/name`. */
@@ -167,7 +204,14 @@ export interface WorkerServerOptions {
   log: Logger;
 }
 
-export function createWorkerServer({ actions: live, dryRun, repositories, health, log }: WorkerServerOptions): Server {
+export function createWorkerServer({
+  actions: live,
+  reads,
+  dryRun,
+  repositories,
+  health,
+  log,
+}: WorkerServerOptions): Server {
   const send = (res: ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify(body));
@@ -178,8 +222,11 @@ export function createWorkerServer({ actions: live, dryRun, repositories, health
     if (pathname === '/health') return send(res, 200, { status: 'ok', ...health() });
     // A dry run when asked for, such as the smoke run's, even from a worker that acts.
     const actions = req.headers['x-factory-dry-run'] === 'true' && dryRun ? dryRun : live;
-    const name = /^\/v1\/actions\/([A-Za-z]+)$/.exec(pathname)?.[1];
-    if (!name || !Object.hasOwn(ARGS, name)) return send(res, 404, { error: 'not-found', message: 'No such action.' });
+    const [, kind, name = ''] = /^\/v1\/(actions|reads)\/([A-Za-z]+)$/.exec(pathname) ?? [];
+    const known =
+      kind === 'actions' ? Object.hasOwn(ARGS, name) : kind === 'reads' && reads && Object.hasOwn(READS, name);
+    if (!known)
+      return send(res, 404, { error: 'not-found', message: `No such ${kind === 'reads' ? 'read' : 'action'}.` });
     if (req.method !== 'POST') return send(res, 405, { error: 'bad-request', message: 'Use POST.' });
     if (!/^application\/json(;|$)/i.test(req.headers['content-type'] ?? '')) {
       return send(res, 415, { error: 'bad-request', message: 'Send the body as application/json.' });
@@ -196,10 +243,14 @@ export function createWorkerServer({ actions: live, dryRun, repositories, health
     if (typeof repo !== 'string' || !repositories.includes(repo)) {
       return send(res, 400, { error: 'bad-request', message: `repo must be one of ${repositories.join(', ')}.` });
     }
-    const parsed = ARGS[name as Name].safeParse(rest);
+    const parsed = (kind === 'reads' ? READS[name as ReadName] : ARGS[name as Name]).safeParse(rest);
     if (!parsed.success) {
       const problems = parsed.error.issues.map((i) => `${i.path.join('.') || '(body)'}: ${i.message}`);
       return send(res, 400, { error: 'bad-request', message: problems.join('; ') });
+    }
+    if (kind === 'reads' && reads) {
+      const read = READ_CALLS[name as ReadName] as (r: Reads, repo: string, args: unknown) => Promise<unknown>;
+      return send(res, 200, { result: await read(reads, repo, parsed.data) });
     }
     const result = await (CALLS[name as Name] as (x: Actions, r: string, a: unknown) => Promise<unknown>)(
       actions,
@@ -216,6 +267,10 @@ export function createWorkerServer({ actions: live, dryRun, repositories, health
       if (error instanceof PatchRefused) {
         log.warn({ message: error.message }, 'a patch was refused');
         return send(res, 422, { error: 'patch-refused', message: error.message });
+      }
+      if (error instanceof BranchRefused) {
+        log.warn({ message: error.message }, 'a branch was refused');
+        return send(res, 422, { error: 'branch-refused', message: error.message });
       }
       if (error instanceof GitHubError) {
         log.warn({ kind: error.kind, status: error.status, message: error.message }, 'github refused an action');

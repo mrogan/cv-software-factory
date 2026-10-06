@@ -18,7 +18,7 @@ describe('acting in GitHub', () => {
       },
     ]);
     const oid = await new LiveActions(github).commit(REPO, {
-      branch: 'fix/1001',
+      branch: 'factory/1001-cart',
       expectedHead: SHA,
       message: 'fix(cart): count the last item\n\nThe loop stopped one short.',
       changes: {
@@ -31,7 +31,7 @@ describe('acting in GitHub', () => {
     expect(call.query).toContain('createCommitOnBranch');
     expect(call.variables).toEqual({
       input: {
-        branch: { repositoryNameWithOwner: REPO, branchName: 'fix/1001' },
+        branch: { repositoryNameWithOwner: REPO, branchName: 'factory/1001-cart' },
         expectedHeadOid: SHA,
         message: { headline: 'fix(cart): count the last item', body: 'The loop stopped one short.' },
         fileChanges: { additions: [{ path: 'src/cart.ts', contents: 'b2sK' }], deletions: [{ path: 'old.ts' }] },
@@ -53,13 +53,13 @@ describe('acting in GitHub', () => {
     ]);
     const actions = new LiveActions(github);
     await actions.setBranch(REPO, 'deploy/local', SHA, { force: true });
-    await actions.setBranch(REPO, 'fix/1001', SHA);
+    await actions.setBranch(REPO, 'factory/1001-cart', SHA);
     // Whether it exists is asked first, not read off an error's words.
     expect(calls(sent).map((s) => [s.method, s.path, s.body])).toEqual([
       ['GET', `/repos/${REPO}/git/ref/heads/deploy/local`, undefined],
       ['PATCH', `/repos/${REPO}/git/refs/heads/deploy/local`, { sha: SHA, force: true }],
-      ['GET', `/repos/${REPO}/git/ref/heads/fix/1001`, undefined],
-      ['POST', `/repos/${REPO}/git/refs`, { ref: 'refs/heads/fix/1001', sha: SHA }],
+      ['GET', `/repos/${REPO}/git/ref/heads/factory/1001-cart`, undefined],
+      ['POST', `/repos/${REPO}/git/refs`, { ref: 'refs/heads/factory/1001-cart', sha: SHA }],
     ]);
   });
 
@@ -76,7 +76,7 @@ describe('acting in GitHub', () => {
     ]);
     const actions = new LiveActions(github);
     const pr = await actions.openPullRequest(REPO, {
-      head: 'fix/1001',
+      head: 'factory/1001-cart',
       base: 'main',
       title: 'fix(cart): count the last item',
       body: 'Fixes #3',
@@ -93,7 +93,7 @@ describe('acting in GitHub', () => {
     expect(review).toBe(99);
     const bodies = calls(sent).map((s) => s.body);
     expect(bodies[0]).toEqual({
-      head: 'fix/1001',
+      head: 'factory/1001-cart',
       base: 'main',
       title: 'fix(cart): count the last item',
       body: 'Fixes #3',
@@ -148,7 +148,7 @@ describe('a dry run', () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
     const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
     const oid = await actions.commit(REPO, {
-      branch: 'fix/1001',
+      branch: 'factory/1001-cart',
       expectedHead: SHA,
       message: 'fix(cart): count the last item',
       changes: {
@@ -159,7 +159,7 @@ describe('a dry run', () => {
         deletions: [],
       },
     });
-    const pr = await actions.openPullRequest(REPO, { head: 'fix/1001', base: 'main', title: 't', body: 'b' });
+    const pr = await actions.openPullRequest(REPO, { head: 'factory/1001-cart', base: 'main', title: 't', body: 'b' });
     expect(oid).toMatch(/^[0-9a-f]{40}$/);
     expect(pr.number).toBeGreaterThan(1_000_000_000);
 
@@ -218,7 +218,7 @@ describe('the worker over HTTP', () => {
     });
     const bad = await call('/v1/actions/commit', {
       repo: REPO,
-      branch: 'fix/../main',
+      branch: 'factory/../main',
       expectedHead: 'nope',
       message: 'x',
       changes: { additions: [{ path: '../../etc/passwd', contents: 'eA==' }], deletions: [] },
@@ -244,7 +244,7 @@ describe('the worker over HTTP', () => {
     const call = await serve(github);
     const refused = await call('/v1/actions/commit', {
       repo: REPO,
-      branch: 'fix/1001',
+      branch: 'factory/1001-cart',
       expectedHead: SHA,
       message: 'ci: x',
       changes: { additions: [{ path: '.github/workflows/x.yml', contents: 'eA==' }], deletions: [] },
@@ -275,7 +275,7 @@ describe('the worker over HTTP', () => {
     const call = await serve(new DryRunActions(new DiskArtifacts(await mkdtemp(join(tmpdir(), 'dry-run-'))), quiet));
     const opened = await call('/v1/actions/openPullRequest', {
       repo: REPO,
-      head: 'fix/1',
+      head: 'factory/1-cart',
       base: 'main',
       title: 't',
       body: 'b',
@@ -292,7 +292,7 @@ describe('the worker over HTTP', () => {
 
   it('says it is a dry run in every answer', async () => {
     const call = await serve(new DryRunActions(new DiskArtifacts(await mkdtemp(join(tmpdir(), 'dry-run-'))), quiet));
-    expect(await call('/v1/actions/deleteBranch', { repo: REPO, branch: 'fix/1001' })).toEqual({
+    expect(await call('/v1/actions/deleteBranch', { repo: REPO, branch: 'factory/1001-cart' })).toEqual({
       status: 200,
       body: { result: null, dryRun: true },
     });

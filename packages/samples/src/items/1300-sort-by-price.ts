@@ -28,6 +28,7 @@ export default new Item('1300', '2026-10-03T09:40:00+01:00')
   .at('3:10', 'hold.started', 'planner', 'The planner asks: where do products that are out of stock sort?', {
     stage: 'plan',
     kind: 'question',
+    cause: 'question',
     reason: 'The spec waits for Martin to answer the planner’s question and approve it. Nothing is built before then.',
     question: 'Should products that are out of stock sort last, whatever their price?',
   })
