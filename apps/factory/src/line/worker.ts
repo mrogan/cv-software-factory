@@ -29,6 +29,8 @@ import type { JSONValue, Sql } from 'postgres';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../github/server.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
 import {
+  type Bounds,
+  boundsOn,
   count,
   type EffectsContext,
   holdDraft,
@@ -92,6 +94,11 @@ export interface LineOptions {
    * by default, holds nothing for spend: the gateway still refuses the calls, and the step fails.
    */
   workItemLimitUsd?: number | null;
+  /**
+   * Where each agent's calls go, as `policy/models.ts` decides for the gateway's profile: a step on a local model has
+   * longer bounds (`boundsOn`). By default, a provider that is not local.
+   */
+  providerOf?: (agent: LineAgent) => 'anthropic' | 'bedrock' | 'local';
 }
 
 export const APP_REPOSITORY = 'mrogan/cv-worlds-worst-website';
@@ -123,6 +130,7 @@ export class Line {
       gatesEveryMs: 60_000,
       takesWork: true,
       workItemLimitUsd: null,
+      providerOf: () => 'anthropic',
       ...options,
     };
     this.#queue = new Queue(options.sql, options.me ?? `line-${hostname()}`);
@@ -223,7 +231,7 @@ export class Line {
         // One step at a time in each of Plan, Build and Review.
         if ([...this.#inFlight.values()].some((s) => s.stage === STAGE_OF[next.agent])) return;
         if (kept && pending?.retryAt && Date.parse(pending.retryAt) > this.#o.now().getTime()) return;
-        const seconds = kept ? EFFECTS_LEASE_SECONDS : leaseFor(this.#o.agents[next.agent].deadlineSeconds);
+        const seconds = kept ? EFFECTS_LEASE_SECONDS : leaseFor(this.#bounds(next.agent).deadlineSeconds);
         const claimed = await this.#queue.claim(item.workItem, seconds);
         if (!claimed) return;
         await this.#queue.move(item.workItem, stage);
@@ -330,6 +338,7 @@ export class Line {
   ): Promise<void> {
     const { workItem } = item;
     const definition = this.#o.agents[agent];
+    const bounds = this.#bounds(agent);
     try {
       const attempt = await this.#queue.startStep(workItem);
       // Before a pull request, a step starts from main; after, from the pull request's head, and its diff is taken
@@ -351,24 +360,27 @@ export class Line {
         return await this.#failed(workItem, agent, null, [], error.message);
       }
       const outcome = await this.#o.steps.run({
-        ...stepFrom(definition, {
-          repository: repo,
-          commit,
-          base: reads ? base : undefined,
-          prompt: started.prompt,
-          resume: started.resume,
-        }),
+        ...stepFrom(
+          { ...definition, maxTurns: bounds.maxTurns },
+          {
+            repository: repo,
+            commit,
+            base: reads ? base : undefined,
+            prompt: started.prompt,
+            resume: started.resume,
+          },
+        ),
         workItem,
         round,
         attempt,
-        deadlineSeconds: definition.deadlineSeconds,
+        deadlineSeconds: bounds.deadlineSeconds,
         signal,
       });
       if (outcome.kind === 'stopped') {
         this.#o.log.info({ workItem, agent, job: outcome.job }, 'a step stopped with the line; it runs again on start');
         return;
       }
-      const calls = await stepCalls(this.#o.sql, outcome.job, agent, definition.maxTurns);
+      const calls = await stepCalls(this.#o.sql, outcome.job, agent, bounds.maxTurns);
       const called: Draft[] = calls
         ? [{ type: 'model.called', actor: agent, summary: calledLine(agent, calls), payload: calls }]
         : [];
@@ -448,6 +460,11 @@ export class Line {
     await this.#append(workItem, [...pending.called, ...drafts]);
     await this.#queue.moved(workItem);
     this.#o.log.info({ workItem, agent, job: pending.job, events: drafts.map((d) => d.type) }, 'a step is done');
+  }
+
+  /** An agent's turns and deadline, on the model its calls go to. */
+  #bounds(agent: LineAgent): Bounds {
+    return boundsOn(this.#o.agents[agent], this.#o.providerOf(agent));
   }
 
   /** A failed attempt at a step: its calls are recorded, and it counts towards holding the work item. */

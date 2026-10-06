@@ -159,6 +159,32 @@ export function defineAgent<Input, Result>(
   };
 }
 
+/**
+ * How much longer, and how many more turns, an agent has on a local model. Each agent's bounds are set for Claude;
+ * Qwen 27B on a laptop is slower and less sure-footed, and serves one call at a time to every stage. On it the
+ * describer took about 20 minutes and the planner 15 to 23, against a deadline of 15 set for Claude, and the coder
+ * took 8 to 12 turns where Claude took 4 on the same fix. Only a step on a local model is given these: Claude's bounds stay as they are.
+ */
+export const LOCAL_MODEL_PACE = { deadline: 3, turns: 2 } as const;
+
+/** An agent's bounds for one step: its turns, and its seconds of work. */
+export interface Bounds {
+  maxTurns: number;
+  deadlineSeconds: number;
+}
+
+/**
+ * An agent's bounds on the provider `policy/models.ts` sends its calls to. The line never chooses the model: it is
+ * told where the calls go, and gives a step on a local model the time it needs.
+ */
+export function boundsOn(definition: Bounds, provider: 'anthropic' | 'bedrock' | 'local'): Bounds {
+  if (provider !== 'local') return { maxTurns: definition.maxTurns, deadlineSeconds: definition.deadlineSeconds };
+  return {
+    maxTurns: definition.maxTurns * LOCAL_MODEL_PACE.turns,
+    deadlineSeconds: definition.deadlineSeconds * LOCAL_MODEL_PACE.deadline,
+  };
+}
+
 /** What one step is given beside its agent's definition: where it starts, and what it is asked. */
 export interface StepOf {
   /** The app's repository, as `owner/name`. */

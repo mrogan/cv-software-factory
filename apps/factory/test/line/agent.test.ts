@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closesAnIssue, commitTitle, mentions, stepFrom } from '../../src/line/agents/agent.ts';
+import { boundsOn, closesAnIssue, commitTitle, mentions, stepFrom } from '../../src/line/agents/agent.ts';
 import { AGENTS } from '../../src/line/agents/index.ts';
 
 describe('a fix’s title', () => {
@@ -78,5 +78,22 @@ describe('an agent’s step', () => {
       seed: 'diff',
     });
     expect(stepFrom(AGENTS.reviewer, { ...given, base: undefined, resume: undefined })).not.toHaveProperty('base');
+  });
+});
+
+describe('an agent’s bounds', () => {
+  it('are its own on Claude, and longer, with more turns, on a local model', () => {
+    for (const agent of ['planner', 'coder', 'reviewer', 'describer'] as const) {
+      const { maxTurns, deadlineSeconds } = AGENTS[agent];
+      expect(boundsOn(AGENTS[agent], 'anthropic'), agent).toEqual({ maxTurns, deadlineSeconds });
+      expect(boundsOn(AGENTS[agent], 'bedrock'), agent).toEqual({ maxTurns, deadlineSeconds });
+      expect(boundsOn(AGENTS[agent], 'local'), agent).toEqual({
+        maxTurns: maxTurns * 2,
+        deadlineSeconds: deadlineSeconds * 3,
+      });
+    }
+    // The describer and the planner took up to 23 minutes on Qwen.
+    expect(boundsOn(AGENTS.describer, 'local').deadlineSeconds).toBeGreaterThan(23 * 60);
+    expect(boundsOn(AGENTS.planner, 'local').deadlineSeconds).toBeGreaterThan(23 * 60);
   });
 });

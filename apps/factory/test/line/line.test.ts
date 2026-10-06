@@ -481,6 +481,23 @@ describe('the line', () => {
     await working.line.idle();
   });
 
+  it('gives a step on a local model longer, and more turns, as the policy routes its agent, and Claude’s none', async () => {
+    const workItem = await ticket();
+    const local = line(AGENTS, events, { providerOf: (agent) => (agent === 'planner' ? 'local' : 'anthropic') });
+    await local.pass(); // the planner, on the local model
+    await local.pass(); // the coder, on Claude
+    const [planner, coder] = local.steps.requests;
+    expect(planner).toMatchObject({ agent: 'planner', maxTurns: 60, deadlineSeconds: 45 * 60 });
+    expect(coder).toMatchObject({ agent: 'coder', maxTurns: 50, deadlineSeconds: 30 * 60 });
+    // The step's own record says what bounds it had.
+    expect((await payloads(workItem, 'model.called')).map((p) => p.settings.maxTurns)).toEqual([60, 50]);
+
+    await ticket('broken', '/products');
+    const claude = line();
+    await claude.pass();
+    expect(claude.steps.requests[0]).toMatchObject({ agent: 'planner', maxTurns: 30, deadlineSeconds: 15 * 60 });
+  });
+
   it('runs a failed step again as a new job, and holds the work item when it keeps failing', async () => {
     const workItem = await ticket();
     const { pass, steps } = line({ ...AGENTS, planner: () => handback({ verdict: 'maybe' }) });
