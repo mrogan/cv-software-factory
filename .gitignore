@@ -16,3 +16,6 @@ coverage/
 # Browser test output
 apps/console/e2e-results/
 apps/console/e2e-report/
+
+# Working notes that are never committed. `.ignore` keeps them searchable.
+/scratch/
