@@ -213,6 +213,52 @@ describe('journeys', () => {
   });
 });
 
+describe('journeys, when a route led to no page on the base', () => {
+  const crawled = (check: string, failed: boolean, trouble?: string): Seen => ({
+    sense: 'crawler',
+    check,
+    route: check.split('@')[1] as string,
+    failed,
+    ...(trouble ? { trouble } : {}),
+  });
+  const noPage = 'No page was opened at /departments/home: it redirects round in a circle.';
+
+  it('reports what a page shows there as could not compare, and fails on nothing the base already had', async () => {
+    // The base loops, so no page was opened behind it; the change redirects to the products, which fail already.
+    const base = [
+      crawled('redirect-loop@/departments/:department', true),
+      crawled('missing-alt@/departments/:department', false, noPage),
+      crawled('missing-alt@/products', true),
+    ];
+    const change = [crawled('redirect-loop@/departments/:department', false), crawled('missing-alt@/products', true)];
+    const runs = [base, change, change];
+    const c = await compareJourneys(async () => runs.shift() ?? [], 'base', 'change');
+    expect(c.regressions).toEqual([]);
+    expect(c.unchanged.map((s) => s.check)).toEqual(['missing-alt@/products']);
+    expect(c.fixed.map((s) => s.check)).toEqual(['redirect-loop@/departments/:department']);
+  });
+
+  it('is unsure, not failed, where the change opens a page there that fails', async () => {
+    const runs = [
+      [crawled('missing-alt@/departments/:department', false, noPage)],
+      [crawled('missing-alt@/departments/:department', true)],
+    ];
+    const c = await compareJourneys(async () => runs.shift() ?? [], 'base', 'change');
+    expect(c.regressions).toEqual([]);
+    expect(c.unsure.map((s) => s.check)).toEqual(['missing-alt@/departments/:department']);
+  });
+
+  it('still fails on a check the base does not have, which fails on the change twice', async () => {
+    const runs = [
+      [crawled('missing-alt@/products', true)],
+      [crawled('missing-alt@/products', true), crawled('missing-alt@/sale', true)],
+      [crawled('missing-alt@/products', true), crawled('missing-alt@/sale', true)],
+    ];
+    const c = await compareJourneys(async () => runs.shift() ?? [], 'base', 'change');
+    expect(c.regressions.map((s) => s.check)).toEqual(['missing-alt@/sale']);
+  });
+});
+
 describe('image scan', () => {
   const report = (...v: [string, string, string, string][]) => ({
     Results: [

@@ -11,6 +11,9 @@ export type Fault =
   | 'dead-image'
   | 'not-an-image'
   | 'loop'
+  | 'moved'
+  | 'department-loops'
+  | 'department-moves'
   | 'error-500'
   | 'console-home'
   | 'console-all'
@@ -51,7 +54,8 @@ export async function startSite(...faults: Fault[]): Promise<Site> {
     const about = path === '/about';
     const throws = has('console-all') || (home && has('console-home'));
     const slightlyGrey = has('contrast-all') || (about && has('contrast-about'));
-    const unaltered = has('no-alt-all') || (about && has('no-alt-about'));
+    // The products page, which only the department faults link to, has an image with no alt text whatever else is on.
+    const unaltered = has('no-alt-all') || (about && has('no-alt-about')) || path === '/products';
     return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>${title}</title>
 <link rel="stylesheet" href="/static/site.css"><script src="/static/site.js"></script></head>
@@ -104,7 +108,17 @@ ${body}${throws ? '<script>throw new Error("boom")</script>' : ''}</main></body>
       res.writeHead(302, { location: '/loop' });
       return res.end();
     }
-    if (path === '/' || path === '/about' || /^\/items\/[a-c]$/.test(path)) {
+    if (path === '/old-about') {
+      res.writeHead(301, { location: '/about' });
+      return res.end();
+    }
+    // A department's page: in a loop, or moved to the products in it.
+    if (path === '/departments/home') {
+      res.writeHead(302, { location: has('department-moves') ? '/products?department=home' : '/departments/home' });
+      return res.end();
+    }
+    const departments = has('department-loops') || has('department-moves');
+    if (path === '/' || path === '/about' || /^\/items\/[a-c]$/.test(path) || (departments && path === '/products')) {
       if (path === '/items/b' && has('error-500')) return send(res, 500, '<h1>Broken</h1>');
       if (path === '/about' && has('slow-about')) await new Promise((resolve) => setTimeout(resolve, SLOW_ANSWER));
       const extras = [
@@ -112,9 +126,18 @@ ${body}${throws ? '<script>throw new Error("boom")</script>' : ''}</main></body>
         path === '/' && has('page-hangs') ? '<a href="/hangs">Hangs</a>' : '',
         path === '/' && has('no-answer') ? '<a href="/reset">Reset</a>' : '',
         path === '/' && has('loop') ? '<a href="/loop">Offers</a>' : '',
+        path === '/' && has('moved') ? '<a href="/old-about">About us</a>' : '',
+        path === '/' && departments ? '<a href="/products">Products</a> <a href="/departments/home">Home</a>' : '',
         path === '/about' && has('unlabelled') ? '<form><input type="text" name="q"></form>' : '',
       ].join(' ');
-      const title = path === '/' ? 'Home' : path === '/about' ? 'About' : `Item ${path.slice(-1)}`;
+      const title =
+        path === '/'
+          ? 'Home'
+          : path === '/about'
+            ? 'About'
+            : path === '/products'
+              ? 'Products'
+              : `Item ${path.slice(-1)}`;
       return send(res, 200, page(path, title, extras), 'text/html; charset=utf-8', securityHeaders(path));
     }
     if (path === '/static/page') return send(res, 200, '<p>Not an image</p>');

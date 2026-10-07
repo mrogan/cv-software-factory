@@ -12,6 +12,8 @@ import { DiskArtifacts } from '@software-factory/store';
 import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CLASSES, Crawler } from '../../src/crawler/index.ts';
+import { OF_A_PAGE } from '../../src/crawler/judge.ts';
+import { compareJourneys, type Seen } from '../../src/gates/journeys.ts';
 import type { Observation } from '../../src/senses/types.ts';
 import { type Fault, SLOW_ANSWER, startSite } from './crawl-site.ts';
 
@@ -42,6 +44,9 @@ async function crawl(...faults: Fault[]): Promise<Observation[]> {
 }
 
 const found = (observations: Observation[]) => observations.filter((o) => o.finding).map((o) => o.check);
+/** What was reported as trouble on a route. */
+const troubleOn = (observations: Observation[], route: string) =>
+  observations.filter((o) => o.route === route && o.trouble);
 
 describe('on a site that is right', () => {
   it('finds nothing, and has a check for every class on every route it crawled', async () => {
@@ -86,15 +91,19 @@ describe('a class found on every page', () => {
 });
 
 describe('what the crawl could not tell', () => {
-  /** What was reported as trouble, by check, and whether any check on the route passed. */
-  const troubleOn = (observations: Observation[], route: string) =>
-    observations.filter((o) => o.route === route && o.trouble);
-
   it('is trouble, not a pass, when a page that answered will not open in the browser, and the crawl goes on', async () => {
     const observations = await crawl('page-hangs');
     const trouble = troubleOn(observations, '/hangs');
     expect(trouble.map((o) => o.check).sort()).toEqual(
-      ['browser-error', 'low-contrast', 'missing-alt', 'missing-header', 'unlabelled-field']
+      [
+        'broken-image',
+        'broken-link',
+        'browser-error',
+        'low-contrast',
+        'missing-alt',
+        'missing-header',
+        'unlabelled-field',
+      ]
         .map((c) => `${c}@/hangs`)
         .sort(),
     );
@@ -110,6 +119,42 @@ describe('what the crawl could not tell', () => {
     expect(troubleOn(observations, '/').map((o) => o.check)).toEqual(['broken-link@/']);
     expect(found(observations)).toEqual([]);
   }, 60_000);
+});
+
+describe('a page reached through a redirect', () => {
+  it('is judged where it landed, and the address that redirected has no page checks', async () => {
+    const observations = await crawl('moved', 'no-alt-about');
+    expect(found(observations)).toEqual(['missing-alt@/about']);
+    const moved = observations.filter((o) => o.route === '/old-about');
+    expect(moved.map((o) => o.check)).toContain('redirect-loop@/old-about');
+    expect(moved.filter((o) => OF_A_PAGE.some((c) => o.check === `${c}@/old-about`))).toEqual([]);
+    expect(moved.filter((o) => o.trouble)).toEqual([]);
+  }, 60_000);
+
+  it('is trouble, not a pass, for what a page shows, where a loop means no page was opened', async () => {
+    const observations = await crawl('department-loops');
+    expect(found(observations).sort()).toEqual(['missing-alt@/products', 'redirect-loop@/departments/home']);
+    const trouble = troubleOn(observations, '/departments/home');
+    expect(trouble.map((o) => o.check).sort()).toEqual(OF_A_PAGE.map((c) => `${c}@/departments/home`).sort());
+    expect(trouble[0]?.trouble).toMatch(/^No page was opened at \/departments\/home/);
+  }, 60_000);
+
+  it('compares in the journeys gate as the app as it was, when a loop becomes a redirect to a failing page', async () => {
+    const sites: Record<string, Fault> = { base: 'department-loops', change: 'department-moves' };
+    // As `factory gate journeys` reads an observation.
+    const observe = async (app: string): Promise<Seen[]> =>
+      (await crawl(sites[app] as Fault)).map((o) => ({
+        sense: 'crawler',
+        check: o.check,
+        route: o.route,
+        failed: o.finding !== null && !o.trouble,
+        ...(o.trouble ? { trouble: o.trouble } : {}),
+      }));
+    const c = await compareJourneys(observe, 'base', 'change');
+    expect(c.regressions).toEqual([]);
+    expect(c.unchanged.map((s) => s.check)).toEqual(['missing-alt@/products']);
+    expect(c.fixed.map((s) => s.check)).toEqual(['redirect-loop@/departments/home']);
+  }, 120_000);
 });
 
 describe.each(CASES)('%s', (fault, check, symptom) => {
