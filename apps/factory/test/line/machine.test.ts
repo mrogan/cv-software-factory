@@ -1,6 +1,6 @@
 import { HOLD_CAUSES, type HoldCause, type PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
-import { ANSWERS, decide, type Facts, fold, LIMITS, type LineEvent } from '../../src/line/machine.ts';
+import { ANSWERS, decide, type Facts, fold, LIMITS, type LineEvent, unchangedHold } from '../../src/line/machine.ts';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
@@ -504,5 +504,83 @@ describe('Martin’s answer to a hold', () => {
 
   it('ignores an answer when nothing is held', () => {
     expect(decide([ticket, spec, answer('rejected')], facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
+  });
+});
+
+describe('a coder that changes nothing, and says why', () => {
+  const why = 'The journeys fail on the basket’s total, which this change leaves alone.';
+  const unchanged = (events: LineEvent[]): LineEvent => ({
+    type: 'hold.started',
+    payload: unchangedHold(fold(events), why),
+  });
+
+  it('holds where the work came back from, under that stage’s cause, with its reason', () => {
+    const back = [ticket, spec, pushed(), started(), finished('failed'), returned('gates')];
+    expect(unchangedHold(fold(back), why)).toEqual({
+      stage: 'gates',
+      kind: 'held',
+      cause: 'gates',
+      reason: `The coder changed nothing when the work came back from gates: ${why}`,
+    });
+    const reviewed = [ticket, spec, pushed(), started(), finished('passed'), review('changes-requested')];
+    expect(unchangedHold(fold([...reviewed, returned('review')]), why)).toMatchObject({
+      stage: 'review',
+      cause: 'review',
+    });
+    // A first round has nothing returned to it: the code already does what the spec asks, which questions the spec.
+    expect(unchangedHold(fold([ticket, spec]), why)).toEqual({
+      stage: 'build',
+      kind: 'held',
+      cause: 'nothing-to-fix',
+      reason: `The coder found nothing to fix: ${why}`,
+    });
+    expect(unchangedHold(fold([ticket, spec]), 'x'.repeat(400)).reason).toHaveLength(300);
+  });
+
+  it('waits for Martin, then does as he answers a hold of the gates’: back to the coder, or closed', () => {
+    const back = [ticket, spec, pushed(), started(), finished('failed'), returned('gates')];
+    const holding = [...back, unchanged(back)];
+    expect(decide(holding, facts)).toEqual({ stage: 'held', next: { do: 'wait', for: 'martin' } });
+    expect(decide([...holding, answer('answered', 'Fix the total too')], facts).next).toEqual({
+      do: 'return',
+      from: 'gates',
+      to: 'build',
+      reason: 'Martin sent it back: Fix the total too',
+    });
+    expect(decide([...holding, answer('approved')], facts).next).toMatchObject({ do: 'return', from: 'gates' });
+    expect(decide([...holding, answer('rejected')], facts).next).toMatchObject({ do: 'close' });
+    // Sent back, the coder's next round starts.
+    const again = [...holding, answer('answered', 'Fix the total too'), returned('gates')];
+    expect(decide(again, facts).next).toEqual({ do: 'step', agent: 'coder', round: 3 });
+  });
+
+  it('takes his approval of a hold after review in place of the reviewer’s: the coder has nothing left to do', () => {
+    const reviewed = [ticket, spec, pushed(), started(), finished('passed'), review('changes-requested')];
+    const back = [...reviewed, returned('review')];
+    const holding = [...back, unchanged(back)];
+    expect(decide([...holding, answer('approved')], facts).next).toEqual({
+      do: 'step',
+      agent: 'describer',
+      round: 2,
+    });
+    expect(fold([...holding, answer('approved')]).rebuild).toBeUndefined();
+    expect(decide([...holding, answer('answered', 'Do as the reviewer asks')], facts).next).toMatchObject({
+      do: 'return',
+      from: 'review',
+      reason: 'Martin sent it back: Do as the reviewer asks',
+    });
+  });
+
+  it('closes a first round that found nothing to fix when he agrees, and has the planner write the spec again when he answers', () => {
+    const holding = [ticket, spec, unchanged([ticket, spec])];
+    expect(decide([...holding, answer('approved')], facts)).toEqual({
+      stage: 'held',
+      next: { do: 'close', reason: 'Martin agreed with the coder' },
+    });
+    const answered = [...holding, answer('answered', 'It breaks on a basket of one')];
+    expect(decide(answered, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
+    expect(fold(answered).answers).toEqual([
+      { asked: `The coder found nothing to fix: ${why}`, answer: 'It breaks on a basket of one' },
+    ]);
   });
 });

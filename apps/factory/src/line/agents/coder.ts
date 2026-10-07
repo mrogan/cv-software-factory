@@ -15,14 +15,20 @@
  * the reviewer that sent it. Either way the coder resumes its own session when it has one, which holds the spec and
  * what it tried; without one, it is told everything a first step is. This module decides both, from its input alone
  * (`resume`, `prompt`), so the line and the bench agree.
+ *
+ * Changing nothing can be the right answer: a gate that fails on a defect the change uncovered and did not cause, a
+ * finding the change already meets, or code that already does what the spec asks. The coder then says so, and why,
+ * instead of handing back a change (`{"unchanged"}`), and the work item holds for Martin with its reason
+ * (`unchangedHold`). A step that hands back no change and says nothing of why has failed.
  */
 import type { PayloadOf, Stage } from '@software-factory/events';
 import { z } from 'zod';
 import { filesIn, PatchRefused } from '../../github/patches.ts';
 import { GitHubWorkerError } from '../../github/worker-client.ts';
 import { type Fenced, fence } from '../../runners/scope.ts';
+import { unchangedHold } from '../machine.ts';
 import { cites, type Finding } from '../review.ts';
-import { answerOf, commitTitle, defineAgent, need, StepFailed, StepStale, words } from './agent.ts';
+import { answerOf, commitTitle, defineAgent, holdDraft, need, StepFailed, StepStale, words } from './agent.ts';
 import { type Signal, seen, ticketLines } from './evidence.ts';
 
 export interface CoderInput {
@@ -47,12 +53,21 @@ export interface CoderInput {
   answer?: string | undefined;
 }
 
-export const coderResult = z.strictObject({
-  /** The pull request's title, and its commit's headline, as a Conventional Commit. */
-  title: commitTitle,
-  /** The commit's body: what was wrong, which test shows it, what changed, and anything noticed and left alone. */
-  note: words(1000),
-});
+/** The most a coder may say of why it changed nothing: it is the hold's reason, after the line's own words. */
+export const UNCHANGED_MAX = 200;
+
+export const coderResult = z.union([
+  z.strictObject({
+    /** The pull request's title, and its commit's headline, as a Conventional Commit. */
+    title: commitTitle,
+    /** The commit's body: what was wrong, which test shows it, what changed, and anything noticed and left alone. */
+    note: words(1000),
+  }),
+  z.strictObject({
+    /** Why the coder changed nothing, for Martin. */
+    unchanged: words(UNCHANGED_MAX),
+  }),
+]);
 
 export type CoderResult = z.infer<typeof coderResult>;
 
@@ -80,7 +95,11 @@ const RESULT = [
   'Then write the result, {"title","note"}:',
   '- `title`: the pull request’s title as a Conventional Commit, at most 80 characters, such as "fix(cart): count the last item".',
   '- `note`: the commit’s body, at most 1000 characters, in plain sentences for the reviewer: what was wrong, which test shows it, and what you changed. Add anything else you noticed and left alone.',
+  `If the code already does what every criterion asks, so there is nothing to fix, change nothing and write {"unchanged"} instead: at most ${UNCHANGED_MAX} characters, in plain sentences for Martin, on what you found. He decides what happens next.`,
 ];
+
+/** When a later round may change nothing, and how it says so. */
+const UNCHANGED = `Change nothing only if what sent the work back is not your change’s doing (a check fails on a defect your change uncovered and did not cause), or your change already does what is asked. Then leave the checkout as it is and write {"unchanged"} instead: at most ${UNCHANGED_MAX} characters, in plain sentences for Martin, on why. He decides what happens next.`;
 
 function specLines({ spec }: CoderInput): string[] {
   return [
@@ -136,7 +155,7 @@ function again(input: CoderInput): string[] {
         ...fenced.split('\n').map((line) => `    ${line}`),
         `Nothing of that patch was kept: the checkout is back where ${round > 1 ? 'this round' : 'you'} started. Make the fix again, changing only files the scope allows. A test that will not fit in a test file the scope allows is one to leave out; say so in your note.`,
       ]
-    : ['Put it right inside the same scope, and run the tests again.'];
+    : ['Put it right inside the same scope, and run the tests again.', ...(round > 1 ? [UNCHANGED] : [])];
   const why = [...back, ...refused];
   // Without its session, the coder needs everything a first step is told.
   if (!resumed(input)) return [...why, '', ...first(input)];
@@ -172,11 +191,18 @@ export const coder = defineAgent<CoderInput, CoderResult>({
   resume: resumed,
   schema: () => coderResult,
   prompt: (input) => (later(input) ? again(input) : first(input)).join('\n'),
-  apply: async ({ title, note }, handback, input, context) => {
+  apply: async (result, handback, input, context) => {
     const { spec, round } = input;
     const { workItem, issue, state, commit } = context;
     const { patch } = handback;
-    if (!patch) throw new StepFailed('The coder handed back no change');
+    if ('unchanged' in result) {
+      if (patch) throw new StepFailed('The coder said it changed nothing, but handed back a change');
+      // Its next round, after Martin's answer, resumes the session that found nothing to change.
+      await context.keepSession(handback.session);
+      return [holdDraft('coder', unchangedHold(state, result.unchanged))];
+    }
+    const { title, note } = result;
+    if (!patch) throw new StepFailed('The coder handed back no change, and did not say why');
     const fenced = refusing(() => fenceFor(patch, input));
     if (!fenced.ok) {
       // Nothing reaches GitHub. The session is kept, so the step the refusal sends the work back to resumes it.
