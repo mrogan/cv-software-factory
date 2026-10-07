@@ -261,6 +261,17 @@ On 4 and 5 October 2026.
 - **Code-owner review, with the bypass.** Both repositories' rulesets match `scripts/github-settings.ts` (`--check`). #69, the first of Martin's pull requests merged after the change, merged through the bypass, and GitHub's rule-suite log records it as one. Scorecard on 5 October 2026 (commit `bd57672`): Branch-Protection 8, up from 4 in milestone 1. It docks the bypass ("settings apply to administrators" is off) and a single required approval. The total, 7.3, is below the 8 the spec asks for. Code-Review scores 0, because none of the last 24 changes was approved by a reviewer, and every merge through the bypass keeps it there until the factory's own pull requests, which Martin approves, make up most changes. Maintained, Contributors, Fuzzing and CII-Best-Practices score 0 as they did in milestone 1.
 - **A pod is fenced a moment after it starts.** A pod in `factory` reached LM Studio on the host in its first second, before kube-router had applied its policies; a moment later it could not. The agent pod therefore checks its own fence before it runs the agent.
 
+### Task 16: the fix
+
+From 6 to 7 October 2026, on the local cluster, on Claude Sonnet 5.5, with `LINE_MODE=live` and `LINE_TAKE=1` (#106): the line takes the oldest open ticket of the highest severity, once, so nobody chose it.
+
+- **Work item 1001, merged.** A broken ticket: department pages redirected to themselves (`redirect-loop` on `/departments/:department`). The line opened the app's issue #16; the planner wrote a spec with four criteria and a scope of three files; the coder wrote its tests first and a one-line fix, in draft pull request #17. Twelve of its thirteen checks passed; the journeys gate failed it.
+- **Why the gate failed.** With the loop gone, the crawler reached the department page for the first time and found images without alt text, a defect the fix uncovered rather than caused. The crawler filed a page under the address it asked for, not where it landed after the redirect, and on the base it counted a page check as passed on a route where no page was opened. The crawler now judges a page where it lands, and gives "could not tell" for a route with no page (#110); the gate stays as strict as it was.
+- **What the line did with it.** The work went back to the coder, which changed nothing, twice, and the work item held as failed steps, with the coder's reason recorded nowhere. A coder may now change nothing and say why, which holds under the cause that sent the work back (#111). Gates that pass after they sent the work back now let it go on to review (#114): before, any answer to the hold ran the coder again.
+- **Then to Martin's merge.** The app's gates moved to the new crawler (app #18) and #17 was brought up to date with the app's main: every check passed. Martin approved the hold, appended by hand since the console does not answer holds until milestone 8. The reviewer approved with no findings, the describer wrote the description and readied the pull request, and Martin merged it.
+- **Cost.** $0.333 in 34 calls over six steps: planner $0.053, coder $0.070, then $0.084 and $0.035 for the two rounds that changed nothing, reviewer $0.043, describer $0.049. Within the local profile's cap of $5 a work item.
+- **Also found.** The App closed its own deploy pull request when it moved it to a newer build: resetting the branch to main left the pull request empty, and GitHub closes an empty one (#115).
+
 ## Retrospective
 
 ### Part A
