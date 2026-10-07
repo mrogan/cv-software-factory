@@ -502,6 +502,29 @@ describe('Martin’s answer to a hold', () => {
     });
   });
 
+  it('reviews a change whose gates pass after they sent it back, on a branch the coder did not move', () => {
+    // The branch was brought up to date with main while the coder found nothing to change, and held.
+    const returnedThenHeld = [ticket, spec, pushed(), started(), finished('failed'), returned('gates')];
+    expect(decide(returnedThenHeld, facts).next).toEqual({ do: 'step', agent: 'coder', round: 2 });
+    const passed = [...returnedThenHeld, started(OTHER), finished('passed', OTHER)];
+    expect(decide(passed, facts).next).toEqual({ do: 'step', agent: 'reviewer', round: 2 });
+    const waiting = [...returnedThenHeld, held('failures', 'build'), started(OTHER), finished('passed', OTHER)];
+    expect(decide([...waiting, answer('approved')], facts).next).toEqual({ do: 'step', agent: 'reviewer', round: 2 });
+    // A return from review stands, whatever the gates do.
+    const fromReview = [
+      ticket,
+      spec,
+      pushed(),
+      started(),
+      finished('passed'),
+      review('changes-requested'),
+      returned('review'),
+    ];
+    expect(decide([...fromReview, started(OTHER), finished('passed', OTHER)], facts).next).toMatchObject({
+      agent: 'coder',
+    });
+  });
+
   it('ignores an answer when nothing is held', () => {
     expect(decide([ticket, spec, answer('rejected')], facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
   });
