@@ -56,17 +56,21 @@ When in doubt, leave it out and say so to Martin.
 
 ## Labels
 
-One type label, from the ones that exist: `bug` (something does not work as described), `enhancement` (something missing or worth improving), `documentation`, `question`. Add `accessibility` where it applies. Do not invent labels. If GitHub milestones exist that match `docs/PLAN/`, set the one the issue waits for; if none fits, leave it unset and say when it matters in the body.
+One type label, from the ones that exist: `bug` (something does not work as described), `enhancement` (something missing or worth improving), `documentation`, `question`. Add `accessibility` where it applies. Do not invent labels.
+
+## Milestones
+
+The GitHub milestones are the plan's: `Milestone 6: Shipping safely` is milestone 6 in `docs/PLAN/README.md`, and its number in GitHub is 6 too. Set the one an issue waits for (`--milestone "Milestone 6: Shipping safely"`). An issue that waits for a trigger rather than a milestone ("before the Agent SDK is next updated") has none, and says when it matters in its body. A milestone added to the plan gets its GitHub milestone in the same change: `gh api repos/mrogan/cv-software-factory/milestones -f title="Milestone 12: …" -f description="<its outcome>"`.
 
 ## How to file one
 
 1. **Work out the issue** from the arguments, the conversation, or what was just found. If what is wrong is unclear, ask one question; don't guess.
 2. **Look for a duplicate**: `gh issue list -R <repo> --state all --search "<key words>"`. If one exists, offer a comment on it instead.
 3. **Check the facts** you cite: open the file, find the line, get the commit for a permalink (`git rev-parse origin/main`). An issue that misquotes the code costs more than no issue.
-4. **Show Martin the draft**: the repository, the title, the label, and the body exactly as it will appear. Filing is public and outward-facing, so wait for his yes. If he has already said "file it", one look at the draft is still owed for anything longer than a few lines.
+4. **Show Martin the draft**: the repository, the title, the label, the milestone, and the body exactly as it will appear. Filing is public and outward-facing, so wait for his yes. If he has already said "file it", one look at the draft is still owed for anything longer than a few lines.
 5. **File it** with the body from a file, so nothing is mangled by the shell:
    ```sh
-   gh issue create -R mrogan/cv-software-factory --title "<title>" --label <label> --body-file <scratch file>
+   gh issue create -R mrogan/cv-software-factory --title "<title>" --label <label> [--milestone "<milestone>"] --body-file <scratch file>
    ```
    Write the body file in the session's scratchpad, not the repository. Screenshots cannot be attached through `gh`; say where to drag them in, or link one already public.
 6. **Give back the link**, and nothing else to report.
