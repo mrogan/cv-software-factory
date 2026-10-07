@@ -20,9 +20,10 @@ export interface SpendPolicy {
 }
 
 export const SPEND: Record<Profile, SpendPolicy> = {
-  // $5 a work item while milestone 5 measures what a fix costs: the coder alone was priced at $0.50 to $2.50. The
-  // measured figure sets every profile's cap at the end of the milestone.
-  local: { dayUsd: 20, monthUsd: null, workItemUsd: 5 },
-  do: { dayUsd: 20, monthUsd: 100, workItemUsd: 2 },
-  aws: { dayUsd: 20, monthUsd: 100, workItemUsd: 2 },
+  // $1 a work item, set from milestone 5's measurements: its first fix on Claude cost $0.33, of which $0.12 was two
+  // rounds of a coder that changed nothing, so a clean fix costs about $0.21 and the cap leaves room for a second
+  // round of review.
+  local: { dayUsd: 20, monthUsd: null, workItemUsd: 1 },
+  do: { dayUsd: 20, monthUsd: 100, workItemUsd: 1 },
+  aws: { dayUsd: 20, monthUsd: 100, workItemUsd: 1 },
 };
