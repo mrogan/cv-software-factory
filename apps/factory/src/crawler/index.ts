@@ -5,7 +5,9 @@
  *
  * A check here is a symptom class on a route, named `<symptom>@<route>`, such as `missing-header@/about`. Every route
  * crawled has one for every class the crawler looks for, so a class that stops being found passes, and its streak
- * ends. A class found on every page crawled is one finding on `*` instead of one on each route.
+ * ends. The exception is what only a page can show (`OF_A_PAGE` in `judge.ts`): it is checked on the routes where a
+ * page was opened, and is trouble on those where a link led to no page, so that a route the crawl could not see
+ * into never passes. A class found on every page crawled is one finding on `*` instead of one on each route.
  */
 import type { ArtifactRef, Evidence, SymptomClass } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
@@ -15,7 +17,7 @@ import { SharedBrowser } from '../senses/browser.ts';
 import { templater } from '../senses/routes.ts';
 import type { Observation, Sense } from '../senses/types.ts';
 import { crawl, PAGE_TIMEOUT } from './crawl.ts';
-import { askForErrors, type Issue, judge, RECORDED } from './judge.ts';
+import { askForErrors, type Issue, judge, OF_A_PAGE, RECORDED } from './judge.ts';
 
 /** Every class the crawler can find. */
 export const CLASSES = [
@@ -96,6 +98,7 @@ export class Crawler implements Sense {
         // On every route, so that a class that is no longer found passes. Not on the pages where it is `*`, which is one
         // finding, but still where it was found beyond them (a slow asset is not a page).
         const wide = every.has(symptom);
+        const ofAPage = OF_A_PAGE.includes(symptom);
         for (const route of [...routes, '*']) {
           const found = findings.find((f) => f.symptom === symptom && f.route === route);
           if (wide && route !== '*' && pageRoutes.has(route) && !found) continue;
@@ -103,6 +106,8 @@ export class Crawler implements Sense {
           const unknown = found
             ? undefined
             : trouble.find((t) => t.route === route && (!t.symptoms || t.symptoms.includes(symptom)));
+          // Where no page was opened and none was missed, what a page shows is not a question.
+          if (ofAPage && route !== '*' && !pageRoutes.has(route) && !found && !unknown) continue;
           observations.push({
             check: `${symptom}@${route}`.slice(0, 80),
             route,
