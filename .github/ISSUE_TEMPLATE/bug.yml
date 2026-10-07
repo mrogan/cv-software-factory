@@ -1,0 +1,35 @@
+name: Bug report
+description: Something in the factory, its console or this repository doesn't work as described.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Defects in The World's Worst Website are there on purpose; report those through the site's "Report a problem" widget instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce it
+      placeholder: |
+        1. make up
+        2. open http://console.localhost:8080
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit, or the SHA from the console's /version.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, container runtime, browser, if they matter.
