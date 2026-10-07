@@ -222,8 +222,8 @@ Spec sections 4.1, 7 and 9; `COMPONENTS.md` (the line, the agents and the App's 
 - [ ] Part A's criteria are met.
 - [x] A seeded defect is fixed and merged in the app's repository with no human code: a ticket from the senses, a spec, a failing test then a fix, the gates, review with at least the chance of a second round, a description, and Martin's merge. Every step is in the console.
 - [x] Every pull request the factory opens is the App's and signed, and waits for Martin's code-owner review.
-- [ ] The sandbox never held a credential beyond its job token, and a patch outside its scope never reached GitHub.
-- [ ] What a fix costs is measured, and the per-work-item cap is set from it.
+- [x] The sandbox never held a credential beyond its job token, and a patch outside its scope never reached GitHub.
+- [x] What a fix costs is measured, and the per-work-item cap is set from it.
 - [ ] `make stop-the-line` stops a running agent within a minute, and starting again loses nothing.
 - [ ] Martin has watched a fix go through the line in the console, on a laptop and a phone, and approved it against the bar in `INTENT.md`.
 
@@ -269,6 +269,7 @@ From 5 to 7 October 2026, on the local cluster: tasks 9 to 15 (#96 to #103), the
 - **What reached GitHub.** Both commits on app #17 are the App's and verified, and it changes two files, both in the spec's scope. All 14 checks passed on its last commit, among them journeys, test integrity and tests first, which passes only when a new test fails on the base. The reviewer approved with no findings, through its comment review and its `factory review` check run. GitHub still wanted a code owner's approval when Martin merged: he merged through the admin's bypass, which the rule-suite log records, so the merge does not count towards Scorecard's Code-Review.
 - **In the console.** The console serves all 50 of 1001's public events, from the probes' signal to the merge, and has a state for each (#102).
 - **The App's deploy and release pull requests, in both repositories.** It opened the app's release pull request (app #19, 0.1.1, after the fix merged) and its deploy pull request (app #20), and keeps this repository's release pull request (#77) current; it opened every deploy pull request merged here in Part B (#105, #107, #108, #112, #113, #116). Their checks ran with nobody approving them.
+- **The sandbox and the scope.** A runner's pods get no service account token (`automountServiceAccountToken: false`, `runners/jobs.ts`); their environment holds work paths and the step's settings, and the job token is the only secret, which ends with its step. The agent pod reaches only the gateway and the line's handback (`make egress`, Part A). What reached GitHub from the line was 1001's two pushes to app #17, both inside its spec's scope (`src/pages/products.ts` and `test/pages-products.test.ts`). The scope fence and the GitHub worker's own check have refused a patch only in tests and on the bench: no coder on the line has yet strayed, so a refusal on a real work item is still to see. No pod was inspected during a live step: its Jobs are deleted as it ends.
 - **Three runs in dry run, each read by `factory line soak-check` when it ended:**
 
   | Run | Model | Work items | How they ended | `soak-check` |
@@ -297,7 +298,7 @@ From 5 to 7 October 2026, on the local cluster: tasks 9 to 15 (#96 to #103), the
 - **On Qwen**, nothing: 1007 took 90 calls and about two hours of steps.
 - The costs are the gateway's own, from token counts and `gateway/prices.ts`, not checked against Anthropic's bill.
 
-**A proposed cap per work item: $1, on every profile** (from $5 on `local` and $2 on `do` and `aws`). It is three times the dearest fix measured. A work item that goes the longest way the line allows without a hold (two returns from the gates and one from review, at 1001's prices per step) comes to about $0.50, which leaves room for several steps tried again. Past it, holding for Martin costs less than another round. The day and month caps stay as they are: $20 a day is about 60 fixes at 1001's cost. Two work items on Claude are a small sample, and `policy/spend.ts` is Martin's to change.
+**The cap per work item: $1, on every profile** (#120; from $5 on `local` and $2 on `do` and `aws`). It is three times the dearest fix measured. A work item that goes the longest way the line allows without a hold (two returns from the gates and one from review, at 1001's prices per step) comes to about $0.50, which leaves room for several steps tried again. Past it, holding for Martin costs less than another round. The day and month caps stay as they are: $20 a day is about 60 fixes at 1001's cost. Two work items on Claude are a small sample: the cap moves with what later fixes cost.
 
 ## Retrospective
 
