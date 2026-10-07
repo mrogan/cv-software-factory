@@ -17,6 +17,8 @@ export interface Exchange {
   evidence: HttpEvidence;
   /** Every header of the last response, by lower-case name. */
   headers: Record<string, string>;
+  /** The address of the last response, as `pathOf` gives it: where the redirects, if any, led. */
+  landed: string;
   /** Why no answer came, when none did. */
   failure?: 'redirect loop' | 'no answer';
 }
@@ -85,6 +87,7 @@ export async function exchange(
       type: type?.split(';')[0]?.trim().toLowerCase() ?? null,
       evidence,
       headers: Object.fromEntries(response?.headers ?? []),
+      landed: pathOf(url),
       ...(failure && { failure }),
     };
   }

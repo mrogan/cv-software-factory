@@ -4,9 +4,15 @@
  *
  * Where an issue belongs:
  * - what is wrong with a page itself (its headers, its console, its accessibility, its speed) belongs on that
- *   page's route, and is `scope: 'page'`: a class found on every page crawled is one signal for `*`;
+ *   page's route, and is `scope: 'page'`: a class found on every page crawled is one signal for `*`. A page is
+ *   opened only at its own address (`crawl.ts`), so a page reached through a redirect is judged where it landed;
  * - a broken link or image belongs on the route of the page that holds it, where a visitor meets it;
  * - a server error, a redirect loop, a slow answer or an uncached asset belongs on the route that was asked for.
+ *
+ * The classes in `OF_A_PAGE` are told only by opening a page. On a route where a link led to no page that could be
+ * opened (it looped, or answered with an error, or the page would not open), they can be neither passed nor
+ * failed, so they are trouble there. On a route where no page could be, such as an asset's or a redirect's that
+ * landed on a page elsewhere, they are not checked at all.
  */
 import type { Evidence, SymptomClass } from '@software-factory/events';
 import type { Check } from '../capture.ts';
@@ -41,8 +47,19 @@ export interface Trouble {
   message: string;
 }
 
-/** What opening a page in a browser tells of: the checks that cannot be made when it could not be opened. */
-const OF_A_PAGE = ['missing-header', 'browser-error', 'missing-alt', 'low-contrast', 'unlabelled-field'] as const;
+/**
+ * What opening a page in a browser tells of: its headers, its console, its accessibility, and the links and images
+ * it holds. These checks cannot be made where no page was opened.
+ */
+export const OF_A_PAGE: readonly SymptomClass[] = [
+  'missing-header',
+  'browser-error',
+  'missing-alt',
+  'low-contrast',
+  'unlabelled-field',
+  'broken-link',
+  'broken-image',
+];
 
 export interface Judged {
   issues: Issue[];
@@ -69,6 +86,12 @@ export function judge({ crawl, errors, secure, version, template, slow = SLOW }:
   const issues: Issue[] = [];
   const trouble: Trouble[] = [];
   const byPath = new Map(crawl.resources.map((r) => [r.path, r]));
+  const pageRoutes = new Set(crawl.pages.map((page) => template(page.path)));
+  /** A link that led to no page, on a route where no page was opened: what a page would show there is not known. */
+  const noPage = (path: string, why: string) => {
+    if (pageRoutes.has(template(path))) return;
+    trouble.push({ route: template(path), symptoms: OF_A_PAGE, message: `No page was opened at ${path}: ${why}.` });
+  };
 
   for (const resource of crawl.resources) {
     const { answer, path, kind, from } = resource;
@@ -86,6 +109,7 @@ export function judge({ crawl, errors, secure, version, template, slow = SLOW }:
         evidence: [answer.evidence],
         look: where,
       });
+      if (kind === 'link') noPage(path, 'it redirects round in a circle');
       continue;
     }
     const status = answer.status;
@@ -98,6 +122,7 @@ export function judge({ crawl, errors, secure, version, template, slow = SLOW }:
         trouble.push({ route: holder, symptoms: [kind === 'image' ? 'broken-image' : 'broken-link'], message });
       continue;
     }
+    if (kind === 'link' && status >= 400) noPage(path, `it answered ${status}`);
     if (status >= 500) {
       issues.push({
         symptom: 'server-error',

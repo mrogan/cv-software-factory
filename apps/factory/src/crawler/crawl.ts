@@ -2,8 +2,9 @@
  * Crawling: from the home page, every page and asset it leads to on the same origin: links, images, scripts,
  * stylesheets and icons. Each is asked for over HTTP, so that its status, headers and time are what any client
  * would see. Each HTML page that answers is then opened in a browser, which says what its console said, what links
- * it holds once its scripts have run, and what axe finds wrong with it. This module gathers; judging is in
- * `judge.ts`.
+ * it holds once its scripts have run, and what axe finds wrong with it. A link that redirects is not opened: where
+ * it lands is crawled as a link of its own, from the same page, so a page is always browsed at its own address.
+ * This module gathers; judging is in `judge.ts`.
  */
 
 import { AxeBuilder } from '@axe-core/playwright';
@@ -35,6 +36,7 @@ export interface AccessibilityIssue {
 
 /** What opening a page in a browser showed. */
 export interface Browsed {
+  /** The page's own address: a page is opened only where no redirect leads on from. */
   path: string;
   console: Array<{ text: string; source?: string }>;
   accessibility: AccessibilityIssue[];
@@ -131,6 +133,12 @@ export async function crawl({
     const answer = await exchange(app, next, { record });
     result.resources.push({ path: next, kind, from, answer });
     if (kind !== 'link' || answer.status !== 200 || answer.type !== 'text/html') continue;
+    // A link that redirects leads to a page with an address of its own, and the page is crawled there, so that what
+    // is wrong with it is named by where it is and not by every address that leads to it.
+    if (answer.landed !== next) {
+      enqueue([new URL(answer.landed, app).href], 'link', from);
+      continue;
+    }
     // One page that will not open must not end the crawl: it is kept as a resource, and reported as trouble.
     const browsed = await browse(context, new URL(next, app).href, next, pageTimeout).catch((error: unknown) => {
       result.unbrowsed.push({
