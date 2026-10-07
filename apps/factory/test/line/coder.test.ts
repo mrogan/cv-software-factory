@@ -39,6 +39,24 @@ describe('the coder', () => {
     }
   });
 
+  it('may change nothing instead, and say why in a few sentences for Martin, but not both', () => {
+    const why = 'The journeys fail on the basket’s total, which this change leaves alone.';
+    expect(coder.schema(input).safeParse({ unchanged: why }).success).toBe(true);
+    for (const wrong of [
+      { unchanged: '' },
+      { unchanged: 'x'.repeat(201) },
+      { unchanged: why, title: 'fix(money): show two digits of pence', note: why },
+    ]) {
+      expect(coder.schema(input).safeParse(wrong).success, JSON.stringify(wrong).slice(0, 60)).toBe(false);
+    }
+    // A first round may find nothing to fix; a returned one may find what sent it back is not its change's doing.
+    expect(coder.prompt(input)).toContain('If the code already does what every criterion asks');
+    const returned = { from: 'gates' as const, reason: 'The gates failed: journeys' };
+    const prompt = coder.prompt({ ...input, round: 2, returned, session: 's' });
+    expect(prompt).toContain('Change nothing only if what sent the work back is not your change’s doing');
+    expect(prompt).toContain('write {"unchanged"} instead: at most 200 characters');
+  });
+
   it('is sent back by the scope fence with its output, told its checkout is fresh, and resumes its session', () => {
     const back = coderInputAfterRefusal(input, FENCED, 's');
     expect(coder.resume?.(back)).toBe('s');

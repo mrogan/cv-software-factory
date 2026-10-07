@@ -316,6 +316,92 @@ describe('the line', () => {
     );
   });
 
+  it('holds for Martin, at the gates and with its reason, a coder that changes nothing after they fail, and does as he answers', async () => {
+    const workItem = await ticket();
+    const why = 'The journeys fail on the basket’s total, which this change leaves alone: it was wrong before.';
+    const coder: Agent = (request) =>
+      request.round === 2
+        ? handback({ unchanged: why })
+        : handback(CODED, PATCH.replace('+new', `+new${request.round}`));
+    const { pass, steps, github } = line({ ...AGENTS, coder });
+    await pass();
+    await pass();
+    github.pass(12, 'failure');
+    await pass(); // the gates fail, the work goes back, and the coder's second round changes nothing
+    expect(steps.requests.at(-1)?.prompt).toContain('Change nothing only if what sent the work back is not');
+    expect(await stage(workItem)).toBe('held');
+    expect((await payloads(workItem, 'hold.started'))[0]).toEqual({
+      stage: 'gates',
+      kind: 'held',
+      cause: 'gates',
+      reason: `The coder changed nothing when the work came back from gates: ${why}`,
+    });
+    // An outcome, not a failure: nothing is counted against the step, and nothing more runs while it waits.
+    const [row] = await database.writer<
+      { failures: number }[]
+    >`select failures from line where work_item = ${workItem}`;
+    expect(row?.failures).toBe(0);
+    await pass();
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'coder']);
+
+    // His answer to a hold of the gates' sends the work back to the coder with his words, as ANSWERS.gates says.
+    await events.append(
+      event(workItem, 'hold.answered', { decision: 'answered', answer: 'Fix the total as well' }, 'martin'),
+    );
+    await pass();
+    expect((await payloads(workItem, 'work.returned')).at(-1)).toEqual({
+      from: 'gates',
+      to: 'build',
+      reason: 'Martin sent it back: Fix the total as well',
+      round: 3,
+    });
+    expect(steps.requests.at(-1)).toMatchObject({ agent: 'coder', round: 3, resume: 'session-1' });
+    expect(steps.requests.at(-1)?.prompt).toContain('Martin sent it back: Fix the total as well');
+    expect((await payloads(workItem, 'pull-request.pushed')).map((p) => p.attempt)).toEqual([1, 3]);
+  });
+
+  it('holds a first round that finds nothing to fix as the spec’s question, and has the planner write it again', async () => {
+    const workItem = await ticket();
+    const why = 'Search already escapes the query: a test searching for a quote passes on main.';
+    let coded = 0;
+    const { pass, steps } = line({
+      ...AGENTS,
+      coder: () => (coded++ ? handback(CODED, PATCH) : handback({ unchanged: why })),
+    });
+    await pass();
+    await pass();
+    expect((await payloads(workItem, 'hold.started'))[0]).toEqual({
+      stage: 'build',
+      kind: 'held',
+      cause: 'nothing-to-fix',
+      reason: `The coder found nothing to fix: ${why}`,
+    });
+    await events.append(
+      event(workItem, 'hold.answered', { decision: 'answered', answer: 'It fails with two quotes' }, 'martin'),
+    );
+    await pass();
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'planner']);
+    expect(steps.requests.at(-1)?.prompt).toContain(`The coder found nothing to fix: ${why}`);
+    expect(steps.requests.at(-1)?.prompt).toContain('It fails with two quotes');
+  });
+
+  it('counts a coder that says it changed nothing and hands back a change against it, as one that says nothing', async () => {
+    const workItem = await ticket();
+    let coded = 0;
+    const { pass, steps } = line({
+      ...AGENTS,
+      coder: () => (coded++ ? handback({ unchanged: 'Nothing to do.' }, PATCH) : handback(CODED, '')),
+    });
+    await pass();
+    await pass();
+    await pass();
+    await pass(); // held after its second failure
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'coder']);
+    const [hold] = await payloads(workItem, 'hold.started');
+    expect(hold).toMatchObject({ stage: 'build', cause: 'failures' });
+    expect(hold?.reason).toBe('The coder failed 2 times: The coder said it changed nothing, but handed back a change');
+  });
+
   it('sends blocking findings back to the coder’s session, reviews its second round afresh, and then holds', async () => {
     const workItem = await ticket();
     const blocking = {

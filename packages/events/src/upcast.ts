@@ -34,6 +34,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
             ? (({ triage: 'suggestion', plan: 'spec' } as Record<string, string>)[String(payload.stage)] ?? 'merge')
             : (({ gates: 'gates', review: 'review' } as Record<string, string>)[String(payload.stage)] ?? 'unknown'),
     }),
+    // Version 3 adds the coder finding nothing to fix to the causes; a version 2 hold reads as it was.
+    2: (payload) => payload,
   },
   // Version 2 adds the pull request's whole change. A version 1 push recorded only its own files, which are the whole
   // change for a first push, and the nearest the event has for a later one.

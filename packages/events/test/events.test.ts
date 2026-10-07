@@ -241,6 +241,18 @@ describe('upcasting the real catalogue', () => {
     expect(cause('held', 'build')).toBe('unknown');
   });
 
+  it('reads version 2 of hold.started as it was, and takes the coder finding nothing to fix at version 3', () => {
+    const v2 = { stage: 'gates', kind: 'held', cause: 'gates', reason: 'The gates failed: test' };
+    expect(upcast({ type: 'hold.started', version: 2, payload: v2 })).toMatchObject({
+      event: { version: 3, payload: v2 },
+    });
+    const nothing = { stage: 'build', kind: 'held', cause: 'nothing-to-fix', reason: 'The coder found nothing.' };
+    expect(validate({ ...opened, type: 'hold.started', version: 3, actor: 'coder', payload: nothing })).toEqual({
+      ok: true,
+    });
+    expect(validate({ ...opened, type: 'hold.started', version: 2, actor: 'coder', payload: nothing }).ok).toBe(false);
+  });
+
   it('reads version 1 of review.submitted as a review with no findings, and takes each finding at version 2', () => {
     const v1 = { pullRequest: 12, verdict: 'approved', comments: 2, note: 'Fine.' };
     expect(upcast({ type: 'review.submitted', version: 1, payload: v1 })).toMatchObject({

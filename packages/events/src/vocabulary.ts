@@ -116,6 +116,8 @@ export const HOLD_CAUSES = [
   'ticket-rejected',
   /** The coder changed files outside the spec's scope. */
   'scope',
+  /** The coder's first round found nothing to change: it says the code already does what the spec asks. */
+  'nothing-to-fix',
   /** A step failed as often as the line allows. */
   'failures',
   /** The gates kept failing after the returns to the coder the line allows. */

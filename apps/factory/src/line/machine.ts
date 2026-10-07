@@ -16,6 +16,12 @@
  * findings, and the gates and a fresh reviewer run again on what it pushes. A review that still blocks after the
  * second holds the work item for Martin, as does one the reviewer escalates.
  *
+ * A coder the work came back to may change nothing, and say why: a gate failed on a defect its change uncovered and
+ * did not cause, or its change already does what was asked. That is an outcome, not a failed step: the work item
+ * holds for Martin with the coder's reason, under the cause of what sent the work back (`gates` or `review`), so his
+ * answer means what it would have meant there (`unchangedHold`). A first round that changes nothing questions the
+ * spec instead, and holds as `nothing-to-fix`.
+ *
  * A work item that has spent as much on models as one may holds before its next step, since the gateway would refuse
  * every call that step made.
  *
@@ -57,7 +63,8 @@ export type Resolution =
  * planner rejected the ticket, approving agrees with it and closes the work item too; only an answer, which tells the
  * planner what it missed, sends the ticket back to it. Where the fence kept refusing the coder's patch, approving
  * says the coder needed those files and answering says what to do instead: either way the planner writes the spec
- * again, told both.
+ * again, told both. Where the coder's first round found nothing to fix, approving agrees with it and closes the work
+ * item; answering sends the spec back to the planner, told what the coder said and what Martin did.
  */
 export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
   // Triage's: a suggestion never comes onto the line.
@@ -66,6 +73,7 @@ export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
   question: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
   'ticket-rejected': { approved: 'close', rejected: 'close', answered: 'carry-on' },
   scope: { approved: 'replan', rejected: 'close', answered: 'replan' },
+  'nothing-to-fix': { approved: 'close', rejected: 'close', answered: 'replan' },
   failures: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
   gates: { approved: 'return', rejected: 'close', answered: 'return' },
   review: { approved: 'approve', rejected: 'close', answered: 'return' },
@@ -226,7 +234,11 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         state.hold = undefined;
         state.fenceRefusals = 0;
         if (resolution === 'replan') state.spec = undefined;
-        if (resolution === 'approve' && state.review) state.review = { ...state.review, verdict: 'approved' };
+        if (resolution === 'approve' && state.review) {
+          state.review = { ...state.review, verdict: 'approved' };
+          // His approval overrules the review that sent the work back, if one did: the coder has nothing to do.
+          state.rebuild = undefined;
+        }
         break;
       }
       case 'action.refused':
@@ -409,13 +421,30 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   }
 }
 
+/**
+ * The hold for a coder that changed nothing, and said why. After a return, it holds where the work came back from,
+ * under that stage's cause: Martin's answer to it means what it means for gates that kept failing, or a review that
+ * still blocks. A first round, with no pull request yet, has nothing to have returned: the coder found the code
+ * already doing what the spec asks, which questions the spec.
+ */
+export function unchangedHold(state: WorkItemState, why: string): PayloadOf<'hold.started'> {
+  if (!state.rebuild) {
+    const reason = `The coder found nothing to fix: ${why}`.slice(0, 300);
+    return { stage: 'build', kind: 'held', cause: 'nothing-to-fix', reason };
+  }
+  const from = state.rebuild.from === 'gates' ? 'gates' : 'review';
+  const reason = `The coder changed nothing when the work came back from ${from}: ${why}`.slice(0, 300);
+  return { stage: from, kind: 'held', cause: from, reason };
+}
+
 /** What the line does straight after Martin's answer, or undefined to carry on as the work item's events say. */
 function afterAnswer(answer: NonNullable<WorkItemState['answer']>): Decision | undefined {
   const said = answer.text ? `: ${answer.text}` : '';
   switch (answer.resolution) {
     case 'close': {
-      // Approving closes only a planner's rejection: he agrees with the planner.
-      const why = answer.decision === 'approved' ? 'Martin agreed with the planner' : 'Martin rejected it';
+      // Approving closes only a rejection, the planner's or the coder's finding nothing to fix: he agrees with it.
+      const agent = answer.cause === 'nothing-to-fix' ? 'coder' : 'planner';
+      const why = answer.decision === 'approved' ? `Martin agreed with the ${agent}` : 'Martin rejected it';
       return { stage: 'held', next: { do: 'close', reason: `${why}${said}`.slice(0, 200) } };
     }
     case 'wait':
