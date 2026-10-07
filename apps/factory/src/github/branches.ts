@@ -1,6 +1,7 @@
 /**
  * The branches the factory owns, and so the only ones the GitHub worker will move, delete or commit to. Everything
- * the line makes is under `factory/` (a fix is `factory/1296-prices`, the smoke run's base is `factory/smoke`); the
+ * the line makes is under `factory/` (a fix is `factory/1296-prices`, the smoke run's base is `factory/smoke`, and the
+ * deploy watch commits new pins on `factory/deploy/console-local` before moving the deploy branch to them); the
  * deploy pull requests keep the branches they have always had, one per pin file (`deploys.ts`). Anything else, `main`
  * and Martin's branches above all, is refused before GitHub is asked, as a patch to a protected path is: the rulesets
  * guard `main` too, and this does not lean on them.

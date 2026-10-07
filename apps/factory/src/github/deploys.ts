@@ -5,9 +5,14 @@
  *
  * Each target is one pin file and the images it pins, which are built together from one commit. A target has at
  * most one open pull request, on its own branch, always for the newest commit on main that every one of its images
- * was built from. When that commit is newer than the one pinned on main, the branch is moved to main's head, the new
- * digests are committed to it (signed, through the API), and the pull request is opened, or retitled if it was for
- * an older build.
+ * was built from. When that commit is newer than the one pinned on main, the new digests are committed on main's head
+ * (signed, through the API), the branch is moved to that commit, and the pull request is opened, or retitled if it
+ * was for an older build.
+ *
+ * The branch is never at main's head itself, even for a moment: GitHub closes a pull request whose branch has nothing
+ * to merge, and would close the one for the older build, as the App. So the commit is made on a scratch branch of
+ * the factory's (`factory/` and the deploy branch's name), started at main's head, and the deploy branch is moved to
+ * it in one forced update. The commit goes through `createCommitOnBranch` like every other, so GitHub signs it.
  *
  * Its title names the commit, as the build workflow's `changes` job reads it back: `chore(deploy): run console
  * 1f14f44 on the local cluster`. A proposal Martin closed without merging is not made again; the next build is.
@@ -65,6 +70,9 @@ export const DEPLOYS: DeployTarget[] = [
     images: [{ name: 'website', image: 'mrogan/cv-worlds-worst-website' }],
   },
 ];
+
+/** Where a target's new pins are committed before its deploy branch moves to them. */
+export const scratchBranch = (target: DeployTarget) => `factory/${target.branch}`;
 
 /** The label that marks a deploy pull request apart from the release pull request and Martin's own. */
 export const deployLabel = (target: DeployTarget) => `deploy: ${target.profile}`;
@@ -220,9 +228,11 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
       return;
     }
 
-    await actions.setBranch(repo, target.branch, head, { force: true });
-    await actions.commit(repo, {
-      branch: target.branch,
+    // Committed off to the side, so the deploy branch goes from the older build straight to this one (see above).
+    const scratch = scratchBranch(target);
+    await actions.setBranch(repo, scratch, head, { force: true });
+    const pins = await actions.commit(repo, {
+      branch: scratch,
       expectedHead: head,
       message: title,
       changes: {
@@ -230,6 +240,8 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
         deletions: [],
       },
     });
+    await actions.setBranch(repo, target.branch, pins, { force: true });
+    await actions.deleteBranch(repo, scratch);
     const body = deployBody(target, proposal);
     if (existing) {
       await actions.updatePullRequest(repo, existing.number, { title, body });
