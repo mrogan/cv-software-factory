@@ -199,6 +199,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (state.gates?.commit === event.payload.commit && !state.gatesPassed) {
           state.gates = { ...state.gates, conclusion: event.payload.conclusion, failed: event.payload.failed };
           state.gatesPassed = event.payload.conclusion === 'passed';
+          // Gates that pass answer the failure that sent the work back, whoever moved the branch: GitHub's update
+          // with main, or a check run again. The coder has nothing left to put right.
+          if (state.gatesPassed && state.rebuild?.from === 'gates') state.rebuild = undefined;
         }
         break;
       case 'review.submitted':
