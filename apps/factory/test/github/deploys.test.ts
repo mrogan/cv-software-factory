@@ -3,7 +3,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { type Actions, DryRunActions, LiveActions } from '../../src/github/actions.ts';
-import { DEPLOYS, type DeployTarget, deployWatch } from '../../src/github/deploys.ts';
+import { ownsBranch } from '../../src/github/branches.ts';
+import { DEPLOYS, type DeployTarget, deployWatch, scratchBranch } from '../../src/github/deploys.ts';
 import type { Registry } from '../../src/github/registry.ts';
 import { releaseWatch } from '../../src/github/releases.ts';
 import { calls, client, quiet, type Route, type Sent } from './fake.ts';
@@ -34,11 +35,24 @@ interface Pull {
   labels: { name: string }[];
 }
 
-/** GitHub with main at d, then c, b, a; a pin file at d; and the deploy branch's pull requests. */
+/**
+ * GitHub with main at d, then c, b, a; a pin file at d; and the deploy branch's pull requests. It keeps the branches,
+ * and closes an open pull request whose branch is moved to main's head, with nothing left to merge, as GitHub does.
+ */
 function github(target: DeployTarget, options: { pin?: string; pulls?: Pull[]; failCommit?: boolean } = {}) {
   const { repo } = target;
   const sent: Sent[] = [];
   let failCommit = options.failCommit ?? false;
+  const pulls = (options.pulls ?? []).map((p) => ({ ...p }));
+  // The deploy branch is where the older build's commit left it.
+  const branches = new Map([[target.branch, commit('f')]]);
+  const branchOf = (path: string) => decodeURIComponent(path.replace(/^.*\/git\/refs?\/heads\//, ''));
+  const move = (branch: string, sha: string) => {
+    branches.set(branch, sha);
+    if (branch === target.branch && sha === HEAD) {
+      for (const p of pulls) if (p.state === 'open') p.state = 'closed';
+    }
+  };
   const routes: Route[] = [
     { method: 'GET', path: `/repos/${repo}/git/ref/heads/main`, answer: () => ({ body: { object: { sha: HEAD } } }) },
     {
@@ -51,14 +65,51 @@ function github(target: DeployTarget, options: { pin?: string; pulls?: Pull[]; f
       path: `/repos/${repo}/commits?sha=${HEAD}&per_page=100`,
       answer: () => ({ body: ['d', 'c', 'b', 'a'].map((c) => ({ sha: commit(c) })) }),
     },
-    { method: 'GET', path: /\/pulls\?state=all/, answer: () => ({ body: options.pulls ?? [] }) },
-    { method: 'GET', path: /\/git\/ref\/heads\/deploy\//, answer: () => ({ body: {} }) },
-    { method: 'PATCH', path: /\/git\/refs\/heads\/deploy\//, answer: () => ({ body: {} }) },
+    { method: 'GET', path: /\/pulls\?state=all/, answer: () => ({ body: pulls }) },
+    {
+      method: 'GET',
+      path: /\/git\/ref\/heads\//,
+      answer: ({ path }) => {
+        const sha = branches.get(branchOf(path));
+        return sha ? { body: { object: { sha } } } : { status: 404, body: { message: 'Not Found' } };
+      },
+    },
+    {
+      method: 'PATCH',
+      path: /\/git\/refs\/heads\//,
+      answer: ({ path, body }) => {
+        move(branchOf(path), (body as { sha: string }).sha);
+        return { body: {} };
+      },
+    },
+    {
+      method: 'POST',
+      path: `/repos/${repo}/git/refs`,
+      answer: ({ body }) => {
+        const { ref, sha } = body as { ref: string; sha: string };
+        move(ref.replace(/^refs\/heads\//, ''), sha);
+        return { status: 201, body: {} };
+      },
+    },
+    {
+      method: 'DELETE',
+      path: /\/git\/refs\/heads\//,
+      answer: ({ path }) => {
+        branches.delete(branchOf(path));
+        return { status: 204 };
+      },
+    },
     {
       method: 'POST',
       path: '/graphql',
-      answer: () =>
-        failCommit ? { status: 502 } : { body: { data: { createCommitOnBranch: { commit: { oid: commit('e') } } } } },
+      answer: ({ body }) => {
+        if (failCommit) return { status: 502 };
+        const { branch, expectedHeadOid } = (body as { variables: { input: CommitInput } }).variables.input;
+        // GitHub commits only on a branch that is where the caller expects it.
+        if (branches.get(branch.branchName) !== expectedHeadOid) return { body: { errors: [{ message: 'moved' }] } };
+        move(branch.branchName, commit('e'));
+        return { body: { data: { createCommitOnBranch: { commit: { oid: commit('e') } } } } };
+      },
     },
     {
       method: 'POST',
@@ -68,7 +119,7 @@ function github(target: DeployTarget, options: { pin?: string; pulls?: Pull[]; f
     { method: 'POST', path: /\/issues\/\d+\/labels$/, answer: () => ({ body: [] }) },
     { method: 'PATCH', path: /\/pulls\/\d+$/, answer: () => ({ body: {} }) },
   ];
-  return { ...client(routes, sent), recover: () => (failCommit = false) };
+  return { ...client(routes, sent), pulls, branches, recover: () => (failCommit = false) };
 }
 
 /** GHCR: the factory built from c and b, its browser image not yet from c, and every pin built from a. */
@@ -89,7 +140,12 @@ function ghcr(revision = commit('a')): Registry {
 
 const writes = (sent: Sent[]) => calls(sent).filter((s) => s.method !== 'GET');
 
+/** Each write, as its method and its path within the repository. */
+const steps = (sent: Sent[]) =>
+  writes(sent).map((s) => `${s.method} ${s.path.replace(/^\/repos\/[^/]+\/[^/]+\//, '').replace(/^\//, '')}`);
+
 interface CommitInput {
+  branch: { branchName: string };
   expectedHeadOid: string;
   message: { headline: string };
   fileChanges: { additions: { contents: string }[] };
@@ -108,28 +164,34 @@ describe('the deploy watch', () => {
   it('proposes the newest commit every pinned image was built from, at the head it read, labelled', async () => {
     const gh = github(FACTORY);
     await watch(gh, FACTORY)();
-    expect(writes(gh.sent).map((s) => `${s.method} ${s.path}`)).toEqual([
-      `PATCH /repos/${FACTORY.repo}/git/refs/heads/deploy/factory-local`,
-      'POST /graphql',
-      `POST /repos/${FACTORY.repo}/pulls`,
-      `POST /repos/${FACTORY.repo}/issues/70/labels`,
+    expect(steps(gh.sent)).toEqual([
+      'POST git/refs',
+      'POST graphql',
+      'PATCH git/refs/heads/deploy/factory-local',
+      'DELETE git/refs/heads/factory/deploy/factory-local',
+      'POST pulls',
+      'POST issues/70/labels',
     ]);
-    // The branch, the commit and the pin file all come from the one head of main.
-    expect(writes(gh.sent)[0]?.body).toEqual({ sha: HEAD, force: true });
-    const { expectedHeadOid, message, file } = committed(gh.sent);
+    // The scratch branch, the commit and the pin file all come from the one head of main.
+    expect(writes(gh.sent)[0]?.body).toEqual({ ref: 'refs/heads/factory/deploy/factory-local', sha: HEAD });
+    const { branch, expectedHeadOid, message, file } = committed(gh.sent);
+    expect(branch.branchName).toBe('factory/deploy/factory-local');
     expect(expectedHeadOid).toBe(HEAD);
+    // The deploy branch goes to the commit, and the scratch branch is gone.
+    expect(writes(gh.sent)[2]?.body).toEqual({ sha: commit('e'), force: true });
+    expect([...gh.branches]).toEqual([['deploy/factory-local', commit('e')]]);
     expect(message.headline).toBe('chore(deploy): run the factory bbbbbbb on the local cluster');
     // Only the digests change, as text.
     expect(file).toBe(FACTORY_PIN.replace(digest('1'), digest('7')).replace(digest('2'), digest('8')));
-    expect(writes(gh.sent)[2]?.body).toMatchObject({
+    expect(writes(gh.sent)[4]?.body).toMatchObject({
       head: 'deploy/factory-local',
       base: 'main',
       title: message.headline,
     });
-    expect((writes(gh.sent)[2] as { body: { body: string } }).body.body).toMatch(
+    expect((writes(gh.sent)[4] as { body: { body: string } }).body.body).toMatch(
       /^Pins `factory` \(ghcr\.io\/mrogan\/cv-software-factory\/factory@sha256:7{64}\) and `factory-browser` .* built from b{40}/,
     );
-    expect(writes(gh.sent)[3]?.body).toEqual({ labels: ['deploy: local'] });
+    expect(writes(gh.sent)[5]?.body).toEqual({ labels: ['deploy: local'] });
   });
 
   it('names the console and the app as their titles say', async () => {
@@ -166,6 +228,27 @@ describe('the deploy watch', () => {
     });
   });
 
+  it('moves the deploy branch from the older build straight to the newer, so GitHub never closes its pull request', async () => {
+    const older = 'chore(deploy): run the factory aaaaaaa on the local cluster';
+    const gh = github(FACTORY, {
+      pulls: [{ number: 69, title: older, state: 'open', merged_at: null, labels: [{ name: 'deploy: local' }] }],
+    });
+    await watch(gh, FACTORY)();
+    // At main's head, the branch would have nothing to merge, and GitHub would close the pull request as the App.
+    const deployBranch = writes(gh.sent).filter((s) => s.path.endsWith(`/heads/${FACTORY.branch}`));
+    expect(deployBranch.map((s) => s.body)).toEqual([{ sha: commit('e'), force: true }]);
+    expect(gh.pulls[0]?.state).toBe('open');
+    expect(gh.branches.get(FACTORY.branch)).toBe(commit('e'));
+    expect(steps(gh.sent)).not.toContain('POST pulls');
+  });
+
+  it('commits on a branch the factory owns, which nothing else of the line uses', () => {
+    for (const target of DEPLOYS) {
+      expect(ownsBranch(scratchBranch(target))).toBe(true);
+      expect(scratchBranch(target)).not.toBe(target.branch);
+    }
+  });
+
   it('leaves one already current, adding its label if an earlier pass did not get that far', async () => {
     const title = 'chore(deploy): run the factory bbbbbbb on the local cluster';
     const gh = github(FACTORY, { pulls: [{ number: 69, title, state: 'open', merged_at: null, labels: [] }] });
@@ -190,19 +273,24 @@ describe('the deploy watch', () => {
     }
   });
 
-  it('carries on after a failure partway: the next pass moves the branch again and opens the pull request', async () => {
+  it('carries on after a failure partway: the next pass starts the scratch branch again and opens the pull request', async () => {
     const gh = github(FACTORY, { failCommit: true });
     const pass = watch(gh, FACTORY);
     await expect(pass()).rejects.toMatchObject({ kind: 'server' });
+    // The deploy branch has not moved.
+    expect(gh.branches.get(FACTORY.branch)).toBe(commit('f'));
     gh.recover();
     await pass();
-    expect(writes(gh.sent).map((s) => `${s.method} ${s.path.split('/').at(-1)}`)).toEqual([
-      'PATCH factory-local',
+    expect(steps(gh.sent)).toEqual([
+      'POST git/refs',
       'POST graphql',
-      'PATCH factory-local',
+      // The scratch branch the failed pass left is moved back to main's head.
+      'PATCH git/refs/heads/factory/deploy/factory-local',
       'POST graphql',
+      'PATCH git/refs/heads/deploy/factory-local',
+      'DELETE git/refs/heads/factory/deploy/factory-local',
       'POST pulls',
-      'POST labels',
+      'POST issues/70/labels',
     ]);
   });
 
@@ -215,11 +303,16 @@ describe('the deploy watch', () => {
         return String(records.length).padStart(64, 'f');
       },
     };
-    const pass = watch(gh, FACTORY, ghcr(), new DryRunActions(store as never, quiet));
+    const actions = new DryRunActions(store as never, quiet);
+    const pass = watch(gh, FACTORY, ghcr(), actions);
     await pass();
     await pass();
-    expect(records).toEqual(['setBranch', 'commit', 'openPullRequest']);
+    expect(records).toEqual(['setBranch', 'commit', 'setBranch', 'deleteBranch', 'openPullRequest']);
     expect(writes(gh.sent)).toEqual([]);
+    // Its reads find the deploy branch at the commit it would have made on main's head, and no scratch branch.
+    const made = actions.branchMade(FACTORY.repo, FACTORY.branch) as string;
+    expect(actions.commitMade(made)?.parent).toBe(HEAD);
+    expect(actions.branchMade(FACTORY.repo, scratchBranch(FACTORY))).toBeUndefined();
   });
 });
 
