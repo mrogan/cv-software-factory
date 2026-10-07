@@ -158,7 +158,7 @@ What the milestone taught, and where each lesson now lives.
 - `git apply` inside a repository silently skips paths outside the current directory. The private repository's tools run git where it cannot see the repository around it.
 - pnpm will not run in a tree whose `node_modules` is a symbolic link, so each proof installs from the store: a second or two each.
 
-**Left open:** see the [backlog](BACKLOG.md).
+**Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues).
 
 ## Out of scope
 

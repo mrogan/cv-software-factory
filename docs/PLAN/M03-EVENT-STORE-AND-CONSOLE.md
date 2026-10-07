@@ -27,7 +27,7 @@ Nothing real happens yet. Every work item in this milestone is a hand-written sa
 - The server serves built files by Vite's manifest: hashed files cached for a year, the page never cached. The content security policy gains `script-src 'self'` and `connect-src 'self'`, and nothing else.
 - `pnpm dev` runs Vite with hot reloading beside the Node server, proxying events and artifacts to it, under a looser policy for development only.
 - `AGENTS.md`: "no build step" now applies to the server, and the browser code is built by Vite. Per-frame work (dragging, the wipe, the sheet's motion) uses refs, `style.transform` and `element.animate()`, and commits to React state when it settles.
-- Port the station to a TypeScript module from the [backlog](BACKLOG.md): the same drawing, state table and reduced-motion rules, with a constructed stylesheet and SVG presentation attributes, and no `<style>` element or `style` attribute.
+- Port the station to a TypeScript module, from the backlog: the same drawing, state table and reduced-motion rules, with a constructed stylesheet and SVG presentation attributes, and no `<style>` element or `style` attribute.
 
 ### 2. The event schema
 
@@ -186,7 +186,7 @@ What the milestone taught, and where each lesson now lives.
 - A statement-level trigger that takes an advisory lock makes commit order equal `seq` order, so a reader following `seq` never skips an event that committed late: `packages/store/migrations/0001_events.sql`.
 - macOS's `tar` adds AppleDouble files unless `COPYFILE_DISABLE` is set, and `make samples` runs on the host, so it needs the dependencies installed: the `Makefile`.
 
-**Left open:** see the [backlog](BACKLOG.md).
+**Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues).
 
 ## Out of scope
 

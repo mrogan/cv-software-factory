@@ -20,7 +20,7 @@ It also means a defect can be put back. The alternatives for the injector and fo
 
 - **The scoreboard** matches tickets against fingerprints that have each been shown to appear when, and only when, their defect is present. A false positive is a ticket that matches none of them.
 - **The injector** (milestone 9) needs no catalogue of its own: it applies one of the same patches to the app as it then stands, as an ordinary pull request. A patch that no longer applies is a catalogue entry to refresh, and CI in the private repository is where that shows.
-- **Reset** (milestone 10) restores the tree the patches produced. Once the factory has shipped improvements, that tree is out of date; whether the baseline moves or reset re-applies the patches is still open (backlog).
+- **Reset** (milestone 10) restores the tree the patches produced. Once the factory has shipped improvements, that tree is out of date; whether the baseline moves or reset re-applies the patches is still open (an issue).
 - **Each patch removes the tests its defect would fail**, so the published app passes its own checks. The factory therefore cannot find a seeded defect by running the app's tests; it has to notice the symptom. A fix is expected to bring its test back.
 - **Nothing in public says which defects exist**: not this repository, the app's, a commit message, a pull request or an issue. The plan gives their number and kinds only.
 - **Publishing is one-way.** The tree is built by a script, checked by CI for giveaways, and read by Martin before it goes public. A defect added later arrives as a pull request, through the injector.

@@ -80,7 +80,7 @@ export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
   merge: { approved: 'wait', rejected: 'close', answered: 'return' },
   // The cap is policy's: approving carries on, and the line holds again until the cap is raised.
   spend: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
-  // The line makes no such hold yet (BACKLOG): approving accepts the tests as they are, answering says what to test.
+  // The line makes no such hold yet: approving accepts the tests as they are, answering says what to test.
   'tests-first': { approved: 'carry-on', rejected: 'close', answered: 'return' },
   unknown: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
 };

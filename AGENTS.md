@@ -76,5 +76,5 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
 - Merging is Martin's call. The factory's App opens the deploy and release pull requests; no workflow opens or approves one.
 - pnpm installs no release younger than a day, runs no dependency's install script unless `pnpm-workspace.yaml` allows it, and refuses a provenance downgrade. When it refuses, find out why; an exception goes in that file with its reason.
 - Refresh a Dependabot pull request with `@dependabot rebase` or `@dependabot recreate`. Don't close it: that tells Dependabot to skip the version.
-- A follow-up with no home yet goes in [`docs/PLAN/BACKLOG.md`](docs/PLAN/BACKLOG.md), not in a code comment.
+- A follow-up with no home yet is a [GitHub issue](https://github.com/mrogan/cv-software-factory/issues) (`/issue` drafts one to the standard), on the milestone it waits for if it has one; never a code comment.
 - Working notes that must never be committed (handovers, soak logs, drafts) go in `scratch/`. Git ignores it; `.ignore` keeps it searchable.
