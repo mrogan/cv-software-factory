@@ -11,7 +11,7 @@ The words we use, so docs, code, UI and commits stay consistent. Standard indust
 | **human** | person, people, user | Anyone who is not an agent, as in "held for a human" or "code written by humans". Use **Martin** when it can only be him, and **visitor** for someone with a visitor key. |
 | **Kubernetes** | k8s, kube | The orchestration platform, in prose. Name a specific distribution (k3d, DOKS, EKS) only when the difference matters. |
 | **stage** | step, phase | One part of the factory's line: sense, triage, plan, build, gates, review, release, verify. |
-| **the line** | conveyor, workflow | The eight stages in order, and their drawing across the top of the console. "Stop the line" halts all of it. "Pipeline" means CI only. |
+| **the line** | conveyor, workflow | The eight stages in order, and their drawing across the top of the console; the line's worker (`factory line`) carries work items through them from Plan to the merge. "Stop the line" halts all of it. "Pipeline" means CI only. |
 | **station** | node, card | The drawing of one stage on the console's line. |
 | **Needs you** | approvals, queue | Work waiting on Martin, and the console panel that lists it. Not the inbox, which holds signals for triage. |
 | **work item** | job, task, run | One piece of work through the line (a defect fix, injected defect, improvement, dependency update, red-team attack or visitor report), from its first event to its last. |
@@ -31,7 +31,19 @@ The words we use, so docs, code, UI and commits stay consistent. Standard indust
 | **check** | test, assertion | One thing a sense looks at, such as "search finds a product by a word in its name". A check that passes writes nothing; one that fails twice in a row sends a signal. |
 | **signal** | alert, finding, event | What a sense found, or a visitor reported: the route, the symptom class and the evidence. Signals wait in the inbox until triage takes them, and only those triage keeps become events. |
 | **inbox** | queue, backlog | The table where signals wait for triage. Only the factory reads it, because reports are in it. |
-| **ticket** | issue, bug | A defect triage has recognised, with its category, severity, fingerprint and evidence. One fingerprint, one ticket; a ticket closes only when its fix is verified. |
+| **ticket** | issue, bug | A defect triage has recognised, with its category, severity, fingerprint and evidence. One fingerprint, one ticket; a ticket closes only when its fix is verified. The GitHub issue the App opens when work on it starts is the ticket's issue. |
+| **spec** | plan, requirements | What the planner writes for one ticket: the outcome, Given/When/Then acceptance criteria, the files that may change (its scope), risk tags and a rollout note. "Spec section 4.1" means a section of `SPECIFICATION.md`. |
+| **step** | job, attempt | One agent's turn at one work item, in a runner: the planner's step, the coder's second round. A stage may take several steps, and a step that fails runs again as a new one. |
+| **round** | iteration, loop | One pass from the coder to the gates and review. Failing gates or a review's blocking findings send the work back to the coder for the next round, as many times as the line allows before it holds. |
+| **runner** | sandbox, container, agent | Where a step runs: a Kubernetes Job that checks out the repository, then one that runs the agent and reaches only the gateway and the handback, with a job token as its only credential. GitHub's are always "GitHub-hosted runners". |
+| **handback** | result, callback, response | What a runner sends the line when its step ends: the patch, the agent's note, its turns and session, and the result the step asked for. Also the line's endpoint that takes it. |
+| **patch** | diff, commit | The change a coder hands back, as data: everything changed since the step's commit. The GitHub worker commits it outside the sandbox. "Diff" is what a pull request shows. |
+| **scope fence** | path check, allow-list | The deterministic check that refuses a patch changing a file outside its spec's scope, or under `.github/` or `deploy/`, or one a CODEOWNERS file gives a person. |
+| **gate** | check, CI, test | A deterministic check a change must pass before it can merge: a required check on `main`, such as tests, test integrity or journeys. A model is never a gate: the reviewer's check run is a signal. **Gates** is also the stage that waits for them. A sense's **check** is something else. |
+| **journeys gate** | e2e tests, smoke test | The gate that runs the probes and the crawler against the base's app and the change's, and fails only on a check that passes on the base and fails on the change. The app is broken on purpose, so judged alone every change would fail. |
+| **hold** | block, pause, escalation | A work item waiting for Martin, with a cause (the scope fence, the gates, the review, a merge, the spend cap and others) that says what each of his answers does. Holds are what **Needs you** lists. |
+| **dry run** | simulation, mock mode | The GitHub worker writing what it would have done to the artifact store and touching nothing in GitHub, while answering for its own pull requests: their checks pass, and they merge a while after they are readied, so a line in `dry-run` goes round. |
+| **soak** | load test, burn-in | The line left running unattended on the local model, with the GitHub worker in a dry run, and read the morning after (`factory line soak-check`): no lease stuck, no runner left, every event valid, nothing spent. |
 | **seeded baseline** | initial state, golden copy | The app's tree as first published: the correct app with every seeded defect applied. Reset restores it. |
 | **TypeSafe** | | The company and API that serve Jev. |
 | **Jev** | classifier, LLM | TypeSafe's model for typed judgements: it answers Choice, Score and Noul questions with probabilities and never generates text. |

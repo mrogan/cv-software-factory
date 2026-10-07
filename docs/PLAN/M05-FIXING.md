@@ -151,7 +151,7 @@ The probe that follows the home page's links files a loop under the destination'
 
 ### Part A is done when
 
-- [ ] The App opens the deploy and release pull requests in both repositories, their checks run without Martin approving them, and no workflow can open or approve a pull request.
+- [x] The App opens the deploy and release pull requests in both repositories, their checks run without Martin approving them, and no workflow can open or approve a pull request.
 - [x] Code-owner review is required on `main` in both repositories; Martin's own pull requests merge through the bypass, and the merge records it. Scorecard's Branch-Protection score is recorded.
 - [ ] A pull request to the app that breaks a journey, deletes a test, or adds a vulnerable dependency fails its checks, and one that only fixes a seeded defect passes them.
 - [ ] A runner, on the local model, fixes the scratch defect and hands back a patch that the dry-run worker would commit; the hand-written cassettes pass in CI with no key.
@@ -220,8 +220,8 @@ Spec sections 4.1, 7 and 9; `COMPONENTS.md` (the line, the agents and the App's 
 ## Exit criteria
 
 - [ ] Part A's criteria are met.
-- [ ] A seeded defect is fixed and merged in the app's repository with no human code: a ticket from the senses, a spec, a failing test then a fix, the gates, review with at least the chance of a second round, a description, and Martin's merge. Every step is in the console.
-- [ ] Every pull request the factory opens is the App's and signed, and waits for Martin's code-owner review.
+- [x] A seeded defect is fixed and merged in the app's repository with no human code: a ticket from the senses, a spec, a failing test then a fix, the gates, review with at least the chance of a second round, a description, and Martin's merge. Every step is in the console.
+- [x] Every pull request the factory opens is the App's and signed, and waits for Martin's code-owner review.
 - [ ] The sandbox never held a credential beyond its job token, and a patch outside its scope never reached GitHub.
 - [ ] What a fix costs is measured, and the per-work-item cap is set from it.
 - [ ] `make stop-the-line` stops a running agent within a minute, and starting again loses nothing.
@@ -260,6 +260,44 @@ On 4 and 5 October 2026.
 - **The fences in the cluster.** `make egress`, all 42 checks: the workers, the line (the API server, and nothing else on its port or the node's), the agent pod (the gateway and the handback; no name resolves; not the internet, the Kubernetes API, the metadata address, Postgres, the console, the GitHub worker, the app or the host) and the prepare pod (GitHub and npm; nothing in the cluster). Getting there took two fixes the cluster found: the line's readiness probe asked the step API, which listens on loopback only (#88), and the quota in `runners` refused a pod with no memory limit, which the LimitRange did not supply (#89).
 - **Code-owner review, with the bypass.** Both repositories' rulesets match `scripts/github-settings.ts` (`--check`). #69, the first of Martin's pull requests merged after the change, merged through the bypass, and GitHub's rule-suite log records it as one. Scorecard on 5 October 2026 (commit `bd57672`): Branch-Protection 8, up from 4 in milestone 1. It docks the bypass ("settings apply to administrators" is off) and a single required approval. The total, 7.3, is below the 8 the spec asks for. Code-Review scores 0, because none of the last 24 changes was approved by a reviewer, and every merge through the bypass keeps it there until the factory's own pull requests, which Martin approves, make up most changes. Maintained, Contributors, Fuzzing and CII-Best-Practices score 0 as they did in milestone 1.
 - **A pod is fenced a moment after it starts.** A pod in `factory` reached LM Studio on the host in its first second, before kube-router had applied its policies; a moment later it could not. The agent pod therefore checks its own fence before it runs the agent.
+
+### Part B
+
+From 5 to 7 October 2026, on the local cluster: tasks 9 to 15 (#96 to #103), the line taking a set number of tickets (#106), and the fixes the first live run found (#110, #111, #114, #115).
+
+- **The fix.** With `LINE_MODE=live` and `LINE_TAKE=1`, on Claude Sonnet 5.5, the line took work item 1001 by its own rule, the oldest open ticket of the highest severity: department pages that redirect to themselves (`redirect-loop` on `/departments/:department`, from the probes and the crawler). Nobody chose the ticket or read the private repository. It opened the app's issue #16; the planner wrote a spec of four criteria and three paths; the coder wrote its tests, then a one-line fix, in the App's draft pull request, app #17; the gates, then the reviewer, passed it; the describer wrote its description and readied it; and Martin merged it on 7 October, for $0.333 in 34 calls. How it got there, by way of a hold and three fixes to the factory, is in the retrospective.
+- **What reached GitHub.** Both commits on app #17 are the App's and verified, and it changes two files, both in the spec's scope. All 14 checks passed on its last commit, among them journeys, test integrity and tests first, which passes only when a new test fails on the base. The reviewer approved with no findings, through its comment review and its `factory review` check run. GitHub still wanted a code owner's approval when Martin merged: he merged through the admin's bypass, which the rule-suite log records, so the merge does not count towards Scorecard's Code-Review.
+- **In the console.** The console serves all 50 of 1001's public events, from the probes' signal to the merge, and has a state for each (#102).
+- **The App's deploy and release pull requests, in both repositories.** It opened the app's release pull request (app #19, 0.1.1, after the fix merged) and its deploy pull request (app #20), and keeps this repository's release pull request (#77) current; it opened every deploy pull request merged here in Part B (#105, #107, #108, #112, #113, #116). Their checks ran with nobody approving them.
+- **Three runs in dry run, each read by `factory line soak-check` when it ended:**
+
+  | Run | Model | Work items | How they ended | `soak-check` |
+  |---|---|---|---|---|
+  | A soak, 6 h 53 min, then `factory line stop` | Qwen | 1002 to 1005, the line's own picks | 1002 merged by the dry run; 1003 held at Plan after two failed steps; 1004 and 1005 stopped mid-step | All clear: no lease past its expiry, no Job or volume left for an ended work item, 167 events valid, 281 calls all local, $0 |
+  | One work item, `LINE_ONLY=1007` | Qwen | 1007, a search that ignored case | Merged by the dry run 1 h 57 min after it started, every step first time | All clear: 188 events valid, 90 calls all local, $0 |
+  | One work item, `LINE_ONLY=1008` | Claude Sonnet 5.5 | 1008, a search that answered 500 | Merged by the dry run, every step first time, in 18 calls and about a minute of agent time | All clear but spend, $0.186, which a soak expects to be nothing |
+
+  The stop deleted both steps in hand within a minute and took nothing new. In the first soak six of the seven failed steps ran out of their deadline, and Plan took a median of 85 minutes; after the fixes in #103 (the cache below, one step at a time, prompts that stop the planner at a diagnosis), 1007's Plan took 21.
+- **The local model's prompt cache.** In the first soak LM Studio reused 14 to 18% of each prompt; in the second, 80 to 93%. Two steps on Qwen at once each wrote at about 5.5 tokens a second, against 13 alone. On the bench, with LM Studio's own reasoning effort lowered and temperature at 0.6, saved as the model's defaults, a planner took 4.5 minutes and a coder 4.4, against about 16 for the planner before.
+
+**What a fix costs, on Claude.** Every call was Sonnet 5.5 at the policy's effort. Work item 1001, step by step, from the gateway's `model_calls`:
+
+| Step | Calls | Seconds | Output | Cache read | Cache write | Cost |
+|---|---|---|---|---|---|---|
+| Planner | 5 | 14 | 1,340 | 41,821 | 12,454 | $0.053 |
+| Coder, round 1 | 7 | 22 | 2,464 | 79,936 | 11,591 | $0.070 |
+| Coder, round 2 (changed nothing) | 11 | 31 | 2,601 | 209,951 | 6,582 | $0.084 |
+| Coder, round 2 again (changed nothing) | 4 | 12 | 1,176 | 92,481 | 1,851 | $0.035 |
+| Reviewer | 4 | 12 | 838 | 29,379 | 11,376 | $0.043 |
+| Describer | 3 | 11 | 1,235 | 21,564 | 12,789 | $0.049 |
+| **Total** | 34 | 102 | 9,654 | 475,132 | 56,643 | **$0.333** |
+
+- **Per agent**, over 1001 and 1008: the planner $0.053 and $0.046, the coder's first round $0.070 and $0.060, the reviewer $0.043 and $0.033, the describer $0.049 and $0.048. A fix that goes straight through, as 1008 did, costs about $0.19; 1001 cost more because the coder ran twice more after a gate sent it back.
+- **Where the money goes.** Of 1001's $0.333, writing the prompt cache took 42%, output 29% and reading the cache 29%; fresh input was 68 tokens. Each fresh step writes 11,000 to 13,000 tokens to the cache, about 3 cents; the coder's resumed rounds wrote far less. Read at the price of fresh input, the same calls would have cost about $1.16. 1008 read 146,000 tokens from the cache against 10 of fresh input.
+- **On Qwen**, nothing: 1007 took 90 calls and about two hours of steps.
+- The costs are the gateway's own, from token counts and `gateway/prices.ts`, not checked against Anthropic's bill.
+
+**A proposed cap per work item: $1, on every profile** (from $5 on `local` and $2 on `do` and `aws`). It is three times the dearest fix measured. A work item that goes the longest way the line allows without a hold (two returns from the gates and one from review, at 1001's prices per step) comes to about $0.50, which leaves room for several steps tried again. Past it, holding for Martin costs less than another round. The day and month caps stay as they are: $20 a day is about 60 fixes at 1001's cost. Two work items on Claude are a small sample, and `policy/spend.ts` is Martin's to change.
 
 ## Retrospective
 
@@ -300,3 +338,61 @@ Written as Part A's pull requests (#62 to #73, and the app's #9 to #11) merged, 
 - A pull request to the app that breaks a journey, deletes a test or adds a vulnerable dependency, and one that only fixes a seeded defect.
 
 **Left open:** see the [backlog](BACKLOG.md), and the Part B tasks that gained items from review (9 and 15).
+
+### Part B
+
+Written once the fix had merged. Part B's pull requests are #96 to #103, #106 and the fixes the first live run found (#110, #111, #114, #115), with the app's #17 and #18. Its criteria above that are not ticked wait on the runs listed under "Still to run".
+
+**The fix, and how it got there**
+
+The line took 1001 at 23:45 UTC on 6 October and held it nine minutes later. Twelve of the thirteen checks on its pull request passed; the journeys gate failed it on missing alt text on `/departments/:department`.
+
+- **The gate blamed the fix for a defect the fix uncovered.** With the loop gone, the crawler reached the department's product list for the first time, and found images there without alt text. It filed them under the address it had asked for, not where the redirect landed; and on the base, where no page opened behind the loop, it counted the same check as passed. The crawler now judges a page where it lands, and a route whose link led to no page is "could not tell", not a pass (#110). The gate is as strict as it was: Martin turned down passing a check the base could not run, since a new check would then pass unexamined.
+- **The coder rightly changed nothing, and the line called that a failure.** Sent back by the gate, the coder handed back no change, twice, and the work item held as two failed steps, with its reason recorded nowhere. A coder may now change nothing and say why, which holds under the cause that sent the work back (#111). And gates that pass after they sent the work back now let it go on to review (#114); before, any answer to the hold ran the coder again.
+- **Then to Martin's merge.** The app's gates moved to the new crawler (app #18), the App brought #17 up to date with the app's main, and every check passed. Martin approved the hold by appending its answer to the store by hand, since the console answers holds only from milestone 8. The reviewer approved with no findings, the describer wrote the description and readied the pull request, and Martin merged it 20 hours after the line took the ticket, three minutes after the line asked him.
+- **On the way, the App closed its own deploy pull request.** Moving a deploy branch to a newer build went through main's head, where the pull request had nothing to merge, and GitHub closes such a pull request. The branch now moves in one forced update, never through main (#115).
+
+**Decided**
+
+- A work item's next step is a pure function of its events (`line/machine.ts`), so a stop or a crash resumes from the last event. Each hold names its cause, and `ANSWERS` says what each of Martin's answers does for that cause: `COMPONENTS.md`.
+- A handback is kept until its effects are done, and each write in GitHub is recorded as it begins and when it is done, so a retry after GitHub or the store fails never runs the agent again or repeats a write.
+- Agents are defined one way (`defineAgent`), with prompts built from typed fields only, never a visitor's words, and results read through a Zod schema; a result the schema refuses is a failed step, and the next attempt is told why.
+- `LINE_TAKE` takes a set number of tickets by the line's own rule, so a first live run can be one ticket that nobody chose (#106). `LINE_ONLY` names a work item, for a soak.
+- A step on the local model has twice the turns and four times the deadline, set from the soaks' measurements. Agents are developed on Qwen, recorded on Claude, then replayed; only cassettes made from invented work are committed.
+
+**Learned about the agents**
+
+- On Claude every step of both work items was right first time, and a fix costs cents. Specs were tight and fixes small.
+- The planner can widen a ticket, and nothing catches it. On Qwen, a ticket about case got a criterion asking a query with no space to find a name with one; the coder rewrote search to match it, and the reviewer approved it, because the spec asked for it. Criteria should trace to the ticket's evidence, and the reviewer should check the spec against the ticket, not only the diff against the spec. For a review of the prompts.
+- An agent's account of its own work is a claim. A coder on Qwen, on the bench, said all its new tests failed before its fix; one did not. The fix was right, and checking such a claim is the reviewer's job.
+- Qwen makes a good adversary. A weaker model goes off piste where Claude mostly will not: it reproduced defects it was asked only to diagnose, and widened a ticket. Each excursion tested a guard, and the line's mechanics held on both models.
+
+**Learned about the local model**
+
+- Measure before tuning. The first soak's slowness looked like a weak model. It was mostly a prompt cache undone by message order: the Agent SDK puts system messages among the turns, Qwen's template moves them all to the top, and a hybrid model can reuse its cache only to a checkpoint every 2,048 tokens. The gateway now sends them as reminders where they stood (`gateway/providers.ts`). The rest was two steps sharing one GPU.
+- LM Studio ignores the effort the gateway sends; its own reasoning-effort field is what counts, and settings made on a loaded model are lost when it reloads unless saved as the model's defaults. Lowering it made the planner on the bench several times faster.
+
+**Learned about the gates and GitHub**
+
+- A fix can make reachable a page the base never reaches, and a defect there then looks like the fix's. Judging a page where it lands covers a fix that redirects to a page the base already reaches; one that reaches a page the base cannot is in the backlog.
+- A dry run must refuse what GitHub refuses. The first soak's dry run merged a pull request still in draft, so it went round a path the real line cannot take; it now merges only once the pull request is ready.
+- GitHub closes a pull request that has nothing to merge, even one the App means to keep (#115).
+
+**Learned about building it**
+
+- An independent review of the stack found two blockers, a value import that crashed the factory's image and visitors' words reaching the planner through log lines, and about forty smaller defects across seven pull requests. Fixing them bottom up, one sub-agent to a pull request, worked.
+- Sub-agents need guard rails they cannot miss. One committed a folder of working notes that its brief said to leave untracked, and undoing it took a history rewrite. A check in the commit hook would have stopped it.
+- Merging a stack is slower than building it. Strict checks, signed commits and one approver meant each of eight pull requests needed a local rebase and a CI run before it could merge; GitHub's Update branch drops the signatures.
+- A name that can be misread will be. A runner Job's last number counts the work item's steps, and was read as an attempt, which misled the first analysis of a soak; `COMPONENTS.md` says what it counts.
+- Spend is recorded in two places when the bench and the cluster share a key, and the gateway's figures are never checked against Anthropic's bill: the backlog.
+
+**Still to run**
+
+- The cap per work item set from the results' proposal, in `policy/spend.ts`, which is Martin's.
+- Martin watching a fix go through the line in the console, on a laptop and a phone, and approving it against `INTENT.md`.
+- A review that blocks and returns to the coder, and a patch the scope fence refuses, on a real work item. Tests cover both; no run has met either.
+- `make stop-the-line` during a step, then starting again, to see the step run afresh and nothing lost. The first soak showed the stop half.
+- A night-long soak, for the GitHub worker's memory and leases over many hours, and one on Qwen at the tuned settings over a ticket like 1007.
+- Part A's runs still listed above: a pull request to the app that breaks a journey, deletes a test or adds a vulnerable dependency; the provider's cap reached and the console saying why; the smoke run in the cluster on the local model.
+
+**Left open:** see the [backlog](BACKLOG.md).

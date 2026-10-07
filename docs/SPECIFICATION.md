@@ -217,7 +217,7 @@ Each seam sits behind an interface, so a pivot means a new adapter, not a rewrit
 | Orchestrator          | Postgres-backed durable queue and workers                                           |
 | Event store           | Postgres append-only table                                                          |
 | Source control and CI | GitHub and GitHub Actions (GitHub-hosted runners)                                   |
-| Tickets               | GitHub Issues, mirrored from the event store                                        |
+| Tickets               | GitHub Issues, opened from the event store when work on a ticket starts             |
 | Runtime               | Kubernetes with Argo CD and Argo Rollouts                                           |
 | Telemetry             | OpenTelemetry collector → Prometheus, Loki, Tempo, Grafana                          |
 | Probes and crawler    | Playwright                                                                          |
@@ -276,7 +276,7 @@ Public repos must be exemplary:
 - Owned by the `mrogan` GitHub account. MIT `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, issue and PR templates.
 - Formatter, linter and type-checker enforced by pre-commit and CI; `.editorconfig`; a dev container.
 - Conventional Commits; squash-merged PRs linking ticket and evidence; semantic releases with generated changelog; automated dependency updates; committed lockfiles. New dependency releases wait a day before they can be installed, install scripts run only when allowed by name, and a release with weaker provenance than its predecessor is refused.
-- Agent work authored by the factory's GitHub App identity, `mrogan-software-factory`, which opens every pull request a machine opens: fixes, deploys and releases. No workflow opens or approves a pull request. Agent PRs follow a template: problem, evidence, change, tests, risk, rollout.
+- Agent work authored by the factory's GitHub App identity, `mrogan-software-factory`, which opens every pull request a machine opens: fixes, deploys and releases. No workflow opens or approves a pull request. An agent's pull request description fits its change: the describer writes it from the ticket, the spec, the diff and the review. The template's questions (problem, evidence, change, tests, risk, rollout) are what a reviewer should be able to answer from it, not headings to fill.
 - Supply chain: branch rulesets on `main` (PRs only, required checks, linear and signed history; a code owner's approval after the last push, which the repository's admin may bypass only to merge a pull request, ADR 0009; CODEOWNERS for protected paths); secret scanning and push protection; Actions pinned by SHA with minimal `permissions`; `pull_request` never `pull_request_target` for untrusted code; OIDC for cloud access; OpenSSF Scorecard ≥ 8.
 - Only true badges: CI, coverage, Scorecard, release. No clutter.
 
