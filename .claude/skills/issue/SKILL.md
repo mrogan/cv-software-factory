@@ -34,7 +34,7 @@ Headings only when an issue is long enough to need finding your way around. No c
 The repository's own (`AGENTS.md`, `docs/TERMS.md`):
 
 - British English. Short, plain sentences in the present tense. Say what is, not what "should probably" be.
-- The project's words: work item, the line, stage, sense, runner, handback, gate, console. Check `docs/TERMS.md` before reaching for a synonym.
+- The project's words: work item, the line, stage, sense, runner, handback, gate, console, as `docs/TERMS.md` defines them. In this repository an issue is the GitHub record, a defect is something wrong with the app, and a ticket is a defect triage has recognised; `bug` is only a label.
 - Martin writes as himself: "I saw" is fine for an observation. The system is described as it is, not as "we" feel about it.
 - Name what was measured with its number. Say plainly what was not checked ("not measured", "not verified").
 - No hype, no apology, no emoji, no "TODO", no "quick win", no "simply".
@@ -67,13 +67,14 @@ The GitHub milestones are the plan's: `Milestone 6: Shipping safely` is mileston
 1. **Work out the issue** from the arguments, the conversation, or what was just found. If what is wrong is unclear, ask one question; don't guess.
 2. **Look for a duplicate**: `gh issue list -R <repo> --state all --search "<key words>"`. If one exists, offer a comment on it instead.
 3. **Check the facts** you cite: open the file, find the line, get the commit for a permalink (`git rev-parse origin/main`). An issue that misquotes the code costs more than no issue.
-4. **Show Martin the draft**: the repository, the title, the label, the milestone, and the body exactly as it will appear. Filing is public and outward-facing, so wait for his yes. If he has already said "file it", one look at the draft is still owed for anything longer than a few lines.
-5. **File it** with the body from a file, so nothing is mangled by the shell:
+4. **Check the words**: read `docs/TERMS.md` and check every word of the title and body against its "Not" column, so the issue says work item rather than job, step rather than attempt, gate rather than check where it means a gate. A word the file rules out is replaced, not explained.
+5. **Show Martin the draft**: the repository, the title, the label, the milestone, and the body exactly as it will appear. Filing is public and outward-facing, so wait for his yes. If he has already said "file it", one look at the draft is still owed for anything longer than a few lines.
+6. **File it** with the body from a file, so nothing is mangled by the shell:
    ```sh
    gh issue create -R mrogan/cv-software-factory --title "<title>" --label <label> [--milestone "<milestone>"] --body-file <scratch file>
    ```
    Write the body file in the session's scratchpad, not the repository. Screenshots cannot be attached through `gh`; say where to drag them in, or link one already public.
-6. **Give back the link**, and nothing else to report.
+7. **Give back the link**, and nothing else to report.
 
 ## Examples
 
