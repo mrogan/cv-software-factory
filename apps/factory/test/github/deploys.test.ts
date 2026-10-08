@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { type Actions, DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { ownsBranch } from '../../src/github/branches.ts';
-import { DEPLOYS, type DeployTarget, deployWatch, scratchBranch } from '../../src/github/deploys.ts';
+import { DEPLOYS, type DeployTarget, deployBody, deployWatch, scratchBranch } from '../../src/github/deploys.ts';
 import type { Registry } from '../../src/github/registry.ts';
 import { releaseWatch } from '../../src/github/releases.ts';
 import { calls, client, quiet, type Route, type Sent } from './fake.ts';
@@ -188,10 +188,35 @@ describe('the deploy watch', () => {
       base: 'main',
       title: message.headline,
     });
-    expect((writes(gh.sent)[4] as { body: { body: string } }).body.body).toMatch(
-      /^Pins `factory` \(ghcr\.io\/mrogan\/cv-software-factory\/factory@sha256:7{64}\) and `factory-browser` .* built from b{40}/,
+    const url = 'https://github.com/mrogan/cv-software-factory';
+    expect((writes(gh.sent)[4] as { body: { body: string } }).body.body).toBe(
+      `Runs [\`bbbbbbb\`](${url}/commit/${commit('b')}) on the local cluster: [the changes since \`aaaaaaa\`](${url}/compare/${commit('a')}...${commit('b')}).
+
+| Image | Digest |
+|---|---|
+| \`factory\` | \`sha256:777777777777…\` |
+| \`factory-browser\` | \`sha256:888888888888…\` |
+
+Argo CD deploys them from \`deploy/overlays/local\` once this merges. A newer build moves this pull request on rather than opening another.`,
     );
     expect(writes(gh.sent)[5]?.body).toEqual({ labels: ['deploy: local'] });
+  });
+
+  it('describes one image, with no changes link when the pinned commit is not known', () => {
+    const app = DEPLOYS.find((d) => d.repo === 'mrogan/cv-worlds-worst-website') as DeployTarget;
+    const body = deployBody(app, {
+      commit: commit('c'),
+      digests: app.images.map((i) => ({ ...i, digest: digest('9') })),
+    });
+    expect(body).toBe(
+      `Runs [\`ccccccc\`](https://github.com/mrogan/cv-worlds-worst-website/commit/${commit('c')}) on the local cluster.
+
+| Image | Digest |
+|---|---|
+| \`website\` | \`sha256:999999999999…\` |
+
+Argo CD deploys it from \`deploy/overlays/local\` once this merges. A newer build moves this pull request on rather than opening another.`,
+    );
   });
 
   it('names the console and the app as their titles say', async () => {
@@ -224,7 +249,7 @@ describe('the deploy watch', () => {
     expect(update?.path).toBe(`/repos/${FACTORY.repo}/pulls/69`);
     expect(update?.body).toMatchObject({
       title: 'chore(deploy): run the factory bbbbbbb on the local cluster',
-      body: expect.stringContaining(`built from ${commit('b')}`),
+      body: expect.stringContaining(`/commit/${commit('b')})`),
     });
   });
 
