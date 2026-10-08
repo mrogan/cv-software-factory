@@ -83,6 +83,8 @@ export const deployTitle = (target: DeployTarget, commit: string) =>
 /** What a deploy proposes: the commit, and each image's digest built from it. */
 export interface Proposal {
   commit: string;
+  /** The commit the pinned images were built from, when their labels say. */
+  pinned?: string | undefined;
   digests: { name: string; image: string; digest: string }[];
 }
 
@@ -123,13 +125,26 @@ export function repin(file: string, proposal: Proposal): string {
   return next;
 }
 
+/**
+ * What a deploy pull request says: the commit it runs, linked, with the changes since the one pinned now; each image
+ * with the start of its digest, since the diff holds them in full; and where Argo CD deploys them from.
+ */
 export function deployBody(target: DeployTarget, proposal: Proposal): string {
-  const images = proposal.digests.map((d) => `\`${d.name}\` (ghcr.io/${d.image}@${d.digest})`);
-  const list = images.length === 1 ? images[0] : `${images.slice(0, -1).join(', ')} and ${images.at(-1)}`;
+  const url = `https://github.com/${target.repo}`;
+  const short = (sha: string) => sha.slice(0, 7);
+  const since = proposal.pinned
+    ? `: [the changes since \`${short(proposal.pinned)}\`](${url}/compare/${proposal.pinned}...${proposal.commit})`
+    : '';
+  const rows = proposal.digests.map((d) => `| \`${d.name}\` | \`${d.digest.slice(0, 'sha256:'.length + 12)}…\` |`);
   const overlay = target.file.split('/').slice(0, 3).join('/');
-  return `Pins ${list}, built from ${proposal.commit}, in \`${overlay}\`. Argo CD deploys ${images.length === 1 ? 'it' : 'them'} once this is merged.
+  const them = proposal.digests.length === 1 ? 'it' : 'them';
+  return `Runs [\`${short(proposal.commit)}\`](${url}/commit/${proposal.commit}) on the ${target.profile} cluster${since}.
 
-Opened by the factory's GitHub worker. A newer build replaces this pull request's change.`;
+| Image | Digest |
+|---|---|
+${rows.join('\n')}
+
+Argo CD deploys ${them} from \`${overlay}\` once this merges. A newer build moves this pull request on rather than opening another.`;
 }
 
 interface Dependencies {
@@ -188,7 +203,7 @@ export async function newerBuild(
   const digests = await Promise.all(
     images.map(async (i) => ({ ...i, digest: await registry.digest(i.image, commit) })),
   );
-  return { commit, digests };
+  return { commit, pinned: pinnedCommit, digests };
 }
 
 /** Watches one target, and opens or moves its deploy pull request when main has a newer build than the pin. */
