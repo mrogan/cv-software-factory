@@ -12,11 +12,12 @@ import { inScope, pattern } from '@software-factory/events';
 /** Never in a patch: the rules of the line, in the app's repository. */
 export const NEVER = ['.github/', 'deploy/'];
 
-/** A path a patch may name: relative, with no empty, `.` or `..` segment, and no backslash or NUL. */
+/** A path a patch may name: relative, with no empty, `.` or `..` segment, and no backslash or control character. */
 export function plainPath(path: string): boolean {
   return (
     !path.startsWith('/') &&
-    !/[\\\0]/.test(path) &&
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it refuses.
+    !/[\\\u0000-\u001f\u007f]/.test(path) &&
     path.split('/').every((part) => part !== '' && part !== '.' && part !== '..')
   );
 }
