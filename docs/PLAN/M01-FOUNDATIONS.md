@@ -85,7 +85,7 @@ What the milestone taught, and where each lesson now lives.
 - Images reach a cluster through pull requests that pin their digests: [ADR 0005](../architecture/adr/0005-images-deploy-through-pull-requests.md), and spec section 8.
 - `main` accepts only signed commits, which the plan did not ask for: spec section 9. GitHub signs squash merges itself, so it costs people nothing; a workflow has to commit through GitHub's API.
 - Every workload runs under the restricted Pod Security Standard, the telemetry charts included: `deploy/base/namespaces.yaml`.
-- The skeleton lists the eight stages as words and leaves the stations out, to keep a content security policy with no inline styles. The cost of that is in the [backlog](BACKLOG.md).
+- The skeleton lists the eight stages as words and leaves the stations out, to keep a content security policy with no inline styles. Milestone 3 ports the station to a module that keeps that policy.
 
 **Learned about GitHub**
 
@@ -113,7 +113,7 @@ What the milestone taught, and where each lesson now lives.
 - `SECURITY.md` links straight to the private report form, the one thing Scorecard's Security-Policy check found missing.
 - Git hooks print nothing when they pass.
 
-**Left open:** see the [backlog](BACKLOG.md).
+**Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues).
 
 ## Out of scope
 

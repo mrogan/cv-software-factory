@@ -1,5 +1,5 @@
 /**
- * Tempo's HTTP API. A trace is not queryable until a minute or two after its spans are sent (BACKLOG.md), so every
+ * Tempo's HTTP API. A trace is not queryable until a minute or two after its spans are sent, so every
  * caller treats "not there yet" as an answer and never waits for one.
  */
 import { type Fetch, getJson } from './http.ts';

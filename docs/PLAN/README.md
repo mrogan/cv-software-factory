@@ -6,14 +6,14 @@ Only the current milestone is detailed, because each one is likely to change the
 
 ## Starting and finishing a milestone
 
-**Starting:** write its file, and take whatever fits from the [backlog](BACKLOG.md) and [open questions](../OPEN-QUESTIONS.md) into it.
+**Starting:** write its file, and take whatever fits from its [GitHub milestone](https://github.com/mrogan/cv-software-factory/milestones)'s issues, issues with no milestone, and the [open questions](../OPEN-QUESTIONS.md) into it.
 
 **Finishing:** end its file with a retrospective of what was learned, and give each lesson a home:
 
 - a major decision becomes an ADR;
 - something that is now simply true goes in the spec, `COMPONENTS.md` or `AGENTS.md`;
 - a decision that needs Martin goes in the open questions;
-- anything else worth keeping goes in the backlog.
+- anything else worth keeping becomes an [issue](https://github.com/mrogan/cv-software-factory/issues), on the milestone it waits for if it has one.
 
 Then update the table below.
 
