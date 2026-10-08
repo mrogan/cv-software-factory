@@ -47,7 +47,7 @@ The tasks land in this order, each as its own pull request, each demonstrable.
 
 In `packages/events`:
 
-- `not-cached` joins the symptom classes, so every answer-key entry can be matched. The private repository's CI compares its list with this package's and fails on a difference (from the [backlog](BACKLOG.md)).
+- `not-cached` joins the symptom classes, so every answer-key entry can be matched. The private repository's CI compares its list with this package's and fails on a difference (from the backlog).
 - Outcomes for the reports triage ends: quarantined and discarded, each with its reason. A parked report holds for Martin (`hold.started`) and shows as Needs you.
 - `judgement.made` records the candidate tickets it was offered and, for a repeat, the ticket it joined. Its category labels and the vocabulary agree (`not_a_problem` and `not-a-defect` today).
 - Evidence for what a browser sees: an HTTP exchange (status, the headers checked, timings, redirects), browser console errors, and accessibility findings with the boxes of the elements concerned.
@@ -184,7 +184,7 @@ Every ticket that matches no defect reports a real fault in the app; none is a c
 | Images without alternative text on `/products/:slug` | As above, on another page. |
 | Files the browser may not keep on `/assets/drawings/:file` | A more specific route than the answer key's for the same files. Another ticket, on the broader route, matched. |
 
-Two of the five come from how routes are named and attributed, not from sensing. They are in the backlog.
+Two of the five come from how routes are named and attributed, not from sensing. They are [issues](https://github.com/mrogan/cv-software-factory/issues).
 
 ## Retrospective
 
@@ -204,12 +204,12 @@ What the milestone taught, and where each lesson now lives.
 
 **Learned about the app and its telemetry**
 
-- The app's request metrics name the path asked for, not its route, so each product page is its own series and too thin to alert on. The log watcher and the intake name the route from the log instead: the [backlog](BACKLOG.md), for milestone 6.
-- A new trace reaches Tempo a minute or two late, so the agreement check reads windows that ended minutes ago, and signals carry trace IDs at once and spans later: `COMPONENTS.md` and the backlog.
-- Two of the five tickets that matched no defect came from how a route is named or which page a fault is filed under, not from what was sensed: the backlog.
+- The app's request metrics name the path asked for, not its route, so each product page is its own series and too thin to alert on. The log watcher and the intake name the route from the log instead: an [issue](https://github.com/mrogan/cv-software-factory/issues), for milestone 6.
+- A new trace reaches Tempo a minute or two late, so the agreement check reads windows that ended minutes ago, and signals carry trace IDs at once and spans later: `COMPONENTS.md` and an issue.
+- Two of the five tickets that matched no defect came from how a route is named or which page a fault is filed under, not from what was sensed: issues.
 - The first real report from the widget was read with the record shape the log watcher had guessed, so that backlog item is closed.
 
-**Left open:** see the [backlog](BACKLOG.md).
+**Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues).
 
 ## Out of scope
 

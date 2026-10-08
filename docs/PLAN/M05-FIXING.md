@@ -233,7 +233,7 @@ Spec sections 4.1, 7 and 9; `COMPONENTS.md` (the line, the agents and the App's 
 - Answering Needs you in the console, improvements, and the audit log view (milestone 8).
 - Guarded autonomy, where the gates rather than Martin decide a merge (milestones 8 and 10).
 - The factory changing its own repository: in this milestone it fixes the app only.
-- Checking that every acceptance criterion has a tagged test: the gate would have to trust a spec that only the event store holds. In the backlog.
+- Checking that every acceptance criterion has a tagged test: the gate would have to trust a spec that only the event store holds. An issue.
 - The Bedrock provider (milestone 11), and the Batch API for evaluation sets until there is a set of agent evaluations to run.
 
 ## Risks
@@ -329,7 +329,7 @@ Written as Part A's pull requests (#62 to #73, and the app's #9 to #11) merged, 
 
 - Each pull request had one reviewer, then a review across the whole stack lined up the findings that span pull requests. That found four major problems in the runners and one in the gateway. In each, a side with privileges trusted what the sandbox handed it. Every finding was answered on its pull request.
 - In a stack of squash-merged pull requests, every fix low in the stack means rebasing everything above it. Whether Part B tries GitHub's stacked pull requests is still open.
-- No test runs the real Agent SDK against the gateway's allow-lists: the [backlog](BACKLOG.md).
+- No test runs the real Agent SDK against the gateway's allow-lists: an [issue](https://github.com/mrogan/cv-software-factory/issues).
 
 **Still to run**
 
@@ -338,7 +338,7 @@ Written as Part A's pull requests (#62 to #73, and the app's #9 to #11) merged, 
 - The workspace's limit set below its spend once, and LM Studio stopped once, to see agent calls wait, the console say why, and the calls resume.
 - A pull request to the app that breaks a journey, deletes a test or adds a vulnerable dependency, and one that only fixes a seeded defect.
 
-**Left open:** see the [backlog](BACKLOG.md), and the Part B tasks that gained items from review (9 and 15).
+**Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues), and the Part B tasks that gained items from review (9 and 15).
 
 ### Part B
 
@@ -375,7 +375,7 @@ The line took 1001 at 23:45 UTC on 6 October and held it nine minutes later. Twe
 
 **Learned about the gates and GitHub**
 
-- A fix can make reachable a page the base never reaches, and a defect there then looks like the fix's. Judging a page where it lands covers a fix that redirects to a page the base already reaches; one that reaches a page the base cannot is in the backlog.
+- A fix can make reachable a page the base never reaches, and a defect there then looks like the fix's. Judging a page where it lands covers a fix that redirects to a page the base already reaches; one that reaches a page the base cannot is an issue.
 - A dry run must refuse what GitHub refuses. The first soak's dry run merged a pull request still in draft, so it went round a path the real line cannot take; it now merges only once the pull request is ready.
 - GitHub closes a pull request that has nothing to merge, even one the App means to keep (#115).
 
@@ -385,7 +385,7 @@ The line took 1001 at 23:45 UTC on 6 October and held it nine minutes later. Twe
 - Sub-agents need guard rails they cannot miss. One committed a folder of working notes that its brief said to leave untracked, and undoing it took a history rewrite. A check in the commit hook would have stopped it.
 - Merging a stack is slower than building it. Strict checks, signed commits and one approver meant each of eight pull requests needed a local rebase and a CI run before it could merge; GitHub's Update branch drops the signatures.
 - A name that can be misread will be. A runner Job's last number counts the work item's steps, and was read as an attempt, which misled the first analysis of a soak; `COMPONENTS.md` says what it counts.
-- Spend is recorded in two places when the bench and the cluster share a key, and the gateway's figures are never checked against Anthropic's bill: the backlog.
+- Spend is recorded in two places when the bench and the cluster share a key, and the gateway's figures are never checked against Anthropic's bill: an issue.
 
 **Still to run**
 
@@ -396,4 +396,4 @@ The line took 1001 at 23:45 UTC on 6 October and held it nine minutes later. Twe
 - A night-long soak, for the GitHub worker's memory and leases over many hours, and one on Qwen at the tuned settings over a ticket like 1007.
 - Part A's runs still listed above: a pull request to the app that breaks a journey, deletes a test or adds a vulnerable dependency; the provider's cap reached and the console saying why; the smoke run in the cluster on the local model.
 
-**Left open:** see the [backlog](BACKLOG.md).
+**Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues).

@@ -1,0 +1,2 @@
+# ripgrep and the tools built on it skip what .gitignore ignores. Notes in scratch/ stay searchable.
+!/scratch/
