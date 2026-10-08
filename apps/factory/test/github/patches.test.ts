@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { contentsReader, DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { applyTo, filesIn, PatchRefused } from '../../src/github/patches.ts';
+import { plainPath } from '../../src/github/paths.ts';
 import { calls, client, quiet, REPO, SHA } from './fake.ts';
 
 const FIX = `diff --git a/src/count.ts b/src/count.ts
@@ -141,11 +142,19 @@ describe('what a patch may not do', () => {
     }
   });
 
+  it('name a path with a control character in it, as git quotes and escapes one', () => {
+    for (const path of ['x\\ny.ts', 'x\\ty.ts', 'x\\001y.ts']) {
+      const patch = `diff --git "a/${path}" "b/${path}"\n--- "a/${path}"\n+++ "b/${path}"\n@@ -1 +1 @@\n-a\n+b\n`;
+      expect(() => filesIn(patch), path).toThrow(PatchRefused);
+    }
+    for (const path of ['x\ny.ts', 'x\ty.ts', 'x\u0001y.ts', 'x\u007fy.ts']) expect(plainPath(path), path).toBe(false);
+  });
+
   it('add an executable, a symlink, or an empty file the fence would not see', () => {
     expect(() => filesIn(header('run.sh', 'new file mode 100755\n'))).toThrow('ordinary file');
     expect(() => filesIn(header('link', 'new file mode 120000\n'))).toThrow('ordinary file');
     expect(() => filesIn('diff --git a/empty.ts b/empty.ts\nnew file mode 100644\nindex 0000000..e69de29\n')).toThrow(
-      'no change',
+      /no change|changes nothing/,
     );
     expect(filesIn(header('fine.ts', 'new file mode 100644\n')).map((f) => f.path)).toEqual(['fine.ts']);
   });
