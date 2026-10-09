@@ -22,6 +22,15 @@
  * answer means what it would have meant there (`unchangedHold`). A first round that changes nothing questions the
  * spec instead, and holds as `nothing-to-fix`.
  *
+ * A spec tagged with a risk that always needs a person (`ALWAYS_HELD`: a fix that changes behaviour beyond its
+ * ticket) holds for Martin's approval before the coder starts, whatever the autonomy and whatever the round: every
+ * spec so tagged, a rewritten one too. Approving carries on to Build; answering sends it back to the planner with what
+ * he said.
+ *
+ * A review whose findings cite the ticket (the spec or the change goes beyond what it asks) holds as `beyond-ticket`:
+ * the coder cannot put a spec right, so his answer sends it back to the planner, and his approval stands in for the
+ * reviewer's. A spec written again once there is a pull request sends the work back to the coder, held to the new one.
+ *
  * A work item that has spent as much on models as one may holds before its next step, since the gateway would refuse
  * every call that step made.
  *
@@ -33,7 +42,7 @@
  * A hold waits for Martin's answer, and what the answer does depends on why the work item is held: `ANSWERS` has a
  * rule for each cause and each answer.
  */
-import { type HoldCause, LIMITS, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
+import { ALWAYS_HELD, type HoldCause, LIMITS, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
 
 /** The agents the line runs, each in a runner. */
 export type LineAgent = 'planner' | 'coder' | 'reviewer' | 'describer';
@@ -67,8 +76,10 @@ export type Resolution =
  * item; answering sends the spec back to the planner, told what the coder said and what Martin did.
  */
 export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
-  // Triage's: a suggestion never comes onto the line.
+  // Triage's: a suggestion never comes onto the line, nor does a defect only the planner has seen until Martin approves
+  // it. Triage then opens its ticket (`settleOne`), and the line carries it on from there as any other.
   suggestion: { approved: 'wait', rejected: 'close', answered: 'wait' },
+  finding: { approved: 'carry-on', rejected: 'close', answered: 'wait' },
   spec: { approved: 'carry-on', rejected: 'close', answered: 'replan' },
   question: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
   'ticket-rejected': { approved: 'close', rejected: 'close', answered: 'carry-on' },
@@ -77,6 +88,7 @@ export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
   failures: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
   gates: { approved: 'return', rejected: 'close', answered: 'return' },
   review: { approved: 'approve', rejected: 'close', answered: 'return' },
+  'beyond-ticket': { approved: 'approve', rejected: 'close', answered: 'replan' },
   merge: { approved: 'wait', rejected: 'close', answered: 'return' },
   // The cap is policy's: approving carries on, and the line holds again until the cap is raised.
   spend: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
@@ -125,6 +137,10 @@ export interface WorkItemState {
   gateReturns: number;
   /** The review of the latest push, if it has one. */
   review: PayloadOf<'review.submitted'> | undefined;
+  /** Whether Martin approved the spec in force, when it carries a risk that always holds it (`ALWAYS_HELD`). */
+  specApproved: boolean;
+  /** Whether the spec was written again after the latest push, which the coder has not yet been sent back to meet. */
+  respecified: boolean;
   /**
    * Every review of any push, in order: the thread the describer reads. Its length is what `LIMITS.reviews` bounds,
    * and its last is the review a later reviewer checks first.
@@ -163,6 +179,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
     gatesPassed: false,
     gateReturns: 0,
     review: undefined,
+    specApproved: false,
+    respecified: false,
     reviews: [],
     returns: [],
     described: false,
@@ -181,11 +199,16 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         break;
       case 'spec.written':
         state.spec = event.payload;
-        // A new spec is a new scope: what the fence refused under the last one is no part of it.
+        state.specApproved = false;
+        state.respecified = state.pullRequest !== undefined;
+        // A new spec is a new scope: what the fence refused under the last one is no part of it, and a review held
+        // the change to the old one, so the change is reviewed again against this.
         state.fenced = undefined;
+        state.review = undefined;
         break;
       case 'pull-request.pushed':
         state.pullRequest = event.payload;
+        state.respecified = false;
         state.rebuild = undefined;
         state.fenced = undefined;
         state.gates = undefined;
@@ -215,6 +238,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
       case 'work.returned':
         if (event.payload.to === 'build') {
           state.rebuild = { from: event.payload.from, reason: event.payload.reason };
+          state.respecified = false;
           state.returns.push(state.rebuild);
           state.round += 1;
           if (event.payload.from === 'gates') state.gateReturns += 1;
@@ -237,9 +261,11 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         state.hold = undefined;
         state.fenceRefusals = 0;
         if (resolution === 'replan') state.spec = undefined;
-        if (resolution === 'approve' && state.review) {
-          state.review = { ...state.review, verdict: 'approved' };
-          // His approval overrules the review that sent the work back, if one did: the coder has nothing to do.
+        if (cause === 'spec' && resolution === 'carry-on') state.specApproved = true;
+        if (resolution === 'approve') {
+          // His approval overrules the review of the latest push, if there is one, and the review that sent the work
+          // back, if one did: the coder has nothing to do. With no review of the spec in force, the reviewer runs.
+          if (state.review) state.review = { ...state.review, verdict: 'approved' };
           state.rebuild = undefined;
         }
         break;
@@ -368,6 +394,19 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
     if (facts.issue === null) return { stage: 'plan', next: { do: 'open-issue' } };
     return step('planner');
   }
+  // The rule holds the specs written under it: the planner's since its criteria named where each comes from. One in
+  // the store from before carries on as it was.
+  const underRule = s.spec.criteria.some((criterion) => criterion.from !== undefined);
+  const held = underRule ? s.spec.risks.filter((risk) => ALWAYS_HELD.includes(risk)) : [];
+  if (held.length && !s.specApproved) {
+    const reason = `The spec is tagged ${held.join(', ')}: the fix changes behaviour beyond what the ticket is about, which needs Martin in every autonomy mode`;
+    return { stage: 'held', next: { do: 'hold', hold: { stage: 'plan', kind: 'approval', cause: 'spec', reason } } };
+  }
+  // The change was made to the spec before: the coder meets the new one in a round of its own.
+  if (s.respecified && !s.rebuild) {
+    const reason = 'The planner wrote the spec again: the change is held to the new one';
+    return { stage: 'build', next: { do: 'return', from: 'review', to: 'build', reason } };
+  }
   if (!s.pullRequest || s.rebuild) {
     if (s.fenceRefusals >= LIMITS.fenceRefusals) {
       const reason = `The scope fence refused the coder’s patch ${s.fenceRefusals} times: it changed files outside the spec’s scope`;
@@ -388,14 +427,13 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   }
   if (!s.review) return step('reviewer');
   switch (s.review.verdict) {
-    case 'escalated':
+    case 'escalated': {
+      const cause = s.review.findings.some((f) => f.ticket) ? 'beyond-ticket' : 'review';
       return {
         stage: 'held',
-        next: {
-          do: 'hold',
-          hold: { stage: 'review', kind: 'held', cause: 'review', reason: s.review.note.slice(0, 300) },
-        },
+        next: { do: 'hold', hold: { stage: 'review', kind: 'held', cause, reason: s.review.note.slice(0, 300) } },
       };
+    }
     case 'changes-requested': {
       const reason = `Review asked for changes: ${s.review.note}`.slice(0, 200);
       if (s.reviews.length >= LIMITS.reviews) {

@@ -36,7 +36,16 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
     }),
     // Version 3 adds the coder finding nothing to fix to the causes; a version 2 hold reads as it was.
     2: (payload) => payload,
+    // Version 4 adds a defect the planner noticed, with its fingerprint, and a fix beyond its ticket, to the causes; a
+    // version 3 hold reads as it was.
+    3: (payload) => payload,
   },
+  // Version 2 adds the planner's findings to the kinds of work item; a version 1 work item reads as it was.
+  'work-item.opened': { 1: (payload) => payload },
+  // Version 2 adds the planner to the sources of a signal; a version 1 signal reads as it was.
+  'signal.received': { 1: (payload) => payload },
+  // Version 2 adds where each criterion comes from. A version 1 spec never said, so its criteria read without it.
+  'spec.written': { 1: (payload) => payload },
   // Version 2 adds the pull request's whole change. A version 1 push recorded only its own files, which are the whole
   // change for a first push, and the nearest the event has for a later one.
   'pull-request.pushed': { 1: (payload) => ({ ...payload, whole: payload.files }) },
@@ -46,7 +55,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   'action.refused': { 1: (payload) => payload },
   // Version 1 counted a review's comments; version 2 carries each finding. What a version 1 comment said was never
   // recorded, so a version 1 review reads as one with no findings.
-  'review.submitted': { 1: ({ comments: _, ...payload }) => ({ ...payload, findings: [] }) },
+  // Version 3 lets a finding cite the ticket; a version 2 review cited none.
+  'review.submitted': { 1: ({ comments: _, ...payload }) => ({ ...payload, findings: [] }), 2: (payload) => payload },
 };
 
 export const CATALOGUE: Catalogue = { versions: VERSIONS, upcasters: UPCASTERS };

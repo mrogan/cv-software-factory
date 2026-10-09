@@ -27,8 +27,8 @@
 import { hostname } from 'node:os';
 import type { PayloadOf, RawEvent } from '@software-factory/events';
 import { returnWords, upcast } from '@software-factory/events';
-import type { EventWriter } from '@software-factory/store';
-import { lineStopped } from '@software-factory/triage';
+import { type EventWriter, sendSignal } from '@software-factory/store';
+import { lineStopped, uuidFrom } from '@software-factory/triage';
 import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../github/server.ts';
@@ -554,6 +554,11 @@ export class Line {
         return result;
       },
       act: (action, args) => github.act(action, repo, args),
+      // Its id is the same each time, and the inbox keeps the first: leaving it again does nothing.
+      leaveSignal: async (key, signal) => {
+        const observedAt = this.#o.now().toISOString();
+        await sendSignal(this.#o.sql, { ...signal, observedAt }, signalId(workItem, key));
+      },
       keepSession: (session) => this.#queue.setSession(workItem, session),
     };
   }
@@ -649,6 +654,9 @@ export class Line {
     await this.#o.events.append(drafts.map((draft) => asEvent(workItem, draft, ts)));
   }
 }
+
+/** The inbox id of a signal the line leaves for a work item: the same key always gives the same id. */
+export const signalId = (workItem: string, key: string) => uuidFrom(`line:${workItem}:${key}`);
 
 const errorOf = (error: unknown) => ({
   type: (error as Error)?.name ?? 'Error',

@@ -1,12 +1,23 @@
+import { validateSignal } from '@software-factory/events/schemas';
 import { describe, expect, it } from 'vitest';
+import type { EffectsContext } from '../../src/line/agents/agent.ts';
 import { evidenceLines } from '../../src/line/agents/evidence.ts';
-import { type PlannerInput, planner, plannerResult } from '../../src/line/agents/planner.ts';
+import {
+  findingSignal,
+  MAX_PLANNER_FINDINGS,
+  type PlannerInput,
+  planner,
+  plannerResult,
+} from '../../src/line/agents/planner.ts';
+import type { Handback } from '../../src/runners/steps.ts';
 
 const PROTECTED = ['.github/', 'deploy/', 'Dockerfile', '**/AGENTS.md', 'docs/REVIEWERS.md'];
 
 const SPEC = {
   outcome: 'A price shows two digits of pence.',
-  criteria: [{ given: 'a price of 3500 pence', when: 'it is written in pounds', expect: 'it reads £35.00' }],
+  criteria: [
+    { given: 'a price of 3500 pence', when: 'it is written in pounds', expect: 'it reads £35.00', from: 'signal 1' },
+  ],
   scope: ['src/money.ts', 'test/money.test.ts'],
   risks: [],
   rollout: 'Ships as it is; the product pages show the right prices.',
@@ -223,5 +234,66 @@ describe('the planner’s prompt', () => {
         ],
       }),
     ).toEqual(["axe's image-alt (critical) on /: Images must have alternative text; at .card img"]);
+  });
+});
+
+describe('what the planner noticed outside its ticket', () => {
+  const finding = { page: '/products/camera', route: '/products/:slug', text: 'The stock line says 1 items.' };
+
+  it('names, for each criterion, what in the ticket’s evidence asks for it', () => {
+    const { from: _from, ...unsourced } = SPEC.criteria[0] ?? { from: '' };
+    expect(plannerResult().safeParse({ verdict: 'spec', spec: { ...SPEC, criteria: [unsourced] } }).success).toBe(
+      false,
+    );
+    const prompt = planner.prompt(INPUT);
+    expect(prompt).toContain('1. The log watcher\'s check "new error pattern" on /search');
+    expect(prompt).toContain('A criterion nothing above asks for does not belong in the spec');
+  });
+
+  it('keeps it out of the spec, as a few short findings on any verdict, or none', () => {
+    const fits = (result: object) => plannerResult().safeParse(result);
+    expect(fits({ verdict: 'spec', spec: SPEC }).data).toMatchObject({ findings: [] });
+    expect(fits({ verdict: 'spec', spec: SPEC, findings: [finding] }).success).toBe(true);
+    expect(fits({ verdict: 'reject', reason: 'Not here.', findings: [finding] }).success).toBe(true);
+    expect(fits({ verdict: 'question', question: 'Which?', findings: [finding] }).success).toBe(true);
+    for (const wrong of [
+      Array.from({ length: MAX_PLANNER_FINDINGS + 1 }, () => finding),
+      [{ ...finding, text: 'x'.repeat(301) }],
+      [{ ...finding, page: '/search?q=anything' }],
+      [{ ...finding, symptom: 'wrong-result' }],
+    ]) {
+      expect(fits({ verdict: 'spec', spec: SPEC, findings: wrong }).success).toBe(false);
+    }
+    expect(planner.prompt(INPUT)).toContain('goes in `findings`, never in the spec');
+  });
+
+  it('leaves each finding in triage’s inbox as the planner’s signal, its words where a report’s are', async () => {
+    const left: [string, unknown][] = [];
+    const context = {
+      workItem: '1301',
+      commit: 'c'.repeat(40),
+      leaveSignal: async (name: string, signal: unknown) => {
+        left.push([name, signal]);
+      },
+    } as unknown as EffectsContext;
+    const drafts = await planner.apply(
+      { verdict: 'spec', spec: SPEC, findings: [finding, finding] },
+      {} as Handback,
+      INPUT,
+      context,
+    );
+    // Known by what it says, so the same finding from another plan of the work item is the same signal.
+    const key = 'finding /products/:slug /products/camera The stock line says 1 items.';
+    expect(left.map(([name]) => name)).toEqual([key, key]);
+    const signal = findingSignal(finding, '1301', 'c'.repeat(40));
+    expect(left[0]?.[1]).toEqual(signal);
+    expect(signal).toMatchObject({
+      sense: 'planner',
+      route: '/products/:slug',
+      report: { page: '/products/camera' },
+      planning: '1301',
+    });
+    expect(validateSignal({ ...signal, observedAt: '2026-10-09T10:00:00.000Z' })).toEqual({ ok: true });
+    expect(drafts[0]?.summary).toBe('Spec written: 1 criterion, 2 paths in scope; 2 findings left for triage');
   });
 });

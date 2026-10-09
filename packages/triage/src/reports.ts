@@ -26,7 +26,7 @@ import {
   TRIAGE,
   triageQuestions,
 } from './questions.ts';
-import { type Routed, routeReport } from './routing.ts';
+import { type Routed, type Router, routeReport } from './routing.ts';
 import { privatePath, scrub } from './scrub.ts';
 
 /** The page a report names, as the factory sees it: a screenshot at its path, and its text in passages. */
@@ -45,7 +45,10 @@ export interface ReportDecision {
   routed: Routed;
   /** One per request to Jev, in order. */
   judgements: Judgement[];
-  /** For a ticket: what it is matched by. A content ticket's passage is the factory's text from the page. */
+  /**
+   * For a defect, a ticket or a planner's finding held: what it is matched by. A content defect's passage is the
+   * factory's text from the page.
+   */
   fingerprint?: Fingerprint;
   screenshot?: Screenshot;
   /** The scrubbed text, as Jev read it. The only form of the report triage keeps. */
@@ -59,11 +62,16 @@ export interface Report {
   route: string;
 }
 
+/**
+ * Judges a report, or a planner's finding, which is asked the same questions: `route` decides where each goes from
+ * the answers.
+ */
 export async function judgeReport(
   report: Report,
   candidates: readonly Candidate[],
   judge: Judge,
   read: PageReader,
+  route: Router = routeReport,
 ): Promise<ReportDecision> {
   const path = privatePath(report.page);
   const state: ReportState = { page: path, report: scrub(report.text) };
@@ -72,7 +80,7 @@ export async function judgeReport(
   const questions = triageQuestions(candidates);
   const result = await judge({ agent: 'triage', workItem: null, questionSet: TRIAGE, model: MODEL, state, questions });
   const repeat = result.answers.repeat;
-  const routed = routeReport({
+  const routed = route({
     category: label(result, 'category', REPORT_CATEGORIES) as ReportCategory,
     symptom: label(result, 'symptom', SYMPTOM_CLASSES) as SymptomClass,
     severity: answer(result, 'severity', 'score').score,
@@ -100,11 +108,13 @@ export async function judgeReport(
     text: state.report,
     ...(view && { screenshot: view.screenshot }),
   };
-  if (routed.route !== 'ticket') return decision;
+  // A defect is fingerprinted as its ticket would be, whether it opens one or, a planner's finding, is held.
+  const defect = routed.route === 'ticket' ? routed : routed.route === 'park' ? routed.defect : undefined;
+  if (!defect) return decision;
 
-  decision.fingerprint = { route: privatePath(report.route), class: routed.symptom };
+  decision.fingerprint = { route: privatePath(report.route), class: defect.symptom };
   const passages = passagesOf(view?.passages ?? []);
-  if (routed.category === 'content' && passages.length) {
+  if (defect.category === 'content' && passages.length) {
     const asked = passageQuestions(passages);
     const chosen = await judge({
       agent: 'triage',

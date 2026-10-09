@@ -19,7 +19,9 @@ const spec: LineEvent = {
   type: 'spec.written',
   payload: {
     outcome: 'Search answers every query.',
-    criteria: [{ given: 'a query with a quote', when: 'it is searched', expect: 'the page lists matches' }],
+    criteria: [
+      { given: 'a query with a quote', when: 'it is searched', expect: 'the page lists matches', from: 'the ticket' },
+    ],
     scope: ['src/search.ts', 'test/'],
     risks: [],
     rollout: 'Ships as it is.',
@@ -328,6 +330,112 @@ describe('Martin’s answer to a hold', () => {
       { asked: 'Which page?', answer: 'The home page' },
       { asked: 'Held for Martin', answer: 'It is in src/price.ts' },
     ]);
+  });
+
+  it('holds a spec tagged out-of-scope for his approval before anything is built, whatever the autonomy', () => {
+    const wide: LineEvent = {
+      type: 'spec.written',
+      payload: { ...(spec.payload as PayloadOf<'spec.written'>), risks: ['out-of-scope'] },
+    };
+    expect(decide([ticket, wide], facts)).toEqual({
+      stage: 'held',
+      next: {
+        do: 'hold',
+        hold: {
+          stage: 'plan',
+          kind: 'approval',
+          cause: 'spec',
+          reason:
+            'The spec is tagged out-of-scope: the fix changes behaviour beyond what the ticket is about, which needs Martin in every autonomy mode',
+        },
+      },
+    });
+    const approved = [ticket, wide, held('spec', 'plan'), answer('approved')];
+    expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
+    // Approved once, it stays approved as the work goes on; a new spec is a new question.
+    expect(decide([...approved, pushed()], facts).next).toEqual({ do: 'wait', for: 'gates' });
+    expect(decide([...approved, wide], facts).next).toMatchObject({ do: 'hold' });
+    expect(decide([ticket, wide, held('spec', 'plan'), answer('answered', 'Only the search')], facts).next).toEqual({
+      do: 'step',
+      agent: 'planner',
+      round: 1,
+    });
+  });
+
+  it('holds a spec tagged out-of-scope written again after a push, then sends the coder to meet it', () => {
+    const wide: LineEvent = {
+      type: 'spec.written',
+      payload: { ...(spec.payload as PayloadOf<'spec.written'>), risks: ['out-of-scope'] },
+    };
+    // The scope fence kept refusing a later round, and he sent the work back to the planner.
+    const replanned = [ticket, spec, pushed(), returned('review'), held('scope', 'build'), answer('answered', 'Wider')];
+    expect(decide(replanned, facts).next).toMatchObject({ do: 'step', agent: 'planner' });
+    expect(decide([...replanned, wide], facts).next).toMatchObject({ do: 'hold', hold: { cause: 'spec' } });
+    // A spec written again after a push, from a review he answered, sends the work back to the coder.
+    const rewritten = [ticket, spec, pushed(), started(), finished('passed'), review('escalated'), spec];
+    expect(decide(rewritten, facts).next).toEqual({
+      do: 'return',
+      from: 'review',
+      to: 'build',
+      reason: 'The planner wrote the spec again: the change is held to the new one',
+    });
+    expect(decide([...rewritten, returned('review')], facts).next).toEqual({ do: 'step', agent: 'coder', round: 2 });
+  });
+
+  it('reviews the change again against a spec written again, even when he approves a coder that changed nothing', () => {
+    const rewritten = [ticket, spec, pushed(), started(), finished('passed'), review('escalated'), spec];
+    expect(fold(rewritten).review).toBeUndefined();
+    // The coder finds the change already meets the new spec, and holds; he approves.
+    const unchanged = [...rewritten, returned('review'), held('review', 'review'), answer('approved')];
+    expect(decide(unchanged, facts).next).toEqual({ do: 'step', agent: 'reviewer', round: 2 });
+  });
+
+  it('holds only the out-of-scope specs written under the rule, not one in the store from before it', () => {
+    const before: LineEvent = {
+      type: 'spec.written',
+      payload: {
+        ...(spec.payload as PayloadOf<'spec.written'>),
+        criteria: [{ given: 'a query with a quote', when: 'it is searched', expect: 'the page lists matches' }],
+        risks: ['out-of-scope'],
+      },
+    };
+    expect(decide([ticket, before, pushed(), started()], facts).next).toEqual({ do: 'wait', for: 'gates' });
+  });
+
+  it('holds a review that cites the ticket as beyond it, and sends his answer to the planner, never the coder', () => {
+    const beyond: LineEvent = {
+      type: 'review.submitted',
+      payload: {
+        pullRequest: 12,
+        verdict: 'escalated',
+        note: 'Criterion 2 is not in the ticket.',
+        findings: [{ ...finding, rule: undefined, criterion: 2, ticket: true }],
+      },
+    };
+    const escalated = [ticket, spec, pushed(), started(), finished('passed'), beyond];
+    expect(decide(escalated, facts).next).toMatchObject({
+      do: 'hold',
+      hold: { stage: 'review', cause: 'beyond-ticket' },
+    });
+    const answered = [...escalated, held('beyond-ticket', 'review'), answer('answered', 'Only the quote')];
+    expect(decide(answered, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
+    expect(decide([...answered, spec], facts).next).toMatchObject({ do: 'return', from: 'review', to: 'build' });
+    const approved = [...escalated, held('beyond-ticket', 'review'), answer('approved')];
+    expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'describer', round: 1 });
+    // An escalation that does not cite the ticket keeps the review's cause.
+    expect(
+      decide([ticket, spec, pushed(), started(), finished('passed'), review('escalated')], facts).next,
+    ).toMatchObject({
+      hold: { cause: 'review' },
+    });
+  });
+
+  it('leaves a defect the planner alone noticed waiting until he approves it, and plans the ticket triage then opens', () => {
+    expect(decide([held('finding', 'triage'), answer('answered')], facts).next).toEqual({ do: 'wait', for: 'martin' });
+    expect(decide([held('finding', 'triage'), answer('rejected')], facts).next).toMatchObject({ do: 'close' });
+    const approved = [held('finding', 'triage'), answer('approved'), ticket];
+    expect(decide(approved, { ...facts, issue: null })).toEqual({ stage: 'plan', next: { do: 'open-issue' } });
+    expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
   });
 
   it('has the planner write a spec again when he answers it, and builds it when he approves', () => {

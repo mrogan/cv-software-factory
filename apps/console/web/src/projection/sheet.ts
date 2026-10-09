@@ -9,13 +9,14 @@ import type {
   PublicEvent,
   Screenshot,
   Sense,
+  SignalSource,
   SymptomClass,
 } from '@software-factory/events';
 import { inScope, LIMITS, SENSES } from '@software-factory/events';
 import { clock } from '../format.ts';
 import { type Attempt, attempts, reviewThread, type ThreadReview } from './fixing.ts';
 import type { Capture, Hold, ItemState } from './items.ts';
-import { type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
+import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
 
 export interface Chapter {
   label: string;
@@ -106,8 +107,11 @@ export interface SenseEvidence {
 
 export interface Sheet {
   card: Card;
-  /** A visitor's report: shown as withheld here, since only Martin and its author may read its text. */
-  report: { page: string; quarantined: boolean } | undefined;
+  /**
+   * A visitor's report, or the planner's finding: shown as withheld here, since only Martin (and a report's author)
+   * may read its words.
+   */
+  report: { page: string; quarantined: boolean; by: 'visitor' | 'planner' } | undefined;
   story: string;
   chapters: Chapter[];
   /** Screenshots taken at the signal, on the canary and at rollout, for the evidence. */
@@ -148,12 +152,13 @@ export interface Sheet {
   earlier: string[];
 }
 
-const SENSE: Record<Sense, string> = {
+const SENSE: Record<SignalSource, string> = {
   probe: 'Probe',
   crawler: 'Crawler',
   metrics: 'Metrics',
   logs: 'Logs',
   report: 'Visitor report',
+  planner: 'Planner',
 };
 
 /** Who or what noticed the work, in a few words. */
@@ -188,6 +193,7 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
       return { label: 'ON SITE', tone: 'attn' };
     case 'signal.received':
       // Once there is a ticket, a signal is another sense adding its evidence: it is named by its sense.
+      if (event.payload.sense === 'planner') return { label: 'FINDING', tone: 'signal' };
       if (event.payload.sense !== 'report' && item.ticket && ticketedBefore(item, event)) {
         return { label: event.payload.sense.toUpperCase(), tone: 'signal' };
       }
@@ -447,9 +453,11 @@ function added(signal: PublicEvent<'signal.received'>): string | undefined {
 
 /** Every sense, those that saw the ticket's problem first and in the order they did, and the rest as not yet. */
 function seenBy(item: ItemState): Sighting[] {
-  const first = new Map<Sense, PublicEvent<'signal.received'>>();
+  const first = new Map<Sense, PublicEvent<'signal.received'> & { payload: { sense: Sense } }>();
   for (const event of item.events) {
-    if (event.type === 'signal.received' && !first.has(event.payload.sense)) first.set(event.payload.sense, event);
+    if (event.type === 'signal.received' && bySense(event) && !first.has(event.payload.sense)) {
+      first.set(event.payload.sense, event);
+    }
   }
   const opener = [...first.values()][0];
   const seen = [...first.values()].map(
@@ -471,7 +479,12 @@ function seenBy(item: ItemState): Sighting[] {
 function senseEvidence(item: ItemState): SenseEvidence[] {
   const seen = new Set<Sense>();
   return item.events.flatMap((event) => {
-    if (event.type !== 'signal.received' || event.payload.sense === 'report' || seen.has(event.payload.sense))
+    if (
+      event.type !== 'signal.received' ||
+      !bySense(event) ||
+      event.payload.sense === 'report' ||
+      seen.has(event.payload.sense)
+    )
       return [];
     seen.add(event.payload.sense);
     const picture = pictureOfSignal(event);
@@ -590,7 +603,11 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
     card: card(item, events, t),
     report:
       report?.type === 'signal.received' && report.payload.report
-        ? { page: report.payload.report.page, quarantined: item.outcome === 'quarantined' }
+        ? {
+            page: report.payload.report.page,
+            quarantined: item.outcome === 'quarantined',
+            by: report.payload.sense === 'planner' ? 'planner' : 'visitor',
+          }
         : undefined,
     story: item.story ?? item.description ?? item.title,
     storyBy: summarised?.actor === 'describer' ? 'describer' : undefined,

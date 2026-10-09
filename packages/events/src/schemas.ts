@@ -191,6 +191,15 @@ const candidate = z.strictObject({
 /** A passage of a page's text, as the factory read the page itself, offered as the one a content report is about. */
 const passage = z.strictObject({ key: slug, text: text(200) });
 
+/**
+ * What identifies a defect from outside: a route and a symptom class, or, for content, the page and the passage of its
+ * text that is wrong, as the factory read it.
+ */
+const fingerprint = z.union([
+  z.strictObject({ route: routeOrEvery, class: z.enum(V.SYMPTOM_CLASSES) }),
+  z.strictObject({ page: route, text: text(200) }),
+]);
+
 /** A canary against its baseline, on the same measure. */
 const versus = <T extends z.ZodType>(value: T) => z.strictObject({ canary: value, baseline: value });
 
@@ -231,17 +240,21 @@ export const PAYLOADS = {
   'attack.launched': z.strictObject({ attack: text(120), expected: text(120) }),
 
   /**
-   * What a sense found, or what a visitor reported. A sense's signal names the symptom class it saw; a report's
-   * is for triage to judge. On an open ticket, the first signal from each sense adds its evidence.
+   * What a sense found, what a visitor reported, or what the planner noticed outside its ticket. A sense's signal
+   * names the symptom class it saw; a report's, or a planner's finding, is for triage to judge, and its words are in
+   * `report`, which no public view and no generative agent ever reads. On an open ticket, the first signal from each
+   * sense adds its evidence.
    */
   'signal.received': z.strictObject({
-    sense: z.enum(V.SENSES),
+    sense: z.enum(V.SIGNAL_SOURCES),
     check: text(80),
     route: routeOrEvery,
     version: appVersion,
     symptom: z.enum(V.SYMPTOM_CLASSES).optional(),
     report: report.optional(),
     evidence: z.array(evidence).max(8).optional(),
+    /** For a planner's finding: the work item whose ticket it was planning, which the finding is not about. */
+    planning: workItem.optional(),
   }),
   /**
    * One request to Jev about a report: what it was asked and answered. The request that routes the report records
@@ -270,19 +283,18 @@ export const PAYLOADS = {
     title: text(120),
     category: z.enum(V.DEFECT_CATEGORIES),
     severity: z.enum(V.SEVERITIES),
-    fingerprint: z.union([
-      z.strictObject({ route: routeOrEvery, class: z.enum(V.SYMPTOM_CLASSES) }),
-      /** For content: the page, and the passage of its text that is wrong, as the factory read it. */
-      z.strictObject({ page: route, text: text(200) }),
-    ]),
+    fingerprint,
     traces: z.array(traceId).max(10),
   }),
 
   'spec.written': z.strictObject({
     outcome: text(200),
-    /** Given, when, then. `expect` holds the then, because an object with a `then` looks like a promise. */
+    /**
+     * Given, when, then. `expect` holds the then, because an object with a `then` looks like a promise. `from` names
+     * what in the ticket's evidence asks for it: a line of the ticket, or a signal. A version 1 spec never said.
+     */
     criteria: z
-      .array(z.strictObject({ given: text(200), when: text(200), expect: text(200) }))
+      .array(z.strictObject({ given: text(200), when: text(200), expect: text(200), from: text(200).optional() }))
       .min(1)
       .max(12),
     scope: z.array(text(200)).min(1).max(40),
@@ -334,8 +346,9 @@ export const PAYLOADS = {
   }),
   /**
    * The reviewer's review of a pull request's latest push, with each finding: the line it is anchored to, whether it
-   * blocks, what it cites (a rule of the repository's `docs/REVIEWERS.md`, a criterion of the spec, or both) and its
-   * comment, so the console can show the thread and the rules can be counted by how often they are cited.
+   * blocks, what it cites (a rule of the repository's `docs/REVIEWERS.md`, a criterion of the spec, the ticket, or
+   * more than one) and its comment, so the console can show the thread and the rules can be counted by how often they
+   * are cited. A finding that cites the ticket says the criterion it cites goes beyond what the ticket asks.
    */
   'review.submitted': z.strictObject({
     pullRequest,
@@ -343,15 +356,19 @@ export const PAYLOADS = {
     note: text(300),
     findings: z
       .array(
-        z.strictObject({
-          path: text(200),
-          /** In the change's version of the file. */
-          line: z.number().int().positive(),
-          blocking: z.boolean(),
-          rule: z.number().int().min(1).max(50).optional(),
-          criterion: z.number().int().min(1).max(12).optional(),
-          comment: text(300),
-        }),
+        z
+          .strictObject({
+            path: text(200),
+            /** In the change's version of the file. */
+            line: z.number().int().positive(),
+            blocking: z.boolean(),
+            rule: z.number().int().min(1).max(50).optional(),
+            criterion: z.number().int().min(1).max(12).optional(),
+            /** The criterion it cites is one the ticket does not ask for: only a criterion goes beyond the ticket. */
+            ticket: z.literal(true).optional(),
+            comment: text(300),
+          })
+          .refine((f) => !f.ticket || f.criterion !== undefined, 'a finding cites the ticket for a criterion'),
       )
       .max(V.MAX_FINDINGS),
   }),
@@ -422,17 +439,28 @@ export const PAYLOADS = {
       failed: z.array(text(80)).max(40).optional(),
     })
     .refine((r) => V.STAGES.indexOf(r.to) < V.STAGES.indexOf(r.from), 'work returns upstream, to an earlier stage'),
-  'hold.started': z.strictObject({
-    stage,
-    /** Approval and questions are the line asking; held means a mechanism stopped the work for a human to decide. */
-    kind: z.enum(['approval', 'question', 'held']),
-    /** Why, so that Martin's answer has a meaning: what each answer does depends on it. */
-    cause: z.enum(V.HOLD_CAUSES),
-    reason: text(300),
-    question: text(300).optional(),
-    /** A spend hold's cap: the most the work item may spend on models, in the profile the line runs in. */
-    limitUsd: usd.optional(),
-  }),
+  'hold.started': z
+    .strictObject({
+      stage,
+      /** Approval and questions are the line asking; held means a mechanism stopped the work for a human to decide. */
+      kind: z.enum(['approval', 'question', 'held']),
+      /** Why, so that Martin's answer has a meaning: what each answer does depends on it. */
+      cause: z.enum(V.HOLD_CAUSES),
+      reason: text(300),
+      question: text(300).optional(),
+      /** A spend hold's cap: the most the work item may spend on models, in the profile the line runs in. */
+      limitUsd: usd.optional(),
+      /**
+       * A `finding` hold's defect: its fingerprint, as triage would give a report's ticket (the route the planner
+       * named and the symptom Jev judged, or for wrong words the passage of the page), and the symptom. A ticket
+       * with the same fingerprint closes it, and Martin's approval opens its ticket.
+       */
+      defect: z.strictObject({ fingerprint, symptom: z.enum(V.SYMPTOM_CLASSES) }).optional(),
+    })
+    .refine((hold) => (hold.cause === 'finding') === (hold.defect !== undefined), {
+      message: 'a finding’s hold, and only one, names the defect',
+      path: ['defect'],
+    }),
   'hold.answered': z.strictObject({
     decision: z.enum(['approved', 'rejected', 'answered']),
     answer: text(300).optional(),
@@ -527,12 +555,28 @@ export const inboxSignal = z
     }),
   )
   .superRefine((signal, context) => {
-    // A report is its text: one without any is nothing to judge, and nothing to answer.
-    if (signal.sense === 'report' && !signal.report?.text) {
-      context.addIssue({ code: 'custom', path: ['report', 'text'], message: 'a report needs its text' });
+    // A report is its text, as a planner's finding is: one without any is nothing to judge, and nothing to answer.
+    const judged = signal.sense === 'report' || signal.sense === 'planner';
+    if (judged && !signal.report?.text) {
+      context.addIssue({
+        code: 'custom',
+        path: ['report', 'text'],
+        message: signal.sense === 'report' ? 'a report needs its text' : 'a finding needs its text',
+      });
     }
-    if (signal.sense !== 'report' && signal.report) {
-      context.addIssue({ code: 'custom', path: ['report'], message: 'only a report carries a report' });
+    if (!judged && signal.report) {
+      context.addIssue({ code: 'custom', path: ['report'], message: 'only a report or a finding carries words' });
+    }
+    if (signal.sense === 'planner' && signal.symptom) {
+      context.addIssue({
+        code: 'custom',
+        path: ['symptom'],
+        message: 'the planner names no symptom: triage judges it',
+      });
+    }
+    if ((signal.sense === 'planner') !== (signal.planning !== undefined)) {
+      const message = 'a planner’s finding, and only one, names the work item it was planning';
+      context.addIssue({ code: 'custom', path: ['planning'], message });
     }
   });
 

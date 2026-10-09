@@ -17,10 +17,22 @@ export interface ReportAnswers {
   repeat?: { workItem: string | null; probability: number } | undefined;
 }
 
+/** What a defect is, as routing reads it from Jev's answers. */
+export interface Defect {
+  category: DefectCategory;
+  symptom: SymptomClass;
+  severity: Severity;
+}
+
 export type Routed =
-  | { route: 'quarantine' | 'park' | 'discard' }
+  | { route: 'quarantine' | 'discard' }
+  /** Parked for Martin: a suggestion, or a defect the planner alone has seen, which waits for a sense or for him. */
+  | { route: 'park'; defect?: Defect }
   | { route: 'repeat'; joined: string }
-  | { route: 'ticket'; category: DefectCategory; symptom: SymptomClass; severity: Severity };
+  | ({ route: 'ticket' } & Defect);
+
+/** Routes a report, or a planner's finding: each by its own rules from the same answers. */
+export type Router = (answers: ReportAnswers, policy?: typeof REPORTS) => Routed;
 
 export function routeReport(answers: ReportAnswers, policy = REPORTS): Routed {
   // Instructions first, whatever else the report is: it never reaches anything that acts on it.
@@ -42,4 +54,17 @@ export function severityOf(expected: number, policy = REPORTS): Severity {
   if (expected >= policy.severity.broken) return 'broken';
   if (expected >= policy.severity.degraded) return 'degraded';
   return 'cosmetic';
+}
+
+/**
+ * Where a planner's finding goes: as a visitor's report would, except that it never opens a ticket. The planner's
+ * words are about the app's public code, which a visitor can read and argue about to persuade an agent, so they are
+ * trusted no more than a report and, alone, never make a ticket: a defect is parked, and waits for a sense to see it
+ * or for Martin.
+ */
+export function routeFinding(answers: ReportAnswers, policy = REPORTS): Routed {
+  const routed = routeReport(answers, policy);
+  if (routed.route !== 'ticket') return routed;
+  const { route: _ticket, ...defect } = routed;
+  return { route: 'park', defect };
 }

@@ -24,8 +24,9 @@ describe('the samples', () => {
     expect(of('work-item.opened').every((event) => event.payload.sample)).toBe(true);
   });
 
-  it('cover every kind of work item', () => {
-    expect(new Set(of('work-item.opened').map((event) => event.payload.kind))).toEqual(new Set(KINDS));
+  it('cover every kind of work item but a planner’s finding', () => {
+    const kinds = KINDS.filter((kind) => kind !== 'planner-finding');
+    expect(new Set(of('work-item.opened').map((event) => event.payload.kind))).toEqual(new Set(kinds));
   });
 
   it('have model calls from every agent, on Claude and on the local model, and a Jev judgement', () => {

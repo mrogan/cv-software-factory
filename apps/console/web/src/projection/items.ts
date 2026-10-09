@@ -175,6 +175,7 @@ const DEFAULT_CATEGORY: Record<Kind, Category> = {
   'dependency-update': 'dependency',
   'red-team': 'red-team',
   'visitor-report': 'not-a-defect',
+  'planner-finding': 'improvement',
 };
 
 /** The outcome each way of closing gives. */
@@ -355,7 +356,7 @@ function sideOf(event: PublicEvent, kind: Kind, index: number): Capture['side'] 
     case 'spec.written':
       return 'before';
     case 'signal.received':
-      return kind === 'visitor-report' ? 'page' : 'broken';
+      return kind === 'visitor-report' || kind === 'planner-finding' ? 'page' : 'broken';
     case 'canary.stepped':
       return 'canary';
     case 'verification.finished': {

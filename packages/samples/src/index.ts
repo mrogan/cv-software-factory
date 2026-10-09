@@ -1,9 +1,9 @@
 /**
  * The samples: nineteen hand-written work items over eight days, with one still on the line at the end. They cover
- * every kind of work item, every outcome, every picture the design system draws and every station state. The last
- * seven are fixes as milestone 5's line makes them: rounds of review, a wait for Martin's merge, the four ways a
- * mechanism holds a fix, a merge waiting for a release, and a run on the local model. Nothing in them happened: the
- * console labels each as a sample.
+ * every kind of work item but a planner's finding, every outcome, every picture the design system draws and every
+ * station state. The last seven are fixes as milestone 5's line makes them: rounds of review, a wait for Martin's
+ * merge, the four ways a mechanism holds a fix, a merge waiting for a release, and a run on the local model. Nothing
+ * in them happened: the console labels each as a sample.
  */
 import type { NewEvent } from '@software-factory/events';
 import { uuidFor } from './build.ts';

@@ -63,6 +63,42 @@ describe('the reviewer', () => {
       expect(fits(wrong), JSON.stringify(wrong).slice(0, 80)).toBe(false);
     }
   });
+
+  it('is told the ticket and what the senses saw, and holds the spec to them as well as the change to the spec', () => {
+    const widened = FIXTURES.reviewer['spec-widens']?.input;
+    if (!widened) throw new Error('The reviewer has no spec-widens fixture.');
+    const prompt = reviewer.prompt(widened);
+    expect(prompt).toContain('The ticket: A wrong result on /products/:slug.');
+    expect(prompt).toContain('It is a wrong-result on /products/:slug. Category functional, severity broken.');
+    expect(prompt).toContain('1. A probe\'s check "a price is in pounds and two digits of pence" on /products/:slug');
+    expect(prompt).toContain(
+      '5. Given a price of 1234567 pence, when pounds is called with it, then it returns £12,345.67, with a comma between thousands. (From the ticket.)',
+    );
+    expect(prompt).toContain('2. Hold the spec to the ticket.');
+    expect(prompt).toContain('is a blocking finding that cites that criterion with `"ticket":true`');
+  });
+
+  it('sends a criterion beyond the ticket to Martin, and a change beyond a sound spec back to the coder', () => {
+    const fits = (result: unknown) => reviewer.schema(input).safeParse(result).success;
+    const beyond = { ...unmet, criterion: 5, ticket: true as const, comment: 'No evidence asks for the cards.' };
+    expect(fits({ verdict: 'escalated', note: 'The spec goes beyond its ticket.', findings: [beyond] })).toBe(true);
+    expect(fits({ verdict: 'changes-requested', note: 'Beyond the ticket.', findings: [beyond] })).toBe(false);
+    // A model may say no in so many words.
+    expect(fits({ verdict: 'approved', note: 'Fine.', findings: [{ ...taste, ticket: false }] })).toBe(true);
+    expect(fits({ verdict: 'escalated', note: 'Beyond the ticket.', findings: [{ ...beyond, blocking: false }] })).toBe(
+      false,
+    );
+    // Only a criterion goes beyond the ticket: a change beyond the spec cites the spec, and goes back to the coder.
+    const { criterion: _criterion, ...uncited } = beyond;
+    expect(fits({ verdict: 'escalated', note: 'Beyond the ticket.', findings: [uncited] })).toBe(false);
+    const extra = { ...unmet, comment: 'It also rounds every price up, which criterion 5 does not ask.' };
+    expect(fits({ verdict: 'changes-requested', note: 'Take the rounding out.', findings: [extra] })).toBe(true);
+    const prompt = reviewer.prompt(input);
+    expect(prompt).toContain('A change that does more than the spec’s criteria ask, when the spec itself is sound');
+    expect(prompt).toContain(
+      '`ticket`: true only when the criterion the finding cites is one the ticket does not ask for',
+    );
+  });
 });
 
 const DIFF = [
@@ -72,7 +108,9 @@ const DIFF = [
       '@@ -1,4 +1,4 @@',
       ' /** Prices are whole pence. */',
       ' export function pounds(pence: number): string {',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the patch is the app's code, as text.
       '-  return `£${pence / 100}`;',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the patch is the app's code, as text.
       '+  return `£${(pence / 100).toFixed(2)}`;',
       ' }',
     ].join('\n'),
@@ -134,5 +172,12 @@ describe('a review in GitHub', () => {
       'it is escalated, and Martin decides',
     );
     expect(reviewInGitHub(escalated, DIFF, at).body).not.toContain('go back to the coder');
+  });
+
+  it('says when a finding cites the ticket', () => {
+    const beyond = { ...unmet, ticket: true as const, comment: 'No evidence asks for the cards.' };
+    const at = { commit: 'c'.repeat(40), workItem: '1001', review: 1, last: false };
+    const shown = reviewInGitHub({ verdict: 'escalated', note: 'Beyond the ticket.', findings: [beyond] }, DIFF, at);
+    expect(shown.comments[0]?.body).toBe(`**Blocking** · the ticket · criterion 5\n\n${beyond.comment}`);
   });
 });

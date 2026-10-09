@@ -286,13 +286,14 @@ const PRICE_SIGNALS: Signal[] = [
 const PRICE_SPEC: PayloadOf<'spec.written'> = {
   outcome: 'Every price shows pounds and exactly two digits of pence, so 3500 pence is £35.00 and 705 pence is £7.05.',
   criteria: [
-    { given: 'a price of 600 pence', when: 'pounds is called with it', expect: 'it returns £6.00' },
-    { given: 'a price of 705 pence', when: 'pounds is called with it', expect: 'it returns £7.05' },
-    { given: 'a price of 10 pence', when: 'pounds is called with it', expect: 'it returns £0.10' },
+    { given: 'a price of 600 pence', when: 'pounds is called with it', expect: 'it returns £6.00', from: 'signal 1' },
+    { given: 'a price of 705 pence', when: 'pounds is called with it', expect: 'it returns £7.05', from: 'signal 1' },
+    { given: 'a price of 10 pence', when: 'pounds is called with it', expect: 'it returns £0.10', from: 'signal 1' },
     {
       given: 'a product that costs a whole number of pounds',
       when: 'a visitor opens its page',
       expect: 'the price shows two zeros of pence, such as £2.00',
+      from: 'the ticket',
     },
   ],
   scope: ['src/money.ts', 'test/money.test.ts', 'test/pages-product.test.ts'],
@@ -309,9 +310,68 @@ const CARDS_SPEC: PayloadOf<'spec.written'> = {
       given: 'a product that costs a whole number of pounds',
       when: 'a visitor opens the product list',
       expect: 'its card shows the price with two zeros of pence, such as £2.00',
+      from: 'the ticket',
     },
   ],
 };
+
+/**
+ * The wrong price's spec, widened: a criterion for thousands separators, which no evidence of the ticket asks for,
+ * though the planner says the ticket does. The fix the line wants is two digits of pence and nothing more.
+ */
+const WIDENED_SPEC: PayloadOf<'spec.written'> = {
+  ...PRICE_SPEC,
+  criteria: [
+    ...PRICE_SPEC.criteria,
+    {
+      given: 'a price of 1234567 pence',
+      when: 'pounds is called with it',
+      expect: 'it returns £12,345.67, with a comma between thousands',
+      from: 'the ticket',
+    },
+  ],
+};
+
+/** The coder's fix for the widened spec: two digits of pence, and the thousands separators no ticket asked for. */
+const WIDENED_FIX = `diff --git a/src/money.ts b/src/money.ts
+--- a/src/money.ts
++++ b/src/money.ts
+@@ -1,4 +1,5 @@
+ /** Prices are whole pence in the database and pounds on the page: 1250 → "£12.50". */
+ export function pounds(pence: number): string {
+-  return \`£\${Math.trunc(pence / 100)}.\${pence % 100}\`;
++  const whole = String(Math.trunc(pence / 100)).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
++  return \`£\${whole}.\${String(pence % 100).padStart(2, '0')}\`;
+ }
+diff --git a/test/money.test.ts b/test/money.test.ts
+--- a/test/money.test.ts
++++ b/test/money.test.ts
+@@ -5,6 +5,10 @@ describe('pounds', () => {
+   it.each([
+     [1250, '£12.50'],
+     [199, '£1.99'],
++    [600, '£6.00'],
++    [705, '£7.05'],
++    [10, '£0.10'],
++    [1234567, '£12,345.67'],
+   ])('writes %i pence as %s', (pence, expected) => {
+     expect(pounds(pence)).toBe(expected);
+   });
+diff --git a/test/pages-product.test.ts b/test/pages-product.test.ts
+--- a/test/pages-product.test.ts
++++ b/test/pages-product.test.ts
+@@ -14,6 +14,10 @@ describe('a product page', () => {
+     expect(textOf(body)).toContain('Thing, number 5 £2.25 A thing for the garden.');
+   });
+ 
++  it('shows two zeros of pence for a price in whole pounds', async () => {
++    expect(textOf((await shop.get('/products/thing-4')).body)).toContain('Thing, number 4 £2.00');
++  });
++
+   it('gives its item number, department and stock', async () => {
+     const { body } = await shop.get('/products/thing-5');
+     expect(textOf(body)).toContain('Item 5 Department Garden Stock 1 in stock');
+`;
 
 export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
   planner: {
@@ -471,9 +531,36 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       },
       input: {
         workItem: FIXTURE_WORK_ITEM,
+        ticket: PRICE_TICKET,
+        signals: PRICE_SIGNALS,
+        answers: [],
         spec: PRICE_SPEC,
         pullRequest: 101,
         title: 'fix(money): always show two digits of pence',
+        round: 1,
+      },
+    },
+    'spec-widens': {
+      about:
+        'the wrong price, with a spec the planner widened: a criterion for thousands separators no evidence asks for, met by the change, so one to escalate',
+      commit: APP_MAIN,
+      seed: PRICE_SEED,
+      change: {
+        patch: WIDENED_FIX,
+        message: [
+          'fix(money): show two digits of pence, and separate thousands',
+          '',
+          'pounds() printed the pence remainder without padding, so 600 pence showed as £6.0. It now pads the pence to two digits and puts a comma between thousands of pounds, as the spec asks. Tests in test/money.test.ts cover 600, 705, 10 and 1234567 pence, and test/pages-product.test.ts checks a whole-pound price on its page.',
+        ].join('\n'),
+      },
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        ticket: PRICE_TICKET,
+        signals: PRICE_SIGNALS,
+        answers: [],
+        spec: WIDENED_SPEC,
+        pullRequest: 104,
+        title: 'fix(money): show two digits of pence, and separate thousands',
         round: 1,
       },
     },
@@ -492,6 +579,9 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       },
       input: {
         workItem: FIXTURE_WORK_ITEM,
+        ticket: PRICE_TICKET,
+        signals: PRICE_SIGNALS,
+        answers: [],
         spec: CARDS_SPEC,
         pullRequest: 102,
         title: 'fix(money): pad pence to two digits in prices',

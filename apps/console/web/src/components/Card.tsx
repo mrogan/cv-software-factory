@@ -17,6 +17,7 @@ const KIND_NAME: Record<CardData['kind'], string> = {
   'dependency-update': 'Dependency update',
   'red-team': 'Red-team attack',
   'visitor-report': 'Visitor report',
+  'planner-finding': 'Planner’s finding',
 };
 
 /** The kind of work, saying when a visitor started it: never which visitor. */

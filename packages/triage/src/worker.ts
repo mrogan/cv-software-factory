@@ -6,6 +6,11 @@
  *   with no event, so the event count grows with tickets, not with the minutes a defect stays unfixed.
  * - Every report becomes events, judged by Jev: a new ticket, a repeat that joins an open one, or a work item
  *   that says it was quarantined, parked or discarded.
+ * - So does every finding the planner leaves, judged the same way and trusted no more, except that it never opens a
+ *   ticket: a defect is parked until a sense sees it or Martin opens one. A ticket triage opens with the same
+ *   fingerprint closes it into that ticket; Martin approving it opens its ticket, by the policy's table as a sense's
+ *   would be, or joins it to an open ticket that has it; his rejection closes it (`settleOne`). Nothing else opens a
+ *   ticket from a finding.
  *
  * One worker decides at a time (it holds an advisory lock), so two signals with the same new fingerprint cannot
  * open two tickets. It takes nothing while the line is stopped, and no report while the gateway waits on a spend cap.
@@ -14,14 +19,24 @@ import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/eve
 import { type EventWriter, nextWorkItem } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { INBOX } from '../../../policy/triage.ts';
-import { idsFor, reportEvents, senseEvidence, senseTicket } from './events.ts';
+import {
+  approvedFinding,
+  closedFinding,
+  findingEvents,
+  idsFor,
+  type ParkedDefect,
+  reportEvents,
+  senseEvidence,
+  senseTicket,
+} from './events.ts';
 import { type Judge, JudgeWaiting } from './judge.ts';
 import type { Candidate } from './questions.ts';
 import { judgeReport, type PageReader } from './reports.ts';
+import { routeFinding, routeReport } from './routing.ts';
 import { privatePath } from './scrub.ts';
 
 /** What triage made of a signal, as the inbox records it. */
-export type Outcome = 'opened' | 'evidence' | 'counted' | 'report';
+export type Outcome = 'opened' | 'evidence' | 'counted' | 'report' | 'finding';
 
 export interface Logger {
   info(fields: object, message: string): void;
@@ -56,6 +71,10 @@ export class Triage {
   readonly #o: Required<Omit<TriageOptions, 'onTriaged'>> & Pick<TriageOptions, 'onTriaged'>;
   /** Until when reports wait: the gateway cannot answer before then. The senses' signals need no model. */
   #reportsWaitUntil = 0;
+  /** Whether an event has been appended since the held findings were last settled: only an answer can settle one. */
+  #settleDue = true;
+  /** How often settling each held finding has failed, so one that keeps failing is left, not tried for ever. */
+  readonly #settleFailures = new Map<string, number>();
 
   constructor(options: TriageOptions) {
     this.#o = { now: () => new Date(), ...options };
@@ -107,11 +126,25 @@ export class Triage {
       await lock`select pg_advisory_lock(hashtext('triage'))`;
       let wake = Promise.withResolvers<void>();
       const nudge = () => wake.resolve();
-      const listening = await Promise.all([sql.listen('inbox', nudge), sql.listen('events', nudge)]);
+      const listening = await Promise.all([
+        sql.listen('inbox', nudge),
+        sql.listen('events', () => {
+          this.#settleDue = true;
+          nudge();
+        }),
+      ]);
       abort.addEventListener('abort', nudge);
       while (!abort.aborted) {
+        // Martin's answers arrive as events, so the held findings are looked at only after one is appended. The flag is
+        // cleared before looking, so an event appended meanwhile sets it again; one settled may leave more.
+        let settled = false;
+        if (this.#settleDue) {
+          this.#settleDue = false;
+          settled = await this.settleOne();
+          if (settled) this.#settleDue = true;
+        }
         const took = await this.takeOne();
-        if (took === 'idle' || took === 'stopped' || took === 'waiting') {
+        if (!settled && (took === 'idle' || took === 'stopped' || took === 'waiting')) {
           const pause = took === 'waiting' ? Math.max(1000, this.#reportsWaitUntil - Date.now()) : 30_000;
           const timer = setTimeout(nudge, Math.min(pause, 30_000));
           await wake.promise;
@@ -127,6 +160,64 @@ export class Triage {
   }
 
   /**
+   * Does what Martin answered to one defect the planner noticed, if he has approved or rejected one that is still
+   * parked. Approving opens its ticket on its own work item, with the category and severity the policy gives its
+   * symptom, unless an open ticket has its fingerprint, which it then joins; any other finding parked with the same
+   * fingerprint joins the new ticket. Rejecting closes it. Answering in words leaves it waiting.
+   */
+  async settleOne(): Promise<boolean> {
+    const { sql, events, log } = this.#o;
+    const now = this.#o.now();
+    if (await lineStopped(sql)) return false;
+    const failures = this.#settleFailures;
+    const answered = (await parkedFindings(sql)).find(
+      (parked) => parked.decision !== null && (failures.get(parked.workItem) ?? 0) < INBOX.attempts,
+    );
+    if (!answered) return false;
+    const { workItem, defect, decision } = answered;
+    const seed = `finding:${workItem}:${decision}`;
+    try {
+      if (decision === 'rejected') {
+        await events.append(closedFinding(workItem, { rejected: true }, seed, now));
+      } else {
+        const same = (await openTickets(sql)).find((ticket) => sameFingerprint(ticket.fingerprint, defect.fingerprint));
+        if (same) {
+          await events.append(closedFinding(workItem, { joined: same.workItem, by: 'martin' }, seed, now));
+        } else {
+          const joined = await this.#joinFindings(defect.fingerprint, workItem, 'martin', seed);
+          await events.append([...approvedFinding(workItem, defect, now), ...joined]);
+        }
+      }
+    } catch (error) {
+      // Not the line's to stop for: it is tried again on the next event, as often as a signal is, then left.
+      const tries = (failures.get(workItem) ?? 0) + 1;
+      failures.set(workItem, tries);
+      const reason = error instanceof Error ? error.message : String(error);
+      const last = tries >= INBOX.attempts;
+      log.warn({ workItem, decision, reason, last }, 'could not settle a defect the planner noticed');
+      return false;
+    }
+    failures.delete(workItem);
+    log.info({ workItem, decision }, 'settled a defect the planner noticed, as Martin answered');
+    return true;
+  }
+
+  /** The events that close every parked finding a new ticket has, into that ticket. */
+  async #joinFindings(
+    fingerprint: PayloadOf<'ticket.opened'>['fingerprint'],
+    ticket: string,
+    by: 'sense' | 'report' | 'martin',
+    seed: string,
+  ) {
+    const now = this.#o.now();
+    return (await parkedFindings(this.#o.sql))
+      .filter((parked) => parked.workItem !== ticket && sameFingerprint(fingerprint, parked.defect.fingerprint))
+      .flatMap((parked) =>
+        closedFinding(parked.workItem, { joined: ticket, by }, `${seed}:joined:${parked.workItem}`, now),
+      );
+  }
+
+  /**
    * Holds the oldest waiting signal for a while, so another worker leaves it alone, and counts the attempt. While
    * reports wait for the gateway, it takes only the senses' signals.
    */
@@ -136,7 +227,7 @@ export class Triage {
                        not_before = clock_timestamp() + make_interval(secs => ${INBOX.leaseSeconds})
       where id = (select id from inbox
                   where triaged_at is null and not_before <= clock_timestamp() and attempts < ${INBOX.attempts}
-                    and (not ${skipReports} or sense <> 'report')
+                    and (not ${skipReports} or sense not in ('report', 'planner'))
                   order by received_at limit 1 for update skip locked)
       returning id, sense, signal, attempts, received_at`;
     return row;
@@ -151,36 +242,62 @@ export class Triage {
     const [done] = await sql<{ work_item: string; type: string }[]>`
       select work_item, type from events where id = ${idsFor(taken.id)()}`;
     if (done) {
-      const outcome = signal.sense === 'report' ? 'report' : done.type === 'work-item.opened' ? 'opened' : 'evidence';
+      const outcome = judged(signal)
+        ? signal.sense === 'planner'
+          ? 'finding'
+          : 'report'
+        : done.type === 'work-item.opened'
+          ? 'opened'
+          : 'evidence';
       // Counted once already, if at all: the time it took is not this attempt's.
       return { outcome, workItem: done.work_item, ticketOpened: false };
     }
 
     const tickets = await openTickets(sql);
-    if (signal.sense === 'report') {
+    if (judged(signal)) {
+      const finding = signal.sense === 'planner';
       const text = signal.report?.text;
       // The inbox refuses a report without its text; one that got in some other way is nothing to judge.
-      if (!text) throw new Error('A report reached triage without its text');
+      if (!text) throw new Error(`A ${finding ? 'finding' : 'report'} reached triage without its text`);
       // The visitor may have typed the path, so anything private in it goes before anything is matched or asked.
       const page = privatePath(signal.report?.page ?? signal.route);
       const route = privatePath(signal.route);
-      const candidates = tickets.filter((ticket) => onPage(ticket, route, page)).slice(0, 10);
+      // A planner's finding is about something beyond the ticket it was planning, so it never joins that one.
+      const others = tickets.filter((ticket) => ticket.workItem !== signal.planning);
+      const candidates = others.filter((ticket) => onPage(ticket, route, page)).slice(0, 10);
       const decision = await judgeReport(
         { page, text, route },
         candidates.map(candidateOf),
         this.#o.judge,
         this.#o.read,
+        finding ? routeFinding : routeReport,
       );
-      // One fingerprint, one ticket: a new ticket that matches an open one joins it instead.
-      const fingerprint = decision.fingerprint;
-      const same = fingerprint && tickets.find((ticket) => sameFingerprint(ticket.fingerprint, fingerprint));
-      if (decision.routed.route === 'ticket' && same) {
+      // One fingerprint, one ticket: a new ticket that matches an open one joins it instead, as does a defect the
+      // planner noticed that an open ticket already has.
+      const { routed } = decision;
+      const defect = routed.route === 'ticket' || (routed.route === 'park' && routed.defect !== undefined);
+      const { fingerprint } = decision;
+      const same = fingerprint && others.find((ticket) => sameFingerprint(ticket.fingerprint, fingerprint));
+      if (defect && same) {
         decision.routed = { route: 'repeat', joined: same.workItem };
         const first = decision.judgements[0];
         if (first) decision.judgements[0] = { ...first, route: 'repeat', joined: same.workItem };
       }
       const workItem = decision.routed.route === 'repeat' ? decision.routed.joined : await nextWorkItem(sql);
-      await events.append(reportEvents(signal, taken.id, workItem, decision, now));
+      if (finding) {
+        // A defect with the fingerprint of the ticket being planned cannot have a ticket of its own while that one is
+        // open (one fingerprint, one ticket), and is not that ticket's to absorb: it is held, saying so, until that
+        // ticket closes and a sense's ticket can take it, or Martin answers.
+        const held = decision.routed.route === 'park' && decision.routed.defect && decision.fingerprint;
+        const planned = held
+          ? tickets.find((ticket) => ticket.workItem === signal.planning && sameFingerprint(ticket.fingerprint, held))
+          : undefined;
+        await events.append(findingEvents(signal, taken.id, workItem, decision, now, planned?.workItem));
+        return { outcome: 'finding', workItem, ticketOpened: false };
+      }
+      const opened = decision.routed.route === 'ticket' && decision.fingerprint;
+      const joined = opened ? await this.#joinFindings(opened, workItem, 'report', taken.id) : [];
+      await events.append([...reportEvents(signal, taken.id, workItem, decision, now), ...joined]);
       return { outcome: 'report', workItem, ticketOpened: decision.routed.route === 'ticket' };
     }
 
@@ -188,7 +305,8 @@ export class Triage {
     const ticket = tickets.find((open) => sameFingerprint(open.fingerprint, fingerprint));
     if (!ticket) {
       const workItem = await nextWorkItem(sql);
-      await events.append(senseTicket(signal, taken.id, workItem, now));
+      const joined = await this.#joinFindings(fingerprint, workItem, 'sense', taken.id);
+      await events.append([...senseTicket(signal, taken.id, workItem, now), ...joined]);
       return { outcome: 'opened', workItem, ticketOpened: true };
     }
     const [seen] = await sql`select 1 from events where work_item = ${ticket.workItem}
@@ -198,6 +316,39 @@ export class Triage {
     return { outcome: 'evidence', workItem: ticket.workItem, ticketOpened: false };
   }
 }
+
+/** A defect the planner noticed, parked for a sense or Martin: held, with no ticket and not closed. */
+interface Parked {
+  workItem: string;
+  defect: ParkedDefect;
+  /** Martin's answer, when he has approved or rejected it and triage has yet to do as he said. */
+  decision: 'approved' | 'rejected' | null;
+}
+
+/**
+ * Every defect the planner noticed that is held, with no ticket and not closed, oldest first, with Martin's last
+ * answer to it. The finding holds have an index of their own (0007), so this reads only them.
+ */
+async function parkedFindings(sql: Sql): Promise<Parked[]> {
+  const rows = await sql<{ work_item: string; defect: ParkedDefect; decision: string | null }[]>`
+    select h.work_item, h.payload->'defect' as defect,
+           (select a.payload->>'decision' from events a
+            where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq
+            order by a.seq desc limit 1) as decision
+    from events h
+    where h.type = 'hold.started' and h.payload->>'cause' = 'finding'
+      and not exists (select 1 from events e where e.work_item = h.work_item
+                      and e.type in ('work-item.closed', 'ticket.opened'))
+    order by h.seq`;
+  return rows.map((row) => ({
+    workItem: row.work_item,
+    defect: row.defect,
+    decision: row.decision === 'approved' || row.decision === 'rejected' ? row.decision : null,
+  }));
+}
+
+/** Whether a signal's words are for Jev to judge: a visitor's report, or a planner's finding. */
+const judged = (signal: InboxSignal) => signal.sense === 'report' || signal.sense === 'planner';
 
 /** Whether the line is stopped: the last of `line.started` and `line.stopped` decides. */
 export async function lineStopped(sql: Sql): Promise<boolean> {

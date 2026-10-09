@@ -39,6 +39,7 @@ const SENSE: Record<Signal['sense'], string> = {
   metrics: 'The metrics',
   logs: 'The log watcher',
   report: 'A report',
+  planner: 'The planner',
 };
 
 const LEVELS = ['error', 'warn', 'info', 'debug'] as const;
@@ -95,4 +96,9 @@ export function seen(signal: Signal): string[] {
     `- ${SENSE[signal.sense]}'s check "${signal.check}" on ${where} in version ${signal.version}${symptom}`,
     ...(signal.evidence ?? []).flatMap(evidenceLines).map((line) => `  - ${line}`),
   ];
+}
+
+/** Signals as `seen` tells them, numbered from 1, so an agent can name the one it means: "signal 2". */
+export function numbered(signals: readonly Signal[]): string[] {
+  return signals.flatMap((signal, i) => seen(signal).map((line, j) => (j ? line : line.replace(/^- /, `${i + 1}. `))));
 }

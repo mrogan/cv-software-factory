@@ -33,7 +33,7 @@ describe('validation', () => {
   });
 
   it('keeps line events and work-item events apart', () => {
-    const line = { ...opened, type: 'line.started', payload: { autonomy: 'supervised' } };
+    const line = { ...opened, type: 'line.started', version: 1, payload: { autonomy: 'supervised' } };
     expect(validate({ ...line, work_item: null })).toEqual({ ok: true });
     expect(validate(line)).toEqual({ ok: false, problems: ['line.started belongs to the line, not to a work item'] });
     expect(validate({ ...opened, work_item: null })).toEqual({
@@ -127,6 +127,38 @@ describe('validation', () => {
     expect(validateSignal({ ...report, sense: 'crawler', symptom: 'broken-link' }).ok).toBe(false);
   });
 
+  it('takes a planner’s finding into the inbox with its words and the ticket it was planning, and no symptom', () => {
+    const finding = {
+      ...signal.payload,
+      sense: 'planner',
+      check: 'planning ticket #1283',
+      planning: '1283',
+      observedAt: signal.ts,
+    };
+    expect(validateSignal({ ...finding, artifacts: [] })).toEqual({ ok: true });
+    expect(validateSignal({ ...finding, planning: undefined, artifacts: [] }).ok).toBe(false);
+    expect(validateSignal({ ...signal.payload, planning: '1283', observedAt: signal.ts, artifacts: [] }).ok).toBe(
+      false,
+    );
+    expect(validateSignal({ ...finding, report: { page: '/' }, artifacts: [] })).toEqual({
+      ok: false,
+      problems: ['report.text: a finding needs its text'],
+    });
+    expect(validateSignal({ ...finding, symptom: 'wrong-result', artifacts: [] }).ok).toBe(false);
+  });
+
+  it('takes where each criterion of a spec comes from, and a spec that never said', () => {
+    const criterion = { given: 'a price of 600 pence', when: 'it is shown', expect: 'it reads £6.00' };
+    const spec = { outcome: 'Prices show two digits of pence.', scope: ['src/money.ts'], risks: [], rollout: 'Ships.' };
+    const written = { ...opened, type: 'spec.written', version: 2, actor: 'planner' };
+    expect(validate({ ...written, payload: { ...spec, criteria: [{ ...criterion, from: 'signal 1' }] } })).toEqual({
+      ok: true,
+    });
+    expect(upcast({ type: 'spec.written', version: 1, payload: { ...spec, criteria: [criterion] } })).toMatchObject({
+      event: { version: 2, payload: { criteria: [criterion] } },
+    });
+  });
+
   it('only lets work return upstream', () => {
     const back = {
       ...opened,
@@ -151,6 +183,18 @@ describe('public views', () => {
       expect(validate({ ...event, ...view })).toEqual({ ok: true });
     }
     expect(viewOf(signal).summary).toBe('A visitor reported a problem on /products/clock-stopped');
+  });
+
+  it('never carry a planner’s finding’s words, which are as untrusted as a report’s', () => {
+    const finding = {
+      ...signal,
+      actor: 'planner' as const,
+      payload: { ...signal.payload, sense: 'planner' as const, check: 'planning ticket #1283', planning: '1283' },
+    };
+    const view = viewOf(finding);
+    expect(JSON.stringify(view)).not.toContain('ten past four');
+    expect(view.summary).toBe('The planner noted something on /products/clock-stopped');
+    expect(validate({ ...finding, ...view })).toEqual({ ok: true });
   });
 
   it('never carry the query of the page a report came from, which the visitor typed too', () => {
@@ -241,30 +285,76 @@ describe('upcasting the real catalogue', () => {
     expect(cause('held', 'build')).toBe('unknown');
   });
 
-  it('reads version 2 of hold.started as it was, and takes the coder finding nothing to fix at version 3', () => {
+  it('reads versions 2 and 3 of hold.started as they were, and takes a defect the planner noticed at version 4', () => {
     const v2 = { stage: 'gates', kind: 'held', cause: 'gates', reason: 'The gates failed: test' };
     expect(upcast({ type: 'hold.started', version: 2, payload: v2 })).toMatchObject({
-      event: { version: 3, payload: v2 },
+      event: { version: 4, payload: v2 },
     });
     const nothing = { stage: 'build', kind: 'held', cause: 'nothing-to-fix', reason: 'The coder found nothing.' };
-    expect(validate({ ...opened, type: 'hold.started', version: 3, actor: 'coder', payload: nothing })).toEqual({
-      ok: true,
+    expect(upcast({ type: 'hold.started', version: 3, payload: nothing })).toMatchObject({
+      event: { version: 4, payload: nothing },
     });
-    expect(validate({ ...opened, type: 'hold.started', version: 2, actor: 'coder', payload: nothing }).ok).toBe(false);
+    const finding = {
+      stage: 'triage',
+      kind: 'held',
+      cause: 'finding',
+      reason: 'The planner noticed a defect.',
+      defect: { fingerprint: { route: '/basket', class: 'wrong-result' }, symptom: 'wrong-result' },
+    };
+    const hold = (payload: object, version = 4) =>
+      validate({ ...opened, type: 'hold.started', version, actor: 'triage', payload });
+    expect(hold(finding)).toEqual({ ok: true });
+    expect(hold(finding, 3).ok).toBe(false);
+    // A finding's hold names its defect, which triage matches a sense's ticket to; no other hold does.
+    const { defect, ...unnamed } = finding;
+    expect(hold(unnamed).ok).toBe(false);
+    expect(hold({ ...nothing, defect }).ok).toBe(false);
   });
 
-  it('reads version 1 of review.submitted as a review with no findings, and takes each finding at version 2', () => {
+  it('reads version 1 of work-item.opened and signal.received as they were, and takes the planner’s at version 2', () => {
+    expect(upcast({ type: 'work-item.opened', version: 1, payload: opened.payload })).toMatchObject({
+      event: { version: 2, payload: opened.payload },
+    });
+    expect(upcast({ type: 'signal.received', version: 1, payload: signal.payload })).toMatchObject({
+      event: { version: 2, payload: signal.payload },
+    });
+    const finding = { kind: 'planner-finding', title: 'A finding on /about', sample: false };
+    expect(validate({ ...opened, actor: 'planner', payload: finding })).toEqual({ ok: true });
+  });
+
+  it('reads version 1 of review.submitted as a review with no findings, and version 2 as it was', () => {
     const v1 = { pullRequest: 12, verdict: 'approved', comments: 2, note: 'Fine.' };
     expect(upcast({ type: 'review.submitted', version: 1, payload: v1 })).toMatchObject({
-      event: { version: 2, payload: { pullRequest: 12, verdict: 'approved', note: 'Fine.', findings: [] } },
+      event: { version: 3, payload: { pullRequest: 12, verdict: 'approved', note: 'Fine.', findings: [] } },
     });
     const finding = { path: 'src/money.ts', line: 3, blocking: true, rule: 4, comment: 'Format once, at the edge.' };
     const v2 = { pullRequest: 12, verdict: 'changes-requested', note: 'One blocking finding.', findings: [finding] };
-    expect(validate({ ...opened, type: 'review.submitted', version: 2, actor: 'reviewer', payload: v2 })).toEqual({
+    expect(upcast({ type: 'review.submitted', version: 2, payload: v2 })).toMatchObject({
+      event: { version: 3, payload: v2 },
+    });
+    expect(validate({ ...opened, type: 'review.submitted', version: 3, actor: 'reviewer', payload: v2 })).toEqual({
       ok: true,
     });
     const long = { ...v2, findings: [{ ...finding, comment: 'x'.repeat(301) }] };
-    expect(validate({ ...opened, type: 'review.submitted', version: 2, actor: 'reviewer', payload: long }).ok).toBe(
+    expect(validate({ ...opened, type: 'review.submitted', version: 3, actor: 'reviewer', payload: long }).ok).toBe(
+      false,
+    );
+  });
+
+  it('takes a finding that cites the ticket at version 3', () => {
+    const finding = {
+      path: 'src/money.ts',
+      line: 3,
+      blocking: true,
+      criterion: 2,
+      ticket: true,
+      comment: 'No evidence asks this.',
+    };
+    const v3 = { pullRequest: 12, verdict: 'escalated', note: 'The spec goes beyond its ticket.', findings: [finding] };
+    expect(validate({ ...opened, type: 'review.submitted', version: 3, actor: 'reviewer', payload: v3 })).toEqual({
+      ok: true,
+    });
+    expect(validate({ ...opened, type: 'review.submitted', version: 2, actor: 'reviewer', payload: v3 }).ok).toBe(
       false,
     );
   });

@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
+import { type InboxSignal, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
@@ -11,7 +11,7 @@ import { DryRunReads } from '../../src/github/dry-run-reads.ts';
 import type { Reads } from '../../src/github/reads.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
 import { GitHubWorker, GitHubWorkerError } from '../../src/github/worker-client.ts';
-import { APP_REPOSITORY, Line, type LineOptions } from '../../src/line/worker.ts';
+import { APP_REPOSITORY, Line, type LineOptions, signalId } from '../../src/line/worker.ts';
 import { quiet } from '../github/fake.ts';
 import { type Agent, FakeGitHub, FakeSteps, MAIN } from './fakes.ts';
 
@@ -91,7 +91,9 @@ new file mode 100644
 
 const SPEC = {
   outcome: 'Search answers a query with a quote in it.',
-  criteria: [{ given: 'a query with a quote', when: 'it is searched', expect: 'the page lists matches' }],
+  criteria: [
+    { given: 'a query with a quote', when: 'it is searched', expect: 'the page lists matches', from: 'the ticket' },
+  ],
   scope: ['src/search.ts', 'test/'],
   risks: [],
   rollout: 'Ships as it is.',
@@ -423,7 +425,8 @@ describe('the line', () => {
     const review = {
       verdict: 'changes-requested',
       note: 'The quote is still not escaped.',
-      findings: [blocking, elsewhere],
+      // A model may say in so many words that a finding does not cite the ticket; the event keeps only a yes.
+      findings: [blocking, { ...elsewhere, ticket: false }],
     };
     const { pass, steps, github } = line({ ...AGENTS, reviewer: () => handback(review) });
     await pass();
@@ -653,7 +656,7 @@ describe('the line', () => {
     expect(hold?.reason).toMatch(/^The planner failed 2 times: The planner's result does not fit its schema/);
   });
 
-  it('tells the planner, the coder and the describer the ticket and what the senses saw, and never a visitor’s words', async () => {
+  it('tells the planner, the coder, the reviewer and the describer the ticket and what the senses saw, and never a visitor’s words', async () => {
     const workItem = await ticket();
     const signal = (payload: PayloadOf<'signal.received'>, actor: NewEvent['actor']) =>
       event(workItem, 'signal.received', payload, actor);
@@ -710,6 +713,11 @@ describe('the line', () => {
     expect(coding).not.toMatch(/every price|Ignore your instructions/);
     github.pass();
     await pass(); // the reviewer
+    const reviewing = String(steps.requests.at(-1)?.prompt);
+    expect(steps.requests.at(-1)?.agent).toBe('reviewer');
+    expect(reviewing).toContain('The ticket: Server errors on /search.');
+    expect(reviewing).toContain('1. The log watcher\'s check "new error pattern" on /search');
+    expect(reviewing).not.toMatch(/ignore|instructions|every.price|Ignore your/);
     await pass(); // the describer
     const describing = String(steps.requests.at(-1)?.prompt);
     expect(steps.requests.at(-1)?.agent).toBe('describer');
@@ -732,6 +740,61 @@ describe('the line', () => {
     await pass();
     expect(String(steps.requests[1]?.prompt)).toMatch(
       /Your last attempt at this plan failed: .*Dockerfile names a path no patch may change/,
+    );
+  });
+
+  it('leaves what the planner noticed outside its ticket in triage’s inbox as its signals, once however often it plans', async () => {
+    const workItem = await ticket();
+    const noticed = [
+      { page: '/products/camera', route: '/products/:slug', text: 'The stock line says 1 items.' },
+      { page: '/about', route: '/about', text: 'The page could list the opening hours.' },
+    ];
+    let planned = 0;
+    const { pass } = line({
+      ...AGENTS,
+      // It asks a question first, and notices the same things again when it plans with his answer.
+      planner: () =>
+        planned++
+          ? handback({ verdict: 'spec', spec: SPEC, findings: noticed })
+          : handback({ verdict: 'question', question: 'Should search find sold-out items?', findings: noticed }),
+    });
+    await pass();
+    await events.append([event(workItem, 'hold.answered', { decision: 'answered', answer: 'Yes.' }, 'martin')]);
+    await pass();
+    expect(await summaries(workItem, 'spec.written')).toEqual([
+      'Spec written: 1 criterion, 2 paths in scope; 2 findings left for triage',
+    ]);
+    const left = await database.writer<
+      { id: string; sense: string; fingerprint: string | null; signal: InboxSignal }[]
+    >`
+      select id, sense, fingerprint, signal from inbox where signal->>'planning' = ${workItem} order by signal->>'route'`;
+    expect(left.map((row) => [row.sense, row.fingerprint, row.signal.route, row.signal.report?.text])).toEqual([
+      ['planner', null, '/about', 'The page could list the opening hours.'],
+      ['planner', null, '/products/:slug', 'The stock line says 1 items.'],
+    ]);
+    expect(left[0]?.id).toBe(signalId(workItem, 'finding /about /about The page could list the opening hours.'));
+    expect(left[0]?.signal).toMatchObject({ check: `planning ticket #${workItem}`, version: MAIN });
+  });
+
+  it('gives the reviewer Martin’s answers at Plan, as part of what the ticket asks', async () => {
+    const workItem = await ticket();
+    let planned = 0;
+    const { pass, steps, github } = line({
+      ...AGENTS,
+      planner: () =>
+        planned++
+          ? handback({ verdict: 'spec', spec: SPEC })
+          : handback({ verdict: 'question', question: 'Should search find sold-out items?' }),
+    });
+    await pass();
+    await events.append([event(workItem, 'hold.answered', { decision: 'answered', answer: 'Yes.' }, 'martin')]);
+    await pass(); // the planner again
+    await pass(); // the coder
+    github.pass();
+    await pass(); // the reviewer
+    expect(steps.requests.at(-1)?.agent).toBe('reviewer');
+    expect(String(steps.requests.at(-1)?.prompt)).toContain(
+      'His answers are part of what the ticket asks:\n- Should search find sold-out items? He said: Yes.',
     );
   });
 

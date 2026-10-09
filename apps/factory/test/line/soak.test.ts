@@ -28,7 +28,7 @@ const event = (time: string, type: keyof typeof VERSIONS, payload: unknown): Sto
 /** A work item a dry-run soak takes round: planned, built, through the gates, held at review, and merged. */
 const round = (start: string) => [
   event(start, 'ticket.opened', { title: 'Server errors on /search', severity: 'broken' }),
-  event('22:20', 'spec.written', { outcome: 'Search answers.', criteria: [], scope: ['src/'] }),
+  event('22:20', 'spec.written', { outcome: 'Search answers.', criteria: [], scope: ['src/'], risks: [] }),
   event('22:50', 'pull-request.pushed', { number: 1_000_000_001, branch: 'factory/1-search', attempt: 1 }),
   event('22:51', 'gates.started', { pullRequest: 1_000_000_001, commit: COMMIT, checks: ['Unit tests'] }),
   event('22:53', 'gates.finished', {
