@@ -45,7 +45,10 @@ export interface ReportDecision {
   routed: Routed;
   /** One per request to Jev, in order. */
   judgements: Judgement[];
-  /** For a ticket: what it is matched by. A content ticket's passage is the factory's text from the page. */
+  /**
+   * For a defect, a ticket or a planner's finding held: what it is matched by. A content defect's passage is the
+   * factory's text from the page.
+   */
   fingerprint?: Fingerprint;
   screenshot?: Screenshot;
   /** The scrubbed text, as Jev read it. The only form of the report triage keeps. */
@@ -105,11 +108,13 @@ export async function judgeReport(
     text: state.report,
     ...(view && { screenshot: view.screenshot }),
   };
-  if (routed.route !== 'ticket') return decision;
+  // A defect is fingerprinted as its ticket would be, whether it opens one or, a planner's finding, is held.
+  const defect = routed.route === 'ticket' ? routed : routed.route === 'park' ? routed.defect : undefined;
+  if (!defect) return decision;
 
-  decision.fingerprint = { route: privatePath(report.route), class: routed.symptom };
+  decision.fingerprint = { route: privatePath(report.route), class: defect.symptom };
   const passages = passagesOf(view?.passages ?? []);
-  if (routed.category === 'content' && passages.length) {
+  if (defect.category === 'content' && passages.length) {
     const asked = passageQuestions(passages);
     const chosen = await judge({
       agent: 'triage',

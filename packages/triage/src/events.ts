@@ -321,7 +321,10 @@ export function findingEvents(
           reason: behind
             ? `The planner noticed a defect outside its ticket, with that ticket’s fingerprint. A sense’s ticket can take it once #${behind} closes, or Martin can.`
             : 'The planner noticed a defect outside its ticket. Its word alone never opens a ticket: one opens when a sense sees it, or when Martin approves this.',
-          defect: { route: privatePath(signal.route), class: routed.defect.symptom },
+          defect: {
+            fingerprint: decision.fingerprint ?? { route: privatePath(signal.route), class: routed.defect.symptom },
+            symptom: routed.defect.symptom,
+          },
         });
         return summarise(writer, {
           title: `A defect the planner noticed on ${page}`,
@@ -372,20 +375,23 @@ export type ParkedDefect = NonNullable<PayloadOf<'hold.started'>['defect']>;
  * category and severity from the policy's table for the symptom. The planner's word alone never comes here.
  */
 export function approvedFinding(workItem: string, defect: ParkedDefect, now: Date): NewEvent[] {
-  const { category, severity } = SYMPTOMS[defect.class];
-  const title = ticketTitle(defect);
+  const { fingerprint, symptom } = defect;
+  // Wrong words are content, whatever the symptom; the severity is the policy's for the symptom.
+  const { severity, category: bySymptom } = SYMPTOMS[symptom];
+  const category = 'page' in fingerprint ? 'content' : bySymptom;
+  const title = ticketTitle(fingerprint);
   const writer = new Writer(`finding:${workItem}:approved`, workItem, now);
   writer.add('ticket.opened', 'triage', `Ticket #${workItem}: ${category}, ${severity}, on Martin’s word`, {
     title,
     category,
     severity,
-    fingerprint: defect,
+    fingerprint,
     traces: [],
   });
   return summarise(writer, {
     title,
     description: `The planner noticed it, and Martin opened a ticket, ${category} and ${severity}, which waits for the planner.`,
-    story: `While planning another ticket, the planner noticed this defect on ${where(defect.route)}. Its word alone never opens a ticket, so triage held it for a sense or for Martin. Martin approved it, so triage opened ticket #${workItem}, with its category and severity from the policy’s table for the symptom, as a sense’s ticket has. It waits at Plan.`,
+    story: `While planning another ticket, the planner noticed this defect on ${'page' in fingerprint ? shortPath(fingerprint.page) : where(fingerprint.route)}. Its word alone never opens a ticket, so triage held it for a sense or for Martin. Martin approved it, so triage opened ticket #${workItem}, with its category and severity from the policy’s table for the symptom, as a sense’s ticket has. It waits at Plan.`,
   });
 }
 

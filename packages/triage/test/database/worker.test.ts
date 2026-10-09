@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { InboxSignal, NewEvent, PayloadOf } from '@software-factory/events';
+import type { InboxSignal, NewEvent, PayloadOf, Screenshot } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, sendSignal } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -260,11 +260,60 @@ describe('triage', () => {
           select payload from events where work_item = ${item} and type = 'work-item.closed'`
       )[0]?.payload;
 
+    it('fingerprints wrong words by their passage, as a report’s ticket is, and closes into that ticket', async () => {
+      const bytes = new TextEncoder().encode('a screenshot of /about');
+      const shot: Screenshot = {
+        kind: 'screenshot',
+        hash: await artifacts.put(bytes),
+        type: 'image/png',
+        size: bytes.length,
+        route: '/about',
+        version: 'c02efd8',
+        width: 1280,
+        height: 800,
+        boxes: [],
+      };
+      const passage = 'Founded in 1066, the shop has sold doorstops for a century.';
+      const read = async () => ({ screenshot: shot, passages: ['Doorstops and more.', passage] });
+      // Jev reads both as wrong words, and picks the same passage of the page.
+      const words: Judge = async (request) => {
+        if (request.questionSet === 'passage/v1') {
+          return { ...(await jev(request)), answers: { passage: choice('p2') } };
+        }
+        const judged = await jev(request);
+        return { ...judged, answers: { ...judged.answers, category: choice('content') } };
+      };
+      const about = (sense: 'planner' | 'report') =>
+        found({
+          sense,
+          check: sense === 'planner' ? 'planning ticket #1' : 'report widget',
+          symptom: undefined,
+          report: { page: '/about', text: 'The year the shop was founded is wrong' },
+          ...(sense === 'planner' && { planning: '1' }),
+        });
+      await sendSignal(writer, about('planner'));
+      expect(await triage({ judge: words, read }).takeOne()).toBe('finding');
+      const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
+        select work_item from inbox where outcome = 'finding' order by received_at desc limit 1`;
+      const [hold] = await writer<{ payload: PayloadOf<'hold.started'> }[]>`
+        select payload from events where work_item = ${item} and type = 'hold.started'`;
+      expect(hold?.payload.defect).toEqual({ fingerprint: { page: '/about', text: passage }, symptom: 'wrong-result' });
+
+      await sendSignal(writer, about('report'));
+      expect(await triage({ judge: words, read }).takeOne()).toBe('report');
+      const [{ work_item: ticket = '' } = {}] = await writer<{ work_item: string }[]>`
+        select work_item from inbox where outcome = 'report' order by received_at desc limit 1`;
+      expect(await closing(item)).toEqual({ outcome: 'no-change', reason: `A visitor reported it: ticket #${ticket}` });
+    });
+
     it('names its fingerprint on its hold, and closes into the ticket a sense opens with it', async () => {
       const item = await park('/basket');
       const [hold] = await writer<{ payload: PayloadOf<'hold.started'> }[]>`
         select payload from events where work_item = ${item} and type = 'hold.started'`;
-      expect(hold?.payload.defect).toEqual({ route: '/basket', class: 'wrong-result' });
+      expect(hold?.payload.defect).toEqual({
+        fingerprint: { route: '/basket', class: 'wrong-result' },
+        symptom: 'wrong-result',
+      });
       await sendSignal(writer, found({ route: '/basket', symptom: 'wrong-result', check: 'the basket adds up' }));
       expect(await triage().takeOne()).toBe('opened');
       const [{ work_item: ticket = '' } = {}] = await writer<{ work_item: string }[]>`
@@ -404,6 +453,43 @@ describe('triage', () => {
     expect(await triage().takeOne()).toBe('stopped');
     await line('line.started', { autonomy: 'supervised' });
     expect(await triage().takeOne()).toBe('opened');
+  });
+
+  it('settles again after an event that arrives while it settles, so no answer waits for the next one', async () => {
+    let calls = 0;
+    const first = Promise.withResolvers<boolean>();
+    const again = Promise.withResolvers<void>();
+    class Watched extends Triage {
+      override async settleOne(): Promise<boolean> {
+        calls += 1;
+        if (calls === 1) return first.promise;
+        again.resolve();
+        return false;
+      }
+    }
+    const abort = new AbortController();
+    const running = new Watched({ sql: writer, events, judge: jev, read: async () => null, log: quiet }).run(
+      abort.signal,
+    );
+    await expect.poll(() => calls).toBe(1);
+    // An event, such as Martin's answer, is appended while the first settling is still reading.
+    await events.append({
+      id: crypto.randomUUID(),
+      ts: at,
+      work_item: null,
+      type: 'line.started',
+      version: 1,
+      actor: 'martin',
+      summary: 'Martin started the line',
+      payload: { autonomy: 'supervised' },
+      artifacts: [],
+    } as NewEvent);
+    await new Promise((heard) => setTimeout(heard, 300));
+    first.resolve(false);
+    const late = new Promise<string>((resolve) => setTimeout(() => resolve('not settled again'), 3000));
+    expect(await Promise.race([again.promise.then(() => 'settled again'), late])).toBe('settled again');
+    abort.abort();
+    await running;
   });
 
   it('waits for the gateway without using up a report’s attempts, saying why', async () => {

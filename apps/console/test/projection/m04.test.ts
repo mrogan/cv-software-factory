@@ -248,7 +248,7 @@ describe('Triage’s panel', () => {
         stage: 'triage',
         kind: 'held',
         cause: 'finding',
-        defect: { route: '/contact', class: 'wrong-result' },
+        defect: { fingerprint: { route: '/contact', class: 'wrong-result' }, symptom: 'wrong-result' },
         reason: 'The planner noticed a defect outside its ticket.',
       }).events;
     const t = AFTERNOON;
@@ -287,7 +287,7 @@ describe('Triage’s panel', () => {
         kind: 'held',
         cause: 'finding',
         reason: 'A defect.',
-        defect: { route: '/contact', class: 'wrong-result' },
+        defect: { fingerprint: { route: '/contact', class: 'wrong-result' }, symptom: 'wrong-result' },
       })
       .add(0.5, 'hold.answered', 'martin', { decision: 'answered', answer: 'Leave it for a sense.' }).events;
     const signal = finding[1];

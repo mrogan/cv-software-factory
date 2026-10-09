@@ -299,7 +299,7 @@ describe('upcasting the real catalogue', () => {
       kind: 'held',
       cause: 'finding',
       reason: 'The planner noticed a defect.',
-      defect: { route: '/basket', class: 'wrong-result' },
+      defect: { fingerprint: { route: '/basket', class: 'wrong-result' }, symptom: 'wrong-result' },
     };
     const hold = (payload: object, version = 4) =>
       validate({ ...opened, type: 'hold.started', version, actor: 'triage', payload });

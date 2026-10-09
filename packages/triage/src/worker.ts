@@ -135,9 +135,14 @@ export class Triage {
       ]);
       abort.addEventListener('abort', nudge);
       while (!abort.aborted) {
-        // Martin's answers arrive as events, so the held findings are looked at only after one is appended.
-        const settled = this.#settleDue && (await this.settleOne());
-        if (!settled) this.#settleDue = false;
+        // Martin's answers arrive as events, so the held findings are looked at only after one is appended. The flag is
+        // cleared before looking, so an event appended meanwhile sets it again; one settled may leave more.
+        let settled = false;
+        if (this.#settleDue) {
+          this.#settleDue = false;
+          settled = await this.settleOne();
+          if (settled) this.#settleDue = true;
+        }
         const took = await this.takeOne();
         if (!settled && (took === 'idle' || took === 'stopped' || took === 'waiting')) {
           const pause = took === 'waiting' ? Math.max(1000, this.#reportsWaitUntil - Date.now()) : 30_000;
@@ -175,11 +180,11 @@ export class Triage {
       if (decision === 'rejected') {
         await events.append(closedFinding(workItem, { rejected: true }, seed, now));
       } else {
-        const same = (await openTickets(sql)).find((ticket) => sameFingerprint(ticket.fingerprint, defect));
+        const same = (await openTickets(sql)).find((ticket) => sameFingerprint(ticket.fingerprint, defect.fingerprint));
         if (same) {
           await events.append(closedFinding(workItem, { joined: same.workItem, by: 'martin' }, seed, now));
         } else {
-          const joined = await this.#joinFindings(defect, workItem, 'martin', seed);
+          const joined = await this.#joinFindings(defect.fingerprint, workItem, 'martin', seed);
           await events.append([...approvedFinding(workItem, defect, now), ...joined]);
         }
       }
@@ -206,7 +211,7 @@ export class Triage {
   ) {
     const now = this.#o.now();
     return (await parkedFindings(this.#o.sql))
-      .filter((parked) => parked.workItem !== ticket && sameFingerprint(fingerprint, parked.defect))
+      .filter((parked) => parked.workItem !== ticket && sameFingerprint(fingerprint, parked.defect.fingerprint))
       .flatMap((parked) =>
         closedFinding(parked.workItem, { joined: ticket, by }, `${seed}:joined:${parked.workItem}`, now),
       );
@@ -271,8 +276,7 @@ export class Triage {
       // planner noticed that an open ticket already has.
       const { routed } = decision;
       const defect = routed.route === 'ticket' || (routed.route === 'park' && routed.defect !== undefined);
-      const fingerprint =
-        routed.route === 'park' && routed.defect ? { route, class: routed.defect.symptom } : decision.fingerprint;
+      const { fingerprint } = decision;
       const same = fingerprint && others.find((ticket) => sameFingerprint(ticket.fingerprint, fingerprint));
       if (defect && same) {
         decision.routed = { route: 'repeat', joined: same.workItem };
@@ -284,14 +288,10 @@ export class Triage {
         // A defect with the fingerprint of the ticket being planned cannot have a ticket of its own while that one is
         // open (one fingerprint, one ticket), and is not that ticket's to absorb: it is held, saying so, until that
         // ticket closes and a sense's ticket can take it, or Martin answers.
-        const defect = decision.routed.route === 'park' ? decision.routed.defect : undefined;
-        const planned =
-          defect &&
-          tickets.find(
-            (ticket) =>
-              ticket.workItem === signal.planning &&
-              sameFingerprint(ticket.fingerprint, { route, class: defect.symptom }),
-          );
+        const held = decision.routed.route === 'park' && decision.routed.defect && decision.fingerprint;
+        const planned = held
+          ? tickets.find((ticket) => ticket.workItem === signal.planning && sameFingerprint(ticket.fingerprint, held))
+          : undefined;
         await events.append(findingEvents(signal, taken.id, workItem, decision, now, planned?.workItem));
         return { outcome: 'finding', workItem, ticketOpened: false };
       }

@@ -191,6 +191,15 @@ const candidate = z.strictObject({
 /** A passage of a page's text, as the factory read the page itself, offered as the one a content report is about. */
 const passage = z.strictObject({ key: slug, text: text(200) });
 
+/**
+ * What identifies a defect from outside: a route and a symptom class, or, for content, the page and the passage of its
+ * text that is wrong, as the factory read it.
+ */
+const fingerprint = z.union([
+  z.strictObject({ route: routeOrEvery, class: z.enum(V.SYMPTOM_CLASSES) }),
+  z.strictObject({ page: route, text: text(200) }),
+]);
+
 /** A canary against its baseline, on the same measure. */
 const versus = <T extends z.ZodType>(value: T) => z.strictObject({ canary: value, baseline: value });
 
@@ -274,11 +283,7 @@ export const PAYLOADS = {
     title: text(120),
     category: z.enum(V.DEFECT_CATEGORIES),
     severity: z.enum(V.SEVERITIES),
-    fingerprint: z.union([
-      z.strictObject({ route: routeOrEvery, class: z.enum(V.SYMPTOM_CLASSES) }),
-      /** For content: the page, and the passage of its text that is wrong, as the factory read it. */
-      z.strictObject({ page: route, text: text(200) }),
-    ]),
+    fingerprint,
     traces: z.array(traceId).max(10),
   }),
 
@@ -446,10 +451,11 @@ export const PAYLOADS = {
       /** A spend hold's cap: the most the work item may spend on models, in the profile the line runs in. */
       limitUsd: usd.optional(),
       /**
-       * A `finding` hold's defect, as triage fingerprints it: the route the planner named and the symptom Jev judged.
-       * A sense's ticket with the same fingerprint closes it, and Martin's approval opens its ticket.
+       * A `finding` hold's defect: its fingerprint, as triage would give a report's ticket (the route the planner
+       * named and the symptom Jev judged, or for wrong words the passage of the page), and the symptom. A ticket
+       * with the same fingerprint closes it, and Martin's approval opens its ticket.
        */
-      defect: z.strictObject({ route: routeOrEvery, class: z.enum(V.SYMPTOM_CLASSES) }).optional(),
+      defect: z.strictObject({ fingerprint, symptom: z.enum(V.SYMPTOM_CLASSES) }).optional(),
     })
     .refine((hold) => (hold.cause === 'finding') === (hold.defect !== undefined), {
       message: 'a finding’s hold, and only one, names the defect',
