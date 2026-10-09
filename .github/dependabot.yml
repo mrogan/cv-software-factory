@@ -49,7 +49,7 @@ updates:
       interval: weekly
     ignore:
       # The build image's Node matches mise.toml's; a new major is a deliberate change, not a weekly bump.
-      - dependency-name: node
+      - dependency-name: docker/library/node
         update-types: [version-update:semver-major]
     cooldown:
       default-days: 3
