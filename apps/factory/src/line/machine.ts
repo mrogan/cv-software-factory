@@ -22,6 +22,10 @@
  * answer means what it would have meant there (`unchangedHold`). A first round that changes nothing questions the
  * spec instead, and holds as `nothing-to-fix`.
  *
+ * A spec tagged with a risk that always needs a person (`ALWAYS_HELD`: a fix that changes behaviour beyond its
+ * ticket) holds for Martin's approval before the coder starts, whatever the autonomy. Approving carries on to Build;
+ * answering sends it back to the planner with what he said.
+ *
  * A work item that has spent as much on models as one may holds before its next step, since the gateway would refuse
  * every call that step made.
  *
@@ -33,7 +37,7 @@
  * A hold waits for Martin's answer, and what the answer does depends on why the work item is held: `ANSWERS` has a
  * rule for each cause and each answer.
  */
-import { type HoldCause, LIMITS, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
+import { ALWAYS_HELD, type HoldCause, LIMITS, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
 
 /** The agents the line runs, each in a runner. */
 export type LineAgent = 'planner' | 'coder' | 'reviewer' | 'describer';
@@ -67,8 +71,9 @@ export type Resolution =
  * item; answering sends the spec back to the planner, told what the coder said and what Martin did.
  */
 export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
-  // Triage's: a suggestion never comes onto the line.
+  // Triage's: a suggestion never comes onto the line, nor does a defect only the planner has seen.
   suggestion: { approved: 'wait', rejected: 'close', answered: 'wait' },
+  finding: { approved: 'wait', rejected: 'close', answered: 'wait' },
   spec: { approved: 'carry-on', rejected: 'close', answered: 'replan' },
   question: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
   'ticket-rejected': { approved: 'close', rejected: 'close', answered: 'carry-on' },
@@ -125,6 +130,8 @@ export interface WorkItemState {
   gateReturns: number;
   /** The review of the latest push, if it has one. */
   review: PayloadOf<'review.submitted'> | undefined;
+  /** Whether Martin approved the spec in force, when it carries a risk that always holds it (`ALWAYS_HELD`). */
+  specApproved: boolean;
   /**
    * Every review of any push, in order: the thread the describer reads. Its length is what `LIMITS.reviews` bounds,
    * and its last is the review a later reviewer checks first.
@@ -163,6 +170,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
     gatesPassed: false,
     gateReturns: 0,
     review: undefined,
+    specApproved: false,
     reviews: [],
     returns: [],
     described: false,
@@ -181,6 +189,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         break;
       case 'spec.written':
         state.spec = event.payload;
+        state.specApproved = false;
         // A new spec is a new scope: what the fence refused under the last one is no part of it.
         state.fenced = undefined;
         break;
@@ -237,6 +246,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         state.hold = undefined;
         state.fenceRefusals = 0;
         if (resolution === 'replan') state.spec = undefined;
+        if (cause === 'spec' && resolution === 'carry-on') state.specApproved = true;
         if (resolution === 'approve' && state.review) {
           state.review = { ...state.review, verdict: 'approved' };
           // His approval overrules the review that sent the work back, if one did: the coder has nothing to do.
@@ -367,6 +377,11 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   if (!s.spec) {
     if (facts.issue === null) return { stage: 'plan', next: { do: 'open-issue' } };
     return step('planner');
+  }
+  const held = s.spec.risks.filter((risk) => ALWAYS_HELD.includes(risk));
+  if (held.length && !s.specApproved && !s.pullRequest) {
+    const reason = `The spec is tagged ${held.join(', ')}: the fix changes behaviour beyond what the ticket is about, which needs Martin in every autonomy mode`;
+    return { stage: 'held', next: { do: 'hold', hold: { stage: 'plan', kind: 'approval', cause: 'spec', reason } } };
   }
   if (!s.pullRequest || s.rebuild) {
     if (s.fenceRefusals >= LIMITS.fenceRefusals) {

@@ -60,10 +60,15 @@ export const PUBLIC_VIEWS = {
   'signal.received': (event) => {
     const { report, ...payload } = event.payload;
     if (!report) return redacted(event);
-    // A report's summary is replaced as well as its text, so a careless summary cannot quote the report.
+    // A report's summary is replaced as well as its text, so a careless summary cannot quote the report. A planner's
+    // finding is kept as close: its words are untrusted too.
+    const summary =
+      payload.sense === 'planner'
+        ? `The planner noted something on ${pathOf(report.page)}`
+        : `A visitor reported a problem on ${pathOf(report.page)}`;
     return redacted({
       ...event,
-      summary: `A visitor reported a problem on ${pathOf(report.page)}`,
+      summary,
       payload: { ...payload, report: { page: pathOf(report.page) } },
     });
   },

@@ -169,7 +169,7 @@ describe('a sheet', () => {
   });
 
   it('withholds a visitor’s report, saying where it came from', () => {
-    expect(projectSheet(SAMPLES, '1268', END)?.report).toEqual({ page: '/contact', quarantined: false });
+    expect(projectSheet(SAMPLES, '1268', END)?.report).toEqual({ page: '/contact', quarantined: false, by: 'visitor' });
   });
 
   it('compares every page with the version before', () => {

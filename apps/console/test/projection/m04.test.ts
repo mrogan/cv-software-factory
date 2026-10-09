@@ -3,6 +3,7 @@
  * waiting for the planner, the senses' pictures, reports triage quarantined, parked or closed, a ticket's sheet,
  * where Triage's work comes from, and a spend cap reached and cleared.
  */
+import type { PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { REPORTS } from '../../../../policy/triage.ts';
 import { project, projectSheet, QUARANTINE_AT } from '../../web/src/projection/index.ts';
@@ -83,7 +84,7 @@ describe('a report', () => {
     expect(card('1007')).toMatchObject({ outcome: 'quarantined', category: 'red-team', from: '/about' });
     expect(card('1007')?.picture.type).toBe('quarantine');
     expect(card('1007')?.segments.slice(0, 2)).toEqual(['passed', 'closed']);
-    expect(sheet('1007')?.report).toEqual({ page: '/about', quarantined: true });
+    expect(sheet('1007')?.report).toEqual({ page: '/about', quarantined: true, by: 'visitor' });
     expect(sheet('1007')?.chapters.find((c) => c.label === 'QUARANTINED')?.tone).toBe('faint');
   });
 
@@ -220,6 +221,41 @@ describe('Triage’s panel', () => {
       { sense: 'logs', signals: 1, tickets: 0, routes: undefined },
       { sense: 'report', signals: 4, tickets: 1, routes: { quarantined: 1, parked: 1, closed: 1, joined: 0 } },
     ]);
+  });
+
+  it('counts no planner’s finding as a sense’s signal, nor its judgement as a report’s', () => {
+    const judgement: PayloadOf<'judgement.made'> = {
+      questionSet: 'triage/v1',
+      model: 'jev-1.13.0',
+      state: { report: { page: '/contact' } },
+      answers: [{ type: 'noul', key: 'injection', question: 'Orders?', probability: 0.01 }],
+      route: 'park',
+      costUsd: 0.0001,
+      durationMs: 90,
+      cassette: 'c'.repeat(64),
+    };
+    const finding = work('2001', AFTERNOON - 60_000)
+      .open('planner-finding')
+      .add(0, 'signal.received', 'planner', {
+        sense: 'planner',
+        check: 'planning ticket #1001',
+        route: '/contact',
+        version: 'a'.repeat(40),
+        report: { page: '/contact' },
+      })
+      .add(0.1, 'judgement.made', 'triage', judgement)
+      .add(0.1, 'hold.started', 'triage', {
+        stage: 'triage',
+        kind: 'held',
+        cause: 'finding',
+        reason: 'The planner noticed a defect outside its ticket.',
+      }).events;
+    const t = AFTERNOON;
+    const counts = project([...FIXTURE, ...finding], t).panels.triage.senses;
+    expect(counts).toEqual(view.panels.triage.senses);
+    expect(projectSheet(finding, '2001', t)?.report).toEqual({ page: '/contact', quarantined: false, by: 'planner' });
+    expect(projectSheet(finding, '2001', t)?.chapters.map((c) => c.label)).toContain('FINDING');
+    expect(project(finding, t).cards[0]?.picture.type).toBe('judgement');
   });
 });
 

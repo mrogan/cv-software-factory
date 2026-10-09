@@ -6,6 +6,8 @@
  *   with no event, so the event count grows with tickets, not with the minutes a defect stays unfixed.
  * - Every report becomes events, judged by Jev: a new ticket, a repeat that joins an open one, or a work item
  *   that says it was quarantined, parked or discarded.
+ * - So does every finding the planner leaves, judged the same way and trusted no more, except that it never opens a
+ *   ticket: a defect is parked until a sense sees it or Martin opens one.
  *
  * One worker decides at a time (it holds an advisory lock), so two signals with the same new fingerprint cannot
  * open two tickets. It takes nothing while the line is stopped, and no report while the gateway waits on a spend cap.
@@ -14,14 +16,15 @@ import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/eve
 import { type EventWriter, nextWorkItem } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { INBOX } from '../../../policy/triage.ts';
-import { idsFor, reportEvents, senseEvidence, senseTicket } from './events.ts';
+import { findingEvents, idsFor, reportEvents, senseEvidence, senseTicket } from './events.ts';
 import { type Judge, JudgeWaiting } from './judge.ts';
 import type { Candidate } from './questions.ts';
 import { judgeReport, type PageReader } from './reports.ts';
+import { routeFinding, routeReport } from './routing.ts';
 import { privatePath } from './scrub.ts';
 
 /** What triage made of a signal, as the inbox records it. */
-export type Outcome = 'opened' | 'evidence' | 'counted' | 'report';
+export type Outcome = 'opened' | 'evidence' | 'counted' | 'report' | 'finding';
 
 export interface Logger {
   info(fields: object, message: string): void;
@@ -136,7 +139,7 @@ export class Triage {
                        not_before = clock_timestamp() + make_interval(secs => ${INBOX.leaseSeconds})
       where id = (select id from inbox
                   where triaged_at is null and not_before <= clock_timestamp() and attempts < ${INBOX.attempts}
-                    and (not ${skipReports} or sense <> 'report')
+                    and (not ${skipReports} or sense not in ('report', 'planner'))
                   order by received_at limit 1 for update skip locked)
       returning id, sense, signal, attempts, received_at`;
     return row;
@@ -151,16 +154,23 @@ export class Triage {
     const [done] = await sql<{ work_item: string; type: string }[]>`
       select work_item, type from events where id = ${idsFor(taken.id)()}`;
     if (done) {
-      const outcome = signal.sense === 'report' ? 'report' : done.type === 'work-item.opened' ? 'opened' : 'evidence';
+      const outcome = judged(signal)
+        ? signal.sense === 'planner'
+          ? 'finding'
+          : 'report'
+        : done.type === 'work-item.opened'
+          ? 'opened'
+          : 'evidence';
       // Counted once already, if at all: the time it took is not this attempt's.
       return { outcome, workItem: done.work_item, ticketOpened: false };
     }
 
     const tickets = await openTickets(sql);
-    if (signal.sense === 'report') {
+    if (judged(signal)) {
+      const finding = signal.sense === 'planner';
       const text = signal.report?.text;
       // The inbox refuses a report without its text; one that got in some other way is nothing to judge.
-      if (!text) throw new Error('A report reached triage without its text');
+      if (!text) throw new Error(`A ${finding ? 'finding' : 'report'} reached triage without its text`);
       // The visitor may have typed the path, so anything private in it goes before anything is matched or asked.
       const page = privatePath(signal.report?.page ?? signal.route);
       const route = privatePath(signal.route);
@@ -170,16 +180,25 @@ export class Triage {
         candidates.map(candidateOf),
         this.#o.judge,
         this.#o.read,
+        finding ? routeFinding : routeReport,
       );
-      // One fingerprint, one ticket: a new ticket that matches an open one joins it instead.
-      const fingerprint = decision.fingerprint;
+      // One fingerprint, one ticket: a new ticket that matches an open one joins it instead, as does a defect the
+      // planner noticed that an open ticket already has.
+      const { routed } = decision;
+      const defect = routed.route === 'ticket' || (routed.route === 'park' && routed.defect !== undefined);
+      const fingerprint =
+        routed.route === 'park' && routed.defect ? { route, class: routed.defect.symptom } : decision.fingerprint;
       const same = fingerprint && tickets.find((ticket) => sameFingerprint(ticket.fingerprint, fingerprint));
-      if (decision.routed.route === 'ticket' && same) {
+      if (defect && same) {
         decision.routed = { route: 'repeat', joined: same.workItem };
         const first = decision.judgements[0];
         if (first) decision.judgements[0] = { ...first, route: 'repeat', joined: same.workItem };
       }
       const workItem = decision.routed.route === 'repeat' ? decision.routed.joined : await nextWorkItem(sql);
+      if (finding) {
+        await events.append(findingEvents(signal, taken.id, workItem, decision, now));
+        return { outcome: 'finding', workItem, ticketOpened: false };
+      }
       await events.append(reportEvents(signal, taken.id, workItem, decision, now));
       return { outcome: 'report', workItem, ticketOpened: decision.routed.route === 'ticket' };
     }
@@ -198,6 +217,9 @@ export class Triage {
     return { outcome: 'evidence', workItem: ticket.workItem, ticketOpened: false };
   }
 }
+
+/** Whether a signal's words are for Jev to judge: a visitor's report, or a planner's finding. */
+const judged = (signal: InboxSignal) => signal.sense === 'report' || signal.sense === 'planner';
 
 /** Whether the line is stopped: the last of `line.started` and `line.stopped` decides. */
 export async function lineStopped(sql: Sql): Promise<boolean> {

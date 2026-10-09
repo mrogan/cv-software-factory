@@ -27,8 +27,8 @@
 import { hostname } from 'node:os';
 import type { PayloadOf, RawEvent } from '@software-factory/events';
 import { returnWords, upcast } from '@software-factory/events';
-import type { EventWriter } from '@software-factory/store';
-import { lineStopped } from '@software-factory/triage';
+import { type EventWriter, sendSignal } from '@software-factory/store';
+import { lineStopped, uuidFrom } from '@software-factory/triage';
 import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../github/server.ts';
@@ -537,7 +537,7 @@ export class Line {
   #effectsContext(item: QueueItem, state: WorkItemState, pending: Pending): EffectsContext {
     const { workItem } = item;
     const { github, repo } = this.#o;
-    return {
+    const context: EffectsContext = {
       ...this.#context(item, pending.round, state, pending.commit, pending.base),
       once: async <T>(name: string, write: (again: boolean) => Promise<T>): Promise<T> => {
         // What a write gave back is kept as JSON, and given back as it was kept.
@@ -554,8 +554,16 @@ export class Line {
         return result;
       },
       act: (action, args) => github.act(action, repo, args),
+      leaveSignal: async (name, signal) => {
+        const id = signalId(pending.job, name);
+        await context.once(name, async () => {
+          await sendSignal(this.#o.sql, { ...signal, observedAt: this.#o.now().toISOString() }, id);
+          return id;
+        });
+      },
       keepSession: (session) => this.#queue.setSession(workItem, session),
     };
+    return context;
   }
 
   /** Opens the ticket's issue in the app's repository, from the ticket's public view. */
@@ -649,6 +657,9 @@ export class Line {
     await this.#o.events.append(drafts.map((draft) => asEvent(workItem, draft, ts)));
   }
 }
+
+/** The inbox id of a signal a handback leaves: the same job and name always give the same id. */
+export const signalId = (job: string, name: string) => uuidFrom(`line:${job}:${name}`);
 
 const errorOf = (error: unknown) => ({
   type: (error as Error)?.name ?? 'Error',

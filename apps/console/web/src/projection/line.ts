@@ -3,7 +3,7 @@
  * each stage panel lists.
  */
 import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-factory/events';
-import { returnWords, SENSES, STAGES } from '@software-factory/events';
+import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
 import type { ItemState } from './items.ts';
 
 export type Status = 'idle' | 'working' | 'returning' | 'passing' | 'blocked' | 'failed';
@@ -277,9 +277,10 @@ function returnOf(item: string, returned: PayloadOf<'work.returned'>, summary: s
 function noteOf(item: ItemState, stage: Stage): string {
   if (item.queued) return item.stage === 'release' ? 'Merged · waiting for release' : 'Waiting for the planner';
   if (item.hold?.cause === 'merge') return 'Needs you · waiting for Martin’s merge';
-  // Only Martin asks for improvements, so a visitor's suggestion waits for Martin. A report that became a ticket
-  // and is held later, at Gates say, shows that hold's own reason.
-  if (item.hold?.stage === 'triage' && item.kind === 'visitor-report') return 'Needs you · parked for Martin';
+  // Only Martin asks for improvements, so a visitor's suggestion waits for Martin, as does whatever the planner
+  // noticed. A report that became a ticket and is held later, at Gates say, shows that hold's own reason.
+  if (item.hold?.stage === 'triage' && (item.kind === 'visitor-report' || item.kind === 'planner-finding'))
+    return 'Needs you · parked for Martin';
   return item.hold ? item.hold.reason : (item.latest[stage]?.summary ?? '');
 }
 
@@ -344,12 +345,15 @@ export function senseCounts(items: readonly ItemState[], events: readonly Public
     ]),
   );
   const routes = counts.get('report')?.routes;
+  // A judgement follows the signal it judged, in its work item: a report's, or a planner's finding, which is no sense's.
+  const judging = new Map<string | null, string>();
   for (const event of events) {
     if (event.type === 'signal.received') {
-      const found = counts.get(event.payload.sense);
+      judging.set(event.work_item, event.payload.sense);
+      const found = isSense(event.payload.sense) ? counts.get(event.payload.sense) : undefined;
       if (found) found.signals += 1;
     }
-    if (event.type === 'judgement.made' && routes) {
+    if (event.type === 'judgement.made' && routes && judging.get(event.work_item) === 'report') {
       if (event.payload.route === 'quarantine') routes.quarantined += 1;
       if (event.payload.route === 'park') routes.parked += 1;
       if (event.payload.route === 'discard') routes.closed += 1;
@@ -359,7 +363,10 @@ export function senseCounts(items: readonly ItemState[], events: readonly Public
   for (const item of items) {
     if (!item.ticket) continue;
     const opener = item.events.find((event) => event.type === 'signal.received');
-    const found = opener?.type === 'signal.received' ? counts.get(opener.payload.sense) : undefined;
+    const found =
+      opener?.type === 'signal.received' && isSense(opener.payload.sense)
+        ? counts.get(opener.payload.sense)
+        : undefined;
     if (found) found.tickets += 1;
   }
   return [...counts.values()];

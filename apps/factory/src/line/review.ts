@@ -14,9 +14,11 @@ import type { ReviewerResult } from './agents/reviewer.ts';
 
 export type Finding = PayloadOf<'review.submitted'>['findings'][number];
 
-/** What a finding cites, as a reader sees it: "rule 4 · criterion 2". */
-export const cites = (f: Pick<Finding, 'rule' | 'criterion'>) =>
-  [f.rule && `rule ${f.rule}`, f.criterion && `criterion ${f.criterion}`].filter(Boolean).join(' · ');
+/** What a finding cites, as a reader sees it: "rule 4 · criterion 2", or "the ticket". */
+export const cites = (f: Pick<Finding, 'rule' | 'criterion' | 'ticket'>) =>
+  [f.ticket && 'the ticket', f.rule && `rule ${f.rule}`, f.criterion && `criterion ${f.criterion}`]
+    .filter(Boolean)
+    .join(' · ');
 
 /** The factory's check run, by name. */
 export const REVIEW_CHECK = 'factory review';

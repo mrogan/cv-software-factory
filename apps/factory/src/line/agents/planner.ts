@@ -7,6 +7,12 @@
  * What it is told is the ticket's public view and what the senses saw, by their typed fields (`evidence.ts`): never
  * a visitor's words, and never a log message, which may carry them.
  *
+ * A fix does what its ticket's evidence asks, and no more: each criterion names what in that evidence it comes from
+ * (`from`), and one nothing asks for does not belong in the spec. Anything else the planner notices on the way goes in
+ * its `findings`, which the line leaves in triage's inbox as signals from the planner (`findingSignal`). Triage judges
+ * them as it judges a visitor's report, and trusts them no more: a visitor can read the app's public code and try to
+ * persuade an agent that a line of it holds a bug, so the planner's word alone never opens a ticket.
+ *
  * It stops at a diagnosis: the code at fault, and why. Reproducing the defect (a server, requests, a script) is the
  * coder's, whose first step is a failing test. On Qwen, planners that reproduced it found the cause in a few minutes
  * and spent the rest of their 30 to 45 doing so.
@@ -18,13 +24,13 @@
  * says so by rejecting the ticket. The line's fence holds the coder's patch to the same paths at its commit
  * (`coder.ts`), and the GitHub worker refuses every protected file a patch changes, as the last word.
  */
-import type { PayloadOf } from '@software-factory/events';
+import type { InboxSignal, PayloadOf } from '@software-factory/events';
 import { RISKS } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { inScope, NEVER, pattern, plainPath } from '../../github/paths.ts';
 import { count, defineAgent, holdDraft, words } from './agent.ts';
-import { type Signal, seen, ticketLines } from './evidence.ts';
+import { numbered, routeOf, type Signal, ticketLines } from './evidence.ts';
 
 export interface PlannerInput {
   workItem: string;
@@ -63,14 +69,49 @@ function scopeProblem(entry: string, protectedPaths: readonly string[]): string 
   return undefined;
 }
 
-/** The spec, with a scope of plain paths that keeps out of the protected paths. */
+/**
+ * The spec, with a scope of plain paths that keeps out of the protected paths, and every criterion naming what in the
+ * ticket's evidence it comes from.
+ */
 const specWithin = (protectedPaths: readonly string[]) =>
   PAYLOADS['spec.written'].superRefine((spec, ctx) => {
     spec.scope.forEach((entry, i) => {
       const problem = scopeProblem(entry, protectedPaths);
       if (problem) ctx.addIssue({ code: 'custom', path: ['scope', i], message: problem });
     });
+    spec.criteria.forEach((criterion, i) => {
+      if (!criterion.from) {
+        const message = 'a criterion names what in the ticket or the signals asks for it';
+        ctx.addIssue({ code: 'custom', path: ['criteria', i, 'from'], message });
+      }
+    });
   });
+
+/** The most findings one plan leaves triage. */
+export const MAX_PLANNER_FINDINGS = 5;
+
+/** A path of the app with no query: a page a visitor opens, or a route as the app's code names it. */
+const path = (example: string) =>
+  z
+    .string()
+    .trim()
+    .regex(/^\/[^\s?#]*$/, `a path such as ${example}, with no query`)
+    .max(200);
+
+/**
+ * Something the planner noticed that its ticket does not ask for: where it shows, as a page and as the route that
+ * serves it (as a visitor's report has both), and what it is, in its own words. Triage reads the words as it reads a
+ * visitor's report: as untrusted data.
+ */
+const finding = z.strictObject({
+  page: path('/products/camera'),
+  route: path('/products/:slug'),
+  text: words(300),
+});
+
+export type PlannerFinding = z.infer<typeof finding>;
+
+const findings = z.array(finding).max(MAX_PLANNER_FINDINGS).default([]);
 
 /**
  * The planner's result, with its scope held to the protected paths given; with none, to the rules of the line that
@@ -78,11 +119,11 @@ const specWithin = (protectedPaths: readonly string[]) =>
  */
 export const plannerResult = (protectedPaths: readonly string[] = NEVER) =>
   z.discriminatedUnion('verdict', [
-    z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths) }),
+    z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths), findings }),
     /** The ticket cannot be made testable, is not a defect in the app, or needs a fix the line may not make. */
-    z.strictObject({ verdict: z.literal('reject'), reason: words(300) }),
+    z.strictObject({ verdict: z.literal('reject'), reason: words(300), findings }),
     /** Something about what the shop should do that only Martin can say. */
-    z.strictObject({ verdict: z.literal('question'), question: words(300) }),
+    z.strictObject({ verdict: z.literal('question'), question: words(300), findings }),
   ]);
 
 export type PlannerResult = z.infer<ReturnType<typeof plannerResult>>;
@@ -97,12 +138,31 @@ const RISK_MEANINGS: Record<(typeof RISKS)[number], string> = {
 
 const SPEC_TEMPLATE = [
   '- `outcome`: one sentence, what is true once the fix is in.',
-  '- `criteria`: one to twelve acceptance criteria, each an object of `given`, `when` and `expect` (the then), in a sentence each. A criterion says what a visitor or a caller of the code sees, not how the code changes. Each is a test the coder can write with the repository’s own tests: it fails at this commit and passes once the fix is in.',
+  '- `criteria`: one to twelve acceptance criteria, each an object of `given`, `when`, `expect` (the then) and `from`, in a sentence each. A criterion says what a visitor or a caller of the code sees, not how the code changes. Each is a test the coder can write with the repository’s own tests: it fails at this commit and passes once the fix is in. `from` names what above asks for it: `the ticket`, a signal by its number (`signal 1`), or `Martin’s answer`. A criterion nothing above asks for does not belong in the spec, however wrong the code it would mend.',
   '- `scope`: the files the coder may change, its tests among them, and no more than the fix needs: a path from the top of the repository, a folder ending in `/`, or a pattern with `*`.',
   `- \`risks\`: a list of tags, each exactly one of these words, for what the fix itself does; usually it is empty. ${RISKS.map((r) => `${r}: ${RISK_MEANINGS[r]}`).join('; ')}.`,
   '- `rollout`: a sentence or two on how the fix ships and what would show it worked.',
   'Every string is a plain sentence or a path, at most 200 characters (the rollout 300).',
 ];
+
+/**
+ * A planner's finding as a signal for triage's inbox: its own source, with its words where a report's are, which no
+ * public view and no generative agent reads. It names the ticket being planned and the commit the planner read.
+ */
+export function findingSignal(
+  found: PlannerFinding,
+  workItem: string,
+  commit: string,
+): Omit<InboxSignal, 'observedAt'> {
+  return {
+    sense: 'planner',
+    check: `planning ticket #${workItem}`,
+    route: routeOf(found.route),
+    version: commit,
+    report: { page: routeOf(found.page), text: found.text },
+    artifacts: [],
+  };
+}
 
 export const planner = defineAgent<PlannerInput, PlannerResult>({
   agent: 'planner',
@@ -121,7 +181,7 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
     [
       `Plan the fix for ticket #${workItem}: ${ticket.title}.`,
       ...ticketLines(ticket),
-      ...(signals.length ? ['', 'What the senses saw:', ...signals.flatMap(seen)] : []),
+      ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
       ...(answers.length
         ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${a.asked} He said: ${a.answer}`)]
         : []),
@@ -130,17 +190,24 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
       'Find the cause in the repository: start from the route, and read the code that serves it and its tests. Stop as soon as you can name the code at fault and say why it does what the evidence shows: that diagnosis is all the plan needs, and most plans need a dozen tool calls or fewer.',
       'Do not reproduce the defect: start no server, send no requests, write no scripts, and run no tests. The coder’s first step is a failing test that reproduces it, and your criteria say what that test shows. You plan; the coder fixes. Change nothing: no change of yours leaves this checkout.',
       '',
-      'Then write the result, one of three:',
-      '1. {"verdict":"spec","spec":{"outcome","criteria":[{"given","when","expect"}],"scope":[],"risks":[],"rollout"}}, the spec the coder will be held to:',
+      'A fix does what the ticket’s evidence asks, and no more. The shop is full of other defects: anything else you notice that is wrong with the app, or that it could do better, goes in `findings`, never in the spec. Triage judges each one as it judges a visitor’s report; it opens no ticket on your word alone. Leave `findings` empty when you noticed nothing else.',
+      '',
+      'Then write the result, one of three, each with its `findings`:',
+      '1. {"verdict":"spec","spec":{"outcome","criteria":[{"given","when","expect","from"}],"scope":[],"risks":[],"rollout"},"findings":[{"page","route","text"}]}, the spec the coder will be held to:',
       ...SPEC_TEMPLATE.map((line) => `   ${line}`),
       `2. {"verdict":"reject","reason"} when you cannot make it testable: the cause is not in this repository, or you cannot find the defect the evidence shows, or no test could tell the fix from the defect. Reject it too when the fix needs a path no scope may name: ${protectedPaths.join(', ')}. The reason is one or two short sentences for Martin, at most 300 characters, naming the file or what is missing.`,
       '3. {"verdict":"question","question"} when the fix turns on what the shop should do, which only Martin can say: one question he can answer in a line, at most 300 characters.',
+      `\`findings\`: at most ${MAX_PLANNER_FINDINGS}, each with \`page\`, a page of the app that shows it, as the path a visitor opens (\`/\` when it shows on none); \`route\`, the route that serves that page, as the app’s code names it, such as \`/products/:slug\`; and \`text\`, what is wrong or could be better, in a sentence or two of at most 300 characters.`,
     ].join('\n'),
-  apply: async (planned) => {
+  apply: async (planned, _handback, _input, context) => {
+    for (const [i, found] of planned.findings.entries()) {
+      await context.leaveSignal(`finding-${i + 1}`, findingSignal(found, context.workItem, context.commit));
+    }
+    const left = planned.findings.length ? `; ${count(planned.findings.length, 'finding')} left for triage` : '';
     switch (planned.verdict) {
       case 'spec': {
         const { spec } = planned;
-        const summary = `Spec written: ${count(spec.criteria.length, 'criterion', 'criteria')}, ${count(spec.scope.length, 'path')} in scope`;
+        const summary = `Spec written: ${count(spec.criteria.length, 'criterion', 'criteria')}, ${count(spec.scope.length, 'path')} in scope${left}`;
         return [{ type: 'spec.written', actor: 'planner', summary, payload: spec }];
       }
       case 'reject':

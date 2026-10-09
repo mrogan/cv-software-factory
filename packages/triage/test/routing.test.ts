@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { REPORTS } from '../../../policy/triage.ts';
-import { type ReportAnswers, routeReport, severityOf } from '../src/routing.ts';
+import { type ReportAnswers, routeFinding, routeReport, severityOf } from '../src/routing.ts';
 import { pathOf, privatePath, scrub, shortPath } from '../src/scrub.ts';
 
 const problem: ReportAnswers = { category: 'functional', symptom: 'wrong-result', severity: 2.9, injection: 0.02 };
@@ -45,6 +45,22 @@ describe('routing a report', () => {
     [3, 'broken'],
   ])('reads severity %d as %s: a defect is never "no harm"', (expected, severity) => {
     expect(severityOf(expected)).toBe(severity);
+  });
+});
+
+describe('routing a planner’s finding', () => {
+  it('routes it as a report, but never to a ticket: a defect is parked with what Jev made of it', () => {
+    expect(routeFinding(problem)).toEqual({
+      route: 'park',
+      defect: { category: 'functional', symptom: 'wrong-result', severity: 'broken' },
+    });
+    expect(routeFinding({ ...problem, category: 'suggestion' })).toEqual({ route: 'park' });
+    expect(routeFinding({ ...problem, injection: REPORTS.quarantine }).route).toBe('quarantine');
+    expect(routeFinding({ ...problem, category: 'not-a-defect' }).route).toBe('discard');
+    expect(routeFinding({ ...problem, repeat: { workItem: '1004', probability: REPORTS.repeat } })).toEqual({
+      route: 'repeat',
+      joined: '1004',
+    });
   });
 });
 

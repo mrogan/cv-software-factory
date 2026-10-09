@@ -77,6 +77,8 @@ export interface Finding {
   rule: { number: number; title: string | undefined; text: string | undefined } | undefined;
   /** The spec's criterion it cites, in full. */
   criterion: { number: number; text: string | undefined } | undefined;
+  /** Whether it cites the ticket: the spec or the change goes beyond what the ticket asks. */
+  ticket: boolean;
 }
 
 /** The tests-first check, by the name its workflow gives it. It is a signal, not a required check. */
@@ -186,6 +188,7 @@ export function reviewThread(item: ItemState, spec: PayloadOf<'spec.written'> | 
           line: f.line,
           blocking: f.blocking,
           comment: f.comment,
+          ticket: f.ticket === true,
           rule:
             f.rule !== undefined
               ? { number: f.rule, title: RULES[f.rule]?.title, text: RULES[f.rule]?.text }

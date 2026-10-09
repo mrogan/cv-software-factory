@@ -231,11 +231,13 @@ export const PAYLOADS = {
   'attack.launched': z.strictObject({ attack: text(120), expected: text(120) }),
 
   /**
-   * What a sense found, or what a visitor reported. A sense's signal names the symptom class it saw; a report's
-   * is for triage to judge. On an open ticket, the first signal from each sense adds its evidence.
+   * What a sense found, what a visitor reported, or what the planner noticed outside its ticket. A sense's signal
+   * names the symptom class it saw; a report's, or a planner's finding, is for triage to judge, and its words are in
+   * `report`, which no public view and no generative agent ever reads. On an open ticket, the first signal from each
+   * sense adds its evidence.
    */
   'signal.received': z.strictObject({
-    sense: z.enum(V.SENSES),
+    sense: z.enum(V.SIGNAL_SOURCES),
     check: text(80),
     route: routeOrEvery,
     version: appVersion,
@@ -280,9 +282,12 @@ export const PAYLOADS = {
 
   'spec.written': z.strictObject({
     outcome: text(200),
-    /** Given, when, then. `expect` holds the then, because an object with a `then` looks like a promise. */
+    /**
+     * Given, when, then. `expect` holds the then, because an object with a `then` looks like a promise. `from` names
+     * what in the ticket's evidence asks for it: a line of the ticket, or a signal. A version 1 spec never said.
+     */
     criteria: z
-      .array(z.strictObject({ given: text(200), when: text(200), expect: text(200) }))
+      .array(z.strictObject({ given: text(200), when: text(200), expect: text(200), from: text(200).optional() }))
       .min(1)
       .max(12),
     scope: z.array(text(200)).min(1).max(40),
@@ -334,8 +339,9 @@ export const PAYLOADS = {
   }),
   /**
    * The reviewer's review of a pull request's latest push, with each finding: the line it is anchored to, whether it
-   * blocks, what it cites (a rule of the repository's `docs/REVIEWERS.md`, a criterion of the spec, or both) and its
-   * comment, so the console can show the thread and the rules can be counted by how often they are cited.
+   * blocks, what it cites (a rule of the repository's `docs/REVIEWERS.md`, a criterion of the spec, the ticket, or
+   * more than one) and its comment, so the console can show the thread and the rules can be counted by how often they
+   * are cited. A finding that cites the ticket says the spec or the change goes beyond what the ticket asks.
    */
   'review.submitted': z.strictObject({
     pullRequest,
@@ -350,6 +356,7 @@ export const PAYLOADS = {
           blocking: z.boolean(),
           rule: z.number().int().min(1).max(50).optional(),
           criterion: z.number().int().min(1).max(12).optional(),
+          ticket: z.literal(true).optional(),
           comment: text(300),
         }),
       )
@@ -527,12 +534,24 @@ export const inboxSignal = z
     }),
   )
   .superRefine((signal, context) => {
-    // A report is its text: one without any is nothing to judge, and nothing to answer.
-    if (signal.sense === 'report' && !signal.report?.text) {
-      context.addIssue({ code: 'custom', path: ['report', 'text'], message: 'a report needs its text' });
+    // A report is its text, as a planner's finding is: one without any is nothing to judge, and nothing to answer.
+    const judged = signal.sense === 'report' || signal.sense === 'planner';
+    if (judged && !signal.report?.text) {
+      context.addIssue({
+        code: 'custom',
+        path: ['report', 'text'],
+        message: signal.sense === 'report' ? 'a report needs its text' : 'a finding needs its text',
+      });
     }
-    if (signal.sense !== 'report' && signal.report) {
-      context.addIssue({ code: 'custom', path: ['report'], message: 'only a report carries a report' });
+    if (!judged && signal.report) {
+      context.addIssue({ code: 'custom', path: ['report'], message: 'only a report or a finding carries words' });
+    }
+    if (signal.sense === 'planner' && signal.symptom) {
+      context.addIssue({
+        code: 'custom',
+        path: ['symptom'],
+        message: 'the planner names no symptom: triage judges it',
+      });
     }
   });
 

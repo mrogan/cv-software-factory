@@ -34,7 +34,7 @@ function opened(item: string, sample = true): NewEvent<'work-item.opened'> {
     ts: at(0),
     work_item: item,
     type: 'work-item.opened',
-    version: 1,
+    version: 2,
     actor: 'visitor',
     summary: 'A visitor sent a report',
     payload: { kind: 'visitor-report', title: 'A report on the clock', sample, visitor: { key: 'amber-otter' } },
@@ -48,7 +48,7 @@ function report(item: string): NewEvent<'signal.received'> {
     ts: at(1),
     work_item: item,
     type: 'signal.received',
-    version: 1,
+    version: 2,
     actor: 'widget',
     summary: 'Report: the clock says ten past four',
     payload: {
@@ -74,6 +74,7 @@ describe('migrations', () => {
       { version: 4, name: 'job-tokens-and-agent-calls' },
       { version: 5, name: 'line' },
       { version: 6, name: 'line-effects' },
+      { version: 7, name: 'planner-findings' },
     ]);
   });
 });
@@ -117,6 +118,7 @@ describe('appending', () => {
       ...opened(item),
       id: uuid(),
       type: 'work-item.closed',
+      version: 1,
       actor: 'triage',
       summary: 'Closed: not a defect',
       payload: { outcome: 'no-change', reason: 'The page says the clock is stopped' },
@@ -125,6 +127,7 @@ describe('appending', () => {
       ...opened(item),
       id: uuid(),
       type: 'work-item.summarised',
+      version: 1,
       actor: 'triage',
       summary: 'Summarised',
       payload: { title: 'A visitor says the clock is wrong', description: 'It is sold as stopped.', story: 'It is.' },
@@ -212,16 +215,16 @@ describe('reading', () => {
   it('upcasts an event stored at an older version', async () => {
     const item = nextItem();
     const [first] = await samples().append(opened(item));
-    // As if a test-only version 1 of work-item.opened had called its title `name`; version 2 renamed it.
+    // As if a test-only version 2 of work-item.opened had called its title `name`; version 3 renamed it.
     const catalogue = {
-      versions: { 'work-item.opened': 2 },
+      versions: { 'work-item.opened': 3 },
       upcasters: {
-        'work-item.opened': { 1: ({ title, ...rest }: Record<string, unknown>) => ({ ...rest, name: title }) },
+        'work-item.opened': { 2: ({ title, ...rest }: Record<string, unknown>) => ({ ...rest, name: title }) },
       },
     };
     const [read] = await readPublic(reader, (first?.seq ?? 1) - 1, { limit: 1, catalogue });
     expect(read?.understood).toBe(true);
-    expect(read?.event).toMatchObject({ version: 2, payload: { name: 'A report on the clock' } });
+    expect(read?.event).toMatchObject({ version: 3, payload: { name: 'A report on the clock' } });
   });
 
   it('passes on an event written by a newer factory, marked as not understood', async () => {
@@ -229,7 +232,7 @@ describe('reading', () => {
     const [first] = await samples().append(opened(item));
     const catalogue = { versions: {}, upcasters: {} };
     const [read] = await readPublic(reader, (first?.seq ?? 1) - 1, { limit: 1, catalogue });
-    expect(read).toMatchObject({ understood: false, event: { type: 'work-item.opened', version: 1 } });
+    expect(read).toMatchObject({ understood: false, event: { type: 'work-item.opened', version: 2 } });
   });
 
   it('returns events after a seq, in order, up to a limit', async () => {

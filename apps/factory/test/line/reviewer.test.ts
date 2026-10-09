@@ -63,6 +63,30 @@ describe('the reviewer', () => {
       expect(fits(wrong), JSON.stringify(wrong).slice(0, 80)).toBe(false);
     }
   });
+
+  it('is told the ticket and what the senses saw, and holds the spec to them as well as the change to the spec', () => {
+    const widened = FIXTURES.reviewer['spec-widens']?.input;
+    if (!widened) throw new Error('The reviewer has no spec-widens fixture.');
+    const prompt = reviewer.prompt(widened);
+    expect(prompt).toContain('The ticket: A wrong result on /products/:slug.');
+    expect(prompt).toContain('It is a wrong-result on /products/:slug. Category functional, severity broken.');
+    expect(prompt).toContain('1. A probe\'s check "a price is in pounds and two digits of pence" on /products/:slug');
+    expect(prompt).toContain(
+      '5. Given a price of 1234567 pence, when pounds is called with it, then it returns £12,345.67, with a comma between thousands. (From the ticket.)',
+    );
+    expect(prompt).toContain('2. Hold the spec to the ticket.');
+    expect(prompt).toContain('is a blocking finding with `"ticket":true`');
+  });
+
+  it('sends a spec or a change beyond the ticket to Martin, never back to the coder', () => {
+    const fits = (result: unknown) => reviewer.schema(input).safeParse(result).success;
+    const beyond = { ...unmet, criterion: 5, ticket: true as const, comment: 'No evidence asks for the cards.' };
+    expect(fits({ verdict: 'escalated', note: 'The spec goes beyond its ticket.', findings: [beyond] })).toBe(true);
+    expect(fits({ verdict: 'changes-requested', note: 'Beyond the ticket.', findings: [beyond] })).toBe(false);
+    expect(fits({ verdict: 'escalated', note: 'Beyond the ticket.', findings: [{ ...beyond, blocking: false }] })).toBe(
+      false,
+    );
+  });
 });
 
 const DIFF = [
@@ -134,5 +158,12 @@ describe('a review in GitHub', () => {
       'it is escalated, and Martin decides',
     );
     expect(reviewInGitHub(escalated, DIFF, at).body).not.toContain('go back to the coder');
+  });
+
+  it('says when a finding cites the ticket', () => {
+    const beyond = { ...unmet, ticket: true as const, comment: 'No evidence asks for the cards.' };
+    const at = { commit: 'c'.repeat(40), workItem: '1001', review: 1, last: false };
+    const shown = reviewInGitHub({ verdict: 'escalated', note: 'Beyond the ticket.', findings: [beyond] }, DIFF, at);
+    expect(shown.comments[0]?.body).toBe(`**Blocking** · the ticket · criterion 5\n\n${beyond.comment}`);
   });
 });

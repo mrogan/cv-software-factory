@@ -148,6 +148,66 @@ describe('triage', () => {
     ]);
   });
 
+  it('never opens a ticket on the planner’s word: a defect it noticed waits for a sense or Martin', async () => {
+    const finding = found({
+      sense: 'planner',
+      check: 'planning ticket #1001',
+      route: '/contact',
+      symptom: undefined,
+      report: { page: '/contact', text: 'The form says it sends at once, and waits a minute' },
+    });
+    const opened: boolean[] = [];
+    await sendSignal(writer, finding);
+    expect(await triage({ onTriaged: (_o, _s, _w, ticket) => opened.push(ticket) }).takeOne()).toBe('finding');
+    expect(opened).toEqual([false]);
+    const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
+      select work_item from inbox where outcome = 'finding' order by received_at desc limit 1`;
+    expect(await types(item)).toEqual([
+      'work-item.opened',
+      'signal.received',
+      'judgement.made',
+      'hold.started',
+      'work-item.summarised',
+    ]);
+    const [hold] = await writer<{ payload: { cause: string }; public: { payload: { report: object } } }[]>`
+      select e.payload, s.public from events e, events s
+      where e.work_item = ${item} and e.type = 'hold.started' and s.work_item = ${item} and s.type = 'signal.received'`;
+    expect(hold?.payload.cause).toBe('finding');
+    // Its words are as private as a visitor's.
+    expect(hold?.public.payload.report).toEqual({ page: '/contact' });
+  });
+
+  it('parks the planner’s suggestion for Martin, and joins a defect it noticed to the open ticket that has it', async () => {
+    const finding = (route: string) =>
+      found({
+        sense: 'planner',
+        check: 'planning ticket #1001',
+        route,
+        symptom: undefined,
+        report: { page: route, text: 'The page could say more' },
+      });
+    const suggests: Judge = async (request) => {
+      const judged = await jev(request);
+      return { ...judged, answers: { ...judged.answers, category: choice('suggestion') } };
+    };
+    await sendSignal(writer, finding('/delivery'));
+    expect(await triage({ judge: suggests }).takeOne()).toBe('finding');
+    const [held] = await writer<{ payload: { cause: string } }[]>`
+      select payload from events where type = 'hold.started' order by seq desc limit 1`;
+    expect(held?.payload.cause).toBe('suggestion');
+
+    await sendSignal(writer, found());
+    expect(await triage().takeOne()).toBe('opened');
+    await sendSignal(writer, finding('/about'));
+    expect(await triage().takeOne()).toBe('finding');
+    const [ticket, joined] = await writer<{ work_item: string }[]>`
+      select work_item from inbox where outcome in ('opened', 'finding') order by received_at desc limit 2`.then(
+      (rows) => rows.reverse(),
+    );
+    expect(joined?.work_item).toBe(ticket?.work_item);
+    expect((await types(ticket?.work_item ?? '')).slice(-2)).toEqual(['signal.received', 'judgement.made']);
+  });
+
   it('takes nothing while the line is stopped, and carries on when it starts again', async () => {
     const line = (type: 'line.stopped' | 'line.started', payload: object) =>
       events.append({

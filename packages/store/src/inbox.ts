@@ -6,18 +6,22 @@ import type { InboxSignal } from '@software-factory/events';
 import { validateSignal } from '@software-factory/events/schemas';
 import type { JSONValue, Sql } from 'postgres';
 
-/** What a sense found, as triage matches it: the route and the symptom class. A report has none. */
+/** What a sense found, as triage matches it: the route and the symptom class. A report or a finding has none. */
 export function fingerprintOf(found: Pick<InboxSignal, 'sense' | 'route' | 'symptom'>): string | null {
-  if (found.sense === 'report') return null;
+  if (found.sense === 'report' || found.sense === 'planner') return null;
   if (!found.symptom) throw new Error(`A signal from the ${found.sense} needs the symptom class it saw`);
   return `${found.route} ${found.symptom}`;
 }
 
-/** Leaves a signal in the inbox, and returns its id. Triage hears of it at once, through NOTIFY. */
+/**
+ * Leaves a signal in the inbox, and returns its id. Triage hears of it at once, through NOTIFY. A signal sent again
+ * with the same id is left as it was the first time, so a sender that cannot tell whether it sent one sends it again.
+ */
 export async function sendSignal(sql: Sql, found: InboxSignal, id: string = crypto.randomUUID()): Promise<string> {
   const checked = validateSignal(found);
   if (!checked.ok) throw new Error(`The inbox refuses this signal:\n  ${checked.problems.join('\n  ')}`);
   await sql`insert into inbox (id, sense, fingerprint, signal)
-            values (${id}, ${found.sense}, ${fingerprintOf(found)}, ${sql.json(found as unknown as JSONValue)})`;
+            values (${id}, ${found.sense}, ${fingerprintOf(found)}, ${sql.json(found as unknown as JSONValue)})
+            on conflict (id) do nothing`;
   return id;
 }

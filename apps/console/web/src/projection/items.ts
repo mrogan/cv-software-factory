@@ -175,6 +175,7 @@ const DEFAULT_CATEGORY: Record<Kind, Category> = {
   'dependency-update': 'dependency',
   'red-team': 'red-team',
   'visitor-report': 'not-a-defect',
+  'planner-finding': 'improvement',
 };
 
 /** The outcome each way of closing gives. */

@@ -6,24 +6,24 @@
  */
 export const VERSIONS = {
   // A work item, from first event to last
-  'work-item.opened': 1,
+  'work-item.opened': 2,
   'work-item.summarised': 1,
   'work-item.closed': 1,
   // Before the line: what a visitor started
   'defect.injected': 1,
   'attack.launched': 1,
   // Sense and triage
-  'signal.received': 1,
+  'signal.received': 2,
   'judgement.made': 1,
   'ticket.opened': 1,
   // Plan and build
-  'spec.written': 1,
+  'spec.written': 2,
   'pull-request.pushed': 2,
   // Gates and review
   'gates.started': 1,
   'gate.finished': 1,
   'gates.finished': 1,
-  'review.submitted': 2,
+  'review.submitted': 3,
   'pull-request.merged': 1,
   // Release and verify
   'release.started': 1,
@@ -33,7 +33,7 @@ export const VERSIONS = {
   'verification.finished': 1,
   // Anywhere on the line
   'work.returned': 2,
-  'hold.started': 3,
+  'hold.started': 4,
   'hold.answered': 1,
   'action.refused': 2,
   'model.called': 2,

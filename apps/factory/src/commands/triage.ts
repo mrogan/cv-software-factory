@@ -60,7 +60,7 @@ export async function run(args: string[]): Promise<number> {
 
   const meter = metrics.getMeter('factory-triage');
   const triaged = meter.createCounter('factory.triage.signals', {
-    description: 'Signals triaged, by sense and outcome (opened, evidence, counted, report)',
+    description: 'Signals triaged, by sense and outcome (opened, evidence, counted, report, finding)',
   });
   const toTicket = meter.createHistogram('factory.triage.signal_to_ticket', {
     description: 'From a sense seeing something to its ticket opening',

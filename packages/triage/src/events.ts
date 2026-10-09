@@ -19,17 +19,19 @@ import { SYMPTOMS } from '../../../policy/triage.ts';
 import type { Fingerprint, Judgement, ReportDecision } from './reports.ts';
 import { privatePath, shortPath } from './scrub.ts';
 
+/** A UUID that is always the same for the same seed: version 8, for a custom scheme, with the RFC 9562 variant. */
+export function uuidFrom(seed: string): string {
+  const h = createHash('sha256').update(seed).digest('hex').slice(0, 32).split('');
+  h[12] = '8';
+  h[16] = ((Number.parseInt(h[16] ?? '0', 16) & 0x3) | 0x8).toString(16);
+  const s = h.join('');
+  return `${s.slice(0, 8)}-${s.slice(8, 12)}-${s.slice(12, 16)}-${s.slice(16, 20)}-${s.slice(20)}`;
+}
+
 /** Ids for the events made from one signal: the same signal always gives the same ids, in the same order. */
 export function idsFor(signalId: string): () => string {
   let n = 0;
-  return () => {
-    const h = createHash('sha256').update(`triage:${signalId}:${n++}`).digest('hex').slice(0, 32).split('');
-    // A version 8 UUID, for a custom scheme, with the RFC 9562 variant.
-    h[12] = '8';
-    h[16] = ((Number.parseInt(h[16] ?? '0', 16) & 0x3) | 0x8).toString(16);
-    const s = h.join('');
-    return `${s.slice(0, 8)}-${s.slice(8, 12)}-${s.slice(12, 16)}-${s.slice(16, 20)}-${s.slice(20)}`;
-  };
+  return () => uuidFrom(`triage:${signalId}:${n++}`);
 }
 
 /** Writes a work item's events in order, with ids from the signal and one time for all of them. */
@@ -121,10 +123,13 @@ function tracesOf(signal: InboxSignal): string[] {
 function signalEvent(writer: Writer, signal: InboxSignal): Writer {
   const { observedAt: _at, summary, artifacts, ...payload } = signal;
   const actor = signal.sense === 'report' ? 'widget' : signal.sense;
+  const page = shortPath(payload.report?.page ?? payload.route);
   const line =
     signal.sense === 'report'
-      ? `A visitor reported a problem on ${shortPath(payload.report?.page ?? payload.route)}`
-      : (summary ?? `${signal.check}: ${TITLES[signal.symptom as SymptomClass].toLowerCase()}`);
+      ? `A visitor reported a problem on ${page}`
+      : signal.sense === 'planner'
+        ? `The planner noted something on ${page}`
+        : (summary ?? `${signal.check}: ${TITLES[signal.symptom as SymptomClass].toLowerCase()}`);
   return writer.add('signal.received', actor, line, payload, artifacts);
 }
 
@@ -244,6 +249,93 @@ export function reportEvents(
         story: `A visitor sent a report from ${page}. It went to Jev as data, and Jev judged it a ${routed.category} problem, ${routed.severity} for a visitor, with no instructions for the system in it. Triage opened ticket #${workItem} with a screenshot of the page, taken by the factory. The ticket holds Jev’s typed answers and the factory’s own evidence, never the visitor’s words.`,
       });
     }
+  }
+}
+
+/**
+ * A planner's finding: judged as a report is, and routed by `routeFinding`, so it never opens a ticket. Each becomes
+ * events, so Martin can see what the planner noticed and what triage made of it, but never its words in public.
+ */
+export function findingEvents(
+  signal: InboxSignal,
+  signalId: string,
+  workItem: string,
+  decision: ReportDecision,
+  now: Date,
+): NewEvent[] {
+  const { routed, judgements } = decision;
+  const path = privatePath(signal.report?.page ?? signal.route);
+  const page = shortPath(path);
+  const scrubbed = { ...signal, route: privatePath(signal.route), report: { page: path, text: decision.text } };
+  const shot = decision.screenshot ? [decision.screenshot] : [];
+  const writer = new Writer(signalId, workItem, now);
+  const ticket = signal.check.replace(/^planning /, '');
+  if (routed.route !== 'repeat') {
+    const category = routed.route === 'park' ? (routed.defect?.category ?? 'improvement') : CARD_CATEGORY[routed.route];
+    writer.add('work-item.opened', 'planner', `The planner noted something on ${page}`, {
+      kind: 'planner-finding',
+      title: `A finding on ${page}`,
+      sample: false,
+      ...(category && { category }),
+    });
+  }
+  signalEvent(writer, { ...scrubbed, artifacts: [...scrubbed.artifacts, ...shot] });
+  for (const judgement of judgements) writer.add('judgement.made', 'triage', judgementLine(judgement), judgement);
+
+  switch (routed.route) {
+    case 'quarantine':
+      writer.add('work-item.closed', 'triage', 'Quarantined: the finding gives orders to the system', {
+        outcome: 'quarantined',
+        reason: 'The finding holds instructions aimed at the system, so nothing acts on it',
+      });
+      return summarise(writer, {
+        title: 'A finding that gave orders',
+        description:
+          'Jev read the planner’s finding as instructions aimed at the system, so triage quarantined it. No ticket, and no agent reads it.',
+        story: `While planning ${ticket}, the planner noted something on ${page}. Its words are untrusted, as a visitor’s are, so they went to Jev as data. Jev judged that they hold instructions aimed at the system, and routing code quarantined them before anything else.`,
+      });
+    case 'park':
+      if (routed.defect) {
+        const { category, severity } = routed.defect;
+        writer.add('hold.started', 'triage', 'Waiting for a sense or Martin: the planner noticed a defect', {
+          stage: 'triage',
+          kind: 'held',
+          cause: 'finding',
+          reason:
+            'The planner noticed a defect outside its ticket. Its word alone never opens a ticket: one opens when a sense sees it, or when Martin opens it.',
+        });
+        return summarise(writer, {
+          title: `A defect the planner noticed on ${page}`,
+          description: `Jev judged it ${category} and ${severity}. The planner’s word alone opens no ticket, so it waits for a sense to see it, or for Martin.`,
+          story: `While planning ${ticket}, the planner noticed something else wrong on ${page}. A fix does only what its ticket asks, so it left this for triage. Jev judged it a ${category} problem, ${severity} for a visitor. A visitor can read the shop’s public code and try to persuade an agent that a line of it holds a bug, so the planner is trusted no more than a visitor: no ticket opens until a sense sees the defect or Martin opens one.`,
+        });
+      }
+      writer.add('hold.started', 'triage', 'Waiting for Martin: the planner suggested a change', {
+        stage: 'triage',
+        kind: 'approval',
+        cause: 'suggestion',
+        reason: 'The planner noticed something the shop could do better, and only Martin asks for improvements.',
+      });
+      return summarise(writer, {
+        title: 'The planner’s suggestion',
+        description:
+          'Jev read it as a request for something new, not a fault. Triage parked it for Martin, who alone asks for improvements.',
+        story: `While planning ${ticket}, the planner noticed something on ${page} the shop could do better. A fix does only what its ticket asks, so it left this for triage. Jev judged it a suggestion, and only Martin can ask for an improvement, so routing code parked it for him.`,
+      });
+    case 'discard':
+      writer.add('work-item.closed', 'triage', 'Closed with no ticket: not a defect', {
+        outcome: 'discarded',
+        reason: 'Jev found nothing wrong with the page in it',
+      });
+      return summarise(writer, {
+        title: `A finding on ${page} that was not a defect`,
+        description: 'Triage read the planner’s finding against the page and found nothing wrong. No ticket.',
+        story: `While planning ${ticket}, the planner noted something on ${page}. Jev judged that it describes nothing wrong with the site, and routing code closed it with no ticket.`,
+      });
+    case 'repeat':
+      return writer.events;
+    case 'ticket':
+      throw new Error('A planner’s finding never opens a ticket');
   }
 }
 

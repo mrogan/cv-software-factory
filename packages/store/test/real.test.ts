@@ -23,7 +23,7 @@ function opened(item: string, sample = false): NewEvent<'work-item.opened'> {
     ts: '2026-10-04T09:00:00.000Z',
     work_item: item,
     type: 'work-item.opened',
-    version: 1,
+    version: 2,
     actor: 'triage',
     summary: 'The crawler opened a work item',
     payload: { kind: 'defect-fix', title: 'A link on the about page leads nowhere', sample },
@@ -93,6 +93,7 @@ describe('appending again', () => {
       ...event,
       id: uuid(),
       type: 'work-item.closed',
+      version: 1,
       summary: 'Closed with no ticket',
       payload: { outcome: 'discarded', reason: 'Not a defect' },
     };

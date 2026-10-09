@@ -10,7 +10,7 @@
  * What a result does in GitHub goes through `EffectsContext.once`, so the line can try a handback's effects again,
  * after GitHub or the store failed part-way, without running the agent again and without doing a write twice.
  */
-import type { NewEvent, PayloadOf } from '@software-factory/events';
+import type { InboxSignal, NewEvent, PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../github/server.ts';
 import type { Handback, Step } from '../../runners/steps.ts';
@@ -67,6 +67,11 @@ export interface EffectsContext extends StepContext {
    */
   once<T>(name: string, write: (again: boolean) => Promise<T>): Promise<T>;
   act<K extends ActionName>(action: K, args: ActionArgs[K]): Promise<ActionResult<K>>;
+  /**
+   * Leaves a signal in triage's inbox once for this handback, by its name, as `once` does a write: left again, after
+   * the line or the store failed part-way, it has the same id, and the inbox keeps the first.
+   */
+  leaveSignal(name: string, signal: Omit<InboxSignal, 'observedAt'>): Promise<void>;
   /** Keeps the agent's session, for its next round to resume. */
   keepSession(session: string | null): Promise<void>;
 }
@@ -246,7 +251,9 @@ export const count = (n: number, one: string, many = `${one}s`) => `${n} ${n ===
 export function holdDraft(actor: NewEvent['actor'], hold: PayloadOf<'hold.started'>): Draft {
   const summary =
     hold.kind === 'approval'
-      ? 'Waiting for Martin to merge'
+      ? hold.cause === 'spec'
+        ? 'Waiting for Martin to approve the spec'
+        : 'Waiting for Martin to merge'
       : hold.kind === 'question'
         ? 'A question for Martin'
         : `Held for Martin at ${hold.stage}`;

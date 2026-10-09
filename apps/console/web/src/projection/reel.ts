@@ -11,7 +11,7 @@ import type {
   Sense,
   Stage,
 } from '@software-factory/events';
-import { STAGES } from '@software-factory/events';
+import { isSense, STAGES } from '@software-factory/events';
 import { waitPicture } from './fixing.ts';
 import type { Capture, ItemState, Outcome } from './items.ts';
 
@@ -30,6 +30,11 @@ type Http = Extract<Evidence, { kind: 'http' }>;
 type Console = Extract<Evidence, { kind: 'console' }>;
 type Accessibility = Extract<Evidence, { kind: 'accessibility' }>;
 type Judgement = PayloadOf<'judgement.made'>;
+
+/** A signal from one of the senses, and not the planner's finding, which carries nothing a sense captured. */
+export const bySense = (
+  signal: PublicEvent<'signal.received'>,
+): signal is PublicEvent<'signal.received'> & { payload: { sense: Sense } } => isSense(signal.payload.sense);
 
 /** Who captured a picture's evidence, with which check, on which version, and whether on one page or every page. */
 export interface Source {
@@ -263,15 +268,17 @@ export function picture(item: ItemState, { waits = true }: { waits?: boolean } =
   }
 
   // A report shows what triage made of it: the request that routed it, which is its first. One that ended at triage
-  // shows it for good; one that became a ticket only until the line has evidence of its own, such as a fix.
+  // shows it for good; one that became a ticket only until the line has evidence of its own, such as a fix. So does a
+  // planner's finding, which is judged as a report is; a defect it noticed waits as a judgement, not a suggestion.
   const judgement = ofType(item, 'judgement.made').find((event) => event.payload.route)?.payload;
   const endedAtTriage =
     judgement?.route === 'quarantine' || judgement?.route === 'park' || judgement?.route === 'discard';
   const pastPlan = item.stage !== null && STAGES.indexOf(item.stage) > STAGES.indexOf('plan');
-  if (item.kind === 'visitor-report' && judgement && (endedAtTriage || !pastPlan)) {
+  const judged = item.kind === 'visitor-report' || item.kind === 'planner-finding';
+  if (judged && judgement && (endedAtTriage || !pastPlan)) {
     const page = capture(item, 'page')?.shot;
     if (judgement.route === 'quarantine') return { type: 'quarantine', judgement };
-    if (judgement.route === 'park') return { type: 'suggestion', page, judgement };
+    if (judgement.route === 'park' && item.hold?.cause !== 'finding') return { type: 'suggestion', page, judgement };
     return { type: 'judgement', page, judgement };
   }
 
@@ -319,7 +326,8 @@ export function picture(item: ItemState, { waits = true }: { waits?: boolean } =
 }
 
 /** The sense's signal that opened the work item, if a sense opened it. */
-const opening = (item: ItemState) => ofType(item, 'signal.received').find((event) => event.payload.sense !== 'report');
+const opening = (item: ItemState) =>
+  ofType(item, 'signal.received').find((event) => event.payload.sense !== 'report' && bySense(event));
 
 /**
  * The picture a sense's own capture makes: a screenshot where it marked something on the page, and otherwise what
@@ -327,6 +335,7 @@ const opening = (item: ItemState) => ofType(item, 'signal.received').find((event
  * or log lines), or the unmarked page.
  */
 export function pictureOfSignal(signal: PublicEvent<'signal.received'>): Picture | undefined {
+  if (!bySense(signal)) return undefined;
   const { sense, check, version, route, evidence = [] } = signal.payload;
   const source: Source = { sense, check, version, every: route === '*' };
   const shots = signal.artifacts.filter((a): a is Screenshot => a.kind === 'screenshot');

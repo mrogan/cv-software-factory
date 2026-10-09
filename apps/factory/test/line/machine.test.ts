@@ -19,7 +19,9 @@ const spec: LineEvent = {
   type: 'spec.written',
   payload: {
     outcome: 'Search answers every query.',
-    criteria: [{ given: 'a query with a quote', when: 'it is searched', expect: 'the page lists matches' }],
+    criteria: [
+      { given: 'a query with a quote', when: 'it is searched', expect: 'the page lists matches', from: 'the ticket' },
+    ],
     scope: ['src/search.ts', 'test/'],
     risks: [],
     rollout: 'Ships as it is.',
@@ -328,6 +330,43 @@ describe('Martin’s answer to a hold', () => {
       { asked: 'Which page?', answer: 'The home page' },
       { asked: 'Held for Martin', answer: 'It is in src/price.ts' },
     ]);
+  });
+
+  it('holds a spec tagged out-of-scope for his approval before anything is built, whatever the autonomy', () => {
+    const wide: LineEvent = {
+      type: 'spec.written',
+      payload: { ...(spec.payload as PayloadOf<'spec.written'>), risks: ['out-of-scope'] },
+    };
+    expect(decide([ticket, wide], facts)).toEqual({
+      stage: 'held',
+      next: {
+        do: 'hold',
+        hold: {
+          stage: 'plan',
+          kind: 'approval',
+          cause: 'spec',
+          reason:
+            'The spec is tagged out-of-scope: the fix changes behaviour beyond what the ticket is about, which needs Martin in every autonomy mode',
+        },
+      },
+    });
+    const approved = [ticket, wide, held('spec', 'plan'), answer('approved')];
+    expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
+    // Approved once, it stays approved as the work goes on; a new spec is a new question.
+    expect(decide([...approved, pushed()], facts).next).toEqual({ do: 'wait', for: 'gates' });
+    expect(decide([...approved, wide], facts).next).toMatchObject({ do: 'hold' });
+    expect(decide([ticket, wide, held('spec', 'plan'), answer('answered', 'Only the search')], facts).next).toEqual({
+      do: 'step',
+      agent: 'planner',
+      round: 1,
+    });
+  });
+
+  it('leaves a defect the planner alone noticed waiting, as a suggestion waits, until he closes it', () => {
+    for (const decision of ['approved', 'answered'] as const) {
+      expect(decide([held('finding', 'triage'), answer(decision)], facts).next).toEqual({ do: 'wait', for: 'martin' });
+    }
+    expect(decide([held('finding', 'triage'), answer('rejected')], facts).next).toMatchObject({ do: 'close' });
   });
 
   it('has the planner write a spec again when he answers it, and builds it when he approves', () => {

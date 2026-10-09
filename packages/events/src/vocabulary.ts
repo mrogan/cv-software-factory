@@ -14,6 +14,8 @@ export const KINDS = [
   'dependency-update',
   'red-team',
   'visitor-report',
+  /** Something the planner noticed outside its ticket, which triage judges as it judges a visitor's report. */
+  'planner-finding',
 ] as const;
 export type Kind = (typeof KINDS)[number];
 
@@ -74,6 +76,16 @@ export type TriageRoute = (typeof TRIAGE_ROUTES)[number];
 export const SENSES = ['probe', 'crawler', 'metrics', 'logs', 'report'] as const;
 export type Sense = (typeof SENSES)[number];
 
+/**
+ * Where a signal comes from: one of the senses, or the planner, which leaves triage what it noticed outside its
+ * ticket. A planner's finding is its own words about public code, so triage trusts it no more than a visitor's report.
+ */
+export const SIGNAL_SOURCES = [...SENSES, 'planner'] as const;
+export type SignalSource = (typeof SIGNAL_SOURCES)[number];
+
+/** Whether a signal came from one of the senses, not the planner. */
+export const isSense = (source: SignalSource): source is Sense => source !== 'planner';
+
 /** The agents, each with its own budget and model settings. Triage is a Jev question set and routing code. */
 export const AGENTS = ['triage', 'planner', 'coder', 'reviewer', 'describer', 'red-team'] as const;
 export type Agent = (typeof AGENTS)[number];
@@ -106,9 +118,14 @@ export type ProviderCap = (typeof PROVIDER_CAPS)[number];
  * each). `unknown` is a hold that recorded no cause.
  */
 export const HOLD_CAUSES = [
-  /** Triage parked a visitor's suggestion: only Martin asks for improvements. */
+  /** Triage parked a suggestion, a visitor's or the planner's: only Martin asks for improvements. */
   'suggestion',
-  /** An improvement's spec waits for Martin's approval before anything is built. */
+  /**
+   * Triage parked a defect the planner noticed outside its ticket: the planner's word alone never opens a ticket, so
+   * it waits for a sense to see it or for Martin.
+   */
+  'finding',
+  /** A spec waits for Martin's approval before anything is built: an improvement's, or one tagged `out-of-scope`. */
   'spec',
   /** An agent asks Martin something only he can say. */
   'question',
@@ -140,6 +157,12 @@ export type Autonomy = (typeof AUTONOMY)[number];
 /** Tags that route a change to a human, depending on autonomy (COMPONENTS.md, approval routing). */
 export const RISKS = ['test-loosening', 'dependency-change', 'security-headers', 'out-of-scope'] as const;
 export type Risk = (typeof RISKS)[number];
+
+/**
+ * Tags that hold a spec for Martin in every autonomy mode: a guardrail, not something the autonomy level decides. A
+ * fix that changes behaviour beyond what its ticket is about needs a person, whatever the line is trusted with.
+ */
+export const ALWAYS_HELD: readonly Risk[] = ['out-of-scope'];
 
 /** The only types an artifact may have. The console serves each with the type it was stored with, never a guess. */
 export const ARTIFACT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'text/plain', 'application/json'] as const;

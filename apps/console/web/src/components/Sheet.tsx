@@ -274,7 +274,12 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                 </p>
               )}
               {sheet.report &&
-                (sheet.report.quarantined ? (
+                (sheet.report.by === 'planner' ? (
+                  <p className="report withheld">
+                    The planner’s finding on {sheet.report.page}, noticed while it planned another ticket. Its words are
+                    untrusted, as a visitor’s are, so they are shown only to Martin; what triage made of them is below.
+                  </p>
+                ) : sheet.report.quarantined ? (
                   <p className="report withheld">
                     A visitor’s report from {sheet.report.page}. It gave orders to the system, so it is quarantined. Its
                     text is kept, and shown only to Martin and to the visitor who sent it.
@@ -605,6 +610,12 @@ function SpecSection({ sheet }: { sheet: SheetData }) {
             <Glyph name={card.outcome === 'verified' ? 'check' : 'dash'} />
             <span>
               <em>GIVEN</em> {c.given} <em>WHEN</em> {c.when} <em>THEN</em> {c.expect}
+              {c.from && (
+                <>
+                  {' '}
+                  <em>FROM</em> {c.from}
+                </>
+              )}
             </span>
           </li>
         ))}
@@ -808,6 +819,12 @@ function ReviewThread({ reviews, start, open }: { reviews: ThreadReview[]; start
                   <span className="n">RULE {f.rule.number}</span>
                   {f.rule.title && <b>{f.rule.title}.</b>}
                   {f.rule.text && <span>{f.rule.text}</span>}
+                </div>
+              )}
+              {f.ticket && (
+                <div className="cites">
+                  <span className="n">TICKET</span>
+                  <span>Beyond what the ticket asks: the coder cannot put a spec right, so Martin decides.</span>
                 </div>
               )}
               {f.criterion && (

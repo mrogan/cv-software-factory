@@ -12,7 +12,7 @@ export const opened: NewEvent<'work-item.opened'> = {
   ts: '2026-10-02T12:15:00.000Z',
   work_item: '1284',
   type: 'work-item.opened',
-  version: 1,
+  version: 2,
   actor: 'visitor',
   summary: 'A visitor sent a report from the clock’s page',
   payload: {
@@ -29,7 +29,7 @@ export const signal: NewEvent<'signal.received'> = {
   ts: '2026-10-02T12:15:00.200Z',
   work_item: '1284',
   type: 'signal.received',
-  version: 1,
+  version: 2,
   actor: 'widget',
   summary: `Report: ${REPORT_TEXT}`,
   payload: {
