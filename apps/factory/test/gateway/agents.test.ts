@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -203,7 +203,7 @@ describe('agents through the gateway', () => {
     expect(provider.requests).toHaveLength(0);
   });
 
-  it('sends the policy’s model and effort with the real key, relays the stream, and audits and records the call', async () => {
+  it('sends the policy’s model and effort for Claude with the real key, relays the stream, and audits and records the call', async () => {
     provider.requests.length = 0;
     const { sql, token } = await start();
     const response = await call(token, agentRequest());
@@ -348,6 +348,28 @@ describe('agents through the gateway', () => {
     expect(capped?.payload).toMatchObject({ cap: 'provider', provider: 'local', reason: 'unreachable' });
     const [row] = await sql`select provider, model, outcome from model_calls`;
     expect(row).toEqual({ provider: 'local', model: 'qwen/qwen3.8-27b', outcome: 'failed' });
+  });
+
+  it('sends the local model no effort, whatever the runner asked for, and keys its cassette without one', async () => {
+    provider.requests.length = 0;
+    const { token } = await start({ allLocal: true });
+    const asked = { ...agentRequest(), output_config: { effort: 'max', format: { type: 'json_schema' } } };
+    const response = await call(token, asked);
+    expect(response.status).toBe(200);
+    await response.text();
+
+    const [sent] = provider.requests;
+    expect(sent?.body).toMatchObject({ model: 'qwen/qwen3.8-27b', output_config: { format: { type: 'json_schema' } } });
+    expect(sent?.body.output_config).not.toHaveProperty('effort');
+    const [file] = readdirSync(cassettesDir).filter((f) => f.endsWith('.json'));
+    const cassette = JSON.parse(readFileSync(join(cassettesDir, file ?? ''), 'utf8'));
+    expect(cassette).toMatchObject({ provider: 'local', model: 'qwen/qwen3.8-27b' });
+    expect(cassette.request.output_config).toEqual({ format: { type: 'json_schema' } });
+
+    // With nothing else in it, no `output_config` is sent at all.
+    provider.requests.length = 0;
+    await (await call(token, { ...agentRequest(), output_config: { effort: 'low' } })).text();
+    expect(provider.requests[0]?.body).not.toHaveProperty('output_config');
   });
 
   it('holds a work item at its cap, and does not retry it', async () => {

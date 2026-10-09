@@ -10,8 +10,8 @@
  * 2. Takes only what it knows: the request's fields, its betas and its tools are allow-listed (`REQUEST`, `BETAS`).
  *    A server tool, such as web search, would let a fenced agent reach the web through the gateway and would cost
  *    what the caps do not count, so only the runner's own tools are allowed.
- * 3. Sends the call where policy says (`policy/models.ts`): the provider, the pinned model and the effort, whatever
- *    the runner asked for.
+ * 3. Sends the call where policy says (`policy/models.ts`): the provider, the pinned model and, for Claude, the
+ *    effort, whatever the runner asked for. The local model is sent no effort: LM Studio's own setting decides it.
  * 4. Answers from a cassette, keyed as `agent-cassettes.ts` says, when its mode replays; otherwise checks the spend
  *    caps, asks the provider, relays the answer as it arrives, and records a cassette.
  * 5. Writes one audit row in `model_calls` for every call, answered or not, with its tokens, cache use and cost. A
@@ -185,12 +185,12 @@ export class AgentCalls {
     const provider = chosen.provider === 'local' ? 'local' : 'anthropic';
     const call: Call = { ...who, provider, model: chosen.model };
     priceOf(chosen.model);
-    // The policy's model and effort, whatever the runner asked for.
-    const sent: Record<string, unknown> = {
-      ...body,
-      model: chosen.model,
-      output_config: { ...body.output_config, effort: chosen.effort },
-    };
+    // The policy's model and effort, whatever the runner asked for. The local model takes no effort (LM Studio's own
+    // setting decides), so none is sent, and none reaches its cassettes' keys.
+    const sent: Record<string, unknown> =
+      chosen.provider === 'local'
+        ? withoutEffort({ ...body, model: chosen.model })
+        : { ...body, model: chosen.model, output_config: { ...body.output_config, effort: chosen.effort } };
     const stream = sent.stream === true;
     const keyed = keyedRequest(sent);
     const key = agentCassetteKey(provider, keyed);
@@ -491,4 +491,11 @@ export function usageOf(raw: string, stream: boolean): Usage | undefined {
     cacheWriteTokens: Math.max(0, count(usage.cache_creation_input_tokens) - hour),
     cacheWriteHourTokens: hour,
   };
+}
+
+/** A request with no effort, and no `output_config` left empty by taking it out. */
+function withoutEffort({ output_config, ...rest }: z.infer<typeof REQUEST>) {
+  if (!output_config) return rest;
+  const { effort: _, ...output } = output_config;
+  return Object.keys(output).length ? { ...rest, output_config: output } : rest;
 }
