@@ -6,12 +6,17 @@
  * after Martin's approval would make it stale (the ruleset asks for approval after the last push), so once he has
  * approved, the branch is his to update or merge. Each update runs the checks again, so a pull request is current
  * and checked by the time he looks at it.
+ *
+ * A deploy pull request is left to the deploy watch, which keeps its branch one commit on main's head (`deploys.ts`).
+ * Two writers to one branch raced: an update GitHub had accepted but not yet made met the deploy watch's forced move,
+ * and GitHub closed the pull request, as the App.
  */
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import type { Actions } from './actions.ts';
 import type { GitHub } from './client.ts';
 import { GitHubError } from './client.ts';
+import { DEPLOYS } from './deploys.ts';
 import type { Watch } from './poller.ts';
 
 /** How the App appears as a pull request's author. */
@@ -22,7 +27,7 @@ const OPEN = z.array(
     number: z.number().int().positive(),
     // GitHub gives a deleted account as null.
     user: z.object({ login: z.string() }).nullable(),
-    head: z.object({ sha: z.string() }),
+    head: z.object({ ref: z.string(), sha: z.string() }),
   }),
 );
 const COMPARISON = z.object({ behind_by: z.number().int().nonnegative() });
@@ -38,7 +43,8 @@ export function currentWatch(github: GitHub, actions: Actions, repo: string, log
       `/repos/${repo}/pulls?state=open&sort=created&direction=asc&per_page=50`,
       OPEN,
     );
-    for (const pr of open.filter((p) => p.user?.login === APP_LOGIN)) {
+    const deploys = new Set(DEPLOYS.filter((t) => t.repo === repo).map((t) => t.branch));
+    for (const pr of open.filter((p) => p.user?.login === APP_LOGIN && !deploys.has(p.head.ref))) {
       if (updated.has(pr.head.sha)) continue;
       const { body: comparison } = await github.poll(repo, `/repos/${repo}/compare/main...${pr.head.sha}`, COMPARISON);
       if (comparison.behind_by === 0) continue;
