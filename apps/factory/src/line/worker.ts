@@ -47,6 +47,7 @@ import {
 } from './agents/agent.ts';
 import type { Signal } from './agents/evidence.ts';
 import { AGENTS, type Agents } from './agents/index.ts';
+import { capOn, capsInForce, lastSeq } from './caps.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
 import {
   decide,
@@ -248,6 +249,14 @@ export class Line {
         // One step at a time in each of Plan, Build and Review.
         if ([...this.#inFlight.values()].some((s) => s.stage === STAGE_OF[next.agent])) return;
         if (kept && pending?.retryAt && Date.parse(pending.retryAt) > this.#o.now().getTime()) return;
+        // Behind a cap the gateway refuses every call, so a step would only fail: it waits for the cap to clear.
+        if (!kept) {
+          const cap = capOn(await capsInForce(this.#o.sql), this.#o.providerOf(next.agent));
+          if (cap) {
+            this.#o.log.debug({ workItem: item.workItem, agent: next.agent, cap: cap.reason }, 'a step waits at a cap');
+            return;
+          }
+        }
         const seconds = kept ? EFFECTS_LEASE_SECONDS : leaseFor(this.#bounds(next.agent).deadlineSeconds);
         const claimed = await this.#queue.claim(item.workItem, seconds);
         if (!claimed) return;
@@ -357,6 +366,8 @@ export class Line {
     const definition = this.#o.agents[agent];
     const bounds = this.#bounds(agent);
     try {
+      // A cap set after this, while the step runs, ends it without a result: that is the cap's, not the step's.
+      const from = await lastSeq(this.#o.sql);
       const attempt = await this.#queue.startStep(workItem);
       // Before a pull request, a step starts from main; after, from the pull request's head, and its diff is taken
       // against the pull request's base. A step that reads the change measures it from where the pull request's
@@ -405,6 +416,17 @@ export class Line {
       const called: Draft[] = calls
         ? [{ type: 'model.called', actor: agent, summary: calledLine(agent, calls), payload: calls }]
         : [];
+      const unfinished =
+        outcome.kind === 'failed' || outcome.handback.ending !== 'finished' || outcome.handback.error !== undefined;
+      const cap = unfinished && capOn(await capsInForce(this.#o.sql, from), this.#o.providerOf(agent));
+      if (cap) {
+        await this.#append(workItem, called);
+        this.#o.log.info(
+          { workItem, agent, job: outcome.job, cap: cap.reason },
+          'a step ended at a cap; it runs again when the cap clears',
+        );
+        return;
+      }
       if (outcome.kind === 'failed') return await this.#failed(workItem, agent, outcome.job, called, outcome.reason);
       const { handback } = outcome;
       // A result written before the agent ran out of turns, or failed, is not one to act on.
