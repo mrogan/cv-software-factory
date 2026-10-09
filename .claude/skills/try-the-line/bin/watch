@@ -1,0 +1,13 @@
+#!/bin/sh
+# Streams a run: one line per new event (model.called left out), and per change in runner Jobs or pod restarts.
+# Made for Claude Code's Monitor tool: `watch <after-seq>`. Polls once a minute.
+D=$(dirname "$0"); last=${1:-0}; prevj=""; prevp=""
+while true; do
+  rows=$($D/q -At -F' ' -c "select seq, to_char(ts,'HH24:MI'), coalesce(work_item,'-'), type, actor from events where seq>$last order by seq" 2>/dev/null)
+  if [ -n "$rows" ]; then echo "$rows" | grep -v ' model.called ' | sed 's/^/EV /'; last=$(echo "$rows" | tail -1 | cut -d' ' -f1); fi
+  j=$($D/k -n runners get jobs --no-headers 2>/dev/null | awk '{print $1, $2}' | sort | tr '\n' ' ')
+  [ "$j" != "$prevj" ] && echo "JOBS $j"; prevj=$j
+  p=$($D/k -n factory get pods --no-headers 2>/dev/null | grep -E "^(line|gateway|github)" | awk '{print $1, $3, $4}' | tr '\n' ' ')
+  [ "$p" != "$prevp" ] && echo "PODS $p"; prevp=$p
+  sleep 60
+done
