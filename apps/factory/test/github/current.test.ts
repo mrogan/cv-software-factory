@@ -8,7 +8,14 @@ const sha = (n: number) => String(n).repeat(40).slice(0, 40);
 
 /** Open pull requests, each with how far behind main it is, its reviews, and whether updating it conflicts. */
 function repo(
-  pulls: { number: number; login: string | null; behind: number; reviews?: string[]; conflicts?: boolean }[],
+  pulls: {
+    number: number;
+    login: string | null;
+    behind: number;
+    branch?: string;
+    reviews?: string[];
+    conflicts?: boolean;
+  }[],
 ) {
   const sent: Sent[] = [];
   const of = (path: string) => pulls.find((p) => path.includes(`/${p.number}/`) || path.endsWith(sha(p.number)));
@@ -21,7 +28,7 @@ function repo(
           body: pulls.map((p) => ({
             number: p.number,
             user: p.login === null ? null : { login: p.login },
-            head: { sha: sha(p.number) },
+            head: { ref: p.branch ?? `factory/${p.number}`, sha: sha(p.number) },
           })),
         }),
       },
@@ -64,6 +71,16 @@ describe('keeping the App’s pull requests current', () => {
     ]);
     await currentWatch(github, new LiveActions(github), REPO, quiet)();
     expect(updates(sent)).toEqual(['2']);
+  });
+
+  it('leaves a deploy pull request to the deploy watch, the one writer to its branch', async () => {
+    const { github, sent } = repo([
+      { number: 2, login: APP_LOGIN, behind: 1, branch: 'deploy/factory-local' },
+      { number: 3, login: APP_LOGIN, behind: 1, branch: 'deploy/console-local' },
+      { number: 4, login: APP_LOGIN, behind: 1, branch: 'release-please--branches--main' },
+    ]);
+    await currentWatch(github, new LiveActions(github), REPO, quiet)();
+    expect(updates(sent)).toEqual(['4']);
   });
 
   it('tries a head that conflicts once, and again only when it is pushed to', async () => {
