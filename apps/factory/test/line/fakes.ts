@@ -50,17 +50,21 @@ export class FakeSteps implements Steps {
       this.#working = this.#working.filter((other) => other !== stop);
       return { kind: 'stopped', job };
     }
-    // Two calls through the gateway, and one it refused, which is not counted.
-    for (const [outcome, cost] of [
-      ['answered', 0.01],
-      ['answered', 0.02],
-      ['refused', 0],
+    // Two calls a model answered and one whose stream broke off part way, which are counted; one the gateway refused
+    // and one the provider refused, with no tokens, which are not.
+    for (const [outcome, tokens, cost] of [
+      ['answered', [100, 20, 50, 10], 0.01],
+      ['answered', [100, 20, 50, 10], 0.01],
+      ['failed', [100, 20, 50, 10], 0.01],
+      ['refused', [0, 0, 0, 0], 0],
+      ['failed', [0, 0, 0, 0], 0],
     ] as const) {
+      const [input, output, cacheRead, cacheWrite] = tokens;
       await this.#sql`
         insert into model_calls (id, agent, work_item, provider, model, question_set, input_tokens, output_tokens,
                                  cache_read_tokens, cache_write_tokens, cost_usd, duration_ms, outcome, job)
         values (${crypto.randomUUID()}, ${request.agent}, ${request.workItem}, 'local', 'qwen/qwen3.8-27b', 'messages',
-                100, 20, 50, 10, ${cost}, 1000, ${outcome}, ${job})`;
+                ${input}, ${output}, ${cacheRead}, ${cacheWrite}, ${cost}, 1000, ${outcome}, ${job})`;
     }
     if (answer === 'fails')
       return { kind: 'failed', job, reason: 'The agent pod failed without handing anything back.' };
