@@ -1065,6 +1065,85 @@ describe('the line', () => {
     expect(await types(workItem)).toContain('spec.written');
   });
 
+  it('counts nothing against a step a provider’s cap ended, starts none behind it, and runs it again once it clears', async () => {
+    const workItem = await ticket();
+    let capped = false;
+    const { steps, pass } = line({
+      ...AGENTS,
+      planner: async (request) => {
+        if (capped) return AGENTS.planner?.(request) ?? 'fails';
+        // The gateway caps the provider in the middle of the step, and the agent ends on the refusal.
+        await events.append(
+          event(
+            null,
+            'spend.capped',
+            {
+              cap: 'provider',
+              provider: 'anthropic',
+              reason: 'workspace-limit',
+              message: 'You have reached your specified workspace API usage limits.',
+            },
+            'factory',
+          ),
+        );
+        capped = true;
+        return { ...handback(undefined), error: 'API Error: Request rejected (429)' };
+      },
+    });
+    await pass();
+    await pass(); // capped: nothing starts
+    expect(steps.requests).toHaveLength(1);
+    // The calls it made are recorded; nothing holds it.
+    expect(await types(workItem)).toEqual(['work-item.opened', 'ticket.opened', 'model.called']);
+    const failures = async () =>
+      (await database.writer<{ failures: number }[]>`select failures from line where work_item = ${workItem}`)[0]
+        ?.failures;
+    expect(await failures()).toBe(0);
+
+    await events.append(event(null, 'spend.cleared', { cap: 'provider', provider: 'anthropic' }, 'factory'));
+    await pass();
+    expect(steps.requests.map((r) => r.attempt)).toEqual([1, 2]);
+    expect(await types(workItem)).toContain('spec.written');
+    expect(await failures()).toBe(0);
+  });
+
+  it('starts no step behind the factory’s own day cap, on any provider, until it clears', async () => {
+    const workItem = await ticket();
+    const { steps, pass } = line(AGENTS, events, { providerOf: () => 'local' });
+    await events.append(
+      event(
+        null,
+        'spend.capped',
+        { cap: 'day', limitUsd: 20, spentUsd: 20.01, resets: '2026-10-07T00:00:00.000Z' },
+        'factory',
+      ),
+    );
+    await pass();
+    expect(steps.requests).toHaveLength(0);
+    await events.append(event(null, 'spend.cleared', { cap: 'day' }, 'factory'));
+    await pass();
+    expect(await types(workItem)).toContain('spec.written');
+  });
+
+  it('counts a step that failed while no cap was set, though one was set and cleared before it started', async () => {
+    const workItem = await ticket();
+    await events.append([
+      event(
+        null,
+        'spend.capped',
+        { cap: 'provider', provider: 'anthropic', reason: 'credit', message: 'Your credit balance is too low.' },
+        'factory',
+      ),
+      event(null, 'spend.cleared', { cap: 'provider', provider: 'anthropic' }, 'factory'),
+    ]);
+    const { pass } = line({ ...AGENTS, planner: () => ({ ...handback(undefined), error: 'It went wrong.' }) });
+    await pass();
+    const [row] = await database.writer<
+      { failures: number }[]
+    >`select failures from line where work_item = ${workItem}`;
+    expect(row?.failures).toBe(1);
+  });
+
   it('acts on Martin’s answer: an answered question plans again, and a rejection closes the work item', async () => {
     const workItem = await ticket();
     let asked = 0;
