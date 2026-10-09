@@ -228,6 +228,7 @@ describe('the bench', () => {
         workItem: FIXTURE_WORK_ITEM,
         ticket: fixture.input.ticket,
         signals: fixture.input.signals,
+        answers: [],
         spec: fixture.input.spec,
         pullRequest: 101,
         title: 'fix(count): count anew',

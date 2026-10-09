@@ -278,7 +278,9 @@ export function picture(item: ItemState, { waits = true }: { waits?: boolean } =
   if (judged && judgement && (endedAtTriage || !pastPlan)) {
     const page = capture(item, 'page')?.shot;
     if (judgement.route === 'quarantine') return { type: 'quarantine', judgement };
-    if (judgement.route === 'park' && item.hold?.cause !== 'finding') return { type: 'suggestion', page, judgement };
+    // Triage's hold says which it parked, and stays in the events once Martin has answered it.
+    const defect = ofType(item, 'hold.started').some((event) => event.payload.cause === 'finding');
+    if (judgement.route === 'park' && !defect) return { type: 'suggestion', page, judgement };
     return { type: 'judgement', page, judgement };
   }
 

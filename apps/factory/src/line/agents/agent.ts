@@ -68,10 +68,10 @@ export interface EffectsContext extends StepContext {
   once<T>(name: string, write: (again: boolean) => Promise<T>): Promise<T>;
   act<K extends ActionName>(action: K, args: ActionArgs[K]): Promise<ActionResult<K>>;
   /**
-   * Leaves a signal in triage's inbox once for this handback, by its name, as `once` does a write: left again, after
-   * the line or the store failed part-way, it has the same id, and the inbox keeps the first.
+   * Leaves a signal in triage's inbox once for the work item, by a key that says what it is: one left again with the
+   * same key, by this step tried again or by a later step, has the same id, and the inbox keeps the first.
    */
-  leaveSignal(name: string, signal: Omit<InboxSignal, 'observedAt'>): Promise<void>;
+  leaveSignal(key: string, signal: Omit<InboxSignal, 'observedAt'>): Promise<void>;
   /** Keeps the agent's session, for its next round to resume. */
   keepSession(session: string | null): Promise<void>;
 }

@@ -169,6 +169,37 @@ export function senseEvidence(signal: InboxSignal, signalId: string, workItem: s
 
 const QUARANTINED = 'The report holds instructions aimed at the system, so nothing acts on it';
 
+/**
+ * The events a judged signal starts with, a report or a planner's finding: its work item opened (unless it joins an
+ * open one), the signal with the page it names and its words scrubbed, and the factory's screenshot of that page, then
+ * each request to Jev. Its page is given for the rest of its events, as a reader sees it.
+ */
+function judged(
+  writer: Writer,
+  signal: InboxSignal,
+  decision: ReportDecision,
+  opened: (page: string) => { actor: 'visitor' | 'planner'; summary: string; payload: PayloadOf<'work-item.opened'> },
+): { writer: Writer; page: string } {
+  // The page without its query or anything private in its path: whoever sent it may have typed either.
+  const path = privatePath(signal.report?.page ?? signal.route);
+  const page = shortPath(path);
+  if (decision.routed.route !== 'repeat') {
+    const { actor, summary, payload } = opened(page);
+    writer.add('work-item.opened', actor, summary, payload);
+  }
+  const shot = decision.screenshot ? [decision.screenshot] : [];
+  signalEvent(writer, {
+    ...signal,
+    route: privatePath(signal.route),
+    report: { page: path, text: decision.text },
+    artifacts: [...signal.artifacts, ...shot],
+  });
+  for (const judgement of decision.judgements) {
+    writer.add('judgement.made', 'triage', judgementLine(judgement), judgement);
+  }
+  return { writer, page };
+}
+
 /** Every report becomes events, because whoever sent it is owed an answer. */
 export function reportEvents(
   signal: InboxSignal,
@@ -177,23 +208,17 @@ export function reportEvents(
   decision: ReportDecision,
   now: Date,
 ): NewEvent[] {
-  const { routed, judgements } = decision;
-  // The page without its query or anything private in its path: the visitor may have typed either.
-  const path = privatePath(signal.report?.page ?? signal.route);
-  const page = shortPath(path);
-  const scrubbed = { ...signal, route: privatePath(signal.route), report: { page: path, text: decision.text } };
-  const shot = decision.screenshot ? [decision.screenshot] : [];
-  const writer = new Writer(signalId, workItem, now);
-  if (routed.route !== 'repeat') {
-    writer.add('work-item.opened', 'visitor', `A visitor sent a report from ${page}`, {
+  const { routed } = decision;
+  const { writer, page } = judged(new Writer(signalId, workItem, now), signal, decision, (page) => ({
+    actor: 'visitor',
+    summary: `A visitor sent a report from ${page}`,
+    payload: {
       kind: 'visitor-report',
       title: `A report from ${page}`,
       sample: false,
       ...(CARD_CATEGORY[routed.route] && { category: CARD_CATEGORY[routed.route] }),
-    });
-  }
-  signalEvent(writer, { ...scrubbed, artifacts: [...scrubbed.artifacts, ...shot] });
-  for (const judgement of judgements) writer.add('judgement.made', 'triage', judgementLine(judgement), judgement);
+    },
+  }));
 
   switch (routed.route) {
     case 'quarantine':
@@ -263,24 +288,14 @@ export function findingEvents(
   decision: ReportDecision,
   now: Date,
 ): NewEvent[] {
-  const { routed, judgements } = decision;
-  const path = privatePath(signal.report?.page ?? signal.route);
-  const page = shortPath(path);
-  const scrubbed = { ...signal, route: privatePath(signal.route), report: { page: path, text: decision.text } };
-  const shot = decision.screenshot ? [decision.screenshot] : [];
-  const writer = new Writer(signalId, workItem, now);
-  const ticket = signal.check.replace(/^planning /, '');
-  if (routed.route !== 'repeat') {
-    const category = routed.route === 'park' ? (routed.defect?.category ?? 'improvement') : CARD_CATEGORY[routed.route];
-    writer.add('work-item.opened', 'planner', `The planner noted something on ${page}`, {
-      kind: 'planner-finding',
-      title: `A finding on ${page}`,
-      sample: false,
-      ...(category && { category }),
-    });
-  }
-  signalEvent(writer, { ...scrubbed, artifacts: [...scrubbed.artifacts, ...shot] });
-  for (const judgement of judgements) writer.add('judgement.made', 'triage', judgementLine(judgement), judgement);
+  const { routed } = decision;
+  const ticket = `ticket #${signal.planning}`;
+  const category = routed.route === 'park' ? (routed.defect?.category ?? 'improvement') : CARD_CATEGORY[routed.route];
+  const { writer, page } = judged(new Writer(signalId, workItem, now), signal, decision, (page) => ({
+    actor: 'planner',
+    summary: `The planner noted something on ${page}`,
+    payload: { kind: 'planner-finding', title: `A finding on ${page}`, sample: false, ...(category && { category }) },
+  }));
 
   switch (routed.route) {
     case 'quarantine':

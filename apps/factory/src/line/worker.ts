@@ -554,9 +554,9 @@ export class Line {
         return result;
       },
       act: (action, args) => github.act(action, repo, args),
-      leaveSignal: async (name, signal) => {
-        const id = signalId(pending.job, name);
-        await context.once(name, async () => {
+      leaveSignal: async (key, signal) => {
+        const id = signalId(workItem, key);
+        await context.once(`signal ${id}`, async () => {
           await sendSignal(this.#o.sql, { ...signal, observedAt: this.#o.now().toISOString() }, id);
           return id;
         });
@@ -658,8 +658,8 @@ export class Line {
   }
 }
 
-/** The inbox id of a signal a handback leaves: the same job and name always give the same id. */
-export const signalId = (job: string, name: string) => uuidFrom(`line:${job}:${name}`);
+/** The inbox id of a signal the line leaves for a work item: the same key always gives the same id. */
+export const signalId = (workItem: string, key: string) => uuidFrom(`line:${workItem}:${key}`);
 
 const errorOf = (error: unknown) => ({
   type: (error as Error)?.name ?? 'Error',

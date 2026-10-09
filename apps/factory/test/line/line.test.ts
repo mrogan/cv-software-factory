@@ -12,7 +12,6 @@ import type { Reads } from '../../src/github/reads.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
 import { GitHubWorker, GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { APP_REPOSITORY, Line, type LineOptions, signalId } from '../../src/line/worker.ts';
-import { jobName } from '../../src/runners/jobs.ts';
 import { quiet } from '../github/fake.ts';
 import { type Agent, FakeGitHub, FakeSteps, MAIN } from './fakes.ts';
 
@@ -426,7 +425,8 @@ describe('the line', () => {
     const review = {
       verdict: 'changes-requested',
       note: 'The quote is still not escaped.',
-      findings: [blocking, elsewhere],
+      // A model may say in so many words that a finding does not cite the ticket; the event keeps only a yes.
+      findings: [blocking, { ...elsewhere, ticket: false }],
     };
     const { pass, steps, github } = line({ ...AGENTS, reviewer: () => handback(review) });
     await pass();
@@ -743,29 +743,59 @@ describe('the line', () => {
     );
   });
 
-  it('leaves what the planner noticed outside its ticket in triage’s inbox, once, as the planner’s signals', async () => {
+  it('leaves what the planner noticed outside its ticket in triage’s inbox as its signals, once however often it plans', async () => {
     const workItem = await ticket();
     const noticed = [
       { page: '/products/camera', route: '/products/:slug', text: 'The stock line says 1 items.' },
       { page: '/about', route: '/about', text: 'The page could list the opening hours.' },
     ];
-    const { pass } = line({ ...AGENTS, planner: () => handback({ verdict: 'spec', spec: SPEC, findings: noticed }) });
+    let planned = 0;
+    const { pass } = line({
+      ...AGENTS,
+      // It asks a question first, and notices the same things again when it plans with his answer.
+      planner: () =>
+        planned++
+          ? handback({ verdict: 'spec', spec: SPEC, findings: noticed })
+          : handback({ verdict: 'question', question: 'Should search find sold-out items?', findings: noticed }),
+    });
     await pass();
-    expect(await types(workItem)).toContain('spec.written');
+    await events.append([event(workItem, 'hold.answered', { decision: 'answered', answer: 'Yes.' }, 'martin')]);
+    await pass();
     expect(await summaries(workItem, 'spec.written')).toEqual([
       'Spec written: 1 criterion, 2 paths in scope; 2 findings left for triage',
     ]);
-    const job = jobName('planner', workItem, 1, 1);
     const left = await database.writer<
       { id: string; sense: string; fingerprint: string | null; signal: InboxSignal }[]
     >`
-      select id, sense, fingerprint, signal from inbox where id in ${database.writer([signalId(job, 'finding-1'), signalId(job, 'finding-2')])}
-      order by signal->>'route'`;
+      select id, sense, fingerprint, signal from inbox where signal->>'planning' = ${workItem} order by signal->>'route'`;
     expect(left.map((row) => [row.sense, row.fingerprint, row.signal.route, row.signal.report?.text])).toEqual([
       ['planner', null, '/about', 'The page could list the opening hours.'],
       ['planner', null, '/products/:slug', 'The stock line says 1 items.'],
     ]);
+    expect(left[0]?.id).toBe(signalId(workItem, 'finding /about /about The page could list the opening hours.'));
     expect(left[0]?.signal).toMatchObject({ check: `planning ticket #${workItem}`, version: MAIN });
+  });
+
+  it('gives the reviewer Martin’s answers at Plan, as part of what the ticket asks', async () => {
+    const workItem = await ticket();
+    let planned = 0;
+    const { pass, steps, github } = line({
+      ...AGENTS,
+      planner: () =>
+        planned++
+          ? handback({ verdict: 'spec', spec: SPEC })
+          : handback({ verdict: 'question', question: 'Should search find sold-out items?' }),
+    });
+    await pass();
+    await events.append([event(workItem, 'hold.answered', { decision: 'answered', answer: 'Yes.' }, 'martin')]);
+    await pass(); // the planner again
+    await pass(); // the coder
+    github.pass();
+    await pass(); // the reviewer
+    expect(steps.requests.at(-1)?.agent).toBe('reviewer');
+    expect(String(steps.requests.at(-1)?.prompt)).toContain(
+      'His answers are part of what the ticket asks:\n- Should search find sold-out items? He said: Yes.',
+    );
   });
 
   it('asks Martin the planner’s question, and gives the planner his answer when it plans again', async () => {

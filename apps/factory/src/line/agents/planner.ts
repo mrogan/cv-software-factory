@@ -160,6 +160,7 @@ export function findingSignal(
     route: routeOf(found.route),
     version: commit,
     report: { page: routeOf(found.page), text: found.text },
+    planning: workItem,
     artifacts: [],
   };
 }
@@ -200,8 +201,11 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
       `\`findings\`: at most ${MAX_PLANNER_FINDINGS}, each with \`page\`, a page of the app that shows it, as the path a visitor opens (\`/\` when it shows on none); \`route\`, the route that serves that page, as the app’s code names it, such as \`/products/:slug\`; and \`text\`, what is wrong or could be better, in a sentence or two of at most 300 characters.`,
     ].join('\n'),
   apply: async (planned, _handback, _input, context) => {
-    for (const [i, found] of planned.findings.entries()) {
-      await context.leaveSignal(`finding-${i + 1}`, findingSignal(found, context.workItem, context.commit));
+    // A finding is known by where it is and what it says, so the same one handed back by a later plan, after a
+    // question or a replan, is not left again.
+    for (const found of planned.findings) {
+      const key = `finding ${found.route} ${found.page} ${found.text}`;
+      await context.leaveSignal(key, findingSignal(found, context.workItem, context.commit));
     }
     const left = planned.findings.length ? `; ${count(planned.findings.length, 'finding')} left for triage` : '';
     switch (planned.verdict) {

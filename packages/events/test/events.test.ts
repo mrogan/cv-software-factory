@@ -127,9 +127,19 @@ describe('validation', () => {
     expect(validateSignal({ ...report, sense: 'crawler', symptom: 'broken-link' }).ok).toBe(false);
   });
 
-  it('takes a planner’s finding into the inbox with its words, and no symptom of its own', () => {
-    const finding = { ...signal.payload, sense: 'planner', check: 'planning ticket #1284', observedAt: signal.ts };
+  it('takes a planner’s finding into the inbox with its words and the ticket it was planning, and no symptom', () => {
+    const finding = {
+      ...signal.payload,
+      sense: 'planner',
+      check: 'planning ticket #1283',
+      planning: '1283',
+      observedAt: signal.ts,
+    };
     expect(validateSignal({ ...finding, artifacts: [] })).toEqual({ ok: true });
+    expect(validateSignal({ ...finding, planning: undefined, artifacts: [] }).ok).toBe(false);
+    expect(validateSignal({ ...signal.payload, planning: '1283', observedAt: signal.ts, artifacts: [] }).ok).toBe(
+      false,
+    );
     expect(validateSignal({ ...finding, report: { page: '/' }, artifacts: [] })).toEqual({
       ok: false,
       problems: ['report.text: a finding needs its text'],
@@ -179,7 +189,7 @@ describe('public views', () => {
     const finding = {
       ...signal,
       actor: 'planner' as const,
-      payload: { ...signal.payload, sense: 'planner' as const, check: 'planning ticket #1283' },
+      payload: { ...signal.payload, sense: 'planner' as const, check: 'planning ticket #1283', planning: '1283' },
     };
     const view = viewOf(finding);
     expect(JSON.stringify(view)).not.toContain('ten past four');

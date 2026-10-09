@@ -83,6 +83,8 @@ describe('the reviewer', () => {
     const beyond = { ...unmet, criterion: 5, ticket: true as const, comment: 'No evidence asks for the cards.' };
     expect(fits({ verdict: 'escalated', note: 'The spec goes beyond its ticket.', findings: [beyond] })).toBe(true);
     expect(fits({ verdict: 'changes-requested', note: 'Beyond the ticket.', findings: [beyond] })).toBe(false);
+    // A model may say no in so many words.
+    expect(fits({ verdict: 'approved', note: 'Fine.', findings: [{ ...taste, ticket: false }] })).toBe(true);
     expect(fits({ verdict: 'escalated', note: 'Beyond the ticket.', findings: [{ ...beyond, blocking: false }] })).toBe(
       false,
     );

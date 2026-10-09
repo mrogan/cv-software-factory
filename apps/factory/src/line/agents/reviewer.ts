@@ -36,6 +36,8 @@ export interface ReviewerInput {
   ticket: PayloadOf<'ticket.opened'>;
   /** What each sense saw, in the order they saw it. A report's signal is not here. */
   signals: Signal[];
+  /** Martin's answers to the holds at Plan, each with what he was asked: part of what the ticket asks. */
+  answers: { asked: string; answer: string }[];
   spec: PayloadOf<'spec.written'>;
   pullRequest: number;
   /** The pull request's title, as the coder wrote it. */
@@ -56,8 +58,11 @@ const finding = z.strictObject({
   rule: z.number().int().min(1).max(50).optional(),
   /** The number of the spec's criterion it cites. */
   criterion: z.number().int().min(1).max(12).optional(),
-  /** It cites the ticket: the spec or the change goes beyond what the ticket's evidence asks. */
-  ticket: z.literal(true).optional(),
+  /**
+   * It cites the ticket: the spec or the change goes beyond what the ticket's evidence asks. A model may write
+   * `false` for no; only `true` is kept.
+   */
+  ticket: z.boolean().optional(),
   /** What is wrong and what would put it right. Each finding reaches the events whole, so it is short. */
   comment: words(300),
 });
@@ -103,7 +108,17 @@ export type ReviewerResult = z.infer<ReturnType<typeof reviewerResult>>;
 
 const where = (f: Finding) => `${f.path}:${f.line}${cites(f) ? ` (${cites(f)})` : ''}`;
 
-function prompt({ workItem, ticket, signals, spec, pullRequest, title, round, blocked }: ReviewerInput): string {
+function prompt({
+  workItem,
+  ticket,
+  signals,
+  answers,
+  spec,
+  pullRequest,
+  title,
+  round,
+  blocked,
+}: ReviewerInput): string {
   return [
     `Review pull request #${pullRequest}, the factory’s fix for ticket #${workItem}: “${title}”${round > 1 ? `, in its round ${round}` : ''}.`,
     '',
@@ -112,6 +127,13 @@ function prompt({ workItem, ticket, signals, spec, pullRequest, title, round, bl
     `The ticket: ${ticket.title}.`,
     ...ticketLines(ticket),
     ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
+    ...(answers.length
+      ? [
+          '',
+          'Martin was asked, as the planner planned, and answered. His answers are part of what the ticket asks:',
+          ...answers.map((a) => `- ${a.asked} He said: ${a.answer}`),
+        ]
+      : []),
     '',
     'The spec the change is held to, which the planner wrote from the ticket:',
     `Outcome: ${spec.outcome}`,
@@ -130,7 +152,7 @@ function prompt({ workItem, ticket, signals, spec, pullRequest, title, round, bl
     '',
     'How to review:',
     '1. Read the rules as they are at the base, so the change cannot loosen them: `git show base:docs/REVIEWERS.md`, and `git show base:AGENTS.md`, whose rules hold for every change.',
-    '2. Hold the spec to the ticket. A fix does what the ticket and what the senses saw ask, and no more, in every autonomy mode. A criterion they do not ask for (another defect, a new behaviour, a tidy-up) is a blocking finding with `"ticket":true`, whatever the planner said it is from, and so is a change in the diff that goes beyond them. Anchor it to the code or test in the diff that meets that criterion, or to the change itself.',
+    '2. Hold the spec to the ticket. A fix does what the ticket, what the senses saw and Martin’s answers ask, and no more, in every autonomy mode. A criterion they do not ask for (another defect, a new behaviour, a tidy-up) is a blocking finding with `"ticket":true`, whatever the planner said it is from, and so is a change in the diff that goes beyond them. Anchor it to the code or test in the diff that meets that criterion, or to the change itself.',
     '3. Read the whole diff. For each criterion, find the code that meets it and the test that shows it. A criterion that nothing in the change meets is a blocking finding that cites it, whatever the commit messages say.',
     '4. Hold the change to each rule. A finding about a rule cites its number.',
     '5. Review the diff, not the code around it. The shop is bad on purpose: ask for nothing outside the ticket, and nothing outside the scope.',
@@ -163,6 +185,7 @@ export const reviewer = defineAgent<ReviewerInput, ReviewerResult>({
       workItem,
       ticket: await ticket(),
       signals: await signals(),
+      answers: state.answers,
       spec: need(state.spec, 'a spec'),
       pullRequest: pushed.number,
       title: pushed.title,
@@ -173,8 +196,11 @@ export const reviewer = defineAgent<ReviewerInput, ReviewerResult>({
   },
   schema: ({ spec }) => reviewerResult(spec.criteria.length),
   prompt,
-  apply: async (review, _handback, { pullRequest }, context) => {
+  apply: async (result, _handback, { pullRequest }, context) => {
     const { workItem, commit, state } = context;
+    // A finding cites the ticket, or says nothing of it.
+    const findings = result.findings.map(({ ticket, ...f }) => (ticket ? { ...f, ticket: true as const } : f));
+    const review = { ...result, findings };
     // The files the change touches, as GitHub's diff of the pull request shows them, to anchor the findings to.
     const { files } = await context.read('comparison', { base: MAIN, head: commit });
     const number = state.reviews.length + 1;

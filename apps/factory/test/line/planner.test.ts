@@ -282,10 +282,17 @@ describe('what the planner noticed outside its ticket', () => {
       INPUT,
       context,
     );
-    expect(left.map(([name]) => name)).toEqual(['finding-1', 'finding-2']);
+    // Known by what it says, so the same finding from another plan of the work item is the same signal.
+    const key = 'finding /products/:slug /products/camera The stock line says 1 items.';
+    expect(left.map(([name]) => name)).toEqual([key, key]);
     const signal = findingSignal(finding, '1301', 'c'.repeat(40));
     expect(left[0]?.[1]).toEqual(signal);
-    expect(signal).toMatchObject({ sense: 'planner', route: '/products/:slug', report: { page: '/products/camera' } });
+    expect(signal).toMatchObject({
+      sense: 'planner',
+      route: '/products/:slug',
+      report: { page: '/products/camera' },
+      planning: '1301',
+    });
     expect(validateSignal({ ...signal, observedAt: '2026-10-09T10:00:00.000Z' })).toEqual({ ok: true });
     expect(drafts[0]?.summary).toBe('Spec written: 1 criterion, 2 paths in scope; 2 findings left for triage');
   });

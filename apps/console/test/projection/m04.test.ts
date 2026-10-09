@@ -257,6 +257,37 @@ describe('Triage’s panel', () => {
     expect(projectSheet(finding, '2001', t)?.chapters.map((c) => c.label)).toContain('FINDING');
     expect(project(finding, t).cards[0]?.picture.type).toBe('judgement');
   });
+
+  it('pictures a planner’s finding by its page, and keeps a defect it noticed apart from a suggestion once answered', () => {
+    const shot = FIXTURE.flatMap((event) => event.artifacts).find((a) => a.kind === 'screenshot');
+    if (!shot) throw new Error('The test data has no screenshot');
+    const finding = work('2002', AFTERNOON - 60_000)
+      .open('planner-finding')
+      .add(0, 'signal.received', 'planner', {
+        sense: 'planner',
+        check: 'planning ticket #1001',
+        route: '/contact',
+        version: 'a'.repeat(40),
+        report: { page: '/contact' },
+        planning: '1001',
+      })
+      .add(0.1, 'judgement.made', 'triage', {
+        questionSet: 'triage/v1',
+        model: 'jev-1.13.0',
+        state: { report: { page: '/contact' } },
+        answers: [{ type: 'noul', key: 'injection', question: 'Orders?', probability: 0.01 }],
+        route: 'park',
+        costUsd: 0.0001,
+        durationMs: 90,
+        cassette: 'c'.repeat(64),
+      })
+      .add(0.1, 'hold.started', 'triage', { stage: 'triage', kind: 'held', cause: 'finding', reason: 'A defect.' })
+      .add(0.5, 'hold.answered', 'martin', { decision: 'answered', answer: 'Leave it for a sense.' }).events;
+    const signal = finding[1];
+    if (signal) signal.artifacts = [shot];
+    const picture = project(finding, AFTERNOON).cards[0]?.picture;
+    expect(picture).toMatchObject({ type: 'judgement', page: shot });
+  });
 });
 
 describe('the spend cap', () => {

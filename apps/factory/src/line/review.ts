@@ -12,6 +12,9 @@ import type { CheckRunReport, ReviewComment } from '../github/actions.ts';
 import type { Comparison } from '../github/reads.ts';
 import type { ReviewerResult } from './agents/reviewer.ts';
 
+/** A review as GitHub is given it: its verdict, its note and its findings, each citing the ticket or not. */
+type Review = Pick<ReviewerResult, 'verdict' | 'note'> & { findings: Finding[] };
+
 export type Finding = PayloadOf<'review.submitted'>['findings'][number];
 
 /** What a finding cites, as a reader sees it: "rule 4 · criterion 2", or "the ticket". */
@@ -76,7 +79,7 @@ function after(verdict: ReviewerResult['verdict'], last: boolean): string {
  * `review` counts the pull request's reviews, this one included, and `last` says it is the last the line allows.
  */
 export function reviewInGitHub(
-  review: ReviewerResult,
+  review: Review,
   files: Comparison['files'],
   { commit, workItem, review: number, last }: { commit: string; workItem: string; review: number; last: boolean },
 ): ReviewInGitHub {

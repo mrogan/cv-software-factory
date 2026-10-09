@@ -244,6 +244,8 @@ export const PAYLOADS = {
     symptom: z.enum(V.SYMPTOM_CLASSES).optional(),
     report: report.optional(),
     evidence: z.array(evidence).max(8).optional(),
+    /** For a planner's finding: the work item whose ticket it was planning, which the finding is not about. */
+    planning: workItem.optional(),
   }),
   /**
    * One request to Jev about a report: what it was asked and answered. The request that routes the report records
@@ -552,6 +554,10 @@ export const inboxSignal = z
         path: ['symptom'],
         message: 'the planner names no symptom: triage judges it',
       });
+    }
+    if ((signal.sense === 'planner') !== (signal.planning !== undefined)) {
+      const message = 'a planner’s finding, and only one, names the work item it was planning';
+      context.addIssue({ code: 'custom', path: ['planning'], message });
     }
   });
 

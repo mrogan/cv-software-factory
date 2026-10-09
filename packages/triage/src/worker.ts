@@ -174,7 +174,9 @@ export class Triage {
       // The visitor may have typed the path, so anything private in it goes before anything is matched or asked.
       const page = privatePath(signal.report?.page ?? signal.route);
       const route = privatePath(signal.route);
-      const candidates = tickets.filter((ticket) => onPage(ticket, route, page)).slice(0, 10);
+      // A planner's finding is about something beyond the ticket it was planning, so it never joins that one.
+      const others = tickets.filter((ticket) => ticket.workItem !== signal.planning);
+      const candidates = others.filter((ticket) => onPage(ticket, route, page)).slice(0, 10);
       const decision = await judgeReport(
         { page, text, route },
         candidates.map(candidateOf),
@@ -188,7 +190,7 @@ export class Triage {
       const defect = routed.route === 'ticket' || (routed.route === 'park' && routed.defect !== undefined);
       const fingerprint =
         routed.route === 'park' && routed.defect ? { route, class: routed.defect.symptom } : decision.fingerprint;
-      const same = fingerprint && tickets.find((ticket) => sameFingerprint(ticket.fingerprint, fingerprint));
+      const same = fingerprint && others.find((ticket) => sameFingerprint(ticket.fingerprint, fingerprint));
       if (defect && same) {
         decision.routed = { route: 'repeat', joined: same.workItem };
         const first = decision.judgements[0];

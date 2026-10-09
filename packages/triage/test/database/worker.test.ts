@@ -155,6 +155,7 @@ describe('triage', () => {
       route: '/contact',
       symptom: undefined,
       report: { page: '/contact', text: 'The form says it sends at once, and waits a minute' },
+      planning: '1001',
     });
     const opened: boolean[] = [];
     await sendSignal(writer, finding);
@@ -178,13 +179,14 @@ describe('triage', () => {
   });
 
   it('parks the planner’s suggestion for Martin, and joins a defect it noticed to the open ticket that has it', async () => {
-    const finding = (route: string) =>
+    const finding = (route: string, planning = '1') =>
       found({
         sense: 'planner',
-        check: 'planning ticket #1001',
+        check: `planning ticket #${planning}`,
         route,
         symptom: undefined,
         report: { page: route, text: 'The page could say more' },
+        planning,
       });
     const suggests: Judge = async (request) => {
       const judged = await jev(request);
@@ -206,6 +208,18 @@ describe('triage', () => {
     );
     expect(joined?.work_item).toBe(ticket?.work_item);
     expect((await types(ticket?.work_item ?? '')).slice(-2)).toEqual(['signal.received', 'judgement.made']);
+
+    // Never into the ticket it was planning: what it noticed there is beyond that ticket, so it waits on its own.
+    const planned = ticket?.work_item ?? '';
+    await sendSignal(writer, finding('/about', planned));
+    expect(await triage().takeOne()).toBe('finding');
+    const [own] = await writer<{ work_item: string }[]>`
+      select work_item from inbox where outcome = 'finding' order by received_at desc limit 1`;
+    expect(own?.work_item).not.toBe(planned);
+    expect(await types(own?.work_item ?? '')).toContain('hold.started');
+    const [offered] = await writer<{ payload: { state: { candidates?: unknown[] } } }[]>`
+      select payload from events where work_item = ${own?.work_item ?? ''} and type = 'judgement.made'`;
+    expect(offered?.payload.state.candidates).toBeUndefined();
   });
 
   it('takes nothing while the line is stopped, and carries on when it starts again', async () => {
