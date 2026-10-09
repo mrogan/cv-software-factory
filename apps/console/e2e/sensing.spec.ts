@@ -20,7 +20,7 @@ test.describe('sensing and triage', () => {
     await page.goto(fixtureUrl({ item: '1001' }));
     await ready(page);
     await expect(centre(page).locator('.out')).toHaveText('Waiting for the planner');
-    await expect(centre(page).locator('.meta')).toContainText('seen on v0.9.3');
+    await expect(centre(page).locator('.meta')).toContainText('seen on 4f9c2e1');
     await expect(centre(page).locator('.meta')).toContainText('no model');
     await expect(centre(page).getByRole('img', { name: 'Waiting at Plan for the planner' })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Plan: idle, 8 waiting/ })).toBeVisible();
@@ -90,6 +90,12 @@ test.describe('sensing and triage', () => {
     ]);
     await expect(sheet).toContainText('No model was called. A sense knows what it saw');
     await expect(sheet.locator('.facts-dl')).toContainText('/contact · server-error');
+    const commit = sheet.locator('.facts-dl').getByRole('link', { name: '4f9c2e1', exact: true });
+    await expect(commit).toHaveAttribute(
+      'href',
+      'https://github.com/mrogan/cv-worlds-worst-website/commit/4f9c2e1b7d3a6058e9b1c4d2a7f3e6b9c0d1e2f3',
+    );
+    await expect(commit).toHaveAttribute('title', '4f9c2e1b7d3a6058e9b1c4d2a7f3e6b9c0d1e2f3');
   });
 
   test('a report’s ticket names Jev’s provider and each question set', async ({ page }) => {

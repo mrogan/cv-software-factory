@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { REPORTS } from '../../../../policy/triage.ts';
 import { project, projectSheet, QUARANTINE_AT } from '../../web/src/projection/index.ts';
+import { VERSION } from '../fixture/captures.ts';
 import { AFTERNOON, CAPPED, CLEARED, FIXTURE, work } from './support.ts';
 
 const view = project(FIXTURE, AFTERNOON);
@@ -15,7 +16,7 @@ const sheet = (number: string, t = AFTERNOON) => projectSheet(FIXTURE, number, t
 
 describe('a ticket from a sense', () => {
   it('has left Triage and waits at Plan for the planner, in the quiet tone', () => {
-    expect(card('1001')).toMatchObject({ outcome: 'waiting', seenOn: 'v0.9.3', calls: 0, from: undefined });
+    expect(card('1001')).toMatchObject({ outcome: 'waiting', seenOn: VERSION, calls: 0, from: undefined });
     expect(card('1001')?.segments).toEqual(['passed', 'passed', 'queued', ...Array(5).fill('none')]);
   });
 

@@ -4,7 +4,7 @@
  */
 import { STAGES } from '@software-factory/events';
 import { memo, type Ref } from 'react';
-import { duration, money, shortWhen } from '../format.ts';
+import { duration, money, shortVersion, shortWhen } from '../format.ts';
 import type { Card as CardData, Outcome, Versions } from '../projection/index.ts';
 import { segmentsLabel } from '../projection/index.ts';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
@@ -78,9 +78,10 @@ export function VersionPill({
   seenOn?: string | undefined;
   from?: string | undefined;
 }) {
-  const { from, to, rolledBack, onCanary } = versions;
+  const { rolledBack, onCanary } = versions;
+  const [from, to] = [versions.from, versions.to].map((v) => v && shortVersion(v));
   if (!to && !from && page) return <span className="ver">from {page}</span>;
-  if (!to && !from && seenOn) return <span className="ver">seen on {seenOn}</span>;
+  if (!to && !from && seenOn) return <span className="ver">seen on {shortVersion(seenOn)}</span>;
   if (!to && !from) return <span className="ver muted">no release</span>;
   if (rolledBack) {
     return (

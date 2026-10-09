@@ -10,8 +10,11 @@ export const LOG = fileURLToPath(new URL('./log/', import.meta.url));
 export const ARTIFACTS = fileURLToPath(new URL('./log/artifacts/', import.meta.url));
 export const CAPTURES = fileURLToPath(new URL('./captures.json', import.meta.url));
 
-/** The one version of the invented shop every page shows. */
-export const VERSION = 'v0.9.3';
+/**
+ * The one version of the invented shop every page shows: a commit, as the app reports one between releases, so the
+ * console's tests see a version too long to write whole.
+ */
+export const VERSION = '4f9c2e1b7d3a6058e9b1c4d2a7f3e6b9c0d1e2f3';
 
 type Rect = { x: number; y: number; width: number; height: number };
 

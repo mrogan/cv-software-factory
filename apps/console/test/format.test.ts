@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { axis, figure } from '../web/src/format.ts';
+import { axis, figure, isCommit, shortVersion } from '../web/src/format.ts';
 
 describe('a chart’s axis', () => {
   it.each([
@@ -23,5 +23,17 @@ describe('a chart’s axis', () => {
 describe('a figure', () => {
   it('keeps three significant figures, whatever the scale', () => {
     expect([642, 85, 0.015, 0.02345, 1500].map(figure)).toEqual(['642', '85', '0.015', '0.0235', '1,500']);
+  });
+});
+
+describe('a version', () => {
+  it('writes a commit by its first seven characters, as GitHub does', () => {
+    expect(shortVersion('4f9c2e1b7d3a6058e9b1c4d2a7f3e6b9c0d1e2f3')).toBe('4f9c2e1');
+    expect(shortVersion('4f9c2e1')).toBe('4f9c2e1');
+  });
+
+  it('writes a release as it is', () => {
+    expect(shortVersion('v0.9.3')).toBe('v0.9.3');
+    expect(isCommit('v0.9.3')).toBe(false);
   });
 });

@@ -6,7 +6,7 @@
  * during a drag and fails if they grow with the number of frames.
  */
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { dayLabel, when } from '../format.ts';
+import { dayLabel, shortVersion, when } from '../format.ts';
 import type { View } from '../projection/index.ts';
 import { renders } from '../renders.ts';
 import { Card, OUTCOME } from './Card.tsx';
@@ -409,7 +409,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
             className={`ver ${rolledBack ? 'burnt' : ''} ${index === centre ? 'here' : ''}`}
             style={{ left: `${(positions[index] ?? 0) * 100}%` }}
           >
-            {version}
+            {shortVersion(version)}
           </span>
         ))}
         <span className="playhead" ref={playhead} />

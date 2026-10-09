@@ -11,9 +11,11 @@ import {
   clock,
   duration,
   inWords,
+  isCommit,
   money,
   percent,
   plural,
+  shortVersion,
   sinceStart,
   tokens,
   when,
@@ -186,12 +188,13 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
 
   const ongoing = ONGOING.has(card.outcome);
   const released = Boolean(card.versions.to || card.versions.from);
+  const [from, to] = [card.versions.from, card.versions.to].map((v) => v && shortVersion(v));
   const versions = card.versions.rolledBack
-    ? `${card.versions.to} · rolled back to ${card.versions.from}`
+    ? `${to} · rolled back to ${from}`
     : card.versions.onCanary
-      ? `broken in ${card.versions.from} · the fix is ${card.versions.to}`
-      : card.versions.to
-        ? `${card.versions.from ?? '—'} → ${card.versions.to}`
+      ? `broken in ${from} · the fix is ${to}`
+      : to
+        ? `${from ?? '—'} → ${to}`
         : 'No release';
   const bySense = sheet.senseEvidence.length > 1;
   const total = sheet.agents.reduce((sum, a) => sum + a.cost, 0);
@@ -409,7 +412,9 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                 )}
                 {!sheet.seenBy && <Fact name="Found by">{sheet.facts.foundBy}</Fact>}
                 {!released && card.seenOn ? (
-                  <Fact name="Seen on">{card.seenOn}</Fact>
+                  <Fact name="Seen on">
+                    <Version version={card.seenOn} sample={card.sample} />
+                  </Fact>
                 ) : (
                   <Fact name="Version">{versions}</Fact>
                 )}
@@ -858,6 +863,21 @@ function Source({ children }: { children: ReactNode }) {
   return <p className="source">{children}</p>;
 }
 
+/**
+ * The app's version: a commit by its short form, linked to the commit and with the whole of it on hover. A sample's
+ * commit never existed, so it links nowhere.
+ */
+function Version({ version, sample }: { version: string; sample: boolean }) {
+  if (!isCommit(version)) return version;
+  const short = shortVersion(version);
+  if (sample) return <span title={version}>{short}</span>;
+  return (
+    <a href={`${APP_REPO}/commit/${version}`} title={version}>
+      {short}
+    </a>
+  );
+}
+
 function Fact({ name, children }: { name: string; children: ReactNode }) {
   return (
     <>
@@ -904,7 +924,7 @@ function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) 
           <div className="site-head">
             <span className="label">The site at {sinceStart(chapter.at - start)}</span>
             <span className={`label tone-${tone} toned`}>
-              {tag} · {site.shot.version}
+              {tag} · {shortVersion(site.shot.version)}
             </span>
           </div>
           <div className="vis">

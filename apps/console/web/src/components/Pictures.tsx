@@ -5,7 +5,7 @@
 import type { Evidence, PayloadOf, Screenshot } from '@software-factory/events';
 import { type KeyboardEvent, type PointerEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { useArtifactUrl } from '../artifacts.ts';
-import { AGENT_NAME, axis, capital, clock, figure, inWords, money, plural, times } from '../format.ts';
+import { AGENT_NAME, axis, capital, clock, figure, inWords, money, plural, shortVersion, times } from '../format.ts';
 import type { Picture as PictureData, Source, Tag } from '../projection/index.ts';
 import { QUARANTINE_AT } from '../projection/index.ts';
 import { Glyph } from './Glyph.tsx';
@@ -61,7 +61,7 @@ export function Shot({
   const [failed, setFailed] = useState(false);
   const marks: Mark[] = given ?? shot.boxes.map((box, i) => ({ ...box, ...(numbered && { n: i + 1 }) }));
   const named = marks.map((mark) => [mark.n, mark.label].filter(Boolean).join(' ')).filter(Boolean);
-  const alt = `Screenshot of ${pageName(shot.route)} at ${shot.version}${named.length ? `, marked: ${named.join('; ')}` : ''}`;
+  const alt = `Screenshot of ${pageName(shot.route)} at ${shortVersion(shot.version)}${named.length ? `, marked: ${named.join('; ')}` : ''}`;
   return (
     <div className="shot">
       {failed ? (
@@ -186,11 +186,11 @@ function Wipe({ before, after, tags, interactive }: Extract<PictureData, { type:
       </span>
       <span className={`wtag l tone-${TAG_TONE[a]}`}>
         <span className="dot" />
-        {a} · {before.version}
+        {a} · {shortVersion(before.version)}
       </span>
       <span className={`wtag r tone-${TAG_TONE[b]}`}>
         <span className="dot" />
-        {b} · {after.version}
+        {b} · {shortVersion(after.version)}
       </span>
     </div>
   );
@@ -349,7 +349,7 @@ function Terminal({ logs, title }: { logs: Logs; title: string }) {
   return (
     <div className="term">
       <span className="t-dim">
-        {title} · {logs.version}
+        {title} · {shortVersion(logs.version)}
       </span>
       {'\n'}
       {logs.lines.length === 0 ? (
@@ -739,7 +739,7 @@ function SourceCap({ source, children }: { source: Source; children?: ReactNode 
   return (
     <div className="row spread source-cap">
       <span className="cap">
-        {SENSE_NAME[source.sense]} · {source.every ? 'every page' : source.check} · {source.version}
+        {SENSE_NAME[source.sense]} · {source.every ? 'every page' : source.check} · {shortVersion(source.version)}
       </span>
       {children}
     </div>
@@ -1164,7 +1164,7 @@ export function Picture({ picture, interactive }: { picture: PictureData; intera
           <Shot shot={picture.shot} numbered={picture.shot.boxes.length > 1} />
           <span className={`wtag l tone-${TAG_TONE[picture.tag]}`}>
             <span className="dot" />
-            {picture.tag} · {picture.shot.version}
+            {picture.tag} · {shortVersion(picture.shot.version)}
           </span>
         </>
       )}
