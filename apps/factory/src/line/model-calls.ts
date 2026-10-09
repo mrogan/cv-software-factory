@@ -3,8 +3,11 @@
  * `model_calls` for every call, with the job that made it; a step is one job, so its calls are the rows with its
  * job's name. The event records the step; the table keeps each call.
  *
- * Calls the gateway refused never reached a model, so they are not counted. A step whose calls went to more than one
- * model is recorded under the one most of them went to, with every call's tokens and cost.
+ * Only calls a model answered are counted: those it answered or a cassette replayed, and those that failed part way
+ * with tokens to show for it, such as a stream that broke off, which may still be billed. A call the gateway refused,
+ * or one that failed with none (the provider refusing it, an overload, no answer at all), never reached a model. A step
+ * whose calls went to more than one model is recorded under the one most of them went to, with every call's tokens and
+ * cost.
  */
 import type { ModelProvider, PayloadOf } from '@software-factory/events';
 import type { Sql } from 'postgres';
@@ -36,6 +39,7 @@ export async function stepCalls(
            sum(cost_usd)::float8 as cost, sum(duration_ms)::int as ms
     from model_calls
     where job = ${job} and outcome <> 'refused'
+      and (outcome <> 'failed' or input_tokens + output_tokens + cache_read_tokens + cache_write_tokens > 0)
     group by provider, model
     order by count(*) desc, provider, model`;
   const [main] = rows;
