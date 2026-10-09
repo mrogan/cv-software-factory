@@ -153,10 +153,10 @@ The probe that follows the home page's links files a loop under the destination'
 
 - [x] The App opens the deploy and release pull requests in both repositories, their checks run without Martin approving them, and no workflow can open or approve a pull request.
 - [x] Code-owner review is required on `main` in both repositories; Martin's own pull requests merge through the bypass, and the merge records it. Scorecard's Branch-Protection score is recorded.
-- [ ] A pull request to the app that breaks a journey, deletes a test, or adds a vulnerable dependency fails its checks, and one that only fixes a seeded defect passes them.
-- [ ] A runner, on the local model, fixes the scratch defect and hands back a patch that the dry-run worker would commit; the hand-written cassettes pass in CI with no key.
+- [x] A pull request to the app that breaks a journey, deletes a test, or adds a vulnerable dependency fails its checks, and one that only fixes a seeded defect passes them.
+- [x] A runner, on the local model, fixes the scratch defect and hands back a patch that the dry-run worker would commit; the hand-written cassettes pass in CI with no key.
 - [x] An agent pod reaches only the gateway and the handback, and the gateway refuses its token once the job ends.
-- [ ] With the workspace's limit reached, or LM Studio stopped, agent calls wait, the console says why, and they resume by themselves when the provider answers again.
+- [x] With the workspace's limit reached, or LM Studio stopped, agent calls wait, the console says why, and they resume by themselves when the provider answers again.
 
 ## Part B: the agents
 
@@ -219,13 +219,13 @@ Spec sections 4.1, 7 and 9; `COMPONENTS.md` (the line, the agents and the App's 
 
 ## Exit criteria
 
-- [ ] Part A's criteria are met.
+- [x] Part A's criteria are met.
 - [x] A seeded defect is fixed and merged in the app's repository with no human code: a ticket from the senses, a spec, a failing test then a fix, the gates, review with at least the chance of a second round, a description, and Martin's merge. Every step is in the console.
 - [x] Every pull request the factory opens is the App's and signed, and waits for Martin's code-owner review.
 - [x] The sandbox never held a credential beyond its job token, and a patch outside its scope never reached GitHub.
 - [x] What a fix costs is measured, and the per-work-item cap is set from it.
-- [ ] `make stop-the-line` stops a running agent within a minute, and starting again loses nothing.
-- [ ] Martin has watched a fix go through the line in the console, on a laptop and a phone, and approved it against the bar in `INTENT.md`.
+- [x] `make stop-the-line` stops a running agent within a minute, and starting again loses nothing.
+- [x] Martin has watched a fix go through the line in the console, on a laptop and a phone, and approved it against the bar in `INTENT.md`.
 
 ## Out of scope
 
@@ -267,7 +267,7 @@ From 5 to 7 October 2026, on the local cluster: tasks 9 to 15 (#96 to #103), the
 
 - **The fix.** With `LINE_MODE=live` and `LINE_TAKE=1`, on Claude Sonnet 5.5, the line took work item 1001 by its own rule, the oldest open ticket of the highest severity: department pages that redirect to themselves (`redirect-loop` on `/departments/:department`, from the probes and the crawler). Nobody chose the ticket or read the private repository. It opened the app's issue #16; the planner wrote a spec of four criteria and three paths; the coder wrote its tests, then a one-line fix, in the App's draft pull request, app #17; the gates, then the reviewer, passed it; the describer wrote its description and readied it; and Martin merged it on 7 October, for $0.333 in 34 calls. How it got there, by way of a hold and three fixes to the factory, is in the retrospective.
 - **What reached GitHub.** Both commits on app #17 are the App's and verified, and it changes two files, both in the spec's scope. All 14 checks passed on its last commit, among them journeys, test integrity and tests first, which passes only when a new test fails on the base. The reviewer approved with no findings, through its comment review and its `factory review` check run. GitHub still wanted a code owner's approval when Martin merged: he merged through the admin's bypass, which the rule-suite log records, so the merge does not count towards Scorecard's Code-Review.
-- **In the console.** The console serves all 50 of 1001's public events, from the probes' signal to the merge, and has a state for each (#102). Martin watched 1001 go through it on a laptop on 7 October 2026; on a phone is still to do.
+- **In the console.** The console serves all 50 of 1001's public events, from the probes' signal to the merge, and has a state for each (#102). Martin watched 1001 go through it on a laptop on 7 October 2026, and 1006 on a phone on 9 October (below), and approved it against `INTENT.md`.
 - **The App's deploy and release pull requests, in both repositories.** It opened the app's release pull request (app #19, 0.1.1, after the fix merged) and its deploy pull request (app #20), and keeps this repository's release pull request (#77) current; it opened every deploy pull request merged here in Part B (#105, #107, #108, #112, #113, #116). Their checks ran with nobody approving them.
 - **The sandbox and the scope.** A runner's pods get no service account token (`automountServiceAccountToken: false`, `runners/jobs.ts`); their environment holds work paths and the step's settings, and the job token is the only secret, which ends with its step. The agent pod reaches only the gateway and the line's handback (`make egress`, Part A). What reached GitHub from the line was 1001's two pushes to app #17, both inside its spec's scope (`src/pages/products.ts` and `test/pages-products.test.ts`). The scope fence and the GitHub worker's own check have refused a patch only in tests and on the bench: no coder on the line has yet strayed, so a refusal on a real work item is still to see. No pod was inspected during a live step: its Jobs are deleted as it ends.
 - **Three runs in dry run, each read by `factory line soak-check` when it ended:**
@@ -300,6 +300,20 @@ From 5 to 7 October 2026, on the local cluster: tasks 9 to 15 (#96 to #103), the
 
 **The cap per work item: $1, on every profile** (#120; from $5 on `local` and $2 on `do` and `aws`). It is three times the dearest fix measured. A work item that goes the longest way the line allows without a hold (two returns from the gates and one from review, at 1001's prices per step) comes to about $0.50, which leaves room for several steps tried again. Past it, holding for Martin costs less than another round. The day and month caps stay as they are: $20 a day is about 60 fixes at 1001's cost. Two work items on Claude are a small sample: the cap moves with what later fixes cost.
 
+### The runs Part A and Part B left
+
+On 8 October 2026, on the local cluster in dry run, with the app's `main` at `f56e343`.
+
+- **The app's gates refuse what they are for.** Three pull requests to the app, each the smallest change that should trip one gate, and each closed unmerged: an image with no alt text on a page whose images all have it (app #21) failed journeys on that one check, which the base passes, while the app's own lint, types and tests passed; deleting a test file (app #22) failed test integrity, which named the file and its one test; adding `lodash@4.17.20` (app #23) failed dependency review on two high advisories and two moderate ones, and the image scan on two high CVEs, each judging only what the change added. Tests first failed on all three, as it must for changes with no new tests. A change that only fixes a seeded defect passing them all is app #17. The app's checks took 3:34, 2:43 and 3:08, past the three minutes task 4 asks for: the journeys gate observes the base and the change in turn, and a failing check runs every check again (#139).
+- **The smoke run in the cluster on Qwen.** With `ALL_LOCAL=true` on the gateway and Argo CD's sync paused for the run: prepare in 10 seconds, then the coder wrote the failing test, fixed the off-by-one and handed back the same two-file patch in 10 turns, 1 minute 53 seconds from the request to the answer. Its 8 calls all went to Qwen, for nothing. The fence passed the patch, the dry-run GitHub worker recorded the commit, and nothing was left in `runners`. The hand-written cassettes (an agent that edits one file, one that strays out of scope, one that runs out of turns, one that hands back nothing) run the real Agent SDK against a scripted model with no key, in `make check` (`apps/runner/test/agent.test.ts`).
+- **Stopping the line, and starting it again.** `make stop-the-line` while the planner was working on 1002, four calls in: the line deleted the step's Jobs 70 milliseconds after `line.stopped`, the one call already in flight was answered, and `runners` was empty 33 seconds after the event, keeping the work item's volume. Nothing counted against the step. `make start-the-line` 46 seconds later, and the planner ran again as a new Job, prepared afresh, 11 seconds after.
+- **The provider's cap, and the bug it found.** LM Studio's server stopped while 1002's planner worked: the gateway appended `spend.capped` (`local`, `unreachable`) within a second, the console's header said "agents waiting for a model" with the gateway's words below it, and at its next probe after the server started, `spend.cleared`. But the planner ended on the refusal, and the line counted it as a failed step, ran it again into the same cap, and held 1002 after two failures, while the console said work would carry on by itself. The line knew of no cap but a work item's own. It now starts no step behind a cap set for the agent's provider or the factory's day or month, and counts nothing against a step a cap ended (#138, run here as an image built locally before it merged; deployed since). With the fix:
+  - **LM Studio stopped** during 1003's planner: `spend.capped` and the step's end in the same second, no failure counted and no step started; `spend.cleared` at the probe, and the planner ran again 9 seconds after.
+  - **The workspace's limit set below its spend:** Anthropic answers 400 `invalid_request_error`, "You have reached your specified workspace API usage limits", which the gateway reads by its message as `workspace-limit`, since neither type nor status tells it apart. The line was stopped, moved to Claude and started again; the planner's first call was refused, `spend.capped` named Anthropic with its words, the console said why, and nothing was spent or counted. With the limit raised, `spend.cleared` came at the probe and the planner ran again on Claude 11 seconds after. The refused call is counted as a call in the step's `model.called` (#140).
+- **1003 round the line on Claude,** in dry run, every step first time: spec, push, the dry run's checks, approval, description and the dry run's merge in 8 minutes, for $0.194 (planner $0.050, coder $0.061, reviewer $0.036, describer $0.047). `factory line soak-check` over the whole session: no lease past its expiry, no Job or volume left for an ended work item, 190 events valid, $0.194 over 51 calls.
+- **A fix watched on a phone.** With #138 deployed and `LINE_TAKE=5` (#143: the dry runs' work items count towards it), the line took 1006 by its own rule, live on Claude, while Martin watched the console on a phone over the Mac's own network. It opened the app's issue #24; the planner wrote a spec of four criteria and two paths; the coder pushed its tests and fix as the App's draft pull request, app #25; all seven required checks passed, tests first among them; the reviewer approved; the describer wrote the description and readied it; and Martin merged it, 8 minutes after the line took the ticket, for $0.206 in 21 calls. Every step was right first time. Martin approved it against `INTENT.md`. Watching it showed a station that holds one work item standing still while it works on another (#145).
+- 1002 stays held at Plan from the run that found the bug, rather than answered in Martin's name. Restoring the cluster after the runs had a dry-run line take 1005, which Martin closed; the order of the restore is now in the `try-the-line` skill (#142). When main moved on, the App's deploy pull request for #138 closed itself and was reopened by hand (#144).
+
 ## Retrospective
 
 ### Part A
@@ -331,12 +345,7 @@ Written as Part A's pull requests (#62 to #73, and the app's #9 to #11) merged, 
 - In a stack of squash-merged pull requests, every fix low in the stack means rebasing everything above it. Whether Part B tries GitHub's stacked pull requests is still open.
 - No test runs the real Agent SDK against the gateway's allow-lists: an [issue](https://github.com/mrogan/cv-software-factory/issues).
 
-**Still to run**
-
-- The App keeping the release pull request (#77 was opened by the old workflow), and opening a deploy pull request in the app's repository.
-- The smoke run in the cluster on the local model. It ran on Claude: with Argo CD self-healing, `ALL_LOCAL=true` needs a change through Git, or self-heal paused for the run.
-- The workspace's limit set below its spend once, and LM Studio stopped once, to see agent calls wait, the console say why, and the calls resume.
-- A pull request to the app that breaks a journey, deletes a test or adds a vulnerable dependency, and one that only fixes a seeded defect.
+**Still to run:** nothing; the runs are in the results.
 
 **Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues), and the Part B tasks that gained items from review (9 and 15).
 
@@ -389,11 +398,7 @@ The line took 1001 at 23:45 UTC on 6 October and held it nine minutes later. Twe
 
 **Still to run**
 
-- The cap per work item set from the results' proposal, in `policy/spend.ts`, which is Martin's.
-- Martin watching a fix go through the line in the console, on a laptop and a phone, and approving it against `INTENT.md`.
 - A review that blocks and returns to the coder, and a patch the scope fence refuses, on a real work item. Tests cover both; no run has met either.
-- `make stop-the-line` during a step, then starting again, to see the step run afresh and nothing lost. The first soak showed the stop half.
 - A night-long soak, for the GitHub worker's memory and leases over many hours, and one on Qwen at the tuned settings over a ticket like 1007.
-- Part A's runs still listed above: a pull request to the app that breaks a journey, deletes a test or adds a vulnerable dependency; the provider's cap reached and the console saying why; the smoke run in the cluster on the local model.
 
 **Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues).
