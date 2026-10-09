@@ -188,11 +188,14 @@ export class Spend {
     };
   }
 
-  /** Reads which caps the store last marked, so a restart carries on from there. Then reconciles. */
+  /**
+   * Reads which day and month caps the store last marked, so a restart carries on from there. Then reconciles. A
+   * provider's cap is `ProviderCaps`' to resume and clear.
+   */
   async resume(): Promise<void> {
     const rows = await this.#sql<{ cap: Cap; type: string }[]>`
       select distinct on (payload->>'cap') payload->>'cap' as cap, type
-      from events where type in ('spend.capped', 'spend.cleared')
+      from events where type in ('spend.capped', 'spend.cleared') and payload->>'cap' in ('day', 'month')
       order by payload->>'cap', seq desc`;
     this.#marked.clear();
     for (const row of rows) if (row.type === 'spend.capped') this.#marked.add(row.cap);
