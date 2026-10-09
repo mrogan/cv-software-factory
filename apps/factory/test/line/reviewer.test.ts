@@ -108,7 +108,9 @@ const DIFF = [
       '@@ -1,4 +1,4 @@',
       ' /** Prices are whole pence. */',
       ' export function pounds(pence: number): string {',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the patch is the app's code, as text.
       '-  return `£${pence / 100}`;',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the patch is the app's code, as text.
       '+  return `£${(pence / 100).toFixed(2)}`;',
       ' }',
     ].join('\n'),
