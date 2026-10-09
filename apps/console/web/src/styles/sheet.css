@@ -415,6 +415,8 @@ html[data-motion="off"] .scrim {
   text-align: right;
   font-family: var(--font-mono);
   font-size: 12.5px;
+  /* A value too long for the column (a fingerprint, a page's address) breaks where it must, not out of the panel. */
+  overflow-wrap: anywhere;
 }
 .side-card {
   padding: 18px;

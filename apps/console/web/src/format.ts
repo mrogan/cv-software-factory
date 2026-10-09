@@ -39,6 +39,12 @@ export function sinceStart(ms: number): string {
   return h ? `T+${h}:${two(m)}:${two(s)}` : `T+${two(m)}:${two(s)}`;
 }
 
+/** Whether the app's version is a commit rather than a release such as v0.9.3. */
+export const isCommit = (version: string) => /^[0-9a-f]{7,40}$/.test(version);
+
+/** A version as the console writes it: a release as it is, a commit by its first seven characters, as GitHub does. */
+export const shortVersion = (version: string) => (isCommit(version) ? version.slice(0, 7) : version);
+
 /** $0.31, or <$0.01 for less than a cent. */
 export const money = (usd: number) => (usd > 0 && usd < 0.01 ? '<$0.01' : `$${usd.toFixed(2)}`);
 
