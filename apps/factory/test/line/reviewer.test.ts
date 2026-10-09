@@ -75,10 +75,10 @@ describe('the reviewer', () => {
       '5. Given a price of 1234567 pence, when pounds is called with it, then it returns £12,345.67, with a comma between thousands. (From the ticket.)',
     );
     expect(prompt).toContain('2. Hold the spec to the ticket.');
-    expect(prompt).toContain('is a blocking finding with `"ticket":true`');
+    expect(prompt).toContain('is a blocking finding that cites that criterion with `"ticket":true`');
   });
 
-  it('sends a spec or a change beyond the ticket to Martin, never back to the coder', () => {
+  it('sends a criterion beyond the ticket to Martin, and a change beyond a sound spec back to the coder', () => {
     const fits = (result: unknown) => reviewer.schema(input).safeParse(result).success;
     const beyond = { ...unmet, criterion: 5, ticket: true as const, comment: 'No evidence asks for the cards.' };
     expect(fits({ verdict: 'escalated', note: 'The spec goes beyond its ticket.', findings: [beyond] })).toBe(true);
@@ -87,6 +87,16 @@ describe('the reviewer', () => {
     expect(fits({ verdict: 'approved', note: 'Fine.', findings: [{ ...taste, ticket: false }] })).toBe(true);
     expect(fits({ verdict: 'escalated', note: 'Beyond the ticket.', findings: [{ ...beyond, blocking: false }] })).toBe(
       false,
+    );
+    // Only a criterion goes beyond the ticket: a change beyond the spec cites the spec, and goes back to the coder.
+    const { criterion: _criterion, ...uncited } = beyond;
+    expect(fits({ verdict: 'escalated', note: 'Beyond the ticket.', findings: [uncited] })).toBe(false);
+    const extra = { ...unmet, comment: 'It also rounds every price up, which criterion 5 does not ask.' };
+    expect(fits({ verdict: 'changes-requested', note: 'Take the rounding out.', findings: [extra] })).toBe(true);
+    const prompt = reviewer.prompt(input);
+    expect(prompt).toContain('A change that does more than the spec’s criteria ask, when the spec itself is sound');
+    expect(prompt).toContain(
+      '`ticket`: true only when the criterion the finding cites is one the ticket does not ask for',
     );
   });
 });

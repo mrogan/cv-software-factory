@@ -343,7 +343,7 @@ export const PAYLOADS = {
    * The reviewer's review of a pull request's latest push, with each finding: the line it is anchored to, whether it
    * blocks, what it cites (a rule of the repository's `docs/REVIEWERS.md`, a criterion of the spec, the ticket, or
    * more than one) and its comment, so the console can show the thread and the rules can be counted by how often they
-   * are cited. A finding that cites the ticket says the spec or the change goes beyond what the ticket asks.
+   * are cited. A finding that cites the ticket says the criterion it cites goes beyond what the ticket asks.
    */
   'review.submitted': z.strictObject({
     pullRequest,
@@ -351,16 +351,19 @@ export const PAYLOADS = {
     note: text(300),
     findings: z
       .array(
-        z.strictObject({
-          path: text(200),
-          /** In the change's version of the file. */
-          line: z.number().int().positive(),
-          blocking: z.boolean(),
-          rule: z.number().int().min(1).max(50).optional(),
-          criterion: z.number().int().min(1).max(12).optional(),
-          ticket: z.literal(true).optional(),
-          comment: text(300),
-        }),
+        z
+          .strictObject({
+            path: text(200),
+            /** In the change's version of the file. */
+            line: z.number().int().positive(),
+            blocking: z.boolean(),
+            rule: z.number().int().min(1).max(50).optional(),
+            criterion: z.number().int().min(1).max(12).optional(),
+            /** The criterion it cites is one the ticket does not ask for: only a criterion goes beyond the ticket. */
+            ticket: z.literal(true).optional(),
+            comment: text(300),
+          })
+          .refine((f) => !f.ticket || f.criterion !== undefined, 'a finding cites the ticket for a criterion'),
       )
       .max(V.MAX_FINDINGS),
   }),

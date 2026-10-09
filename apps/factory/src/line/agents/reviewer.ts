@@ -5,10 +5,13 @@
  * change to: a rule's number, a criterion of the spec, the ticket, or more than one. Its review is a signal, never a
  * gate.
  *
- * It holds the spec to the ticket as well as the change to the spec: it is told the ticket and what the senses saw,
- * as the planner was (`evidence.ts`). A criterion, or a change, the ticket's evidence does not ask for is a blocking
- * finding that cites the ticket, and the review is escalated: the coder cannot put a spec right, so it goes to Martin,
- * in every autonomy mode. The schema holds the verdict to it, whatever the model chose.
+ * It holds the spec to the ticket as well as the change to the spec: it is told the ticket, what the senses saw and
+ * Martin's answers at Plan, as the planner was (`evidence.ts`). The two go different ways:
+ * - A criterion they do not ask for is a blocking finding that cites that criterion and the ticket, and the review is
+ *   escalated: the coder cannot put a spec right, so it goes to Martin, in every autonomy mode. The schema holds the
+ *   verdict to it, whatever the model chose.
+ * - A change that goes beyond the spec, when the spec is sound, is an ordinary blocking finding, citing the spec or a
+ *   rule: the coder can take it out, so the work goes back to it.
  *
  * The checkout is the pull request's head, with its base beside it as the branch `base` and every commit between
  * (the runner fetches them: `readsChange`), so `git diff base` is the change and `git log base..HEAD` holds what the
@@ -59,8 +62,9 @@ const finding = z.strictObject({
   /** The number of the spec's criterion it cites. */
   criterion: z.number().int().min(1).max(12).optional(),
   /**
-   * It cites the ticket: the spec or the change goes beyond what the ticket's evidence asks. A model may write
-   * `false` for no; only `true` is kept.
+   * It cites the ticket: the criterion it cites is one the ticket does not ask for. Only a criterion of the spec can
+   * go beyond the ticket; a change beyond the spec cites the spec. A model may write `false` for no; only `true` is
+   * kept.
    */
   ticket: z.boolean().optional(),
   /** What is wrong and what would put it right. Each finding reaches the events whole, so it is short. */
@@ -91,10 +95,15 @@ export function reviewerResult(criteria = 12) {
           const message = `the spec has ${criteria} criteria, not ${f.criterion}`;
           ctx.addIssue({ code: 'custom', path: ['findings', i, 'criterion'], message });
         }
-        // Going beyond the ticket is never a suggestion, and never the coder's to put right.
+        // A criterion beyond the ticket is never a suggestion, and never the coder's to put right.
         if (f.ticket && !f.blocking) {
           const message = 'a finding that cites the ticket blocks';
           ctx.addIssue({ code: 'custom', path: ['findings', i, 'blocking'], message });
+        }
+        if (f.ticket && f.criterion === undefined) {
+          const message =
+            'a finding cites the ticket for a criterion of the spec; a change beyond the spec cites the spec';
+          ctx.addIssue({ code: 'custom', path: ['findings', i, 'criterion'], message });
         }
       });
       if (verdict !== 'escalated' && findings.some((f) => f.ticket)) {
@@ -152,8 +161,8 @@ function prompt({
     '',
     'How to review:',
     '1. Read the rules as they are at the base, so the change cannot loosen them: `git show base:docs/REVIEWERS.md`, and `git show base:AGENTS.md`, whose rules hold for every change.',
-    '2. Hold the spec to the ticket. A fix does what the ticket, what the senses saw and Martin’s answers ask, and no more, in every autonomy mode. A criterion they do not ask for (another defect, a new behaviour, a tidy-up) is a blocking finding with `"ticket":true`, whatever the planner said it is from, and so is a change in the diff that goes beyond them. Anchor it to the code or test in the diff that meets that criterion, or to the change itself.',
-    '3. Read the whole diff. For each criterion, find the code that meets it and the test that shows it. A criterion that nothing in the change meets is a blocking finding that cites it, whatever the commit messages say.',
+    '2. Hold the spec to the ticket. A fix does what the ticket, what the senses saw and Martin’s answers ask, and no more, in every autonomy mode. A criterion they do not ask for (another defect, a new behaviour, a tidy-up) is a blocking finding that cites that criterion with `"ticket":true`, whatever the planner said it is from. Anchor it to the code or test in the diff that meets that criterion, or to the change itself.',
+    '3. Read the whole diff. For each criterion, find the code that meets it and the test that shows it. A criterion that nothing in the change meets is a blocking finding that cites it, whatever the commit messages say. A change that does more than the spec’s criteria ask, when the spec itself is sound, is an ordinary blocking finding that cites the criterion it goes beyond, or a rule, without `"ticket"`: the coder can take it out.',
     '4. Hold the change to each rule. A finding about a rule cites its number.',
     '5. Review the diff, not the code around it. The shop is bad on purpose: ask for nothing outside the ticket, and nothing outside the scope.',
     'The gates have passed: the tests, types and lint are green, so do not run them again, and do not start the app or send it requests. Read a test to see what it shows.',
@@ -167,7 +176,7 @@ function prompt({
     '',
     'Then write the result, {"verdict","note","findings":[{"path","line","blocking","rule","criterion","ticket","comment"}]}:',
     '- `note`: the review in one or two short sentences, for the pull request and the console: at most 300 characters, or the result is refused. Leave the detail to the findings.',
-    '- `rule` and `criterion`: numbers, each left out when the finding cites none. `ticket`: true when the spec or the change goes beyond what the ticket asks, and left out otherwise.',
+    '- `rule` and `criterion`: numbers, each left out when the finding cites none. `ticket`: true only when the criterion the finding cites is one the ticket does not ask for, and left out otherwise.',
   ].join('\n');
 }
 

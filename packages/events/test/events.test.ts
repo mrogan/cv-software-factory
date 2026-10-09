@@ -342,7 +342,14 @@ describe('upcasting the real catalogue', () => {
   });
 
   it('takes a finding that cites the ticket at version 3', () => {
-    const finding = { path: 'src/money.ts', line: 3, blocking: true, ticket: true, comment: 'No evidence asks this.' };
+    const finding = {
+      path: 'src/money.ts',
+      line: 3,
+      blocking: true,
+      criterion: 2,
+      ticket: true,
+      comment: 'No evidence asks this.',
+    };
     const v3 = { pullRequest: 12, verdict: 'escalated', note: 'The spec goes beyond its ticket.', findings: [finding] };
     expect(validate({ ...opened, type: 'review.submitted', version: 3, actor: 'reviewer', payload: v3 })).toEqual({
       ok: true,
