@@ -1,0 +1,3 @@
+#!/bin/sh
+# psql on the cluster's event store, as its owner (read-only use, please). Example: q -At -c "select count(*) from events"
+exec kubectl --context k3d-software-factory -n factory exec -i postgres-0 -- psql -U factory -d factory -X -P pager=off "$@"

@@ -1,0 +1,9 @@
+#!/bin/sh
+# One look at a run: events after a seq, model calls by job since a time, the line table, runner Jobs.
+#   poll <after-seq> [since, e.g. 2026-01-01T09:00:00Z; default six hours ago]
+D=$(dirname "$0"); SEQ=${1:-0}; SINCE=${2:-$(date -u -v-6H +%Y-%m-%dT%H:%M:%SZ)}
+date -u +%T
+$D/q -c "select seq, to_char(ts,'HH24:MI:SS') t, work_item wi, type, left(summary,80) s from events where seq>$SEQ and type<>'model.called' order by seq"
+$D/q -c "select job, count(*) calls, round(sum(duration_ms)/60000.0,1) min, max(input_tokens) max_in, round(avg(case when input_tokens>0 then cache_read_tokens::numeric/input_tokens end),2) cached, round(sum(cost_usd)::numeric,3) usd, string_agg(distinct outcome, ',') outcomes from model_calls where at > '$SINCE' group by job order by min(at)"
+$D/q -c "select work_item, stage, steps, failures, left(failure,60) failure from line order by 1"
+$D/k -n runners get jobs,pvc --no-headers 2>&1
