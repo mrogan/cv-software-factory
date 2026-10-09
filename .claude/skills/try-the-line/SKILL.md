@@ -39,7 +39,7 @@ A step run again replays every call. A tool that prints a time the cassette key 
 
 The bench's calls go into its own Postgres, on the same Anthropic key as the cluster: note what a Claude run cost before removing the container.
 
-LM Studio's settings are part of a run. Save them as the model's defaults (My Models, the model's gear), not on the loaded model, which loses them on a reload: Reasoning Effort Medium (the gateway's effort is ignored), Temperature 0.6, Context Length 119,552, Max Concurrent Predictions 1, Preserve Thinking on. `lms ps` and `lms server status` check them.
+LM Studio's settings are part of a run. Save them as the model's defaults (My Models, the model's gear), not on the loaded model, which loses them on a reload: Reasoning Effort Medium (the only effort Qwen runs at: the gateway sends it none), Temperature 0.6, Context Length 119,552, Max Concurrent Predictions 1, Preserve Thinking on. `lms ps` and `lms server status` check them.
 
 ## The line on the local cluster
 
