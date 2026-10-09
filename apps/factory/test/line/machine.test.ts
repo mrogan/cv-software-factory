@@ -410,11 +410,12 @@ describe('Martin’s answer to a hold', () => {
     });
   });
 
-  it('leaves a defect the planner alone noticed waiting, as a suggestion waits, until he closes it', () => {
-    for (const decision of ['approved', 'answered'] as const) {
-      expect(decide([held('finding', 'triage'), answer(decision)], facts).next).toEqual({ do: 'wait', for: 'martin' });
-    }
+  it('leaves a defect the planner alone noticed waiting until he approves it, and plans the ticket triage then opens', () => {
+    expect(decide([held('finding', 'triage'), answer('answered')], facts).next).toEqual({ do: 'wait', for: 'martin' });
     expect(decide([held('finding', 'triage'), answer('rejected')], facts).next).toMatchObject({ do: 'close' });
+    const approved = [held('finding', 'triage'), answer('approved'), ticket];
+    expect(decide(approved, { ...facts, issue: null })).toEqual({ stage: 'plan', next: { do: 'open-issue' } });
+    expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
   });
 
   it('has the planner write a spec again when he answers it, and builds it when he approves', () => {

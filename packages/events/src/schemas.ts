@@ -431,17 +431,27 @@ export const PAYLOADS = {
       failed: z.array(text(80)).max(40).optional(),
     })
     .refine((r) => V.STAGES.indexOf(r.to) < V.STAGES.indexOf(r.from), 'work returns upstream, to an earlier stage'),
-  'hold.started': z.strictObject({
-    stage,
-    /** Approval and questions are the line asking; held means a mechanism stopped the work for a human to decide. */
-    kind: z.enum(['approval', 'question', 'held']),
-    /** Why, so that Martin's answer has a meaning: what each answer does depends on it. */
-    cause: z.enum(V.HOLD_CAUSES),
-    reason: text(300),
-    question: text(300).optional(),
-    /** A spend hold's cap: the most the work item may spend on models, in the profile the line runs in. */
-    limitUsd: usd.optional(),
-  }),
+  'hold.started': z
+    .strictObject({
+      stage,
+      /** Approval and questions are the line asking; held means a mechanism stopped the work for a human to decide. */
+      kind: z.enum(['approval', 'question', 'held']),
+      /** Why, so that Martin's answer has a meaning: what each answer does depends on it. */
+      cause: z.enum(V.HOLD_CAUSES),
+      reason: text(300),
+      question: text(300).optional(),
+      /** A spend hold's cap: the most the work item may spend on models, in the profile the line runs in. */
+      limitUsd: usd.optional(),
+      /**
+       * A `finding` hold's defect, as triage fingerprints it: the route the planner named and the symptom Jev judged.
+       * A sense's ticket with the same fingerprint closes it, and Martin's approval opens its ticket.
+       */
+      defect: z.strictObject({ route: routeOrEvery, class: z.enum(V.SYMPTOM_CLASSES) }).optional(),
+    })
+    .refine((hold) => (hold.cause === 'finding') === (hold.defect !== undefined), {
+      message: 'a finding’s hold, and only one, names the defect',
+      path: ['defect'],
+    }),
   'hold.answered': z.strictObject({
     decision: z.enum(['approved', 'rejected', 'answered']),
     answer: text(300).optional(),

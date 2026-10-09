@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { InboxSignal, NewEvent } from '@software-factory/events';
+import type { InboxSignal, NewEvent, PayloadOf } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, sendSignal } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -24,12 +24,13 @@ beforeAll(async () => {
 });
 afterAll(() => database?.end());
 
-// Each test starts with an empty inbox and no open tickets: earlier tests' tickets are closed by hand.
+// Each test starts with an empty inbox, no open tickets and no parked findings: earlier tests' are closed by hand.
 beforeEach(async () => {
   await database.owner`update inbox set triaged_at = now(), outcome = 'counted' where triaged_at is null`;
   const open = await writer<{ work_item: string }[]>`
-    select distinct work_item from events where type = 'ticket.opened' and work_item not in
-      (select work_item from events where type = 'work-item.closed')`;
+    select distinct work_item from events
+    where (type = 'ticket.opened' or (type = 'hold.started' and payload->>'cause' = 'finding'))
+      and work_item not in (select work_item from events where type = 'work-item.closed')`;
   for (const { work_item } of open) await events.append(closed(work_item));
 });
 
@@ -220,6 +221,133 @@ describe('triage', () => {
     const [offered] = await writer<{ payload: { state: { candidates?: unknown[] } } }[]>`
       select payload from events where work_item = ${own?.work_item ?? ''} and type = 'judgement.made'`;
     expect(offered?.payload.state.candidates).toBeUndefined();
+  });
+
+  describe('a defect the planner noticed, parked', () => {
+    const park = async (route: string) => {
+      await sendSignal(
+        writer,
+        found({
+          sense: 'planner',
+          check: 'planning ticket #1',
+          route,
+          symptom: undefined,
+          report: { page: route, text: 'The total is wrong' },
+          planning: '1',
+        }),
+      );
+      expect(await triage().takeOne()).toBe('finding');
+      const [row] = await writer<{ work_item: string }[]>`
+        select work_item from inbox where outcome = 'finding' order by received_at desc limit 1`;
+      return row?.work_item ?? '';
+    };
+    const answer = (item: string, decision: 'approved' | 'rejected' | 'answered') =>
+      events.append({
+        id: crypto.randomUUID(),
+        ts: at,
+        work_item: item,
+        type: 'hold.answered',
+        version: 1,
+        actor: 'martin',
+        summary: `Martin ${decision} it`,
+        payload: { decision },
+        artifacts: [],
+      } as NewEvent<'hold.answered'>);
+    const closing = async (item: string) =>
+      (
+        await writer<{ payload: { outcome: string; reason: string } }[]>`
+          select payload from events where work_item = ${item} and type = 'work-item.closed'`
+      )[0]?.payload;
+
+    it('names its fingerprint on its hold, and closes into the ticket a sense opens with it', async () => {
+      const item = await park('/basket');
+      const [hold] = await writer<{ payload: PayloadOf<'hold.started'> }[]>`
+        select payload from events where work_item = ${item} and type = 'hold.started'`;
+      expect(hold?.payload.defect).toEqual({ route: '/basket', class: 'wrong-result' });
+      await sendSignal(writer, found({ route: '/basket', symptom: 'wrong-result', check: 'the basket adds up' }));
+      expect(await triage().takeOne()).toBe('opened');
+      const [{ work_item: ticket = '' } = {}] = await writer<{ work_item: string }[]>`
+        select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
+      expect(await closing(item)).toEqual({ outcome: 'no-change', reason: `A sense saw it: ticket #${ticket}` });
+      expect(await triage().settleOne()).toBe(false);
+    });
+
+    it('waits while Martin only answers, and opens its ticket by the policy’s table when he approves', async () => {
+      const item = await park('/checkout');
+      const twin = await park('/checkout');
+      expect(await triage().settleOne()).toBe(false);
+      await answer(item, 'answered');
+      expect(await triage().settleOne()).toBe(false);
+      await answer(item, 'approved');
+      expect(await triage().settleOne()).toBe(true);
+      const [opened] = await writer<{ actor: string; payload: PayloadOf<'ticket.opened'> }[]>`
+        select actor, payload from events where work_item = ${item} and type = 'ticket.opened'`;
+      // Its category and severity are the policy's for the symptom, as a sense's ticket's are.
+      expect(opened?.payload).toEqual({
+        title: 'A wrong result on /checkout',
+        category: 'functional',
+        severity: 'broken',
+        fingerprint: { route: '/checkout', class: 'wrong-result' },
+        traces: [],
+      });
+      // One fingerprint, one ticket: the same defect parked again joins it.
+      expect(await closing(twin)).toEqual({ outcome: 'no-change', reason: `Ticket #${item} already has it` });
+      expect(await triage().settleOne()).toBe(false);
+    });
+
+    it('joins a ticket on every page, then one a sense already has, and closes when he rejects it', async () => {
+      const first = await park('/gift-cards');
+      const second = await park('/delivery');
+      await sendSignal(writer, found({ route: '*', symptom: 'wrong-result', check: 'prices add up' }));
+      expect(await triage().takeOne()).toBe('opened');
+      const [{ work_item: ticket = '' } = {}] = await writer<{ work_item: string }[]>`
+        select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
+      // A sense's ticket on every page closes every finding parked with its symptom: no longer anything to answer.
+      for (const item of [first, second]) {
+        expect(await closing(item)).toEqual({ outcome: 'no-change', reason: `A sense saw it: ticket #${ticket}` });
+      }
+      await expect(answer(second, 'approved')).rejects.toThrow('is closed');
+      // One noticed while the sense's ticket is open joins it at once, as a repeat, and is never parked.
+      expect(await park('/wishlist')).toBe(ticket);
+
+      await events.append(closed(ticket));
+      const late = await park('/wishlist');
+      await answer(late, 'rejected');
+      expect(await triage().settleOne()).toBe(true);
+      expect(await closing(late)).toEqual({
+        outcome: 'discarded',
+        reason: 'Martin rejected the defect the planner noticed',
+      });
+    });
+
+    it('joins the open ticket that has it when he approves it, if one opened without closing it', async () => {
+      const item = await park('/gift-wrap');
+      await answer(item, 'approved');
+      // A ticket opened by hand, which no triage rule closed the finding into.
+      const other = '999';
+      await events.append([
+        {
+          ...closed(other),
+          type: 'work-item.opened',
+          version: 2,
+          payload: { kind: 'defect-fix', title: 'Gift wrap', sample: false },
+        },
+        {
+          ...closed(other),
+          type: 'ticket.opened',
+          payload: {
+            title: 'A wrong result on /gift-wrap',
+            category: 'functional',
+            severity: 'broken',
+            fingerprint: { route: '/gift-wrap', class: 'wrong-result' },
+            traces: [],
+          },
+        },
+      ] as NewEvent[]);
+      expect(await triage().settleOne()).toBe(true);
+      expect(await closing(item)).toEqual({ outcome: 'no-change', reason: 'Ticket #999 already has it' });
+      expect(await writer`select 1 from events where work_item = ${item} and type = 'ticket.opened'`).toHaveLength(0);
+    });
   });
 
   it('takes nothing while the line is stopped, and carries on when it starts again', async () => {

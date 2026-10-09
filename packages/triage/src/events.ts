@@ -317,7 +317,8 @@ export function findingEvents(
           kind: 'held',
           cause: 'finding',
           reason:
-            'The planner noticed a defect outside its ticket. Its word alone never opens a ticket: one opens when a sense sees it, or when Martin opens it.',
+            'The planner noticed a defect outside its ticket. Its word alone never opens a ticket: one opens when a sense sees it, or when Martin approves this.',
+          defect: { route: privatePath(signal.route), class: routed.defect.symptom },
         });
         return summarise(writer, {
           title: `A defect the planner noticed on ${page}`,
@@ -359,6 +360,56 @@ const CARD_CATEGORY: Partial<Record<ReportDecision['routed']['route'], 'red-team
   park: 'improvement',
   discard: 'not-a-defect',
 };
+
+/** A defect the planner noticed, as its hold names it. */
+export type ParkedDefect = NonNullable<PayloadOf<'hold.started'>['defect']>;
+
+/**
+ * Martin approved a defect the planner noticed: its own work item gets its ticket, as a sense's would, with its
+ * category and severity from the policy's table for the symptom. The planner's word alone never comes here.
+ */
+export function approvedFinding(workItem: string, defect: ParkedDefect, now: Date): NewEvent[] {
+  const { category, severity } = SYMPTOMS[defect.class];
+  const title = ticketTitle(defect);
+  const writer = new Writer(`finding:${workItem}:approved`, workItem, now);
+  writer.add('ticket.opened', 'triage', `Ticket #${workItem}: ${category}, ${severity}, on Martin’s word`, {
+    title,
+    category,
+    severity,
+    fingerprint: defect,
+    traces: [],
+  });
+  return summarise(writer, {
+    title,
+    description: `The planner noticed it, and Martin opened a ticket, ${category} and ${severity}, which waits for the planner.`,
+    story: `While planning another ticket, the planner noticed this defect on ${where(defect.route)}. Its word alone never opens a ticket, so triage held it for a sense or for Martin. Martin approved it, so triage opened ticket #${workItem}, with its category and severity from the policy’s table for the symptom, as a sense’s ticket has. It waits at Plan.`,
+  });
+}
+
+/**
+ * A defect the planner noticed closes, without a ticket of its own: a ticket now has it (`joined`), or Martin
+ * rejected it. `seed` keeps its event's id the same however often triage writes it.
+ */
+export function closedFinding(
+  workItem: string,
+  why: { joined: string; by: 'sense' | 'report' | 'martin' } | { rejected: true },
+  seed: string,
+  now: Date,
+): NewEvent[] {
+  const writer = new Writer(seed, workItem, now);
+  if ('rejected' in why) {
+    return writer.add('work-item.closed', 'triage', 'Closed: Martin rejected it', {
+      outcome: 'discarded',
+      reason: 'Martin rejected the defect the planner noticed',
+    }).events;
+  }
+  const reason = {
+    sense: `A sense saw it: ticket #${why.joined}`,
+    report: `A visitor reported it: ticket #${why.joined}`,
+    martin: `Ticket #${why.joined} already has it`,
+  }[why.by];
+  return writer.add('work-item.closed', 'triage', reason, { outcome: 'no-change', reason }).events;
+}
 
 const summarise = (writer: Writer, summary: PayloadOf<'work-item.summarised'>) =>
   writer.add('work-item.summarised', 'triage', 'Summary written', summary).events;

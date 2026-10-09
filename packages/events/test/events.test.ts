@@ -294,11 +294,21 @@ describe('upcasting the real catalogue', () => {
     expect(upcast({ type: 'hold.started', version: 3, payload: nothing })).toMatchObject({
       event: { version: 4, payload: nothing },
     });
-    const finding = { stage: 'triage', kind: 'held', cause: 'finding', reason: 'The planner noticed a defect.' };
-    expect(validate({ ...opened, type: 'hold.started', version: 4, actor: 'triage', payload: finding })).toEqual({
-      ok: true,
-    });
-    expect(validate({ ...opened, type: 'hold.started', version: 3, actor: 'triage', payload: finding }).ok).toBe(false);
+    const finding = {
+      stage: 'triage',
+      kind: 'held',
+      cause: 'finding',
+      reason: 'The planner noticed a defect.',
+      defect: { route: '/basket', class: 'wrong-result' },
+    };
+    const hold = (payload: object, version = 4) =>
+      validate({ ...opened, type: 'hold.started', version, actor: 'triage', payload });
+    expect(hold(finding)).toEqual({ ok: true });
+    expect(hold(finding, 3).ok).toBe(false);
+    // A finding's hold names its defect, which triage matches a sense's ticket to; no other hold does.
+    const { defect, ...unnamed } = finding;
+    expect(hold(unnamed).ok).toBe(false);
+    expect(hold({ ...nothing, defect }).ok).toBe(false);
   });
 
   it('reads version 1 of work-item.opened and signal.received as they were, and takes the planner’s at version 2', () => {

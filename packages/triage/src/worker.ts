@@ -7,7 +7,10 @@
  * - Every report becomes events, judged by Jev: a new ticket, a repeat that joins an open one, or a work item
  *   that says it was quarantined, parked or discarded.
  * - So does every finding the planner leaves, judged the same way and trusted no more, except that it never opens a
- *   ticket: a defect is parked until a sense sees it or Martin opens one.
+ *   ticket: a defect is parked until a sense sees it or Martin opens one. A ticket triage opens with the same
+ *   fingerprint closes it into that ticket; Martin approving it opens its ticket, by the policy's table as a sense's
+ *   would be, or joins it to an open ticket that has it; his rejection closes it (`settleOne`). Nothing else opens a
+ *   ticket from a finding.
  *
  * One worker decides at a time (it holds an advisory lock), so two signals with the same new fingerprint cannot
  * open two tickets. It takes nothing while the line is stopped, and no report while the gateway waits on a spend cap.
@@ -16,7 +19,16 @@ import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/eve
 import { type EventWriter, nextWorkItem } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { INBOX } from '../../../policy/triage.ts';
-import { findingEvents, idsFor, reportEvents, senseEvidence, senseTicket } from './events.ts';
+import {
+  approvedFinding,
+  closedFinding,
+  findingEvents,
+  idsFor,
+  type ParkedDefect,
+  reportEvents,
+  senseEvidence,
+  senseTicket,
+} from './events.ts';
 import { type Judge, JudgeWaiting } from './judge.ts';
 import type { Candidate } from './questions.ts';
 import { judgeReport, type PageReader } from './reports.ts';
@@ -113,8 +125,9 @@ export class Triage {
       const listening = await Promise.all([sql.listen('inbox', nudge), sql.listen('events', nudge)]);
       abort.addEventListener('abort', nudge);
       while (!abort.aborted) {
+        const settled = await this.settleOne();
         const took = await this.takeOne();
-        if (took === 'idle' || took === 'stopped' || took === 'waiting') {
+        if (!settled && (took === 'idle' || took === 'stopped' || took === 'waiting')) {
           const pause = took === 'waiting' ? Math.max(1000, this.#reportsWaitUntil - Date.now()) : 30_000;
           const timer = setTimeout(nudge, Math.min(pause, 30_000));
           await wake.promise;
@@ -127,6 +140,59 @@ export class Triage {
       await lock`select pg_advisory_unlock(hashtext('triage'))`.catch(() => {});
       lock.release();
     }
+  }
+
+  /**
+   * Does what Martin answered to one defect the planner noticed, if he has approved or rejected one that is still
+   * parked. Approving opens its ticket on its own work item, with the category and severity the policy gives its
+   * symptom, unless an open ticket has its fingerprint, which it then joins; any other finding parked with the same
+   * fingerprint joins the new ticket. Rejecting closes it. Answering in words leaves it waiting.
+   */
+  async settleOne(): Promise<boolean> {
+    const { sql, events } = this.#o;
+    const now = this.#o.now();
+    if (await lineStopped(sql)) return false;
+    const [row] = await sql<{ work_item: string; defect: ParkedDefect; decision: 'approved' | 'rejected' }[]>`
+      select h.work_item, h.payload->'defect' as defect, a.payload->>'decision' as decision
+      from events h join events a on a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq
+      where h.type = 'hold.started' and h.payload->>'cause' = 'finding'
+        and a.payload->>'decision' in ('approved', 'rejected')
+        and not exists (select 1 from events e where e.work_item = h.work_item
+                        and e.type in ('work-item.closed', 'ticket.opened'))
+      order by a.seq limit 1`;
+    if (!row) return false;
+    const { work_item: workItem, defect, decision } = row;
+    const seed = `finding:${workItem}:${decision}`;
+    if (decision === 'rejected') {
+      await events.append(closedFinding(workItem, { rejected: true }, seed, now));
+    } else {
+      const same = (await openTickets(sql)).find((ticket) => sameFingerprint(ticket.fingerprint, defect));
+      if (same) {
+        await events.append(closedFinding(workItem, { joined: same.workItem, by: 'martin' }, seed, now));
+      } else {
+        const joined = (await this.#joinFindings(defect, workItem, 'martin', seed)).filter(
+          (event) => event.work_item !== workItem,
+        );
+        await events.append([...approvedFinding(workItem, defect, now), ...joined]);
+      }
+    }
+    this.#o.log.info({ workItem, decision }, 'settled a defect the planner noticed, as Martin answered');
+    return true;
+  }
+
+  /** The events that close every parked finding a new ticket has, into that ticket. */
+  async #joinFindings(
+    fingerprint: PayloadOf<'ticket.opened'>['fingerprint'],
+    ticket: string,
+    by: 'sense' | 'report' | 'martin',
+    seed: string,
+  ) {
+    const now = this.#o.now();
+    return (await parkedFindings(this.#o.sql))
+      .filter((parked) => parked.workItem !== ticket && sameFingerprint(fingerprint, parked.defect))
+      .flatMap((parked) =>
+        closedFinding(parked.workItem, { joined: ticket, by }, `${seed}:joined:${parked.workItem}`, now),
+      );
   }
 
   /**
@@ -201,7 +267,9 @@ export class Triage {
         await events.append(findingEvents(signal, taken.id, workItem, decision, now));
         return { outcome: 'finding', workItem, ticketOpened: false };
       }
-      await events.append(reportEvents(signal, taken.id, workItem, decision, now));
+      const opened = decision.routed.route === 'ticket' && decision.fingerprint;
+      const joined = opened ? await this.#joinFindings(opened, workItem, 'report', taken.id) : [];
+      await events.append([...reportEvents(signal, taken.id, workItem, decision, now), ...joined]);
       return { outcome: 'report', workItem, ticketOpened: decision.routed.route === 'ticket' };
     }
 
@@ -209,7 +277,8 @@ export class Triage {
     const ticket = tickets.find((open) => sameFingerprint(open.fingerprint, fingerprint));
     if (!ticket) {
       const workItem = await nextWorkItem(sql);
-      await events.append(senseTicket(signal, taken.id, workItem, now));
+      const joined = await this.#joinFindings(fingerprint, workItem, 'sense', taken.id);
+      await events.append([...senseTicket(signal, taken.id, workItem, now), ...joined]);
       return { outcome: 'opened', workItem, ticketOpened: true };
     }
     const [seen] = await sql`select 1 from events where work_item = ${ticket.workItem}
@@ -218,6 +287,23 @@ export class Triage {
     await events.append(senseEvidence(signal, taken.id, ticket.workItem, now));
     return { outcome: 'evidence', workItem: ticket.workItem, ticketOpened: false };
   }
+}
+
+/** A defect the planner noticed, parked for a sense or Martin: held, with no ticket and not closed. */
+interface Parked {
+  workItem: string;
+  defect: ParkedDefect;
+}
+
+/** Every defect the planner noticed that waits for a sense or Martin. */
+async function parkedFindings(sql: Sql): Promise<Parked[]> {
+  const rows = await sql<{ work_item: string; defect: ParkedDefect }[]>`
+    select h.work_item, h.payload->'defect' as defect from events h
+    where h.type = 'hold.started' and h.payload->>'cause' = 'finding'
+      and not exists (select 1 from events e where e.work_item = h.work_item
+                      and e.type in ('work-item.closed', 'ticket.opened'))
+    order by h.seq`;
+  return rows.map((row) => ({ workItem: row.work_item, defect: row.defect }));
 }
 
 /** Whether a signal's words are for Jev to judge: a visitor's report, or a planner's finding. */

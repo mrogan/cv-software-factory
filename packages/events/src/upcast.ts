@@ -36,8 +36,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
     }),
     // Version 3 adds the coder finding nothing to fix to the causes; a version 2 hold reads as it was.
     2: (payload) => payload,
-    // Version 4 adds a defect the planner noticed, and a fix beyond its ticket, to the causes; a version 3 hold reads
-    // as it was.
+    // Version 4 adds a defect the planner noticed, with its fingerprint, and a fix beyond its ticket, to the causes; a
+    // version 3 hold reads as it was.
     3: (payload) => payload,
   },
   // Version 2 adds the planner's findings to the kinds of work item; a version 1 work item reads as it was.

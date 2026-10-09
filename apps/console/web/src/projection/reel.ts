@@ -271,8 +271,11 @@ export function picture(item: ItemState, { waits = true }: { waits?: boolean } =
   // shows it for good; one that became a ticket only until the line has evidence of its own, such as a fix. So does a
   // planner's finding, which is judged as a report is; a defect it noticed waits as a judgement, not a suggestion.
   const judgement = ofType(item, 'judgement.made').find((event) => event.payload.route)?.payload;
+  // A defect the planner noticed that Martin opened as a ticket left triage after all.
   const endedAtTriage =
-    judgement?.route === 'quarantine' || judgement?.route === 'park' || judgement?.route === 'discard';
+    judgement?.route === 'quarantine' ||
+    (judgement?.route === 'park' && !item.ticket) ||
+    judgement?.route === 'discard';
   const pastPlan = item.stage !== null && STAGES.indexOf(item.stage) > STAGES.indexOf('plan');
   const judged = item.kind === 'visitor-report' || item.kind === 'planner-finding';
   if (judged && judgement && (endedAtTriage || !pastPlan)) {
