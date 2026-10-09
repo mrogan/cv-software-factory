@@ -23,7 +23,7 @@ To change the cluster in auto mode, Martin may add `Bash(kubectl --context k3d-s
 
 1. A throwaway Postgres for the job token and `model_calls`:
    ```sh
-   docker run -d --name sf-bench-pg -e POSTGRES_USER=factory -e POSTGRES_PASSWORD=factory -e POSTGRES_DB=factory -p 127.0.0.1:5433:5432 postgres:18.6-alpine3.24
+   docker run -d --name sf-bench-pg -e POSTGRES_USER=factory -e POSTGRES_PASSWORD=factory -e POSTGRES_DB=factory -p 127.0.0.1:5433:5432 public.ecr.aws/docker/library/postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
    DATABASE_URL=postgres://factory:factory@127.0.0.1:5433/factory WRITER_PASSWORD=writer node packages/store/src/migrate.ts
    ```
 2. A gateway on Qwen (LM Studio on 127.0.0.1:1234):
