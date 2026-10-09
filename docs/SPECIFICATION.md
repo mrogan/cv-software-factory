@@ -93,11 +93,11 @@ A deliberately bad, funny, small web app that gives the factory real work.
 | Stage | Requirements |
 |---|---|
 | **Sense** | Synthetic probes (Playwright journeys against live and canary); a crawler for 404s, broken images, browser console errors and accessibility; OTel metrics against SLOs; OTel logs for new error patterns; user reports. Checks are written from the app's public pages by an author who has not read the private repository or the app's source and tests, so a defect they find was found without hints (section 10.2). |
-| **Triage** | Turn signals into deduplicated tickets with evidence (trace IDs, log lines, screenshots, repro steps). A sense's signal takes its category and severity from a human-owned table by its symptom class, and repeats are recognised by fingerprint. A visitor's report is judged with typed Jev judgements (section 7.2): category, symptom, severity, instructions aimed at the system, and which open ticket it repeats; routing is plain code against human-owned thresholds. All signal content is untrusted. A report asking for new behaviour is labelled a suggestion and parked for Martin; one containing instructions aimed at the system is quarantined. |
-| **Plan** | A spec per ticket in a fixed template: outcome, Given/When/Then acceptance criteria, scope (files that may change), risk tags, rollout note. Tickets that cannot become a testable spec are rejected or escalated. |
+| **Triage** | Turn signals into deduplicated tickets with evidence (trace IDs, log lines, screenshots, repro steps). A sense's signal takes its category and severity from a human-owned table by its symptom class, and repeats are recognised by fingerprint. A visitor's report is judged with typed Jev judgements (section 7.2): category, symptom, severity, instructions aimed at the system, and which open ticket it repeats; routing is plain code against human-owned thresholds. All signal content is untrusted. A report asking for new behaviour is labelled a suggestion and parked for Martin; one containing instructions aimed at the system is quarantined. What the planner notices beyond its ticket arrives as a signal of its own and is treated as a visitor's report is, except that a defect becomes a ticket only when a sense sees it or Martin opens it, never on the planner's word alone. |
+| **Plan** | A spec per ticket in a fixed template: outcome, Given/When/Then acceptance criteria, each naming the line of the ticket or the signal it comes from, scope (files that may change), risk tags, rollout note. Anything else the planner notices goes to triage as a finding, never into the spec. Tickets that cannot become a testable spec are rejected or escalated. |
 | **Build** | Coder agents in disposable sandboxes with no production credentials. Failing test first for every bug. Stay inside scope. Respect concurrency, time and spend limits. |
 | **Gates** | Deterministic required checks: build, lint, type-check; unit and integration tests; e2e journeys (the probes and the crawler, with accessibility) against the base's and the change's app containers in the runner, failing only on what passes on the base and fails on the change, since the app is broken on purpose; test integrity (a deleted, skipped or weakened test fails); dependency and secret scanning; static analysis; image scan, failing only on what the change brings in. A further check, not required, runs the change's new tests against the base and says which fail there. The manifests are proven by rendering them, not by a cluster in the runner. GitHub Actions *(default)*. |
-| **Review** | Every change is a PR; nothing pushes to `main`. Once the gates pass, a reviewer agent reviews the PR as an extra signal, never a replacement for gates. Risk-tagged PRs go to a human, depending on autonomy level. |
+| **Review** | Every change is a PR; nothing pushes to `main`. Once the gates pass, a reviewer agent reviews the PR as an extra signal, never a replacement for gates. It is given the ticket, and holds the spec to the ticket as well as the diff to the spec: a criterion the ticket does not ask for goes to Martin, and a change the spec does not ask for goes back to the coder. Risk-tagged PRs go to a human, depending on autonomy level. |
 | **Release** | The pipeline alone builds and signs images. Argo CD deploys; Argo Rollouts sends the canary a small share of traffic, compares it with baseline on errors, latency and probe results, and promotes or rolls back automatically. A synthetic traffic generator gives the analysis enough samples within minutes. |
 | **Verify** | After full rollout, confirm the original signal has cleared, then close the ticket; otherwise reopen it. |
 
@@ -115,6 +115,8 @@ A first-class factory capability, though not the centre of the visitor demo.
 - **Supervised:** a human approves every merge.
 - **Guarded:** only risk-tagged changes need a human.
 - **Lights-out:** only the automated guardrails apply.
+
+In every mode, no fix widens its ticket, and a change tagged out-of-scope needs a human (guardrail 11).
 
 Development runs Supervised. Public instances run Guarded, so visitor-triggered work completes unattended.
 
@@ -201,6 +203,7 @@ Each is enforced by a mechanism, not an instruction, and has a test or demo prov
 8. **All inputs are untrusted:** reports, logs, issues, web content.
 9. **Everything is reversible:** automatic rollback; stop the line always works.
 10. **Public means hostile.** The factory acts only on issues it created or Martin labelled; outside issues get a polite bot reply. Outside PRs are never run with secrets, reviewed with credentials or merged automatically. No self-hosted runners on public repos.
+11. **No fix widens its ticket.** Each acceptance criterion names the evidence it comes from, and a change tagged out-of-scope waits for a human in every autonomy mode.
 
 ## 7. Architecture
 
