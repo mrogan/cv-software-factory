@@ -5,6 +5,8 @@
  * check that fails once can be the network). A check that passes on the base and cannot finish on the change (it
  * times out, or what it needs has gone) is as bad as one that fails: it fails the gate the same way, when it happens
  * twice. A check the base could not tell about is reported, not failed on.
+ *
+ * The base and the change are observed at once, and only what failed on the change is observed again.
  */
 import { cell } from './report.ts';
 
@@ -35,14 +37,16 @@ export interface Comparison {
 
 export const keyOf = (s: Pick<Seen, 'sense' | 'check' | 'route'>) => `${s.sense} ${s.check} ${s.route}`;
 
-export async function compareJourneys(
-  observe: (app: string) => Promise<Seen[]>,
-  base: string,
-  change: string,
-): Promise<Comparison> {
+/**
+ * Observes one app and says what each check saw. Given `only`, the checks wanted again, it may leave out the rest; it
+ * may also run more than those, as a sense that cannot run one check alone does.
+ */
+export type Observe = (app: string, only?: readonly Seen[]) => Promise<Seen[]>;
+
+export async function compareJourneys(observe: Observe, base: string, change: string): Promise<Comparison> {
   const index = (seen: Seen[]) => new Map(seen.map((s) => [keyOf(s), s]));
-  const before = index(await observe(base));
-  const first = await observe(change);
+  const [seenOnBase, first] = await Promise.all([observe(base), observe(change)]);
+  const before = index(seenOnBase);
   const failing = first.filter((s) => s.failed);
   // Passed cleanly on the base: no finding, and no trouble.
   const passed = (s: Seen) => {
@@ -51,7 +55,7 @@ export async function compareJourneys(
   };
   const bad = (s: Seen | undefined) => s !== undefined && (s.failed || s.trouble !== undefined);
   const candidates = first.filter((s) => bad(s) && passed(s));
-  const again = candidates.length ? index(await observe(change)) : new Map<string, Seen>();
+  const again = candidates.length ? index(await observe(change, candidates)) : new Map<string, Seen>();
   const after = index(first);
   return {
     regressions: candidates.filter((s) => bad(again.get(keyOf(s)))).map((s) => again.get(keyOf(s)) ?? s),
@@ -60,6 +64,17 @@ export async function compareJourneys(
     unchanged: failing.filter((s) => before.get(keyOf(s))?.failed),
     fixed: [...before.values()].filter((s) => s.failed && after.has(keyOf(s)) && !after.get(keyOf(s))?.failed),
     checks: first.length,
+  };
+}
+
+/**
+ * What to run again to see `only` again: the probes, by id, that made them (a probe's checks are its id and what the
+ * watch saw on its pages, such as `<id>/console`), and whether to crawl, since a crawl cannot look at one route alone.
+ */
+export function toRunAgain(only: readonly Seen[]): { probes: Set<string>; crawl: boolean } {
+  return {
+    probes: new Set(only.filter((s) => s.sense === 'probe').map((s) => s.check.split('/')[0] as string)),
+    crawl: only.some((s) => s.sense === 'crawler'),
   };
 }
 
