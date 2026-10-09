@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { newIn } from '../../src/gates/image-scan.ts';
 import { compare } from '../../src/gates/integrity.ts';
-import { compareJourneys, type Seen, summary } from '../../src/gates/journeys.ts';
+import { compareJourneys, type Seen, summary, toRunAgain } from '../../src/gates/journeys.ts';
 import { testsIn } from '../../src/gates/tests.ts';
 import { changedTests, outcomes } from '../../src/gates/tests-first.ts';
 
@@ -182,20 +182,46 @@ describe('journeys', () => {
     };
     const observed: string[] = [];
     const c = await compareJourneys(
-      async (app) => {
-        observed.push(app);
+      async (app, only) => {
+        observed.push(only ? `${app}: ${only.map((s) => s.check).join(', ')}` : app);
         return runs[app]?.shift() ?? [];
       },
       'base',
       'change',
     );
-    expect(observed).toEqual(['base', 'change', 'change']);
+    // Only what failed on the change, and passed on the base or is new, is observed again.
+    expect(observed).toEqual(['base', 'change', 'change: regressed, flaky, new page']);
     expect(c.regressions.map((s) => s.check)).toEqual(['regressed', 'new page']);
     expect(c.flaky.map((s) => s.check)).toEqual(['flaky']);
     expect(c.unsure.map((s) => s.check)).toEqual(['unsure']);
     expect(c.unchanged.map((s) => s.check)).toEqual(['broken']);
     expect(c.fixed.map((s) => s.check)).toEqual(['fixed']);
     expect(summary(c)).toMatch(/^## Journeys\n\n2 checks that pass on the base fail on this change, twice\./);
+  });
+
+  it('observes the base and the change at once', async () => {
+    let looking = 0;
+    let most = 0;
+    await compareJourneys(
+      async () => {
+        most = Math.max(most, ++looking);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        looking--;
+        return [seen('fine', false)];
+      },
+      'base',
+      'change',
+    );
+    expect(most).toBe(2);
+  });
+
+  it('runs again the probes that made what failed, and the crawl only when a check of its failed', () => {
+    const crawled: Seen = { sense: 'crawler', check: 'missing-alt@/sale', route: '/sale', failed: true };
+    expect(toRunAgain([seen('search-ignores-case', true), seen('home-links-open/console', true)])).toEqual({
+      probes: new Set(['search-ignores-case', 'home-links-open']),
+      crawl: false,
+    });
+    expect(toRunAgain([crawled])).toEqual({ probes: new Set(), crawl: true });
   });
 
   it('runs the change once when nothing new fails', async () => {

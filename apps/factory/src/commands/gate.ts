@@ -5,8 +5,9 @@
  *     factory gate journeys --base <url> --change <url> [--summary <file>]
  *
  * `journeys` runs the probes and the crawler against the base's app and the change's, and fails on a check that
- * passes on the base and fails on the change twice (`gates/journeys.ts`). It writes its summary as Markdown to the
- * file, or prints it. CRAWL_LIMIT caps the crawl, 150 by default.
+ * passes on the base and fails on the change twice (`gates/journeys.ts`). It observes the two apps at once; the second
+ * time, it runs only the probes that failed, and the crawl only when one of its checks did. It writes its summary as
+ * Markdown to the file, or prints it. CRAWL_LIMIT caps the crawl, 150 by default.
  */
 import { appendFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,11 +15,12 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { DiskArtifacts } from '@software-factory/store';
 import { Crawler } from '../crawler/index.ts';
-import { compareJourneys, type Seen, summary } from '../gates/journeys.ts';
+import { compareJourneys, type Observe, type Seen, summary, toRunAgain } from '../gates/journeys.ts';
 import { annotate } from '../gates/report.ts';
 import { log } from '../log.ts';
-import { probes } from '../probes/index.ts';
+import { PROBES, probes } from '../probes/index.ts';
 import { versionOf } from '../senses/http.ts';
+import type { Sense } from '../senses/types.ts';
 
 export const USAGE = '  factory gate journeys --base <url> --change <url> [--summary <file>]';
 
@@ -35,13 +37,19 @@ export async function run(args: string[]): Promise<number> {
   const store = new DiskArtifacts(await mkdtemp(join(tmpdir(), 'gate-')));
   const limit = Number(process.env.CRAWL_LIMIT ?? 150);
 
-  const observe = async (url: string): Promise<Seen[]> => {
+  const observe: Observe = async (url, only) => {
     const app = url.replace(/\/$/, '');
     const version = await versionOf(app);
+    const again = only && toRunAgain(only);
+    const senses: Array<Sense & { close(): Promise<void> }> = [
+      ...(!again || again.probes.size ? [probes({ app, store, log })] : []),
+      ...(!again || again.crawl ? [new Crawler({ app, store, log, limit })] : []),
+    ];
+    const skip = again && new Set(PROBES.map((p) => p.id).filter((id) => !again.probes.has(id)));
     const seen: Seen[] = [];
-    for (const sense of [probes({ app, store, log }), new Crawler({ app, store, log, limit })]) {
+    for (const sense of senses) {
       try {
-        for (const o of await sense.pass(version)) {
+        for (const o of await sense.pass(version, skip)) {
           seen.push({
             sense: sense.name,
             check: o.check,

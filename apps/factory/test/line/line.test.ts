@@ -264,16 +264,17 @@ describe('the line', () => {
         { path: 'test/search.test.ts', added: 2, removed: 0 },
       ],
     });
-    // Each step's calls, summed from the gateway's audit log: the refused one is not among them.
+    // Each step's calls, summed from the gateway's audit log: the broken stream is among them, as its tokens may be
+    // billed, and the calls the gateway and the provider refused are not.
     expect((await payloads(workItem, 'model.called'))[0]).toEqual({
       agent: 'planner',
       provider: 'local',
       model: 'qwen/qwen3.8-27b',
       settings: { maxTurns: 30 },
-      tokens: { input: 200, output: 40, cacheRead: 100, cacheWrite: 20 },
+      tokens: { input: 300, output: 60, cacheRead: 150, cacheWrite: 30 },
       costUsd: 0.03,
-      durationMs: 2000,
-      calls: 2,
+      durationMs: 3000,
+      calls: 3,
     });
     expect((await payloads(workItem, 'hold.started'))[0]).toMatchObject({ stage: 'review', kind: 'approval' });
     // Nothing more to do: the next pass starts nothing.
