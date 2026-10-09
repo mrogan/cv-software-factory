@@ -14,6 +14,11 @@
  * the factory's (`factory/` and the deploy branch's name), started at main's head, and the deploy branch is moved to
  * it in one forced update. The commit goes through `createCommitOnBranch` like every other, so GitHub signs it.
  *
+ * The deploy branch is this watch's alone: the watch that keeps the App's pull requests current leaves it be
+ * (`current.ts`). When main moves on and the build is still the newest (a merge that built no image), the branch is
+ * behind main, and the ruleset will not merge it; so the pin commit is made again, the same way, on main's new head.
+ * Not once Martin has approved, as for the App's other pull requests: a push would make his approval stale.
+ *
  * Its title names the commit, as the build workflow's `changes` job reads it back: `chore(deploy): run console
  * 1f14f44 on the local cluster`. A proposal Martin closed without merging is not made again; the next build is.
  *
@@ -165,8 +170,11 @@ const PULLS = z.array(
     state: z.string(),
     merged_at: z.string().nullable(),
     labels: z.array(z.object({ name: z.string() })),
+    head: z.object({ sha: z.string() }),
   }),
 );
+const COMPARISON = z.object({ behind_by: z.number().int().nonnegative() });
+const REVIEWS = z.array(z.object({ state: z.string() }));
 
 /**
  * The newest commit on main, up to `head`, that every image the pin file pins was built from, with each image's
@@ -206,13 +214,28 @@ export async function newerBuild(
   return { commit, pinned: pinnedCommit, digests };
 }
 
-/** Watches one target, and opens or moves its deploy pull request when main has a newer build than the pin. */
+/**
+ * Watches one target, and opens or moves its deploy pull request when main has a newer build than the pin, or makes
+ * its commit again on main's head when main has moved on with no newer build.
+ */
 export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
   const { github, actions, log } = deps;
   const { repo } = target;
   const label = deployLabel(target);
-  // What this worker last proposed, so a dry run, which changes nothing in GitHub, records each proposal once.
-  let proposed: string | undefined;
+  // What this worker last proposed, and at which head of main: a pass does nothing more until either moves, and a dry
+  // run, which changes nothing in GitHub, records each proposal once.
+  let proposed: { title: string; head: string } | undefined;
+
+  /** Whether a deploy pull request's branch is behind main's head and nobody has approved it, so it is the watch's to move. */
+  const behind = async (number: number, sha: string, head: string): Promise<boolean> => {
+    const { body: comparison } = await github.poll(repo, `/repos/${repo}/compare/${head}...${sha}`, COMPARISON);
+    if (comparison.behind_by === 0) return false;
+    const { body: reviews } = await github.poll(repo, `/repos/${repo}/pulls/${number}/reviews?per_page=100`, REVIEWS);
+    if (!reviews.some((r) => r.state === 'APPROVED')) return true;
+    log.info({ repo, number, behind: comparison.behind_by }, 'left an approved deploy pull request behind main');
+    return false;
+  };
+
   return async () => {
     // One head of main for the whole pass: the pin file, the commits and the branch all come from it.
     const { body: main } = await github.poll(repo, `/repos/${repo}/git/ref/heads/main`, HEAD);
@@ -222,7 +245,7 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
     const proposal = await newerBuild(deps, target, pinFile, head);
     if (!proposal) return;
     const title = deployTitle(target, proposal.commit);
-    if (proposed === title) return;
+    if (proposed?.title === title && proposed.head === head) return;
 
     const [owner] = repo.split('/');
     const { body: pulls } = await github.poll(
@@ -231,19 +254,30 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
       PULLS,
     );
     if (pulls.some((p) => p.state === 'closed' && !p.merged_at && p.title === title)) {
-      log.info({ repo, commit: proposal.commit }, 'this build’s deploy pull request was closed; waiting for the next');
-      proposed = title;
+      if (proposed?.title !== title) {
+        log.info(
+          { repo, commit: proposal.commit },
+          'this build’s deploy pull request was closed; waiting for the next',
+        );
+      }
+      proposed = { title, head };
       return;
     }
     const existing = pulls.find((p) => p.state === 'open');
     if (existing?.title === title) {
       // Opened by an earlier pass that did not get as far as its label.
       if (!existing.labels.some((l) => l.name === label)) await actions.addLabels(repo, existing.number, [label]);
-      proposed = title;
+      if (!(await behind(existing.number, existing.head.sha, head))) {
+        proposed = { title, head };
+        return;
+      }
+    } else if (!existing && proposed?.title === title) {
+      // A dry run's pull request, which GitHub has never heard of: recorded once, and not again as main moves.
+      proposed = { title, head };
       return;
     }
 
-    // Committed off to the side, so the deploy branch goes from the older build straight to this one (see above).
+    // Committed off to the side, so the deploy branch goes from its older commit straight to this one (see above).
     const scratch = scratchBranch(target);
     await actions.setBranch(repo, scratch, head, { force: true });
     const pins = await actions.commit(repo, {
@@ -258,7 +292,12 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
     await actions.setBranch(repo, target.branch, pins, { force: true });
     await actions.deleteBranch(repo, scratch);
     const body = deployBody(target, proposal);
-    if (existing) {
+    if (existing?.title === title) {
+      log.info(
+        { repo, number: existing.number, commit: proposal.commit },
+        'brought the deploy pull request up to date',
+      );
+    } else if (existing) {
       await actions.updatePullRequest(repo, existing.number, { title, body });
       log.info(
         { repo, number: existing.number, commit: proposal.commit },
@@ -274,6 +313,6 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
       });
       log.info({ repo, number: made.number, commit: proposal.commit }, 'opened a deploy pull request');
     }
-    proposed = title;
+    proposed = { title, head };
   };
 }
