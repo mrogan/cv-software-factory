@@ -78,17 +78,18 @@ Run one work item at a time: two steps on one LM Studio halve its speed. The dry
 
 ## Putting it back
 
-Order matters. Giving `root` its sync policy back restores images and the values `main` sets, but not env variables that `main` does not set: with `LINE_ONLY` left behind and `LINE_MODE` restored to `live`, the line would act in GitHub on that work item. So remove the added env first, with the line still in dry run, then restore the sync policy, then check each deployment's env against what you recorded.
+Order matters. Giving `root` its sync policy back restores images and the values `main` sets, but not env variables that `main` does not set: with `LINE_ONLY` left behind and `LINE_MODE` restored to `live`, the line would act in GitHub on that work item. And a line in dry run with neither `LINE_ONLY` nor `LINE_TAKE` takes the next ticket at once, which a live line then carries to its end, with the dry run's made-up issue. So first set `LINE_MODE=off` on `line`, which takes nothing; then remove the added env; then restore the sync policy, which sets `LINE_MODE` back; then check each deployment's env against what you recorded, and that `select work_item, stage from line` has nothing new.
 
 Copy this into `scratch/` at the start:
 
 ```markdown
 # To undo after <the run>
 
+- [ ] `line`: `LINE_MODE=off` first, so it takes nothing while the rest comes off.
 - [ ] `line` env: remove `LINE_ONLY`, `ALL_LOCAL` and anything else added; was: …
 - [ ] `gateway` env: remove `ALL_LOCAL`; was: …
 - [ ] `github` env: remove `GITHUB_DRY_RUN_CHECKS_SECONDS`, `GITHUB_DRY_RUN_MERGE_SECONDS`; was: …
-- [ ] Argo CD `root`: `{"automated":{"prune":true,"selfHeal":true}}`, then check `line`, `gateway` and `github` are back on `main`'s images (`line`'s container, `runner-image` and `RUNNER_IMAGE`), with `LINE_MODE`, `LINE_TAKE` and `GITHUB_DRY_RUN` as `main` sets them; was: …
+- [ ] Argo CD `root`: `{"automated":{"prune":true,"selfHeal":true}}`, then check `line`, `gateway` and `github` are back on `main`'s images (`line`'s container, `runner-image` and `RUNNER_IMAGE`), with `LINE_MODE`, `LINE_TAKE` and `GITHUB_DRY_RUN` as `main` sets them, and no work item new on the line; was: …
 - [ ] Any copied `migrate` Job deleted (migrations stay applied).
 - [ ] Local images removed: `docker rmi` each `local-*` tag.
 - [ ] The line started (`make start-the-line`), so triage takes work again.
