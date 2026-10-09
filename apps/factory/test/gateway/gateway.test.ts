@@ -8,6 +8,8 @@ import type { SpendPolicy } from '../../../../policy/spend.ts';
 import { Cassettes, cassetteKey } from '../../src/gateway/cassettes.ts';
 import { BadRequest, CassetteMissing, ProviderError, SpendCapped } from '../../src/gateway/errors.ts';
 import { Gateway, type Mode } from '../../src/gateway/gateway.ts';
+import { ProviderCaps } from '../../src/gateway/provider-caps.ts';
+import { ProviderRefusal } from '../../src/gateway/providers.ts';
 import { Spend } from '../../src/gateway/spend.ts';
 import { PROVIDER, TypeSafe, request as typesafeRequest } from '../../src/gateway/typesafe.ts';
 import { capturingLog, type FakeTypeSafe, fakeTypeSafe, QUESTIONS, request, SECRET } from './helpers.ts';
@@ -396,6 +398,25 @@ describe('spend caps', () => {
     await nextDay.resume();
     expect((await h.lineEvents()).map((event) => event.type)).toEqual(['spend.capped', 'spend.cleared']);
     expect((await nextDay.report()).capped).toEqual([]);
+    await h.database.end();
+  });
+
+  it('leaves a provider’s cap to the provider’s caps across a restart', async () => {
+    const h = await harness({ clock: day() });
+    const caps = new ProviderCaps({
+      sql: h.database.writer,
+      events: h.events,
+      log: h.captured.log,
+      probe: async () => false,
+    });
+    await caps.cap('local', new ProviderRefusal('unreachable', 'connect ECONNREFUSED 127.0.0.1:1234'));
+
+    const restarted = h.spend();
+    await restarted.resume();
+    await restarted.reconcile();
+    expect(await h.lineEvents()).toEqual([expect.objectContaining({ type: 'spend.capped', cap: 'provider' })]);
+    expect((await restarted.report()).capped).toEqual([]);
+    expect(h.captured.text()).not.toContain('could not update the line on spend caps');
     await h.database.end();
   });
 
