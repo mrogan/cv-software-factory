@@ -5,6 +5,7 @@ import type { InboxSignal, NewEvent, PayloadOf } from '@software-factory/events'
 import { DiskArtifacts, EventWriter, sendSignal } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { INBOX } from '../../../../policy/triage.ts';
 import { type Database, freshDatabase } from '../../../store/test/database.ts';
 import { idsFor, senseTicket } from '../../src/events.ts';
 import { type Answer, type Judge, JudgeWaiting } from '../../src/judge.ts';
@@ -224,16 +225,16 @@ describe('triage', () => {
   });
 
   describe('a defect the planner noticed, parked', () => {
-    const park = async (route: string) => {
+    const park = async (route: string, planning = '1') => {
       await sendSignal(
         writer,
         found({
           sense: 'planner',
-          check: 'planning ticket #1',
+          check: `planning ticket #${planning}`,
           route,
           symptom: undefined,
           report: { page: route, text: 'The total is wrong' },
-          planning: '1',
+          planning,
         }),
       );
       expect(await triage().takeOne()).toBe('finding');
@@ -318,6 +319,41 @@ describe('triage', () => {
         outcome: 'discarded',
         reason: 'Martin rejected the defect the planner noticed',
       });
+    });
+
+    it('holds one with the fingerprint of the ticket being planned, saying so, until a sense’s ticket can take it', async () => {
+      await sendSignal(writer, found({ route: '/basket', symptom: 'wrong-result', check: 'the basket adds up' }));
+      expect(await triage().takeOne()).toBe('opened');
+      const [{ work_item: planned = '' } = {}] = await writer<{ work_item: string }[]>`
+        select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
+      const item = await park('/basket', planned);
+      expect(item).not.toBe(planned);
+      const [hold] = await writer<{ payload: PayloadOf<'hold.started'> }[]>`
+        select payload from events where work_item = ${item} and type = 'hold.started'`;
+      expect(hold?.payload.reason).toContain(`A sense’s ticket can take it once #${planned} closes`);
+      // The planned ticket's fix is verified and it closes; the defect is still there, and a sense opens its ticket.
+      await events.append(closed(planned));
+      await sendSignal(writer, found({ route: '/basket', symptom: 'wrong-result', check: 'the basket adds up' }));
+      expect(await triage().takeOne()).toBe('opened');
+      expect((await closing(item))?.reason).toMatch(/^A sense saw it: ticket #/);
+    });
+
+    it('leaves an answer it cannot act on for the next event, and after as many tries as a signal, alone', async () => {
+      const item = await park('/gift-cards');
+      await answer(item, 'approved');
+      let tried = 0;
+      const broken = {
+        append: async () => {
+          tried += 1;
+          throw new Error('The store is down');
+        },
+      } as unknown as EventWriter;
+      const failing = triage({ events: broken });
+      for (let i = 0; i <= INBOX.attempts; i++) expect(await failing.settleOne()).toBe(false);
+      expect(tried).toBe(INBOX.attempts);
+      // It was not acted on, and this worker leaves it now; a fresh one, with the store back, does as he said.
+      expect(await writer`select 1 from events where work_item = ${item} and type = 'ticket.opened'`).toHaveLength(0);
+      expect(await triage().settleOne()).toBe(true);
     });
 
     it('joins the open ticket that has it when he approves it, if one opened without closing it', async () => {

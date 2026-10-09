@@ -201,8 +201,10 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         state.spec = event.payload;
         state.specApproved = false;
         state.respecified = state.pullRequest !== undefined;
-        // A new spec is a new scope: what the fence refused under the last one is no part of it.
+        // A new spec is a new scope: what the fence refused under the last one is no part of it, and a review held
+        // the change to the old one, so the change is reviewed again against this.
         state.fenced = undefined;
+        state.review = undefined;
         break;
       case 'pull-request.pushed':
         state.pullRequest = event.payload;
@@ -260,9 +262,10 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         state.fenceRefusals = 0;
         if (resolution === 'replan') state.spec = undefined;
         if (cause === 'spec' && resolution === 'carry-on') state.specApproved = true;
-        if (resolution === 'approve' && state.review) {
-          state.review = { ...state.review, verdict: 'approved' };
-          // His approval overrules the review that sent the work back, if one did: the coder has nothing to do.
+        if (resolution === 'approve') {
+          // His approval overrules the review of the latest push, if there is one, and the review that sent the work
+          // back, if one did: the coder has nothing to do. With no review of the spec in force, the reviewer runs.
+          if (state.review) state.review = { ...state.review, verdict: 'approved' };
           state.rebuild = undefined;
         }
         break;
@@ -391,7 +394,10 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
     if (facts.issue === null) return { stage: 'plan', next: { do: 'open-issue' } };
     return step('planner');
   }
-  const held = s.spec.risks.filter((risk) => ALWAYS_HELD.includes(risk));
+  // The rule holds the specs written under it: the planner's since its criteria named where each comes from. One in
+  // the store from before carries on as it was.
+  const underRule = s.spec.criteria.some((criterion) => criterion.from !== undefined);
+  const held = underRule ? s.spec.risks.filter((risk) => ALWAYS_HELD.includes(risk)) : [];
   if (held.length && !s.specApproved) {
     const reason = `The spec is tagged ${held.join(', ')}: the fix changes behaviour beyond what the ticket is about, which needs Martin in every autonomy mode`;
     return { stage: 'held', next: { do: 'hold', hold: { stage: 'plan', kind: 'approval', cause: 'spec', reason } } };

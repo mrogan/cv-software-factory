@@ -382,6 +382,26 @@ describe('Martin’s answer to a hold', () => {
     expect(decide([...rewritten, returned('review')], facts).next).toEqual({ do: 'step', agent: 'coder', round: 2 });
   });
 
+  it('reviews the change again against a spec written again, even when he approves a coder that changed nothing', () => {
+    const rewritten = [ticket, spec, pushed(), started(), finished('passed'), review('escalated'), spec];
+    expect(fold(rewritten).review).toBeUndefined();
+    // The coder finds the change already meets the new spec, and holds; he approves.
+    const unchanged = [...rewritten, returned('review'), held('review', 'review'), answer('approved')];
+    expect(decide(unchanged, facts).next).toEqual({ do: 'step', agent: 'reviewer', round: 2 });
+  });
+
+  it('holds only the out-of-scope specs written under the rule, not one in the store from before it', () => {
+    const before: LineEvent = {
+      type: 'spec.written',
+      payload: {
+        ...(spec.payload as PayloadOf<'spec.written'>),
+        criteria: [{ given: 'a query with a quote', when: 'it is searched', expect: 'the page lists matches' }],
+        risks: ['out-of-scope'],
+      },
+    };
+    expect(decide([ticket, before, pushed(), started()], facts).next).toEqual({ do: 'wait', for: 'gates' });
+  });
+
   it('holds a review that cites the ticket as beyond it, and sends his answer to the planner, never the coder', () => {
     const beyond: LineEvent = {
       type: 'review.submitted',

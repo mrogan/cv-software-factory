@@ -125,6 +125,36 @@ describe('a fix held for a human', () => {
       ],
     });
   });
+
+  it('beyond its ticket: the blocking finding that cites the ticket, as a held review shows its own', () => {
+    const finding = { path: 'src/money.ts', line: 3, blocking: true, criterion: 2, ticket: true as const };
+    const events = work('3001')
+      .open()
+      .add(1, 'review.submitted', 'reviewer', {
+        pullRequest: 7,
+        verdict: 'escalated',
+        note: 'Criterion 2 is not in the ticket.',
+        findings: [{ ...finding, comment: 'No evidence asks for thousands separators.' }],
+      })
+      .add(1.1, 'hold.started', 'factory', {
+        stage: 'review',
+        kind: 'held',
+        cause: 'beyond-ticket',
+        reason: 'Criterion 2 is not in the ticket.',
+      }).events;
+    expect(project(events, Date.parse(events.at(-1)?.ts ?? '')).cards[0]?.picture).toEqual({
+      type: 'blocking',
+      reviews: 1,
+      findings: [
+        {
+          where: 'src/money.ts:3',
+          cites: 'the ticket',
+          comment: 'No evidence asks for thousands separators.',
+          reviews: [1],
+        },
+      ],
+    });
+  });
 });
 
 describe('the sheet of a fix', () => {

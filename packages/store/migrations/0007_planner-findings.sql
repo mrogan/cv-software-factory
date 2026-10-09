@@ -9,6 +9,10 @@ alter table inbox drop constraint inbox_check;
 alter table inbox add constraint inbox_fingerprint_check
   check ((fingerprint is null) = (sense in ('report', 'planner')));
 
+-- Triage looks for the defects the planner noticed that are still held after every event, so their holds have an
+-- index of their own.
+create index events_finding_holds on events (seq) where type = 'hold.started' and payload->>'cause' = 'finding';
+
 alter table inbox drop constraint inbox_outcome_check;
 alter table inbox add constraint inbox_outcome_check
   check (outcome in ('opened', 'evidence', 'counted', 'report', 'finding'));

@@ -256,6 +256,7 @@ export function waitPicture(item: ItemState): Picture | undefined {
     case 'spend':
       return spendPicture(item, hold);
     case 'review':
+    case 'beyond-ticket':
       return blockingPicture(item);
     default:
       return undefined;
@@ -338,16 +339,19 @@ function spendPicture(item: ItemState, hold: Hold): Picture | undefined {
 function blockingPicture(item: ItemState): Picture | undefined {
   const reviews = ofType(item, 'review.submitted');
   const latest = reviews.at(-1)?.payload;
-  // An escalation holds at Review too, with no findings to show: its reason says why.
-  const open = latest?.verdict === 'changes-requested' ? latest.findings.filter((f) => f.blocking) : [];
+  // An escalation holds at Review too, with no findings to show, and its reason says why; unless it went beyond the
+  // ticket, which its blocking findings show.
+  const shows = latest?.verdict === 'changes-requested' || latest?.findings.some((f) => f.ticket);
+  const open = shows ? (latest?.findings.filter((f) => f.blocking) ?? []) : [];
   if (!open.length) return undefined;
   return {
     type: 'blocking',
     reviews: reviews.length,
     findings: open.map((f) => ({
       where: `${f.path}:${f.line}`,
-      cites:
-        f.rule !== undefined
+      cites: f.ticket
+        ? 'the ticket'
+        : f.rule !== undefined
           ? `rule ${f.rule}${RULES[f.rule] ? `, ${RULES[f.rule]?.title.toLowerCase()}` : ''}`
           : f.criterion !== undefined
             ? `criterion ${f.criterion}`

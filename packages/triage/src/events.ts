@@ -287,6 +287,8 @@ export function findingEvents(
   workItem: string,
   decision: ReportDecision,
   now: Date,
+  /** The ticket being planned, when a defect noticed has its fingerprint, which keeps it from a ticket of its own. */
+  behind?: string,
 ): NewEvent[] {
   const { routed } = decision;
   const ticket = `ticket #${signal.planning}`;
@@ -316,8 +318,9 @@ export function findingEvents(
           stage: 'triage',
           kind: 'held',
           cause: 'finding',
-          reason:
-            'The planner noticed a defect outside its ticket. Its word alone never opens a ticket: one opens when a sense sees it, or when Martin approves this.',
+          reason: behind
+            ? `The planner noticed a defect outside its ticket, with that ticket’s fingerprint. A sense’s ticket can take it once #${behind} closes, or Martin can.`
+            : 'The planner noticed a defect outside its ticket. Its word alone never opens a ticket: one opens when a sense sees it, or when Martin approves this.',
           defect: { route: privatePath(signal.route), class: routed.defect.symptom },
         });
         return summarise(writer, {

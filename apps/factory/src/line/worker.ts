@@ -537,7 +537,7 @@ export class Line {
   #effectsContext(item: QueueItem, state: WorkItemState, pending: Pending): EffectsContext {
     const { workItem } = item;
     const { github, repo } = this.#o;
-    const context: EffectsContext = {
+    return {
       ...this.#context(item, pending.round, state, pending.commit, pending.base),
       once: async <T>(name: string, write: (again: boolean) => Promise<T>): Promise<T> => {
         // What a write gave back is kept as JSON, and given back as it was kept.
@@ -554,16 +554,13 @@ export class Line {
         return result;
       },
       act: (action, args) => github.act(action, repo, args),
+      // Its id is the same each time, and the inbox keeps the first: leaving it again does nothing.
       leaveSignal: async (key, signal) => {
-        const id = signalId(workItem, key);
-        await context.once(`signal ${id}`, async () => {
-          await sendSignal(this.#o.sql, { ...signal, observedAt: this.#o.now().toISOString() }, id);
-          return id;
-        });
+        const observedAt = this.#o.now().toISOString();
+        await sendSignal(this.#o.sql, { ...signal, observedAt }, signalId(workItem, key));
       },
       keepSession: (session) => this.#queue.setSession(workItem, session),
     };
-    return context;
   }
 
   /** Opens the ticket's issue in the app's repository, from the ticket's public view. */
