@@ -24,7 +24,7 @@ export interface ClaudeModel {
 /**
  * The local model, with no effort: LM Studio's Messages API reads none from a request (it honours only
  * `thinking: {type: "disabled"}`). How hard Qwen thinks is LM Studio's Reasoning Effort for the model, saved as the
- * model's default, not on the loaded model, which loses it on a reload. The line runs it at Low.
+ * model's default, not on the loaded model, which loses it on a reload. The line runs it at Medium.
  */
 export interface LocalModel {
   provider: 'local';
