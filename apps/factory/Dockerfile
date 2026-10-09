@@ -8,7 +8,7 @@
 # that `policy/` is found where the code imports it. The probes and the crawler need a browser and run from
 # Dockerfile.browser instead. The migrations are not here: the console's image applies them.
 
-FROM node:24.21.0-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS base
+FROM public.ecr.aws/docker/library/node:24.21.0-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS base
 WORKDIR /repo
 # pnpm at the version (and hash) pinned in package.json's packageManager field.
 RUN corepack enable
