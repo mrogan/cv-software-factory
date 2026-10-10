@@ -153,7 +153,7 @@ describe('admission control', () => {
     // Only the policy sets its mode. The `try-the-line` skill switches `factory-images` to Audit on the cluster for a
     // run, and Argo CD puts it back; no manifest here does.
     const files = (await readdir(DEPLOY, { recursive: true })).filter(
-      (f) => f.endsWith('.yaml') && f !== join('base', 'admission', 'images', 'policy.yaml'),
+      (f) => /\.ya?ml$/.test(f) && f !== join('base', 'admission', 'images', 'policy.yaml'),
     );
     for (const file of files) expect(await read(file), file).not.toMatch(/validationActions/);
   });
