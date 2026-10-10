@@ -11,12 +11,20 @@ resources:
   - factory
   - website
 
-# Until every image the guarded namespaces pin is a digest build.yml signed, both policies only audit: they record what
-# they would refuse (`kubectl get policyreports -A`) and refuse nothing. `make admission-ready` says when that is; then
-# this patch goes, in a pull request of its own, and the policies enforce.
+# Until every image a copy's namespaces pin is a digest build.yml signed, that copy only audits: it records what it
+# would refuse (`kubectl get policyreports -A`) and admits it. `make admission-ready` says when that is; then the copy's
+# patch goes, in a pull request of its own, and it enforces (#173). Each goes when its own namespaces are ready.
 patches:
   - target:
       kind: ImageValidatingPolicy
+      name: factory-images
+    patch: |
+      - op: replace
+        path: /spec/validationActions
+        value: [Audit]
+  - target:
+      kind: ImageValidatingPolicy
+      name: website-images
     patch: |
       - op: replace
         path: /spec/validationActions

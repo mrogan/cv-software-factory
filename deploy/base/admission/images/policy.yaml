@@ -1,4 +1,5 @@
-# Only images the pipeline signed run (ADR 0010). A pod's images, its init and ephemeral containers' too, must each be
+# Only images the pipeline signed run (ADR 0010). A pod's images, its init and ephemeral containers' and its image
+# volumes' too, must each be
 #
 # 1. referenced by digest, so what was checked is what runs;
 # 2. one of ours, from GHCR, or one of the few others its policy names by digest, each with its reason;
@@ -7,13 +8,16 @@
 # 4. and carry the SBOM that the same workflow attested.
 #
 # Two copies of this policy, `factory-images` and `website-images` (../factory, ../website), say where it applies and
-# what else may run there. Kyverno fails closed: if it cannot verify an image (GHCR or Sigstore out of reach, or Kyverno
-# itself down), the pod is refused. A refusal names the policy, the check and the images that failed it.
+# what else may run there. Enforcing, Kyverno fails closed: if it cannot verify an image (GHCR or Sigstore out of reach,
+# or Kyverno itself down), the pod is refused. While a copy only audits, an image it cannot verify is reported and
+# admitted, but Kyverno being down still refuses the pod. A refusal names the policy, the check and the images that
+# failed it.
 #
-# Pods are checked as they are made or changed, and when a debug container is added to one. Kyverno would also check the
-# Deployments and Jobs that make pods, so a refusal showed where the change was made, but only for a policy that matches
-# pods alone; a debug container's image is a way in, so pods it is, and a refusal is in the events of the ReplicaSet or
-# Job that asked for the pod.
+# Pods are checked as they are made, when a change to one changes its images, and when a debug container is added to
+# one; a change to a pod's labels or finalizers is not, so a pod already running is never held up by an outage of
+# GHCR. Kyverno would also check the Deployments and Jobs that make pods, so a refusal showed where the change was made,
+# but only for a policy that matches pods alone; a debug container's image is a way in, so pods it is, and a refusal is
+# in the events of the ReplicaSet or Job that asked for the pod.
 apiVersion: policies.kyverno.io/v1
 kind: ImageValidatingPolicy
 metadata:
@@ -29,7 +33,8 @@ spec:
     # Verifying an image fetches its signature and SBOMs from GHCR the first time; Kyverno then caches the answer.
     timeoutSeconds: 30
   evaluation:
-    # Checked at admission only: what runs was admitted.
+    # Checked at admission only. Pods made before the policy existed are not looked at again; `make admission-ready`
+    # checks what the namespaces run.
     background:
       enabled: false
   matchConstraints:
@@ -45,6 +50,19 @@ spec:
         operations: [CREATE, UPDATE]
         # A debug container brings an image too.
         resources: [pods, pods/ephemeralcontainers]
+  matchConditions:
+    # A new pod, or a change to a pod's images. Every list of images is compared, or a change to the one left out
+    # would pass unchecked.
+    - name: images-change
+      expression: >-
+        request.operation == 'CREATE' ||
+        object.spec.containers.map(c, c.image) != oldObject.spec.containers.map(c, c.image) ||
+        object.spec.?initContainers.orValue([]).map(c, c.image) !=
+        oldObject.spec.?initContainers.orValue([]).map(c, c.image) ||
+        object.spec.?ephemeralContainers.orValue([]).map(c, c.image) !=
+        oldObject.spec.?ephemeralContainers.orValue([]).map(c, c.image) ||
+        object.spec.?volumes.orValue([]).filter(v, has(v.image)).map(v, v.image.reference) !=
+        oldObject.spec.?volumes.orValue([]).filter(v, has(v.image)).map(v, v.image.reference)
   # The images Kyverno fetches and may verify: ours, on GHCR. No other registry is asked anything; an image from one is
   # refused by the checks below without being looked at.
   matchImageReferences:
@@ -77,13 +95,14 @@ spec:
     # Third-party images this copy admits, each by its exact reference, digest and all. Set by each copy.
     - name: allowed
       expression: "[]"
-    # Every image the pod names. Not Kyverno's `images`, which holds only those matchImageReferences selects: the rest
-    # would never be seen.
+    # Every image the pod names, its image volumes' too (an OCI image mounted as files). Not Kyverno's `images`,
+    # which holds only the containers' images matchImageReferences selects: the rest would never be seen.
     - name: images
       expression: >-
         object.spec.containers.map(c, c.image) +
         object.spec.?initContainers.orValue([]).map(c, c.image) +
-        object.spec.?ephemeralContainers.orValue([]).map(c, c.image)
+        object.spec.?ephemeralContainers.orValue([]).map(c, c.image) +
+        object.spec.?volumes.orValue([]).filter(v, has(v.image)).map(v, v.image.reference)
     - name: undigested
       expression: variables.images.filter(i, !i.matches('^[^@]+@sha256:[0-9a-f]{64}$'))
     - name: factoryImages

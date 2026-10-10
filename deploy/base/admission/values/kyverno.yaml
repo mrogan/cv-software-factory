@@ -35,8 +35,11 @@ backgroundController:
 cleanupController:
   enabled: false
 
-# Kyverno removes its webhooks with this hook when it is uninstalled, so the cluster is not left refusing pods that no
-# one is there to admit.
+# The chart's pre-delete hook removes Kyverno's webhooks when Helm uninstalls it; Argo CD did not run it when the
+# Application was deleted on the local cluster. To take Kyverno out, delete the image policies first, so Kyverno removes
+# their webhooks (left behind, they refuse every pod in the guarded namespaces, with no one there to admit it), then the
+# Application, then what is left: `kubectl delete validatingwebhookconfigurations,mutatingwebhookconfigurations -l
+# webhook.kyverno.io/managed-by=kyverno`, and its CRDs, which were left too.
 webhooksCleanup:
   image:
     tag: v1.19.1@sha256:31bb42ce7f5b2e27c1cf633aeff4f0cad1f5bb63761e2cb09f0e25cdd26572bf

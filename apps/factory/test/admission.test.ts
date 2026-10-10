@@ -39,21 +39,37 @@ const policy = async () =>
     };
   };
 
+/** Every image named anywhere in a manifest: a container's `image`, an image volume's `reference`, kustomize's. */
+function named(node: unknown, into: Set<string>): Set<string> {
+  if (Array.isArray(node)) for (const item of node) named(item, into);
+  else if (node && typeof node === 'object') {
+    for (const [key, value] of Object.entries(node)) {
+      if (key === 'image' && typeof value === 'string') into.add(value);
+      else if (key === 'image' && value && typeof value === 'object' && 'reference' in value)
+        into.add(String(value.reference));
+      else if (key === 'newName' && typeof value === 'string') into.add(value);
+      else named(value, into);
+    }
+  }
+  return into;
+}
+
 /** Every image the manifests in these directories, and these files, name that is not one of ours. */
 async function thirdParty(dirs: string[], files: string[]) {
   for (const dir of dirs) {
     files.push(...(await readdir(join(DEPLOY, dir))).filter((f) => f.endsWith('.yaml')).map((f) => join(dir, f)));
   }
   const images = new Set<string>();
-  for (const file of files) {
-    for (const match of (await read(file)).matchAll(/^\s*image:\s*(\S+)$/gm)) {
-      const image = match[1] as string;
-      // A bare name (`factory`) is ours, pinned by the profile's kustomize `images:`.
-      if (image.includes('/') && !image.startsWith('ghcr.io/mrogan/')) images.add(image);
-    }
-  }
-  return [...images].sort();
+  for (const file of files) for (const doc of parseAllDocuments(await read(file))) named(doc.toJS(), images);
+  // A bare name (`factory`) is ours, pinned by the profile's kustomize `images:`.
+  return [...images].filter((i) => i.includes('/') && !i.startsWith('ghcr.io/mrogan/')).sort();
 }
+
+/** Which of the policy's checks refuses each kept case. */
+const REFUSED_BY: Record<string, string> = {
+  unsigned: 'images must be signed by build.yml on main of the repository that builds them: ',
+  'other-identity': "images must come from this project's GHCR, or be named by digest in the policy: ",
+};
 
 describe('admission control', () => {
   it("trusts each repository's build.yml on main, by its whole identity, as the deploy watch does", async () => {
@@ -67,6 +83,12 @@ describe('admission control', () => {
     const variable = (name: string) => spec.variables.find((v) => v.name === name)?.expression;
     expect(variable('factoryImages')).toContain("startsWith('ghcr.io/mrogan/cv-software-factory/')");
     expect(variable('websiteImages')).toContain("startsWith('ghcr.io/mrogan/cv-worlds-worst-website@')");
+    for (const check of ['unsigned', 'unattested']) {
+      const expression = variable(check)?.replace(/\s+/g, ' ') ?? '';
+      expect(expression).toMatch(/variables\.factoryImages\.filter\([^+]*\[attestors\.factory\]\)/);
+      expect(expression).toMatch(/variables\.websiteImages\.filter\([^+]*\[attestors\.website\]\)/);
+      expect(expression).not.toMatch(/factoryImages[^+]*attestors\.website|websiteImages[^+]*attestors\.factory/);
+    }
   });
 
   it('guards every namespace the factory and the app run in; telemetry runs only its charts', async () => {
@@ -103,8 +125,8 @@ describe('admission control', () => {
         expect(refusals.map((r) => r.case).sort()).toEqual(['other-identity', 'unsigned']);
         for (const refusal of refusals) {
           expect(refusal.outcome).toBe('refused');
-          // A refusal names the policy and the image.
-          expect(refusal.message).toContain(`Policy ${name} failed`);
+          // A refusal names the policy, the check that refused it and the image.
+          expect(refusal.message).toContain(`Policy ${name} failed: ${REFUSED_BY[refusal.case]}`);
           expect(refusal.message).toContain(refusal.image);
         }
       }
