@@ -100,10 +100,16 @@ spec:
               mountPath: /var/lib/factory/artifacts
             - name: sigstore
               mountPath: /var/cache/sigstore
+            # TUF downloads each file into a directory of its own under /tmp, then copies it into the cache.
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: artifacts
           persistentVolumeClaim:
             claimName: artifacts
         - name: sigstore
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: tmp
           emptyDir:
             sizeLimit: 16Mi
