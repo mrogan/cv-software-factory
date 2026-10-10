@@ -43,6 +43,9 @@ describe('the canary analysis', () => {
       expect(query).not.toMatch(/http_route="/);
       expect(query).not.toContain('by (http_route)');
     }
+    // A baseline with no series fails the canary, rather than leaving nothing to compare.
+    expect(q.errors).toContain('or on () vector(Inf)');
+    expect(q.latency).toContain('or on () vector(Inf)');
     expect(q.errors).toContain('http_response_status_code=~"5.."');
     expect(q.latency).toContain(`histogram_quantile(${release.latency.percentile},`);
     expect(q.latency).toContain(`* ${release.latency.maxRatioAbove}, ${release.latency.minSecondsAbove})`);

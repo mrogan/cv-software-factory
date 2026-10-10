@@ -37,6 +37,7 @@ spec:
                 (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
                 / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))
               )
+            or on () vector(Inf)
             )
             and on () sum(increase(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])) >= 100
     - name: latency
@@ -53,6 +54,7 @@ spec:
                 histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m])))
                 + clamp_min(histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))) * 0.25, 0.1)
               )
+            or on () vector(Inf)
             )
             and on () sum(increase(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])) >= 100
     - name: journeys
@@ -146,6 +148,7 @@ spec:
                 (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
                 / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))
               )
+            or on () vector(Inf)
             )
             and on () sum(increase(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])) >= 100
     - name: latency
@@ -163,5 +166,6 @@ spec:
                 histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m])))
                 + clamp_min(histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))) * 0.25, 0.1)
               )
+            or on () vector(Inf)
             )
             and on () sum(increase(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])) >= 100

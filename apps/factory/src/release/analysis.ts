@@ -51,8 +51,10 @@ export function queries(r: Release) {
     `    / sum(rate(${REQUESTS}_count${of(version)}${window}))`;
   const latency = (version: Version) =>
     `histogram_quantile(${r.latency.percentile}, sum by (le) (rate(${REQUESTS}_bucket${of(version)}${window})))`;
-  // Nothing is judged until the canary has had enough requests: the result is then empty, which passes.
-  const judged = (expr: string) => `(\n${expr}\n)\nand on () ${requests('canary')} >= ${r.minRequests}`;
+  // Nothing is judged until the canary has had enough requests: the result is then empty, which passes. Once it has,
+  // a baseline with nothing to compare (no series for its hash) is infinitely better than the canary, which fails.
+  const judged = (expr: string) =>
+    `(\n${expr}\nor on () vector(Inf)\n)\nand on () ${requests('canary')} >= ${r.minRequests}`;
   return {
     /** How many requests the canary answered in the window. */
     requests: `${requests('canary')} or vector(0)`,
