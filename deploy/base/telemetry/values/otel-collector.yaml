@@ -28,11 +28,18 @@ config:
     prometheus: null
   processors:
     # Only the collector says which pod a record came from. k8s_attributes leaves alone an attribute a record already
-    # carries, so without this the app's own code could name another pod, or claim the stable version's hash for the
-    # canary's telemetry and pass its analysis. It runs first in every pipeline that runs k8s_attributes.
+    # carries, so without these the app's own code could name another pod, or claim the stable version's hash for the
+    # canary's telemetry and pass its analysis. Both run first in every pipeline that runs k8s_attributes: the first
+    # on what a record says of its source, the second on a data point's, span's or log's own attributes, which
+    # Prometheus puts before the source's when both give a series the same label. The pattern takes any separators,
+    # as Prometheus turns each into an underscore. Nothing else in the cluster sets these.
     resource/drop-pod-claims:
       attributes:
-        - pattern: ^k8s\.pod\.
+        - pattern: (?i)^k8s[^a-z0-9]+pod[^a-z0-9]
+          action: delete
+    attributes/drop-pod-claims:
+      actions:
+        - pattern: (?i)^k8s[^a-z0-9]+pod[^a-z0-9]
           action: delete
     # Each record from the app gains its pod's name and its rollouts-pod-template-hash label, which Argo Rollouts gives
     # the stable version's pods and the canary's each their own: the canary's analysis tells the two apart by it. The
@@ -62,15 +69,15 @@ config:
     pipelines:
       traces:
         receivers: [otlp]
-        processors: [memory_limiter, resource/drop-pod-claims, k8s_attributes, batch]
+        processors: [memory_limiter, resource/drop-pod-claims, attributes/drop-pod-claims, k8s_attributes, batch]
         exporters: [otlp_http/tempo]
       metrics:
         receivers: [otlp]
-        processors: [memory_limiter, resource/drop-pod-claims, k8s_attributes, batch]
+        processors: [memory_limiter, resource/drop-pod-claims, attributes/drop-pod-claims, k8s_attributes, batch]
         exporters: [otlp_http/prometheus]
       logs:
         receivers: [otlp]
-        processors: [memory_limiter, resource/drop-pod-claims, k8s_attributes, batch]
+        processors: [memory_limiter, resource/drop-pod-claims, attributes/drop-pod-claims, k8s_attributes, batch]
         exporters: [otlp_http/loki]
 
 # The restricted Pod Security Standard, which the telemetry namespace enforces.
