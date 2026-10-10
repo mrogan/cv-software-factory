@@ -1,0 +1,26 @@
+# `factory-images`: the factory's namespaces. `factory` runs the workers, the console, Postgres and the migrations;
+# `runners` the agents' steps, which the line starts from the runner image it is pinned to. The `try-the-line` skill
+# switches this copy, and only this one, to Audit for a run on images built on the Mac, and Argo CD puts it back.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namePrefix: factory-
+resources:
+  - ../images
+patches:
+  - target:
+      kind: ImageValidatingPolicy
+    patch: |
+      - op: replace
+        path: /spec/matchConstraints/namespaceSelector/matchExpressions/0/values
+        value: [factory, runners]
+      # The one image here that is not ours, and why. Nothing else from another registry runs in these namespaces.
+      #
+      # - Postgres, the event store (deploy/base/postgres), from the official image on AWS's mirror of Docker Hub:
+      #   Docker's own build, which no pipeline of ours could sign. `make samples` and `make real-store` run it too, as
+      #   the artifacts copier (deploy/k3d/artifacts-copier.yaml), for its shell and tar.
+      - op: replace
+        path: /spec/variables/0/expression
+        value: >-
+          [
+            'public.ecr.aws/docker/library/postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
+          ]

@@ -1,0 +1,15 @@
+# `website-images`: the app's namespace, where the app runs and, from milestone 6, the factory's analysis Jobs that
+# judge its canaries. It admits nothing that is not ours, and stays enforced, always: the factory's agents write to
+# the app's repository, so this is the fence a change there cannot move.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namePrefix: website-
+resources:
+  - ../images
+patches:
+  - target:
+      kind: ImageValidatingPolicy
+    patch: |
+      - op: replace
+        path: /spec/matchConstraints/namespaceSelector/matchExpressions/0/values
+        value: [website]

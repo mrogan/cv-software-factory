@@ -1,0 +1,68 @@
+# Kyverno, as admission control and nothing else: one admission controller that checks images' signatures as pods are
+# made, and the reports controller, which keeps what the policies said (`kubectl get policyreports -A`). The background
+# and cleanup controllers are off: no policy here generates, mutates or deletes anything.
+#
+# Each image is pinned by digest, the tag kept beside it for the reader. Kyverno is what decides which images run, so
+# what runs it must not move under it either.
+
+admissionController:
+  replicas: 1
+  initContainer:
+    image:
+      tag: v1.19.1@sha256:c25c47461f06f2845a48c319ae86fbbc1730a7b9ed5b701889c9dc1f9ee94b09
+  container:
+    image:
+      tag: v1.19.1@sha256:b31d8511ae5fd6010e2a01ea72ebae08eb82fa51d91af14a1d9fe989949b4edb
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 384Mi
+
+reportsController:
+  image:
+    tag: v1.19.1@sha256:c0eee97b9b44a0dd35805d56b358fa52548480f79d4944602b9609538eccd64c
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+backgroundController:
+  enabled: false
+cleanupController:
+  enabled: false
+
+# Kyverno removes its webhooks with this hook when it is uninstalled, so the cluster is not left refusing pods that no
+# one is there to admit.
+webhooksCleanup:
+  image:
+    tag: v1.19.1@sha256:31bb42ce7f5b2e27c1cf633aeff4f0cad1f5bb63761e2cb09f0e25cdd26572bf
+
+# The CRDs' storage migration is a Helm hook for upgrades across Kyverno's API versions; Argo CD would run it after every
+# sync. An upgrade that needs it says so in its notes, and runs it then.
+crds:
+  migration:
+    enabled: false
+
+features:
+  # Nothing may be excused from a policy: an exception would be a way round admission that no one reviews.
+  policyExceptions:
+    enabled: false
+  # Only GHCR's public images are verified, which need no credentials. The cloud providers' helpers would ask for
+  # metadata endpoints this cluster does not have, and that the network policy refuses.
+  registryClient:
+    credentialHelpers:
+      - default
+
+config:
+  # The webhooks leave out Kyverno's own namespace (the chart's default), the cluster's system namespaces and Argo CD's,
+  # so that the cluster can always start again, whatever Kyverno says.
+  webhooks:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [kube-system, kube-public, kube-node-lease, argocd]

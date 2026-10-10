@@ -1,0 +1,9 @@
+# Kyverno's own. Its webhooks leave it out, so a Kyverno that cannot admit pods can still start its own.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kyverno
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+  labels:
+    pod-security.kubernetes.io/enforce: restricted

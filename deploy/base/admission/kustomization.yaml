@@ -1,0 +1,12 @@
+# Admission control (ADR 0010): Kyverno, in a namespace of its own, and the policies that admit a pod in a guarded
+# namespace only if its images were signed by the pipeline that built them. Installed before anything it guards: the
+# project, namespace and fences in wave -4, Kyverno in -3, the policies in -2, and everything else from -1.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - project.yaml
+  - namespace.yaml
+  - network-policies.yaml
+  - kyverno.yaml
+  - factory
+  - website
