@@ -107,7 +107,7 @@ Each task is its own pull request, in order, each demonstrable.
 ### 2. Admission control
 
 - Kyverno, installed by Argo CD from its chart at a pinned version, in a namespace of its own, before anything it guards.
-- The policy, as the decisions say; its NetworkPolicy lets Kyverno's admission controller reach GHCR and Sigstore's trust root. A NetworkPolicy cannot name a host, so the rule is the internet on 443 outside private addresses, as for the GitHub worker; egress by host name is an issue on milestone 10.
+- The policy, as the decisions say; its NetworkPolicy lets Kyverno's admission controller reach GHCR and Sigstore's trust root. A NetworkPolicy cannot name a host, so the rule is the internet on 443 outside private addresses, as for the GitHub worker; egress by host name waits for milestone 10 (#176).
 - An unsigned image, and one signed by another identity, are refused in each guarded namespace, and Kyverno's words are kept (`deploy/test/admission-refusals.json`), as milestone 5 kept the App's refusal to write a workflow: milestone 9's red team shows them.
 - The `try-the-line` skill switches the factory side's policy to audit for a run, and checks it is back to enforce afterwards.
 
