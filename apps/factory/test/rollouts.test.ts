@@ -45,10 +45,6 @@ interface K8s {
   extract: { metadata: string[]; labels: { tag_name: string }[] };
 }
 
-/** A Go regular expression's leading `(?i)` as JavaScript's flag. */
-const regexp = (pattern: string) =>
-  pattern.startsWith('(?i)') ? new RegExp(pattern.slice(4), 'i') : new RegExp(pattern);
-
 describe('only the collector says which pod a record came from', () => {
   it('deletes what a record claims about its pod before k8s_attributes, in every pipeline that runs it', async () => {
     const { config } = parse(
@@ -59,12 +55,14 @@ describe('only the collector says which pod a record came from', () => {
     // attribute a record already has.
     const set = [...k8s.extract.metadata, ...k8s.extract.labels.map((l) => l.tag_name)];
     expect(set).toContain('k8s.pod.label.rollouts-pod-template-hash');
-    // What the app must not set on a data point either: Prometheus turns every separator into an underscore, and a
-    // data point's label goes before its resource's of the same name.
+    // What the app must not set on a data point either: Prometheus turns every character but an ASCII letter or digit
+    // into an underscore (ſ and the Kelvin sign too), and a data point's label goes before its resource's of the same name.
     const spellings = [
       'k8s.pod.label.rollouts-pod-template-hash',
       'k8s_pod_label_rollouts_pod_template_hash',
-      'K8S-Pod/label rollouts.pod.template.hash',
+      'k8s-pod/label rollouts.pod.template.hash',
+      'k8s\u017fpod_label_rollouts_pod_template_hash',
+      'k8s\u212apod_label_rollouts_pod_template_hash',
     ];
 
     // A resource processor deletes from a record's resource; an attributes processor from the record itself.
@@ -75,7 +73,7 @@ describe('only the collector says which pod a record came from', () => {
     };
     const deleted = (name: string, kind: 'resource' | 'attributes', attribute: string) =>
       deletes(name, kind).some(
-        (a) => a.key === attribute || (a.pattern !== undefined && regexp(a.pattern).test(attribute)),
+        (a) => a.key === attribute || (a.pattern !== undefined && new RegExp(a.pattern).test(attribute)),
       );
 
     const pipelines = Object.entries(config.service.pipelines).filter(([, p]) =>

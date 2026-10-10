@@ -31,15 +31,17 @@ config:
     # carries, so without these the app's own code could name another pod, or claim the stable version's hash for the
     # canary's telemetry and pass its analysis. Both run first in every pipeline that runs k8s_attributes: the first
     # on what a record says of its source, the second on a data point's, span's or log's own attributes, which
-    # Prometheus puts before the source's when both give a series the same label. The pattern takes any separators,
-    # as Prometheus turns each into an underscore. Nothing else in the cluster sets these.
+    # Prometheus puts before the source's when both give a series the same label. Prometheus turns every character but
+    # an ASCII letter or digit into an underscore and keeps case, so the pattern takes any run of those between `k8s`
+    # and `pod`, and no case-folding, which in Go would let a non-ASCII `ſ` or `K` through. Nothing else in the cluster
+    # sets these.
     resource/drop-pod-claims:
       attributes:
-        - pattern: (?i)^k8s[^a-z0-9]+pod[^a-z0-9]
+        - pattern: ^k8s[^a-zA-Z0-9]+pod[^a-zA-Z0-9]
           action: delete
     attributes/drop-pod-claims:
       actions:
-        - pattern: (?i)^k8s[^a-z0-9]+pod[^a-z0-9]
+        - pattern: ^k8s[^a-zA-Z0-9]+pod[^a-zA-Z0-9]
           action: delete
     # Each record from the app gains its pod's name and its rollouts-pod-template-hash label, which Argo Rollouts gives
     # the stable version's pods and the canary's each their own: the canary's analysis tells the two apart by it. The
