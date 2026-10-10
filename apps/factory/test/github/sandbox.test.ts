@@ -21,15 +21,22 @@ interface Container {
 describe("the GitHub worker's sandbox", () => {
   it('gives TUF a writable /tmp and a writable cache under its read-only root', async () => {
     const deployment = parse(await readFile(GITHUB, 'utf-8'));
-    const spec = deployment.spec.template.spec as { containers: Container[] };
+    const spec = deployment.spec.template.spec as {
+      containers: Container[];
+      volumes?: { name: string; emptyDir?: { sizeLimit?: string } }[];
+    };
     const worker = spec.containers.find((c) => c.name === 'github');
     if (!worker) throw new Error('No github container');
     expect(worker.securityContext?.readOnlyRootFilesystem).toBe(true);
 
     const cache = worker.env?.find((e) => e.name === 'TUF_CACHE_DIR')?.value;
     expect(cache).toBeDefined();
-    const writable = (worker.volumeMounts ?? []).filter((m) => !m.readOnly).map((m) => m.mountPath);
-    expect(writable).toContain('/tmp');
-    expect(writable).toContain(cache);
+    // Each must be a writable mount of an emptyDir the pod declares, by the same name.
+    for (const path of ['/tmp', cache]) {
+      const mount = worker.volumeMounts?.find((m) => m.mountPath === path);
+      expect(mount, `a mount at ${path}`).toBeDefined();
+      expect(mount?.readOnly).not.toBe(true);
+      expect(spec.volumes?.find((v) => v.name === mount?.name)?.emptyDir, `an emptyDir behind ${path}`).toBeDefined();
+    }
   });
 });
