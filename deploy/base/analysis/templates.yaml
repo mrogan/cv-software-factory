@@ -19,7 +19,7 @@ spec:
       provider:
         prometheus:
           address: http://prometheus-server.telemetry
-          query: sum(increase(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])) or vector(0)
+          query: sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) or vector(0)
     - name: errors
       successCondition: len(result) == 0 || result[0] <= 0.01
       failureLimit: 0
@@ -39,7 +39,7 @@ spec:
               )
             or on () vector(Inf)
             )
-            and on () sum(increase(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])) >= 100
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
     - name: latency
       successCondition: len(result) == 0 || result[0] <= 0
       failureLimit: 0
@@ -56,7 +56,7 @@ spec:
               )
             or on () vector(Inf)
             )
-            and on () sum(increase(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])) >= 100
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
     - name: journeys
       failureLimit: 0
       provider:
@@ -150,7 +150,7 @@ spec:
               )
             or on () vector(Inf)
             )
-            and on () sum(increase(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])) >= 100
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
     - name: latency
       interval: 1m
       successCondition: len(result) == 0 || result[0] <= 0
@@ -168,7 +168,7 @@ spec:
               )
             or on () vector(Inf)
             )
-            and on () sum(increase(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])) >= 100
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
     - name: journeys
       interval: 3m
       initialDelay: 90s

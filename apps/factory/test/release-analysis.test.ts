@@ -4,7 +4,15 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseAllDocuments } from 'yaml';
 import { release } from '../../../policy/release.ts';
-import { outOfDate, queries, render, TEMPLATES, TEMPLATES_FILE, templatesFor } from '../src/release/analysis.ts';
+import {
+  ingressServiceOf,
+  outOfDate,
+  queries,
+  render,
+  TEMPLATES,
+  TEMPLATES_FILE,
+  templatesFor,
+} from '../src/release/analysis.ts';
 
 interface Metric {
   name: string;
@@ -34,12 +42,31 @@ describe('the canary analysis', () => {
     expect(first?.provider.prometheus?.query).toMatch(/or vector\(0\)$/);
   });
 
+  it('counts only what the traffic split sent the canary through the ingress, not the journeys’ own requests', () => {
+    const { requests } = queries(release);
+    expect(requests).toBe(
+      'sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) or vector(0)',
+    );
+    // The app's own count of the canary's requests includes the journeys, which ask its Service directly.
+    expect(requests).not.toContain('http_server_request_duration_seconds');
+    expect(requests).not.toContain('canary-hash');
+  });
+
+  it('names a Service as Traefik’s metrics do when a weighted service sends to it', () => {
+    expect(ingressServiceOf('http://website-canary.website')).toBe('website-website-canary-80@kubernetescrd');
+    expect(ingressServiceOf('http://shop.web:8080')).toBe('web-shop-8080@kubernetescrd');
+    expect(() => ingressServiceOf('http://website-canary')).toThrow(/<name>\.<namespace>/);
+  });
+
   it('judges errors and latency against the baseline, and only once there is enough to judge', () => {
     const q = queries(release);
     for (const query of [q.errors, q.latency]) {
       expect(query).toContain('{{args.canary-hash}}');
       expect(query).toContain('{{args.stable-hash}}');
-      expect(query).toMatch(new RegExp(`and on \\(\\) sum\\(increase\\(.*canary-hash.*\\) >= ${release.minRequests}$`));
+      // Judged only once the split has sent the canary enough, so too little traffic fails on that alone.
+      expect(query).toMatch(
+        new RegExp(`and on \\(\\) sum\\(increase\\(traefik_service_requests_total\\{.*\\) >= ${release.minRequests}$`),
+      );
       // Every route at once: no query names one, or depends on how the app names them.
       expect(query).not.toMatch(/http_route="/);
       expect(query).not.toContain('by (http_route)');

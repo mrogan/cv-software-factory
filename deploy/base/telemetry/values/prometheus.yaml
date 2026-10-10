@@ -1,6 +1,10 @@
 # Prometheus takes the collector's metrics over OTLP, and still scrapes the cluster itself. Its alerting rules are
 # generated from policy/objectives.ts into prometheus-rules.yaml, which the Application loads after this file.
 #
+# Among what it scrapes is Traefik, k3s's ingress: its pod asks to be scraped on its metrics port alone (9100, with
+# `prometheus.io/` annotations), which the chart's `kubernetes-pods` job does. The canary's analysis counts the
+# requests the traffic split sends the canary there (`traefik_service_requests_total`, release/analysis.ts).
+#
 # Alertmanager has one receiver: the factory's intake, which turns each firing alert into a signal. Until the intake
 # is deployed, deliveries fail and Alertmanager retries them. The sub-chart's defaults already meet the restricted
 # Pod Security Standard.

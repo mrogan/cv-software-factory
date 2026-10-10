@@ -26,7 +26,10 @@ export interface Release {
   };
   /** How far back each comparison looks, in minutes: no longer than the shortest of the app's steps. */
   windowMinutes: number;
-  /** A step whose canary has answered fewer requests than this in the window fails: too few to judge. */
+  /**
+   * A step fails when the traffic split has sent the canary fewer requests than this in the window, counted at the
+   * ingress: too few to judge. Until it has, errors and latency are not judged.
+   */
   minRequests: number;
   /** The canary fails when its share of 5xx answers is more than this above the baseline's (0.01 is a point). */
   errors: { maxAbove: number };

@@ -12,10 +12,13 @@
  *   enough requests to judge, and the journeys every few minutes, starting half an interval in, so that they fall
  *   between the steps' own runs rather than on them.
  *
- * Canary and baseline are told apart by the pod-template hash Argo Rollouts gives each version, which the collector
- * adds to the app's metrics; the Rollout passes the two hashes as arguments. Each query sums over every route the app
- * named, so it does not depend on how the app names them, and compares shares and percentiles, not counts: the probes
- * and the crawler add requests to the baseline that the traffic split does not account for.
+ * Enough requests are counted at the ingress: what Traefik sent to the canary's Service, which only the traffic split
+ * does. The app's own count would include the journeys, which ask the canary's Service directly, and would pass with
+ * no visitors at all. Errors and latency come from the app's telemetry, where canary and baseline are told apart by
+ * the pod-template hash Argo Rollouts gives each version, which the collector adds to the app's metrics; the Rollout
+ * passes the two hashes as arguments. Each query sums over every route the app named, so it does not depend on how the
+ * app names them, and compares shares and percentiles, not counts: the probes, the crawler and the journeys add
+ * requests that the traffic split does not account for.
  *
  * The cluster-scoped templates live in this repository, deployed with the factory's images: nothing in the app's
  * repository can loosen them, and the journeys run on the same `factory-browser` the probes run, at the digest the
@@ -35,6 +38,19 @@ const PROMETHEUS = 'http://prometheus-server.telemetry';
 const REQUESTS = 'http_server_request_duration_seconds';
 /** The label the collector gives each record from the pod's `rollouts-pod-template-hash`. */
 const HASH = 'k8s_pod_label_rollouts_pod_template_hash';
+/** Requests Traefik sent to each of its services, from its own metrics, which Prometheus scrapes. */
+const INGRESS_REQUESTS = 'traefik_service_requests_total';
+
+/**
+ * How Traefik's metrics name a Kubernetes Service that a TraefikService's split sends to: `<namespace>-<name>-<port>`
+ * from its CRD provider. `http://website-canary.website` is `website-website-canary-80@kubernetescrd`.
+ */
+export function ingressServiceOf(url: string): string {
+  const { hostname, port } = new URL(url);
+  const [name, namespace] = hostname.split('.');
+  if (!name || !namespace) throw new Error(`${url} does not name a Service as <name>.<namespace>`);
+  return `${namespace}-${name}-${port || 80}@kubernetescrd`;
+}
 
 type Version = 'stable' | 'canary';
 
@@ -46,19 +62,22 @@ export function queries(r: Release) {
   const window = `[${r.windowMinutes}m]`;
   const of = (version: Version, extra = '') =>
     `{job="${r.app.metricsJob}", http_route!="", ${HASH}="{{args.${version}-hash}}"${extra}}`;
-  const requests = (version: Version) => `sum(increase(${REQUESTS}_count${of(version)}${window}))`;
+  // Only the split sends to the canary through the ingress: the journeys ask its Service directly.
+  const canaryRequests = `sum(increase(${INGRESS_REQUESTS}{service="${ingressServiceOf(r.app.canary)}"}${window}))`;
   const errorShare = (version: Version) =>
     `(sum(rate(${REQUESTS}_count${of(version, ', http_response_status_code=~"5.."')}${window})) or vector(0))\n` +
     `    / sum(rate(${REQUESTS}_count${of(version)}${window}))`;
   const latency = (version: Version) =>
     `histogram_quantile(${r.latency.percentile}, sum by (le) (rate(${REQUESTS}_bucket${of(version)}${window})))`;
-  // Nothing is judged until the canary has had enough requests: the result is then empty, which passes. Once it has,
-  // a baseline with nothing to compare (no series for its hash) is infinitely better than the canary, which fails.
+  // Nothing is judged until the split has sent the canary enough requests: the result is then empty, which passes,
+  // so a step that falls short fails on `enough-requests` alone, for that reason, and not on what the journeys alone
+  // made of errors and latency. Once it has, a version with nothing to compare (no series for its hash) is infinitely
+  // worse, which fails.
   const judged = (expr: string) =>
-    `(\n${expr}\nor on () vector(Inf)\n)\nand on () ${requests('canary')} >= ${r.minRequests}`;
+    `(\n${expr}\nor on () vector(Inf)\n)\nand on () ${canaryRequests} >= ${r.minRequests}`;
   return {
-    /** How many requests the canary answered in the window. */
-    requests: `${requests('canary')} or vector(0)`,
+    /** How many requests the traffic split sent the canary in the window, through the ingress. */
+    requests: `${canaryRequests} or vector(0)`,
     /** The canary's share of 5xx answers, less the baseline's. */
     errors: judged(`  (\n    ${errorShare('canary')}\n  )\n-\n  (\n    ${errorShare('stable')}\n  )`),
     /**
