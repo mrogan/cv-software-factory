@@ -69,11 +69,13 @@ features:
       - default
 
 config:
-  # The webhooks leave out Kyverno's own namespace (the chart's default), the cluster's system namespaces and Argo CD's,
-  # so that the cluster can always start again, whatever Kyverno says.
+  # The webhooks leave out Kyverno's own namespace, the cluster's system namespaces and Argo CD's, so that the cluster
+  # can always start again, whatever Kyverno says. This list replaces the chart's; with `excludeKyvernoNamespace` (on
+  # by default) the chart also adds an expression of its own leaving out `kyverno`, which is named here as well so that
+  # the list says it.
   webhooks:
     namespaceSelector:
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
-          values: [kube-system, kube-public, kube-node-lease, argocd]
+          values: [kyverno, kube-system, kube-public, kube-node-lease, argocd]
