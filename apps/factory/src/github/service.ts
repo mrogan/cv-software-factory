@@ -15,10 +15,12 @@ import { LiveReads } from './reads.ts';
 import { Registry } from './registry.ts';
 import { quietReleasePlease, releaseWatch } from './releases.ts';
 import { createWorkerServer } from './server.ts';
+import { Signatures } from './signatures.ts';
 
 export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
   const github = new GitHub({ credentials: config.credentials, api: config.api, log });
   const registry = new Registry({ base: config.ghcr });
+  const signatures = new Signatures({ registry, cachePath: config.tufCacheDir });
   // configFromEnv refuses a dry run with nowhere to record it; this holds even if it is called some other way.
   if (config.dryRun && !config.artifactsDir) throw new Error('A dry run needs ARTIFACTS_DIR to record to.');
   // One dry run, remembered for as long as the worker runs, for a worker in dry-run mode and for any request that asks.
@@ -38,7 +40,7 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
     for (const target of DEPLOYS.filter((t) => config.repositories.includes(t.repo))) {
       poller.watch(
         `deploy ${target.branch} in ${target.repo}`,
-        deployWatch({ github, registry, actions, log }, target),
+        deployWatch({ github, registry, signatures, actions, log }, target),
       );
     }
     for (const repo of config.repositories) {

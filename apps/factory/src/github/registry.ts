@@ -5,6 +5,9 @@
  *     tags(image)            every tag of an image, such as `mrogan/cv-software-factory/console`
  *     digest(image, tag)     the digest the tag points at: the image index, for a multi-platform build
  *     revision(image, ref)   the commit the image was built from, from its `org.opencontainers.image.revision` label
+ *     referrers(image, d)    what refers to a digest, such as its signatures and attestations
+ *     blob(image, digest)    a blob's bytes
+ *     layers(image, digest)  the layers of an artifact's manifest, such as the bundle a signature is kept in
  */
 import { z } from 'zod';
 
@@ -20,9 +23,34 @@ const MANIFEST = z.object({
     .optional(),
   config: z.object({ digest: z.string().regex(DIGEST) }).optional(),
 });
+const DESCRIPTOR = z.object({
+  digest: z.string().regex(DIGEST),
+  artifactType: z.string().optional(),
+  annotations: z.record(z.string(), z.string()).optional(),
+});
+const INDEX = z.object({ manifests: z.array(DESCRIPTOR).nullable().optional() });
+const LAYER = z.object({ digest: z.string().regex(DIGEST), mediaType: z.string() });
+const ARTIFACT = z.object({ layers: z.array(LAYER) });
 const CONFIG = z.object({
   config: z.object({ Labels: z.record(z.string(), z.string()).nullable().optional() }).optional(),
 });
+
+/** What GHCR answered with an error status. */
+export class RegistryError extends Error {
+  override name = 'RegistryError';
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/** A manifest that refers to another, as the referrers API lists it. */
+export type Referrer = z.infer<typeof DESCRIPTOR>;
+
+/** A layer of an artifact's manifest. */
+export type Layer = z.infer<typeof LAYER>;
 
 /** An answer read through its schema, or an error that names what was asked. */
 async function json<T>(response: Response, schema: z.ZodType<T>, what: string): Promise<T> {
@@ -87,6 +115,35 @@ export class Registry {
     return revision;
   }
 
+  /**
+   * What refers to a digest: through the referrers API, or, on a registry without one (GHCR), through the tag that
+   * stands in for it, `sha256-` and the digest's hex, which is where cosign keeps signatures on such a registry.
+   */
+  async referrers(image: string, digest: string): Promise<Referrer[]> {
+    if (!DIGEST.test(digest)) throw new Error(`${digest} is not a digest`);
+    const index = 'application/vnd.oci.image.index.v1+json';
+    for (const path of [`/v2/${image}/referrers/${digest}`, `/v2/${image}/manifests/${digest.replace(':', '-')}`]) {
+      try {
+        return (await json(await this.#get(image, path, index), INDEX, path)).manifests ?? [];
+      } catch (error) {
+        if (!(error instanceof RegistryError && error.status === 404)) throw error;
+      }
+    }
+    return [];
+  }
+
+  /** The layers of an artifact's manifest: a signature's or an attestation's, which holds one bundle. */
+  async layers(image: string, digest: string): Promise<Layer[]> {
+    const path = `/v2/${image}/manifests/${digest}`;
+    return (await json(await this.#get(image, path, 'application/vnd.oci.image.manifest.v1+json'), ARTIFACT, path))
+      .layers;
+  }
+
+  async blob(image: string, digest: string): Promise<Buffer> {
+    const response = await this.#get(image, `/v2/${image}/blobs/${digest}`, '*/*');
+    return Buffer.from(await response.arrayBuffer());
+  }
+
   async #revision(image: string, reference: string): Promise<string | undefined> {
     const manifest = (path: string) => this.#get(image, path, INDEX_TYPES).then((r) => json(r, MANIFEST, path));
     const index = await manifest(`/v2/${image}/manifests/${reference}`);
@@ -136,7 +193,8 @@ export class Registry {
         this.#tokens.delete(image);
         continue;
       }
-      if (!response.ok) throw new Error(`ghcr.io answered ${response.status} for ${method} ${path}`);
+      if (!response.ok)
+        throw new RegistryError(`ghcr.io answered ${response.status} for ${method} ${path}`, response.status);
       return response;
     }
   }

@@ -1,12 +1,21 @@
 /**
  * The deploy and release watches, through the watch itself: a fake GitHub and GHCR, and what the watch does to them.
  */
+import pino from 'pino';
 import { describe, expect, it } from 'vitest';
 import { type Actions, DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { ownsBranch } from '../../src/github/branches.ts';
-import { DEPLOYS, type DeployTarget, deployBody, deployWatch, scratchBranch } from '../../src/github/deploys.ts';
-import type { Registry } from '../../src/github/registry.ts';
+import {
+  DEPLOYS,
+  type DeployTarget,
+  deployBody,
+  deployWatch,
+  SIGNING_GRACE_MS,
+  scratchBranch,
+} from '../../src/github/deploys.ts';
+import { type Registry, RegistryError } from '../../src/github/registry.ts';
 import { releaseWatch } from '../../src/github/releases.ts';
+import { pipeline, type Signatures, type Signer, UnsignedError } from '../../src/github/signatures.ts';
 import { calls, client, quiet, type Route, type Sent } from './fake.ts';
 
 const [CONSOLE, FACTORY, APP] = DEPLOYS as [DeployTarget, DeployTarget, DeployTarget];
@@ -201,8 +210,32 @@ const committed = (sent: Sent[]) => {
   return { ...input, file: Buffer.from(input.fileChanges.additions[0]?.contents ?? '', 'base64').toString() };
 };
 
-const watch = (gh: ReturnType<typeof github>, target: DeployTarget, registry = ghcr(), actions?: Actions) =>
-  deployWatch({ github: gh.github, registry, actions: actions ?? new LiveActions(gh.github), log: quiet }, target);
+/** Signature checks that pass for every digest but those named, and keep what they were asked. */
+function signatures(unsigned: string[] = [], refused: string[] = []) {
+  const asked: [image: string, digest: string, signer: Signer][] = [];
+  const check: Pick<Signatures, 'verify'> = {
+    verify: async (image, digest, signer) => {
+      asked.push([image, digest, signer]);
+      if (unsigned.includes(digest)) throw new UnsignedError('unsigned', `${image}@${digest} has no signature`);
+      if (refused.includes(digest)) throw new UnsignedError('refused', `${image}@${digest} has no signature by them`);
+    },
+  };
+  return { check, asked, unsigned };
+}
+
+const watch = (
+  gh: ReturnType<typeof github>,
+  target: DeployTarget,
+  registry = ghcr(),
+  actions?: Actions,
+  { check }: { check: Pick<Signatures, 'verify'> } = signatures(),
+  log = quiet,
+  now = Date.now,
+) =>
+  deployWatch(
+    { github: gh.github, registry, signatures: check, actions: actions ?? new LiveActions(gh.github), log, now },
+    target,
+  );
 
 describe('the deploy watch', () => {
   it('proposes the newest commit every pinned image was built from, at the head it read, labelled', async () => {
@@ -423,6 +456,96 @@ Argo CD deploys it from \`deploy/overlays/local\` once this merges. A newer buil
     const made = actions.branchMade(FACTORY.repo, FACTORY.branch) as string;
     expect(actions.commitMade(made)?.parent).toBe(HEAD);
     expect(actions.branchMade(FACTORY.repo, scratchBranch(FACTORY))).toBeUndefined();
+  });
+});
+
+describe('the deploy watch and signatures', () => {
+  it('asks that every image carry the signature of build.yml on main of the repository that built it', async () => {
+    const signed = signatures();
+    const gh = github(FACTORY);
+    await watch(gh, FACTORY, ghcr(), undefined, signed)();
+    expect(signed.asked).toEqual([
+      ['mrogan/cv-software-factory/factory', digest('7'), pipeline('mrogan/cv-software-factory')],
+      ['mrogan/cv-software-factory/factory-browser', digest('8'), pipeline('mrogan/cv-software-factory')],
+    ]);
+    expect(steps(gh.sent)).toContain('POST pulls');
+    const app = github(APP, { pin: pinFile([['website', digest('1'), 'mrogan/cv-worlds-worst-website']]) });
+    await watch(app, APP, ghcr(), undefined, signed)();
+    expect(signed.asked.at(-1)?.[2]).toEqual(pipeline('mrogan/cv-worlds-worst-website'));
+  });
+
+  /** A log that keeps what it was told, at info and above. */
+  const kept = () => {
+    const lines: { level: number; msg: string; digest?: string; reason?: string }[] = [];
+    return { lines, log: pino({ level: 'info' }, { write: (line: string) => lines.push(JSON.parse(line)) }) };
+  };
+
+  it('waits for a build its pipeline has not signed yet, and proposes it once it has', async () => {
+    const signed = signatures([digest('8')]);
+    const { lines, log } = kept();
+    const gh = github(FACTORY);
+    const pass = watch(gh, FACTORY, ghcr(), undefined, signed, log);
+    await pass();
+    await pass();
+    expect(writes(gh.sent)).toEqual([]);
+    expect(lines).toEqual([
+      expect.objectContaining({
+        level: 30,
+        msg: 'waiting for a build to be signed before proposing it',
+        digest: digest('8'),
+        reason: `mrogan/cv-software-factory/factory-browser@${digest('8')} has no signature`,
+      }),
+    ]);
+    signed.unsigned.length = 0;
+    await pass();
+    expect(steps(gh.sent)).toContain('POST pulls');
+  });
+
+  it('warns, once, of a build still unsigned when its signing should long have finished, and never proposes it', async () => {
+    let clock = 0;
+    const { lines, log } = kept();
+    const gh = github(FACTORY);
+    const pass = watch(gh, FACTORY, ghcr(), undefined, signatures([digest('8')]), log, () => clock);
+    await pass();
+    clock = SIGNING_GRACE_MS - 1;
+    await pass();
+    expect(lines.map((l) => l.level)).toEqual([30]);
+    clock = SIGNING_GRACE_MS;
+    await pass();
+    await pass();
+    expect(lines.map((l) => [l.level, l.msg])).toEqual([
+      [30, 'waiting for a build to be signed before proposing it'],
+      [40, 'did not propose a build its pipeline did not sign'],
+    ]);
+    expect(writes(gh.sent)).toEqual([]);
+  });
+
+  it('warns at once, and once, of a build signed by anyone but its pipeline', async () => {
+    const { lines, log } = kept();
+    const gh = github(FACTORY);
+    const pass = watch(gh, FACTORY, ghcr(), undefined, signatures([], [digest('7')]), log);
+    await pass();
+    await pass();
+    expect(lines).toEqual([
+      expect.objectContaining({
+        level: 40,
+        msg: 'did not propose a build its pipeline did not sign',
+        digest: digest('7'),
+        reason: `mrogan/cv-software-factory/factory@${digest('7')} has no signature by them`,
+      }),
+    ]);
+    expect(writes(gh.sent)).toEqual([]);
+  });
+
+  it('fails the pass when a signature cannot be checked: that is not the same as unsigned', async () => {
+    const gh = github(FACTORY);
+    const unreachable: Pick<Signatures, 'verify'> = {
+      verify: async () => {
+        throw new RegistryError('ghcr.io answered 503', 503);
+      },
+    };
+    await expect(watch(gh, FACTORY, ghcr(), undefined, { check: unreachable })()).rejects.toBeInstanceOf(RegistryError);
+    expect(writes(gh.sent)).toEqual([]);
   });
 });
 
