@@ -1,0 +1,35 @@
+# One Argo Rollouts controller, for the app's canaries. Its Traefik traffic router is built in (it sets the weights of
+# the app's TraefikService), so nothing is fetched when it starts. No dashboard: the console shows the canary.
+createClusterAggregateRoles: false
+
+controller:
+  replicas: 1
+  image:
+    tag: v1.10.0@sha256:187630ba722846bb8e079630364d3c29c8246a256be95785fd957b088f621c4e
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+# Rights to the traffic routers the cluster has, which is Traefik only.
+providerRBAC:
+  providers:
+    istio: false
+    smi: false
+    ambassador: false
+    awsLoadBalancerController: false
+    awsAppMesh: false
+    traefik: true
+    apisix: false
+    contour: false
+    glooPlatform: false
+    gatewayAPI: false
+
+# The restricted Pod Security Standard, which the argo-rollouts namespace enforces. The chart's container defaults
+# already meet it.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault

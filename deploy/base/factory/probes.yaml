@@ -64,6 +64,7 @@ spec:
                 secretKeyRef:
                   name: postgres-writer
                   key: password
+            # The app's stable Service: what the shop is between releases. A canary is judged by its analysis, not here.
             - name: APP_URL
               value: http://website.website
             - name: ARTIFACTS_DIR

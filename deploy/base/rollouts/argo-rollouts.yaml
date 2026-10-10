@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  annotations:
+    # Before the website Application (wave 0), whose Rollout needs the CRDs this installs.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: software-factory
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-rollouts
+      targetRevision: 2.43.6
+      helm:
+        releaseName: argo-rollouts
+        valueFiles:
+          - $values/deploy/base/rollouts/values.yaml
+    - repoURL: https://github.com/mrogan/cv-software-factory.git
+      targetRevision: main
+      ref: values
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

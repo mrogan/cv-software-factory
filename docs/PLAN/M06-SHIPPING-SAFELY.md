@@ -113,7 +113,7 @@ Each task is its own pull request, in order, each demonstrable.
 
 ### 3. Argo Rollouts
 
-- Argo Rollouts and its Traefik traffic router, installed by Argo CD at pinned versions, with the plugin pinned by checksum.
+- Argo Rollouts, installed by Argo CD at a pinned chart and image. Its Traefik traffic router is built in, for Traefik 3's `traefik.io` API, so no plugin is fetched at start.
 - In the app's repository: the Deployment becomes a Rollout with the steps above, a stable and a canary Service, and the ingress routed through Traefik's weighted service. The website AppProject allows what that needs, and nothing cluster-scoped.
 - The collector adds pod labels to the app's telemetry.
 
@@ -238,4 +238,3 @@ Spec sections 3.2, 4.1 and 5.2; `COMPONENTS.md` (the scoreboard, the console's n
 - **The traffic generator wakes the objectives.** Seeded slow routes that were too quiet to alert will alert under traffic. They are real defects, triage deduplicates them by fingerprint, and the scoreboard counts what they find; the results say how many tickets the traffic brought.
 - **A rollback holds every release behind it.** Until its fix merges, each release carries the bad commit. Its ticket takes its place in the queue by severity, and Martin can revert.
 - **The answer key leaks.** Only ids and fingerprints reach the cluster, only the scoreboard can read them, and only its figures leave it.
-- **Argo Rollouts' Traefik plugin is fetched at start.** It is pinned by checksum; if it proves fragile on k3d, a canary split by replica count is the fallback, at the cost of coarser steps.

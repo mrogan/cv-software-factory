@@ -1,0 +1,6 @@
+# Progressive delivery: Argo Rollouts, as an Argo CD Application of the upstream chart at a pinned version. It runs the
+# app's releases as canaries; the app's own repository says how (its Rollout, in its deploy/).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - argo-rollouts.yaml

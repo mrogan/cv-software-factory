@@ -14,7 +14,16 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: website
+  # Argo Rollouts sets the traffic split's weights at each step of a release. They are its to set: Argo CD neither
+  # reports them as drift nor puts them back, even when it syncs something else mid-release.
+  ignoreDifferences:
+    - group: traefik.io
+      kind: TraefikService
+      jqPathExpressions:
+        - .spec.weighted.services[].weight
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+      - RespectIgnoreDifferences=true

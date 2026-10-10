@@ -21,11 +21,36 @@ ports:
   zipkin:
     enabled: false
 
+# The app's pods, read so the collector can say which one each record came from (k8s_attributes, below).
+clusterRole:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: [pods]
+      verbs: [get, list, watch]
+
 config:
   receivers:
     jaeger: null
     zipkin: null
     prometheus: null
+  processors:
+    # Each record from the app gains its pod's name and its rollouts-pod-template-hash label, which Argo Rollouts gives
+    # the stable version's pods and the canary's each their own: the canary's analysis tells the two apart by it. The
+    # pod is found by the address its record came from, so this runs before batching, which forgets it. Only the app's
+    # namespace is watched; telemetry from anywhere else passes through unchanged.
+    k8s_attributes:
+      filter:
+        namespace: website
+      pod_association:
+        - sources:
+            - from: connection
+      extract:
+        metadata: [k8s.pod.name]
+        labels:
+          - tag_name: k8s.pod.label.rollouts-pod-template-hash
+            key: rollouts-pod-template-hash
+            from: pod
   exporters:
     otlp_http/tempo:
       endpoint: http://tempo:4318
@@ -37,12 +62,15 @@ config:
     pipelines:
       traces:
         receivers: [otlp]
+        processors: [memory_limiter, k8s_attributes, batch]
         exporters: [otlp_http/tempo]
       metrics:
         receivers: [otlp]
+        processors: [memory_limiter, k8s_attributes, batch]
         exporters: [otlp_http/prometheus]
       logs:
         receivers: [otlp]
+        processors: [memory_limiter, k8s_attributes, batch]
         exporters: [otlp_http/loki]
 
 # The restricted Pod Security Standard, which the telemetry namespace enforces.
