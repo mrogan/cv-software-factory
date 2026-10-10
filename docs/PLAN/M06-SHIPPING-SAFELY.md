@@ -34,7 +34,7 @@ Then the orchestrator reviews the stack as a whole, and fixes bottom up, one sub
 ### The supply chain
 
 - **Only images the pipeline signed run.** Each repository's `build.yml` signs every image it pushes, by digest, with cosign's keyless signing and the workflow's own OIDC identity, and attaches an SBOM from Syft as a signed attestation. There is no signing key to keep or steal. A signature says which workflow, in which repository, on which ref made the image.
-- **Kyverno admits a pod only if its image carries that signature.** In `website`, `factory`, `console`, `runners` and, from Part C, `scoreboard`, a pod's images must be referenced by digest and signed by `build.yml` on `main` of the repository that builds them, and every other registry is refused. A refusal names the policy and the image. Kyverno fails closed: if it cannot verify, the pod does not start. Its own namespace, Argo CD's and the cluster's system namespaces are left out, so the cluster can always start again. ADR 0010.
+- **Kyverno admits a pod only if its image carries that signature.** In `website`, `factory`, `console`, `runners` and, from Part C, `scoreboard`, a pod's images must be referenced by digest and signed by `build.yml` on `main` of the repository that builds them, and every other registry is refused. It checks the signature, not the SBOM: the deploy pull requests' checks require that, and parsing `factory-browser`'s 23 MB SBOMs at admission ran Kyverno out of memory. A refusal names the policy and the image. Kyverno fails closed: if it cannot verify, the pod does not start. Its own namespace, Argo CD's and the cluster's system namespaces are left out, so the cluster can always start again. ADR 0010.
 - **Images built on the Mac still run, by Martin's choice.** Running an unmerged image on the local cluster (the `try-the-line` skill) means switching the factory side's policy to audit for the run; Argo CD puts it back when self-heal resumes. The `website` policy stays enforced, always.
 - **Deploy pull requests check what admission will check.** The deploy watch proposes only a digest whose signature verifies, and the deploy pull request's checks verify it again, so a pull request that Martin merges never pins an image the cluster would refuse.
 
@@ -228,12 +228,12 @@ Spec sections 3.2, 4.1 and 5.2; `COMPONENTS.md` (the scoreboard, the console's n
 - Canaries for the factory's own images.
 - Dependabot's pull requests as work items of their own: their releases are on the line, with no card unless they roll back.
 - Profiles other than `local` (milestones 10 and 11).
-- Admission on SLSA provenance, beyond the signature and its SBOM.
+- Admission on SLSA provenance, beyond the signature.
 
 ## Risks
 
 - **The laptop runs out of room.** Kyverno, Argo Rollouts, a second copy of the app and the traffic generator join a cluster that already runs the line. Part A measures what each takes, and the traffic rate is policy.
-- **Admission fails closed, so an outage stops every pod.** GHCR or Sigstore out of reach, or Kyverno itself down, and nothing in a guarded namespace starts. Kyverno caches what it has verified, its own namespace and the system's are left out, and `make up` installs it before what it guards.
+- **Admission fails closed, so an outage stops every pod.** GHCR or Sigstore out of reach, or Kyverno itself down, and nothing in a guarded namespace starts. Kyverno caches what it has verified, its own namespace and the system's are left out, and `make up` installs it before what it guards. Its cache is in memory, so a Kyverno that restarts verifies everything again, and the policy verifies only what is cheap: the signature, not the SBOM.
 - **A noisy baseline makes a noisy verdict.** The seeded defects make some routes slow or failing by design. The analysis compares with the baseline rather than objectives, sums over routes, and needs two journey failures; each rollback in the runs is checked by hand for whether it was earned.
 - **The traffic generator wakes the objectives.** Seeded slow routes that were too quiet to alert will alert under traffic. They are real defects, triage deduplicates them by fingerprint, and the scoreboard counts what they find; the results say how many tickets the traffic brought.
 - **A rollback holds every release behind it.** Until its fix merges, each release carries the bad commit. Its ticket takes its place in the queue by severity, and Martin can revert.

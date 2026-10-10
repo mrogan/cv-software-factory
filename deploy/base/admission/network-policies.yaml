@@ -2,8 +2,8 @@
 #
 # - the API server may call the admission controller's webhook, on 9443, from the k3d node's own address;
 # - both controllers may reach the API server (6443 on a private address, as for the line: deploy/base/factory) and DNS;
-# - the admission controller, and only it, may reach the internet on 443, for GHCR (the images, their signatures and
-#   SBOMs: ghcr.io and pkg-containers.githubusercontent.com) and Sigstore's trust root (tuf-repo-cdn.sigstore.dev).
+# - the admission controller, and only it, may reach the internet on 443, for GHCR (the images and their signatures:
+#   ghcr.io and pkg-containers.githubusercontent.com) and Sigstore's trust root (tuf-repo-cdn.sigstore.dev).
 #   Their addresses are many and change, so, as for the GitHub worker, the rule is the internet with the cluster's, the
 #   local network's and the host's addresses excepted. Signatures are Sigstore bundles that carry their own proof of
 #   inclusion in Rekor, so Kyverno checks them offline, and never asks Rekor or Fulcio.

@@ -5,10 +5,10 @@
 # StatefulSets, DaemonSets, Jobs and CronJobs; image volumes; the runner image the line is pinned to; and, for
 # `website`, the Jobs of the canary's ClusterAnalysisTemplates, which Argo Rollouts starts there), and checks
 # each as the image policies do (deploy/base/admission): by digest; named in the namespace's policy, or ours on GHCR,
-# from a repository that policy admits, signed by `build.yml` on `main` of the repository that builds it, with the SBOM
-# it attested. Then it asks Kyverno: any pod its policy reports as failing is listed too. Exits non-zero if anything
-# would be refused, so a policy goes from Audit to Deny only once every image its namespaces need would be admitted:
-# signed, or named by digest in the policy.
+# from a repository that policy admits, signed by `build.yml` on `main` of the repository that builds it. Then it asks
+# Kyverno: any pod its policy reports as failing is listed too. Exits non-zero if anything would be refused, so a
+# policy goes from Audit to Deny only once every image its namespaces need would be admitted: signed, or named by
+# digest in the policy.
 #
 # cosign is the same check the deploy pull requests make, but not Kyverno's own code, so an image cosign passes could
 # still be one Kyverno refuses; Kyverno's reports cover the pods it has seen made since it was installed.
@@ -83,10 +83,6 @@ check() { # namespace policy allowed factory-repositories website-repositories i
   local trust=(--certificate-identity "$(identity "$repo")" --certificate-oidc-issuer "$issuer")
   if ! error=$(cosign verify "${trust[@]}" "$image" 2>&1 >/dev/null); then
     echo "  refused  $ns  $image: not signed by build.yml on main of $repo ($(tail -1 <<<"$error"))"; failed=1; return
-  fi
-  if ! error=$(cosign verify-attestation --type spdxjson "${trust[@]}" "$image" 2>&1 >/dev/null); then
-    echo "  refused  $ns  $image: no SBOM attested by build.yml on main of $repo ($(tail -1 <<<"$error"))"
-    failed=1; return
   fi
   echo "  signed   $ns  $image"
 }
