@@ -158,7 +158,8 @@ failed=0
 expect() {
   local result
   local namespace=factory target=$2 node=/nodejs/bin/node
-  # A target in another namespace is written <namespace>:<pod>; the images there keep node on the PATH.
+  # A target written <namespace>:<pod> runs the node on its PATH, which every image keeps but the factory image, whose
+  # node is /nodejs/bin/node. So the probes and the crawler, on the browser image, are written factory:<pod> too.
   if [[ "$2" == *:* ]]; then namespace=${2%%:*} target=${2#*:} node=node; fi
   result=$(kubectl --context "$context" -n "$namespace" exec "$target" -- "$node" -e "$try" "$3" ${5:+"$5"} 2>/dev/null)
   if [[ "$result" == "$4"* ]]; then printf '  ok    %-62s %s\n' "$1" "$result"; else
