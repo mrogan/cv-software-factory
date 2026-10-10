@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.6.0](https://github.com/mrogan/cv-software-factory/compare/v0.5.0...v0.6.0) (2026-10-10)
+
+
+### Features
+
+* **admission:** enforce the factory's image policy ([#185](https://github.com/mrogan/cv-software-factory/issues/185)) ([d9441e8](https://github.com/mrogan/cv-software-factory/commit/d9441e8d1e88ca8e581bb46551c0246ad765f5e2))
+* **admission:** enforce the website's image policy ([#186](https://github.com/mrogan/cv-software-factory/issues/186)) ([bd11ef3](https://github.com/mrogan/cv-software-factory/commit/bd11ef3b8b98df8ef7ee83aa62576f172d24dc10))
+* **deploy:** admit only images their pipeline signed, with Kyverno ([#174](https://github.com/mrogan/cv-software-factory/issues/174)) ([97aa373](https://github.com/mrogan/cv-software-factory/commit/97aa3730ad3110f97653c38fb68b8e4f4b99c1ab))
+* **deploy:** install Argo Rollouts, and label the app's telemetry by version ([#170](https://github.com/mrogan/cv-software-factory/issues/170)) ([fb81c57](https://github.com/mrogan/cv-software-factory/commit/fb81c57ae0bf11e6910052b1a3950ff329588747))
+* **deploy:** run the traffic generator in the cluster ([#172](https://github.com/mrogan/cv-software-factory/issues/172)) ([41bffca](https://github.com/mrogan/cv-software-factory/commit/41bffcade590e825db188fd9614cc8120fdf8fa5))
+* **github:** sign every image, and propose only what the pipeline signed ([#169](https://github.com/mrogan/cv-software-factory/issues/169)) ([7ba69d6](https://github.com/mrogan/cv-software-factory/commit/7ba69d6929222714bd83a11738086587c7ed1038))
+* **line:** abort a canary when the line stops, and fence the release ([#175](https://github.com/mrogan/cv-software-factory/issues/175)) ([f150844](https://github.com/mrogan/cv-software-factory/commit/f150844348c54c1b37a788df9b183f9a83b28068))
+* **release:** judge the app's canary against its baseline, with traffic to judge by ([#171](https://github.com/mrogan/cv-software-factory/issues/171)) ([5a0d6fc](https://github.com/mrogan/cv-software-factory/commit/5a0d6fcfddb0f2cd9d0b310f736fbc85a5b0c185))
+
+
+### Bug Fixes
+
+* **admission:** verify the signature only, not the SBOM ([#184](https://github.com/mrogan/cv-software-factory/issues/184)) ([8adc43d](https://github.com/mrogan/cv-software-factory/commit/8adc43d77cc7b2bfb22c98722a4058cb5ae7de57))
+* **deploy:** give the GitHub worker a writable /tmp, which TUF needs ([#187](https://github.com/mrogan/cv-software-factory/issues/187)) ([2e2877f](https://github.com/mrogan/cv-software-factory/commit/2e2877fa029a07f9ff45b1ddceb521f58eaca3f7))
+* **github:** find a signature when GHCR's index carries no annotations ([#181](https://github.com/mrogan/cv-software-factory/issues/181)) ([1e44502](https://github.com/mrogan/cv-software-factory/commit/1e44502d1e7ac099a9baa0e41232bc66aa346f1b))
+
 ## [0.5.0](https://github.com/mrogan/cv-software-factory/compare/v0.4.0...v0.5.0) (2026-10-10)
 
 
