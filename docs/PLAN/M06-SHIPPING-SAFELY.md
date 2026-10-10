@@ -127,7 +127,7 @@ Each task is its own pull request, in order, each demonstrable.
 ### 5. Stop the line, and the fences
 
 - `make stop-the-line` aborts a canary in flight.
-- `make egress` covers Kyverno, the Rollouts controller, the analysis Job and the traffic generator.
+- `make egress` covers Kyverno, the Rollouts controller, the analysis Job, the traffic generator and the app's own pods, which a NetworkPolicy from this repository fences: DNS and the collector out; Traefik, the probes, the crawler and the analysis in.
 
 ### 6. The first canaries
 
