@@ -9,6 +9,9 @@
  * Attributes
  *   kind     sense | triage | plan | build | gates | review | release | verify   (default build)
  *   status   idle | working | returning | passing | blocked | failed            (default idle)
+ *   beacon   needs-you | failed: a person should look while the machine works on. The beacon flashes,
+ *            and for a failure the machine rattles and sparks; the tool, face, hatch and belt still say
+ *            what it is doing. Only working and returning show it: blocked and failed light their own.
  *   motion   "off" draws the still pose. Motion also stops under prefers-reduced-motion.
  *   label    Accessible name; defaults to "<Stage>: <state>".
  *   decorative  Present when something else (a button, a caption) already names the station.
@@ -31,6 +34,8 @@ export const KINDS = ['sense', 'triage', 'plan', 'build', 'gates', 'review', 're
 export type Kind = (typeof KINDS)[number];
 export const STATUSES = ['idle', 'working', 'returning', 'passing', 'blocked', 'failed'] as const;
 export type Status = (typeof STATUSES)[number];
+export const BEACONS = ['needs-you', 'failed'] as const;
+export type Beacon = (typeof BEACONS)[number];
 
 export const STAGE_NAME: Record<Kind, string> = {
   sense: 'Sense', triage: 'Triage', plan: 'Plan', build: 'Build',
@@ -66,6 +71,9 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .s-passing   { --tone: var(--ok, #3b6631); --led: var(--station-led-ok, #a9c79c); }
 .s-blocked,
 .s-failed    { --tone: var(--attn, #b53c0a); --led: var(--station-led-attn, #f09a64); }
+/* A beacon on a working machine: only the beacon takes the attention colour. */
+.b-needs-you,
+.b-failed    { --beacon: var(--attn, #b53c0a); }
 
 /* Linework */
 .part  { fill: var(--_paper); stroke: var(--_ink); stroke-width: 1.75; stroke-linejoin: round; }
@@ -82,9 +90,10 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .faint { fill: none; stroke: var(--_faint); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .parcel { fill: var(--_steel); stroke: var(--_ink); stroke-width: 1.5; }
 .bird  { fill: var(--_canary); stroke: var(--_ink); stroke-width: 1.5; stroke-linejoin: round; }
-.beacon-glow { fill: var(--tone); opacity: 0; }
+.beacon-glow { fill: var(--beacon, var(--tone)); opacity: 0; }
+.ray   { fill: none; stroke: var(--beacon, var(--tone)); stroke-linecap: round; }
 .s-passing .beacon-glow { opacity: .18; }
-.s-blocked .beacon-glow, .s-failed .beacon-glow { opacity: .3; }
+.s-blocked .beacon-glow, .s-failed .beacon-glow, .b-needs-you .beacon-glow, .b-failed .beacon-glow { opacity: .3; }
 .roller { fill: var(--_steel); stroke: var(--_ink); stroke-width: 1.5; }
 .chev  { fill: none; stroke: var(--_ink); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; opacity: .55; }
 .s-idle .chev { opacity: .22; }
@@ -100,14 +109,18 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .frame { fill: none; stroke: var(--_ink); stroke-width: 1.75; }
 .belt  { fill: var(--_steel); }
 .seam  { stroke: var(--_steel); stroke-width: 2.5; stroke-linecap: round; }
-.dome  { fill: var(--tone); stroke: var(--_ink); stroke-width: 1.75; stroke-linejoin: round; }
+.dome  { fill: var(--beacon, var(--tone)); stroke: var(--_ink); stroke-width: 1.75; stroke-linejoin: round; }
 .puff  { fill: var(--_faint); }
+.spark { fill: none; stroke: var(--attn, #b53c0a); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.spark-core { fill: var(--attn, #b53c0a); }
+.sparks { transform-origin: 24px 103px; }
+.rattle { transform-origin: 84px 150px; }
 .puff-a { transform-origin: 44px 40px; }
 .puff-b { transform-origin: 51px 40px; }
 
 /* Pivots, in the SVG's user units */
 .pivot, .sense-dish, .plan-arm, .build-arm, .gate-boom, .lens, .bird-ok, .stamp, .belt-run,
-.eyes, .bar, .drop, .puff, .note, .wave, .light, .glint, .alarm, .zz path {
+.eyes, .bar, .drop, .puff, .sparks, .rattle, .note, .wave, .light, .glint, .alarm, .zz path {
   transform-box: view-box;
 }
 .sense-dish { transform-origin: 74px 31px; }
@@ -127,9 +140,13 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
   :host(:not([motion="off"])) .s-failed .belt-run { animation: none; }
 
   :host(:not([motion="off"])) .s-blocked .beacon-glow,
-  :host(:not([motion="off"])) .s-failed .beacon-glow { animation: alarm-glow .9s ease-in-out infinite; }
+  :host(:not([motion="off"])) .s-failed .beacon-glow,
+  :host(:not([motion="off"])) .b-needs-you .beacon-glow,
+  :host(:not([motion="off"])) .b-failed .beacon-glow { animation: alarm-glow .9s ease-in-out infinite; }
   :host(:not([motion="off"])) .s-blocked .dome,
   :host(:not([motion="off"])) .s-failed .dome,
+  :host(:not([motion="off"])) .b-needs-you .dome,
+  :host(:not([motion="off"])) .b-failed .dome,
   :host(:not([motion="off"])) .alarm { animation: flash .9s ease-in-out infinite; }
 
   :host(:not([motion="off"])) .s-working .eyes,
@@ -140,6 +157,8 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
   :host(:not([motion="off"])) .zz path + path { animation-delay: 1.4s; }
   :host(:not([motion="off"])) .puff { animation: puff 2.4s ease-out infinite; }
   :host(:not([motion="off"])) .puff + .puff { animation-delay: 1.2s; }
+  :host(:not([motion="off"])) .sparks { animation: sparks 1.9s steps(1, end) infinite; }
+  :host(:not([motion="off"])) .rattle { animation: rattle 2.6s linear infinite; }
 
   :host(:not([motion="off"])) .s-working .sense-dish,
   :host(:not([motion="off"])) .s-returning .sense-dish { animation: sweep 2.4s ease-in-out infinite; }
@@ -187,6 +206,11 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 @keyframes wobble    { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(-3deg); } }
 @keyframes scan      { 0%, 100% { transform: translateX(-12px); } 50% { transform: translateX(12px); } }
 @keyframes bob       { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes sparks    { 0% { opacity: 1; transform: scale(1); } 6% { opacity: .2; transform: scale(1.25); } 10% { opacity: 1; transform: scale(.9); } 16%, 100% { opacity: 0; } }
+@keyframes rattle    { 0%, 64%, 100% { transform: translate(0, 0) rotate(0); }
+  67% { transform: translate(-1.5px, -.5px) rotate(-1.4deg); } 70% { transform: translate(1.5px, 0) rotate(1.2deg); }
+  73% { transform: translate(-1px, -.8px) rotate(-1deg); } 76% { transform: translate(1.2px, 0) rotate(.9deg); }
+  79% { transform: translate(-.6px, -.3px) rotate(-.5deg); } 82% { transform: translate(0, 0) rotate(0); } }
 @keyframes press     { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(6px); } }
 `;
 
@@ -285,6 +309,17 @@ const TOOLS: Record<Kind, (status: Status) => string> = {
 
 /* ---- Faces, hatches and extras: how it is doing -------------------------------------- */
 
+const RAYS = `<path class="ray alarm" stroke-width="2" d="M125 11 v-7 M110 19 l-6 -4 M140 19 l6 -4"/>`;
+const SMOKE = `<circle class="puff puff-a" cx="44" cy="40" r="3.5"/>
+            <circle class="puff puff-b" cx="51" cy="40" r="3.5"/>`;
+
+/** A failure, stopped or working on: sparks off the side, and smoke from behind the tool. The machine rattles too. */
+const FAULT = `<g class="sparks">
+              <path class="spark" d="M21 95 l-12 -8 M20 103 h-15 M21 111 l-12 8 M25 86 l-5 -12 M25 120 l-5 12"/>
+              <path class="spark-core" d="M28 103 l-4 -3 -1 -5 -2 5 -5 1 4 3 -1 5 4 -3 5 1 z"/>
+            </g>
+            ${SMOKE}`;
+
 const STATE_ART: Record<Status, () => { face: string; hatch: string; extra: string }> = {
   idle: () => ({
     face: `<path class="led" stroke-width="3" d="M59 82 q7 6 14 0 M95 82 q7 6 14 0"/>
@@ -319,26 +354,27 @@ const STATE_ART: Record<Status, () => { face: string; hatch: string; extra: stri
     hatch: `<rect class="tone-fill" x="40" y="118" width="88" height="22" rx="4"/>
             <rect x="40" y="118" width="88" height="22" rx="4" fill="url(#hazard)"/>
             <rect class="frame" x="40" y="118" width="88" height="22" rx="4"/>`,
-    extra: `<path class="tone alarm" stroke-width="2" d="M125 11 v-7 M110 19 l-6 -4 M140 19 l6 -4"/>`,
+    extra: RAYS,
   }),
   failed: () => ({
     face: `<path class="led" stroke-width="3.25" d="M60 75 l12 13 M72 75 l-12 13 M96 75 l12 13 M108 75 l-12 13"/>
            <path class="led" stroke-width="2.25" d="M76 99 q3 -3 6 0 t6 0 t6 0"/>`,
     hatch: `<rect class="face rim" x="40" y="118" width="88" height="22" rx="4" stroke-width="1.75"/>
             <text class="fault" x="85" y="133.5" text-anchor="middle">FAULT</text>`,
-    extra: `<path class="tone alarm" stroke-width="2" d="M125 11 v-7 M110 19 l-6 -4 M140 19 l6 -4"/>
-            <circle class="puff puff-a" cx="44" cy="40" r="3.5"/>
-            <circle class="puff puff-b" cx="51" cy="40" r="3.5"/>`,
+    extra: RAYS + FAULT,
   }),
 };
 
 const CHEV_RIGHT = Array.from({ length: 10 }, (_, i) => `M${-13 + 21 * i} 169l6 5-6 5`).join('');
 const CHEV_LEFT = Array.from({ length: 10 }, (_, i) => `M${-7 + 21 * i} 169l-6 5 6 5`).join('');
 
-function render(kind: Kind, status: Status): string {
+function render(kind: Kind, status: Status, beacon: Beacon | undefined): string {
   const art = STATE_ART[status]();
+  // Only a station at work shows a beacon: blocked and failed draw their own, and idle or passed has nothing to look at.
+  const lit = status === 'working' || status === 'returning' ? beacon : undefined;
+  const extra = lit === 'failed' ? RAYS + FAULT : lit ? RAYS : '';
   return `
-<svg viewBox="0 -20 168 220" class="s-${status} k-${kind}" part="svg" aria-hidden="true" focusable="false">
+<svg viewBox="0 -20 168 220" class="s-${status} k-${kind}${lit ? ` b-${lit}` : ''}" part="svg" aria-hidden="true" focusable="false">
   <defs>
     <clipPath id="belt-clip"><rect x="0" y="166" width="168" height="16"/></clipPath>
     <pattern id="hazard" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -356,7 +392,7 @@ function render(kind: Kind, status: Status): string {
   <rect class="steel" x="42" y="146" width="10" height="20"/>
   <rect class="steel" x="116" y="146" width="10" height="20"/>
 
-  <g class="machine" part="machine">
+  <g class="machine" part="machine"><g${status === 'failed' || lit === 'failed' ? ' class="rattle"' : ''}>
   <!-- tool -->
   ${TOOLS[kind](status)}
 
@@ -376,14 +412,21 @@ function render(kind: Kind, status: Status): string {
   ${art.face}
   ${art.hatch}
   ${art.extra}
-  </g>
+  ${extra}
+  </g></g>
 </svg>`;
+}
+
+/** A station's state in words: "working", or with a beacon lit, "working, needs you". */
+export function describe(status: Status, beacon?: Beacon): string {
+  const lit = status === 'working' || status === 'returning' ? beacon : undefined;
+  return lit ? `${STATE[status].label}, ${STATE[lit === 'failed' ? 'failed' : 'blocked'].label}` : STATE[status].label;
 }
 
 let sheet: CSSStyleSheet | undefined;
 
 export class Station extends HTMLElement {
-  static observedAttributes = ['kind', 'status', 'label', 'decorative'];
+  static observedAttributes = ['kind', 'status', 'beacon', 'label', 'decorative'];
 
   readonly #root: ShadowRoot;
 
@@ -425,9 +468,19 @@ export class Station extends HTMLElement {
     this.setAttribute('status', status);
   }
 
+  get beacon(): Beacon | undefined {
+    const b = this.getAttribute('beacon');
+    return BEACONS.find((beacon) => beacon === b);
+  }
+
+  set beacon(beacon: Beacon | undefined) {
+    if (beacon) this.setAttribute('beacon', beacon);
+    else this.removeAttribute('beacon');
+  }
+
   #update(): void {
-    const { kind, status } = this;
-    this.#root.innerHTML = render(kind, status);
+    const { kind, status, beacon } = this;
+    this.#root.innerHTML = render(kind, status, beacon);
     if (this.hasAttribute('decorative')) {
       this.setAttribute('aria-hidden', 'true');
       this.removeAttribute('role');
@@ -435,7 +488,7 @@ export class Station extends HTMLElement {
     } else {
       this.removeAttribute('aria-hidden');
       this.setAttribute('role', 'img');
-      this.setAttribute('aria-label', this.getAttribute('label') || `${STAGE_NAME[kind]}: ${STATE[status].label}`);
+      this.setAttribute('aria-label', this.getAttribute('label') || `${STAGE_NAME[kind]}: ${describe(status, beacon)}`);
     }
   }
 }

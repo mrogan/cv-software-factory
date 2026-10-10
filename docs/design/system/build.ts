@@ -158,7 +158,7 @@ function stationScript(source: string): string {
     '/* Generated from station.ts by build.ts. Do not edit by hand. */',
     "(() => {\n'use strict';",
     js.trimEnd(),
-    'globalThis.SFStation = { Station, STAGE_NAME, STATE, KINDS, STATUSES };',
+    'globalThis.SFStation = { Station, STAGE_NAME, STATE, KINDS, STATUSES, BEACONS, describe };',
     '})();\n',
   ].join('\n');
 }

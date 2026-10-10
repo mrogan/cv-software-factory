@@ -90,6 +90,7 @@ One station per stage, in the order and names of [`TERMS.md`](../../TERMS.md): S
 |---|---|
 | `kind` | `sense` `triage` `plan` `build` `gates` `review` `release` `verify` |
 | `status` | `idle` `working` `returning` `passing` `blocked` `failed` |
+| `beacon` | `needs-you` `failed`: a person should look while the machine works on (below) |
 | `motion` | `off` draws the still pose |
 | `label` | Overrides the accessible name |
 | `decorative` | Hides it from assistive tech when something else names it |
@@ -103,34 +104,40 @@ Width scales the drawing (`sf-station { width: 140px }`); height follows.
 | **Tool** | What the stage does | still | moving | moving | still (gate raised, canary sings) | still | still (canary down) |
 | **Face** | How it feels | eyes shut | busy eyes, blinking | glancing back | pleased | squinting | crossed out |
 | **Hatch** | Progress | blank | progress bar | left arrow | tick | hazard stripes | FAULT |
-| **Beacon** | Whether to look | dim | ink | ink | green glow | flashing ember, rays | flashing ember, rays, smoke |
+| **Beacon** | Whether to look | dim | ink | ink | green glow | flashing ember, rays | flashing ember, rays, sparks, smoke; the machine rattles |
 | **Belt** | Flow | still | forward | backwards | forward, slower | still | still |
 | **Caption word** | | idle | working | sending back | passed | needs you | failed |
 | **Tone role** | | `text-faint` | `signal` | `signal` | `ok` | `attn` | `attn` |
 
-Blocked and failed share `attn` on purpose: both mean a person should act. Their hatch, face and smoke tell them apart.
+Blocked and failed share `attn` on purpose: both mean a person should act. Their hatch, face, sparks and smoke tell them apart. The rattle comes in a short burst every few seconds and moves the machine, never the belt; with motion off, the sparks and smoke still say it.
+
+### At work, and needing you
+
+The status says what the machine is doing; the beacon says whether a person should look. A station can be at work on one item while another waits for you, so `beacon` lights the alarm on a working or returning station without stopping it: the tool, face, hatch and belt say it is at work, and only the beacon takes `attn`. `beacon="needs-you"` adds the flashing ember and rays; `beacon="failed"` adds the sparks and smoke too, and the rattle. Only a working or returning station shows it: blocked and failed light their own, and an idle or passed station has nothing to look at. The accessible name says both: "Plan: working, needs you".
 
 ### From events to a station's status
 
 The console's projection (`apps/console/web/src/projection/line.ts`) works out each station's status from the work items in the stage at time *t*, taking the first rule that matches:
 
-1. **failed:** an item in the stage failed (a gate run, a refusal, a rollback) and nothing has happened since: no retry, no return, no hold for a human.
-2. **blocked:** an item is waiting on a human (spec approval, held PR, planner question, a visitor's suggestion parked for Martin), or, at Triage, a spend cap holds.
+1. **failed:** an item in the stage failed (a gate run, a refusal, a rollback) and nothing has happened since: no retry, no return, no hold for a human; and nothing else in the stage is in progress.
+2. **blocked:** an item is waiting on a human (spec approval, held PR, planner question, a visitor's suggestion parked for Martin, a planner's finding parked for him at Triage, a spec that goes beyond its ticket at Review), and nothing else in the stage is in progress; or, at Triage, a spend cap holds, whatever is in progress, since nothing calls a model under a cap.
 3. **returning:** an item was sent upstream from this stage in the last 5 minutes.
 4. **working:** at least one item is in progress in the stage. A ticket waiting for the planner is in Plan but not in progress: nobody is at work on it.
 5. **passing:** an item left the stage for a later one, or was verified in it, in the last 15 minutes, and nothing is in progress.
 6. **idle:** otherwise.
 
+Then the beacon: `failed` if an item failed in the stage, as in rule 1, otherwise `needs-you` if an item waits on a human, as in rule 2. Only a working or returning station shows it, since one that failed or is blocked already says so. The caption's word follows the beacon when it is lit, so it always names what a person has to do: "needs you" or "failed".
+
 A failure that a mechanism hands to a human (the test-integrity gate holding a pull request) reads as `blocked`, not `failed`: someone should look, and the hatch says why. Under Stop the line, every station shows `blocked` and the belt stops.
 
 An item whose last step is `ticket.opened` has left Triage and sits at Plan, waiting for the planner, until something happens there; another sense's evidence or a report that repeats the ticket does not take it back up the line. At a spend cap (`spend.capped`, until `spend.cleared`), Triage uses the blocked drawing with its own word, **capped**: it takes no reports until the cap resets, and the senses' tickets still open, because they call no model.
 
-The figure in each caption counts the items in the stage (`2 PRs`), gives a canary's share of traffic at Release (`25%`), says how many are held (a mechanism stopped them) or waiting (the line asked Martin something) when the station is blocked, counts the tickets queued for an idle stage (`7 waiting`), gives a cap's reset time at a capped Triage (`until 01:00`), and otherwise counts what left the stage today (`3 today`), or says `none`.
+The figure in each caption counts the items in the stage (`2 PRs`), gives a canary's share of traffic at Release (`25%`), says how many are held (a mechanism stopped them) or waiting (the line asked Martin something) when the station is blocked or its beacon says it needs you, counts the tickets queued for an idle stage (`7 waiting`), gives a cap's reset time at a capped Triage (`until 01:00`), and otherwise counts what left the stage today (`3 today`), or says `none`.
 
 ### On the line
 
 - Stations sit edge to edge; the rollers at each seam hide the belt joints.
-- Parcels (14 × 12, `surface` fill, `text` stroke) ride on the belt top (`--station-belt-top`, 186px), pile up in front of a station that needs you, and queue, up to three, in front of an idle station with tickets waiting for it. They are decorative; the counts live in the captions and the stage panel.
+- Parcels (14 × 12, `surface` fill, `text` stroke) ride on the belt top (`--station-belt-top`, 186px), pile up in front of a station that needs you (with one running through it as well, while it works on another), and queue, up to three, in front of an idle station with tickets waiting for it. They are decorative; the counts live in the captions and the stage panel.
 - **Returns** are drawn as a dashed `signal` arc over the stations, from the sender back to the receiver, with a one-line label in a small pill (return icon, `t-data`). There are two kinds: a stage sending work back (Review → Build, Gates → Build), and Verify feeding new tickets from production back to Sense.
 - **One return at a time.** Returns queue newest first and show for about five seconds each, fading in and out. While its arc shows, the sender's station and caption switch to `returning`. With motion off, the newest return holds still. Under Stop the line, none show. Returns are fleeting, so each one is also written as a row in the sender's stage panel.
 - **The whole station is the hit target** (a `<button>` wrapping station and caption). Hover lifts the machine 3px through `::part(machine)`; the legs and belt never move, so the line stays continuous. When the stage panel is open, the stage name gets a 2px underline.

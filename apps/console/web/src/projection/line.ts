@@ -7,6 +7,8 @@ import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
 import type { ItemState } from './items.ts';
 
 export type Status = 'idle' | 'working' | 'returning' | 'passing' | 'blocked' | 'failed';
+/** A person should look at a station that is still at work: an item in it failed, or waits on them. */
+export type Beacon = 'needs-you' | 'failed';
 
 /** How long a return keeps its sender "sending back". */
 export const RETURNING_MS = 5 * 60_000;
@@ -57,6 +59,8 @@ export interface Header {
 export interface Station {
   stage: Stage;
   status: Status;
+  /** Lit when an item failed or waits on a human while another is in progress, so the station is still at work. */
+  beacon: Beacon | undefined;
   /** One short figure for the caption, such as "2 PRs" or "25%". */
   figure: string;
   /** Tickets queued in the stage, waiting for it to take them: drawn as parcels on the belt in front of it. */
@@ -202,7 +206,7 @@ export function startOfDay(t: number): number {
 
 /**
  * A station's state at t, by the first rule that matches (the design system's README, "From events to a station's
- * status"). Under Stop the line, every station needs you.
+ * status"), and its beacon. Under Stop the line, every station needs you.
  */
 export function station(
   stage: Stage,
@@ -218,6 +222,8 @@ export function station(
   const here = present.filter((item) => !item.queued);
   const held = here.filter((item) => item.hold);
   const failed = here.filter((item) => item.failure?.stage === stage && !item.hold);
+  // A failure or a hold stops the station only when nothing else in it is in progress; otherwise it lights the beacon.
+  const busy = here.some((item) => !item.hold && !failed.includes(item));
   const left = leavers(items, stage);
   const today = left.filter(({ at }) => at >= startOfDay(t)).length;
   // At a spend cap, triage takes no reports until it resets. The senses' tickets need no model, so they still open.
@@ -225,12 +231,14 @@ export function station(
 
   let status: Status;
   if (line.stopped !== undefined) status = 'blocked';
-  else if (failed.length) status = 'failed';
-  else if (held.length || capped) status = 'blocked';
+  else if (failed.length && !busy) status = 'failed';
+  else if ((held.length && !busy) || capped) status = 'blocked';
   else if (returns.some((r) => r.from === stage && t - r.at <= RETURNING_MS)) status = 'returning';
   else if (here.length) status = 'working';
   else if (left.some(({ at }) => t - at <= PASSING_MS)) status = 'passing';
   else status = 'idle';
+  const lit = status === 'working' || status === 'returning';
+  const beacon = !lit ? undefined : failed.length ? 'failed' : held.length ? 'needs-you' : undefined;
 
   const canary = here.find((item) => item.canary)?.canary;
   let figure: string;
@@ -240,12 +248,12 @@ export function station(
   else if (here.length) figure = count(here.length, NOUNS[stage]);
   else if (queued.length) figure = `${queued.length} waiting`;
   else figure = today ? `${today} today` : 'none';
-  return { stage, status, figure, queued: queued.length, cappedUntil: capped?.resets };
+  return { stage, status, beacon, figure, queued: queued.length, cappedUntil: capped?.resets };
 }
 
 /**
- * What a station shows while the line draws one of its returns: "sending back", unless it has failed or waits on
- * a human, which outrank a return (the rules above).
+ * What a station shows while the line draws one of its returns: "sending back", unless it has stopped, failed or
+ * waiting on a human (the rules above). A beacon stays lit while it sends.
  */
 export function whileSending(status: Status, sending: boolean): Status {
   return sending && status !== 'failed' && status !== 'blocked' ? 'returning' : status;
