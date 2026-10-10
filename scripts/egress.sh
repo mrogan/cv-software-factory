@@ -24,9 +24,9 @@
 # and by the probes, the crawler and the analysis, and not by another pod beside it.
 #
 # Every pod this starts runs an image the cluster already runs, pinned by digest, so nothing else is pulled and
-# admission control lets it in once it enforces: the workers' pod the factory image the gateway runs, the runners'
-# pods and the ones in Kyverno's and Argo Rollouts' namespaces the runner image the line pins (Node is on its PATH),
-# and the analysis Job's and the app's the `factory-browser` image the analysis pins. Each tries an address with Node's
+# admission control lets it in, where it enforces and in `website` once it does: the workers' pod the factory image
+# the gateway runs, the runners' pods and the ones in Kyverno's and Argo Rollouts' namespaces the runner image the
+# line pins (Node is on its PATH), and the analysis Job's and the app's the `factory-browser` image the analysis pins. Each tries an address with Node's
 # `fetch`, or, to name the shop's host to Traefik, with `http.get`.
 #
 # A check that must be blocked passes only when the connection is refused, reset, unreachable or never answered, as a

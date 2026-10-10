@@ -44,6 +44,7 @@ const policy = async () =>
     spec: {
       attestors: { name: string; cosign: { keyless: { identities: Record<string, string>[] } } }[];
       variables: { name: string; expression: string }[];
+      validationActions: string[];
     };
   };
 
@@ -147,6 +148,17 @@ describe('admission control', () => {
     expect((await copy('website')).allowed).toEqual([]);
   });
 
+  it("refuses in the factory's namespaces, and only audits in `website` until the app's first signed release", async () => {
+    expect((await policy()).spec.validationActions).toEqual(['Deny']);
+    const { patches } = parse(await read('base/admission/kustomization.yaml')) as {
+      patches: { target: { name: string }; patch: string }[];
+    };
+    // The only patch that switches a copy to Audit is `website-images`'s, which goes when it enforces (#173).
+    expect(patches.map((p) => [p.target.name, parse(p.patch)])).toEqual([
+      ['website-images', [{ op: 'replace', path: '/spec/validationActions', value: ['Audit'] }]],
+    ]);
+  });
+
   it("kept Kyverno's refusals in every guarded namespace (scripts/admission-refusals.sh)", async () => {
     const kept = JSON.parse(await read('test/admission-refusals.json')) as {
       namespace: string;
@@ -158,13 +170,7 @@ describe('admission control', () => {
     for (const { policy: name, namespaces } of [await copy('factory'), await copy('website')]) {
       for (const namespace of namespaces) {
         const refusals = kept.filter((r) => r.namespace === namespace);
-        // `misplaced` (an image of ours the namespace does not run) is kept from the next recording on.
-        expect(
-          refusals
-            .map((r) => r.case)
-            .filter((c) => c !== 'misplaced')
-            .sort(),
-        ).toEqual(['other-identity', 'unsigned']);
+        expect(refusals.map((r) => r.case).sort()).toEqual(['misplaced', 'other-identity', 'unsigned']);
         for (const refusal of refusals) {
           expect(refusal.outcome).toBe('refused');
           // A refusal names the policy, the check that refused it and the image.
