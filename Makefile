@@ -78,7 +78,7 @@ github-key:
 				$(KUBECTL) apply -f - >/dev/null && echo "  The GitHub worker has the App's key, so it acts as the factory in GitHub."; \
 		else echo "  No App key (the Keychain's factory-github-app-key): the GitHub worker reads and writes nothing."; fi
 
-egress: ## Prove the network policies: only the gateway and the GitHub worker may leave the cluster (needs the factory's workers running)
+egress: ## Prove the network policies: only the gateway, the GitHub worker and Kyverno may leave the cluster (needs the factory's workers running)
 	scripts/egress.sh
 
 admission-ready: ## Say whether every image the guarded namespaces run is signed, so admission control can enforce
@@ -138,8 +138,10 @@ real-store: node_modules ## Replace the cluster's store with an empty one for re
 	@$(KUBECTL) -n factory rollout restart deployment/console >/dev/null
 	@echo "  Console  http://console.localhost:8080"
 
-stop-the-line: node_modules ## Stop the line: workers finish what they hold and take nothing new (REASON="...")
-	@$(call as-writer,node apps/factory/src/cli.ts line stop $(if $(REASON),--reason "$(REASON)"))
+stop-the-line: node_modules ## Stop the line: agents stop, workers take nothing new, a canary in flight aborts (REASON="...")
+	@# Both halves run whichever fails: a canary is aborted even if the store cannot be reached, and the other way round.
+	@{ $(call as-writer,node apps/factory/src/cli.ts line stop $(if $(REASON),--reason "$(REASON)")); } || failed=1; \
+		KUBECTL="$(KUBECTL)" scripts/abort-canaries.sh || failed=1; exit $${failed:-0}
 
 start-the-line: node_modules ## Start the line again; workers take what waited in the inbox
 	@$(call as-writer,node apps/factory/src/cli.ts line start)
