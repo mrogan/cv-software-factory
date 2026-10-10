@@ -16,7 +16,13 @@ interface Op {
   value: unknown;
 }
 
-/** One copy of the image policy: the namespaces it guards and the images it names from other registries. */
+/** The strings an expression lists: `['a', 'b']`. */
+const listed = (expression: unknown) => [...String(expression ?? '[]').matchAll(/'([^']+)'/g)].map((m) => m[1]);
+
+/**
+ * One copy of the image policy: the namespaces it guards, the repositories of ours it admits, by which identity, and
+ * the images it names from other registries.
+ */
 async function copy(name: 'factory' | 'website') {
   const kustomization = parse(await read(`base/admission/${name}/kustomization.yaml`)) as {
     namePrefix: string;
@@ -27,7 +33,9 @@ async function copy(name: 'factory' | 'website') {
   return {
     policy: `${kustomization.namePrefix}images`,
     namespaces: value('/spec/matchConstraints/namespaceSelector/matchExpressions/0/values') as string[],
-    allowed: [...String(value('/spec/variables/0/expression') ?? '[]').matchAll(/'([^']+)'/g)].map((m) => m[1]),
+    allowed: listed(value('/spec/variables/0/expression')),
+    factory: listed(value('/spec/variables/1/expression')),
+    website: listed(value('/spec/variables/2/expression')),
   };
 }
 
@@ -69,6 +77,7 @@ async function thirdParty(dirs: string[], files: string[]) {
 const REFUSED_BY: Record<string, string> = {
   unsigned: 'images must be signed by build.yml on main of the repository that builds them: ',
   'other-identity': "images must come from this project's GHCR, or be named by digest in the policy: ",
+  misplaced: "images from this project's GHCR must be ones this namespace runs: ",
 };
 
 describe('admission control', () => {
@@ -79,10 +88,16 @@ describe('admission control', () => {
       REPOSITORIES.map((repo) => ({ issuer: GITHUB_ACTIONS, subject: pipeline(repo).identity })),
     );
     expect(spec.attestors.map((a) => a.name)).toEqual(['factory', 'website']);
+    // The copies set the first three variables by position.
+    expect(spec.variables.slice(0, 3).map((v) => v.name)).toEqual([
+      'allowed',
+      'factoryRepositories',
+      'websiteRepositories',
+    ]);
     // The images each attestor vouches for are its own repository's, and only those.
     const variable = (name: string) => spec.variables.find((v) => v.name === name)?.expression;
-    expect(variable('factoryImages')).toContain("startsWith('ghcr.io/mrogan/cv-software-factory/')");
-    expect(variable('websiteImages')).toContain("startsWith('ghcr.io/mrogan/cv-worlds-worst-website@')");
+    expect(variable('factoryImages')).toContain('variables.factoryRepositories.exists(');
+    expect(variable('websiteImages')).toContain('variables.websiteRepositories.exists(');
     for (const check of ['unsigned', 'unattested']) {
       const expression = variable(check)?.replace(/\s+/g, ' ') ?? '';
       expect(expression).toMatch(/variables\.factoryImages\.filter\([^+]*\[attestors\.factory\]\)/);
@@ -97,6 +112,21 @@ describe('admission control', () => {
     );
     const guarded = [...(await copy('factory')).namespaces, ...(await copy('website')).namespaces];
     expect(guarded.sort()).toEqual(namespaces.filter((n) => n !== 'telemetry').sort());
+  });
+
+  it('admits in each namespace only the images of ours that run there', async () => {
+    // The factory's namespaces: every image the profile pins from build.yml, and none of the app's.
+    const pinned = [...named(parse(await read('overlays/local/factory-image/kustomization.yaml')), new Set())];
+    pinned.push(...named(parse(await read('overlays/local/console-image/kustomization.yaml')), new Set()));
+    const factory = await copy('factory');
+    expect(factory.factory.sort()).toEqual(
+      pinned.filter((i) => i.startsWith('ghcr.io/mrogan/cv-software-factory/')).sort(),
+    );
+    expect(factory.website).toEqual([]);
+    // The app's namespace: the app, and the factory's browser for the analysis Job that walks a canary's journeys.
+    const website = await copy('website');
+    expect(website.factory).toEqual(['ghcr.io/mrogan/cv-software-factory/factory-browser']);
+    expect(website.website).toEqual(['ghcr.io/mrogan/cv-worlds-worst-website']);
   });
 
   it('admits from another registry only the images the factory runs, each by digest', async () => {
@@ -122,7 +152,14 @@ describe('admission control', () => {
     for (const { policy: name, namespaces } of [await copy('factory'), await copy('website')]) {
       for (const namespace of namespaces) {
         const refusals = kept.filter((r) => r.namespace === namespace);
-        expect(refusals.map((r) => r.case).sort()).toEqual(['other-identity', 'unsigned']);
+        // `misplaced` (a factory image other than the browser, in `website`) is kept from the next recording on.
+        expect(
+          refusals
+            .map((r) => r.case)
+            .filter((c) => c !== 'misplaced')
+            .sort(),
+        ).toEqual(['other-identity', 'unsigned']);
+        if (namespace !== 'website') expect(refusals.map((r) => r.case)).not.toContain('misplaced');
         for (const refusal of refusals) {
           expect(refusal.outcome).toBe('refused');
           // A refusal names the policy, the check that refused it and the image.

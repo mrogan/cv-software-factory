@@ -1,6 +1,7 @@
 # `website-images`: the app's namespace, where the app runs and, from milestone 6, the factory's analysis Jobs that
-# judge its canaries. It admits nothing that is not ours, and once it enforces (#173), it stays enforced, always: the
-# factory's agents write to the app's repository, so this is the fence a change there cannot move.
+# judge its canaries. It admits the app's image and the factory's browser, which those Jobs run, and nothing else. Once
+# it enforces (#173), it stays enforced, always: the factory's agents write to the app's repository, so this is the
+# fence a change there cannot move.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namePrefix: website-
@@ -13,3 +14,12 @@ patches:
       - op: replace
         path: /spec/matchConstraints/namespaceSelector/matchExpressions/0/values
         value: [website]
+      # Of the factory's images, only its browser, for the analysis Job that walks the canary's journeys. The
+      # workers, the console and the runner have no business here.
+      - op: replace
+        path: /spec/variables/1/expression
+        value: "['ghcr.io/mrogan/cv-software-factory/factory-browser']"
+      # The app's image, signed by the app's build.yml.
+      - op: replace
+        path: /spec/variables/2/expression
+        value: "['ghcr.io/mrogan/cv-worlds-worst-website']"

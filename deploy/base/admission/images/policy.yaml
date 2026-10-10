@@ -2,16 +2,16 @@
 # volumes' too, must each be
 #
 # 1. referenced by digest, so what was checked is what runs;
-# 2. one of ours, from GHCR, or one of the few others its policy names by digest, each with its reason;
+# 2. one of ours, from GHCR, that this copy runs, or one of the few others it names by digest, each with its reason;
 # 3. if ours, signed by `build.yml` on `main` of the repository that builds it, keyless, with GitHub's OIDC identity
 #    compared whole, never as a pattern;
 # 4. and carry the SBOM that the same workflow attested.
 #
-# Two copies of this policy, `factory-images` and `website-images` (../factory, ../website), say where it applies and
-# what else may run there. Enforcing, Kyverno fails closed: if it cannot verify an image (GHCR or Sigstore out of reach,
-# or Kyverno itself down), the pod is refused. While a copy only audits, an image it cannot verify is reported and
-# admitted, but Kyverno being down still refuses the pod. A refusal names the policy, the check and the images that
-# failed it.
+# Two copies of this policy, `factory-images` and `website-images` (../factory, ../website), say where it applies,
+# which of our images run there and what else may. Enforcing, Kyverno fails closed: if it cannot verify an image (GHCR
+# or Sigstore out of reach, or Kyverno itself down), the pod is refused. While a copy only audits, an image it cannot
+# verify is reported and admitted, but Kyverno being down still refuses the pod. A refusal names the policy, the check
+# and the images that failed it.
 #
 # Pods are checked as they are made, when a change to one changes its images, and when a debug container is added to
 # one; a change to a pod's labels or finalizers is not, so a pod already running is never held up by an outage of
@@ -64,7 +64,8 @@ spec:
         object.spec.?volumes.orValue([]).filter(v, has(v.image)).map(v, v.image.reference) !=
         oldObject.spec.?volumes.orValue([]).filter(v, has(v.image)).map(v, v.image.reference)
   # The images Kyverno fetches and may verify: ours, on GHCR. No other registry is asked anything; an image from one is
-  # refused by the checks below without being looked at.
+  # refused by the checks below without being looked at. An image of ours that a copy does not run is refused before
+  # its signature is looked at, too.
   matchImageReferences:
     - glob: ghcr.io/mrogan/cv-software-factory/*
     - glob: ghcr.io/mrogan/cv-worlds-worst-website@*
@@ -95,6 +96,12 @@ spec:
     # Third-party images this copy admits, each by its exact reference, digest and all. Set by each copy.
     - name: allowed
       expression: "[]"
+    # Our repositories on GHCR whose images this copy admits, signed by the factory's build.yml and by the app's. Set
+    # by each copy: no namespace runs every image we build.
+    - name: factoryRepositories
+      expression: "[]"
+    - name: websiteRepositories
+      expression: "[]"
     # Every image the pod names, its image volumes' too (an OCI image mounted as files). Not Kyverno's `images`,
     # which holds only the containers' images matchImageReferences selects: the rest would never be seen.
     - name: images
@@ -105,14 +112,27 @@ spec:
         object.spec.?volumes.orValue([]).filter(v, has(v.image)).map(v, v.image.reference)
     - name: undigested
       expression: variables.images.filter(i, !i.matches('^[^@]+@sha256:[0-9a-f]{64}$'))
+    # The images from a repository this copy admits, by its whole name: `<repository>`, `<repository>:<tag>`,
+    # `<repository>@<digest>`.
     - name: factoryImages
-      expression: variables.images.filter(i, i.startsWith('ghcr.io/mrogan/cv-software-factory/'))
-    - name: websiteImages
-      expression: variables.images.filter(i, i.startsWith('ghcr.io/mrogan/cv-worlds-worst-website@'))
-    - name: foreign
       expression: >-
-        variables.images.filter(i, !(i in variables.factoryImages) && !(i in variables.websiteImages) &&
-        !(i in variables.allowed))
+        variables.images.filter(i, variables.factoryRepositories.exists(r,
+        i == r || i.startsWith(r + ':') || i.startsWith(r + '@')))
+    - name: websiteImages
+      expression: >-
+        variables.images.filter(i, variables.websiteRepositories.exists(r,
+        i == r || i.startsWith(r + ':') || i.startsWith(r + '@')))
+    # Images from our GHCR: the factory's repositories, and the app's one.
+    - name: ours
+      expression: >-
+        variables.images.filter(i, i.startsWith('ghcr.io/mrogan/cv-software-factory/') ||
+        i == 'ghcr.io/mrogan/cv-worlds-worst-website' || i.startsWith('ghcr.io/mrogan/cv-worlds-worst-website:') ||
+        i.startsWith('ghcr.io/mrogan/cv-worlds-worst-website@'))
+    - name: foreign
+      expression: variables.images.filter(i, !(i in variables.ours) && !(i in variables.allowed))
+    - name: misplaced
+      expression: >-
+        variables.ours.filter(i, !(i in variables.factoryImages) && !(i in variables.websiteImages))
     # Each image is checked against its own repository's identity, and only once it is known to be by digest.
     - name: unsigned
       expression: >-
@@ -135,6 +155,10 @@ spec:
       messageExpression: >-
         "images must come from this project's GHCR, or be named by digest in the policy: " +
         variables.foreign.join(', ')
+      reason: Forbidden
+    - expression: size(variables.misplaced) == 0
+      messageExpression: >-
+        "images from this project's GHCR must be ones this namespace runs: " + variables.misplaced.join(', ')
       reason: Forbidden
     - expression: size(variables.unsigned) == 0
       messageExpression: >-
