@@ -8,8 +8,8 @@
 # from a repository that policy admits, signed by `build.yml` on `main` of the repository that builds it. Then it asks
 # Kyverno: any pod a policy that only audits reports as failing is listed too (one that enforces refuses instead, and
 # the images it guards are checked above). Then it says, for each policy, whether it enforces or audits and whether
-# every image its namespaces need would be admitted: a policy goes from Audit to Deny only once they would, signed, or
-# named by digest in the policy. Exits non-zero if anything would be refused.
+# every image its namespaces need would be admitted, signed, or named by digest in the policy: a copy switched to Audit
+# (the `try-the-line` skill) goes back to Deny only once they would. Exits non-zero if anything would be refused.
 #
 # cosign is the same check the deploy pull requests make, but not Kyverno's own code, so an image cosign passes could
 # still be one Kyverno refuses; Kyverno's reports cover the pods it has seen made since it was installed.
@@ -125,11 +125,11 @@ fi
 for policy in factory-images website-images; do
   mode=$(mode "$policy")
   if [[ " $notready " == *" $policy "* && "$mode" = audits ]]; then
-    echo "$policy audits: not ready, the images above would be refused; in Audit until their signed pins have merged."
+    echo "$policy audits: not ready, the images above would be refused once it enforces again."
   elif [[ " $notready " == *" $policy "* ]]; then
     echo "$policy enforces: the images above are refused: pin signed ones in their place."
   elif [ "$mode" = audits ]; then
-    echo "$policy audits: ready, every image its namespaces need would be admitted; its Audit patch can go."
+    echo "$policy audits: ready, every image its namespaces need would be admitted once it enforces again."
   else
     echo "$policy enforces: every image its namespaces need is admitted."
   fi

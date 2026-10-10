@@ -148,15 +148,14 @@ describe('admission control', () => {
     expect((await copy('website')).allowed).toEqual([]);
   });
 
-  it("refuses in the factory's namespaces, and only audits in `website` until the app's first signed release", async () => {
+  it('refuses in every guarded namespace: nothing in deploy/ switches either copy to Audit', async () => {
     expect((await policy()).spec.validationActions).toEqual(['Deny']);
-    const { patches } = parse(await read('base/admission/kustomization.yaml')) as {
-      patches: { target: { name: string }; patch: string }[];
-    };
-    // The only patch that switches a copy to Audit is `website-images`'s, which goes when it enforces (#173).
-    expect(patches.map((p) => [p.target.name, parse(p.patch)])).toEqual([
-      ['website-images', [{ op: 'replace', path: '/spec/validationActions', value: ['Audit'] }]],
-    ]);
+    // Only the policy sets its mode. The `try-the-line` skill switches `factory-images` to Audit on the cluster for a
+    // run, and Argo CD puts it back; no manifest here does.
+    const files = (await readdir(DEPLOY, { recursive: true })).filter(
+      (f) => f.endsWith('.yaml') && f !== join('base', 'admission', 'images', 'policy.yaml'),
+    );
+    for (const file of files) expect(await read(file), file).not.toMatch(/validationActions/);
   });
 
   it("kept Kyverno's refusals in every guarded namespace (scripts/admission-refusals.sh)", async () => {
