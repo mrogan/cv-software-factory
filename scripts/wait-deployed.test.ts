@@ -6,15 +6,23 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 
-/** The end of `make up`, against a kubectl that answers with root's resources as the script's jsonpath prints them. */
+/**
+ * The end of `make up`, against a kubectl that answers with root's resources as the script's jsonpath prints them, and
+ * with whether the website's Rollout is aborted.
+ */
 const SCRIPT = fileURLToPath(new URL('./wait-deployed.sh', import.meta.url));
 
-async function wait(resources: string[]) {
+async function wait(resources: string[], aborted = false) {
   const dir = await mkdtemp(join(tmpdir(), 'wait-deployed-'));
   const kubectl = join(dir, 'kubectl');
   await writeFile(
     kubectl,
-    `#!/usr/bin/env bash\nprintf '%b' ${JSON.stringify(resources.map((r) => `${r}\n`).join(''))}\n`,
+    `#!/usr/bin/env bash
+case "$*" in
+  *rollouts*) printf '%s' ${aborted ? 'true' : "''"} ;;
+  *) printf '%b' ${JSON.stringify(resources.map((r) => `${r}\n`).join(''))} ;;
+esac
+`,
   );
   await chmod(kubectl, 0o755);
   return promisify(execFile)(SCRIPT, [], { env: { ...process.env, KUBECTL: kubectl, TIMEOUT: '0' } }).then(
@@ -34,9 +42,15 @@ describe('waiting for Argo CD to deploy everything (make up)', () => {
     const suspended = await wait([...FACTORY, 'Application/website=Suspended']);
     expect(suspended.code).toBe(0);
     expect(suspended.out).toContain('a release is in flight');
-    const degraded = await wait([...FACTORY, 'Application/website=Degraded']);
+    const degraded = await wait([...FACTORY, 'Application/website=Degraded'], true);
     expect(degraded.code).toBe(0);
     expect(degraded.out).toContain('rolled back');
+  });
+
+  it('waits for a website Degraded for any other reason than a rollback, such as a first deploy that never came up', async () => {
+    const failed = await wait([...FACTORY, 'Application/website=Degraded']);
+    expect(failed.code).toBe(1);
+    expect(failed.out).toContain('Application/website=Degraded');
   });
 
   it('waits for the website to come up, and for anything else not yet healthy, naming each', async () => {

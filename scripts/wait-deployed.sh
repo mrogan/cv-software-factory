@@ -5,7 +5,8 @@
 # is its release's: Suspended while a canary pauses at a step, Degraded after a rollback until the next release starts.
 # Either is the canary doing its job, not a deploy that failed, and root's health rolls the website's up, so waiting for
 # root to be Healthy would wait out a release, and time out after a rollback. The website need only have settled:
-# Healthy, Suspended or Degraded, not still coming up.
+# Healthy, Suspended, or Degraded with its Rollout aborted, as a rollback leaves it. Degraded for any other reason, a
+# first deploy past its deadline say, is waited for like anything else.
 #
 # KUBECTL is the kubectl command, with its context (the Makefile's). TIMEOUT is how long to wait, in seconds (default
 # 600), and INTERVAL how often to look (default 5).
@@ -20,12 +21,17 @@ while true; do
     -o jsonpath='{range .status.resources[*]}{.kind}/{.name}={.health.status}{"\n"}{end}' 2>/dev/null || true)
   website=$(grep '^Application/website=' <<<"$resources" | cut -d= -f2 || true)
   waiting=$(grep -v -e '^Application/website=' -e '=$' -e '=Healthy$' <<<"$resources" || true)
-  case "$website" in Healthy | Suspended | Degraded) settled=1 ;; *) settled= ;; esac
+  case "$website" in
+    Healthy | Suspended) settled=1 ;;
+    Degraded) [[ "$("${kubectl[@]}" -n website get rollouts -o jsonpath='{.items[*].status.abort}' 2>/dev/null || true)" == *true* ]] &&
+      settled=1 || settled= ;;
+    *) settled= ;;
+  esac
 
   if [[ -z "$waiting" && -n "$settled" ]]; then
     case "$website" in
       Suspended) echo "The website is Suspended: a release is in flight, at one of its canary's steps." ;;
-      Degraded) echo "The website is Degraded: its last release was rolled back, or failed to start. Its Application in Argo CD says which." ;;
+      Degraded) echo "The website is Degraded: its last release was rolled back, and stays so until the next one starts." ;;
     esac
     exit 0
   fi
