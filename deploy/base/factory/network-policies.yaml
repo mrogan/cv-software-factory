@@ -385,3 +385,37 @@ spec:
             cidr: 192.168.0.0/16
       ports:
         - { protocol: TCP, port: 6443 }
+---
+# The traffic generator reaches the shop through Traefik, its front door, and nothing else: not the app's Services,
+# whose pods would skip the canary's split. A policy sees the connection after the Service has translated it, so the
+# rule is Traefik's pods on their `web` port. It sends its telemetry.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: traffic
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: traffic
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - { protocol: TCP, port: 8000 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - { protocol: TCP, port: 4318 }
