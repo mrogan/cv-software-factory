@@ -34,7 +34,7 @@ Then the orchestrator reviews the stack as a whole, and fixes bottom up, one sub
 ### The supply chain
 
 - **Only images the pipeline signed run.** Each repository's `build.yml` signs every image it pushes, by digest, with cosign's keyless signing and the workflow's own OIDC identity, and attaches an SBOM from Syft as a signed attestation. There is no signing key to keep or steal. A signature says which workflow, in which repository, on which ref made the image.
-- **Kyverno admits a pod only if its image carries that signature.** In `website`, `factory`, `console`, `runners` and, from Part C, `scoreboard`, a pod's images must be referenced by digest and signed by `build.yml` on `main` of the repository that builds them, and every other registry is refused. It checks the signature, not the SBOM: the deploy pull requests' checks verify that, where parsing it is cheap. A refusal names the policy and the image. Kyverno fails closed: if it cannot verify, the pod does not start. Its own namespace, Argo CD's and the cluster's system namespaces are left out, so the cluster can always start again. ADR 0010.
+- **Kyverno admits a pod only if its image carries that signature.** In `website`, `factory` (where the console runs too), `runners` and, from Part C, `scoreboard`, a pod's images must be referenced by digest and signed by `build.yml` on `main` of the repository that builds them, and every other registry is refused, but for the few third-party images the policy names by digest with a reason (Postgres, in `factory`). It checks the signature, not the SBOM: the deploy pull requests' checks verify that, where parsing it is cheap. A refusal names the policy and the image. Kyverno fails closed: if it cannot verify, the pod does not start. Its own namespace, Argo CD's and the cluster's system namespaces are left out, so the cluster can always start again; telemetry's and Argo Rollouts' are not guarded, since they run only upstream charts. ADR 0010.
 - **Images built on the Mac still run, by Martin's choice.** Running an unmerged image on the local cluster (the `try-the-line` skill) means switching the factory side's policy to audit for the run; Argo CD puts it back when self-heal resumes. The `website` policy stays enforced, always.
 - **Deploy pull requests check what admission will check.** The deploy watch proposes only a digest whose signature verifies, and the deploy pull request's checks verify it again, so a pull request that Martin merges never pins an image the cluster would refuse.
 
@@ -76,7 +76,7 @@ Then the orchestrator reviews the stack as a whole, and fixes bottom up, one sub
 - **Cleared closes; persists sends the work back.** A cleared signal appends `verification.finished` and closes the work item as verified; the App closes the ticket's issue with what cleared it. A signal that persists returns the work item to Plan with the verification as evidence, once; a second time, it holds for Martin. The issue stays open either way.
 - **A closed ticket reopens when its signal returns.** One fingerprint, one ticket: a signal on a verified ticket's fingerprint reopens that ticket and its work item, and the App reopens its issue. The regression is the same defect, not a new one.
 - **Pictures are taken while both versions run.** During the canary the probes worker screenshots every page on the stable and on the canary, and compares each pair pixel by pixel; at Verify, those comparisons become the "every page against the version before" evidence, a page marked intended when it is the ticket's own. After full rollout the old version is gone, so the pictures cannot wait.
-- **Stopping the line stops agents, and aborts a canary in flight.** `make stop-the-line` runs from Martin's own kubeconfig: it appends `line.stopped`, as now, and aborts any Rollout mid-canary, so the baseline takes all traffic. The factory itself holds no right to change a Rollout.
+- **Stopping the line stops agents, and aborts a canary in flight.** `make stop-the-line` runs from Martin's own kubeconfig: it appends `line.stopped`, as now, and aborts any Rollout mid-canary, so the baseline takes all traffic. An aborted release stays aborted until Martin retries it or a new deploy starts another; starting the line does not resume it. The factory itself holds no right to change a Rollout.
 
 ### The scoreboard
 
@@ -107,7 +107,7 @@ Each task is its own pull request, in order, each demonstrable.
 ### 2. Admission control
 
 - Kyverno, installed by Argo CD from its chart at a pinned version, in a namespace of its own, before anything it guards.
-- The policy, as the decisions say; its NetworkPolicy lets Kyverno reach GHCR and Sigstore's services and nothing else on the internet.
+- The policy, as the decisions say; its NetworkPolicy lets Kyverno's admission controller reach GHCR and Sigstore's trust root. A NetworkPolicy cannot name a host, so the rule is the internet on 443 outside private addresses, as for the GitHub worker; egress by host name waits for milestone 10 (#176).
 - An unsigned image, and one signed by another identity, are refused in each guarded namespace, and Kyverno's words are kept (`deploy/test/admission-refusals.json`), as milestone 5 kept the App's refusal to write a workflow: milestone 9's red team shows them.
 - The `try-the-line` skill switches the factory side's policy to audit for a run, and checks it is back to enforce afterwards.
 
@@ -121,7 +121,7 @@ Each task is its own pull request, in order, each demonstrable.
 
 - `policy/release.ts`, and the ClusterAnalysisTemplate rendered from it, with a test that the two agree (as the alerting rules have).
 - The journeys comparison as an analysis Job, from `factory-browser` at a pinned digest.
-- `factory traffic`, with its NetworkPolicy: Traefik, and nothing else.
+- `factory traffic`, with its NetworkPolicy: DNS, Traefik and the collector, and nothing else.
 - A step with too little traffic fails, and says so.
 
 ### 5. Stop the line, and the fences
@@ -129,21 +129,30 @@ Each task is its own pull request, in order, each demonstrable.
 - `make stop-the-line` aborts a canary in flight.
 - `make egress` covers Kyverno, the Rollouts controller, the analysis Job, the traffic generator and the app's own pods, which a NetworkPolicy from this repository fences: DNS and the collector out; Traefik, the probes, the crawler and the analysis in.
 
+### 5a. Admission enforces (#173)
+
+Each copy of the policy goes from Audit to Deny on its own, in a pull request that deletes its patch in `deploy/base/admission/kustomization.yaml`, once every image its namespaces run or will start would be admitted:
+
+- **`factory-images`** (`factory`, `runners`), once the factory's and the console's deploy pull requests that pin signed digests have merged and are running, and `make admission-ready` lists nothing refused in those namespaces. Before task 6.
+- **`website-images`**, once the app's first signed deploy is running and the factory's deploy pull request that pins a signed `factory-browser` has merged, and `make admission-ready` says Ready. The canary's journeys Job runs `factory-browser` in `website`, so with it unsigned every journeys Job would be refused and every release rolled back. The app's first signed deploy is task 6's good release, so this copy enforces between task 6's two runs, and the bad release goes out under it.
+- The kept refusals (`deploy/test/admission-refusals.json`) gain the `misplaced` case, an image of ours in a namespace whose copy does not admit it, when `scripts/admission-refusals.sh` next runs on a cluster with Kyverno.
+- The comment in `deploy/base/runners/line-access.yaml`, which says admission will refuse a runner Job's other images once `factory-images` enforces and reports them until then, says that it refuses them.
+
 ### 6. The first canaries
 
 On the local cluster, with no line in the loop:
 
 - **A good release:** Martin merges the app's waiting deploy pull request; the canary goes through its steps, the analysis passes each, and it promotes itself. The step timings, request counts and each measure go in this file's results.
-- **A bad release:** a drill on the app's `main`, written to pass every gate and fail under load (a lock that serialises requests, say, which a single probe never notices). Its deploy pull request merges, the canary fails its analysis and rolls back before 100%, and nobody touches anything. Then Martin reverts it by hand, and the revert's release promotes.
+- **A bad release:** with both copies of the policy enforcing, a drill on the app's `main`, written to pass every gate and fail under load (a lock that serialises requests, say, which a single probe never notices). Its deploy pull request merges, the canary fails its analysis and rolls back before 100%, and nobody touches anything. Then Martin reverts it by hand, and the revert's release promotes.
 
 ### 7. Documentation for Part A
 
-`COMPONENTS.md` (supply chain, admission control, progressive delivery, the traffic generator, the guardrails it makes real), `AGENTS.md` (the traffic generator on the host; trying an unmerged image under admission), `TERMS.md` (canary, baseline as the version a canary is compared with, as distinct from the seeded baseline, and rollback), ADR 0010, and spec sections 4.1 and 8.
+`COMPONENTS.md` (supply chain, admission control, progressive delivery, the traffic generator, the guardrails it makes real), `AGENTS.md` (the traffic generator on the host; trying an unmerged image under admission), `TERMS.md` (canary, baseline as the version a canary is compared with, as distinct from the seeded baseline, rollback, and abort as distinct from a rollback), ADR 0010, and spec sections 4.1 and 8.
 
 ### Part A is done when
 
 - [ ] Every image both repositories build is signed by their pipeline, with its SBOM attested.
-- [ ] An image the pipeline did not sign is refused in every guarded namespace, and the refusals are kept.
+- [ ] Both copies of the policy enforce, and an image the pipeline did not sign is refused in every guarded namespace, as is an image of ours in a namespace that does not run it; the refusals are kept.
 - [ ] Merging a deploy pull request runs the app's release as a canary that the analysis judges on errors, latency and journeys against the baseline, with enough traffic to judge, and that promotes itself.
 - [ ] A change that passes every gate and fails under load is rolled back by the canary, unattended, before it reaches 100%.
 - [ ] `make stop-the-line` aborts a canary in flight, and `make egress` passes with the new parts.
@@ -172,6 +181,7 @@ On the local cluster, with no line in the loop:
 ### 11. A rollback is a signal
 
 - A failed analysis sends a signal per failing measure, as the decisions say; triage opens a ticket for it, or adds to the ticket it repeats.
+- Martin's abort (`make stop-the-line`) and a failed analysis both leave the Rollout Degraded with reason `RolloutAborted`; only the analysis's abort adds its own words to the message. So the signal comes from an AnalysisRun whose phase is Failed, never from the Rollout's state: an abort terminates the release's AnalysisRuns (`Run Terminated`), and terminating one does not fail it, so an abort is no signal.
 - The dry run answers for a release, so a soak still goes round: a dry-run work item is released and verified by the dry run's word, and says so.
 
 ### 12. Documentation for Part B
@@ -237,4 +247,5 @@ Spec sections 3.2, 4.1 and 5.2; `COMPONENTS.md` (the scoreboard, the console's n
 - **A noisy baseline makes a noisy verdict.** The seeded defects make some routes slow or failing by design. The analysis compares with the baseline rather than objectives, sums over routes, and needs two journey failures; each rollback in the runs is checked by hand for whether it was earned.
 - **The traffic generator wakes the objectives.** Seeded slow routes that were too quiet to alert will alert under traffic. They are real defects, triage deduplicates them by fingerprint, and the scoreboard counts what they find; the results say how many tickets the traffic brought.
 - **A rollback holds every release behind it.** Until its fix merges, each release carries the bad commit. Its ticket takes its place in the queue by severity, and Martin can revert.
+- **A change can pass by not reporting its errors.** The analysis judges errors and latency on the app's own telemetry, and agents write the app's code. The collector, not the app, says which version a record came from (task 3), and "enough requests" is counted at Traefik (task 4), but the errors and the latency are still the app's word. Judging them at the ingress too would close that, though Traefik's latency buckets are coarse by default; it matters by milestone 9, whose red team would try it. Traefik also counts per Service, not per version, so a new canary started within a step's window of an aborted one briefly counts the aborted canary's requests as its own.
 - **The answer key leaks.** Only ids and fingerprints reach the cluster, only the scoreboard can read them, and only its figures leave it.

@@ -54,7 +54,7 @@ The line runs in the cluster only: its agent pods may reach only the gateway and
    ```
    Build `console` too if its code changed.
 2. **Pause Argo CD** on `root` only, which owns every factory deployment: `bin/k -n argocd patch application root --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'`.
-3. **Admission:** images built here are unsigned, and admission control refuses them (ADR 0010). Switch the factory's policy, and only it, to audit: `bin/k patch imagevalidatingpolicy factory-images --type merge -p '{"spec":{"validationActions":["Audit"]}}'`. It covers `factory` and `runners`. Never `website-images`: nothing built on the Mac runs in `website`.
+3. **Admission:** images built here are unsigned, and admission control refuses them once it enforces (ADR 0010, #173). Switch the factory's policy, and only it, to audit: `bin/k patch imagevalidatingpolicy factory-images --type merge -p '{"spec":{"validationActions":["Audit"]}}'`. It covers `factory` and `runners`. Never `website-images`: nothing built on the Mac runs in `website`.
 4. **Dry run first**, before anything else can act: `GITHUB_DRY_RUN=true` on `github`, and `LINE_MODE=dry-run` on `line`, with `LINE_TAKE` removed. Optionally `GITHUB_DRY_RUN_CHECKS_SECONDS` and `GITHUB_DRY_RUN_MERGE_SECONDS` to go round faster.
 5. **Point** `line` (its container, its `runner-image` initContainer and `RUNNER_IMAGE`), `gateway` and `github` at the new images with `kubectl set image` and `set env`.
 6. **Migrations:** compare `select * from schema_migrations` with `packages/store/migrations`; if the branch adds one, run a copy of the `migrate` Job on its console image.
@@ -68,6 +68,7 @@ Run one work item at a time: two steps on one LM Studio halve its speed. The dry
 ## Stopping the line, and a cap
 
 - **Stop the line** with a step in hand: `make stop-the-line REASON="..."`. Its Jobs should go at once, `runners` empty within a minute, and nothing count against the step; after `make start-the-line` it runs again as a new Job.
+- **A release in flight** is aborted by the same command (with none, it says so): the stable version takes all the traffic within seconds, and the script prints the weights and the one command that retries the release. `make start-the-line` does not resume it: an aborted release stays aborted until it is retried, which is Martin's call, or a new deploy starts another. Stopping the line for a run therefore stops a real release of the app too, if one is going out: look first (`bin/k -n website get rollout website`), and tell Martin if you aborted one.
 - **A provider's cap.** For the local model, `lms server stop` during a step, then `lms server start`. For Anthropic, Martin sets the Claude Console workspace's limit below its spend, and raises it again after; never change it yourself. The gateway appends `spend.capped` at the first refused call and probes every three minutes until it can append `spend.cleared`. The line should start no step behind the cap, count nothing against the step it ended, and run it again when the cap clears; the console says why meanwhile.
 
 ## Following a run
