@@ -136,7 +136,7 @@ Each copy of the policy goes from Audit to Deny on its own, in a pull request th
 - **`factory-images`** (`factory`, `runners`), once the factory's and the console's deploy pull requests that pin signed digests have merged and are running, and `make admission-ready` lists nothing refused in those namespaces. Before task 6.
 - **`website-images`**, once the app's first signed deploy is running and the factory's deploy pull request that pins a signed `factory-browser` has merged, and `make admission-ready` says Ready. The canary's journeys Job runs `factory-browser` in `website`, so with it unsigned every journeys Job would be refused and every release rolled back. The app's first signed deploy is task 6's good release, so this copy enforces between task 6's two runs, and the bad release goes out under it.
 - The kept refusals (`deploy/test/admission-refusals.json`) gain the `misplaced` case, an image of ours in a namespace whose copy does not admit it, when `scripts/admission-refusals.sh` next runs on a cluster with Kyverno.
-- The comment in `deploy/base/runners/line-access.yaml` that says a runner's Job can run any image says what admission now allows it.
+- The comment in `deploy/base/runners/line-access.yaml`, which says admission will refuse a runner Job's other images once `factory-images` enforces and reports them until then, says that it refuses them.
 
 ### 6. The first canaries
 
