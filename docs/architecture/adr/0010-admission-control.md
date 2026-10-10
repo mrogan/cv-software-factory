@@ -2,14 +2,14 @@
 
 ## Decision
 
-Kyverno, installed by Argo CD before anything it guards, admits a pod in `factory`, `runners` or `website` only if each of its images, init and debug containers' included, is referenced by digest and is either
+Kyverno, installed by Argo CD before anything it guards, admits a pod in `factory`, `runners` or `website` only if each of its images, its init and debug containers' and its image volumes' included, is referenced by digest and is either
 
 - ours, on GHCR, signed by `build.yml` on `main` of the repository that builds it, with the SBOM that workflow attested; or
 - one of the few third-party images its namespace's policy names by exact digest, each with its reason. Today that is Postgres, in `factory`, and nothing in `website`.
 
 The signer is compared whole: the issuer is GitHub Actions' OIDC issuer, and the identity is `https://github.com/<repository>/.github/workflows/build.yml@refs/heads/main`, never a pattern. The factory's images must carry the factory's signature, the app's the app's.
 
-The rule is one `ImageValidatingPolicy` (`deploy/base/admission/images`), in two copies: `factory-images` for `factory` and `runners`, and `website-images` for `website`. Kyverno fails closed: a pod it cannot verify, because GHCR or Sigstore is out of reach or Kyverno is down, is refused. Its own namespace, Argo CD's and the cluster's system namespaces are outside its webhooks, so the cluster can always start again.
+The rule is one `ImageValidatingPolicy` (`deploy/base/admission/images`), in two copies: `factory-images` for `factory` and `runners`, and `website-images` for `website`. Enforcing, Kyverno fails closed: a pod it cannot verify, because GHCR or Sigstore is out of reach or Kyverno is down, is refused. A pod is checked when it is made and when a change to it changes its images, not when only its labels or finalizers change, so an outage never holds up a pod that is already running. Its own namespace, Argo CD's and the cluster's system namespaces are outside its webhooks, so the cluster can always start again.
 
 ## Why
 
@@ -23,10 +23,10 @@ Signing (milestone 6, task 1) says which workflow made an image; admission is wh
 
 ## Consequences
 
-- Nothing we run was signed before task 1 merged, so admission arrives in Audit: it reports what it would refuse (`kubectl get policyreports -A`) and refuses nothing. `make admission-ready` checks every image the guarded namespaces run or will start, as the policy does; once it passes, a pull request of its own removes the Audit patch, and the policies enforce.
+- Nothing we run was signed before task 1 merged, so admission arrives in Audit: each copy reports what it would refuse (`kubectl get policyreports -A`) and admits it, though a Kyverno that is down still refuses. `make admission-ready` checks every image the guarded namespaces run or will start, as the policy does, and lists what Kyverno has reported; once it passes for a copy's namespaces, a pull request of its own removes that copy's Audit patch, and it enforces (#173). Until `website-images` does, the app's repository could pin any image.
 - An outage of GHCR stops new pods in the guarded namespaces until it passes, Postgres's excepted. Kyverno keeps its verdicts for an hour, but it still reads each image's manifest from GHCR as it admits a pod, so even a restart on an image it has verified waits. Kyverno refreshes Sigstore's trust root from its TUF repository whenever it verifies, so an outage there stops a pod whose images it has not verified in the last hour.
 - Kyverno's admission controller may reach the internet on 443, for GHCR and Sigstore's TUF repository; nothing else in its namespace may leave the cluster. The signatures carry their own proof of inclusion in Rekor, so Kyverno never asks Rekor or Fulcio.
-- An image built on the Mac runs on the local cluster only while the factory's policy is in Audit, which `try-the-line` sets and Argo CD's self-heal undoes. Nothing built on the Mac can run in `website`.
+- An image built on the Mac runs on the local cluster only while the factory's policy is in Audit, which `try-the-line` sets and Argo CD's self-heal undoes. Once `website-images` enforces, nothing built on the Mac can run in `website`.
 - A new guarded namespace (the scoreboard's, in Part C) joins a copy's namespace list, and a test fails until every namespace the factory or the app runs in is guarded.
 - Kyverno's refusals are kept, as the cluster gave them, in `deploy/test/admission-refusals.json` (`scripts/admission-refusals.sh`), for milestone 9's red team.
 - No `PolicyException` can excuse a pod: the feature is off.
