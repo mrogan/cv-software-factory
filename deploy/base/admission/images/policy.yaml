@@ -3,9 +3,11 @@
 #
 # 1. referenced by digest, so what was checked is what runs;
 # 2. one of ours, from GHCR, that this copy runs, or one of the few others it names by digest, each with its reason;
-# 3. if ours, signed by `build.yml` on `main` of the repository that builds it, keyless, with GitHub's OIDC identity
-#    compared whole, never as a pattern;
-# 4. and carry the SBOM that the same workflow attested.
+# 3. and, if ours, signed by `build.yml` on `main` of the repository that builds it, keyless, with GitHub's OIDC
+#    identity compared whole, never as a pattern.
+#
+# The SBOM that workflow attests is not checked here: the deploy pull requests' checks require it of every pin, and
+# verifying it here would mean parsing the whole SPDX document as pods start (ADR 0010).
 #
 # Two copies of this policy, `factory-images` and `website-images` (../factory, ../website), say where it applies,
 # which of our images run there and what else may. Enforcing, Kyverno fails closed: if it cannot verify an image (GHCR
@@ -30,7 +32,7 @@ spec:
   validationActions: [Deny]
   failurePolicy: Fail
   webhookConfiguration:
-    # Verifying an image fetches its signature and SBOMs from GHCR the first time; Kyverno then caches the answer.
+    # Verifying an image fetches its signature from GHCR the first time; Kyverno then caches the answer.
     timeoutSeconds: 30
   evaluation:
     # Checked at admission only. Pods made before the policy existed are not looked at again; `make admission-ready`
@@ -89,11 +91,6 @@ spec:
           identities:
             - issuer: https://token.actions.githubusercontent.com
               subject: https://github.com/mrogan/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main
-  attestations:
-    # Syft's SPDX document, one for each platform, attested by build.yml with `cosign attest --type spdxjson`.
-    - name: sbom
-      intoto:
-        type: https://spdx.dev/Document
   variables:
     # Third-party images this copy admits, each by its exact reference, digest and all. Set by each copy.
     - name: allowed
@@ -142,12 +139,6 @@ spec:
         verifyImageSignatures(i, [attestors.factory]) == 0) +
         variables.websiteImages.filter(i, !(i in variables.undigested) &&
         verifyImageSignatures(i, [attestors.website]) == 0)
-    - name: unattested
-      expression: >-
-        variables.factoryImages.filter(i, !(i in variables.undigested) && !(i in variables.unsigned) &&
-        verifyAttestationSignatures(i, attestations.sbom, [attestors.factory]) == 0) +
-        variables.websiteImages.filter(i, !(i in variables.undigested) && !(i in variables.unsigned) &&
-        verifyAttestationSignatures(i, attestations.sbom, [attestors.website]) == 0)
   validations:
     - expression: size(variables.undigested) == 0
       messageExpression: >-
@@ -166,8 +157,4 @@ spec:
       messageExpression: >-
         'images must be signed by build.yml on main of the repository that builds them: ' +
         variables.unsigned.join(', ')
-      reason: Forbidden
-    - expression: size(variables.unattested) == 0
-      messageExpression: >-
-        'images must carry the SBOM build.yml attested: ' + variables.unattested.join(', ')
       reason: Forbidden

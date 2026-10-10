@@ -98,12 +98,17 @@ describe('admission control', () => {
     const variable = (name: string) => spec.variables.find((v) => v.name === name)?.expression;
     expect(variable('factoryImages')).toContain('variables.factoryRepositories.exists(');
     expect(variable('websiteImages')).toContain('variables.websiteRepositories.exists(');
-    for (const check of ['unsigned', 'unattested']) {
-      const expression = variable(check)?.replace(/\s+/g, ' ') ?? '';
-      expect(expression).toMatch(/variables\.factoryImages\.filter\([^+]*\[attestors\.factory\]\)/);
-      expect(expression).toMatch(/variables\.websiteImages\.filter\([^+]*\[attestors\.website\]\)/);
-      expect(expression).not.toMatch(/factoryImages[^+]*attestors\.website|websiteImages[^+]*attestors\.factory/);
-    }
+    const expression = variable('unsigned')?.replace(/\s+/g, ' ') ?? '';
+    expect(expression).toMatch(/variables\.factoryImages\.filter\([^+]*\[attestors\.factory\]\)/);
+    expect(expression).toMatch(/variables\.websiteImages\.filter\([^+]*\[attestors\.website\]\)/);
+    expect(expression).not.toMatch(/factoryImages[^+]*attestors\.website|websiteImages[^+]*attestors\.factory/);
+  });
+
+  it('verifies the signature only: the deploy checks require the SBOM, which is too large to parse at admission', async () => {
+    const source = await read('base/admission/images/policy.yaml');
+    const { spec } = parse(source) as { spec: { attestations?: unknown[] } };
+    expect(spec.attestations ?? []).toEqual([]);
+    expect(source).not.toMatch(/verifyAttestationSignatures/);
   });
 
   it('guards every namespace the factory and the app run in; telemetry and Argo Rollouts run only their charts', async () => {

@@ -13,12 +13,15 @@ admissionController:
   container:
     image:
       tag: v1.19.1@sha256:b31d8511ae5fd6010e2a01ea72ebae08eb82fa51d91af14a1d9fe989949b4edb
+    # To verify an image's signature it reads every Sigstore bundle attached to the image, its attestations' included,
+    # so its memory grows with the largest of them: `factory-browser`'s SBOMs are about 23 MB for each platform, and
+    # verifying that image peaks at about 600 Mi.
     resources:
       requests:
         cpu: 50m
         memory: 128Mi
       limits:
-        memory: 384Mi
+        memory: 1Gi
 
 reportsController:
   image:
