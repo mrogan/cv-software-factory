@@ -9,6 +9,7 @@ import { outOfDate, queries, render, TEMPLATES, TEMPLATES_FILE, templatesFor } f
 interface Metric {
   name: string;
   interval?: string;
+  initialDelay?: string;
   successCondition?: string;
   failureLimit?: number;
   provider: {
@@ -70,13 +71,17 @@ describe('the canary analysis', () => {
     expect(journeys?.failureLimit).toBe(0);
   });
 
-  it('looks at errors and latency throughout, failing on the policy’s count of failed looks', () => {
+  it('looks at every measure throughout, failing on the policy’s count of failed looks', () => {
     const background = metricsOf(TEMPLATES.background);
-    expect(background.map((m) => m.name)).toEqual(['errors', 'latency']);
-    for (const metric of background) {
-      expect(metric.interval).toBe(`${release.background.intervalMinutes}m`);
-      expect(metric.failureLimit).toBe(release.background.failures - 1);
-    }
+    expect(background.map((m) => m.name)).toEqual(['errors', 'latency', 'journeys']);
+    for (const metric of background) expect(metric.failureLimit).toBe(release.background.failures - 1);
+    const [errors, latency, journeys] = background;
+    expect(errors?.interval).toBe(`${release.background.intervalMinutes}m`);
+    expect(latency?.interval).toBe(`${release.background.intervalMinutes}m`);
+    // The same Job as at a step, every few minutes, starting half an interval in: between the steps' runs.
+    expect(journeys?.provider.job).toEqual(metricsOf(TEMPLATES.step).find((m) => m.name === 'journeys')?.provider.job);
+    expect(journeys?.interval).toBe(`${release.background.journeysIntervalMinutes}m`);
+    expect(journeys?.initialDelay).toBe(`${release.background.journeysIntervalMinutes * 30}s`);
   });
 
   it('follow the policy', () => {

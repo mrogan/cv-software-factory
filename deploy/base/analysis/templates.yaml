@@ -118,7 +118,7 @@ spec:
                       medium: Memory
                       sizeLimit: 256Mi
 ---
-# Throughout the release: errors and latency against the baseline, every 1m once there is enough to judge.
+# Throughout the release: errors and latency against the baseline, every 1m once there is enough to judge, and the journeys every 3m.
 apiVersion: argoproj.io/v1alpha1
 kind: ClusterAnalysisTemplate
 metadata:
@@ -169,3 +169,65 @@ spec:
             or on () vector(Inf)
             )
             and on () sum(increase(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])) >= 100
+    - name: journeys
+      interval: 3m
+      initialDelay: 90s
+      failureLimit: 1
+      provider:
+        job:
+          metadata:
+            labels:
+              app.kubernetes.io/name: journeys
+              app.kubernetes.io/part-of: software-factory
+          spec:
+            backoffLimit: 0
+            activeDeadlineSeconds: 900
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: journeys
+                  app.kubernetes.io/part-of: software-factory
+              spec:
+                restartPolicy: Never
+                automountServiceAccountToken: false
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 65532
+                  runAsGroup: 65532
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: journeys
+                    image: factory-browser
+                    args:
+                      - src/cli.ts
+                      - gate
+                      - journeys
+                      - --base
+                      - http://website.website
+                      - --change
+                      - http://website-canary.website
+                    resources:
+                      requests:
+                        cpu: 200m
+                        memory: 512Mi
+                      limits:
+                        memory: 2Gi
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                        drop:
+                          - ALL
+                    volumeMounts:
+                      - name: tmp
+                        mountPath: /tmp
+                      - name: shm
+                        mountPath: /dev/shm
+                volumes:
+                  - name: tmp
+                    emptyDir: {}
+                  - name: shm
+                    emptyDir:
+                      medium: Memory
+                      sizeLimit: 256Mi

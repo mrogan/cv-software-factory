@@ -8,8 +8,9 @@
  *
  * - `website-step`, at the end of each step: enough requests to judge, errors, latency and the journeys. A step whose
  *   canary has had too few requests fails, and says so.
- * - `website-background`, throughout the release: errors and latency, looked at every few minutes once the canary has
- *   had enough requests to judge.
+ * - `website-background`, throughout the release: errors and latency every minute or so, once the canary has had
+ *   enough requests to judge, and the journeys every few minutes, starting half an interval in, so that they fall
+ *   between the steps' own runs rather than on them.
  *
  * Canary and baseline are told apart by the pod-template hash Argo Rollouts gives each version, which the collector
  * adds to the app's metrics; the Rollout passes the two hashes as arguments. Each query sums over every route the app
@@ -156,7 +157,7 @@ const PURPOSE: Record<string, (r: Release) => string> = {
   [TEMPLATES.step]: () =>
     'At the end of each step: enough requests to judge, then errors, latency and the journeys against the baseline.',
   [TEMPLATES.background]: (r) =>
-    `Throughout the release: errors and latency against the baseline, every ${r.background.intervalMinutes}m once there is enough to judge.`,
+    `Throughout the release: errors and latency against the baseline, every ${r.background.intervalMinutes}m once there is enough to judge, and the journeys every ${r.background.journeysIntervalMinutes}m.`,
 };
 
 /** The two templates, as Kubernetes objects. */
@@ -177,16 +178,22 @@ export function templatesFor(r: Release) {
     })),
     { name: 'journeys', failureLimit: 0, provider: { job: journeys(r) } },
   ]);
-  const background = template(
-    TEMPLATES.background,
-    compared(r).map(({ name, successCondition, query }) => ({
+  const background = template(TEMPLATES.background, [
+    ...compared(r).map(({ name, successCondition, query }) => ({
       name,
       interval: `${r.background.intervalMinutes}m`,
       successCondition,
       failureLimit: r.background.failures - 1,
       provider: prometheus(query),
     })),
-  );
+    {
+      name: 'journeys',
+      interval: `${r.background.journeysIntervalMinutes}m`,
+      initialDelay: `${(r.background.journeysIntervalMinutes * 60) / 2}s`,
+      failureLimit: r.background.failures - 1,
+      provider: { job: journeys(r) },
+    },
+  ]);
   return [step, background];
 }
 

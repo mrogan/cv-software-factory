@@ -8,9 +8,9 @@
  * `deploy/`; the judgement is here, so nothing in the app's repository can loosen it. These figures are a start, and
  * Martin's to change.
  *
- * Three measures, at each step: errors and latency from Prometheus, over every route at once, and the journeys: the
- * same comparison the app's pull requests pass (a check that passes on the baseline and fails on the canary, twice),
- * run against the two Services. The journeys have no figures of their own.
+ * Three measures, at each step and throughout the release: errors and latency from Prometheus, over every route at
+ * once, and the journeys: the same comparison the app's pull requests pass (a check that passes on the baseline and
+ * fails on the canary, twice), run against the two Services. The journeys have no thresholds of their own.
  */
 import { objectives } from './objectives.ts';
 
@@ -36,11 +36,11 @@ export interface Release {
    */
   latency: { percentile: number; maxRatioAbove: number; minSecondsAbove: number };
   /**
-   * Errors and latency are also looked at throughout the release, every `intervalMinutes`, once the canary has
-   * `minRequests` in the window. A measure fails the release at its `failures`th failed look: one look of many can
-   * be one slow request.
+   * Each measure is also looked at throughout the release: errors and latency every `intervalMinutes`, once the
+   * canary has `minRequests` in the window, and the journeys every `journeysIntervalMinutes`. A measure fails the
+   * release at its `failures`th failed look: one look of many can be one slow request.
    */
-  background: { intervalMinutes: number; failures: number };
+  background: { intervalMinutes: number; journeysIntervalMinutes: number; failures: number };
   /** The traffic generator (`factory traffic`): how many of the shop's pages it asks for each second. */
   traffic: { requestsPerSecond: number };
 }
@@ -57,6 +57,8 @@ export const release = {
   minRequests: 100,
   errors: { maxAbove: 0.01 },
   latency: { percentile: 0.99, maxRatioAbove: 0.25, minSecondsAbove: 0.1 },
-  background: { intervalMinutes: 1, failures: 2 },
+  // A journeys run takes about 25 s, with up to four browsers at once. Every three minutes from a minute and a half in
+  // (half an interval), a run falls mid-step, between the steps' own runs, so no two overlap on the laptop.
+  background: { intervalMinutes: 1, journeysIntervalMinutes: 3, failures: 2 },
   traffic: { requestsPerSecond: 5 },
 } satisfies Release;
