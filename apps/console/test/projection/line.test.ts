@@ -74,6 +74,62 @@ describe('a station’s state', () => {
     expect(gatesStatus(events, t)).toBe(status);
   });
 
+  // Work item 1 stops at Gates while work item 2 runs there: the station stays at work, and its beacon is lit.
+  describe('with another item in progress beside one that', () => {
+    const running = work('2').open().add(2, 'gates.started', 'actions', payloads.gatesStarted).events;
+    const failing = work('1')
+      .open()
+      .add(1, 'gates.started', 'actions', payloads.gatesStarted)
+      .add(3, 'gates.finished', 'actions', payloads.gatesFailed);
+    const gates = (events: PublicEvent[], t: number) =>
+      project(
+        [...events, ...running].sort((a, b) => a.ts.localeCompare(b.ts)),
+        t,
+      ).stations.find((s) => s.stage === 'gates');
+    const held = () =>
+      work('1')
+        .open()
+        .add(1, 'gates.started', 'actions', payloads.gatesStarted)
+        .add(3, 'gates.finished', 'actions', payloads.gatesFailed)
+        .add(3.1, 'hold.started', 'factory', { stage: 'gates', kind: 'held', cause: 'gates', reason: 'Tests removed' });
+
+    it('failed, works on with a failed beacon', () => {
+      expect(gates(failing.events, at(4))).toMatchObject({ status: 'working', beacon: 'failed', figure: '2 PRs' });
+    });
+
+    it('waits on a human, works on with a needs-you beacon, and counts what is held', () => {
+      expect(gates(held().events, at(4))).toMatchObject({ status: 'working', beacon: 'needs-you', figure: '1 held' });
+    });
+
+    it('waits on a human, keeps its beacon while it sends a third back', () => {
+      const sent = work('3')
+        .open()
+        .add(1, 'gates.started', 'actions', payloads.gatesStarted)
+        .add(3, 'gates.finished', 'actions', payloads.gatesFailed)
+        .add(3.5, 'work.returned', 'factory', { from: 'gates', to: 'build', reason: 'A check failed' }).events;
+      expect(gates([...held().events, ...sent], at(4))).toMatchObject({ status: 'returning', beacon: 'needs-you' });
+    });
+
+    it('waits on a human, is blocked with no beacon under Stop the line', () => {
+      const stop = {
+        ...(held().events[0] as PublicEvent),
+        ts: new Date(at(3.5)).toISOString(),
+        work_item: null,
+        type: 'line.stopped',
+        payload: { reason: 'Martin stopped the line' },
+      } as PublicEvent;
+      expect(gates([...held().events, stop], at(4))).toMatchObject({ status: 'blocked', beacon: undefined });
+    });
+  });
+
+  it('lights no beacon on a station with nothing waiting on anyone', () => {
+    const station = project(
+      work('1').open().add(1, 'gates.started', 'actions', payloads.gatesStarted).events,
+      at(2),
+    ).stations.find((s) => s.stage === 'gates');
+    expect(station).toMatchObject({ status: 'working', beacon: undefined });
+  });
+
   it('is blocked everywhere under Stop the line', () => {
     const line: PublicEvent = {
       ...(work('1').open().events[0] as PublicEvent),

@@ -23,31 +23,42 @@ import {
 
 test.beforeEach(({ page }) => picturesDecodeAsDrawn(page));
 
-/** The station kit's states (the design system's README); its module defines an element, so Node cannot load it. */
-const STATUSES = ['idle', 'working', 'returning', 'passing', 'blocked', 'failed'] as const;
+/**
+ * The station kit's states (the design system's README), and a beacon on a working station; its module defines an
+ * element, so Node cannot load it.
+ */
+const STATES = [
+  ...(['idle', 'working', 'returning', 'passing', 'blocked', 'failed'] as const).map((status) => ({
+    status,
+    name: status,
+  })),
+  { status: 'working', beacon: 'needs-you', name: 'working-needs-you' },
+  { status: 'working', beacon: 'failed', name: 'working-failed' },
+] as const;
 
 test.describe('stations', () => {
   for (const theme of THEMES) {
     for (const kind of KINDS) {
-      for (const status of STATUSES) {
-        test(`${kind}, ${status}, ${theme}`, async ({ page }) => {
+      for (const { status, beacon, name } of STATES.map((s) => ({ beacon: undefined, ...s }))) {
+        test(`${kind}, ${name}, ${theme}`, async ({ page }) => {
           await page.goto(consoleUrl({ theme }));
           await ready(page);
           // One station on its own, on the page's background.
           await page.evaluate(
-            ([kind, status]) => {
+            ([kind, status, beacon]) => {
               const station = document.createElement('sf-station');
               station.setAttribute('kind', kind);
               station.setAttribute('status', status);
+              if (beacon) station.setAttribute('beacon', beacon);
               station.setAttribute('motion', 'off');
               const specimen = document.createElement('div');
               specimen.className = 'specimen';
               specimen.append(station);
               document.body.replaceChildren(specimen);
             },
-            [kind, status] as const,
+            [kind, status, beacon] as const,
           );
-          await expect(page.locator('.specimen sf-station')).toHaveScreenshot(`${kind}-${status}-${theme}.png`);
+          await expect(page.locator('.specimen sf-station')).toHaveScreenshot(`${kind}-${name}-${theme}.png`);
         });
       }
     }

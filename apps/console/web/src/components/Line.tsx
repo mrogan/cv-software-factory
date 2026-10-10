@@ -5,7 +5,7 @@
 import type { Sense, Stage } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { STAGE_NAME, STATE } from '../../../../../docs/design/system/station.ts';
+import { describe, STAGE_NAME, STATE } from '../../../../../docs/design/system/station.ts';
 import { clock, duration } from '../format.ts';
 import {
   type CapSpell,
@@ -106,6 +106,18 @@ function Parcels({ stations }: { stations: readonly Station[] }) {
               />
             ));
         }
+        // A station at work while an item waits on a human: the pile in front, and a parcel running through.
+        const pile = (s.beacon ? [0, 1] : []).map((n) => (
+          <rect
+            key={`${s.stage}-held-${n}`}
+            className="parcel"
+            x={x - 32 + n * 16}
+            y="174"
+            width="14"
+            height="12"
+            rx="1.5"
+          />
+        ));
         if (s.status === 'working' || s.status === 'passing') {
           const style = {
             '--run-from': `${x}px`,
@@ -113,6 +125,7 @@ function Parcels({ stations }: { stations: readonly Station[] }) {
             '--run-time': s.status === 'passing' ? '6s' : '3.5s',
           } as CSSProperties;
           return [
+            ...pile,
             <g key={s.stage} className="run" style={style}>
               <rect className="parcel" x="0" y="174" width="14" height="12" rx="1.5" />
             </g>,
@@ -131,7 +144,7 @@ function Parcels({ stations }: { stations: readonly Station[] }) {
             />
           ));
         }
-        return [];
+        return pile;
       })}
     </g>
   );
@@ -165,10 +178,14 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
         {view.stations.map((s) => {
           const sending = current?.from === s.stage;
           const status: Status = stopped ? 'blocked' : whileSending(s.status, sending);
+          // A lit beacon names what a person has to do, while the drawing says the station is still at work.
+          const beacon = stopped ? undefined : s.beacon;
           // At a spend cap, Triage uses the blocked drawing with its own word, and says when the cap resets.
           const capped = !stopped && s.cappedUntil !== undefined;
-          const word = pending ? 'reading' : stopped ? 'stopped' : capped ? 'capped' : STATE[status].label;
-          const tone = pending ? 'faint' : stopped ? 'attn' : STATE[status].tone;
+          const shown = beacon === 'failed' ? 'failed' : beacon ? 'blocked' : status;
+          const word = pending ? 'reading' : stopped ? 'stopped' : capped ? 'capped' : STATE[shown].label;
+          const tone = pending ? 'faint' : stopped ? 'attn' : STATE[shown].tone;
+          const said = stopped || capped ? word : describe(status, beacon);
           const figure = capped ? `until ${clock(s.cappedUntil ?? 0)}` : s.figure;
           return (
             <li key={s.stage}>
@@ -183,12 +200,18 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
                 aria-label={
                   pending
                     ? `${STAGE_NAME[s.stage]}: reading the factory’s events`
-                    : `${STAGE_NAME[s.stage]}: ${word}, ${figure}. Show what is in this stage`
+                    : `${STAGE_NAME[s.stage]}: ${said}, ${figure}. Show what is in this stage`
                 }
                 disabled={pending}
                 onClick={() => setOpen((was) => (was === s.stage ? null : s.stage))}
               >
-                <sf-station kind={s.stage} status={status} decorative motion={motion ? undefined : 'off'} />
+                <sf-station
+                  kind={s.stage}
+                  status={status}
+                  beacon={beacon}
+                  decorative
+                  motion={motion ? undefined : 'off'}
+                />
                 <span className="cap" aria-hidden="true">
                   <span className="name">{STAGE_NAME[s.stage]}</span>
                   <span className="state">

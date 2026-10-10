@@ -436,18 +436,23 @@ footer .wrap { display: flex; justify-content: space-between; gap: 16px; padding
     returning: 'Found issues and sent the item back upstream. Eyes and belt turn left.',
     passing: 'Done and handed on. A tick in the hatch.',
     blocked: 'Waiting on a decision from you. Hazard hatch, flashing beacon.',
-    failed: 'Something broke. The canary takes it personally.',
+    failed: 'Something broke. It rattles, sparks and smokes, and the canary takes it personally.',
   };
+  // A beacon on a working station: at work on one item while another waits for you, or failed.
+  const BEACON_ROWS = [
+    { beacon: 'needs-you', title: 'Working, needs you', text: 'At work on one item while another waits on you. Only the beacon flashes.' },
+    { beacon: 'failed', title: 'Working, failed', text: 'At work on one item after another failed. It flashes, rattles, sparks and smokes.' },
+  ];
   const TITLE = { idle: 'Idle', working: 'Working', returning: 'Sending back', passing: 'Passed', blocked: 'Needs you', failed: 'Failed' };
   const kit = document.getElementById('kit');
   kit.innerHTML = `<div class="kit-head"><div></div>${KINDS.map((k) => `<div><b>${STAGE_NAME[k]}</b><span>${BLURB[k]}</span></div>`).join('')}</div>` +
-    STATUSES.map((s) => {
-      const tone = STATE[s].tone;
+    [...STATUSES.map((s) => ({ status: s, title: TITLE[s], text: STATE_TEXT[s], tone: STATE[s].tone })),
+      ...BEACON_ROWS.map((r) => ({ status: 'working', tone: 'attn', ...r }))].map(({ status, beacon, title, text, tone }) => {
       return `<div class="kit-row"><div class="label">
-        <b class="t-${tone}"><i class="dot ${tone === 'attn' ? 'attn' : ''}"></i>${TITLE[s]}</b>
-        <p>${STATE_TEXT[s]}</p>
+        <b class="t-${tone}"><i class="dot ${tone === 'attn' ? 'attn' : ''}"></i>${title}</b>
+        <p>${text}</p>
         <span class="tag ${tone === 'attn' ? 'attn' : ''}">${tone === 'attn' ? 'Needs you' : 'Running fine'}</span>
-      </div>${KINDS.map((k) => `<sf-station kind="${k}" status="${s}"></sf-station>`).join('')}</div>`;
+      </div>${KINDS.map((k) => `<sf-station kind="${k}" status="${status}"${beacon ? ` beacon="${beacon}"` : ''}></sf-station>`).join('')}</div>`;
     }).join('');
 
   // Anatomy pickers.
