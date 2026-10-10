@@ -1,0 +1,9 @@
+# The canary's analysis: the ClusterAnalysisTemplates the app's Rollout names, generated from policy/release.ts
+# (templates.yaml). Cluster-scoped, so nothing in the app's repository can change them.
+#
+# Not listed in deploy/base/kustomization.yaml: the journeys run on the `factory-browser` image, so a profile brings
+# these in with the images it pins (deploy/overlays/local/factory-image).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - templates.yaml
