@@ -1,0 +1,62 @@
+# Argo Rollouts' fences. Everything in `argo-rollouts` is denied, in and out, and then the controller may reach:
+#
+# - the API server (6443 on a private address, as for the line: deploy/base/factory), through which it does all its
+#   work: the app's ReplicaSets, the TraefikService's weights, the AnalysisRuns and their Jobs;
+# - Prometheus, for the canary's analysis (deploy/base/analysis), on its pods' port behind the Service's 80;
+# - DNS, for Prometheus's name.
+#
+# Nothing on the internet: its Traefik router is built in, so it fetches no plugin. Nothing calls it: there is no
+# dashboard, and nothing scrapes its metrics.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: argo-rollouts
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1" # with the namespace, before the controller starts
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: controller
+  namespace: argo-rollouts
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: rollouts-controller
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+        - ipBlock:
+            cidr: 172.16.0.0/12
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - { protocol: TCP, port: 6443 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/component: server
+      ports:
+        - { protocol: TCP, port: 9090 }
