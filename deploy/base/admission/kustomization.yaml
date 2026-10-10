@@ -10,3 +10,14 @@ resources:
   - kyverno.yaml
   - factory
   - website
+
+# Until every image the guarded namespaces pin is a digest build.yml signed, both policies only audit: they record what
+# they would refuse (`kubectl get policyreports -A`) and refuse nothing. `make admission-ready` says when that is; then
+# this patch goes, in a pull request of its own, and the policies enforce.
+patches:
+  - target:
+      kind: ImageValidatingPolicy
+    patch: |
+      - op: replace
+        path: /spec/validationActions
+        value: [Audit]

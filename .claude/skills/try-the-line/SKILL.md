@@ -54,11 +54,12 @@ The line runs in the cluster only: its agent pods may reach only the gateway and
    ```
    Build `console` too if its code changed.
 2. **Pause Argo CD** on `root` only, which owns every factory deployment: `bin/k -n argocd patch application root --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'`.
-3. **Dry run first**, before anything else can act: `GITHUB_DRY_RUN=true` on `github`, and `LINE_MODE=dry-run` on `line`, with `LINE_TAKE` removed. Optionally `GITHUB_DRY_RUN_CHECKS_SECONDS` and `GITHUB_DRY_RUN_MERGE_SECONDS` to go round faster.
-4. **Point** `line` (its container, its `runner-image` initContainer and `RUNNER_IMAGE`), `gateway` and `github` at the new images with `kubectl set image` and `set env`.
-5. **Migrations:** compare `select * from schema_migrations` with `packages/store/migrations`; if the branch adds one, run a copy of the `migrate` Job on its console image.
-6. **The model:** `ALL_LOCAL=true` on both `gateway` and `line` for Qwen, on neither for Claude. They must match, since the line sets a step's bounds from it. Stop the line before switching, so no step straddles the change.
-7. **The work item:** `LINE_ONLY=<number>` on `line`, chosen by the line's own rule (the oldest open ticket of the highest severity not yet on the line), skipping duplicates of a defect already fixed. Never answer a hold in Martin's name to get one moving: take the next ticket instead.
+3. **Admission:** images built here are unsigned, and admission control refuses them (ADR 0010). Switch the factory's policy, and only it, to audit: `bin/k patch imagevalidatingpolicy factory-images --type merge -p '{"spec":{"validationActions":["Audit"]}}'`. It covers `factory` and `runners`. Never `website-images`: nothing built on the Mac runs in `website`.
+4. **Dry run first**, before anything else can act: `GITHUB_DRY_RUN=true` on `github`, and `LINE_MODE=dry-run` on `line`, with `LINE_TAKE` removed. Optionally `GITHUB_DRY_RUN_CHECKS_SECONDS` and `GITHUB_DRY_RUN_MERGE_SECONDS` to go round faster.
+5. **Point** `line` (its container, its `runner-image` initContainer and `RUNNER_IMAGE`), `gateway` and `github` at the new images with `kubectl set image` and `set env`.
+6. **Migrations:** compare `select * from schema_migrations` with `packages/store/migrations`; if the branch adds one, run a copy of the `migrate` Job on its console image.
+7. **The model:** `ALL_LOCAL=true` on both `gateway` and `line` for Qwen, on neither for Claude. They must match, since the line sets a step's bounds from it. Stop the line before switching, so no step straddles the change.
+8. **The work item:** `LINE_ONLY=<number>` on `line`, chosen by the line's own rule (the oldest open ticket of the highest severity not yet on the line), skipping duplicates of a defect already fixed. Never answer a hold in Martin's name to get one moving: take the next ticket instead.
 
 Run one work item at a time: two steps on one LM Studio halve its speed. The dry-run GitHub worker keeps its pull requests in memory, so a restart forgets them and reuses their numbers, issues included. `make stop-the-line` and `make start-the-line` need `KUBECTL="kubectl --context k3d-software-factory"`, and a stopped line also stops triage.
 
@@ -78,7 +79,7 @@ Run one work item at a time: two steps on one LM Studio halve its speed. The dry
 
 ## Putting it back
 
-Order matters. Giving `root` its sync policy back restores images and the values `main` sets, but not env variables that `main` does not set: with `LINE_ONLY` left behind and `LINE_MODE` restored to `live`, the line would act in GitHub on that work item. And a line in dry run with neither `LINE_ONLY` nor `LINE_TAKE` takes the next ticket at once, which a live line then carries to its end, with the dry run's made-up issue. So first set `LINE_MODE=off` on `line`, which takes nothing; then remove the added env; then restore the sync policy, which sets `LINE_MODE` back; then check each deployment's env against what you recorded, and that `select work_item, stage from line` has nothing new.
+Order matters. Giving `root` its sync policy back restores images and the values `main` sets, but not env variables that `main` does not set: with `LINE_ONLY` left behind and `LINE_MODE` restored to `live`, the line would act in GitHub on that work item. And a line in dry run with neither `LINE_ONLY` nor `LINE_TAKE` takes the next ticket at once, which a live line then carries to its end, with the dry run's made-up issue. So first set `LINE_MODE=off` on `line`, which takes nothing; then remove the added env; then restore the sync policy, which sets `LINE_MODE` back and puts `factory-images` back as `main` says; then check each deployment's env against what you recorded, that `bin/k get imagevalidatingpolicy -o custom-columns=NAME:.metadata.name,ACTIONS:.spec.validationActions` shows both policies as `main` sets them (`[Deny]`, once admission enforces), and that `select work_item, stage from line` has nothing new.
 
 Copy this into `scratch/` at the start:
 
@@ -89,6 +90,7 @@ Copy this into `scratch/` at the start:
 - [ ] `line` env: remove `LINE_ONLY`, `ALL_LOCAL` and anything else added; was: …
 - [ ] `gateway` env: remove `ALL_LOCAL`; was: …
 - [ ] `github` env: remove `GITHUB_DRY_RUN_CHECKS_SECONDS`, `GITHUB_DRY_RUN_MERGE_SECONDS`; was: …
+- [ ] `factory-images`: back as `main` sets it, which `root`'s self-heal does; was: …
 - [ ] Argo CD `root`: `{"automated":{"prune":true,"selfHeal":true}}`, then check `line`, `gateway` and `github` are back on `main`'s images (`line`'s container, `runner-image` and `RUNNER_IMAGE`), with `LINE_MODE`, `LINE_TAKE` and `GITHUB_DRY_RUN` as `main` sets them, and no work item new on the line; was: …
 - [ ] Any copied `migrate` Job deleted (migrations stay applied).
 - [ ] Local images removed: `docker rmi` each `local-*` tag.

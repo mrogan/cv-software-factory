@@ -10,9 +10,10 @@
 # what else may run there. Kyverno fails closed: if it cannot verify an image (GHCR or Sigstore out of reach, or Kyverno
 # itself down), the pod is refused. A refusal names the policy, the check and the images that failed it.
 #
-# Pods are checked as they are made or changed, and the Deployments, StatefulSets and Jobs that make them too, so a
-# refusal shows where the change was made (in Argo CD, or to the line that made a runner's Job), not only in a
-# ReplicaSet's events.
+# Pods are checked as they are made or changed, and when a debug container is added to one. Kyverno would also check the
+# Deployments and Jobs that make pods, so a refusal showed where the change was made, but only for a policy that matches
+# pods alone; a debug container's image is a way in, so pods it is, and a refusal is in the events of the ReplicaSet or
+# Job that asked for the pod.
 apiVersion: policies.kyverno.io/v1
 kind: ImageValidatingPolicy
 metadata:
@@ -44,10 +45,8 @@ spec:
         operations: [CREATE, UPDATE]
         # A debug container brings an image too.
         resources: [pods, pods/ephemeralcontainers]
-  autogen:
-    podControllers:
-      controllers: [deployments, statefulsets, jobs]
-  # Which images the signature checks below may look at: ours, on GHCR. Any other is refused before it is checked.
+  # The images Kyverno fetches and may verify: ours, on GHCR. No other registry is asked anything; an image from one is
+  # refused by the checks below without being looked at.
   matchImageReferences:
     - glob: ghcr.io/mrogan/cv-software-factory/*
     - glob: ghcr.io/mrogan/cv-worlds-worst-website@*
@@ -78,8 +77,13 @@ spec:
     # Third-party images this copy admits, each by its exact reference, digest and all. Set by each copy.
     - name: allowed
       expression: "[]"
+    # Every image the pod names. Not Kyverno's `images`, which holds only those matchImageReferences selects: the rest
+    # would never be seen.
     - name: images
-      expression: images.containers + images.initContainers + images.ephemeralContainers
+      expression: >-
+        object.spec.containers.map(c, c.image) +
+        object.spec.?initContainers.orValue([]).map(c, c.image) +
+        object.spec.?ephemeralContainers.orValue([]).map(c, c.image)
     - name: undigested
       expression: variables.images.filter(i, !i.matches('^[^@]+@sha256:[0-9a-f]{64}$'))
     - name: factoryImages

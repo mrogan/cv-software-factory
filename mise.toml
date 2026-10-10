@@ -6,3 +6,5 @@ kubectl = "1.37.1"
 k3d = "5.9.0"
 helm = "4.3.0"
 kustomize = "5.8.2"
+# What the deploy pull requests' checks verify images with (check.yml), and `make admission-ready` too.
+cosign = "3.1.3"
