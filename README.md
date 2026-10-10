@@ -9,7 +9,7 @@ AI agents and deterministic gates that look after a live web app. They notice pr
 I'm Martin Rogan. This is my portfolio: a working system you can open and judge for yourself, rather than a description of what I can do. [Why it exists and what it has to prove](docs/INTENT.md).
 
 > [!NOTE]
-> **Under construction.** Milestones 1 to 4 of 11 are done ([the plan](docs/PLAN/README.md)): the repository, the toolchain, CI, a local Kubernetes cluster with GitOps and telemetry, the app the factory will look after, the console, drawn from an append-only event store and live in the browser, and the factory's senses. Probes, a crawler, alerts on the app's objectives, a log watcher and the report widget open deduplicated tickets with evidence, and Jev triages reports through the model gateway. Nothing fixes a defect yet: the first fix lands in milestone 5, which is next.
+> **Under construction.** Milestones 1 to 5 of 11 are done ([the plan](docs/PLAN/README.md)): the repository, the toolchain, CI, a local Kubernetes cluster with GitOps and telemetry, the app the factory looks after, the console, drawn from an append-only event store and live in the browser, the factory's senses and triage, and the line that fixes. Agents in fenced sandboxes plan a fix, write a failing test and then the fix, and review it, and the factory's GitHub App opens the pull request, which waits for my approval: seeded defects have been fixed and merged with no human code. Nothing is canaried or verified yet: that is milestone 6, which is next.
 
 ## What it will do
 
