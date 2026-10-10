@@ -31,6 +31,8 @@ rollouts=$("${kubectl[@]}" get rollouts --all-namespaces -o jsonpath='{range .it
 
 in_flight=0
 failed=0
+patched=()
+# Every abort is sent before any is waited for, so a slow controller holds up no other release.
 while IFS='|' read -r namespace name stable current abort; do
   [ -n "$name" ] || continue
   if [ -z "$stable" ] || [ "$stable" = "$current" ]; then continue; fi
@@ -39,26 +41,31 @@ while IFS='|' read -r namespace name stable current abort; do
     echo "The release of $namespace/$name was aborted already."
     continue
   fi
-  if ! "${kubectl[@]}" -n "$namespace" patch rollout "$name" --subresource=status --type=merge \
+  if "${kubectl[@]}" -n "$namespace" patch rollout "$name" --subresource=status --type=merge \
     -p '{"status":{"abort":true}}' >/dev/null; then
+    patched+=("$namespace/$name")
+  else
     echo "Couldn't abort the release of $namespace/$name." >&2
     failed=1
-    continue
   fi
-  # The controller takes the canary's traffic away first, then scales it down, and marks the Rollout Degraded.
+done <<<"$rollouts"
+
+# The controller takes the canary's traffic away first, then scales it down, and marks the Rollout Degraded.
+for rollout in ${patched[@]+"${patched[@]}"}; do
+  namespace=${rollout%%/*} name=${rollout#*/}
   if "${kubectl[@]}" -n "$namespace" wait "rollout/$name" --for=jsonpath='{.status.phase}'=Degraded \
     --timeout="${wait}s" >/dev/null 2>&1; then
     weights=$("${kubectl[@]}" -n "$namespace" get rollout "$name" \
       -o jsonpath='{.status.canary.weights.stable.weight}/{.status.canary.weights.canary.weight}')
     [ "$weights" != "/" ] || weights=""
-    echo "Aborted the release of $namespace/$name: the stable version takes all traffic${weights:+ (stable/canary $weights)}."
+    echo "Aborted the release of $rollout: the stable version takes all traffic${weights:+ (stable/canary $weights)}."
   else
-    echo "Aborted the release of $namespace/$name, but Argo Rollouts hasn't acted on it within ${wait}s." >&2
+    echo "Aborted the release of $rollout, but Argo Rollouts hasn't acted on it within ${wait}s." >&2
     failed=1
   fi
   echo "  It stays aborted until the next release starts. To retry this one:"
   echo "  ${kubectl[*]} -n $namespace patch rollout $name --subresource=status --type=merge -p '{\"status\":{\"abort\":false}}'"
-done <<<"$rollouts"
+done
 
 if [ "$in_flight" = 0 ]; then echo "No release is in flight, so there is no canary to abort."; fi
 exit "$failed"

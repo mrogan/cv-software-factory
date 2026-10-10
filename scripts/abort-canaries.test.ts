@@ -71,6 +71,16 @@ describe('aborting a canary in flight (make stop-the-line)', () => {
     expect(out).not.toContain('quiet');
   });
 
+  it('sends every abort before it waits for any, so a slow controller holds up no other release', async () => {
+    const { code, calls } = await stop({
+      crd: 'installed',
+      rollouts: ['website|website|5f7c|8d9e|', 'shop|front|1a2b|3c4d|'],
+    });
+    expect(code).toBe(0);
+    const steps = calls.filter((c) => c.includes('patch') || c.includes('wait')).map((c) => c.split(' ')[2]);
+    expect(steps).toEqual(['patch', 'patch', 'wait', 'wait']);
+  });
+
   it('does nothing, and says so, when no release is in flight', async () => {
     const { code, out, calls } = await stop({ crd: 'installed', rollouts: ['website|website|5f7c|5f7c|'] });
     expect(code).toBe(0);
