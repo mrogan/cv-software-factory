@@ -203,7 +203,8 @@ jobs:
         run: |
           identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/build.yml@refs/heads/main"
           trust=(--certificate-identity "$identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com)
-          pins='.images[] | .newName + "@" + .digest'
+          # A pin is the image an entry names, so two entries that swap digests both move.
+          pins='.images[] | .name + "=" + .newName + "@" + .digest'
           # Each read is its own assignment, so one that fails fails the step rather than checking nothing.
           files=$(git diff --name-only HEAD^1 HEAD -- 'deploy/overlays/local/*-image/kustomization.yaml')
           for file in $files; do
@@ -217,7 +218,8 @@ jobs:
             fi
             moved=$(comm -13 <(sort -u <<< "$before") <(sort -u <<< "$refs"))
             [ -n "$moved" ] || echo "$file: moves no pin, nothing to check"
-            for ref in $moved; do
+            for pin in $moved; do
+              ref=${pin#*=}
               if ! cosign verify "${trust[@]}" "$ref" > /dev/null; then
                 echo "::error file=$file::$ref is not signed by $identity"; exit 1
               fi
