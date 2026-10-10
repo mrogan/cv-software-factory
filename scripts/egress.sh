@@ -19,10 +19,15 @@
 # namespace, a pod labelled like the admission controller reaches GHCR and Sigstore's trust root, while one without
 # that label reaches neither.
 #
+# Then the app's own pods, whose code agents write: a pod labelled like them reaches DNS and the collector, and not
+# Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or the internet. The app is reached through Traefik
+# and by the probes, the crawler and the analysis, and not by another pod beside it.
+#
 # Every pod this starts runs an image the cluster already runs, pinned by digest, so nothing else is pulled and
 # admission control lets it in once it enforces: the workers' pod the factory image the gateway runs, the runners'
 # pods and the ones in Kyverno's and Argo Rollouts' namespaces the runner image the line pins (Node is on its PATH),
-# and the analysis Job's the `factory-browser` image the analysis pins. Each tries an address with Node's `fetch`.
+# and the analysis Job's and the app's the `factory-browser` image the analysis pins. Each tries an address with Node's
+# `fetch`, or, to name the shop's host to Traefik, with `http.get`.
 #
 # A check that must be blocked passes only when the connection is refused, reset, unreachable or never answered, as a
 # policy blocks it: any other failure, such as a name that does not resolve, proves nothing about the fence.
@@ -44,21 +49,34 @@ cleanup() {
   # Each delete goes on whether the one before failed, so no probe pod is left behind.
   "${kubectl[@]}" delete pod "$pod" --ignore-not-found --wait=false >/dev/null || true
   "${runners[@]}" delete pod egress-agent egress-prepare --ignore-not-found --wait=false >/dev/null || true
-  kubectl --context "$context" -n website delete pod egress-journeys --ignore-not-found --wait=false >/dev/null || true
+  kubectl --context "$context" -n website delete pod egress-journeys egress-app egress-stranger --ignore-not-found \
+    --wait=false >/dev/null || true
   kubectl --context "$context" -n argo-rollouts delete pod egress-rollouts --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n kyverno delete pod egress-admission egress-kyverno --ignore-not-found --wait=false >/dev/null || true
 }
 trap cleanup EXIT
 
 # What a pod runs to try an address: prints the HTTP status, or why it could not connect. A server's certificate is
-# not checked: the Kubernetes API's is the cluster's own, and reaching it at all is what counts.
+# not checked: the Kubernetes API's is the cluster's own, and reaching it at all is what counts. Given a host as well,
+# it names that host over plain HTTP, as a visitor's browser does to Traefik; `fetch` will not send a Host header.
 try='process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const blocks = ["ECONNREFUSED", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT", "TimeoutError"];
 const names = ["ENOTFOUND", "EAI_AGAIN"];
-fetch(process.argv[1], { signal: AbortSignal.timeout(6000) }).then(
+const [url, host] = process.argv.slice(1);
+const get = host
+  ? new Promise((resolve, reject) => {
+      const req = require("node:http").get(url, { headers: { host }, timeout: 6000 }, (r) => {
+        r.resume();
+        resolve({ status: r.statusCode });
+      });
+      req.on("timeout", () => req.destroy(Object.assign(new Error("timeout"), { code: "TimeoutError" })));
+      req.on("error", reject);
+    })
+  : fetch(url, { signal: AbortSignal.timeout(6000) });
+get.then(
   (r) => console.log("reached, HTTP " + r.status),
   (e) => {
-    const code = e.cause?.code ?? e.name;
+    const code = e.cause?.code ?? e.code ?? e.name;
     console.log((blocks.includes(code) ? "blocked: " : names.includes(code) ? "no name: " : "failed: ") + code);
   })'
 
@@ -118,26 +136,31 @@ factory.mrogan.dev/runner: prepare"
 # The analysis Job's pod, by its labels in the ClusterAnalysisTemplate, on its image.
 start_pod website egress-journeys "$browser_image" node "app.kubernetes.io/name: journeys
 app.kubernetes.io/part-of: software-factory"
+# The app's pods by the one label its fence selects on, and not by all of theirs: neither the app's Services nor its
+# ReplicaSets must take this pod for one of theirs. And a pod beside the app that no policy selects.
+start_pod website egress-app "$browser_image" node "app.kubernetes.io/name: website"
+start_pod website egress-stranger "$browser_image" node "app.kubernetes.io/name: egress-stranger"
 # The controllers' pods by the one label their policies select on, and not by all of their own: their ReplicaSets
 # must not take these pods for theirs.
 start_pod argo-rollouts egress-rollouts "$runner_image" node "app.kubernetes.io/component: rollouts-controller"
 start_pod kyverno egress-admission "$runner_image" node "app.kubernetes.io/component: admission-controller"
 start_pod kyverno egress-kyverno "$runner_image" node "app.kubernetes.io/component: reports-controller"
-for started in factory/$pod runners/egress-agent runners/egress-prepare website/egress-journeys \
-  argo-rollouts/egress-rollouts kyverno/egress-admission kyverno/egress-kyverno; do
+for started in factory/$pod runners/egress-agent runners/egress-prepare website/egress-journeys website/egress-app \
+  website/egress-stranger argo-rollouts/egress-rollouts kyverno/egress-admission kyverno/egress-kyverno; do
   kubectl --context "$context" -n "${started%%/*}" wait "pod/${started#*/}" --for=condition=Ready --timeout=2m >/dev/null
 done
 # The policy reaches a new pod a moment after it starts.
 sleep 5
 
 failed=0
-# $1: what is being tried; $2: where from (the pod); $3: the address; $4: blocked or reached, as it must be.
+# $1: what is being tried; $2: where from (the pod); $3: the address; $4: blocked or reached, as it must be; $5: the
+# host to name, if any.
 expect() {
   local result
   local namespace=factory target=$2 node=/nodejs/bin/node
   # A target in another namespace is written <namespace>:<pod>; the images there keep node on the PATH.
   if [[ "$2" == *:* ]]; then namespace=${2%%:*} target=${2#*:} node=node; fi
-  result=$(kubectl --context "$context" -n "$namespace" exec "$target" -- "$node" -e "$try" "$3" 2>/dev/null)
+  result=$(kubectl --context "$context" -n "$namespace" exec "$target" -- "$node" -e "$try" "$3" ${5:+"$5"} 2>/dev/null)
   if [[ "$result" == "$4"* ]]; then printf '  ok    %-62s %s\n' "$1" "$result"; else
     printf '  FAIL  %-62s %s (wanted %s)\n' "$1" "$result" "$4"
     failed=1
@@ -208,6 +231,23 @@ expect "the analysis cannot reach the gateway" website:egress-journeys "http://$
 expect "the analysis cannot reach the Kubernetes API" website:egress-journeys "https://$api_ip/version" blocked
 expect "the analysis cannot reach a public address" website:egress-journeys https://1.1.1.1 blocked
 
+echo "A pod labelled like the app (egress-app), and who reaches the app:"
+expect "the app reaches the collector, by its name" website:egress-app http://otel-collector.telemetry:4318 reached
+expect "the app cannot reach the collector on another port" website:egress-app http://otel-collector.telemetry:4317 blocked
+expect "the app cannot reach Prometheus" website:egress-app http://prometheus-server.telemetry/-/healthy blocked
+expect "the app cannot reach Loki" website:egress-app http://loki.telemetry:3100/ready blocked
+expect "the app cannot reach Tempo" website:egress-app http://tempo.telemetry:3200/ready blocked
+expect "the app cannot reach Postgres" website:egress-app "http://$postgres_ip:5432" blocked
+expect "the app cannot reach the gateway" website:egress-app "http://$gateway_ip:8080/health" blocked
+expect "the app cannot reach the Kubernetes API" website:egress-app "https://$api_ip/version" blocked
+expect "the app cannot reach a public address" website:egress-app https://1.1.1.1 blocked
+expect "Traefik passes a visitor to the app" deployment/traffic http://traefik.kube-system/health "reached, HTTP 200" \
+  website.localhost
+expect "the probes reach the app" factory:deployment/probes http://website.website/health "reached, HTTP 200"
+expect "the crawler reaches the app" factory:deployment/crawler http://website.website/health "reached, HTTP 200"
+expect "a pod beside the app reaches the collector" website:egress-stranger http://otel-collector.telemetry:4318 reached
+expect "a pod beside the app cannot reach it" website:egress-stranger http://website.website blocked
+
 echo "A pod labelled like the Argo Rollouts controller (egress-rollouts):"
 expect "the controller reaches the Kubernetes API" argo-rollouts:egress-rollouts "https://$api_ip/version" reached
 expect "the controller reaches Prometheus" argo-rollouts:egress-rollouts http://prometheus-server.telemetry/-/healthy reached
@@ -232,7 +272,7 @@ expect "the reports controller cannot reach a public address" kyverno:egress-kyv
 expect "the reports controller reaches the Kubernetes API" kyverno:egress-kyverno "https://$api_ip/version" reached
 
 if [ "$failed" = 0 ]; then
-  echo "Only the gateway, the GitHub worker and Kyverno's admission controller leave the cluster; the runners, the release"
-  echo "and the traffic are fenced."
+  echo "Only the gateway, the GitHub worker and Kyverno's admission controller leave the cluster; the runners, the release,"
+  echo "the traffic and the app are fenced."
 else echo "The network policies do not hold."; fi
 exit "$failed"

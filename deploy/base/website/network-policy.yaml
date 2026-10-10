@@ -1,0 +1,59 @@
+# The app's fence. Agents write the app's code, so its pods may reach no more than serving the shop needs: DNS, and the
+# collector on OTLP over HTTP (4318), where it sends its telemetry. Not Prometheus, Loki, Tempo, Postgres, the gateway,
+# the Kubernetes API or the internet. They are reached on 8080 only by Traefik, which serves the shop's visitors and
+# splits a release's traffic; the probes and the crawler, from the factory's namespace; and the canary's analysis Job.
+#
+# It selects the stable and the canary pods alike, by the label the app's repository gives them. The app's AppProject
+# cannot create a NetworkPolicy, so nothing there can widen this. The kubelet's health checks come from the node, which
+# k3s's policy controller always lets through.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: website
+  namespace: website
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: website
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: factory
+          podSelector:
+            matchExpressions:
+              - { key: app.kubernetes.io/name, operator: In, values: [probes, crawler] }
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: journeys
+      ports:
+        - { protocol: TCP, port: 8080 }
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - { protocol: TCP, port: 4318 }

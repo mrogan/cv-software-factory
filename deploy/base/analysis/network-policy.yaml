@@ -2,8 +2,8 @@
 # stable and the canary, behind their Services' port 80) and DNS, and nothing else: not the factory, the telemetry, the
 # Kubernetes API or the internet. Chromium follows whatever a page links to; this keeps it in the shop.
 #
-# It selects the journeys' pods only. Nothing else in `website` is denied, so the app still takes its traffic from
-# Traefik, the senses and the analysis, and sends its telemetry.
+# It selects the journeys' pods only. The app's own pods have their fence (deploy/base/website/network-policy.yaml),
+# which lets these in.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

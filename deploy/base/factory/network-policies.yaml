@@ -6,8 +6,9 @@
 # the cluster. `make egress` proves it.
 # k3s enforces these itself (its embedded network policy controller), so they hold on the local cluster.
 #
-# Policies add: a pod may do whatever any policy that selects it allows. Policies on telemetry and website are not
-# needed to let traffic in, because those namespaces deny nothing.
+# Policies add: a pod may do whatever any policy that selects it allows. Policies on telemetry are not needed to let
+# traffic in, because that namespace denies nothing; the app's pods in `website` let in only Traefik, the probes, the
+# crawler and the analysis (deploy/base/website/network-policy.yaml).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
