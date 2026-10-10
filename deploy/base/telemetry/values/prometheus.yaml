@@ -68,6 +68,8 @@ server:
       - service.namespace
       - service.version
       - deployment.environment.name
+      # Which of a release's two versions a series is from: the stable's hash or the canary's (otel-collector.yaml).
+      - k8s.pod.label.rollouts-pod-template-hash
   resources:
     requests:
       cpu: 100m

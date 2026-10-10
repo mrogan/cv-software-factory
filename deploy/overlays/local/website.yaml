@@ -5,6 +5,13 @@ kind: Application
 metadata:
   name: website
   namespace: argocd
+  annotations:
+    # Last of everything root deploys. Root's sync waits while a resource in an earlier wave is Suspended or
+    # Progressing, and fails on a Degraded one; the website is Suspended through a canary and Degraded after a rollback,
+    # so in an earlier wave it would hold back every change to the factory until its release ended or the next began.
+    # In the last wave root applies it and is done, whatever its health. Root's own health still shows the website's,
+    # so `make up` waits for everything else to be Healthy and for the website only to settle.
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   project: website
   source:
@@ -14,7 +21,18 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: website
+  # Argo Rollouts sets the traffic split's weights at each step of a release. They are its to set: Argo CD neither
+  # reports them as drift nor puts them back, even when it syncs something else mid-release.
+  ignoreDifferences:
+    - group: traefik.io
+      kind: TraefikService
+      jqPathExpressions:
+        - .spec.weighted.services[].weight
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+      - RespectIgnoreDifferences=true
+      # What a change removes goes only once what replaces it is healthy, so the shop keeps answering in between.
+      - PruneLast=true

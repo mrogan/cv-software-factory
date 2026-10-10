@@ -106,12 +106,13 @@ describe('admission control', () => {
     }
   });
 
-  it('guards every namespace the factory and the app run in; telemetry runs only its charts', async () => {
+  it('guards every namespace the factory and the app run in; telemetry and Argo Rollouts run only their charts', async () => {
     const namespaces = parseAllDocuments(await read('base/namespaces.yaml')).map(
       (d) => (d.toJS() as { metadata: { name: string } }).metadata.name,
     );
     const guarded = [...(await copy('factory')).namespaces, ...(await copy('website')).namespaces];
-    expect(guarded.sort()).toEqual(namespaces.filter((n) => n !== 'telemetry').sort());
+    const charts = ['telemetry', 'argo-rollouts'];
+    expect(guarded.sort()).toEqual(namespaces.filter((n) => !charts.includes(n)).sort());
   });
 
   it('admits in each namespace only the images of ours that run there', async () => {

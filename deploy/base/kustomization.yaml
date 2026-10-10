@@ -10,3 +10,4 @@ resources:
   - migrate
   - console
   - website
+  - rollouts

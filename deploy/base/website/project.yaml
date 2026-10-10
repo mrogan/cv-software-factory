@@ -17,6 +17,13 @@ spec:
       namespace: website
   clusterResourceWhitelist: []
   namespaceResourceWhitelist:
+    # The shop runs as a Rollout, released as a canary through Traefik's weighted service.
+    - group: argoproj.io
+      kind: Rollout
+    - group: traefik.io
+      kind: TraefikService
+    - group: traefik.io
+      kind: IngressRoute
     - group: apps
       kind: Deployment
     - group: ""

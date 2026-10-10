@@ -27,6 +27,17 @@ metadata:
   labels:
     pod-security.kubernetes.io/enforce: restricted
 ---
+# Argo Rollouts' controller, which runs the app's releases as canaries (rollouts/). Like telemetry, it runs only an
+# upstream chart, so admission control does not guard it (deploy/base/admission).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argo-rollouts
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
 # Runners: one Job per step of the factory's agents, each a disposable sandbox. The line creates them; nothing here is
 # deployed but their fences (deploy/base/runners), which a profile brings in with the factory's workers.
 apiVersion: v1

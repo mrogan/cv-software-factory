@@ -1,0 +1,26 @@
+# The collector reads the app's pods, and only those, to say which pod each record came from (k8s_attributes in
+# values/otel-collector.yaml). A Role in the app's namespace rather than the chart's ClusterRole, so it cannot list the
+# pods of any other namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: otel-collector-reads-pods
+  namespace: website
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: otel-collector-reads-pods
+  namespace: website
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: otel-collector-reads-pods
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: telemetry
