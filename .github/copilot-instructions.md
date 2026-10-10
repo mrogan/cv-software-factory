@@ -5,22 +5,12 @@ it is public and read by reviewers, so the bar is best practice and scrupulous h
 (`docs/INTENT.md`). Most pull requests are written by Claude Code and merged by Martin.
 
 The gates already check lint, formatting, types, tests, design tokens, manifests and the pull request's title. Don't
-comment on what they catch. Review the diff, not the code around it, and leave a comment only when it changes
-something: a bug, a risk, a broken rule below, or a doc the change made untrue. Say which rule a comment rests on.
+comment on what they catch.
 
 ## The rules
 
-From `docs/REVIEWERS.md`, which wins if the two disagree:
-
-1. **Deep modules.** A module hides a decision behind a small interface. Prefer fewer, deeper modules to layers that
-   only pass calls through or rename them.
-2. **Check at the boundary, trust inside.** What comes from outside (HTTP, a provider, the store, the environment) is
-   parsed with Zod once, where it enters. Past that, the types are believed.
-3. **Failures are typed.** An error a caller handles is a class with a kind, never matched on its message, and
-   nothing is swallowed silently.
-4. **Collaborators come in.** A module is given its store, log, clock and HTTP client, so a test can pass fakes; only
-   the entry points wire real ones.
-5. **Test at the seams.** Tests observe behaviour through a public boundary, never against internals.
+Hold a change to the rules in `docs/REVIEWERS.md`, as this pull request leaves it: a change to the rules here is
+Martin's, and is meant to apply at once.
 
 ## How this repository works
 
