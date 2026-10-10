@@ -41,11 +41,12 @@ browser_image=$(kubectl --context "$context" get clusteranalysistemplate website
   -o jsonpath='{.spec.metrics[?(@.name=="journeys")].provider.job.spec.template.spec.containers[0].image}')
 runners=(kubectl --context "$context" -n runners)
 cleanup() {
-  "${kubectl[@]}" delete pod "$pod" --ignore-not-found --wait=false >/dev/null
-  "${runners[@]}" delete pod egress-agent egress-prepare --ignore-not-found --wait=false >/dev/null
-  kubectl --context "$context" -n website delete pod egress-journeys --ignore-not-found --wait=false >/dev/null
-  kubectl --context "$context" -n argo-rollouts delete pod egress-rollouts --ignore-not-found --wait=false >/dev/null
-  kubectl --context "$context" -n kyverno delete pod egress-admission egress-kyverno --ignore-not-found --wait=false >/dev/null
+  # Each delete goes on whether the one before failed, so no probe pod is left behind.
+  "${kubectl[@]}" delete pod "$pod" --ignore-not-found --wait=false >/dev/null || true
+  "${runners[@]}" delete pod egress-agent egress-prepare --ignore-not-found --wait=false >/dev/null || true
+  kubectl --context "$context" -n website delete pod egress-journeys --ignore-not-found --wait=false >/dev/null || true
+  kubectl --context "$context" -n argo-rollouts delete pod egress-rollouts --ignore-not-found --wait=false >/dev/null || true
+  kubectl --context "$context" -n kyverno delete pod egress-admission egress-kyverno --ignore-not-found --wait=false >/dev/null || true
 }
 trap cleanup EXIT
 
