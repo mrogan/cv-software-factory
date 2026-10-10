@@ -21,14 +21,6 @@ ports:
   zipkin:
     enabled: false
 
-# The app's pods, read so the collector can say which one each record came from (k8s_attributes, below).
-clusterRole:
-  create: true
-  rules:
-    - apiGroups: [""]
-      resources: [pods]
-      verbs: [get, list, watch]
-
 config:
   receivers:
     jaeger: null
@@ -38,7 +30,8 @@ config:
     # Each record from the app gains its pod's name and its rollouts-pod-template-hash label, which Argo Rollouts gives
     # the stable version's pods and the canary's each their own: the canary's analysis tells the two apart by it. The
     # pod is found by the address its record came from, so this runs before batching, which forgets it. Only the app's
-    # namespace is watched; telemetry from anywhere else passes through unchanged.
+    # namespace is watched, and only it may be read (collector-reads-website.yaml); telemetry from anywhere else passes
+    # through unchanged.
     k8s_attributes:
       filter:
         namespace: website
