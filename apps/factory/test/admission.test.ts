@@ -44,6 +44,7 @@ const policy = async () =>
     spec: {
       attestors: { name: string; cosign: { keyless: { identities: Record<string, string>[] } } }[];
       variables: { name: string; expression: string }[];
+      validationActions: string[];
     };
   };
 
@@ -145,6 +146,17 @@ describe('admission control', () => {
     );
     for (const image of factory.allowed) expect(image).toMatch(/@sha256:[0-9a-f]{64}$/);
     expect((await copy('website')).allowed).toEqual([]);
+  });
+
+  it("refuses in the factory's namespaces, and only audits in `website` until the app's first signed release", async () => {
+    expect((await policy()).spec.validationActions).toEqual(['Deny']);
+    const { patches } = parse(await read('base/admission/kustomization.yaml')) as {
+      patches: { target: { name: string }; patch: string }[];
+    };
+    // The only patch that switches a copy to Audit is `website-images`'s, which goes when it enforces (#173).
+    expect(patches.map((p) => [p.target.name, parse(p.patch)])).toEqual([
+      ['website-images', [{ op: 'replace', path: '/spec/validationActions', value: ['Audit'] }]],
+    ]);
   });
 
   it("kept Kyverno's refusals in every guarded namespace (scripts/admission-refusals.sh)", async () => {

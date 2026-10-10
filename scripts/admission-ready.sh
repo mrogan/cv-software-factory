@@ -6,9 +6,10 @@
 # `website`, the Jobs of the canary's ClusterAnalysisTemplates, which Argo Rollouts starts there), and checks
 # each as the image policies do (deploy/base/admission): by digest; named in the namespace's policy, or ours on GHCR,
 # from a repository that policy admits, signed by `build.yml` on `main` of the repository that builds it. Then it asks
-# Kyverno: any pod its policy reports as failing is listed too. Exits non-zero if anything would be refused, so a
-# policy goes from Audit to Deny only once every image its namespaces need would be admitted: signed, or named by
-# digest in the policy.
+# Kyverno: any pod a policy that only audits reports as failing is listed too (one that enforces refuses instead, and
+# the images it guards are checked above). Then it says, for each policy, whether it enforces or audits and whether
+# every image its namespaces need would be admitted: a policy goes from Audit to Deny only once they would, signed, or
+# named by digest in the policy. Exits non-zero if anything would be refused.
 #
 # cosign is the same check the deploy pull requests make, but not Kyverno's own code, so an image cosign passes could
 # still be one Kyverno refuses; Kyverno's reports cover the pods it has seen made since it was installed.
@@ -87,26 +88,42 @@ check() { # namespace policy allowed factory-repositories website-repositories i
   echo "  signed   $ns  $image"
 }
 
+notready="" # the policies with an image refused in their namespaces
+refusing() { if [[ " $notready " != *" $1 "* ]]; then notready="$notready $1"; fi; }
 for pair in factory:factory-images runners:factory-images website:website-images; do
-  ns=${pair%%:*} policy=${pair#*:}
+  ns=${pair%%:*} policy=${pair#*:} before=$failed failed=0
   # Read first, so a cluster that cannot answer fails the script rather than checking nothing.
   allowed=$(listed "$policy" allowed)
   factory=$(listed "$policy" factoryRepositories)
   website=$(listed "$policy" websiteRepositories)
   list=$(images "$ns")
   for image in $list; do check "$ns" "$policy" "$allowed" "$factory" "$website" "$image"; done
+  if [ "$failed" = 1 ]; then refusing "$policy"; fi
+  if [ "$before" = 1 ]; then failed=1; fi
 done
 
-reports=$("${kubectl[@]}" get policyreports -A -o json | jq -r '
+actions() { "${kubectl[@]}" get imagevalidatingpolicy "$1" -o jsonpath='{.spec.validationActions}'; }
+auditing=$(for policy in factory-images website-images; do [[ "$(actions "$policy")" == *Audit* ]] && echo "$policy"; done || true)
+reports=$("${kubectl[@]}" get policyreports -A -o json | jq -r --arg auditing "$auditing" '
+  ($auditing | split("\n")) as $audits |
   .items[] | select(.metadata.namespace | IN("factory", "runners", "website")) | . as $report | .results[]? |
-  select(.result == "fail" or .result == "error") |
+  select((.result == "fail" or .result == "error") and (.policy | IN($audits[]))) |
   "  refused  \($report.metadata.namespace)  pod \($report.scope.name): \(.policy): \(.message)"')
 if [ -n "$reports" ]; then
   echo "Kyverno reports:"; echo "$reports"; failed=1
+  for policy in $auditing; do
+    if grep -qF ": $policy: " <<<"$reports"; then refusing "$policy"; fi
+  done
 fi
 
-if [ "$failed" = 1 ]; then
-  echo "Not ready: the images above would be refused. A policy that guards their namespaces stays in Audit until their signed pins have merged."
-  exit 1
-fi
-echo "Ready: every image the guarded namespaces run would be admitted. A policy still in Audit can be switched to Deny."
+for policy in factory-images website-images; do
+  mode=$([[ "$(actions "$policy")" == *Audit* ]] && echo audits || echo enforces)
+  if [[ " $notready " == *" $policy "* ]]; then
+    echo "$policy $mode: not ready, the images above would be refused; in Audit until their signed pins have merged."
+  elif [ "$mode" = audits ]; then
+    echo "$policy audits: ready, every image its namespaces need would be admitted; its Audit patch can go."
+  else
+    echo "$policy enforces: every image its namespaces need is admitted."
+  fi
+done
+exit "$failed"

@@ -80,7 +80,7 @@ Run one work item at a time: two steps on one LM Studio halve its speed. The dry
 
 ## Putting it back
 
-Order matters. Giving `root` its sync policy back restores images and the values `main` sets, but not env variables that `main` does not set: with `LINE_ONLY` left behind and `LINE_MODE` restored to `live`, the line would act in GitHub on that work item. And a line in dry run with neither `LINE_ONLY` nor `LINE_TAKE` takes the next ticket at once, which a live line then carries to its end, with the dry run's made-up issue. So first set `LINE_MODE=off` on `line`, which takes nothing; then remove the added env; then restore the sync policy, which sets `LINE_MODE` back and puts `factory-images` back as `main` says; then check each deployment's env against what you recorded, that `bin/k get imagevalidatingpolicy -o custom-columns=NAME:.metadata.name,ACTIONS:.spec.validationActions` shows both policies as `main` sets them (`factory-images` `[Deny]`; `website-images` `[Audit]` until the app's first signed release, `[Deny]` after), and that `select work_item, stage from line` has nothing new.
+Order matters. Giving `root` its sync policy back restores images and the values `main` sets, but not env variables that `main` does not set: with `LINE_ONLY` left behind and `LINE_MODE` restored to `live`, the line would act in GitHub on that work item. And a line in dry run with neither `LINE_ONLY` nor `LINE_TAKE` takes the next ticket at once, which a live line then carries to its end, with the dry run's made-up issue. So first set `LINE_MODE=off` on `line`, which takes nothing; then remove the added env; then delete any runner Jobs left in `runners` (`bin/k -n runners delete jobs --all`), or wait until there are none, since `root` puts `factory-images` back to Deny before it moves the deployments off the local images, and a Job on one would be refused; then restore the sync policy, which sets `LINE_MODE` back and puts `factory-images` back as `main` says; then check each deployment's env against what you recorded, that `bin/k get imagevalidatingpolicy -o custom-columns=NAME:.metadata.name,ACTIONS:.spec.validationActions` shows both policies as `main` sets them (`factory-images` `[Deny]`; `website-images` `[Audit]` until the app's first signed release, `[Deny]` after), that no pod or Job in `factory` or `runners` still runs a local image (`bin/k -n factory get pods,jobs -o jsonpath='{..image}'`, and the same for `runners`, with nothing `local-`: a pod admitted under Audit keeps running after Deny returns), and that `select work_item, stage from line` has nothing new.
 
 Copy this into `scratch/` at the start:
 
@@ -91,7 +91,9 @@ Copy this into `scratch/` at the start:
 - [ ] `line` env: remove `LINE_ONLY`, `ALL_LOCAL` and anything else added; was: …
 - [ ] `gateway` env: remove `ALL_LOCAL`; was: …
 - [ ] `github` env: remove `GITHUB_DRY_RUN_CHECKS_SECONDS`, `GITHUB_DRY_RUN_MERGE_SECONDS`; was: …
+- [ ] `runners`: no Jobs left before `root` gets its sync policy back.
 - [ ] `factory-images`: back as `main` sets it, which `root`'s self-heal does; was: …
+- [ ] No pod or Job in `factory` or `runners` on a `local-` image.
 - [ ] Argo CD `root`: `{"automated":{"prune":true,"selfHeal":true}}`, then check `line`, `gateway` and `github` are back on `main`'s images (`line`'s container, `runner-image` and `RUNNER_IMAGE`), with `LINE_MODE`, `LINE_TAKE` and `GITHUB_DRY_RUN` as `main` sets them, and no work item new on the line; was: …
 - [ ] Any copied `migrate` Job deleted (migrations stay applied).
 - [ ] Local images removed: `docker rmi` each `local-*` tag.
