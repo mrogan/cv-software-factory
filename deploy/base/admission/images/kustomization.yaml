@@ -1,0 +1,5 @@
+# The image policy, once. ../factory and ../website each make a copy of it, for their namespaces.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - policy.yaml

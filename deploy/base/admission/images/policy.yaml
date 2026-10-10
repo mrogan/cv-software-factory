@@ -1,0 +1,173 @@
+# Only images the pipeline signed run (ADR 0010). A pod's images, its init and ephemeral containers' and its image
+# volumes' too, must each be
+#
+# 1. referenced by digest, so what was checked is what runs;
+# 2. one of ours, from GHCR, that this copy runs, or one of the few others it names by digest, each with its reason;
+# 3. if ours, signed by `build.yml` on `main` of the repository that builds it, keyless, with GitHub's OIDC identity
+#    compared whole, never as a pattern;
+# 4. and carry the SBOM that the same workflow attested.
+#
+# Two copies of this policy, `factory-images` and `website-images` (../factory, ../website), say where it applies,
+# which of our images run there and what else may. Enforcing, Kyverno fails closed: if it cannot verify an image (GHCR
+# or Sigstore out of reach, or Kyverno itself down), the pod is refused. While a copy only audits, an image it cannot
+# verify is reported and admitted, but Kyverno being down still refuses the pod. A refusal names the policy, the check
+# and the images that failed it.
+#
+# Pods are checked as they are made, when a change to one changes its images, and when a debug container is added to
+# one; a change to a pod's labels or finalizers is not, so a pod already running is never held up by an outage of
+# GHCR. Kyverno would also check the Deployments and Jobs that make pods, so a refusal showed where the change was made,
+# but only for a policy that matches pods alone; a debug container's image is a way in, so pods it is, and a refusal is
+# in the events of the ReplicaSet or Job that asked for the pod.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: images
+  annotations:
+    # After Kyverno, whose CRDs it needs (wave -3), before anything it guards.
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  webhookConfiguration:
+    # Verifying an image fetches its signature and SBOMs from GHCR the first time; Kyverno then caches the answer.
+    timeoutSeconds: 30
+  evaluation:
+    # Checked at admission only. Pods made before the policy existed are not looked at again; `make admission-ready`
+    # checks what the namespaces run.
+    background:
+      enabled: false
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        # Set by each copy.
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: []
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        # A debug container brings an image too.
+        resources: [pods, pods/ephemeralcontainers]
+  matchConditions:
+    # A new pod, or a change to a pod's images. Every list of images is compared, or a change to the one left out
+    # would pass unchecked.
+    - name: images-change
+      expression: >-
+        request.operation == 'CREATE' ||
+        object.spec.containers.map(c, c.image) != oldObject.spec.containers.map(c, c.image) ||
+        object.spec.?initContainers.orValue([]).map(c, c.image) !=
+        oldObject.spec.?initContainers.orValue([]).map(c, c.image) ||
+        object.spec.?ephemeralContainers.orValue([]).map(c, c.image) !=
+        oldObject.spec.?ephemeralContainers.orValue([]).map(c, c.image) ||
+        object.spec.?volumes.orValue([]).filter(v, has(v.image)).map(v, v.image.reference) !=
+        oldObject.spec.?volumes.orValue([]).filter(v, has(v.image)).map(v, v.image.reference)
+  # The images Kyverno fetches and may verify: ours, on GHCR, by digest (with a tag or without). No other registry is
+  # asked anything, nor ours for a tag; such an image is refused by the checks below without being looked at. An image
+  # of ours that a copy does not run is refused before its signature is looked at, too. These globs, the `ours`
+  # variable below and scripts/admission-ready.sh must agree on what is ours.
+  matchImageReferences:
+    - glob: ghcr.io/mrogan/cv-software-factory/*@*
+    - glob: ghcr.io/mrogan/cv-worlds-worst-website@*
+    - glob: ghcr.io/mrogan/cv-worlds-worst-website:*@*
+  validationConfigurations:
+    # The policy itself checks for digests, with its own words, and changes nothing.
+    mutateDigest: false
+    verifyDigest: false
+    required: false
+  attestors:
+    - name: factory
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subject: https://github.com/mrogan/cv-software-factory/.github/workflows/build.yml@refs/heads/main
+    - name: website
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subject: https://github.com/mrogan/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main
+  attestations:
+    # Syft's SPDX document, one for each platform, attested by build.yml with `cosign attest --type spdxjson`.
+    - name: sbom
+      intoto:
+        type: https://spdx.dev/Document
+  variables:
+    # Third-party images this copy admits, each by its exact reference, digest and all. Set by each copy.
+    - name: allowed
+      expression: "[]"
+    # Our repositories on GHCR whose images this copy admits, signed by the factory's build.yml and by the app's. Set
+    # by each copy: no namespace runs every image we build.
+    - name: factoryRepositories
+      expression: "[]"
+    - name: websiteRepositories
+      expression: "[]"
+    # Every image the pod names, its image volumes' too (an OCI image mounted as files). Not Kyverno's `images`,
+    # which holds only the containers' images matchImageReferences selects: the rest would never be seen.
+    - name: images
+      expression: >-
+        object.spec.containers.map(c, c.image) +
+        object.spec.?initContainers.orValue([]).map(c, c.image) +
+        object.spec.?ephemeralContainers.orValue([]).map(c, c.image) +
+        object.spec.?volumes.orValue([]).filter(v, has(v.image)).map(v, v.image.reference)
+    - name: undigested
+      expression: variables.images.filter(i, !i.matches('^[^@]+@sha256:[0-9a-f]{64}$'))
+    # The images from a repository this copy admits, by its whole name: `<repository>`, `<repository>:<tag>`,
+    # `<repository>@<digest>`.
+    - name: factoryImages
+      expression: >-
+        variables.images.filter(i, variables.factoryRepositories.exists(r,
+        i == r || i.startsWith(r + ':') || i.startsWith(r + '@')))
+    - name: websiteImages
+      expression: >-
+        variables.images.filter(i, variables.websiteRepositories.exists(r,
+        i == r || i.startsWith(r + ':') || i.startsWith(r + '@')))
+    # Images from our GHCR: the factory's repositories, and the app's one.
+    - name: ours
+      expression: >-
+        variables.images.filter(i, i.startsWith('ghcr.io/mrogan/cv-software-factory/') ||
+        i == 'ghcr.io/mrogan/cv-worlds-worst-website' || i.startsWith('ghcr.io/mrogan/cv-worlds-worst-website:') ||
+        i.startsWith('ghcr.io/mrogan/cv-worlds-worst-website@'))
+    - name: foreign
+      expression: variables.images.filter(i, !(i in variables.ours) && !(i in variables.allowed))
+    - name: misplaced
+      expression: >-
+        variables.ours.filter(i, !(i in variables.factoryImages) && !(i in variables.websiteImages))
+    # Each image is checked against its own repository's identity, and only once it is known to be by digest.
+    - name: unsigned
+      expression: >-
+        variables.factoryImages.filter(i, !(i in variables.undigested) &&
+        verifyImageSignatures(i, [attestors.factory]) == 0) +
+        variables.websiteImages.filter(i, !(i in variables.undigested) &&
+        verifyImageSignatures(i, [attestors.website]) == 0)
+    - name: unattested
+      expression: >-
+        variables.factoryImages.filter(i, !(i in variables.undigested) && !(i in variables.unsigned) &&
+        verifyAttestationSignatures(i, attestations.sbom, [attestors.factory]) == 0) +
+        variables.websiteImages.filter(i, !(i in variables.undigested) && !(i in variables.unsigned) &&
+        verifyAttestationSignatures(i, attestations.sbom, [attestors.website]) == 0)
+  validations:
+    - expression: size(variables.undigested) == 0
+      messageExpression: >-
+        'images must be referenced by digest: ' + variables.undigested.join(', ')
+      reason: Forbidden
+    - expression: size(variables.foreign) == 0
+      messageExpression: >-
+        "images must come from this project's GHCR, or be named by digest in the policy: " +
+        variables.foreign.join(', ')
+      reason: Forbidden
+    - expression: size(variables.misplaced) == 0
+      messageExpression: >-
+        "images from this project's GHCR must be ones this namespace runs: " + variables.misplaced.join(', ')
+      reason: Forbidden
+    - expression: size(variables.unsigned) == 0
+      messageExpression: >-
+        'images must be signed by build.yml on main of the repository that builds them: ' +
+        variables.unsigned.join(', ')
+      reason: Forbidden
+    - expression: size(variables.unattested) == 0
+      messageExpression: >-
+        'images must carry the SBOM build.yml attested: ' + variables.unattested.join(', ')
+      reason: Forbidden

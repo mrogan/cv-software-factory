@@ -21,7 +21,7 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down gateway-key github-key check status e2e egress eval samples real-store stop-the-line start-the-line
+.PHONY: help up down gateway-key github-key check status e2e egress admission-ready eval samples real-store stop-the-line start-the-line
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -79,6 +79,9 @@ github-key:
 
 egress: ## Prove the network policies: only the gateway and the GitHub worker may leave the cluster (needs the factory's workers running)
 	scripts/egress.sh
+
+admission-ready: ## Say whether every image the guarded namespaces run is signed, so admission control can enforce
+	scripts/admission-ready.sh
 
 check: ## Lint, type-check, test, build the browser code, check generated files are current, render the manifests
 	pnpm exec biome ci

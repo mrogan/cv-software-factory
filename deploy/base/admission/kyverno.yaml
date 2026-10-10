@@ -1,0 +1,32 @@
+# Kyverno, from its chart at a pinned version. In wave -3, with its own project and namespace, so that it is running,
+# and the image policies after it (wave -2), before anything they guard is made.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+spec:
+  project: admission
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+  sources:
+    - repoURL: https://kyverno.github.io/kyverno
+      chart: kyverno
+      targetRevision: 3.9.1 # Kyverno 1.19.1
+      helm:
+        releaseName: kyverno
+        valueFiles:
+          - $values/deploy/base/admission/values/kyverno.yaml
+    - repoURL: https://github.com/mrogan/cv-software-factory.git
+      targetRevision: main
+      ref: values
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # Kyverno's CRDs are larger than client-side apply's annotation allows.
+      - ServerSideApply=true

@@ -1,0 +1,32 @@
+# Admission control (ADR 0010): Kyverno, in a namespace of its own, and the policies that admit a pod in a guarded
+# namespace only if its images were signed by the pipeline that built them. Installed before anything it guards: the
+# project, namespace and fences in wave -4, Kyverno in -3, the policies in -2, and everything else from -1.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - project.yaml
+  - namespace.yaml
+  - network-policies.yaml
+  - kyverno.yaml
+  - factory
+  - website
+
+# Until every image a copy's namespaces pin would be admitted, signed or named by digest, that copy only audits: it
+# records what it would refuse (`kubectl get policyreports -A`) and admits it. `make admission-ready` says when that is;
+# then the copy's patch goes, in a pull request of its own, and it enforces (#173). Each goes when its own namespaces
+# are ready.
+patches:
+  - target:
+      kind: ImageValidatingPolicy
+      name: factory-images
+    patch: |
+      - op: replace
+        path: /spec/validationActions
+        value: [Audit]
+  - target:
+      kind: ImageValidatingPolicy
+      name: website-images
+    patch: |
+      - op: replace
+        path: /spec/validationActions
+        value: [Audit]
