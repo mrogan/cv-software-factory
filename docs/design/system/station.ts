@@ -11,7 +11,7 @@
  *   status   idle | working | returning | passing | blocked | failed            (default idle)
  *   beacon   needs-you | failed: a person should look while the machine works on. The beacon flashes,
  *            and for a failure the machine rattles and sparks; the tool, face, hatch and belt still say
- *            what it is doing. Blocked and failed light their own beacon, and ignore this.
+ *            what it is doing. Only working and returning show it: blocked and failed light their own.
  *   motion   "off" draws the still pose. Motion also stops under prefers-reduced-motion.
  *   label    Accessible name; defaults to "<Stage>: <state>".
  *   decorative  Present when something else (a button, a caption) already names the station.
@@ -318,8 +318,7 @@ const FAULT = `<g class="sparks">
               <path class="spark" d="M21 95 l-12 -8 M20 103 h-15 M21 111 l-12 8 M25 86 l-5 -12 M25 120 l-5 12"/>
               <path class="spark-core" d="M28 103 l-4 -3 -1 -5 -2 5 -5 1 4 3 -1 5 4 -3 5 1 z"/>
             </g>
-            <circle class="puff puff-a" cx="44" cy="40" r="3.5"/>
-            <circle class="puff puff-b" cx="51" cy="40" r="3.5"/>`;
+            ${SMOKE}`;
 
 const STATE_ART: Record<Status, () => { face: string; hatch: string; extra: string }> = {
   idle: () => ({
@@ -371,8 +370,8 @@ const CHEV_LEFT = Array.from({ length: 10 }, (_, i) => `M${-7 + 21 * i} 169l-6 5
 
 function render(kind: Kind, status: Status, beacon: Beacon | undefined): string {
   const art = STATE_ART[status]();
-  // Blocked and failed draw their own beacon; on any other status, the beacon is drawn over what the machine does.
-  const lit = status === 'blocked' || status === 'failed' ? undefined : beacon;
+  // Only a station at work shows a beacon: blocked and failed draw their own, and idle or passed has nothing to look at.
+  const lit = status === 'working' || status === 'returning' ? beacon : undefined;
   const extra = lit === 'failed' ? RAYS + FAULT : lit ? RAYS : '';
   return `
 <svg viewBox="0 -20 168 220" class="s-${status} k-${kind}${lit ? ` b-${lit}` : ''}" part="svg" aria-hidden="true" focusable="false">
@@ -420,7 +419,7 @@ function render(kind: Kind, status: Status, beacon: Beacon | undefined): string 
 
 /** A station's state in words: "working", or with a beacon lit, "working, needs you". */
 export function describe(status: Status, beacon?: Beacon): string {
-  const lit = status === 'blocked' || status === 'failed' ? undefined : beacon;
+  const lit = status === 'working' || status === 'returning' ? beacon : undefined;
   return lit ? `${STATE[status].label}, ${STATE[lit === 'failed' ? 'failed' : 'blocked'].label}` : STATE[status].label;
 }
 

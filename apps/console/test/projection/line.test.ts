@@ -109,9 +109,20 @@ describe('a station’s state', () => {
         .add(3.5, 'work.returned', 'factory', { from: 'gates', to: 'build', reason: 'A check failed' }).events;
       expect(gates([...held().events, ...sent], at(4))).toMatchObject({ status: 'returning', beacon: 'needs-you' });
     });
+
+    it('waits on a human, is blocked with no beacon under Stop the line', () => {
+      const stop = {
+        ...(held().events[0] as PublicEvent),
+        ts: new Date(at(3.5)).toISOString(),
+        work_item: null,
+        type: 'line.stopped',
+        payload: { reason: 'Martin stopped the line' },
+      } as PublicEvent;
+      expect(gates([...held().events, stop], at(4))).toMatchObject({ status: 'blocked', beacon: undefined });
+    });
   });
 
-  it('lights no beacon on a station that has stopped', () => {
+  it('lights no beacon on a station with nothing waiting on anyone', () => {
     const station = project(
       work('1').open().add(1, 'gates.started', 'actions', payloads.gatesStarted).events,
       at(2),

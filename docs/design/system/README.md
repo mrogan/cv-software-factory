@@ -113,7 +113,7 @@ Blocked and failed share `attn` on purpose: both mean a person should act. Their
 
 ### At work, and needing you
 
-The status says what the machine is doing; the beacon says whether a person should look. A station can be at work on one item while another waits for you, so `beacon` lights the alarm on a working or returning station without stopping it: the tool, face, hatch and belt say it is at work, and only the beacon takes `attn`. `beacon="needs-you"` adds the flashing ember and rays; `beacon="failed"` adds the sparks and smoke too, and the rattle. Blocked and failed light their own beacon and ignore the attribute. The accessible name says both: "Plan: working, needs you".
+The status says what the machine is doing; the beacon says whether a person should look. A station can be at work on one item while another waits for you, so `beacon` lights the alarm on a working or returning station without stopping it: the tool, face, hatch and belt say it is at work, and only the beacon takes `attn`. `beacon="needs-you"` adds the flashing ember and rays; `beacon="failed"` adds the sparks and smoke too, and the rattle. Only a working or returning station shows it: blocked and failed light their own, and an idle or passed station has nothing to look at. The accessible name says both: "Plan: working, needs you".
 
 ### From events to a station's status
 
