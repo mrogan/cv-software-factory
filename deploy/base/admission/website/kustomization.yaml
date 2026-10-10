@@ -1,7 +1,7 @@
-# `website-images`: the app's namespace, where the app runs and, from milestone 6, the factory's analysis Jobs that
-# judge its canaries. It admits the app's image and the factory's browser, which those Jobs run, and nothing else. Once
-# it enforces (#173), it stays enforced, always: the factory's agents write to the app's repository, so this is the
-# fence a change there cannot move.
+# `website-images`: the app's namespace, where the app runs and the factory's analysis Jobs that judge its canaries.
+# It admits the app's image and the factory's browser, which those Jobs run, and nothing else. It enforces, always: the
+# factory's agents write to the app's repository, so this is the fence a change there cannot move. Nothing switches it
+# to Audit, not even a run on images built on the Mac.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namePrefix: website-
