@@ -1,0 +1,65 @@
+# The traffic generator: a steady walk through the shop's public pages and its search, at the rate policy/release.ts
+# sets, so a canary always has enough requests to judge. It goes in through Traefik, the shop's front door, so the
+# canary's traffic split applies to it as to any visitor. It only GETs: it never sends a report or the contact form.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic
+  labels: &labels
+    app.kubernetes.io/name: traffic
+    app.kubernetes.io/part-of: software-factory
+    # Not `worker`: that would give it Postgres, which it never uses. Its own policy gives it Traefik and the collector
+    # (network-policies.yaml).
+    app.kubernetes.io/component: traffic
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traffic
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: traffic
+          # Each profile pins the image by digest (kustomize `images:`), so a deploy is always a commit.
+          image: factory
+          args:
+            - --import
+            - ./src/telemetry.ts
+            - src/cli.ts
+            - traffic
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.telemetry:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "traffic"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=software-factory"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "15000"
+            # The shop's public address, reached through the ingress that serves it.
+            - name: APP_URL
+              value: http://website.localhost
+            - name: INGRESS_URL
+              value: http://traefik.kube-system
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
