@@ -1,0 +1,233 @@
+# Generated from policy/release.ts by apps/factory/src/release/analysis.ts. Do not edit it: change the policy, then
+# run `node apps/factory/src/release/analysis.ts`. `make check` fails when this file is out of date.
+---
+# At the end of each step: enough requests to judge, then errors, latency and the journeys against the baseline.
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterAnalysisTemplate
+metadata:
+  name: website-step
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  args:
+    - name: stable-hash
+    - name: canary-hash
+  metrics:
+    - name: enough-requests
+      successCondition: result[0] >= 100
+      failureLimit: 0
+      provider:
+        prometheus:
+          address: http://prometheus-server.telemetry
+          query: sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) or vector(0)
+    - name: errors
+      successCondition: len(result) == 0 || result[0] <= 0.01
+      failureLimit: 0
+      provider:
+        prometheus:
+          address: http://prometheus-server.telemetry
+          query: |-
+            (
+              (
+                (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
+                / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m]))
+              )
+            -
+              (
+                (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
+                / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))
+              )
+            or on () vector(Inf)
+            )
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+    - name: latency
+      successCondition: len(result) == 0 || result[0] <= 0
+      failureLimit: 0
+      provider:
+        prometheus:
+          address: http://prometheus-server.telemetry
+          query: |-
+            (
+              histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])))
+            -
+              (
+                histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m])))
+                + clamp_min(histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))) * 0.25, 0.1)
+              )
+            or on () vector(Inf)
+            )
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+    - name: journeys
+      failureLimit: 0
+      provider:
+        job:
+          metadata:
+            labels:
+              app.kubernetes.io/name: journeys
+              app.kubernetes.io/part-of: software-factory
+          spec:
+            backoffLimit: 0
+            activeDeadlineSeconds: 900
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: journeys
+                  app.kubernetes.io/part-of: software-factory
+              spec:
+                restartPolicy: Never
+                automountServiceAccountToken: false
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 65532
+                  runAsGroup: 65532
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: journeys
+                    image: factory-browser
+                    args:
+                      - src/cli.ts
+                      - gate
+                      - journeys
+                      - --base
+                      - http://website.website
+                      - --change
+                      - http://website-canary.website
+                    resources:
+                      requests:
+                        cpu: 200m
+                        memory: 512Mi
+                      limits:
+                        memory: 2Gi
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                        drop:
+                          - ALL
+                    volumeMounts:
+                      - name: tmp
+                        mountPath: /tmp
+                      - name: shm
+                        mountPath: /dev/shm
+                volumes:
+                  - name: tmp
+                    emptyDir: {}
+                  - name: shm
+                    emptyDir:
+                      medium: Memory
+                      sizeLimit: 256Mi
+---
+# Throughout the release: errors and latency against the baseline, every 1m once there is enough to judge, and the journeys every 3m.
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterAnalysisTemplate
+metadata:
+  name: website-background
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  args:
+    - name: stable-hash
+    - name: canary-hash
+  metrics:
+    - name: errors
+      interval: 1m
+      successCondition: len(result) == 0 || result[0] <= 0.01
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus-server.telemetry
+          query: |-
+            (
+              (
+                (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
+                / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m]))
+              )
+            -
+              (
+                (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
+                / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))
+              )
+            or on () vector(Inf)
+            )
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+    - name: latency
+      interval: 1m
+      successCondition: len(result) == 0 || result[0] <= 0
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus-server.telemetry
+          query: |-
+            (
+              histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])))
+            -
+              (
+                histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m])))
+                + clamp_min(histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))) * 0.25, 0.1)
+              )
+            or on () vector(Inf)
+            )
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+    - name: journeys
+      interval: 3m
+      initialDelay: 90s
+      failureLimit: 1
+      provider:
+        job:
+          metadata:
+            labels:
+              app.kubernetes.io/name: journeys
+              app.kubernetes.io/part-of: software-factory
+          spec:
+            backoffLimit: 0
+            activeDeadlineSeconds: 900
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: journeys
+                  app.kubernetes.io/part-of: software-factory
+              spec:
+                restartPolicy: Never
+                automountServiceAccountToken: false
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 65532
+                  runAsGroup: 65532
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: journeys
+                    image: factory-browser
+                    args:
+                      - src/cli.ts
+                      - gate
+                      - journeys
+                      - --base
+                      - http://website.website
+                      - --change
+                      - http://website-canary.website
+                    resources:
+                      requests:
+                        cpu: 200m
+                        memory: 512Mi
+                      limits:
+                        memory: 2Gi
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                        drop:
+                          - ALL
+                    volumeMounts:
+                      - name: tmp
+                        mountPath: /tmp
+                      - name: shm
+                        mountPath: /dev/shm
+                volumes:
+                  - name: tmp
+                    emptyDir: {}
+                  - name: shm
+                    emptyDir:
+                      medium: Memory
+                      sizeLimit: 256Mi

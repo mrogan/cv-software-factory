@@ -24,11 +24,7 @@ spec:
       kind: TraefikService
     - group: traefik.io
       kind: IngressRoute
-    - group: apps
-      kind: Deployment
     - group: ""
       kind: Service
     - group: ""
       kind: ConfigMap
-    - group: networking.k8s.io
-      kind: Ingress
