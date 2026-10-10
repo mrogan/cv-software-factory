@@ -47,6 +47,14 @@ crds:
   migration:
     enabled: false
 
+# The policies.kyverno.io CRDs come from a sub-chart that gives them empty labels and annotations, which the API server
+# drops, so Argo CD would show them out of sync for ever. Each gets one of both.
+kyverno-api:
+  labels:
+    app.kubernetes.io/part-of: kyverno-crds
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=true
+
 features:
   # Nothing may be excused from a policy: an exception would be a way round admission that no one reviews.
   policyExceptions:
