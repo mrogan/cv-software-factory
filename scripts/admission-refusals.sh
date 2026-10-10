@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Asks the cluster to start, in each guarded namespace, a pod on an image the pipeline did not sign and one on an image
 # signed by someone else, and keeps Kyverno's answers in deploy/test/admission-refusals.json, for milestone 9's red
-# team to show. Run with the image policies enforcing (Deny), after `make admission-ready` passes.
+# team to show. Run it with the image policies enforcing (Deny). While they only audit, switch both to Deny for the run
+# (`kubectl patch imagevalidatingpolicy <name> --type merge -p '{"spec":{"validationActions":["Deny"]}}'`), with
+# Argo CD's self-heal on `root` paused, and put them back after: a pod made meanwhile on an unsigned image is refused.
 #
 # Each request is a server-side dry run: it passes through admission exactly as a real one does, and nothing is made.
 # The pods meet the restricted Pod Security Standard the namespaces enforce, so a refusal is the image policy's own.
@@ -9,7 +11,9 @@
 #   unsigned        the factory's (or, in `website`, the app's) image as build.yml pushed it before it signed images:
 #                   ours, on GHCR, by digest, and unsigned
 #   other-identity  Sigstore's timestamp server, signed keyless by its own release workflow
-#                   (https://github.com/sigstore/timestamp-authority/.github/workflows/release.yaml@refs/tags/v2.1.0)
+#                   (https://github.com/sigstore/timestamp-authority/.github/workflows/release.yaml@refs/tags/v2.1.0),
+#                   and refused for its registry before its signature is looked at: only our GHCR's images are
+#                   verified, against their own repository's identity
 set -euo pipefail
 
 context="${KUBE_CONTEXT:-k3d-software-factory}"
