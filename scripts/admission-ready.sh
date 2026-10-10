@@ -2,7 +2,8 @@
 # Whether admission control can enforce without stopping anything: `make admission-ready` (#173).
 #
 # Lists every image the guarded namespaces run or will start (their pods; the templates of their Deployments,
-# StatefulSets, DaemonSets, Jobs and CronJobs; image volumes; and the runner image the line is pinned to), and checks
+# StatefulSets, DaemonSets, Jobs and CronJobs; image volumes; the runner image the line is pinned to; and, for
+# `website`, the Jobs of the canary's ClusterAnalysisTemplates, which Argo Rollouts starts there), and checks
 # each as the image policies do (deploy/base/admission): by digest; named in the namespace's policy, or ours on GHCR,
 # from a repository that policy admits, signed by `build.yml` on `main` of the repository that builds it, with the SBOM
 # it attested. Then it asks Kyverno: any pod its policy reports as failing is listed too. Exits non-zero if anything
@@ -31,10 +32,28 @@ listed() { # policy variable
   { grep -o "'[^']*'" || true; } <<<"$expression" | tr -d "'"
 }
 
+# The pod specs a list of objects names: pods' own, and their templates'.
+specs() {
+  jq '.items[] | (.spec.jobTemplate.spec.template.spec // .spec.template.spec // .spec)'
+}
+
+# The pod specs of the Jobs the canary's analysis starts in `website`: cluster-scoped, so not in the namespace's own
+# list. None until Argo Rollouts is installed.
+analysis_jobs() {
+  local kinds
+  kinds=$("${kubectl[@]}" api-resources --api-group=argoproj.io -o name) || return 1
+  grep -qxF clusteranalysistemplates.argoproj.io <<<"$kinds" || return 0
+  "${kubectl[@]}" get clusteranalysistemplates -o json |
+    jq '.items[].spec.metrics[] | .provider.job.spec.template.spec | select(. != null)'
+}
+
 # Every image a namespace names: running, in a template, in an image volume, or the line's RUNNER_IMAGE.
 images() {
-  "${kubectl[@]}" -n "$1" get pods,deployments,statefulsets,daemonsets,jobs,cronjobs -o json | jq -r '
-    .items[] | (.spec.jobTemplate.spec.template.spec // .spec.template.spec // .spec) |
+  local objects analysis=""
+  # Each read on its own, so a cluster that cannot answer fails the script rather than checking nothing.
+  objects=$("${kubectl[@]}" -n "$1" get pods,deployments,statefulsets,daemonsets,jobs,cronjobs -o json) || return 1
+  if [ "$1" = website ]; then analysis=$(analysis_jobs) || return 1; fi
+  { specs <<<"$objects"; echo "$analysis"; } | jq -r '
     (((.containers // []) + (.initContainers // []) + (.ephemeralContainers // []))[] |
       .image, (.env // [] | .[] | select(.name == "RUNNER_IMAGE") | .value)),
     ((.volumes // [])[] | .image.reference) | select(. != null)' | sort -u
