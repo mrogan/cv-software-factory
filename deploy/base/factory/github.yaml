@@ -71,6 +71,9 @@ spec:
               value: "false"
             - name: ARTIFACTS_DIR
               value: /var/lib/factory/artifacts
+            # Sigstore's trust root, fetched through TUF, to check the signatures of the images it proposes.
+            - name: TUF_CACHE_DIR
+              value: /var/cache/sigstore
           readinessProbe:
             httpGet:
               path: /health
@@ -95,7 +98,12 @@ spec:
           volumeMounts:
             - name: artifacts
               mountPath: /var/lib/factory/artifacts
+            - name: sigstore
+              mountPath: /var/cache/sigstore
       volumes:
         - name: artifacts
           persistentVolumeClaim:
             claimName: artifacts
+        - name: sigstore
+          emptyDir:
+            sizeLimit: 16Mi

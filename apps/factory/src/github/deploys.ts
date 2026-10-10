@@ -22,6 +22,11 @@
  * Its title names the commit, as the build workflow's `changes` job reads it back: `chore(deploy): run console
  * 1f14f44 on the local cluster`. A proposal Martin closed without merging is not made again; the next build is.
  *
+ * Only images their pipeline signed are proposed: every digest must carry the signature of `build.yml` on main of the
+ * repository that built it (`signatures.ts`), as admission will require. A build that does not is not proposed, and
+ * the watch looks again each pass. The build workflow pushes its images, then signs them, so a build with no signature
+ * yet is waited for; one still unsigned after `SIGNING_GRACE_MS`, or one signed by anyone else, is warned of, once.
+ *
  * Everything in one pass is read at one commit of main, the head it starts from, so a pin that moves on main while
  * it runs is not reverted.
  */
@@ -32,6 +37,7 @@ import type { Actions } from './actions.ts';
 import type { GitHub } from './client.ts';
 import type { Watch } from './poller.ts';
 import type { Registry } from './registry.ts';
+import { pipeline, type Signatures, UnsignedError } from './signatures.ts';
 
 export interface DeployTarget {
   repo: string;
@@ -75,6 +81,9 @@ export const DEPLOYS: DeployTarget[] = [
     images: [{ name: 'website', image: 'mrogan/cv-worlds-worst-website' }],
   },
 ];
+
+/** How long after it first sees a build with no signature the watch warns of it: longer than the signing job takes. */
+export const SIGNING_GRACE_MS = 30 * 60_000;
 
 /** Where a target's new pins are committed before its deploy branch moves to them. */
 export const scratchBranch = (target: DeployTarget) => `factory/${target.branch}`;
@@ -155,8 +164,10 @@ Argo CD deploys ${them} from \`${overlay}\` once this merges. A newer build move
 interface Dependencies {
   github: GitHub;
   registry: Registry;
+  signatures: Pick<Signatures, 'verify'>;
   actions: Actions;
   log: Logger;
+  now?: () => number;
 }
 
 const SHA = z.string().regex(/^[0-9a-f]{40}$/);
@@ -219,12 +230,38 @@ export async function newerBuild(
  * its commit again on main's head when main has moved on with no newer build.
  */
 export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
-  const { github, actions, log } = deps;
+  const { github, signatures, actions, log, now = Date.now } = deps;
   const { repo } = target;
   const label = deployLabel(target);
   // What this worker last proposed, and at which head of main: a pass does nothing more until either moves, and a dry
   // run, which changes nothing in GitHub, records each proposal once.
   let proposed: { title: string; head: string } | undefined;
+  // When it first saw each digest with no signature, and the digests it has warned of, so each is said once.
+  const waiting = new Map<string, number>();
+  const warned = new Set<string>();
+
+  /** Whether every image of a build carries its pipeline's signature; when one does not, says so, once. */
+  const signed = async (proposal: Proposal): Promise<boolean> => {
+    for (const { image, digest } of proposal.digests) {
+      try {
+        await signatures.verify(image, digest, pipeline(repo));
+      } catch (error) {
+        if (!(error instanceof UnsignedError)) throw error;
+        const about = { repo, commit: proposal.commit, image, digest, reason: error.message };
+        if (error.kind === 'unsigned' && !waiting.has(digest)) {
+          waiting.set(digest, now());
+          log.info(about, 'waiting for a build to be signed before proposing it');
+        }
+        const late = error.kind === 'refused' || now() - (waiting.get(digest) ?? 0) >= SIGNING_GRACE_MS;
+        if (late && !warned.has(digest)) {
+          warned.add(digest);
+          log.warn(about, 'did not propose a build its pipeline did not sign');
+        }
+        return false;
+      }
+    }
+    return true;
+  };
 
   /** Whether a deploy pull request's branch is behind main's head and nobody has approved it, so it is the watch's to move. */
   const behind = async (number: number, sha: string, head: string): Promise<boolean> => {
@@ -243,7 +280,7 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
     const { body: file } = await github.poll(repo, `/repos/${repo}/contents/${target.file}?ref=${head}`, CONTENT);
     const pinFile = Buffer.from(file.content, 'base64').toString('utf-8');
     const proposal = await newerBuild(deps, target, pinFile, head);
-    if (!proposal) return;
+    if (!proposal || !(await signed(proposal))) return;
     const title = deployTitle(target, proposal.commit);
     if (proposed?.title === title && proposed.head === head) return;
 

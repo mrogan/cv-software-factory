@@ -269,6 +269,18 @@ importers:
       '@opentelemetry/sdk-node':
         specifier: ^0.223.0
         version: 0.223.0(@opentelemetry/api@1.9.1)(supports-color@7.2.0)
+      '@sigstore/bundle':
+        specifier: ^5.0.0
+        version: 5.0.0
+      '@sigstore/protobuf-specs':
+        specifier: ^0.5.2
+        version: 0.5.2
+      '@sigstore/tuf':
+        specifier: ^5.0.0
+        version: 5.0.0(supports-color@7.2.0)
+      '@sigstore/verify':
+        specifier: ^4.1.2
+        version: 4.1.2
       '@software-factory/events':
         specifier: workspace:*
         version: link:../../packages/events
@@ -500,6 +512,10 @@ packages:
 
   '@fontsource/instrument-serif@5.3.0':
     resolution: {integrity: sha512-mDiaIg0u67sYV59fie92Wz4sM8UiVlbL7fLxnFPCKkX15DMASEnQTREbaP5S5/3DCcsoAOcQ0sV9E4AeY4QqYQ==}
+
+  '@gar/promise-retry@1.0.3':
+    resolution: {integrity: sha512-GmzA9ckNokPypTg10pgpeHNQe7ph+iIKKmhKu3Ob9ANkswreCx7R3cKmY781K8QK3AqVL3xVh9A42JvIAbkkSA==}
+    engines: {node: ^20.17.0 || >=22.9.0}
 
   '@google-automations/git-file-utils@3.2.1':
     resolution: {integrity: sha512-LYOjAnGu/xtEkYYh6W3/1RmeK9HB/fV+xMe7nHc+WiDYrnxAJWBfcyUucoJtYS8XAhVUzNWrQvYDPRbxe67DNQ==}
@@ -933,8 +949,36 @@ packages:
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
 
+  '@sigstore/bundle@5.0.0':
+    resolution: {integrity: sha512-wefjygudENbzbQMks1t5u34EP0fFoD0XvaEP7DOUP/sXKvogzEJYFw5E6pegGyp3onGWzVEYKVa3bNZWyTYX+A==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+
+  '@sigstore/core@4.0.1':
+    resolution: {integrity: sha512-9v5hRjujn5NXq8o7XFEUgLyAtdr5Iisb4pzM05u3K61IS5q3hP3luWAndk0RkPPLTUFoTbg7Vb84UQ1ZQeajWQ==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+
+  '@sigstore/protobuf-specs@0.5.2':
+    resolution: {integrity: sha512-SQqvFMt4V78fdjcDdYX6HbiVSOR4QK3ZgwCa2KOsopAgPIHy1rU5UDUmzLl02r5oyyaYcYHR1hpwDRk/yUe+Mw==}
+    engines: {node: ^18.17.0 || >=20.5.0}
+
+  '@sigstore/tuf@5.0.0':
+    resolution: {integrity: sha512-Zyqg9tcHps3uRAlKHLNmsW4ohsUZAjb9G+31r7lg0ICh/JOcadzmJsIRdjKljlRHpaR0K4aJ2kXXIdywdcdMlA==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+
+  '@sigstore/verify@4.1.2':
+    resolution: {integrity: sha512-BfD9eLrz3A/DG58aSgfgZYmIR6V9Yw96QVN/frtu2bEH7ctSTk2TDvHU12un3JsDPBTqTNkqkIkucjxljpOFqQ==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+
   '@stablelib/base64@1.0.1':
     resolution: {integrity: sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==}
+
+  '@tufjs/canonical-json@2.0.0':
+    resolution: {integrity: sha512-yVtV8zsdo8qFHe+/3kw81dSLyF7D576A5cCFCi4X7B39tWT7SekaEFUnvnWJHz+9qO7qJTah1JbrDjWKqFtdWA==}
+    engines: {node: ^16.14.0 || >=18.0.0}
+
+  '@tufjs/models@5.0.0':
+    resolution: {integrity: sha512-U4mVcdFGOi6pt8n38LdWZp67Svn7ppnU1Pj8SGOVaBi1X4gm+G4ztQlLfkoJbKSHfjA6WeaiJp2A4V83AJF6nQ==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -2187,6 +2231,10 @@ packages:
   ts-algebra@2.0.0:
     resolution: {integrity: sha512-FPAhNPFMrkwz76P7cdjdmiShwMynZYN6SgOujD1urY4oNm80Ou9oMdmbR45LotcKOXoy7wSmHkRFE6Mxbrhefw==}
 
+  tuf-js@6.0.0:
+    resolution: {integrity: sha512-zlJVOIO68hmgo1//X4ENEcTGfuOTAtDPi8PsTsG+FyxD85E/ww1ZnwBbWo/yCEExGpI+Kilg7Z3qCdHX2BoJTQ==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+
   type-fest@0.18.1:
     resolution: {integrity: sha512-OIAYXk8+ISY+qTOwkHtKqzAuxchoMiD9Udx+FSGQDuiRR+PJKJHc2NJAXlbhkGwTt/4/nKZxELY1w3ReWOL8mw==}
     engines: {node: '>=10'}
@@ -2496,6 +2544,8 @@ snapshots:
   '@fontsource-variable/geist@5.3.0': {}
 
   '@fontsource/instrument-serif@5.3.0': {}
+
+  '@gar/promise-retry@1.0.3': {}
 
   '@google-automations/git-file-utils@3.2.1':
     dependencies:
@@ -2943,7 +2993,35 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
+  '@sigstore/bundle@5.0.0':
+    dependencies:
+      '@sigstore/protobuf-specs': 0.5.2
+
+  '@sigstore/core@4.0.1': {}
+
+  '@sigstore/protobuf-specs@0.5.2': {}
+
+  '@sigstore/tuf@5.0.0(supports-color@7.2.0)':
+    dependencies:
+      '@sigstore/protobuf-specs': 0.5.2
+      tuf-js: 6.0.0(supports-color@7.2.0)
+    transitivePeerDependencies:
+      - supports-color
+
+  '@sigstore/verify@4.1.2':
+    dependencies:
+      '@sigstore/bundle': 5.0.0
+      '@sigstore/core': 4.0.1
+      '@sigstore/protobuf-specs': 0.5.2
+
   '@stablelib/base64@1.0.1': {}
+
+  '@tufjs/canonical-json@2.0.0': {}
+
+  '@tufjs/models@5.0.0':
+    dependencies:
+      '@tufjs/canonical-json': 2.0.0
+      minimatch: 10.2.6
 
   '@types/chai@5.2.3':
     dependencies:
@@ -4112,6 +4190,14 @@ snapshots:
   trim-newlines@3.0.1: {}
 
   ts-algebra@2.0.0: {}
+
+  tuf-js@6.0.0(supports-color@7.2.0):
+    dependencies:
+      '@gar/promise-retry': 1.0.3
+      '@tufjs/models': 5.0.0
+      debug: 4.4.3(supports-color@7.2.0)
+    transitivePeerDependencies:
+      - supports-color
 
   type-fest@0.18.1: {}
 

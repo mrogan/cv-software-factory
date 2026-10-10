@@ -12,6 +12,8 @@
  *     GITHUB_REPOSITORIES             the repositories it acts on, separated by commas (default: both public ones)
  *     GITHUB_POLL_SECONDS             how often it polls (default 60)
  *     GITHUB_API_URL, GHCR_URL        GitHub's API and GHCR, for a stand-in
+ *     TUF_CACHE_DIR                   where Sigstore's trust root is kept, to check images' signatures (default: the
+ *                                     user's cache)
  *     PORT                            default 8080
  *     HOST                            the address to listen on (default 127.0.0.1; the cluster's Deployment says
  *                                     0.0.0.0)
@@ -34,6 +36,7 @@ export interface GitHubConfig {
   pollMs: number;
   api: string;
   ghcr: string;
+  tufCacheDir: string | undefined;
   port: number;
   host: string;
 }
@@ -63,6 +66,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv): GitHubConfig {
     pollMs: Number(env.GITHUB_POLL_SECONDS || 60) * 1000,
     api: env.GITHUB_API_URL || API,
     ghcr: env.GHCR_URL || GHCR,
+    tufCacheDir: env.TUF_CACHE_DIR || undefined,
     port: Number(env.PORT ?? 8080),
     host: env.HOST || '127.0.0.1',
   };
