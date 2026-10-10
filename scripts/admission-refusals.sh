@@ -2,9 +2,9 @@
 # Asks the cluster to start, in each guarded namespace, a pod on an image the pipeline did not sign, one on an image
 # signed by someone else and one on an image of ours that the namespace does not run, and keeps Kyverno's answers in
 # deploy/test/admission-refusals.json, for milestone 9's red team to show. Run it with the image policies enforcing
-# (Deny). While they only audit, switch both to Deny for the run (`kubectl patch imagevalidatingpolicy <name> --type
-# merge -p '{"spec":{"validationActions":["Deny"]}}'`), with Argo CD's self-heal on `root` paused, and put them back
-# after: a pod made meanwhile on an unsigned image is refused.
+# (Deny). While one only audits (`website-images`, until the app's first signed release), switch it to Deny for the
+# run (`kubectl patch imagevalidatingpolicy <name> --type merge -p '{"spec":{"validationActions":["Deny"]}}'`), with
+# Argo CD's self-heal on `root` paused, and put it back after: a pod made meanwhile on an unsigned image is refused.
 #
 # Each request is a server-side dry run: it passes through admission exactly as a real one does, and nothing is made.
 # The pods meet the restricted Pod Security Standard the namespaces enforce, so a refusal is the image policy's own.

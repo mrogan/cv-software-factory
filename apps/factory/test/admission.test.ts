@@ -158,13 +158,7 @@ describe('admission control', () => {
     for (const { policy: name, namespaces } of [await copy('factory'), await copy('website')]) {
       for (const namespace of namespaces) {
         const refusals = kept.filter((r) => r.namespace === namespace);
-        // `misplaced` (an image of ours the namespace does not run) is kept from the next recording on.
-        expect(
-          refusals
-            .map((r) => r.case)
-            .filter((c) => c !== 'misplaced')
-            .sort(),
-        ).toEqual(['other-identity', 'unsigned']);
+        expect(refusals.map((r) => r.case).sort()).toEqual(['misplaced', 'other-identity', 'unsigned']);
         for (const refusal of refusals) {
           expect(refusal.outcome).toBe('refused');
           // A refusal names the policy, the check that refused it and the image.

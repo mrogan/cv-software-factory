@@ -106,7 +106,7 @@ if [ -n "$reports" ]; then
 fi
 
 if [ "$failed" = 1 ]; then
-  echo "Not ready: the images above would be refused. Keep the policies in Audit until their signed pins have merged."
+  echo "Not ready: the images above would be refused. A policy that guards their namespaces stays in Audit until their signed pins have merged."
   exit 1
 fi
-echo "Ready: every image the guarded namespaces run would be admitted. The policies can be switched to Deny."
+echo "Ready: every image the guarded namespaces run would be admitted. A policy still in Audit can be switched to Deny."
