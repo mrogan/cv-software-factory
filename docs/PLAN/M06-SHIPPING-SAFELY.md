@@ -34,7 +34,7 @@ Then the orchestrator reviews the stack as a whole, and fixes bottom up, one sub
 ### The supply chain
 
 - **Only images the pipeline signed run.** Each repository's `build.yml` signs every image it pushes, by digest, with cosign's keyless signing and the workflow's own OIDC identity, and attaches an SBOM from Syft as a signed attestation. There is no signing key to keep or steal. A signature says which workflow, in which repository, on which ref made the image.
-- **Kyverno admits a pod only if its image carries that signature.** In `website`, `factory` (where the console runs too), `runners` and, from Part C, `scoreboard`, a pod's images must be referenced by digest and signed by `build.yml` on `main` of the repository that builds them, and every other registry is refused. It checks the signature, not the SBOM: the deploy pull requests' checks verify that, where parsing it is cheap. A refusal names the policy and the image. Kyverno fails closed: if it cannot verify, the pod does not start. Its own namespace, Argo CD's and the cluster's system namespaces are left out, so the cluster can always start again; telemetry's and Argo Rollouts' are not guarded, since they run only upstream charts. ADR 0010.
+- **Kyverno admits a pod only if its image carries that signature.** In `website`, `factory` (where the console runs too), `runners` and, from Part C, `scoreboard`, a pod's images must be referenced by digest and signed by `build.yml` on `main` of the repository that builds them, and every other registry is refused, but for the few third-party images the policy names by digest with a reason (Postgres, in `factory`). It checks the signature, not the SBOM: the deploy pull requests' checks verify that, where parsing it is cheap. A refusal names the policy and the image. Kyverno fails closed: if it cannot verify, the pod does not start. Its own namespace, Argo CD's and the cluster's system namespaces are left out, so the cluster can always start again; telemetry's and Argo Rollouts' are not guarded, since they run only upstream charts. ADR 0010.
 - **Images built on the Mac still run, by Martin's choice.** Running an unmerged image on the local cluster (the `try-the-line` skill) means switching the factory side's policy to audit for the run; Argo CD puts it back when self-heal resumes. The `website` policy stays enforced, always.
 - **Deploy pull requests check what admission will check.** The deploy watch proposes only a digest whose signature verifies, and the deploy pull request's checks verify it again, so a pull request that Martin merges never pins an image the cluster would refuse.
 
@@ -121,7 +121,7 @@ Each task is its own pull request, in order, each demonstrable.
 
 - `policy/release.ts`, and the ClusterAnalysisTemplate rendered from it, with a test that the two agree (as the alerting rules have).
 - The journeys comparison as an analysis Job, from `factory-browser` at a pinned digest.
-- `factory traffic`, with its NetworkPolicy: Traefik and the collector, and nothing else.
+- `factory traffic`, with its NetworkPolicy: DNS, Traefik and the collector, and nothing else.
 - A step with too little traffic fails, and says so.
 
 ### 5. Stop the line, and the fences
