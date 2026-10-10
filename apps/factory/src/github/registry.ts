@@ -7,7 +7,8 @@
  *     revision(image, ref)   the commit the image was built from, from its `org.opencontainers.image.revision` label
  *     referrers(image, d)    what refers to a digest, such as its signatures and attestations
  *     blob(image, digest)    a blob's bytes
- *     layers(image, digest)  the layers of an artifact's manifest, such as the bundle a signature is kept in
+ *     artifact(image, d)     an artifact's manifest: its layers, such as the bundle a signature is kept in, and its
+ *                            annotations, such as what the bundle holds
  */
 import { z } from 'zod';
 
@@ -26,11 +27,14 @@ const MANIFEST = z.object({
 const DESCRIPTOR = z.object({
   digest: z.string().regex(DIGEST),
   artifactType: z.string().optional(),
-  annotations: z.record(z.string(), z.string()).optional(),
+  annotations: z.record(z.string(), z.string()).nullable().optional(),
 });
 const INDEX = z.object({ manifests: z.array(DESCRIPTOR).nullable().optional() });
 const LAYER = z.object({ digest: z.string().regex(DIGEST), mediaType: z.string() });
-const ARTIFACT = z.object({ layers: z.array(LAYER) });
+const ARTIFACT = z.object({
+  layers: z.array(LAYER),
+  annotations: z.record(z.string(), z.string()).nullable().optional(),
+});
 const CONFIG = z.object({
   config: z.object({ Labels: z.record(z.string(), z.string()).nullable().optional() }).optional(),
 });
@@ -51,6 +55,9 @@ export type Referrer = z.infer<typeof DESCRIPTOR>;
 
 /** A layer of an artifact's manifest. */
 export type Layer = z.infer<typeof LAYER>;
+
+/** An artifact's manifest, such as a signature's or an attestation's. */
+export type Artifact = z.infer<typeof ARTIFACT>;
 
 /** An answer read through its schema, or an error that names what was asked. */
 async function json<T>(response: Response, schema: z.ZodType<T>, what: string): Promise<T> {
@@ -118,6 +125,7 @@ export class Registry {
   /**
    * What refers to a digest: through the referrers API, or, on a registry without one (GHCR), through the tag that
    * stands in for it, `sha256-` and the digest's hex, which is where cosign keeps signatures on such a registry.
+   * The API copies each artifact's annotations into its list; the tag, as cosign writes it, does not.
    */
   async referrers(image: string, digest: string): Promise<Referrer[]> {
     if (!DIGEST.test(digest)) throw new Error(`${digest} is not a digest`);
@@ -132,11 +140,10 @@ export class Registry {
     return [];
   }
 
-  /** The layers of an artifact's manifest: a signature's or an attestation's, which holds one bundle. */
-  async layers(image: string, digest: string): Promise<Layer[]> {
+  /** An artifact's manifest: a signature's or an attestation's, which holds one bundle and says what it holds. */
+  async artifact(image: string, digest: string): Promise<Artifact> {
     const path = `/v2/${image}/manifests/${digest}`;
-    return (await json(await this.#get(image, path, 'application/vnd.oci.image.manifest.v1+json'), ARTIFACT, path))
-      .layers;
+    return json(await this.#get(image, path, 'application/vnd.oci.image.manifest.v1+json'), ARTIFACT, path);
   }
 
   async blob(image: string, digest: string): Promise<Buffer> {

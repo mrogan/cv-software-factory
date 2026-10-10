@@ -39,6 +39,8 @@ export const pipeline = (repo: string): Signer => ({
 const BUNDLE = 'application/vnd.dev.sigstore.bundle.v0.3+json';
 /** What cosign signs an image with: a statement of this type naming its digest. Attestations have their own types. */
 const SIGNATURE = 'https://sigstore.dev/cosign/sign/v1';
+/** The annotation cosign puts on a bundle's manifest to say what type of statement it holds. */
+const PREDICATE_TYPE = 'dev.sigstore.bundle.predicateType';
 
 const STATEMENT = z.object({
   _type: z.literal('https://in-toto.io/Statement/v1'),
@@ -61,11 +63,17 @@ export class UnsignedError extends Error {
 }
 
 export interface SignaturesOptions {
-  registry: Pick<Registry, 'referrers' | 'layers' | 'blob'>;
+  registry: Pick<Registry, 'referrers' | 'artifact' | 'blob'>;
   /** Sigstore's trust root: by default through TUF, kept in `cachePath`. */
   trustedRoot?: () => Promise<TrustedRoot>;
   /** Where TUF keeps what it fetched; by default, the user's cache. */
   cachePath?: string | undefined;
+}
+
+/** A bundle that says it holds a signature, and its bytes, if its artifact holds one. */
+interface Candidate {
+  digest: string;
+  blob: Buffer | undefined;
 }
 
 export class Signatures {
@@ -82,28 +90,62 @@ export class Signatures {
   async verify(image: string, digest: string, signer: Signer): Promise<void> {
     const key = `${signer.issuer} ${signer.identity} ${image}@${digest}`;
     if (this.#verified.has(key)) return;
-    const bundles = (await this.#registry.referrers(image, digest)).filter(
-      (r) => r.artifactType === BUNDLE && r.annotations?.['dev.sigstore.bundle.predicateType'] === SIGNATURE,
-    );
-    if (!bundles.length) throw new UnsignedError('unsigned', `${image}@${digest} has no signature`);
+    const candidates = await this.#candidates(image, digest);
+    if (!candidates.length) throw new UnsignedError('unsigned', `${image}@${digest} has no signature`);
     // Fetched for each image it has not verified yet, so a rotated key is seen; TUF fetches only what changed.
     const verifier = new Verifier(toTrustMaterial(await this.#trustedRoot()));
     const refused: string[] = [];
-    for (const referrer of bundles) {
-      // A registry that cannot answer fails the check, as an error of its own: it says nothing about the signature.
-      const [layer] = await this.#registry.layers(image, referrer.digest);
-      const blob = layer?.mediaType === BUNDLE ? await this.#registry.blob(image, layer.digest) : undefined;
+    for (const { digest: bundle, blob } of candidates) {
       const refusal = blob ? refuse(verifier, blob, digest, signer) : 'it holds no bundle';
       if (!refusal) {
         this.#verified.add(key);
         return;
       }
-      refused.push(`${referrer.digest.slice(0, 'sha256:'.length + 12)}…: ${refusal}`);
+      refused.push(`${bundle.slice(0, 'sha256:'.length + 12)}…: ${refusal}`);
     }
     throw new UnsignedError(
       'refused',
       `${image}@${digest} has no signature by ${signer.identity} (${refused.join('; ')})`,
     );
+  }
+
+  /**
+   * The bundles beside a digest that say they hold a signature, not an attestation. What each holds is read from the
+   * referrers list where it says (the referrers API copies it there), from the bundle's own manifest where it does not
+   * (the tag GHCR keeps them under), and from the statement in the bundle if neither says: an image with attestations
+   * but no signature yet is unsigned, not refused. A registry that cannot answer fails the check, as an error of its
+   * own: it says nothing about the signature.
+   */
+  async #candidates(image: string, digest: string): Promise<Candidate[]> {
+    const candidates: Candidate[] = [];
+    for (const referrer of await this.#registry.referrers(image, digest)) {
+      if (referrer.artifactType !== BUNDLE) continue;
+      const listed = referrer.annotations?.[PREDICATE_TYPE];
+      // Skipped unread: an attestation's bundle can run to megabytes, as an SBOM's does.
+      if (listed && listed !== SIGNATURE) continue;
+      const artifact = await this.#registry.artifact(image, referrer.digest);
+      const said = listed ?? artifact.annotations?.[PREDICATE_TYPE];
+      if (said && said !== SIGNATURE) continue;
+      const [layer] = artifact.layers;
+      const blob = layer?.mediaType === BUNDLE ? await this.#registry.blob(image, layer.digest) : undefined;
+      if (!said && blob && claimed(blob) !== SIGNATURE) continue;
+      candidates.push({ digest: referrer.digest, blob });
+    }
+    return candidates;
+  }
+}
+
+/**
+ * The type of statement a bundle says it holds, unverified, only to tell a signature from an attestation; undefined
+ * if it cannot be read, in which case the bundle is checked, and refused, as a signature.
+ */
+function claimed(blob: Buffer): string | undefined {
+  try {
+    const bundle = bundleFromJSON(JSON.parse(blob.toString('utf-8')));
+    if (bundle.content.$case !== 'dsseEnvelope') return undefined;
+    return STATEMENT.parse(JSON.parse(bundle.content.dsseEnvelope.payload.toString('utf-8'))).predicateType;
+  } catch {
+    return undefined;
   }
 }
 
