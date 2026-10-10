@@ -34,7 +34,7 @@ Then the orchestrator reviews the stack as a whole, and fixes bottom up, one sub
 ### The supply chain
 
 - **Only images the pipeline signed run.** Each repository's `build.yml` signs every image it pushes, by digest, with cosign's keyless signing and the workflow's own OIDC identity, and attaches an SBOM from Syft as a signed attestation. There is no signing key to keep or steal. A signature says which workflow, in which repository, on which ref made the image.
-- **Kyverno admits a pod only if its image carries that signature.** In `website`, `factory`, `console` and `runners`, a pod's images must be referenced by digest and signed by `build.yml` on `main` of the repository that builds them, and every other registry is refused. A refusal names the policy and the image. Kyverno fails closed: if it cannot verify, the pod does not start. Its own namespace, Argo CD's and the cluster's system namespaces are left out, so the cluster can always start again. ADR 0010.
+- **Kyverno admits a pod only if its image carries that signature.** In `website`, `factory`, `console`, `runners` and, from Part C, `scoreboard`, a pod's images must be referenced by digest and signed by `build.yml` on `main` of the repository that builds them, and every other registry is refused. A refusal names the policy and the image. Kyverno fails closed: if it cannot verify, the pod does not start. Its own namespace, Argo CD's and the cluster's system namespaces are left out, so the cluster can always start again. ADR 0010.
 - **Images built on the Mac still run, by Martin's choice.** Running an unmerged image on the local cluster (the `try-the-line` skill) means switching the factory side's policy to audit for the run; Argo CD puts it back when self-heal resumes. The `website` policy stays enforced, always.
 - **Deploy pull requests check what admission will check.** The deploy watch proposes only a digest whose signature verifies, and the deploy pull request's checks verify it again, so a pull request that Martin merges never pins an image the cluster would refuse.
 
@@ -189,7 +189,7 @@ On the local cluster, with no line in the loop:
 
 ### 13. The scoreboard
 
-- `factory scoreboard`, its namespace, its Secret from the private checkout and its fences, as the decisions say. `make egress` shows it reaches only Postgres, and a test shows no other service account can read its Secret.
+- `factory scoreboard`, its namespace, its Secret from the private checkout and its fences, as the decisions say. Admission control guards the namespace, and the admission tests refuse an unsigned image there too. `make egress` shows it reaches only Postgres, and a test shows no other service account can read its Secret.
 - `score.updated` when a figure changes, and the figures checked against `workshop/count.ts` over the same tickets.
 
 ### 14. The console
