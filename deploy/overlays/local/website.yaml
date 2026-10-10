@@ -27,3 +27,5 @@ spec:
       selfHeal: true
     syncOptions:
       - RespectIgnoreDifferences=true
+      # What a change removes goes only once what replaces it is healthy, so the shop keeps answering in between.
+      - PruneLast=true
