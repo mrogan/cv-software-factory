@@ -4,13 +4,11 @@ Software Factory is a portfolio demo: AI agents and deterministic gates looking 
 it is public and read by reviewers, so the bar is best practice and scrupulous hygiene, and simple beats clever
 (`docs/INTENT.md`). Most pull requests are written by Claude Code and merged by Martin.
 
-The gates already check lint, formatting, types, tests, design tokens, manifests and the pull request's title. Don't
-comment on what they catch.
+The gates already check lint, formatting, types, tests, design tokens and manifests. Don't comment on what they catch.
 
 ## The rules
 
-Hold a change to the rules in `docs/REVIEWERS.md`, as this pull request leaves it: a change to the rules here is
-Martin's, and is meant to apply at once.
+Follow the rules in `docs/REVIEWERS.md`.
 
 ## How this repository works
 
@@ -20,7 +18,6 @@ Martin's, and is meant to apply at once.
   React state changes only when the movement ends.
 - Docs say how things are now, with no history of how they got there, and change in the same pull request as the code
   they describe. `docs/SPECIFICATION.md` is the source of truth; `docs/TERMS.md` holds the agreed words.
-- A follow-up is a GitHub issue, never a `TODO` in the code.
 - `deploy/` is GitOps: Argo CD deploys what is on `main`.
 - Files in `.github/CODEOWNERS` are the rules of the line: workflows, rulesets, policy and gate configuration. A change
   that loosens one deserves a comment saying so, however small.
