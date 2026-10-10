@@ -107,6 +107,16 @@ describe('signature checks', () => {
     }
   });
 
+  it('compare the identity whole: a name that only begins the signer’s is another signer', async () => {
+    // As a workflow on a branch named `main-anything` would be, beside `…/build.yml@refs/heads/main`.
+    const { signatures: s } = signatures();
+    const refused = s.verify(IMAGE, DIGEST, { ...COSIGN, identity: 'keyless@projectsigstore' });
+    await expect(refused).rejects.toMatchObject({
+      kind: 'refused',
+      message: expect.stringContaining(`it is signed by ${COSIGN.identity}`),
+    });
+  });
+
   it('refuse an image with no signature at all, as one built and pushed by hand', async () => {
     const { signatures: s } = signatures();
     await expect(s.verify(IMAGE, sha('9'), COSIGN)).rejects.toMatchObject({

@@ -4,7 +4,7 @@
 # Signing is keyless: cosign proves this workflow's identity with the job's OIDC token, Sigstore's Fulcio certifies it
 # for ten minutes, and the signature goes into Sigstore's public log, Rekor. There is no key to keep or steal. The
 # signature says which workflow, in which repository, on which ref made the image: only `build.yml` on main is
-# trusted, by the deploy watch, the deploy pull requests' checks and admission control alike.
+# trusted, by the deploy watch and the deploy pull requests' checks alike.
 #
 # Argo CD deploys only what is in git, so a new image reaches the local cluster through a pull request that pins its
 # digest in deploy/overlays/local. The factory's GitHub worker sees the new image in GHCR and opens that pull request
@@ -235,12 +235,13 @@ jobs:
             [ -n "$2" ] || return 0
             [[ "$2" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$1 has no digest: $2"; exit 1; }
             ref="$1@$2"
-            cosign sign --yes "$ref"
-            # One SBOM for each platform, each attested on the image index that the cluster pins.
+            # One SBOM for each platform, each attested on the image index that the cluster pins. The signature comes
+            # last, so an image that carries one has its SBOMs too: the deploy watch looks for the signature alone.
             for platform in linux/amd64 linux/arm64; do
               "$SYFT" scan --quiet --platform "$platform" "registry:$ref" --output spdx-json=sbom.spdx.json
               cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$ref"
             done
+            cosign sign --yes "$ref"
             echo "$ref: signed, with an SBOM of each platform attested"
           }
           sign "$IMAGE" "$CONSOLE"

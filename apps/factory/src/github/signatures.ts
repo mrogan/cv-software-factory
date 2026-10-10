@@ -111,10 +111,11 @@ export class Signatures {
 function refuse(verifier: Verifier, blob: Buffer, digest: string, signer: Signer): string | undefined {
   try {
     const bundle = bundleFromJSON(JSON.parse(blob.toString('utf-8')));
-    verifier.verify(toSignedEntity(bundle), {
-      subjectAlternativeName: signer.identity,
-      extensions: { issuer: signer.issuer },
-    });
+    // The issuer is compared exactly; the identity is compared here, not by the verifier, which reads it as a
+    // regular expression, unanchored: `…@refs/heads/main` would accept a branch named `main-anything`.
+    const { identity } = verifier.verify(toSignedEntity(bundle), { extensions: { issuer: signer.issuer } });
+    const san = identity?.subjectAlternativeName;
+    if (san !== signer.identity) return `it is signed by ${san ?? 'no identity'}`;
     // Only the envelope's payload is signed: the statement in it must be a signature, and of this digest.
     if (bundle.content.$case !== 'dsseEnvelope') return 'it signs no statement';
     const statement = STATEMENT.parse(JSON.parse(bundle.content.dsseEnvelope.payload.toString('utf-8')));
