@@ -102,8 +102,14 @@ for pair in factory:factory-images runners:factory-images website:website-images
   if [ "$before" = 1 ]; then failed=1; fi
 done
 
-actions() { "${kubectl[@]}" get imagevalidatingpolicy "$1" -o jsonpath='{.spec.validationActions}'; }
-auditing=$(for policy in factory-images website-images; do [[ "$(actions "$policy")" == *Audit* ]] && echo "$policy"; done || true)
+# Each policy's mode, read on its own, so a cluster that cannot answer fails the script rather than skipping reports.
+factory_actions=$("${kubectl[@]}" get imagevalidatingpolicy factory-images -o jsonpath='{.spec.validationActions}')
+website_actions=$("${kubectl[@]}" get imagevalidatingpolicy website-images -o jsonpath='{.spec.validationActions}')
+mode() { local actions=$factory_actions; [ "$1" = website-images ] && actions=$website_actions; [[ "$actions" == *Audit* ]] && echo audits || echo enforces; }
+auditing=""
+for policy in factory-images website-images; do
+  if [ "$(mode "$policy")" = audits ]; then auditing="$auditing$policy"$'\n'; fi
+done
 reports=$("${kubectl[@]}" get policyreports -A -o json | jq -r --arg auditing "$auditing" '
   ($auditing | split("\n")) as $audits |
   .items[] | select(.metadata.namespace | IN("factory", "runners", "website")) | . as $report | .results[]? |
@@ -117,9 +123,11 @@ if [ -n "$reports" ]; then
 fi
 
 for policy in factory-images website-images; do
-  mode=$([[ "$(actions "$policy")" == *Audit* ]] && echo audits || echo enforces)
-  if [[ " $notready " == *" $policy "* ]]; then
-    echo "$policy $mode: not ready, the images above would be refused; in Audit until their signed pins have merged."
+  mode=$(mode "$policy")
+  if [[ " $notready " == *" $policy "* && "$mode" = audits ]]; then
+    echo "$policy audits: not ready, the images above would be refused; in Audit until their signed pins have merged."
+  elif [[ " $notready " == *" $policy "* ]]; then
+    echo "$policy enforces: the images above are refused: pin signed ones in their place."
   elif [ "$mode" = audits ]; then
     echo "$policy audits: ready, every image its namespaces need would be admitted; its Audit patch can go."
   else
