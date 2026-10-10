@@ -16,7 +16,7 @@ The rule is one `ImageValidatingPolicy` (`deploy/base/admission/images`), in two
 
 An image of ours that its namespace does not run is refused before its signature is looked at, with a check of its own.
 
- Enforcing, Kyverno fails closed: a pod it cannot verify, because GHCR or Sigstore is out of reach or Kyverno is down, is refused. A pod is checked when it is made and when a change to it changes its images, not when only its labels or finalizers change, so an outage never holds up a pod that is already running. Its own namespace, Argo CD's and the cluster's system namespaces are outside its webhooks, so the cluster can always start again.
+Enforcing, Kyverno fails closed: a pod it cannot verify, because GHCR or Sigstore is out of reach or Kyverno is down, is refused. A pod is checked when it is made and when a change to it changes its images, not when only its labels or finalizers change, so an outage never holds up a pod that is already running. Its own namespace, Argo CD's and the cluster's system namespaces are outside its webhooks, so the cluster can always start again.
 
 ## Why
 

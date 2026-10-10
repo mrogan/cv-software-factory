@@ -63,12 +63,14 @@ spec:
         oldObject.spec.?ephemeralContainers.orValue([]).map(c, c.image) ||
         object.spec.?volumes.orValue([]).filter(v, has(v.image)).map(v, v.image.reference) !=
         oldObject.spec.?volumes.orValue([]).filter(v, has(v.image)).map(v, v.image.reference)
-  # The images Kyverno fetches and may verify: ours, on GHCR. No other registry is asked anything; an image from one is
-  # refused by the checks below without being looked at. An image of ours that a copy does not run is refused before
-  # its signature is looked at, too.
+  # The images Kyverno fetches and may verify: ours, on GHCR, by digest (with a tag or without). No other registry is
+  # asked anything, nor ours for a tag; such an image is refused by the checks below without being looked at. An image
+  # of ours that a copy does not run is refused before its signature is looked at, too. These globs, the `ours`
+  # variable below and scripts/admission-ready.sh must agree on what is ours.
   matchImageReferences:
-    - glob: ghcr.io/mrogan/cv-software-factory/*
+    - glob: ghcr.io/mrogan/cv-software-factory/*@*
     - glob: ghcr.io/mrogan/cv-worlds-worst-website@*
+    - glob: ghcr.io/mrogan/cv-worlds-worst-website:*@*
   validationConfigurations:
     # The policy itself checks for digests, with its own words, and changes nothing.
     mutateDigest: false

@@ -22,10 +22,13 @@ identity() { echo "https://github.com/mrogan/$1/.github/workflows/build.yml@refs
 
 # The strings a policy's variable lists: `allowed`, the images it admits from another registry, and
 # `factoryRepositories` and `websiteRepositories`, the repositories of ours it admits.
+# A policy without the variable is older than this script: Argo CD has not synced it yet.
 listed() { # policy variable
-  "${kubectl[@]}" get imagevalidatingpolicy "$1" -o json |
-    jq -r --arg name "$2" '.spec.variables[] | select(.name == $name) | .expression' |
-    { grep -o "'[^']*'" || true; } | tr -d "'"
+  local expression
+  expression=$("${kubectl[@]}" get imagevalidatingpolicy "$1" -o json |
+    jq -er --arg name "$2" '.spec.variables[] | select(.name == $name) | .expression') ||
+    { echo "$1 has no variable $2: is it synced?" >&2; return 1; }
+  { grep -o "'[^']*'" || true; } <<<"$expression" | tr -d "'"
 }
 
 # Every image a namespace names: running, in a template, in an image volume, or the line's RUNNER_IMAGE.
@@ -73,7 +76,8 @@ for pair in factory:factory-images runners:factory-images website:website-images
   ns=${pair%%:*} policy=${pair#*:}
   # Read first, so a cluster that cannot answer fails the script rather than checking nothing.
   allowed=$(listed "$policy" allowed)
-  factory=$(listed "$policy" factoryRepositories) website=$(listed "$policy" websiteRepositories)
+  factory=$(listed "$policy" factoryRepositories)
+  website=$(listed "$policy" websiteRepositories)
   list=$(images "$ns")
   for image in $list; do check "$ns" "$policy" "$allowed" "$factory" "$website" "$image"; done
 done

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Asks the cluster to start, in each guarded namespace, a pod on an image the pipeline did not sign and one on an image
-# signed by someone else (and, in `website`, one on a factory image it does not run), and keeps Kyverno's answers in
+# Asks the cluster to start, in each guarded namespace, a pod on an image the pipeline did not sign, one on an image
+# signed by someone else and one on an image of ours that the namespace does not run, and keeps Kyverno's answers in
 # deploy/test/admission-refusals.json, for milestone 9's red team to show. Run it with the image policies enforcing
 # (Deny). While they only audit, switch both to Deny for the run (`kubectl patch imagevalidatingpolicy <name> --type
 # merge -p '{"spec":{"validationActions":["Deny"]}}'`), with Argo CD's self-heal on `root` paused, and put them back
@@ -15,8 +15,8 @@
 #                   (https://github.com/sigstore/timestamp-authority/.github/workflows/release.yaml@refs/tags/v2.1.0),
 #                   and refused for its registry before its signature is looked at: only our GHCR's images are
 #                   verified, against their own repository's identity
-#   misplaced       in `website` only, the factory's own image: ours, on GHCR, but not the browser, the one factory
-#                   image that namespace runs, so refused before its signature is looked at
+#   misplaced       ours, on GHCR, but not an image the namespace runs, so refused before its signature is looked
+#                   at: in `website` the factory's own image (only its browser runs there), elsewhere the app's
 set -euo pipefail
 
 context="${KUBE_CONTEXT:-k3d-software-factory}"
@@ -59,7 +59,7 @@ EOF
   for ns in factory runners website; do
     if [ "$ns" = website ]; then try "$ns" unsigned "$website"; else try "$ns" unsigned "$factory"; fi
     try "$ns" other-identity "$other"
-    if [ "$ns" = website ]; then try "$ns" misplaced "$factory"; fi
+    if [ "$ns" = website ]; then try "$ns" misplaced "$factory"; else try "$ns" misplaced "$website"; fi
   done
 } | jq -s . >"$out"
 jq -r '.[] | "\(.outcome)  \(.namespace)  \(.case): \(.message)"' "$out"

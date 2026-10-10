@@ -152,14 +152,13 @@ describe('admission control', () => {
     for (const { policy: name, namespaces } of [await copy('factory'), await copy('website')]) {
       for (const namespace of namespaces) {
         const refusals = kept.filter((r) => r.namespace === namespace);
-        // `misplaced` (a factory image other than the browser, in `website`) is kept from the next recording on.
+        // `misplaced` (an image of ours the namespace does not run) is kept from the next recording on.
         expect(
           refusals
             .map((r) => r.case)
             .filter((c) => c !== 'misplaced')
             .sort(),
         ).toEqual(['other-identity', 'unsigned']);
-        if (namespace !== 'website') expect(refusals.map((r) => r.case)).not.toContain('misplaced');
         for (const refusal of refusals) {
           expect(refusal.outcome).toBe('refused');
           // A refusal names the policy, the check that refused it and the image.
