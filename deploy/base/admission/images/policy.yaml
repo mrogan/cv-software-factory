@@ -7,7 +7,7 @@
 #    identity compared whole, never as a pattern.
 #
 # The SBOM that workflow attests is not checked here: the deploy pull requests' checks require it of every pin, and
-# verifying it meant parsing the whole SPDX document, which `factory-browser`'s are too large for (ADR 0010).
+# verifying it here would mean parsing the whole SPDX document as pods start (ADR 0010).
 #
 # Two copies of this policy, `factory-images` and `website-images` (../factory, ../website), say where it applies,
 # which of our images run there and what else may. Enforcing, Kyverno fails closed: if it cannot verify an image (GHCR
