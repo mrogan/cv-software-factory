@@ -30,6 +30,8 @@ interface Served {
   api?: boolean;
   /** What the referrers list says each one is. */
   predicateType?: string;
+  /** Whether the list says it at all: the bundle's manifest, served without annotations here, does not. */
+  listed?: boolean;
   bundle?: Buffer;
   /** The digest the signature is kept beside. */
   beside?: string;
@@ -38,7 +40,14 @@ interface Served {
 }
 
 /** GHCR, holding one signature of DIGEST as cosign leaves it, and keeping each request it was sent. */
-function registry({ api = false, predicateType = SIGNATURE, bundle = BUNDLE, beside = DIGEST, status }: Served = {}) {
+function registry({
+  api = false,
+  predicateType = SIGNATURE,
+  listed = true,
+  bundle = BUNDLE,
+  beside = DIGEST,
+  status,
+}: Served = {}) {
   const requests: string[] = [];
   const answer = (body: unknown) =>
     new Response(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
@@ -50,7 +59,7 @@ function registry({ api = false, predicateType = SIGNATURE, bundle = BUNDLE, bes
         mediaType: 'application/vnd.oci.image.manifest.v1+json',
         digest: sha('1'),
         artifactType: 'application/vnd.dev.sigstore.bundle.v0.3+json',
-        annotations: { 'dev.sigstore.bundle.predicateType': predicateType },
+        ...(listed && { annotations: { 'dev.sigstore.bundle.predicateType': predicateType } }),
       },
     ],
   };
@@ -84,6 +93,11 @@ describe('signature checks', () => {
 
   it('use the referrers API where the registry has it', async () => {
     const { signatures: s } = signatures({ api: true });
+    await expect(s.verify(IMAGE, DIGEST, COSIGN)).resolves.toBeUndefined();
+  });
+
+  it('read a bundle’s statement when neither the list nor its manifest says what it holds', async () => {
+    const { signatures: s } = signatures({ api: true, listed: false });
     await expect(s.verify(IMAGE, DIGEST, COSIGN)).resolves.toBeUndefined();
   });
 
@@ -215,6 +229,16 @@ describe('signature checks on GHCR, as our pipeline leaves them', () => {
     await expect(s.verify(FACTORY, FACTORY_DIGEST, FACTORY_PIPELINE)).resolves.toBeUndefined();
     // The SBOMs' bundles are not served here: asking for one would have failed the check.
     expect(requests.filter((r) => r.includes('/blobs/'))).toEqual([SIGNED_BUNDLE]);
+  });
+
+  it('stop at the first signature that verifies, reading nothing after it', async () => {
+    // The signature listed first, and an attestation after it the registry cannot serve.
+    const { signatures: s } = ghcr((served) => {
+      const index = served[STANDS_IN] as { manifests: { digest: string }[] };
+      index.manifests.sort((a, b) => Number(SIGNED.endsWith(b.digest)) - Number(SIGNED.endsWith(a.digest)));
+      delete served[`/v2/${FACTORY}/manifests/${index.manifests[1]?.digest}`];
+    });
+    await expect(s.verify(FACTORY, FACTORY_DIGEST, FACTORY_PIPELINE)).resolves.toBeUndefined();
   });
 
   it('call an image with attestations but no signature yet unsigned, not refused', async () => {
