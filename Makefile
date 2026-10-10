@@ -45,7 +45,8 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@# Root syncs first: then every other Application exists.
 	@$(KUBECTL) -n argocd wait application/root --for=jsonpath='{.status.sync.status}'=Synced --timeout=5m >/dev/null
 	@$(KUBECTL) -n argocd wait applications --all --for=jsonpath='{.status.sync.status}'=Synced --timeout=5m >/dev/null
-	@$(KUBECTL) -n argocd wait applications --all --for=jsonpath='{.status.health.status}'=Healthy --timeout=10m >/dev/null
+	@# Then everything healthy, except the website, whose health is its release's (scripts/wait-deployed.sh).
+	@KUBECTL="$(KUBECTL)" scripts/wait-deployed.sh
 	@$(MAKE) --no-print-directory status
 
 down: ## Delete the local cluster, and everything in it

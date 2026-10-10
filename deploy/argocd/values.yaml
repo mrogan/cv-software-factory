@@ -9,10 +9,16 @@ configs:
   params:
     # TLS ends at the ingress, and locally there is none.
     server.insecure: true
+    # Keep each resource's health in its Application's status, as Argo CD did before 3.0, so `make up` can read it
+    # there with kubectl: it waits for everything root deploys but the website (scripts/wait-deployed.sh).
+    controller.resource.health.persist: true
   cm:
     # Read-only access without logging in, so the local UI opens straight onto the applications.
     users.anonymous.enabled: true
-    # Roll each child Application's health up into the root, so `make up` can wait on one thing.
+    # Roll each child Application's health up into the root, so a later sync wave waits for an earlier Application to
+    # be healthy: Kyverno before what it guards, Argo Rollouts' CRDs before the app's Rollout. The website's health
+    # rolls up too, so root is Suspended through a canary and Degraded after a rollback; the website syncs last
+    # (overlays/local/website.yaml), so neither holds anything back.
     resource.customizations.health.argoproj.io_Application: |
       hs = {}
       hs.status = "Progressing"
