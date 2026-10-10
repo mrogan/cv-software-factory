@@ -14,7 +14,20 @@ The milestone is built in three parts, each by its own implementing session, bec
 - **Part B, the line after the merge:** the line carries a work item through Release and Verify, closes or reopens its ticket and issue, and turns a rollback into a signal.
 - **Part C, the score and the show:** the scoreboard, the console's Canary panel and new states, and the runs that show the whole of it.
 
-Each part starts when the one before has met its criteria and its pull requests are merged. Each leaves `COMPONENTS.md` and `AGENTS.md` describing what it built, so the next session starts from this file, those two and the code, and needs nothing from the session before. Sessions hand work to sub-agents, one to a pull request, and keep the stack's review to themselves.
+Each part starts when the one before has met its criteria and its pull requests are merged. Each leaves `COMPONENTS.md` and `AGENTS.md` describing what it built, so the next session starts from this file, those two and the code, and needs nothing from the session before.
+
+## How each part is built
+
+The part's session orchestrates. It gives each pull request to a sub-agent of its own, and keeps its context for the stack. The sub-agent, for its pull request:
+
+1. Builds the task with its tests, and passes `make check`.
+2. Has a fresh sub-agent run `/code-review low` on the branch, and fixes what it finds. Where a miss is a hole rather than a bug (tasks 1, 2, 8 and 13), `/code-review medium` and `/security-review`.
+3. Writes a short note on the change (why, the decisions it took and turned down, what it left out and where that went, how it was tested) in `scratch/pr/`, and runs `/visual-pr` with the base and the note. The skill writes the description in a context of its own, so the sub-agent's full context does not have to hold the whole diff again.
+4. Pushes, and opens the pull request with that description. Copilot reviews it.
+5. Answers Copilot. Fixed: reply with the commit and resolve. Wrong: reply with why and resolve. Arguable, or outside the task: reply and leave it open for the orchestrator. `main` needs every conversation resolved before a merge.
+6. Reports to the orchestrator: the pull request, what each review found, how it was answered, and what is left open.
+
+Then the orchestrator reviews the stack as a whole, and fixes bottom up, one sub-agent to a pull request, rebasing what is above each fix before anything is pushed again.
 
 ## Decisions
 
@@ -89,6 +102,7 @@ Each task is its own pull request, in order, each demonstrable.
 - Both `build.yml` workflows sign each image by digest, keyless, and attach the Syft SBOM as an attestation, with `id-token: write` for that job only.
 - The deploy watch checks a digest's signature before it proposes it, and the deploy pull request's checks verify it again.
 - `cosign verify` against each repository's identity passes for a new image, and fails for an image built and pushed by hand.
+- The app's repository gets a `.github/copilot-instructions.md` like this one's, pointing at its `docs/REVIEWERS.md`, with its first pull request of the milestone, so Copilot reviews the app's changes against the app's rules.
 
 ### 2. Admission control
 
