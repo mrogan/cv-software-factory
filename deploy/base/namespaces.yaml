@@ -27,7 +27,8 @@ metadata:
   labels:
     pod-security.kubernetes.io/enforce: restricted
 ---
-# Argo Rollouts' controller, which runs the app's releases as canaries (rollouts/).
+# Argo Rollouts' controller, which runs the app's releases as canaries (rollouts/). Like telemetry, it runs only an
+# upstream chart, so admission control does not guard it (deploy/base/admission).
 apiVersion: v1
 kind: Namespace
 metadata:
