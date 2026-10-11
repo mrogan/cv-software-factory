@@ -97,10 +97,12 @@ class FakeKube implements Kube {
     this.asked.push(path);
     const pods = path.match(/^\/api\/v1\/namespaces\/website\/pods\?labelSelector=job-name%3D(.+)$/);
     if (pods?.[1]) {
-      // null: the pod is there, and its container has not ended.
+      // null: the pod is there, and its container has not ended; 'pending': the pod is there, its container has no
+      // status yet.
       const message = this.messages.get(decodeURIComponent(pods[1]));
       const state = message === null ? { running: {} } : { terminated: { message } };
-      const items = message === undefined ? [] : [{ status: { containerStatuses: [{ name: 'journeys', state }] } }];
+      const statuses = message === 'pending' ? [] : [{ name: 'journeys', state }];
+      const items = message === undefined ? [] : [{ status: { containerStatuses: statuses } }];
       return schema.parse({ items });
     }
     if (path === '/apis/argoproj.io/v1alpha1/namespaces/website/rollouts/website') {
@@ -557,9 +559,13 @@ describe('a rollback, as signals to triage', () => {
 
   it('waits for a journeys Job whose container has not ended, then reads what it wrote', async () => {
     const { line: it, kube } = await underWay();
-    kube.messages.set('slow.journeys.1', null);
+    // Its pod is listed before its container has a status.
+    kube.messages.set('slow.journeys.1', 'pending');
     kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true });
     kube.runs = [failedRun('slow.journeys.1')];
+    await it.tick();
+    expect((await inbox()).map((row) => row.signal.check)).toEqual(['errors', 'latency']);
+    kube.messages.set('slow.journeys.1', null);
     await it.tick();
     expect((await inbox()).map((row) => row.signal.check)).toEqual(['errors', 'latency']);
     kube.messages.set(

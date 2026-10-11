@@ -304,8 +304,9 @@ const podList = z.object({
 /**
  * What the journeys found when they failed a run, as the last failed Job of the run's journeys measure wrote it to its
  * container's termination message (`comparisonMessage`): `found`, the checks that passed on the baseline and failed on
- * the canary; `running`, while the container has not ended, so there is nothing to read yet; or `lost`, when there is
- * no such Job or pod any more, or its message is missing or says something else.
+ * the canary; `running`, while the Job's pod is there and its container has not ended (or has no status yet), so there
+ * is nothing to read yet; or `lost`, when there is no such Job or pod any more, or its message is missing or says
+ * something else.
  */
 export type Journeys = { kind: 'found'; regressions: Regression[] } | { kind: 'running' } | { kind: 'lost' };
 
@@ -324,11 +325,12 @@ export async function journeysOf(kube: Kube, namespace: string, run: AnalysisRun
     `/api/v1/namespaces/${encodeURIComponent(namespace)}/pods?labelSelector=${selector}`,
     podList,
   );
-  const containers = (pods?.items ?? [])
+  const items = pods?.items ?? [];
+  const ended = items
     .flatMap((pod) => pod.status.containerStatuses)
-    .filter((container) => container.name === 'journeys');
-  const ended = containers.filter((container) => container.state?.terminated);
-  if (!ended.length) return containers.length ? { kind: 'running' } : { kind: 'lost' };
+    .filter((container) => container.name === 'journeys' && container.state?.terminated);
+  // A pod is listed before its container has a status (Pending, pulling its image): it is still to run.
+  if (!ended.length) return items.length ? { kind: 'running' } : { kind: 'lost' };
   const regressions = ended.map((c) => regressionsIn(c.state?.terminated?.message)).find((r) => r?.length);
   return regressions ? { kind: 'found', regressions } : { kind: 'lost' };
 }
