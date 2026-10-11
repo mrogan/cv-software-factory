@@ -38,6 +38,7 @@ import { keptLine } from '../logs/errors.ts';
 import { sameError } from '../logs/patterns.ts';
 import { errorLogs } from '../logs/watcher.ts';
 import type { VerifyAnswer, VerifyRequest } from '../probes/verify.ts';
+import { short } from '../release/watch.ts';
 import { requestLogs } from '../routes.ts';
 
 /** The ticket's first signal, as Verify reads it: never a report's words, which it has no use for. */
@@ -385,8 +386,6 @@ export function reopeningComment(reopened: PayloadOf<'work-item.reopened'>, work
 }
 
 const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
-
-const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);
 
 /** The probes worker's answer, checked: the evidence is checked again as the verification is made. */
 const verifyAnswer = z.object({

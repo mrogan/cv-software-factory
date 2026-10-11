@@ -54,6 +54,12 @@ export function ingressServiceOf(url: string): string {
 
 type Version = 'stable' | 'canary';
 
+/** The labels of one version's requests, on every route the app named, with any matchers more. */
+const labels =
+  (r: Release, hash: string) =>
+  (extra = '') =>
+    `{job="${r.app.metricsJob}", http_route!="", ${HASH}="${hash}"${extra}}`;
+
 /**
  * One version's own figures, by its pod-template hash, over the window: its requests, its share of 5xx answers, and its
  * latency at the policy's percentile, in seconds. Each sums over every route the app named. The templates pass the
@@ -61,7 +67,7 @@ type Version = 'stable' | 'canary';
  */
 export function versionQueries(r: Release, hash: string) {
   const window = `[${r.windowMinutes}m]`;
-  const of = (extra = '') => `{job="${r.app.metricsJob}", http_route!="", ${HASH}="${hash}"${extra}}`;
+  const of = labels(r, hash);
   return {
     requests: `sum(increase(${REQUESTS}_count${of()}${window}))`,
     errorShare:
@@ -78,7 +84,7 @@ export function versionQueries(r: Release, hash: string) {
  */
 export function routeQueries(r: Release, hash: string, seconds: number) {
   const window = `[${Math.max(1, Math.round(seconds))}s]`;
-  const of = (extra = '') => `{job="${r.app.metricsJob}", http_route!="", ${HASH}="${hash}"${extra}}`;
+  const of = labels(r, hash);
   return {
     requests: `sum by (http_route) (increase(${REQUESTS}_count${of()}${window}))`,
     errors: `sum by (http_route) (increase(${REQUESTS}_count${of(', http_response_status_code=~"5.."')}${window}))`,

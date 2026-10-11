@@ -22,7 +22,7 @@ import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/eve
 import { uuidFrom } from '@software-factory/triage';
 import type { Regression } from '../gates/journeys.ts';
 import type { AnalysisRun, RoutesWorse } from './read.ts';
-import { failuresOf, measuresOf, type Observed, type Recorded, type Series } from './watch.ts';
+import { failuresOf, measuresOf, type Observed, type Recorded, type Series, short } from './watch.ts';
 
 type Started = PayloadOf<'release.started'>;
 type Measure = PayloadOf<'canary.stepped'>['analysis']['measures'][number];
@@ -113,5 +113,3 @@ export function canarySignal(failed: FailedMeasure, read: Read): { id: string; s
   };
   return { id: uuidFrom(`canary:${keyOf(failed)}`), signal };
 }
-
-const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);
