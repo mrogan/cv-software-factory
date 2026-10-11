@@ -17,6 +17,9 @@
  * - About as often, it tells the app's deploy pull request which work items it carries: those whose fixes merged
  *   between the commit pinned now and the one the pull request runs. It says so only when the list, or the pull
  *   request, has changed since it last did. Not with `only`: a soak of one work item says nothing of the others.
+ * - About every thirty seconds, it reads the app's Rollout and its AnalysisRuns, and records each release on the work
+ *   items it carries, or on the line when it carries none (`release.ts`). It changes nothing in Kubernetes. In a dry
+ *   run, it answers for the releases of the dry run's merges, which never shipped.
  * - With `only`, it acts on that one work item, taking its ticket onto the line if it is not there: it starts no
  *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end.
  * - When the line stops, it stops every step in hand, wherever it is, and takes nothing new; their work is lost and
@@ -69,6 +72,7 @@ import {
 } from './machine.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Pending, Queue, type QueueItem } from './queue.ts';
+import { Releases, type ReleaseWatchOptions } from './release.ts';
 
 /** The runners, as the line uses them (`runners/steps.ts`). */
 export interface Steps {
@@ -100,6 +104,17 @@ export interface LineOptions {
   gatesEveryMs?: number;
   /** How often the line looks at the app's deploy pull request, to say what it carries. */
   deployEveryMs?: number;
+  /** The app's Rollout, and Prometheus, for the line's watch of its releases; null, as by default, watches none. */
+  release?: ReleaseWatchOptions | null;
+  /** How often the line reads the app's release. */
+  releaseEveryMs?: number;
+  /**
+   * Whether the line runs a dry run (LINE_MODE=dry-run): then it answers for the release of each merge the dry run
+   * made, which never shipped, by its own word.
+   */
+  dryRun?: boolean;
+  /** How long a dry run's release takes over each move: to start after the merge, each step, and its promotion. */
+  dryRunReleaseMs?: number;
   /**
    * False for a line that takes no work and only stops the steps in hand (the step API's) when the line stops.
    */
@@ -137,6 +152,7 @@ const retryAfterMs = (tries: number) => Math.min(30_000 * 2 ** (tries - 1), 600_
 export class Line {
   readonly #o: Required<Omit<LineOptions, 'me'>>;
   readonly #queue: Queue;
+  readonly #releases: Releases;
   /** The steps in hand, by work item, with the stage each holds. */
   readonly #inFlight = new Map<string, { stage: 'plan' | 'build' | 'review'; done: Promise<void> }>();
   #stopped = false;
@@ -146,6 +162,7 @@ export class Line {
   /** The merged work items whose volume this worker has deleted, until a step makes one again. */
   readonly #volumeGone = new Set<string>();
   #deployReadAt = Number.NEGATIVE_INFINITY;
+  #releaseReadAt = Number.NEGATIVE_INFINITY;
   /** What the deploy pull request was last told it carries, with its number and commit; unknown after a start. */
   #described: string | undefined;
 
@@ -156,6 +173,10 @@ export class Line {
       now: () => new Date(),
       gatesEveryMs: 60_000,
       deployEveryMs: 60_000,
+      release: null,
+      releaseEveryMs: 30_000,
+      dryRun: false,
+      dryRunReleaseMs: 60_000,
       takesWork: true,
       workItemLimitUsd: null,
       providerOf: () => 'anthropic',
@@ -166,6 +187,18 @@ export class Line {
     this.#queue = new Queue(options.sql, options.me ?? `line-${hostname()}`, {
       only: this.#o.only,
       take: this.#o.take,
+    });
+    this.#releases = new Releases({
+      sql: this.#o.sql,
+      events: this.#o.events,
+      github: this.#o.github,
+      repo: this.#o.repo,
+      log: this.#o.log,
+      now: this.#o.now,
+      watch: this.#o.release,
+      dryRun: this.#o.dryRun,
+      dryRunEveryMs: this.#o.dryRunReleaseMs,
+      only: this.#o.only,
     });
   }
 
@@ -199,6 +232,10 @@ export class Line {
       await this.#describeDeploy().catch((error: unknown) =>
         this.#o.log.warn({ err: errorOf(error) }, 'could not say what the deploy pull request carries'),
       );
+    }
+    if (this.#o.now().getTime() - this.#releaseReadAt >= this.#o.releaseEveryMs) {
+      this.#releaseReadAt = this.#o.now().getTime();
+      await this.#releases.pass();
     }
     const taken = await this.#queue.admit();
     if (taken) this.#o.log.info({ workItem: taken }, 'a ticket came onto the line');

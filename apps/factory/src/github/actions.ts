@@ -421,6 +421,9 @@ export interface DryRunPull {
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
+/** Where a dry run's numbers start: its pull requests, and so its merges, are numbered from here up. */
+export const DRY_RUN_NUMBERS_FROM = 1_000_000_000;
+
 /** File contents as they will read in the record. */
 function shown(contents: Uint8Array): { text: string } | { base64: string } {
   try {
@@ -449,7 +452,7 @@ export class DryRunActions implements Actions {
    * Numbers for what would have been made, from a billion up: positive, as every action that takes one requires,
    * and far beyond any this repository will reach, so none can be taken for a real one.
    */
-  #next = 1_000_000_000;
+  #next = DRY_RUN_NUMBERS_FROM;
 
   constructor(
     artifacts: ArtifactStore,

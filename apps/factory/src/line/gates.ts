@@ -152,8 +152,8 @@ export function gateEvents(
   return drafts;
 }
 
-/** A draft as an event of the work item, at its type's current version. */
-export const asEvent = (workItem: string, draft: Draft, ts: string): NewEvent =>
+/** A draft as an event of the work item, or of the line (null), at its type's current version. */
+export const asEvent = (workItem: string | null, draft: Draft, ts: string): NewEvent =>
   ({
     id: crypto.randomUUID(),
     ts,

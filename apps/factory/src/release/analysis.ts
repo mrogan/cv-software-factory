@@ -55,20 +55,33 @@ export function ingressServiceOf(url: string): string {
 type Version = 'stable' | 'canary';
 
 /**
+ * One version's own figures, by its pod-template hash, over the window: its requests, its share of 5xx answers, and its
+ * latency at the policy's percentile, in seconds. Each sums over every route the app named. The templates pass the
+ * hash as an argument; the release watch names it (`release/read.ts`).
+ */
+export function versionQueries(r: Release, hash: string) {
+  const window = `[${r.windowMinutes}m]`;
+  const of = (extra = '') => `{job="${r.app.metricsJob}", http_route!="", ${HASH}="${hash}"${extra}}`;
+  return {
+    requests: `sum(increase(${REQUESTS}_count${of()}${window}))`,
+    errorShare:
+      `(sum(rate(${REQUESTS}_count${of(', http_response_status_code=~"5.."')}${window})) or vector(0))\n` +
+      `    / sum(rate(${REQUESTS}_count${of()}${window}))`,
+    latency: `histogram_quantile(${r.latency.percentile}, sum by (le) (rate(${REQUESTS}_bucket${of()}${window})))`,
+  };
+}
+
+/**
  * The PromQL behind each measure, for one release policy. Each is written across lines, as the templates show it: a
  * version's figure on a line of its own.
  */
 export function queries(r: Release) {
   const window = `[${r.windowMinutes}m]`;
-  const of = (version: Version, extra = '') =>
-    `{job="${r.app.metricsJob}", http_route!="", ${HASH}="{{args.${version}-hash}}"${extra}}`;
+  const version = (v: Version) => versionQueries(r, `{{args.${v}-hash}}`);
   // Only the split sends to the canary through the ingress: the journeys ask its Service directly.
   const canaryRequests = `sum(increase(${INGRESS_REQUESTS}{service="${ingressServiceOf(r.app.canary)}"}${window}))`;
-  const errorShare = (version: Version) =>
-    `(sum(rate(${REQUESTS}_count${of(version, ', http_response_status_code=~"5.."')}${window})) or vector(0))\n` +
-    `    / sum(rate(${REQUESTS}_count${of(version)}${window}))`;
-  const latency = (version: Version) =>
-    `histogram_quantile(${r.latency.percentile}, sum by (le) (rate(${REQUESTS}_bucket${of(version)}${window})))`;
+  const errorShare = (v: Version) => version(v).errorShare;
+  const latency = (v: Version) => version(v).latency;
   // Nothing is judged until the split has sent the canary enough requests: the result is then empty, which passes,
   // so a step that falls short fails on `enough-requests` alone, for that reason, and not on what the journeys alone
   // made of errors and latency. Once it has, a version with nothing to compare (no series for its hash) is infinitely
