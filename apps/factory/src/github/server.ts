@@ -21,7 +21,7 @@ import { z } from 'zod';
 import type { Actions } from './actions.ts';
 import { BranchRefused } from './branches.ts';
 import { GitHubError } from './client.ts';
-import { DeployRefused } from './deploys.ts';
+import { DeployRefused, MAX_CARRIES } from './deploys.ts';
 import { PatchRefused } from './patches.ts';
 import type { Reads } from './reads.ts';
 import { DIGEST, RegistryError } from './registry.ts';
@@ -99,7 +99,12 @@ const ARGS = {
     labels: z.array(text(50)).max(10).optional(),
   }),
   updatePullRequest: z.strictObject({ number, title: text(256).min(1).optional(), body: text(65_535).optional() }),
-  describeDeploy: z.strictObject({ number, commit: sha, carries: z.array(carry).max(50) }),
+  describeDeploy: z.strictObject({
+    number,
+    commit: sha,
+    carries: z.array(carry).max(MAX_CARRIES),
+    more: z.number().int().nonnegative().optional(),
+  }),
   addLabels: z.strictObject({ number, labels: z.array(text(50)).min(1).max(10) }),
   readyForReview: z.strictObject({ pullRequest: pullRequestRef }),
   updateBranch: z.strictObject({ number, expectedHead: sha }),
@@ -142,7 +147,7 @@ const CALLS: { [K in Name]: (actions: Actions, repo: string, args: z.infer<(type
   applyPatch: (x, repo, patch) => x.applyPatch(repo, patch),
   openPullRequest: (x, repo, draft) => x.openPullRequest(repo, defined(draft)),
   updatePullRequest: (x, repo, { number, ...change }) => x.updatePullRequest(repo, number, defined(change)),
-  describeDeploy: (x, repo, { number, ...deploy }) => x.describeDeploy(repo, number, deploy),
+  describeDeploy: (x, repo, { number, ...deploy }) => x.describeDeploy(repo, number, defined(deploy)),
   addLabels: (x, repo, { number, labels }) => x.addLabels(repo, number, labels),
   readyForReview: (x, repo, { pullRequest }) => x.readyForReview(repo, pullRequest),
   updateBranch: (x, repo, { number, expectedHead }) => x.updateBranch(repo, number, expectedHead),

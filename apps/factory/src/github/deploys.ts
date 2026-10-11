@@ -140,7 +140,8 @@ export interface DeployProposal {
 /**
  * The open deploy pull request of each target, by repository and branch, as the watches last saw or made them: what
  * the line reads to say what a deploy carries. It lives as long as the worker; a worker started again knows each one
- * after its watch's first pass.
+ * after its watch's first pass that finds the newest build signed. For a minute after Martin merges one, it is still
+ * here, until the watch's next pass.
  */
 export class DeployProposals {
   readonly #open = new Map<string, DeployProposal>();
@@ -164,13 +165,24 @@ export interface Carry {
   pullRequest: number;
 }
 
+/** What a deploy pull request is told it carries, for the commit it runs: at most `MAX_CARRIES`, and how many more. */
+export interface Deploy {
+  commit: string;
+  carries: Carry[];
+  more?: number;
+}
+
+/** The most work items a Carries section lists by name: the rest are counted. */
+export const MAX_CARRIES = 50;
+
 /** Where the Carries section starts and ends in a deploy pull request's body, so it can be found and replaced. */
 const CARRIES_START = '<!-- factory: carries -->';
 const CARRIES_END = '<!-- factory: /carries -->';
 
 /**
  * A ticket's title as plain text in a table: on one line, without a pipe, and with nothing GitHub would read as
- * markdown, a link, an HTML tag or a mention. The title is the factory's own, but a cell is no place for markup.
+ * markdown, an HTML tag, a reference or a mention (a bare `www.` address may still show as a link). The title is the
+ * factory's own, but a cell is no place for markup.
  */
 const plain = (title: string) =>
   title
@@ -184,12 +196,14 @@ const plain = (title: string) =>
     .replace(/@/g, '&#64;');
 
 /** The Carries section of a deploy pull request's body: the work items its commits bring, or that they bring none. */
-export function carriesSection(carries: readonly Carry[]): string {
+export function carriesSection(carries: readonly Carry[], more = 0): string {
   const rows = carries.map(
     (c) => `| ${c.workItem} | ${plain(c.title)} | ${c.issue ? `#${c.issue}` : '–'} | #${c.pullRequest} |`,
   );
-  const said = carries.length
-    ? `It carries ${carries.length === 1 ? 'one work item' : `${carries.length} work items`} of the line’s, whose fixes merged since the pinned commit:
+  if (more) rows.push(`| | and ${more} more | | |`);
+  const all = carries.length + more;
+  const said = all
+    ? `It carries ${all === 1 ? 'one work item' : `${all} work items`} of the line’s, whose fixes merged since the pinned commit:
 
 | Ticket | Title | Issue | Pull request |
 |---|---|---|---|

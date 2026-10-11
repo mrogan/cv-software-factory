@@ -26,7 +26,7 @@ const APP_DEPLOY = DEPLOYS.find((t) => t.repo === REPO) as (typeof DEPLOYS)[numb
 const CARRIES = [{ workItem: '1001', title: 'Redirect loop on /departments', issue: 16, pullRequest: 17 }];
 
 /** The app's deploy pull request, #30, for SHA, as GitHub keeps it: what describing it reads and writes. */
-function deployPull(pull: { state?: string; head?: string; body?: string | null } = {}) {
+function deployPull(pull: { state?: string; head?: string; fork?: boolean; body?: string | null } = {}) {
   let body = pull.body === undefined ? 'Runs `aaaaaaa` on the local cluster.' : pull.body;
   const routes: Route[] = [
     {
@@ -37,7 +37,7 @@ function deployPull(pull: { state?: string; head?: string; body?: string | null 
           state: pull.state ?? 'open',
           title: deployTitle(APP_DEPLOY, SHA),
           body,
-          head: { ref: pull.head ?? APP_DEPLOY.branch },
+          head: { ref: pull.head ?? APP_DEPLOY.branch, repo: { full_name: pull.fork ? 'someone/fork' : REPO } },
           base: { ref: 'main' },
         },
       }),
@@ -205,6 +205,7 @@ describe('describing a deploy', () => {
   it('refuses a pull request that is not a deploy, and one no longer for the commit, or no longer open', async () => {
     for (const [pull, commit, refusal] of [
       [{ head: 'factory/1001-cart' }, SHA, DeployRefused],
+      [{ fork: true }, SHA, DeployRefused],
       [{}, OTHER_SHA, { kind: 'conflict' }],
       [{ state: 'closed' }, SHA, { kind: 'conflict' }],
     ] as const) {

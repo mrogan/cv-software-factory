@@ -19,7 +19,7 @@ import type { Logger } from 'pino';
 import { z } from 'zod';
 import { guardBranch } from './branches.ts';
 import { type GitHub, GitHubError } from './client.ts';
-import { type Carry, carriesSection, deployTarget, deployTitle, withCarries } from './deploys.ts';
+import { carriesSection, type Deploy, DeployRefused, deployTarget, deployTitle, withCarries } from './deploys.ts';
 import { applyTo, filesIn, PatchRefused } from './patches.ts';
 import { CODEOWNERS_PATHS, inScope, protectedFrom } from './paths.ts';
 
@@ -158,7 +158,7 @@ export interface Actions {
    * open and still for `commit`; any other pull request is refused. Gives back whether the body changed: saying the
    * same again changes nothing.
    */
-  describeDeploy(repo: string, number: number, deploy: { commit: string; carries: Carry[] }): Promise<boolean>;
+  describeDeploy(repo: string, number: number, deploy: Deploy): Promise<boolean>;
   addLabels(repo: string, number: number, labels: string[]): Promise<void>;
   /** Marks a draft pull request ready for review. */
   readyForReview(repo: string, pullRequest: PullRequestRef): Promise<void>;
@@ -190,7 +190,7 @@ const DEPLOY_PULL = z.object({
   state: z.string(),
   title: z.string(),
   body: z.string().nullable(),
-  head: z.object({ ref: z.string() }),
+  head: z.object({ ref: z.string(), repo: z.object({ full_name: z.string() }).nullable() }),
   base: z.object({ ref: z.string() }),
 });
 
@@ -217,8 +217,9 @@ export class LiveActions implements Actions {
   readonly #read: ReadFile;
   /**
    * The last write to each pull request's body, by repository and number. The deploy watch moving a pull request and
-   * the line describing it run in this one worker: one waits for the other, so neither writes over the other's body
-   * with one it read before.
+   * the line describing it run in this one worker: a description waits for a move, so it never writes back the body
+   * of the build before. A move may still keep the Carries section the body had when its pass began, a description
+   * older than one that landed meanwhile; the line describes the moved pull request again, for its new commit.
    */
   readonly #bodies = new Map<string, Promise<unknown>>();
 
@@ -296,19 +297,17 @@ export class LiveActions implements Actions {
     await this.#inTurn(repo, number, () => this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, change));
   }
 
-  async describeDeploy(
-    repo: string,
-    number: number,
-    { commit, carries }: { commit: string; carries: Carry[] },
-  ): Promise<boolean> {
+  async describeDeploy(repo: string, number: number, { commit, carries, more }: Deploy): Promise<boolean> {
     return this.#inTurn(repo, number, async () => {
       const pull = await this.#github.read(repo, `/repos/${repo}/pulls/${number}`, DEPLOY_PULL);
+      // A fork's branch of the same name is not the deploy branch.
+      if (pull.head.repo?.full_name !== repo) throw new DeployRefused(`Pull request #${number} is not from ${repo}.`);
       const target = deployTarget(repo, pull.head.ref);
       // Moved on to a newer build since the line looked, or merged: the line looks again.
       if (pull.state !== 'open' || pull.base.ref !== 'main' || pull.title !== deployTitle(target, commit)) {
         throw new GitHubError('conflict', `Pull request #${number} is not open for ${commit.slice(0, 7)}.`, 409);
       }
-      const body = withCarries(pull.body ?? '', carriesSection(carries));
+      const body = withCarries(pull.body ?? '', carriesSection(carries, more));
       if (body === pull.body) return false;
       await this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, { body });
       return true;
@@ -579,7 +578,7 @@ export class DryRunActions implements Actions {
     await this.#record('updatePullRequest', repo, { number, ...change });
   }
 
-  async describeDeploy(repo: string, number: number, deploy: { commit: string; carries: Carry[] }): Promise<boolean> {
+  async describeDeploy(repo: string, number: number, deploy: Deploy): Promise<boolean> {
     await this.#record('describeDeploy', repo, { number, ...deploy });
     return true;
   }

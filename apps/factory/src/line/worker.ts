@@ -16,7 +16,7 @@
  * - It reads its pull requests' gates and merges through the GitHub worker about once a minute (`gates.ts`).
  * - About as often, it tells the app's deploy pull request which work items it carries: those whose fixes merged
  *   between the commit pinned now and the one the pull request runs. It says so only when the list, or the pull
- *   request, has changed since it last did.
+ *   request, has changed since it last did. Not with `only`: a soak of one work item says nothing of the others.
  * - With `only`, it acts on that one work item, taking its ticket onto the line if it is not there: it starts no
  *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end.
  * - When the line stops, it stops every step in hand, wherever it is, and takes nothing new; their work is lost and
@@ -37,7 +37,7 @@ import { type EventWriter, sendSignal } from '@software-factory/store';
 import { lineStopped, uuidFrom } from '@software-factory/triage';
 import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
-import { type Carry, DEPLOYS } from '../github/deploys.ts';
+import { type Carry, DEPLOYS, MAX_CARRIES } from '../github/deploys.ts';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../github/server.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
 import {
@@ -194,7 +194,7 @@ export class Line {
       this.#gatesReadAt = this.#o.now().getTime();
       await this.#readGates();
     }
-    if (this.#o.now().getTime() - this.#deployReadAt >= this.#o.deployEveryMs) {
+    if (this.#o.only === null && this.#o.now().getTime() - this.#deployReadAt >= this.#o.deployEveryMs) {
       this.#deployReadAt = this.#o.now().getTime();
       await this.#describeDeploy().catch((error: unknown) =>
         this.#o.log.warn({ err: errorOf(error) }, 'could not say what the deploy pull request carries'),
@@ -665,6 +665,12 @@ export class Line {
     // Without the pinned commit there is no range to look in.
     if (!proposal?.pinned) return;
     const range = await github.read('commits', repo, { base: proposal.pinned, head: proposal.commit });
+    if (range.total > range.commits.length) {
+      log.warn(
+        { number: proposal.number, total: range.total, read: range.commits.length },
+        'the deploy pull request runs more commits than the line reads: it lists the work items among the first',
+      );
+    }
     const carried = range.commits.length
       ? (
           await sql<{ work_item: string; number: number; title: string | null; issue: number | null }[]>`
@@ -685,14 +691,24 @@ export class Line {
           });
         }, new Map<string, Carry>())
       : new Map<string, Carry>();
-    const carries = [...carried.values()];
-    const said = JSON.stringify({ number: proposal.number, commit: proposal.commit, carries });
+    // The latest merges by name, and the rest counted.
+    const all = [...carried.values()];
+    const carries = all.slice(-MAX_CARRIES);
+    const more = all.length - carries.length;
+    const deploy = { number: proposal.number, commit: proposal.commit, carries, ...(more ? { more } : {}) };
+    const said = JSON.stringify(deploy);
     if (said === this.#described) return;
-    const changed = await github.act('describeDeploy', repo, {
-      number: proposal.number,
-      commit: proposal.commit,
-      carries,
-    });
+    let changed: boolean;
+    try {
+      changed = await github.act('describeDeploy', repo, deploy);
+    } catch (error) {
+      // Merged or moved on since the watch last looked: its next pass says which pull request is open.
+      if ((error as { status?: number }).status === 409) {
+        log.debug({ number: proposal.number, commit: proposal.commit }, 'the deploy pull request moved on: later');
+        return;
+      }
+      throw error;
+    }
     this.#described = said;
     if (changed) {
       log.info(

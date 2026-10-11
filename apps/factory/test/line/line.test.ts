@@ -1490,6 +1490,30 @@ describe('the deploy pull request', () => {
     expect(described(github)).toEqual([{ number: 30, commit: sha('3'), carries: [] }]);
   });
 
+  it('names the latest fifty work items and counts the rest, and says nothing while the line acts on one only', async () => {
+    const items: string[] = [];
+    for (let n = 1; n <= 52; n++) {
+      const workItem = await ticket();
+      await merged(workItem, 100 + n, n.toString(16).padStart(40, '0'));
+      items.push(workItem);
+    }
+    const deploy = { number: 30, commit: sha('f'), pinned: sha('e'), digests: [] };
+    const only = line(AGENTS, events, { deployEveryMs: 0, only: items[0] as string });
+    only.github.deploy = deploy;
+    only.github.deployCommits = items.map((_, i) => (i + 1).toString(16).padStart(40, '0'));
+    await only.pass();
+    expect(described(only.github)).toEqual([]);
+    await only.line.idle();
+
+    const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
+    github.deploy = deploy;
+    github.deployCommits = only.github.deployCommits;
+    await pass();
+    const [said] = described(github) as { carries: { workItem: string }[]; more: number }[];
+    expect(said?.carries.map((c) => c.workItem)).toEqual(items.slice(2));
+    expect(said?.more).toBe(2);
+  });
+
   it('is looked at about once a minute, and a failure to say so holds up nothing else', async () => {
     const { pass, github } = line(AGENTS, events, { deployEveryMs: 60_000 });
     github.deploy = { number: 30, commit: sha('3'), pinned: sha('1'), digests: [] };

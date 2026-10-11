@@ -631,6 +631,9 @@ describe('what a deploy carries', () => {
       '<!-- factory: /carries -->',
     ]);
     expect(carriesSection([])).toContain('It carries none of the line’s work items');
+    const counted = carriesSection(carried.slice(0, 1), 3);
+    expect(counted).toContain('It carries 4 work items');
+    expect(counted).toContain('| | and 3 more | | |');
   });
 
   it('replaces the section a body has, or adds one, and finds it again', () => {
