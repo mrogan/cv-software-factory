@@ -92,8 +92,9 @@ const reopenedSince = (sql: Sql) =>
 const unheld = (sql: Sql) => sql`(l.held_until is null or l.held_until < clock_timestamp())`;
 
 /**
- * How long after its end a reopened work item waits before it comes back: its runners' volume was deleted as it
- * ended, and a step that made it again while the old one was still going would mount one being deleted.
+ * How long after its end a reopened work item waits before it comes back: its runners' volume went at its merge, or
+ * as it ended if deleting it then failed, and a step that made it again while the old one was still going would mount
+ * one being deleted.
  */
 const VOLUME_GONE_SECONDS = 60;
 
