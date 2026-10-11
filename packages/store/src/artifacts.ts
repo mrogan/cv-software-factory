@@ -7,7 +7,7 @@
  */
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -33,7 +33,11 @@ export class DiskArtifacts implements ArtifactStore {
 
   async put(bytes: Uint8Array): Promise<string> {
     const hash = sha256(bytes);
-    if ((await this.size(hash)) === bytes.byteLength) return hash;
+    if ((await this.size(hash)) === bytes.byteLength) {
+      // Stored already: touched, so a deletion that judged it unused before now leaves it (`remove`).
+      await utimes(this.path(hash), new Date(), new Date()).catch(() => {});
+      return hash;
+    }
     await mkdir(this.dir, { recursive: true });
     // Written beside its final name, then renamed: a reader never sees half an artifact.
     const partial = join(this.dir, `.${hash}.${process.pid}.partial`);
@@ -56,11 +60,18 @@ export class DiskArtifacts implements ArtifactStore {
   }
 
   /**
-   * Deletes an artifact, if it is there. Only its writer may, and only once nothing names it: an event that names it
-   * would name nothing. The probes worker deletes the pictures no release needs any more (`pictures/index.ts`).
+   * Deletes an artifact, if it is there and was last stored before `unusedSince`. Only its writer may, and only once
+   * nothing names it: an event that names it would name nothing. One stored again since the writer judged it unused
+   * stays, as a new event may be about to name it. The probes worker deletes the pictures no release needs any more.
    */
-  async remove(hash: string): Promise<void> {
-    if (isHash(hash)) await rm(this.path(hash), { force: true });
+  async remove(hash: string, unusedSince: Date): Promise<void> {
+    if (!isHash(hash)) return;
+    try {
+      if ((await stat(this.path(hash))).mtimeMs >= unusedSince.getTime()) return;
+    } catch {
+      return;
+    }
+    await rm(this.path(hash), { force: true });
   }
 
   private path(hash: string): string {

@@ -111,48 +111,54 @@ export class PictureIndex {
 
   /**
    * Forgets the pictures of every release but the last `keep` pictured and those a work item waits at Verify for: one
-   * promoted, carrying it, with no verification or close of it since. Gives back the hashes of their images that
-   * nothing names any more, for the store to delete: no picture still kept (identical images are stored once), no
-   * event (whatever part of it names a hash), and no signal triage has still to take. Deleting them is the caller's,
-   * after this has committed, so no picture kept ever names an image that is gone.
+   * promoted, carrying it, with no verification, return or close of it since. First `remove` is given each of their
+   * images that nothing names any more: no picture still kept (identical images are stored once), no event (whatever
+   * part of it names a hash), and no signal triage has still to take. Then their rows go, so an image whose removal
+   * failed is offered again next time, and no picture kept ever names an image that is gone. Gives back how many
+   * images were offered.
    */
-  async forget(keep: number): Promise<string[]> {
-    return this.#sql.begin(async (tx) => {
-      const gone = await tx<Record<'before' | 'after' | 'diff' | 'rollout', string | null>[]>`
-        with releases as (
-          select canary, stable, max(taken_at) as taken from pictures group by canary, stable
-        ), waiting as (
-          select promoted.payload->>'version' as canary, promoted.payload->>'previous' as stable
-          from events promoted
-          where promoted.type = 'release.promoted' and promoted.work_item is not null
-            and (promoted.payload->>'dryRun')::boolean is not true
-            and not exists (
-              select 1 from events since
-              where since.work_item = promoted.work_item and since.seq > promoted.seq
-                and since.type in ('verification.finished', 'work-item.closed'))
-        ), kept as (
-          (select canary, stable from releases order by taken desc limit ${keep})
-          union select canary, stable from waiting
-        )
-        delete from pictures p
-        where not exists (select 1 from kept where kept.canary = p.canary and kept.stable = p.stable)
-        returning before->>'hash' as before, after->>'hash' as after, diff->>'hash' as diff, rollout->>'hash' as rollout`;
-      const hashes = [...new Set(gone.flatMap((r) => Object.values(r)).filter((h) => h !== null))];
-      if (!hashes.length) return [];
-      // Every hash an event or a waiting signal names, read in one pass: an artifact is named by its SHA-256, so a
-      // string of 64 hex digits anywhere in them may be one, and is kept.
-      const unnamed = await tx<{ hash: string }[]>`
-        with named as (
-          select m[1] as hash from events, regexp_matches(artifacts::text || payload::text, '([0-9a-f]{64})', 'g') m
-          union select m[1] from inbox, regexp_matches(signal::text, '([0-9a-f]{64})', 'g') m where triaged_at is null
-        )
-        select hash from unnest(${hashes}::text[]) as hash
-        where hash not in (select hash from named)
+  async forget(keep: number, remove: (hash: string) => Promise<void>): Promise<number> {
+    const sql = this.#sql;
+    const releases = await sql<{ canary: string; stable: string }[]>`
+      with releases as (
+        select canary, stable, max(taken_at) as taken from pictures group by canary, stable
+      ), waiting as (
+        select promoted.payload->>'version' as canary, promoted.payload->>'previous' as stable
+        from events promoted
+        where promoted.type = 'release.promoted' and promoted.work_item is not null
+          and (promoted.payload->>'dryRun')::boolean is not true
           and not exists (
-            select 1 from pictures
-            where before->>'hash' = hash or after->>'hash' = hash or diff->>'hash' = hash or rollout->>'hash' = hash)`;
-      return unnamed.map((r) => r.hash);
-    });
+            select 1 from events since
+            where since.work_item = promoted.work_item and since.seq > promoted.seq
+              and since.type in ('verification.finished', 'work.returned', 'work-item.closed'))
+      ), kept as (
+        (select canary, stable from releases order by taken desc limit ${keep})
+        union select canary, stable from waiting
+      )
+      select canary, stable from releases
+      where not exists (select 1 from kept where kept.canary = releases.canary and kept.stable = releases.stable)`;
+    if (!releases.length) return 0;
+    const forgotten = sql`(canary, stable) in (select * from unnest(${releases.map((r) => r.canary)}::text[],
+      ${releases.map((r) => r.stable)}::text[]))`;
+    // Every hash an event or a waiting signal names, read in one pass: an artifact is named by its SHA-256, so a
+    // string of 64 hex digits anywhere in them may be one, and is kept.
+    const unnamed = await sql<{ hash: string }[]>`
+      with gone as (
+        select distinct unnest(array[before->>'hash', after->>'hash', diff->>'hash', rollout->>'hash']) as hash
+        from pictures where ${forgotten}
+      ), named as (
+        select m[1] as hash from events, regexp_matches(artifacts::text || payload::text, '([0-9a-f]{64})', 'g') m
+        union select m[1] from inbox, regexp_matches(signal::text, '([0-9a-f]{64})', 'g') m where triaged_at is null
+      )
+      select hash from gone
+      where hash is not null and hash not in (select hash from named)
+        and not exists (
+          select 1 from pictures
+          where not ${forgotten}
+            and (before->>'hash' = hash or after->>'hash' = hash or diff->>'hash' = hash or rollout->>'hash' = hash))`;
+    for (const { hash } of unnamed) await remove(hash);
+    await sql`delete from pictures where ${forgotten}`;
+    return unnamed.length;
   }
 
   /** Remembers where a sense boxed what it found, in place of where it last did for the same check. */

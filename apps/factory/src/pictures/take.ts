@@ -13,11 +13,12 @@
  * - Either version moving while a page was taken (a promotion, a rollback) drops that page and ends the pass: its
  *   "before" might be of the after. Pages taken before stand; those missed are tried again, a few times.
  * - Once the canary is promoted, each page with a box is taken again on the stable Service: the page after rollout.
- * - Then the pictures no release needs any more are deleted, once for each stable version: all but the last few
- *   releases' (`policy/release.ts`), keeping those a work item waits at Verify for and every image an event names.
+ * - Between releases, the pictures no release needs any more are deleted, once for each stable version: all but the
+ *   last few releases' (`policy/release.ts`), keeping those a work item waits at Verify for and every image an event
+ *   or a waiting signal names.
  */
 import type { Screenshot } from '@software-factory/events';
-import type { ArtifactStore } from '@software-factory/store';
+import type { ArtifactStore, DiskArtifacts } from '@software-factory/store';
 import { release } from '../../../../policy/release.ts';
 import type { Check } from '../capture.ts';
 import { templater } from '../senses/routes.ts';
@@ -28,6 +29,12 @@ import type { Look, Picture, PictureIndex, Shot } from './index.ts';
 export const MOST_PAGES = 60;
 /** Passes tried for one canary, or one rollout, before it is given up. */
 export const TRIES = 3;
+/**
+ * How long before it is forgotten an image must have last been stored to be deleted: longer than a sense takes from a
+ * screenshot to its signal in the inbox. From there to its event, triage appends the event before it marks the signal
+ * taken, so one or the other always names it.
+ */
+const STORED_LATELY_MS = 10 * 60_000;
 
 /** What a page looks like, at `app`: its PNG and its reference, with the elements boxed and each box's selector. */
 export type Shoot = (
@@ -47,7 +54,7 @@ export interface PicturesOptions {
   shoot: Shoot;
   index: Pick<PictureIndex, 'pictured' | 'record' | 'awaitingRollout' | 'rolledOut' | 'looks' | 'forget'>;
   /** Where the diffs go, and the images no release needs are deleted from: the screenshots are put there by `shoot`. */
-  store: ArtifactStore & { remove(hash: string): Promise<void> };
+  store: ArtifactStore & Pick<DiskArtifacts, 'remove'>;
   /** How many releases' pictures are kept, besides those Verify waits for: the policy's by default. */
   keepReleases?: number;
   log: {
@@ -77,7 +84,11 @@ export class Pictures {
     this.#busy = true;
     try {
       const versions = await this.#versions();
-      if (!versions) return null;
+      if (!versions) {
+        // Between releases the canary Service may not answer: what no release needs can still go.
+        const stable = await this.#o.version(this.#o.stable).catch(() => null);
+        return stable ? await this.#forget(stable) : null;
+      }
       const { stable, canary } = versions;
       if (stable !== canary) return await this.#compare(stable, canary);
       return (await this.#rollout(stable)) ?? (await this.#forget(stable));
@@ -211,19 +222,22 @@ export class Pictures {
   }
 
   /**
-   * Once the pages after a release's rollout are taken (or given up), the pictures no release needs any more are
-   * forgotten, and then their images deleted. Once for each stable version, and once when the worker starts.
+   * Between releases, once the pages after the rollout are taken, the pictures no release needs any more are forgotten
+   * and their images deleted: once for each stable version, and once when the worker starts. An image stored again in
+   * the last few minutes stays, as a signal or event may be about to name it (`DiskArtifacts.remove`).
    */
   async #forget(version: string): Promise<Took> {
     const key = `forget at ${version}`;
-    if (this.#due(`rollout of ${version}`) || !this.#due(key)) return null;
+    if (!this.#due(key)) return null;
     this.#tries.set(key, (this.#tries.get(key) ?? 0) + 1);
-    const hashes = await this.#o.index.forget(this.#o.keepReleases ?? release.pictures.keepReleases);
-    for (const hash of hashes) await this.#o.store.remove(hash);
+    const unusedSince = new Date(this.#now().getTime() - STORED_LATELY_MS);
+    const deleted = await this.#o.index.forget(this.#o.keepReleases ?? release.pictures.keepReleases, (hash) =>
+      this.#o.store.remove(hash, unusedSince),
+    );
     this.#done.add(key);
-    if (!hashes.length) return null;
-    this.#o.log.info({ version, images: hashes.length }, 'deleted the pictures no release needs');
-    return { deleted: hashes.length };
+    if (!deleted) return null;
+    this.#o.log.info({ version, images: deleted }, 'deleted the pictures no release needs');
+    return { deleted };
   }
 
   #due(key: string): boolean {

@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readdirSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { text } from 'node:stream/consumers';
@@ -31,13 +31,25 @@ describe('the artifact store on disk', () => {
     expect(await artifacts.open('../../etc/passwd')).toBeNull();
   });
 
-  it('deletes an artifact, and nothing that is not a hash', async () => {
+  it('deletes an artifact stored before it was judged unused, and nothing that is not a hash', async () => {
     const artifacts = store();
     const hash = await artifacts.put(bytes('a picture'));
-    await artifacts.remove(hash);
+    const judged = new Date(Date.now() + 1000);
+    await artifacts.remove(hash, judged);
     expect(await artifacts.size(hash)).toBeNull();
-    await artifacts.remove(hash);
-    await artifacts.remove('../../etc/passwd');
+    await artifacts.remove(hash, judged);
+    await artifacts.remove('../../etc/passwd', judged);
     expect(readdirSync(artifacts.dir)).toEqual([]);
+  });
+
+  it('keeps an artifact stored again after it was judged unused', async () => {
+    const artifacts = store();
+    const hash = await artifacts.put(bytes('a picture'));
+    const hour = 3_600_000;
+    utimesSync(join(artifacts.dir, hash), new Date(Date.now() - 2 * hour), new Date(Date.now() - 2 * hour));
+    const judged = new Date(Date.now() - hour);
+    await artifacts.put(bytes('a picture'));
+    await artifacts.remove(hash, judged);
+    expect(await artifacts.size(hash)).toBe(9);
   });
 });

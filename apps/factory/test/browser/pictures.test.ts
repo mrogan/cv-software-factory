@@ -59,7 +59,7 @@ describe('the pictures of a canary', () => {
           awaitingRollout: async () => [],
           rolledOut: async () => {},
           looks: async () => looked,
-          forget: async () => [],
+          forget: async () => 0,
         },
         store,
         log,

@@ -132,6 +132,11 @@ describe('forgetting the pictures no release needs', () => {
 
   it('keeps the last releases, those Verify waits for, and every image still named; gives back the rest', async () => {
     const index = new PictureIndex(database.writer);
+    const forget = async (keep: number) => {
+      const removed: string[] = [];
+      expect(await index.forget(keep, async (hash) => void removed.push(hash))).toBe(removed.length);
+      return removed.sort();
+    };
     // Three releases, in order: the first replaced a version never pictured, each later one the one before.
     await index.record([page(V1, OLD, '/', '1234'), page(V1, OLD, '/about', '56--')]);
     await index.record([page(V2, V1, '/', '789-')]);
@@ -171,11 +176,11 @@ describe('forgetting the pictures no release needs', () => {
       values (${crypto.randomUUID()}, 'probe', '/ broken-image', ${database.writer.json({ artifacts: [shot('4', V1)] } as never)})`;
 
     // The first release's / before is the third's too, stored once; its /about is named by nothing.
-    expect((await index.forget(1)).sort()).toEqual([hash('5'), hash('6')]);
+    expect(await forget(1)).toEqual([hash('5'), hash('6')]);
     expect(await index.of(V1, OLD)).toEqual([]);
     expect(await index.of(V2, V1)).toHaveLength(1);
     expect(await index.of(V3, V2)).toHaveLength(1);
-    expect(await index.forget(1)).toEqual([]);
+    expect(await forget(1)).toEqual([]);
 
     // Verified: the second release is needed no more.
     await events.append(
@@ -187,9 +192,42 @@ describe('forgetting the pictures no release needs', () => {
         dryRun: false,
       }),
     );
-    expect((await index.forget(1)).sort()).toEqual([hash('7'), hash('8'), hash('9')]);
+    expect(await forget(1)).toEqual([hash('7'), hash('8'), hash('9')]);
     expect(await index.of(V2, V1)).toEqual([]);
     expect(await index.of(V3, V2)).toHaveLength(1);
+  });
+
+  it('forgets a release Verify returned to Plan, and offers again an image whose removal failed', async () => {
+    const index = new PictureIndex(database.writer);
+    await index.record([page(V1, OLD, '/', '12--')]);
+    await index.record([page(V2, V1, '/', '34--')]);
+    const events = new EventWriter(database.writer, { kind: 'real', artifacts: new IndexedArtifacts(database.writer) });
+    const returned = await nextWorkItem(database.writer);
+    await events.append([
+      event(returned, 'work-item.opened', { kind: 'defect-fix', title: 'A fix', sample: false }),
+      event(returned, 'release.promoted', {
+        release: 'abc123',
+        version: V1,
+        previous: OLD,
+        watched: true,
+        dryRun: false,
+      }),
+    ]);
+    const offered: string[] = [];
+    expect(await index.forget(1, async (h) => void offered.push(h))).toBe(0);
+    await events.append(
+      event(returned, 'work.returned', { from: 'verify', to: 'plan', reason: 'Martin sent it back' }),
+    );
+
+    await expect(
+      index.forget(1, async () => {
+        throw new Error('read-only file system');
+      }),
+    ).rejects.toThrow(/read-only/);
+    expect(await index.of(V1, OLD)).toHaveLength(1);
+    expect(await index.forget(1, async (h) => void offered.push(h))).toBe(2);
+    expect(offered.sort()).toEqual([hash('1'), hash('2')]);
+    expect(await index.of(V1, OLD)).toEqual([]);
   });
 });
 

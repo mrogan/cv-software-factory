@@ -46,9 +46,10 @@ class FakeIndex implements Index {
   readonly forgot: number[] = [];
   unnamed: string[] = [];
 
-  async forget(keep: number) {
+  async forget(keep: number, remove: (hash: string) => Promise<void>) {
     this.forgot.push(keep);
-    return this.unnamed;
+    for (const hash of this.unnamed) await remove(hash);
+    return this.unnamed.length;
   }
 }
 
@@ -61,6 +62,7 @@ function setup() {
   const front = { answers: true };
   const shots: string[] = [];
   const stored = new Map<string, Uint8Array>();
+  const removed: Date[] = [];
   const index = new FakeIndex();
   const store = {
     put: async (bytes: Uint8Array) => {
@@ -69,7 +71,10 @@ function setup() {
     },
     size: async (hash: string) => stored.get(hash)?.byteLength ?? null,
     open: async () => null,
-    remove: async (hash: string) => void stored.delete(hash),
+    remove: async (hash: string, unusedSince: Date) => {
+      removed.push(unusedSince);
+      stored.delete(hash);
+    },
   };
   const pictures = new Pictures({
     stable: STABLE,
@@ -102,8 +107,9 @@ function setup() {
     store,
     keepReleases: 2,
     log: quiet,
+    now: () => new Date('2026-10-11T09:00:00Z'),
   });
-  return { pictures, versions, shots, index, stored, during, front };
+  return { pictures, versions, shots, index, stored, removed, during, front };
 }
 
 describe('the pictures of a canary', () => {
@@ -229,8 +235,8 @@ describe('the pictures of a canary', () => {
     expect(shots).toHaveLength(7);
   });
 
-  it('deletes what no release needs once a rollout’s pages are taken, once for each stable version', async () => {
-    const { pictures, versions, index, stored } = setup();
+  it('deletes what no release needs between releases, after the rollout’s pages, once for each stable version', async () => {
+    const { pictures, versions, index, stored, removed } = setup();
     index.looked = [
       { sense: 'probe', check: 'home', route: '/', path: '/', elements: [{ selector: 'h1', kind: 'problem' }] },
     ];
@@ -247,6 +253,8 @@ describe('the pictures of a canary', () => {
     expect(await pictures.tick()).toEqual({ deleted: 1 });
     expect(index.forgot).toEqual([2]);
     expect(stored.has(old as string)).toBe(false);
+    // Only if it was not stored again in the ten minutes before.
+    expect(removed).toEqual([new Date('2026-10-11T08:50:00Z')]);
     expect(await pictures.tick()).toBeNull();
     expect(index.forgot).toEqual([2]);
 
@@ -258,5 +266,14 @@ describe('the pictures of a canary', () => {
     await pictures.tick();
     await pictures.tick();
     expect(index.forgot).toEqual([2, 2]);
+  });
+
+  it('forgets between releases when the canary Service does not answer', async () => {
+    const { pictures, versions, index } = setup();
+    delete versions[CANARY];
+    expect(await pictures.tick()).toBeNull();
+    expect(index.forgot).toEqual([2]);
+    expect(await pictures.tick()).toBeNull();
+    expect(index.forgot).toEqual([2]);
   });
 });
