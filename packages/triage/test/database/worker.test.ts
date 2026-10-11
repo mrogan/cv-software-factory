@@ -129,15 +129,33 @@ describe('triage', () => {
     const again = (overrides: Partial<InboxSignal> = {}) =>
       found({ observedAt: '2026-10-04T10:00:00.000Z', ...overrides });
 
-    /** Opens a ticket for a signal, and closes it as given. */
-    const ticketFor = async (signal: InboxSignal, outcome: PayloadOf<'work-item.closed'>['outcome']) => {
+    /** Opens a ticket for a signal, and closes it as given, after a verification when one is given. */
+    const ticketFor = async (
+      signal: InboxSignal,
+      outcome: PayloadOf<'work-item.closed'>['outcome'],
+      verification?: { dryRun: boolean },
+    ) => {
       await sendSignal(writer, signal);
       expect(await triage().takeOne()).toBe('opened');
       const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
         select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
+      if (verification) await events.append(cleared(item, verification.dryRun));
       await events.append(closed(item, outcome));
       return item;
     };
+
+    /** The line's verification that the ticket's check has cleared, on a release that shipped or a dry run's. */
+    const cleared = (item: string, dryRun: boolean): NewEvent<'verification.finished'> => ({
+      id: crypto.randomUUID(),
+      ts: at,
+      work_item: item,
+      type: 'verification.finished',
+      version: 2,
+      actor: 'factory',
+      summary: 'Cleared',
+      payload: { outcome: 'cleared', check: 'links lead somewhere', against: 'c0ffee1', pages: [], dryRun },
+      artifacts: [],
+    });
 
     it('reopens when a sense sees its fingerprint again, and is an open ticket from then on', async () => {
       const item = await ticketFor(found({ route: '/reopen' }), 'verified');
@@ -169,6 +187,22 @@ describe('triage', () => {
       const [inbox] = await writer`select outcome, work_item from inbox order by received_at desc limit 1`;
       expect(inbox).toEqual({ outcome: 'counted', work_item: item });
       expect(await types(item)).not.toContain('work-item.reopened');
+    });
+
+    it('counts a signal on a ticket a dry run verified: its fix never shipped, so it never reopens', async () => {
+      const item = await ticketFor(found({ route: '/dry' }), 'verified', { dryRun: true });
+      await sendSignal(writer, again({ route: '/dry' }));
+      expect(await triage().takeOne()).toBe('counted');
+      const [inbox] = await writer`select outcome, work_item from inbox order by received_at desc limit 1`;
+      expect(inbox).toEqual({ outcome: 'counted', work_item: item });
+      expect(await types(item)).not.toContain('work-item.reopened');
+    });
+
+    it('reopens a ticket verified on a release that shipped', async () => {
+      const item = await ticketFor(found({ route: '/shipped' }), 'verified', { dryRun: false });
+      await sendSignal(writer, again({ route: '/shipped' }));
+      expect(await triage().takeOne()).toBe('reopened');
+      expect((await types(item)).slice(-2)).toEqual(['work-item.reopened', 'signal.received']);
     });
 
     it('opens a new ticket when the same fingerprint returns on a ticket closed any other way', async () => {

@@ -310,9 +310,10 @@ export class Triage {
     const ticket = tickets.find((open) => sameFingerprint(open.fingerprint, fingerprint));
     if (!ticket) {
       // One fingerprint, one ticket: the same defect on a ticket closed as verified is a regression of it.
-      // A signal the sense saw before that close is of the version the fix replaced: counted, as a repeat is.
+      // A signal the sense saw before that close is of the version the fix replaced: counted, as a repeat is. So is
+      // any signal on a ticket a dry run verified: its fix never shipped, so the sense still sees what it saw.
       const verified = await verifiedTicket(sql, fingerprint);
-      if (verified && Date.parse(signal.observedAt) <= verified.closedAt.getTime()) {
+      if (verified && (verified.dryRun || Date.parse(signal.observedAt) <= verified.closedAt.getTime())) {
         return { outcome: 'counted', workItem: verified.workItem, ticketOpened: false };
       }
       if (verified) {
@@ -387,25 +388,31 @@ export async function openTickets(sql: Sql): Promise<Ticket[]> {
 }
 
 /**
- * The latest ticket whose last close or reopening is a close as verified, with exactly this fingerprint, and when it
- * closed. Exactly: a ticket on every route matches each route's signal while it is open, but a signal on one route is
+ * The latest ticket whose last close or reopening is a close as verified, with exactly this fingerprint, when it
+ * closed, and whether its last verification was a dry run's. Exactly: a ticket on every route matches each route's signal while it is open, but a signal on one route is
  * not the same defect come back as a ticket on all of them, nor the other way round. Only a verified close reopens (a
  * ticket closed any other way was never fixed, or never a defect), and only a sense's fingerprint is matched.
  */
 async function verifiedTicket(sql: Sql, fingerprint: { route: string; class: SymptomClass }) {
-  const [row] = await sql<{ work_item: string; closed_at: Date }[]>`
-    select t.work_item, last_end.ts as closed_at from events t
+  const [row] = await sql<{ work_item: string; closed_at: Date; dry_run: boolean }[]>`
+    select t.work_item, last_end.ts as closed_at, coalesce(last_check.dry_run, false) as dry_run from events t
     cross join lateral (
       select c.type, c.ts, c.payload->>'outcome' as outcome from events c
       where c.work_item = t.work_item and c.type in ('work-item.closed', 'work-item.reopened')
       order by c.seq desc limit 1
     ) last_end
+    left join lateral (
+      -- A version 1 verification has no dryRun: it was never a dry run's.
+      select (v.payload->>'dryRun')::boolean as dry_run from events v
+      where v.work_item = t.work_item and v.type = 'verification.finished'
+      order by v.seq desc limit 1
+    ) last_check on true
     where t.type = 'ticket.opened'
       and t.payload->'fingerprint'->>'route' = ${fingerprint.route}
       and t.payload->'fingerprint'->>'class' = ${fingerprint.class}
       and last_end.type = 'work-item.closed' and last_end.outcome = 'verified'
     order by t.seq desc limit 1`;
-  return row && { workItem: row.work_item, closedAt: new Date(row.closed_at) };
+  return row && { workItem: row.work_item, closedAt: new Date(row.closed_at), dryRun: row.dry_run };
 }
 
 type Fingerprint = PayloadOf<'ticket.opened'>['fingerprint'];
