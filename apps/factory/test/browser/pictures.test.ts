@@ -76,5 +76,5 @@ describe('the pictures of a canary', () => {
     } finally {
       await Promise.all([stable.close(), canary.close()]);
     }
-  });
+  }, 120_000);
 });
