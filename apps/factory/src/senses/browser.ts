@@ -14,7 +14,7 @@ import type { ArtifactRef, Evidence } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
 import { type Browser, type BrowserContext, chromium, type Page, type Request, type Response } from 'playwright';
 import { capture } from '../capture.ts';
-import { evidenceOf, pathOf } from './http.ts';
+import { evidenceOf, pathOf, type RequestHeaders } from './http.ts';
 import { type Finding, Found, type Observation, type Sense } from './types.ts';
 
 /** What a check is given: the app, the page to use, and what the sense shares between checks in one pass. */
@@ -24,6 +24,8 @@ export interface CheckContext<Shared> {
   version: string;
   page: Page;
   shared: Shared;
+  /** What the check's own requests to the app send besides the usual, as the page's do. */
+  headers?: RequestHeaders | undefined;
 }
 
 export interface BrowserCheck<Shared> {
@@ -47,6 +49,8 @@ export interface BrowserSenseOptions<Shared> {
   launch?: () => Promise<Browser>;
   /** The longest one check may take, in milliseconds. */
   timeout?: number;
+  /** Sent with every request the pages make, besides the usual. */
+  headers?: RequestHeaders | undefined;
 }
 
 export class BrowserSense<Shared> implements Sense {
@@ -65,10 +69,12 @@ export class BrowserSense<Shared> implements Sense {
     return Object.fromEntries(this.options.checks.flatMap((c) => (c.every ? [[c.id, c.every]] : [])));
   }
 
-  /** Runs `work` on a page of its own, in a context of its own, which is closed after. */
-  async withPage<T>(work: (page: Page) => Promise<T>): Promise<T> {
-    const browser = await this.browser.ready();
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
+  /**
+   * Runs `work` on a page of its own, in a context of its own, which is closed after. Its requests send `headers`
+   * besides the usual, and not the sense's own: what the page is for is the caller's to say.
+   */
+  async withPage<T>(work: (page: Page) => Promise<T>, headers?: RequestHeaders): Promise<T> {
+    const context = await this.newContext(headers);
     try {
       const page = await context.newPage();
       page.setDefaultTimeout(10_000);
@@ -79,8 +85,7 @@ export class BrowserSense<Shared> implements Sense {
   }
 
   async pass(version: string, skip: ReadonlySet<string> = new Set()): Promise<Observation[]> {
-    const browser = await this.browser.ready();
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
+    const context = await this.newContext(this.options.headers);
     const shared = this.options.shared();
     const observations: Observation[] = [];
     try {
@@ -98,20 +103,29 @@ export class BrowserSense<Shared> implements Sense {
     await this.browser.close();
   }
 
+  private async newContext(headers: RequestHeaders | undefined): Promise<BrowserContext> {
+    const browser = await this.browser.ready();
+    return browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      locale: 'en-GB',
+      ...(headers && { extraHTTPHeaders: headers }),
+    });
+  }
+
   private async look(
     check: BrowserCheck<Shared>,
     context: BrowserContext,
     version: string,
     shared: Shared,
   ): Promise<Observation[]> {
-    const { app } = this.options;
+    const { app, headers } = this.options;
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
     const watch = watching(page, new URL(app).origin);
     let finding: Finding | null = null;
     let trouble: string | undefined;
     try {
-      finding = await within(this.options.timeout ?? 120_000, check.run({ app, version, page, shared }));
+      finding = await within(this.options.timeout ?? 120_000, check.run({ app, version, page, shared, headers }));
     } catch (error) {
       if (error instanceof Found) finding = error.finding;
       else trouble = (error instanceof Error ? error.message : String(error)).split('\n')[0];

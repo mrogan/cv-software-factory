@@ -5,6 +5,7 @@
  */
 import type { ArtifactStore } from '@software-factory/store';
 import { type BrowserCheck, BrowserSense } from '../senses/browser.ts';
+import type { RequestHeaders } from '../senses/http.ts';
 import { browse } from './browse.ts';
 import { catalogue } from './catalogue.ts';
 import { contact } from './contact.ts';
@@ -19,7 +20,17 @@ export interface ProbeOptions {
   app: string;
   store: ArtifactStore;
   log: { warn(fields: object, message: string): void };
+  /** Sent with every request the probes make, besides the usual. */
+  headers?: RequestHeaders | undefined;
 }
 
-export const probes = ({ app, store, log }: ProbeOptions): BrowserSense<Shop> =>
-  new BrowserSense({ name: 'probe', app, checks: PROBES, store, log, shared: () => new Shop(app) });
+export const probes = ({ app, store, log, headers }: ProbeOptions): BrowserSense<Shop> =>
+  new BrowserSense({
+    name: 'probe',
+    app,
+    checks: PROBES,
+    store,
+    log,
+    shared: () => new Shop(app, headers),
+    headers,
+  });

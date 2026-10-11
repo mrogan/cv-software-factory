@@ -49,7 +49,11 @@ export const homeLinksOpen: BrowserCheck<Shop> = {
     for (const { path, text } of links) if (!unique.has(path)) unique.set(path, text);
     const answers = [];
     for (const [path, text] of [...unique].slice(0, 60))
-      answers.push({ path, text, answer: await exchange(context.app, path) });
+      answers.push({
+        path,
+        text,
+        answer: await exchange(context.app, path, { headers: context.headers }),
+      });
     // A loop is the destination's fault, not the home page's: it is filed under the route that loops, named as the
     // crawler names it, so the two are one ticket. The crawler works routes out from every page it reaches; this
     // looks as far as the pages the home page links to, which is where a collection's other members are listed.

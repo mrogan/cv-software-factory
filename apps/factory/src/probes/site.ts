@@ -6,7 +6,7 @@
 import type { Evidence, SymptomClass } from '@software-factory/events';
 import type { Page, Response } from 'playwright';
 import type { CheckContext } from '../senses/browser.ts';
-import { type Exchange, evidenceOf, exchange, pathOf } from '../senses/http.ts';
+import { type Exchange, evidenceOf, exchange, pathOf, type RequestHeaders } from '../senses/http.ts';
 import { type Finding, Found } from '../senses/types.ts';
 
 /** A product as the shop's own API says it is: what the pages are compared against. */
@@ -22,10 +22,13 @@ export interface Product {
 /** What the probes share in one pass: the app's API, asked for once however many checks use it. */
 export class Shop {
   readonly app: string;
+  private readonly headers: RequestHeaders | undefined;
   private products_: Promise<Product[]> | undefined;
 
-  constructor(app: string) {
+  /** `headers` go with each request to the API besides the usual. */
+  constructor(app: string, headers?: RequestHeaders) {
     this.app = app;
+    this.headers = headers;
   }
 
   /** Every product the API lists, whichever page of its listing each is on, each once. */
@@ -38,7 +41,7 @@ export class Shop {
     const bySlug = new Map<string, Product>();
     let pages = 1;
     for (let page = 1; page <= pages && page <= 100; page++) {
-      const answer = await exchange(this.app, `/api/products?page=${page}`);
+      const answer = await exchange(this.app, `/api/products?page=${page}`, { headers: this.headers });
       if (answer.status !== 200) throw new Error(`The shop's API did not list its products: ${describe(answer)}`);
       let body: unknown;
       try {
@@ -98,7 +101,7 @@ export async function visit(context: Context, path: string): Promise<{ status: n
   const url = new URL(path, context.app).href;
   const response = await context.page.goto(url, { waitUntil: 'load' }).catch(async (error: Error) => {
     if (!error.message.includes('ERR_TOO_MANY_REDIRECTS')) throw error;
-    const { evidence } = await exchange(context.app, path);
+    const { evidence } = await exchange(context.app, path, { headers: context.headers });
     throw new Found(fail('redirect-loop', `${path} redirects round in a circle.`, { evidence: [evidence] }));
   });
   if (!response) throw new Error(`${path} gave no response`);

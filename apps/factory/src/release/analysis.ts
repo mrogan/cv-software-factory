@@ -13,12 +13,14 @@
  *   between the steps' own runs rather than on them.
  *
  * Enough requests are counted at the ingress: what Traefik sent to the canary's Service, which only the traffic split
- * does. The app's own count would include the journeys, which ask the canary's Service directly, and would pass with
- * no visitors at all. Errors and latency come from the app's telemetry, where canary and baseline are told apart by
- * the pod-template hash Argo Rollouts gives each version, which the collector adds to the app's metrics; the Rollout
- * passes the two hashes as arguments. Each query sums over every route the app named, so it does not depend on how the
- * app names them, and compares shares and percentiles, not counts: the probes, the crawler and the journeys add
- * requests that the traffic split does not account for.
+ * does. The app's own count would rest on every other client that asks the canary's Service directly saying so, and
+ * would pass with no visitors at all if one did not. Errors and latency come from the app's telemetry, where canary
+ * and baseline are told apart by the pod-template hash Argo Rollouts gives each version, which the collector adds to
+ * the app's metrics; the Rollout passes the two hashes as arguments. Each query sums over every route the app named,
+ * so it does not depend on how the app names them. The journeys and the pictures of a release ask both versions
+ * directly, and send `UNMEASURED` (`senses/http.ts`), which the app's telemetry leaves out, so they are not judged as
+ * visitors. The probes and the crawler watch the stable Service and send no such header, since the objectives watch
+ * their requests too, so the queries compare shares and percentiles, not counts.
  *
  * The cluster-scoped templates live in this repository, deployed with the factory's images: nothing in the app's
  * repository can loosen them, and the journeys run on the same `factory-browser` the probes run, at the digest the

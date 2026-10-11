@@ -27,7 +27,7 @@ export async function run(args: string[]): Promise<number> {
   const { metrics } = await import('@opentelemetry/api');
   const { discover, httpGet, round, Traffic } = await import('../traffic/traffic.ts');
 
-  const get = httpGet(APP_URL, INGRESS_URL);
+  const get = httpGet(APP_URL, { ingress: INGRESS_URL });
   if (values.walk) {
     const walk = round(await discover(get));
     console.log(walk.join('\n'));

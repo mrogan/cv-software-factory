@@ -3,7 +3,7 @@
  * behaves as any shop should, and each fault switches on one way it can go wrong, so each check is proved to pass
  * on a shop that is right and to fail, with the symptom it names, on one that is not.
  */
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 export type Fault =
@@ -65,6 +65,8 @@ export interface Shop {
   url: string;
   /** Every message the contact form accepted. */
   messages: Array<Record<string, string>>;
+  /** Every request the shop was sent, with its headers. */
+  requests: Array<{ url: string; headers: IncomingHttpHeaders }>;
   close(): Promise<void>;
 }
 
@@ -72,6 +74,7 @@ export interface Shop {
 export async function startShop(...faults: Fault[]): Promise<Shop> {
   const has = (fault: Fault) => faults.includes(fault);
   const messages: Array<Record<string, string>> = [];
+  const requests: Shop['requests'] = [];
 
   const page = (title: string, body: string, head = '') => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>${head}</head>
@@ -269,12 +272,14 @@ export async function startShop(...faults: Fault[]): Promise<Shop> {
   };
 
   const server = createServer((req, res) => {
+    requests.push({ url: req.url ?? '', headers: req.headers });
     handle(req, res).catch(() => send(res, 500, 'oops'));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     messages,
+    requests,
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
 }

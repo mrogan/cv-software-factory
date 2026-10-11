@@ -16,7 +16,7 @@
  */
 import type { Evidence, SymptomClass } from '@software-factory/events';
 import type { Check } from '../capture.ts';
-import { type Exchange, exchange } from '../senses/http.ts';
+import { type Exchange, exchange, type RequestHeaders } from '../senses/http.ts';
 import type { Finding } from '../senses/types.ts';
 import type { Crawl, Resource } from './crawl.ts';
 
@@ -289,15 +289,16 @@ export interface ErrorPage {
  * Asks for a page that is not there, and sends a request that is malformed (a path with a broken percent-escape),
  * which are the two errors any visitor or crawler can cause.
  */
-export async function askForErrors(app: string): Promise<ErrorPage[]> {
+export async function askForErrors(app: string, headers?: RequestHeaders): Promise<ErrorPage[]> {
+  const init = { record: RECORDED, headers };
   const missing = `/no-such-page-${Math.random().toString(36).slice(2, 8)}`;
   return Promise.all([
-    exchange(app, missing, { record: RECORDED }).then((answer) => ({
+    exchange(app, missing, init).then((answer) => ({
       what: 'a page that is not there',
       route: '/:missing',
       answer,
     })),
-    exchange(app, '/%E0%A4%A', { record: RECORDED }).then((answer) => ({
+    exchange(app, '/%E0%A4%A', init).then((answer) => ({
       what: 'a malformed request',
       route: '/:malformed',
       answer,

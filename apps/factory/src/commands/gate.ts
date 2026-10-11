@@ -9,7 +9,8 @@
  * time, it runs only the probes that failed, and the crawl only when one of its checks did. It writes its summary as
  * Markdown to the file, or prints it. CRAWL_LIMIT caps the crawl, 150 by default. With COMPARISON_FILE set, it also
  * writes the checks that regressed there as JSON (`comparisonMessage`): the canary's analysis sets it to the Job's
- * termination message, which the line reads when the journeys fail a release.
+ * termination message, which the line reads when the journeys fail a release. Its requests carry `UNMEASURED`, so
+ * that in a canary's analysis they do not count in the errors and latency it judges.
  */
 import { appendFile, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -19,6 +20,7 @@ import { DiskArtifacts } from '@software-factory/store';
 import { compareJourneys, comparisonMessage, type Observe, summary } from '../gates/journeys.ts';
 import { annotate } from '../gates/report.ts';
 import { log } from '../log.ts';
+import { UNMEASURED } from '../senses/http.ts';
 import { observeApp } from '../senses/observe.ts';
 
 export const USAGE = '  factory gate journeys --base <url> --change <url> [--summary <file>]';
@@ -36,7 +38,8 @@ export async function run(args: string[]): Promise<number> {
   const store = new DiskArtifacts(await mkdtemp(join(tmpdir(), 'gate-')));
   const limit = Number(process.env.CRAWL_LIMIT ?? 150);
 
-  const observe: Observe = async (url, only) => (await observeApp(url, only, { store, log, limit })).seen;
+  const observe: Observe = async (url, only) =>
+    (await observeApp(url, only, { store, log, limit, headers: UNMEASURED })).seen;
 
   const comparison = await compareJourneys(observe, values.base, values.change);
   const markdown = summary(comparison);

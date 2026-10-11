@@ -11,8 +11,9 @@
  * `run` also serves the page reader for triage (`POST /v1/pages` with a path, and `GET /health`) on PORT, 8080 by
  * default; and for the line's Verify, on VERIFY_PORT, 8081 by default, runs a ticket's probe or crawl again
  * (`POST /v1/verify`, `probes/verify.ts`). Given CANARY_URL, the canary Service's address, it pictures every page on
- * the stable version and on the canary while a canary runs, and compares them (`pictures/take.ts`); after each release,
- * it deletes the pictures no release needs any more.
+ * the stable version and on the canary while a canary runs, and compares them (`pictures/take.ts`); the pictures'
+ * requests carry `UNMEASURED`, so they do not count in the errors and latency the canary is judged on. After each
+ * release, it deletes the pictures no release needs any more.
  *
  * Settings, from the environment: APP_URL, the app's address; ARTIFACTS_DIR, the artifact store's folder (`once`
  * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as the factory's
@@ -33,7 +34,7 @@ import { Pictures } from '../pictures/take.ts';
 import { probes } from '../probes/index.ts';
 import { readerServer } from '../probes/reader.ts';
 import { Verifications, verifyCheck, verifyServer } from '../probes/verify.ts';
-import { versionOf } from '../senses/http.ts';
+import { UNMEASURED, versionOf } from '../senses/http.ts';
 import { observeApp } from '../senses/observe.ts';
 import { SenseRunner } from '../senses/runner.ts';
 import { discover, httpGet } from '../traffic/traffic.ts';
@@ -112,13 +113,13 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
     new Pictures({
       stable: app.replace(/\/$/, ''),
       canary,
-      version: versionOf,
-      pages: (at) => discover(httpGet(at)),
+      version: (at) => versionOf(at, UNMEASURED),
+      pages: (at) => discover(httpGet(at, { headers: UNMEASURED })),
       shoot: (at, path, { route, version, elements }) =>
         sense.withPage(async (page) => {
           await page.goto(new URL(path, at).href, { waitUntil: 'load' });
           return capturePage(page, store, { route, version, checks: elements, maxHeight: PICTURE_HEIGHT });
-        }),
+        }, UNMEASURED),
       index,
       store,
       log,
