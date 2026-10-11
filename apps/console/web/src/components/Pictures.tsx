@@ -52,7 +52,8 @@ function useFrame() {
     if (!frame.current) return;
     const observer = new ResizeObserver(([entry]) => {
       const { width, height } = entry?.contentRect ?? { width: 0, height: 0 };
-      if (width) setRatio(height / width);
+      // Only a change of shape renders the shot again, not every resize.
+      if (width) setRatio((ratio) => (Math.abs(ratio - height / width) < 1e-3 ? ratio : height / width));
     });
     observer.observe(frame.current);
     return () => observer.disconnect();
@@ -87,7 +88,9 @@ export function Shot({
   // The shot's height the frame shows, in the shot's own pixels, and the width that scales them to the frame's.
   const shown = shot.width * ratio;
   const scale = (px: number) => `${(px / shot.width) * 100}cqw`;
-  const below = marks.filter((mark) => mark.y >= shown).length;
+  // A mark mostly below the frame counts as below it, rather than be drawn half under the strip.
+  const inFrame = (mark: Mark) => mark.y + mark.height / 2 < shown;
+  const below = marks.filter((mark) => !inFrame(mark)).length;
   return (
     <div className="shot" ref={frame}>
       {failed ? (
@@ -111,27 +114,25 @@ export function Shot({
         />
       )}
       {!failed &&
-        marks
-          .filter((box) => box.y < shown)
-          .map((box) => (
-            <span
-              key={`${box.x},${box.y},${box.kind}`}
-              className={`mk ${box.kind} ${box.y + box.height > shown * 0.8 ? 'up' : ''}`}
-              style={{
-                left: scale(box.x),
-                top: scale(box.y),
-                width: scale(box.width),
-                height: scale(box.height),
-              }}
-              aria-hidden="true"
-            >
-              {box.n !== undefined ? (
-                <span className="mk-n">{box.n}</span>
-              ) : (
-                box.label && <span className="mk-label">{box.label}</span>
-              )}
-            </span>
-          ))}
+        marks.filter(inFrame).map((box) => (
+          <span
+            key={`${box.x},${box.y},${box.kind}`}
+            className={`mk ${box.kind} ${box.y + box.height > shown * 0.8 ? 'up' : ''}`}
+            style={{
+              left: scale(box.x),
+              top: scale(box.y),
+              width: scale(box.width),
+              height: scale(box.height),
+            }}
+            aria-hidden="true"
+          >
+            {box.n !== undefined ? (
+              <span className="mk-n">{box.n}</span>
+            ) : (
+              box.label && <span className="mk-label">{box.label}</span>
+            )}
+          </span>
+        ))}
       {!failed && below > 0 && (
         <span className="fold" aria-hidden="true">
           ↓ {below} more {below === 1 ? 'mark' : 'marks'} below the frame

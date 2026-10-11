@@ -265,4 +265,18 @@ describe('a return', () => {
       { item: '1', note: 'gates.started', earlier: ['sent back'] },
     ]);
   });
+
+  it('is not its sender’s row once the work item has passed the stage and gone upstream from a later one', () => {
+    const item = sentBack()
+      .add(7, 'gates.started', 'actions', payloads.gatesStarted)
+      .add(8, 'gates.finished', 'actions', payloads.gatesPassed)
+      .add(9, 'review.submitted', 'reviewer', {
+        pullRequest: 7,
+        verdict: 'changes-requested',
+        note: 'No',
+        findings: [],
+      })
+      .add(10, 'work.returned', 'factory', { from: 'review', to: 'build', round: 3, reason: 'Changes asked' });
+    expect(project(item.events, item.at(11)).panels.gates.rows).toEqual([]);
+  });
 });

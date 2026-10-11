@@ -356,8 +356,10 @@ export function panel(
   for (const [number, [latest, ...before]] of sent) {
     const row = [...now, ...done].find((r) => r.item === number);
     const item = items.find((i) => i.number === number);
+    // One that has passed the stage since and gone upstream from a later one is not this stage's to list.
+    const since = item?.visits[stage]?.leftAt;
     if (row) row.earlier.push(sentBackWords(before.length + 1));
-    else if (latest && item) {
+    else if (latest && item && (since === undefined || since < latest.at)) {
       back.push({
         item: number,
         title: item.title,
