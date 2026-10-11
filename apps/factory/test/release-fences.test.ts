@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { parse, parseAllDocuments } from 'yaml';
 
 /**
- * The release's fences as deploy/ declares them: who may change a Rollout, what the analysis Job may reach, and what
- * the app's own pods may reach and be reached by.
+ * The release's fences as deploy/ declares them: who may change a Rollout, what the line may read of a release, what
+ * the analysis Job may reach, and what the app's own pods may reach and be reached by.
  */
 const DEPLOY = fileURLToPath(new URL('../../../deploy/', import.meta.url));
 
@@ -15,6 +15,7 @@ interface Manifest {
   metadata?: { name?: string; namespace?: string };
   rules?: { apiGroups?: string[]; resources?: string[]; verbs?: string[] }[];
   roleRef?: { kind: string; name: string };
+  subjects?: { kind: string; name: string; namespace?: string }[];
   spec?: Record<string, unknown>;
 }
 
@@ -58,6 +59,30 @@ describe('stopping a release is Martin’s (make stop-the-line)', () => {
     // The chart would otherwise aggregate the right to change Rollouts into `admin` and `edit`.
     const values = parse(await readFile(join(DEPLOY, 'base/rollouts/values.yaml'), 'utf-8'));
     expect(values.createClusterAggregateRoles).toBe(false);
+  });
+});
+
+describe('the line’s watch of a release', () => {
+  it('may get, list and watch the app’s Rollout and its AnalysisRuns, and nothing else in the app’s namespace', async () => {
+    const all = await manifests();
+    const line = all.filter(({ manifest }) =>
+      manifest.subjects?.some((s) => s.kind === 'ServiceAccount' && s.name === 'line' && s.namespace === 'factory'),
+    );
+    // Nothing cluster-wide: each right is a Role's, in one namespace.
+    expect(line.filter(({ manifest }) => manifest.kind !== 'RoleBinding')).toEqual([]);
+    const inWebsite = line.filter(({ manifest }) => manifest.metadata?.namespace === 'website');
+    expect(inWebsite.map(({ manifest }) => manifest.roleRef)).toEqual([
+      { apiGroup: 'rbac.authorization.k8s.io', kind: 'Role', name: 'line-reads-release' },
+    ]);
+    const role = all.find(
+      ({ manifest }) =>
+        manifest.kind === 'Role' &&
+        manifest.metadata?.namespace === 'website' &&
+        manifest.metadata?.name === 'line-reads-release',
+    );
+    expect(role?.manifest.rules).toEqual([
+      { apiGroups: ['argoproj.io'], resources: ['rollouts', 'analysisruns'], verbs: READ },
+    ]);
   });
 });
 

@@ -20,9 +20,18 @@
  * as by default, the line takes tickets without limit; a first run on Claude sets it to 1, so that no one chooses the
  * ticket and only one goes through.
  *
+ * RELEASE_ROLLOUT, the app's Rollout as `<namespace>/<name>`, has the line watch the app's releases: it reads the
+ * Rollout and its AnalysisRuns, and each version's figures from Prometheus at PROMETHEUS_URL (required with it), and
+ * records each release on the work items it carries. It changes nothing in Kubernetes. With LINE_ONLY, it records a
+ * release only when it carries that work item or none, and leaves one that carries another for the whole line. Unset,
+ * as by default, the line watches no release. In `dry-run`, the line answers for the release of each merge the dry
+ * run made, by its own word, taking LINE_DRY_RUN_RELEASE_SECONDS (60 by default) over each move: to start after the
+ * merge, each step, and promotion.
+ *
  * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
  * HANDBACK_PORT (8081); KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; LINE_TAKE;
+ * RELEASE_ROLLOUT, PROMETHEUS_URL and LINE_DRY_RUN_RELEASE_SECONDS;
  * FACTORY_PROFILE (default local) and ALL_LOCAL, as the gateway's: the profile's cap on a work item's spend, which the
  * line holds at, and where `policy/models.ts` sends each agent's calls, so a step on a local model is given longer to
  * finish.
@@ -133,6 +142,25 @@ async function serve(): Promise<number> {
     return 2;
   }
   const take = takeSetting === '' ? null : Number(takeSetting);
+  // The Rollout to watch, or none: a name of another shape stops it starting, rather than the line watching nothing.
+  const rolloutSetting = (process.env.RELEASE_ROLLOUT ?? '').trim();
+  // A namespace is a DNS label; a Rollout's name, a DNS subdomain: labels joined by dots, 253 characters at most.
+  const label = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+  const rollout = rolloutSetting.match(new RegExp(`^(${label})/(${label}(?:\\.${label})*)$`));
+  if (rolloutSetting !== '' && (!rollout || (rollout[2] ?? '').length > 253)) {
+    console.error(`RELEASE_ROLLOUT is ${JSON.stringify(rolloutSetting)}; it must be <namespace>/<name>, or unset.`);
+    return 2;
+  }
+  // Without Prometheus every step would be recorded without its figures, and every rollback without its series.
+  if (rollout && !(process.env.PROMETHEUS_URL ?? '').trim()) {
+    console.error('RELEASE_ROLLOUT is set, and PROMETHEUS_URL is not: set it to where the line reads the figures.');
+    return 2;
+  }
+  const releaseSeconds = Number((process.env.LINE_DRY_RUN_RELEASE_SECONDS ?? '').trim() || 60);
+  if (!Number.isInteger(releaseSeconds) || releaseSeconds < 0) {
+    console.error('LINE_DRY_RUN_RELEASE_SECONDS must be a whole number of seconds, or unset.');
+    return 2;
+  }
   // The work item's cap the gateway keeps, from the same profile, so the line holds a work item that reached it.
   const { PROFILES, SPEND } = await import('../../../../policy/spend.ts');
   const profile = (process.env.FACTORY_PROFILE || 'local').trim() as (typeof PROFILES)[number];
@@ -155,13 +183,15 @@ async function serve(): Promise<number> {
   const { log } = await import('../log.ts');
   const { kubeFrom } = await import('../runners/kube.ts');
   const { Runners } = await import('../runners/steps.ts');
+  const { telemetryFrom } = await import('../clients/env.ts');
   const { lineServers } = await import('../runners/serve.ts');
   const { GitHubWorker } = await import('../github/worker-client.ts');
   const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
   const env = process.env;
+  const kube = kubeFrom(env);
   const runners = new Runners({
     sql,
-    kube: kubeFrom(env),
+    kube,
     image: RUNNER_IMAGE,
     gatewayUrl: env.RUNNER_GATEWAY_URL ?? 'http://gateway.factory.svc:8080',
     handbackUrl: env.RUNNER_HANDBACK_URL ?? 'http://line.factory.svc:8081/v1/handback',
@@ -175,7 +205,10 @@ async function serve(): Promise<number> {
   // The step API on loopback only: a port-forward reaches it, and no pod can. Agent pods call the handback.
   await new Promise<void>((resolve) => api.listen(port, '127.0.0.1', resolve));
   await new Promise<void>((resolve) => handback.listen(handbackPort, resolve));
-  log.info({ port, handbackPort, mode, only, take }, `line listening on :${port}, the handback on :${handbackPort}`);
+  log.info(
+    { port, handbackPort, mode, only, take, rollout: rolloutSetting || null },
+    `line listening on :${port}, the handback on :${handbackPort}`,
+  );
 
   // Off, the line takes no work, but still stops what the step API started when the line stops.
   const { Line } = await import('../line/worker.ts');
@@ -191,6 +224,15 @@ async function serve(): Promise<number> {
     providerOf,
     only,
     take,
+    release: rollout
+      ? {
+          kube,
+          rollout: { namespace: rollout[1] as string, name: rollout[2] as string },
+          prometheus: telemetryFrom(env).prometheus,
+        }
+      : null,
+    dryRun: mode === 'dry-run',
+    dryRunReleaseMs: releaseSeconds * 1000,
   });
   const abort = new AbortController();
   const working = line.run(abort.signal);

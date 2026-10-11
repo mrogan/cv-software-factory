@@ -1,0 +1,27 @@
+# The line watches the app's releases (apps/factory/src/release): it reads the Rollout and the AnalysisRuns it owns, and
+# records each release on the work items it carries. Read only, and only those two kinds, in the app's namespace: the
+# line cannot change a Rollout (stopping a release is Martin's, `make stop-the-line`), nor read a Secret, a pod or a
+# Job here. A Role in `website` rather than a ClusterRole, so it reads no other namespace's.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: line-reads-release
+  namespace: website
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [rollouts, analysisruns]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: line-reads-release
+  namespace: website
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: line-reads-release
+subjects:
+  - kind: ServiceAccount
+    name: line
+    namespace: factory

@@ -325,6 +325,18 @@ describe('after the merge', () => {
     expect(fold([...holding, release()]).hold).toBeUndefined();
   });
 
+  it('waits at Release for the dry run’s release of a dry run’s merge, which no deploy pull request carries', () => {
+    const dry = (events: LineEvent[]) =>
+      events.map(
+        (e): LineEvent =>
+          e.type === 'pull-request.pushed' || e.type === 'pull-request.merged'
+            ? ({ ...e, payload: { ...e.payload, number: 1_000_000_012 } } as LineEvent)
+            : e,
+      );
+    expect(decide(dry(done), facts)).toEqual({ stage: 'release', next: { do: 'wait', for: 'release' } });
+    expect(decide(dry([...done, release(), promoted()]), facts).next).toMatchObject({ do: 'verify' });
+  });
+
   it('moves a promoted release’s work item to Verify', () => {
     const live = [...done, deployHold(done), release(), promoted()];
     expect(decide(live, facts)).toEqual({ stage: 'verify', next: { do: 'verify', release: promoted().payload } });

@@ -15,10 +15,15 @@
  *   is in Plan or waiting for Build (`queue.ts`). Each work item is leased while it is acted on.
  * - It reads its pull requests' gates and merges through the GitHub worker about once a minute (`gates.ts`).
  * - About as often, it tells the app's deploy pull request which work items it carries: those whose fixes merged
- *   between the commit pinned now and the one the pull request runs. It says so only when the list, or the pull
- *   request, has changed since it last did. Not with `only`: a soak of one work item says nothing of the others.
+ *   between the commit the shop runs and the one the pull request runs, as a release starting records them. It says
+ *   so only when the list, or the pull request, has changed since it last did. Not with `only`: a soak of one work
+ *   item says nothing of the others.
+ * - About every thirty seconds, it reads the app's Rollout and its AnalysisRuns, and records each release on the work
+ *   items it carries, or on the line when it carries none (`release.ts`). It changes nothing in Kubernetes. In a dry
+ *   run, it answers for the releases of the dry run's merges, which never shipped.
  * - With `only`, it acts on that one work item, taking its ticket onto the line if it is not there: it starts no
- *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end.
+ *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end. It still
+ *   watches the app's releases, and records one that carries that work item or none.
  * - When the line stops, it stops every step in hand, wherever it is, and takes nothing new; their work is lost and
  *   nothing of it is recorded, so starting again runs those steps afresh from the last event.
  * - A work item's runners' volume is deleted when it merges, as nothing after a merge needs it (a return to Plan
@@ -69,6 +74,7 @@ import {
 } from './machine.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Pending, Queue, type QueueItem } from './queue.ts';
+import { carried, Releases, type ReleaseWatchOptions } from './release.ts';
 
 /** The runners, as the line uses them (`runners/steps.ts`). */
 export interface Steps {
@@ -100,6 +106,17 @@ export interface LineOptions {
   gatesEveryMs?: number;
   /** How often the line looks at the app's deploy pull request, to say what it carries. */
   deployEveryMs?: number;
+  /** The app's Rollout, and Prometheus, for the line's watch of its releases; null, as by default, watches none. */
+  release?: ReleaseWatchOptions | null;
+  /** How often the line reads the app's release. */
+  releaseEveryMs?: number;
+  /**
+   * Whether the line runs a dry run (LINE_MODE=dry-run): then it answers for the release of each merge the dry run
+   * made, which never shipped, by its own word.
+   */
+  dryRun?: boolean;
+  /** How long a dry run's release takes over each move: to start after the merge, each step, and its promotion. */
+  dryRunReleaseMs?: number;
   /**
    * False for a line that takes no work and only stops the steps in hand (the step API's) when the line stops.
    */
@@ -137,6 +154,7 @@ const retryAfterMs = (tries: number) => Math.min(30_000 * 2 ** (tries - 1), 600_
 export class Line {
   readonly #o: Required<Omit<LineOptions, 'me'>>;
   readonly #queue: Queue;
+  readonly #releases: Releases;
   /** The steps in hand, by work item, with the stage each holds. */
   readonly #inFlight = new Map<string, { stage: 'plan' | 'build' | 'review'; done: Promise<void> }>();
   #stopped = false;
@@ -146,6 +164,7 @@ export class Line {
   /** The merged work items whose volume this worker has deleted, until a step makes one again. */
   readonly #volumeGone = new Set<string>();
   #deployReadAt = Number.NEGATIVE_INFINITY;
+  #releaseReadAt = Number.NEGATIVE_INFINITY;
   /** What the deploy pull request was last told it carries, with its number and commit; unknown after a start. */
   #described: string | undefined;
 
@@ -156,6 +175,10 @@ export class Line {
       now: () => new Date(),
       gatesEveryMs: 60_000,
       deployEveryMs: 60_000,
+      release: null,
+      releaseEveryMs: 30_000,
+      dryRun: false,
+      dryRunReleaseMs: 60_000,
       takesWork: true,
       workItemLimitUsd: null,
       providerOf: () => 'anthropic',
@@ -166,6 +189,18 @@ export class Line {
     this.#queue = new Queue(options.sql, options.me ?? `line-${hostname()}`, {
       only: this.#o.only,
       take: this.#o.take,
+    });
+    this.#releases = new Releases({
+      sql: this.#o.sql,
+      events: this.#o.events,
+      github: this.#o.github,
+      repo: this.#o.repo,
+      log: this.#o.log,
+      now: this.#o.now,
+      watch: this.#o.release,
+      dryRun: this.#o.dryRun,
+      dryRunEveryMs: this.#o.dryRunReleaseMs,
+      only: this.#o.only,
     });
   }
 
@@ -199,6 +234,10 @@ export class Line {
       await this.#describeDeploy().catch((error: unknown) =>
         this.#o.log.warn({ err: errorOf(error) }, 'could not say what the deploy pull request carries'),
       );
+    }
+    if (this.#o.now().getTime() - this.#releaseReadAt >= this.#o.releaseEveryMs) {
+      this.#releaseReadAt = this.#o.now().getTime();
+      await this.#releases.pass();
     }
     const taken = await this.#queue.admit();
     if (taken) this.#o.log.info({ workItem: taken }, 'a ticket came onto the line');
@@ -652,52 +691,26 @@ export class Line {
   }
 
   /**
-   * Tells the app's open deploy pull request which work items it carries: each whose fix merged after the commit
-   * pinned now, up to the one the pull request runs. A dry run's merge commit, which GitHub never had, is in no range.
-   * The worker leaves a body that says the same as it is; the line does not ask again until the list or the pull
-   * request changes.
+   * Tells the app's open deploy pull request which work items it carries (`carried`): each whose latest fix merged
+   * after the commit the shop runs (the last promoted release's, else the one pinned now), up to the one the pull
+   * request runs. A dry run's merge commit, which GitHub never had, is in no range. The worker leaves a body that says
+   * the same as it is; the line does not ask again until the list or the pull request changes.
    */
   async #describeDeploy(): Promise<void> {
-    const { github, repo, sql, log } = this.#o;
+    const { github, repo, log } = this.#o;
     const target = DEPLOYS.find((t) => t.repo === repo);
     if (!target) return;
     const proposal = await github.read('deployProposal', repo, { branch: target.branch });
-    // Without the pinned commit there is no range to look in.
-    if (!proposal?.pinned) return;
-    const range = await github.read('commits', repo, { base: proposal.pinned, head: proposal.commit });
-    if (range.total > range.commits.length) {
-      log.warn(
-        { number: proposal.number, total: range.total, read: range.commits.length },
-        'the deploy pull request runs more commits than the line reads: it lists the work items among the first',
-      );
-    }
-    const carried = range.commits.length
-      ? (
-          await sql<{ work_item: string; number: number; title: string | null; issue: number | null }[]>`
-            select m.work_item, (m.payload->>'number')::int as number, l.issue,
-                   (select t.public->'payload'->>'title' from events t
-                     where t.work_item = m.work_item and t.type = 'ticket.opened' order by t.seq limit 1) as title
-            from events m left join line l on l.work_item = m.work_item
-            where m.type = 'pull-request.merged' and m.payload->>'commit' in ${sql(range.commits)}
-            order by m.seq`
-        ).reduce((carried, row) => {
-          // A work item sent back after its merge may merge twice: it is listed once, with its latest pull request,
-          // in the place of its latest merge.
-          const title = row.title ?? `Work item ${row.work_item}`;
-          carried.delete(row.work_item);
-          return carried.set(row.work_item, {
-            workItem: row.work_item,
-            title,
-            issue: row.issue,
-            pullRequest: row.number,
-          });
-        }, new Map<string, Carry>())
-      : new Map<string, Carry>();
+    if (!proposal) return;
+    // Without a commit to start from, or with one GitHub never had, there is no range to look in.
+    const carries = await carried(this.#o, proposal.commit, proposal.pinned ?? undefined);
+    if (!carries) return;
     // The latest merges by name, and the rest counted.
-    const all = [...carried.values()];
-    const carries = all.slice(-MAX_CARRIES);
-    const more = all.length - carries.length;
-    const deploy = { number: proposal.number, commit: proposal.commit, carries, ...(more ? { more } : {}) };
+    const named: Carry[] = carries
+      .slice(-MAX_CARRIES)
+      .map((c) => ({ ...c, title: c.title ?? `Work item ${c.workItem}` }));
+    const more = carries.length - named.length;
+    const deploy = { number: proposal.number, commit: proposal.commit, carries: named, ...(more ? { more } : {}) };
     const said = JSON.stringify(deploy);
     if (said === this.#described) return;
     let changed: boolean;
@@ -714,7 +727,7 @@ export class Line {
     this.#described = said;
     if (changed) {
       log.info(
-        { number: proposal.number, commit: proposal.commit, carries: carries.map((c) => c.workItem) },
+        { number: proposal.number, commit: proposal.commit, carries: named.map((c) => c.workItem) },
         'said what the deploy pull request carries',
       );
     }

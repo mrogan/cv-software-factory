@@ -8,6 +8,7 @@ import type { Handback } from '../../../runner/src/step.ts';
 import type { DeployProposal } from '../../src/github/deploys.ts';
 import type { CheckRun, Comparison, PullRequestState } from '../../src/github/reads.ts';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../src/github/server.ts';
+import { GitHubWorkerError } from '../../src/github/worker-client.ts';
 import type { GitHubPort, Steps } from '../../src/line/worker.ts';
 import { jobName } from '../../src/runners/jobs.ts';
 import type { StepOutcome, StepRequest } from '../../src/runners/steps.ts';
@@ -113,6 +114,15 @@ export class FakeGitHub implements GitHubPort {
   /** The app's open deploy pull request, as the deploy watch has it, and the commits it runs since the pinned one. */
   deploy: DeployProposal | null = null;
   deployCommits: string[] = [];
+  /** Each of the app's images' commits, by digest, as its revision label names it. */
+  readonly revisions = new Map<string, string>();
+  /** The app's images whose signature does not verify, by digest. */
+  readonly unsigned = new Set<string>();
+  /**
+   * The app's main, oldest first. When it is set, `commits` compares two of its commits as GitHub does, and a commit
+   * not in it is one GitHub never had (404); when not, `commits` answers `deployCommits`.
+   */
+  history: string[] | undefined;
   #commits = 0;
 
   async act<K extends ActionName>(action: K, _repo: string, given: ActionArgs[K]): Promise<ActionResult<K>> {
@@ -212,9 +222,24 @@ export class FakeGitHub implements GitHubPort {
       case 'deployProposal':
         return answer(structuredClone(this.deploy));
       case 'commits': {
+        if (this.history) {
+          const [from, to] = [this.history.indexOf(String(args.base)), this.history.indexOf(String(args.head))];
+          if (from < 0 || to < 0) throw new GitHubWorkerError(404, 'not-found', 'No commit found');
+          const commits = this.history.slice(from + 1, to + 1);
+          const status = from === to ? 'identical' : from < to ? 'ahead' : 'behind';
+          return answer({ status, total: commits.length, commits });
+        }
         const at = this.deployCommits;
         return answer({ status: 'ahead', total: at.length, commits: [...at] });
       }
+      case 'imageRevision':
+        return answer(this.revisions.get(String(args.digest)) ?? null);
+      case 'imageSigned':
+        return answer(
+          this.unsigned.has(String(args.digest))
+            ? { signed: false, reason: 'no signature by the pipeline' }
+            : { signed: true, reason: null },
+        );
       case 'pullRequestFrom': {
         const pr = [...this.pulls.values()].find((p) => p.head.ref === args.branch && p.state === 'open');
         return answer(pr ? structuredClone(pr) : null);
