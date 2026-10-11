@@ -38,6 +38,7 @@ import type { AnalysisRun, Rollout } from './read.ts';
 export type Target = string | null;
 
 type Started = PayloadOf<'release.started'>;
+export type CanaryStep = NonNullable<Started['steps']>[number];
 type Stepped = PayloadOf<'canary.stepped'>;
 type Measure = Stepped['analysis']['measures'][number];
 type Failed = PayloadOf<'release.rolled-back'>['failed'][number];
@@ -101,6 +102,8 @@ export interface Observed {
   admitted: boolean | undefined;
   /** The weight of each step of the Rollout, by its index: the last weight set at or before it. */
   weights: number[];
+  /** The canary's steps, as `release.started` records them; null when the Rollout's cannot be read. */
+  plan: CanaryStep[] | null;
   stepIndex: number;
   /** Every run of the Rollout, oldest first. */
   runs: AnalysisRun[];
@@ -129,6 +132,7 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
     aborted: status.abort === true,
     admitted: available ? true : failedToCreate ? false : undefined,
     weights,
+    plan: planOf(steps),
     stepIndex,
     runs: [...runs].sort(
       (a, b) =>
@@ -136,6 +140,56 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
         a.metadata.name.localeCompare(b.metadata.name),
     ),
   };
+}
+
+type RolloutStep = NonNullable<Rollout['spec']['strategy']['canary']>['steps'][number];
+
+/** The most steps `release.started` holds. */
+const MAX_STEPS = 20;
+
+const UNITS: Record<string, number> = { h: 3600, m: 60, s: 1, ms: 0.001 };
+
+/**
+ * A pause's duration in seconds, as Argo Rollouts reads one: a number, or text of bare digits, is seconds; otherwise
+ * a Go duration such as `3m` or `1h30m`. Undefined for anything else.
+ */
+export function secondsOf(duration: string | number): number | undefined {
+  if (typeof duration === 'number') return Number.isInteger(duration) && duration >= 0 ? duration : undefined;
+  if (/^\d+$/.test(duration)) return Number(duration);
+  if (!/^(?:\d+(?:\.\d+)?(?:h|ms|m|s))+$/.test(duration)) return undefined;
+  let seconds = 0;
+  for (const [, amount, unit] of duration.matchAll(/(\d+(?:\.\d+)?)(h|ms|m|s)/g)) {
+    seconds += Number(amount) * (UNITS[unit as string] as number);
+  }
+  return Math.round(seconds);
+}
+
+/**
+ * The canary's steps as `release.started` records them. Argo Rollouts lists a weight, a pause and an analysis as steps
+ * of their own; here each weight set is one step, with the pauses and the analysis that follow it, before the next
+ * weight. Steps of any other kind change no weight and are not recorded. Null when a pause's duration cannot be read,
+ * or there are more steps than an event holds: the steps are then not known, rather than known wrong.
+ */
+export function planOf(steps: readonly RolloutStep[]): CanaryStep[] | null {
+  const plan: CanaryStep[] = [];
+  for (const step of steps) {
+    if (step.setWeight !== undefined) plan.push({ weight: step.setWeight, pauseSeconds: 0, analysis: false });
+    if (!step.pause && !step.analysis) continue;
+    // A pause or an analysis before any weight is set holds the canary at none of the traffic.
+    if (!plan.length) plan.push({ weight: 0, pauseSeconds: 0, analysis: false });
+    const current = plan.at(-1) as CanaryStep;
+    if (step.analysis) current.analysis = true;
+    if (step.pause) {
+      if (step.pause.duration === undefined) {
+        current.pauseSeconds = null;
+        continue;
+      }
+      const seconds = secondsOf(step.pause.duration);
+      if (seconds === undefined) return null;
+      if (current.pauseSeconds !== null) current.pauseSeconds += seconds;
+    }
+  }
+  return plan.length <= MAX_STEPS && plan.every((s) => s.weight >= 0 && s.weight <= 100) ? plan : null;
 }
 
 const hashOf = (run: AnalysisRun) => run.metadata.labels['rollouts-pod-template-hash'];
@@ -380,7 +434,13 @@ export function releaseNeeds(o: Observed, recorded: Recorded): Needs {
   const empty: Facts = { figures: new Map(), series: new Map() };
   if (start && !start.found) {
     // What it will draft once started, whatever the image's commit turns out to be.
-    const started = startedPayload(start, { commit: '0'.repeat(40), signed: true, carries: [] }, true, undefined);
+    const started = startedPayload(
+      start,
+      { commit: '0'.repeat(40), signed: true, carries: [] },
+      true,
+      undefined,
+      o.plan,
+    );
     add(forTarget(o, start.release, { started, startedAt: '', attempts: 1, steps: 0, ended: undefined }, empty));
   }
   for (const name of named(o)) {
@@ -398,6 +458,7 @@ function startedPayload(
   read: Start,
   admitted: boolean,
   lastPromoted: string | undefined,
+  steps: CanaryStep[] | null,
 ): Started {
   // A release found live replaces a version the line never saw: the last it saw promoted, or, before any, itself.
   const previous = start.previous?.version ?? lastPromoted ?? read.commit;
@@ -408,6 +469,8 @@ function startedPayload(
     commit: read.commit,
     image: { digest: start.digest, signed: read.signed, admitted },
     watched: !start.found,
+    // A release found live went through its steps before the line saw it, under whatever the Rollout said then.
+    steps: start.found ? null : steps,
     dryRun: false,
   };
 }
@@ -426,7 +489,7 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
     const read = facts.start;
     const targets: Target[] = read.carries.length ? read.carries : [null];
     if (start.found) {
-      const started = startedPayload(start, read, true, facts.lastPromoted);
+      const started = startedPayload(start, read, true, facts.lastPromoted, null);
       for (const target of targets) {
         add(target, [
           {
@@ -452,7 +515,7 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
       }
     } else {
       const admitted = o.admitted === true;
-      const started = startedPayload(start, read, admitted, facts.lastPromoted);
+      const started = startedPayload(start, read, admitted, facts.lastPromoted, o.plan);
       const how = `${read.signed ? 'signed' : 'not signed'} and ${admitted ? 'admitted' : 'refused admission'}`;
       const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, ended: undefined };
       for (const target of targets) {
@@ -483,7 +546,9 @@ export const dryRunRelease = (commit: string) => `dry-run-${commit.slice(0, 12)}
 /**
  * A dry run's release of one work item's merge, which never shipped: started a delay after the merge, then a step at
  * each of `DRY_RUN_WEIGHTS` and its promotion, each a delay after the one before, all by the dry run's word. Nothing
- * ran, so no step has measures or figures. Returns what is due by `now` and not recorded.
+ * ran, so no step has measures or figures. Its start records those steps as a Rollout's would be, each pausing the
+ * delay and ending in a step, so a dry run's release reads as a real one does. Returns what is due by `now` and not
+ * recorded.
  */
 export function dryRunEvents(
   merge: { commit: string; at: string },
@@ -500,7 +565,15 @@ export function dryRunEvents(
       type: 'release.started',
       actor: 'factory',
       summary: `${short(version)} released in a dry run: nothing shipped`,
-      payload: { release, version, previous, commit: merge.commit, watched: true, dryRun: true },
+      payload: {
+        release,
+        version,
+        previous,
+        commit: merge.commit,
+        watched: true,
+        steps: DRY_RUN_WEIGHTS.map((weight) => ({ weight, pauseSeconds: Math.round(everyMs / 1000), analysis: true })),
+        dryRun: true,
+      },
     },
     ...DRY_RUN_WEIGHTS.map(
       (weight): Draft => ({

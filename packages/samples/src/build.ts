@@ -134,6 +134,15 @@ const HASH_LETTERS = 'bcdfghjklmnpqrstvwxz2456789';
 export const releaseFor = (version: string) =>
   [...Buffer.from(hex(`release:${version}`, 20), 'hex')].map((byte) => HASH_LETTERS[byte % 27]).join('');
 
+/**
+ * The canary's steps, as the app's Rollout has them (its deploy/base/rollout.yaml): a quarter of the traffic for three
+ * minutes, then half for three, each judged by a step analysis, then all of it.
+ */
+export const STEPS: NonNullable<PayloadOf<'release.started'>['steps']> = [
+  { weight: 25, pauseSeconds: 180, analysis: true },
+  { weight: 50, pauseSeconds: 180, analysis: true },
+];
+
 /** A release Argo Rollouts started, of a signed image that admission control let in. */
 export const started = (version: string, previous: string): PayloadOf<'release.started'> => ({
   release: releaseFor(version),
@@ -142,6 +151,7 @@ export const started = (version: string, previous: string): PayloadOf<'release.s
   commit: commitFor(`release:${version}`),
   image: { digest: digestFor(version), signed: true, admitted: true },
   watched: true,
+  steps: STEPS,
   dryRun: false,
 });
 

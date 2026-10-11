@@ -30,7 +30,21 @@ export const rolloutSchema = z.object({
       spec: z.object({ containers: z.array(z.object({ name: z.string(), image: z.string() })).min(1) }),
     }),
     strategy: z.object({
-      canary: z.object({ steps: z.array(z.object({ setWeight: z.number().int().optional() })).default([]) }).optional(),
+      canary: z
+        .object({
+          steps: z
+            .array(
+              z.object({
+                setWeight: z.number().int().optional(),
+                /** A pause with no duration waits for someone to promote the canary. */
+                pause: z.object({ duration: z.union([z.string(), z.number()]).optional() }).optional(),
+                /** Only whether there is one: what it measures is the AnalysisTemplate's. */
+                analysis: z.object({}).optional(),
+              }),
+            )
+            .default([]),
+        })
+        .optional(),
     }),
   }),
   status: z

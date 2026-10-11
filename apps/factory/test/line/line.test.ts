@@ -266,7 +266,7 @@ describe('the line', () => {
     // A release carries it, and it waits at Release while the canary runs, then at Verify.
     const release = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: false };
     const image = { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true };
-    await events.append(event(workItem, 'release.started', { ...release, image }, 'rollouts'));
+    await events.append(event(workItem, 'release.started', { ...release, image, steps: null }, 'rollouts'));
     await pass();
     expect(await stage(workItem)).toBe('release');
     await events.append([

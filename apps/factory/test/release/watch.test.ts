@@ -9,11 +9,13 @@ import {
   dryRunRelease,
   type Facts,
   observe,
+  planOf,
   recordedFrom,
   releaseEvents,
   releaseNeeds,
   type Series,
   type Start,
+  secondsOf,
   type Target,
 } from '../../src/release/watch.ts';
 import { CANARY, commitOf, digestOf, rollout, run, STABLE } from './fixtures.ts';
@@ -67,6 +69,7 @@ const STABLE_RECORDED = [
       commit: commitOf(STABLE),
       image: { digest: digestOf(STABLE), signed: true, admitted: true },
       watched: false,
+      steps: null,
       dryRun: false,
     },
   },
@@ -113,6 +116,11 @@ describe('a release, from the Rollout and its runs', () => {
         commit: commitOf(CANARY),
         image: { digest: digestOf(CANARY), signed: true, admitted: true },
         watched: true,
+        // As the Rollout has them: each weight with the pause and the analysis after it.
+        steps: [
+          { weight: 25, pauseSeconds: 180, analysis: true },
+          { weight: 50, pauseSeconds: 180, analysis: true },
+        ],
         dryRun: false,
       },
     ]);
@@ -397,6 +405,8 @@ describe('a release, from the Rollout and its runs', () => {
         commit: commitOf(CANARY),
         image: { digest: digestOf(CANARY), signed: true, admitted: true },
         watched: false,
+        // Nobody saw it step, and the Rollout may have said otherwise then.
+        steps: null,
         dryRun: false,
       },
     ]);
@@ -439,7 +449,15 @@ describe('a dry run’s release', () => {
     expect(due(240)).toEqual(['canary.stepped', 'release.promoted']);
     expect(due(600)).toEqual([]);
     expect(log.map((e) => e.payload)).toEqual([
-      expect.objectContaining({ release: 'dry-run-dddddddddddd', watched: true, dryRun: true }),
+      expect.objectContaining({
+        release: 'dry-run-dddddddddddd',
+        watched: true,
+        steps: [
+          { weight: 25, pauseSeconds: 60, analysis: true },
+          { weight: 50, pauseSeconds: 60, analysis: true },
+        ],
+        dryRun: true,
+      }),
       expect.objectContaining({
         weight: 25,
         analysis: { phase: 'successful', requests: null, measures: [] },
@@ -449,6 +467,49 @@ describe('a dry run’s release', () => {
       expect.objectContaining({ previous: 'a'.repeat(40), dryRun: true }),
     ]);
     expect(log[0]?.payload).not.toHaveProperty('image');
+  });
+});
+
+describe('a canary’s steps, as a release records them', () => {
+  type Steps = Parameters<typeof planOf>[0];
+  const plan = (steps: Steps) => planOf(steps);
+
+  it('are each weight set, with the pauses and the analysis that follow it, before the next', () => {
+    expect(
+      plan([
+        { setWeight: 10 },
+        { setWeight: 20 },
+        { pause: { duration: '1m' } },
+        { pause: { duration: 30 } },
+        { analysis: {} },
+        { pause: { duration: '1h30m' } },
+        { setWeight: 60 },
+      ]),
+    ).toEqual([
+      { weight: 10, pauseSeconds: 0, analysis: false },
+      { weight: 20, pauseSeconds: 5490, analysis: true },
+      { weight: 60, pauseSeconds: 0, analysis: false },
+    ]);
+  });
+
+  it('hold the canary at none of the traffic before a weight is set, and until promoted at a pause with no duration', () => {
+    expect(plan([{ analysis: {} }, { setWeight: 25 }, { pause: {} }, { pause: { duration: '1m' } }])).toEqual([
+      { weight: 0, pauseSeconds: 0, analysis: true },
+      { weight: 25, pauseSeconds: null, analysis: false },
+    ]);
+    // Steps of other kinds change no weight, and a Rollout with none of these steps has none.
+    expect(plan([{}, {}])).toEqual([]);
+  });
+
+  it('are not known when a pause cannot be read, or there are more than an event holds', () => {
+    expect(plan([{ setWeight: 25 }, { pause: { duration: 'a while' } }])).toBeNull();
+    expect(plan(Array.from({ length: 21 }, (_, i) => ({ setWeight: i + 1 })))).toBeNull();
+  });
+
+  it('read durations as Argo Rollouts does: a number or bare digits in seconds, or a Go duration', () => {
+    expect([30, '45', '3m', '1h', '1m30s', '1.5m', '500ms'].map(secondsOf)).toEqual([30, 45, 180, 3600, 90, 90, 1]);
+    expect(['', '3 m', 'm', '-1', '1d'].map(secondsOf)).toEqual(Array(5).fill(undefined));
+    expect(secondsOf(-1)).toBeUndefined();
   });
 });
 
