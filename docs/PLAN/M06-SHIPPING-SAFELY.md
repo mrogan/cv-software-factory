@@ -151,11 +151,11 @@ On the local cluster, with no line in the loop:
 
 ### Part A is done when
 
-- [ ] Every image both repositories build is signed by their pipeline, with its SBOM attested.
-- [ ] Both copies of the policy enforce, and an image the pipeline did not sign is refused in every guarded namespace, as is an image of ours in a namespace that does not run it; the refusals are kept.
-- [ ] Merging a deploy pull request runs the app's release as a canary that the analysis judges on errors, latency and journeys against the baseline, with enough traffic to judge, and that promotes itself.
-- [ ] A change that passes every gate and fails under load is rolled back by the canary, unattended, before it reaches 100%.
-- [ ] `make stop-the-line` aborts a canary in flight, and `make egress` passes with the new parts.
+- [x] Every image both repositories build is signed by their pipeline, with its SBOM attested.
+- [x] Both copies of the policy enforce, and an image the pipeline did not sign is refused in every guarded namespace, as is an image of ours in a namespace that does not run it; the refusals are kept.
+- [x] Merging a deploy pull request runs the app's release as a canary that the analysis judges on errors, latency and journeys against the baseline, with enough traffic to judge, and that promotes itself.
+- [x] A change that passes every gate and fails under load is rolled back by the canary, unattended, before it reaches 100%.
+- [x] `make stop-the-line` aborts a canary in flight, and `make egress` passes with the new parts.
 
 ## Part B: the line after the merge
 
@@ -249,3 +249,46 @@ Spec sections 3.2, 4.1 and 5.2; `COMPONENTS.md` (the scoreboard, the console's n
 - **A rollback holds every release behind it.** Until its fix merges, each release carries the bad commit. Its ticket takes its place in the queue by severity, and Martin can revert.
 - **A change can pass by not reporting its errors.** The analysis judges errors and latency on the app's own telemetry, and agents write the app's code. The collector, not the app, says which version a record came from (task 3), and "enough requests" is counted at Traefik (task 4), but the errors and the latency are still the app's word. Judging them at the ingress too would close that, though Traefik's latency buckets are coarse by default; it matters by milestone 9, whose red team would try it. Traefik also counts per Service, not per version, so a new canary started within a step's window of an aborted one briefly counts the aborted canary's requests as its own.
 - **The answer key leaks.** Only ids and fingerprints reach the cluster, only the scoreboard can read them, and only its figures leave it.
+
+## Results
+
+### Part A
+
+On the local cluster, on 10 October 2026. Times are UTC and come from the Rollout's conditions and its AnalysisRuns. An error figure is the canary's share of 5xx answers less the baseline's, in percentage points, against a limit of one point; a latency figure is how far the canary's p99 is under its limit; "enough requests" is counted at Traefik.
+
+- **Signed, and admitted.** Every image both repositories build is signed by `build.yml` on `main`, with its SBOM attested. Both copies of the policy enforce (#185, #186), checking the signature and not the SBOM (#184), and `make admission-ready` says every image `factory`, `runners` and `website` run or will start is admitted: our images signed, Postgres by digest. Kyverno's refusals of an unsigned image, one signed by another identity, and an image of ours in a namespace whose copy does not admit it are kept for each guarded namespace (`deploy/test/admission-refusals.json`).
+- **Stop the line, and the fences.** At a canary's 50% step, `make stop-the-line` took 2.8 seconds: the Rollout was aborted, Traefik's weights went to 100 and 0, and `line.stopped` was appended. Starting the line left the release aborted, and retrying it took it back to 25% and on to promotion. `make egress` passed all 89 of its checks. Both were run for #175, before either copy of the policy enforced.
+- **A good release** (the app's #20, the fixes for work items 1001 and 1006). The canary started at 21:13:04 and promoted itself at 21:20:02, 6 minutes 58 seconds later.
+
+  | Step | Measured at | Requests | Errors | Latency | Journeys |
+  |---|---|---|---|---|---|
+  | 25% | 21:16:14 | 217 | 0.36 points below | 100 ms under | pass |
+  | 50% | 21:19:38 | 480 | 0.38 points below | 98 ms under | pass |
+
+  The background analysis looked seven times at errors and latency; the first two found nothing to compare yet, and every look passed. The journeys passed both times they ran.
+- **A bad release, unattended** (the app's #35 and #36: a release that adds a lock around request handling, holding each request 40 ms). It passed every gate, and went out with both copies of the policy enforcing. The canary started at 22:44:56. The background analysis failed latency at 22:46:56 (234 ms over its limit) and again at 22:47:56 (247 ms over), and the Rollout rolled back at 22:47:56, at the 25% step, three minutes in: "Metric "latency" assessed Failed due to failed (2) > failureLimit (1)". Nobody touched it. Errors failed once, at 22:46:56, 1.19 points above the baseline's share; the next look was 0.19 points above, within the limit, so errors alone would not have failed the release. The journeys passed at 22:47:41.
+- **The revert** (the app's #37 and #38). The canary started at 22:57:46 and promoted itself at 23:04:42, 6 minutes 56 seconds later.
+
+  | Step | Measured at | Requests | Errors | Latency | Journeys |
+  |---|---|---|---|---|---|
+  | 25% | 23:00:54 | 224 | 0.19 points below | 101 ms under | pass |
+  | 50% | 23:04:18 | 444 | 0.17 points below | 99 ms under | pass |
+
+## Retrospective
+
+### Part A
+
+Written as Part A's pull requests (#169 to #172, #174, #175 and #177, and the app's #34) merged, with the fixes its runs needed and the two pull requests that turned admission on (#185, #186). What Part A taught, and where each lesson now lives.
+
+**Learned on the cluster**
+
+- GHCR has no referrers API: cosign lists an image's bundles under a `sha256-<digest>` tag whose index carries no annotations, so the deploy watch, which read the bundle's kind from those, found no signature at all. It reads the kind from the bundle's own manifest, or the statement inside it, when the index does not say (#181).
+- To verify a signature, cosign fetches and parses every bundle attached to an image, attestations included, and `factory-browser`'s SBOM attestations are about 23 MB per platform. Kyverno's admission controller has 1 Gi, and admission checks the signature only; the deploy pull requests' checks verify the SBOM, where parsing it is cheap (#184, ADR 0010).
+- Sigstore's TUF client downloads into `/tmp`, which a read-only root filesystem does not have, so the GitHub worker has a writable `/tmp` of its own (#187).
+
+**For Part B**
+
+- An abort and a failed analysis look the same on the Rollout: task 11 says how the signal tells them apart.
+- Traefik counts requests per Service, not per version, and the errors and latency are the app's own figures: both are under the risks.
+
+**Left open:** the reel's render-count test is flaky (#182); egress by host name waits for milestone 10 (#176).
