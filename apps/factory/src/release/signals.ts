@@ -15,8 +15,9 @@
  *
  * A signal is named by the run and the measure, so the line can send it again after a restart and triage takes it
  * once, whatever it reads the second time: not by its route, which comes from reads (Prometheus, the Job's pod) that
- * could answer differently later. Only the runs of a release the line recorded starting are read: an older run still
- * in the cluster was before the line watched.
+ * could answer differently later. Only the runs of a release the line recorded starting, and watched, are read: an
+ * older run still in the cluster, or a run of a release found live, was before the line watched. A retried release's
+ * earlier attempts' failed runs are its own, each sent once: each failed the version the line watched.
  */
 import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/events';
 import { uuidFrom } from '@software-factory/triage';
@@ -51,7 +52,8 @@ export interface FailedMeasure {
 export function failedMeasures(o: Observed, recorded: Recorded): FailedMeasure[] {
   return [...recorded].flatMap(([name, targets]) => {
     const started = [...targets.values()][0]?.started;
-    if (!started) return [];
+    // A release found live was out before the line watched it: its runs, failed or not, are from before.
+    if (!started?.watched) return [];
     return failuresOf(o, name).flatMap((run) =>
       measuresOf(run)
         .filter((measure) => measure.phase === 'failed' && SYMPTOMS[measure.name] !== undefined)

@@ -11,8 +11,8 @@ import { CANARY, commitOf, digestOf, rollout, run, STABLE } from './fixtures.ts'
 const T0 = '2026-10-11T09:00:00Z';
 const FAILED_AT = '2026-10-11T09:03:00Z';
 
-/** The release, as the line recorded it starting. */
-const recorded = (release = CANARY) =>
+/** The release, as the line recorded it starting: watched, or found live. */
+const recorded = (release = CANARY, watched = true) =>
   recordedFrom([
     {
       work_item: '1290',
@@ -24,7 +24,7 @@ const recorded = (release = CANARY) =>
         previous: commitOf(STABLE),
         commit: commitOf(release),
         image: { digest: digestOf(release), signed: true, admitted: true },
-        watched: true,
+        watched,
         dryRun: false,
       },
     },
@@ -71,9 +71,13 @@ describe('a rollback’s signals', () => {
     ]);
   });
 
-  it('are only of a release the line recorded starting: an older run in the cluster was before it watched', () => {
+  it('are only of a release the line watched start: an older run, or a found-live release’s, was before it', () => {
     const older = run({ hash: 'oldrelease1', created: T0, completed: FAILED_AT, phase: 'Failed' });
     expect(failedMeasures(observe(aborted, [older]), recorded())).toEqual([]);
+    // A release found live was out before the line watched: a run that failed an earlier attempt of it was too.
+    const live = rollout({ current: CANARY, stable: CANARY });
+    expect(failedMeasures(observe(live, [failed]), recorded(CANARY, false))).toEqual([]);
+    expect(failedMeasures(observe(live, [failed]), recorded(CANARY, true))).toHaveLength(3);
   });
 
   it('name the symptom class each measure stands for, on the one route where the canary did worse, or every route', () => {
