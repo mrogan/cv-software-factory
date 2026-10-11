@@ -115,6 +115,16 @@ spec:
               value: live
             - name: LINE_TAKE
               value: "5"
+            # After the merge: the read-only watch of the app's releases, with each version's figures from Prometheus,
+            # and Verify, which asks the probes (their verify port), Prometheus and Loki whether a ticket's signal cleared.
+            - name: RELEASE_ROLLOUT
+              value: website/website
+            - name: PROMETHEUS_URL
+              value: http://prometheus-server.telemetry
+            - name: PROBES_URL
+              value: http://probes:8081
+            - name: LOKI_URL
+              value: http://loki.telemetry:3100
           # The handback's port: the step API listens on loopback only, so the kubelet cannot reach it.
           readinessProbe:
             httpGet:

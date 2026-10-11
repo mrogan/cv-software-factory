@@ -70,6 +70,9 @@ spec:
             # The app's stable Service: what the shop is between releases. A canary is judged by its analysis, not here.
             - name: APP_URL
               value: http://website.website
+            # The canary's Service: while a release runs as a canary, every page is pictured on both and compared.
+            - name: CANARY_URL
+              value: http://website-canary.website
             - name: ARTIFACTS_DIR
               value: /var/lib/factory/artifacts
           readinessProbe:
