@@ -106,6 +106,12 @@ export class Pictures {
     const found = await this.#o.pages(this.#o.stable);
     // The pages a sense boxed come first, so a long shop never leaves them out, and a short canary takes them first.
     const paths = [...new Set([...looks.map((l) => l.path), ...found])].slice(0, MOST_PAGES);
+    if (!paths.length) {
+      // The front door did not answer: no page is known, which is not the same as every page pictured.
+      this.#tries.set(key, (this.#tries.get(key) ?? 0) + 1);
+      log.warn({ stable, canary }, 'no pages were found to picture; trying again');
+      return null;
+    }
     const already = await index.pictured(canary, stable);
     const missing = paths.filter((path) => !already.has(path));
     if (!missing.length) {

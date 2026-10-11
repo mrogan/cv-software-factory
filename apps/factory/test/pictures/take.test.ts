@@ -48,6 +48,8 @@ function setup() {
   const versions: Record<string, string> = { [STABLE]: OLD, [CANARY]: NEW };
   /** Called as each page is pictured, to change a version under the pictures. */
   const during = { shot: () => {} };
+  /** Whether the stable's front door answers, for the pages to be found. */
+  const front = { answers: true };
   const shots: string[] = [];
   const stored = new Map<string, Uint8Array>();
   const index = new FakeIndex();
@@ -67,7 +69,7 @@ function setup() {
       if (!version) throw new Error(`${app} did not answer`);
       return version;
     },
-    pages: async () => ['/', '/about', '/products/glove-left'],
+    pages: async () => (front.answers ? ['/', '/about', '/products/glove-left'] : []),
     shoot: async (app, path, { route, version, elements }) => {
       shots.push(`${app === STABLE ? 'stable' : 'canary'} ${path}${elements.length ? ' boxed' : ''}`);
       during.shot();
@@ -90,7 +92,7 @@ function setup() {
     store,
     log: quiet,
   });
-  return { pictures, versions, shots, index, stored, during };
+  return { pictures, versions, shots, index, stored, during, front };
 }
 
 describe('the pictures of a canary', () => {
@@ -159,6 +161,15 @@ describe('the pictures of a canary', () => {
     expect(shots).toHaveLength(8);
     expect(await pictures.tick()).toBeNull();
     expect(shots).toHaveLength(8);
+  });
+
+  it('tries again when no page could be found, rather than taking the canary as pictured', async () => {
+    const { pictures, shots, front } = setup();
+    front.answers = false;
+    expect(await pictures.tick()).toBeNull();
+    front.answers = true;
+    expect(await pictures.tick()).toEqual({ compared: 3 });
+    expect(shots).toHaveLength(6);
   });
 
   it('gives up on a canary after a few passes that each saw a version move', async () => {
