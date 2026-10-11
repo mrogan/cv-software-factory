@@ -187,6 +187,48 @@ describe('acting in GitHub', () => {
       { state: 'closed', state_reason: 'completed' },
     ]);
   });
+
+  it('closes an issue with a comment saying why, once, and says nothing on one already closed', async () => {
+    let state = 'open';
+    let failClose = 1;
+    const comments: { body: string }[] = [];
+    const { github, sent } = client([
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { state } }) },
+      { method: 'GET', path: /^\/repos\/.+\/issues\/16\/comments/, answer: () => ({ body: comments }) },
+      {
+        method: 'POST',
+        path: `/repos/${REPO}/issues/16/comments`,
+        answer: ({ body }) => {
+          comments.push(body as { body: string });
+          return { status: 201, body: {} };
+        },
+      },
+      {
+        method: 'PATCH',
+        path: `/repos/${REPO}/issues/16`,
+        answer: () => {
+          if (failClose-- > 0) return { status: 422, body: { message: 'Validation Failed' } };
+          state = 'closed';
+          return { body: {} };
+        },
+      },
+    ]);
+    const actions = new LiveActions(github);
+    // The first close comments, and its closing fails; trying again closes it, saying nothing twice.
+    await expect(actions.closeIssue(REPO, 16, 'completed', 'Verified in production.')).rejects.toThrow();
+    await actions.closeIssue(REPO, 16, 'completed', 'Verified in production.');
+    await actions.closeIssue(REPO, 16, 'completed', 'Verified in production.');
+    expect(comments).toEqual([{ body: 'Verified in production.' }]);
+    expect(
+      calls(sent)
+        .filter((s) => s.method !== 'GET')
+        .map((s) => [s.method, s.body]),
+    ).toEqual([
+      ['POST', { body: 'Verified in production.' }],
+      ['PATCH', { state: 'closed', state_reason: 'completed' }],
+      ['PATCH', { state: 'closed', state_reason: 'completed' }],
+    ]);
+  });
 });
 
 describe('describing a deploy', () => {
@@ -296,6 +338,19 @@ describe('a dry run', () => {
       repo: REPO,
       at: '2026-10-04T12:00:00.000Z',
       args: { number: 30, commit: SHA, carries: CARRIES },
+    });
+  });
+
+  it('records the issue it would have closed, with what it would have said on it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    await actions.closeIssue(REPO, 16, 'completed', 'Verified in production.');
+    const [record] = await Promise.all(
+      (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+    );
+    expect(record).toMatchObject({
+      action: 'closeIssue',
+      args: { number: 16, reason: 'completed', comment: 'Verified in production.' },
     });
   });
 });

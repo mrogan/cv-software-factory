@@ -1,7 +1,7 @@
 /**
- * Stand-ins for the line's two collaborators beyond the store: the runners, which hand back what each test's agents
- * say and write their calls to `model_calls` as the gateway would; and the GitHub worker, a repository in memory with
- * pull requests, check runs and issues.
+ * Stand-ins for the line's collaborators beyond the store: the runners, which hand back what each test's agents say
+ * and write their calls to `model_calls` as the gateway would; the GitHub worker, a repository in memory with pull
+ * requests, check runs and issues; and the probes worker, as Verify asks it to run a check again.
  */
 import type { Sql } from 'postgres';
 import type { Handback } from '../../../runner/src/step.ts';
@@ -9,7 +9,9 @@ import type { DeployProposal } from '../../src/github/deploys.ts';
 import type { CheckRun, Comparison, PullRequestState } from '../../src/github/reads.ts';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../src/github/server.ts';
 import { GitHubWorkerError } from '../../src/github/worker-client.ts';
+import type { ProbesPort } from '../../src/line/verify.ts';
 import type { GitHubPort, Steps } from '../../src/line/worker.ts';
+import type { VerifyAnswer, VerifyRequest } from '../../src/probes/verify.ts';
 import { jobName } from '../../src/runners/jobs.ts';
 import type { StepOutcome, StepRequest } from '../../src/runners/steps.ts';
 
@@ -270,5 +272,24 @@ export class FakeGitHub implements GitHubPort {
     const pr = this.pulls.get(number);
     if (!pr) throw new Error(`No pull request #${number}`);
     Object.assign(pr, { state: 'closed', merged: true, mergeCommit: 'c'.repeat(40), mergedBy: 'mrogan' });
+  }
+}
+
+/** The probes worker, answering each verification as the test says, in turn, and counting what it was asked. */
+export class FakeProbes implements ProbesPort {
+  readonly asked: VerifyRequest[] = [];
+  /** What it answers, in turn; the last again once the rest are given. */
+  readonly answers: (VerifyAnswer | Error)[];
+
+  constructor(...answers: (VerifyAnswer | Error)[]) {
+    this.answers = answers;
+  }
+
+  async verify(request: VerifyRequest): Promise<VerifyAnswer> {
+    this.asked.push(request);
+    const answer = this.answers.length > 1 ? this.answers.shift() : this.answers[0];
+    if (!answer) throw new Error('No fake answer');
+    if (answer instanceof Error) throw answer;
+    return answer;
   }
 }

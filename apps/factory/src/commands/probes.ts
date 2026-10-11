@@ -9,12 +9,13 @@
  * writing nothing to the inbox: for developing a probe.
  *
  * `run` also serves the page reader for triage (`POST /v1/pages` with a path, and `GET /health`) on PORT, 8080 by
- * default.
+ * default; and for the line's Verify, on VERIFY_PORT, 8081 by default, runs a ticket's probe or crawl again
+ * (`POST /v1/verify`, `probes/verify.ts`).
  *
  * Settings, from the environment: APP_URL, the app's address; ARTIFACTS_DIR, the artifact store's folder (`once`
  * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as the factory's
  * writer; PROBE_INTERVAL, seconds between runs, 300 by default; VERSION_POLL, seconds between looks at the app's
- * version, 15 by default.
+ * version, 15 by default; CRAWL_LIMIT, the most resources a crawl that Verify asks for reads, 150 by default.
  */
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -25,7 +26,9 @@ import { log } from '../log.ts';
 import { inbox } from '../outbox.ts';
 import { probes } from '../probes/index.ts';
 import { readerServer } from '../probes/reader.ts';
+import { Verifications, verifyCheck, verifyServer } from '../probes/verify.ts';
 import { versionOf } from '../senses/http.ts';
+import { observeApp } from '../senses/observe.ts';
 import { SenseRunner } from '../senses/runner.ts';
 
 export const USAGE = `  factory probes run
@@ -91,10 +94,18 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
     send: inbox(sql).send,
     every: seconds('PROBE_INTERVAL', 300),
   });
+  const limit = Number(process.env.CRAWL_LIMIT ?? 150);
+  const verifications = new Verifications((request) =>
+    verifyCheck((only) => observeApp(app, only, { store, log, limit }), request),
+  );
+  const verifier = verifyServer({ verify: (request) => verifications.ask(request), log });
   const reader = readerServer({ app, sense, store, version: () => versionOf(app), log });
   const port = Number(process.env.PORT ?? 8080);
   await new Promise<void>((resolve) => reader.listen(port, resolve));
   log.info({ port }, 'the page reader is listening');
+  const verifyPort = Number(process.env.VERIFY_PORT ?? 8081);
+  await new Promise<void>((resolve) => verifier.listen(verifyPort, resolve));
+  log.info({ port: verifyPort }, 'the verification is listening');
   const stop = runner.start(seconds('VERSION_POLL', 15));
   await new Promise<void>((resolve) => {
     process.once('SIGINT', resolve);
@@ -102,6 +113,7 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
   });
   await stop();
   await new Promise((resolve) => reader.close(resolve));
+  await new Promise((resolve) => verifier.close(resolve));
   await sql.end();
   return 0;
 }

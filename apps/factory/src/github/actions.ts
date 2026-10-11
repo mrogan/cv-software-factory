@@ -173,7 +173,11 @@ export interface Actions {
   createCheckRun(repo: string, report: CheckRunReport): Promise<number>;
   updateCheckRun(repo: string, id: number, report: Partial<CheckRunReport>): Promise<void>;
   openIssue(repo: string, issue: { title: string; body: string; labels?: string[] }): Promise<number>;
-  closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned'): Promise<void>;
+  /**
+   * Closes an issue. With a comment, it first says why on the issue, and only while the issue is open and does not say
+   * it already: closing one already closed, or trying again after a close that failed, says nothing again.
+   */
+  closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void>;
   comment(repo: string, number: number, body: string): Promise<void>;
 }
 
@@ -374,7 +378,18 @@ export class LiveActions implements Actions {
     return made.number;
   }
 
-  async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned'): Promise<void> {
+  async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void> {
+    if (comment !== undefined) {
+      const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, z.object({ state: z.string() }));
+      if (issue.state !== 'open') return;
+      // A close whose comment was made and whose closing failed is tried again: the comment is not made twice.
+      const said = await this.#github.read(
+        repo,
+        `/repos/${repo}/issues/${number}/comments?per_page=100`,
+        z.array(z.object({ body: z.string().nullable() })),
+      );
+      if (!said.some((made) => made.body === comment)) await this.comment(repo, number, comment);
+    }
     await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
       state: 'closed',
       state_reason: reason,
@@ -623,8 +638,8 @@ export class DryRunActions implements Actions {
     return this.#number();
   }
 
-  async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned'): Promise<void> {
-    await this.#record('closeIssue', repo, { number, reason });
+  async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void> {
+    await this.#record('closeIssue', repo, { number, reason, ...(comment === undefined ? {} : { comment }) });
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {

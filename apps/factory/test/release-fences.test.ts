@@ -86,6 +86,57 @@ describe('the line’s watch of a release', () => {
   });
 });
 
+describe('the line’s Verify', () => {
+  type Peer = { namespaceSelector?: { matchLabels: Record<string, string> }; podSelector?: Record<string, unknown> };
+  type Rule = { to?: Peer[]; from?: Peer[]; ports: { protocol: string; port: number }[] };
+  type Policy = Manifest & { spec: { ingress?: Rule[]; egress?: Rule[] } };
+  const policy = async (name: string) =>
+    (await manifests()).find(
+      ({ manifest }) =>
+        manifest.kind === 'NetworkPolicy' &&
+        manifest.metadata?.name === name &&
+        (manifest.metadata?.namespace ?? 'factory') === 'factory',
+    )?.manifest as Policy;
+  const peers = (rules: Rule[] = [], side: 'to' | 'from') =>
+    rules.map((rule) => ({
+      peers: (rule[side] ?? []).map((peer) => [
+        peer.namespaceSelector?.matchLabels['kubernetes.io/metadata.name'] ?? 'factory',
+        peer.podSelector,
+      ]),
+      ports: rule.ports.map((p) => `${p.protocol}/${p.port}`),
+    }));
+
+  it('reaches the probes’ verification, Prometheus and Loki, each by its pods and port', async () => {
+    const egress = peers((await policy('line')).spec.egress, 'to');
+    expect(egress).toContainEqual({
+      peers: [['factory', { matchLabels: { 'app.kubernetes.io/name': 'probes' } }]],
+      ports: ['TCP/8081'],
+    });
+    expect(egress).toContainEqual({
+      peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'loki' } }]],
+      ports: ['TCP/3100'],
+    });
+    expect(egress).toContainEqual({
+      peers: [
+        [
+          'telemetry',
+          { matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } },
+        ],
+      ],
+      ports: ['TCP/9090'],
+    });
+    // Tempo, and the rest of telemetry, stay out of its reach.
+    expect(egress.flatMap((rule) => rule.ports)).not.toContain('TCP/3200');
+  });
+
+  it('is let in by the probes on the verification’s port alone, and the page reader’s is triage’s', async () => {
+    expect(peers((await policy('probes')).spec.ingress, 'from')).toEqual([
+      { peers: [['factory', { matchLabels: { 'app.kubernetes.io/name': 'triage' } }]], ports: ['TCP/8080'] },
+      { peers: [['factory', { matchLabels: { 'app.kubernetes.io/name': 'line' } }]], ports: ['TCP/8081'] },
+    ]);
+  });
+});
+
 describe("the analysis Job's fence", () => {
   it('selects the pods the journeys Job makes, in the namespace it runs in', async () => {
     const all = await manifests();

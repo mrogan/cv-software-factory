@@ -1,0 +1,385 @@
+/**
+ * Verify: after a release is promoted, the sense that saw a ticket's defect looks again, at the new version alone, and
+ * says whether the defect has cleared. Which sense is the ticket's first signal's:
+ *
+ * - A probe or the crawler: its check, run again against the stable Service by the probes worker, which has the
+ *   browser the line's image lacks (`probes/verify.ts`), passes twice in a row. Failing as often, it persists.
+ * - An alert on an objective: the alert's expression, over the new version's requests to the route alone, stays inside
+ *   the objective for a window with enough requests. Outside it for as long as the alert waits before it fires, it
+ *   persists.
+ * - The log watcher: no error record of its pattern from the new version for a window in which the new version served
+ *   enough requests. Any such record, and it persists. The signal kept the lines, not the pattern, so the pattern is
+ *   rebuilt from them as the watcher builds it (`logs/patterns.ts`).
+ * - A visitor's report, or the planner's finding, alone: no sense can look again. The work item holds for Martin.
+ *
+ * A look that cannot tell yet (too soon after the promotion, too little traffic, a check that could not finish, a
+ * backend that did not answer) says so, and the line looks again later. It never clears on too little.
+ *
+ * The version looked at is the stable one: the release that carried the fix, or a later one promoted since, which
+ * carries it too. A dry run's release never shipped, so no sense can look at it: in a dry run, the dry run's word
+ * clears it, and says so.
+ *
+ * The windows, counts and runs are `policy/release.ts`'s `verify`.
+ */
+import type { Evidence, PayloadOf, Sense, SignalSource } from '@software-factory/events';
+import { SENSES } from '@software-factory/events';
+import { evidence as evidenceSchema } from '@software-factory/events/schemas';
+import { z } from 'zod';
+import { objectives as OBJECTIVES, type Objectives } from '../../../../policy/objectives.ts';
+import { release as RELEASE, type Release } from '../../../../policy/release.ts';
+import { quoted, requests, type Scope } from '../alerts/queries.ts';
+import type { Loki } from '../clients/loki.ts';
+import type { Prometheus } from '../clients/prometheus.ts';
+import { measureOfCheck } from '../intake/alerts.ts';
+import { keptLine } from '../logs/errors.ts';
+import { sameError } from '../logs/patterns.ts';
+import { errorLogs } from '../logs/watcher.ts';
+import type { VerifyAnswer, VerifyRequest } from '../probes/verify.ts';
+import { requestLogs } from '../routes.ts';
+
+/** The ticket's first signal, as Verify reads it: never a report's words, which it has no use for. */
+export interface FirstSignal {
+  sense: SignalSource;
+  check: string;
+  route: string;
+  evidence: Evidence[];
+}
+
+/** The release to verify: the version the stable Service runs, which carries the fix, and when it was promoted. */
+export interface Target {
+  version: string;
+  at: Date;
+  /** The version before the fix, which the release replaced. */
+  against: string;
+  dryRun: boolean;
+}
+
+/** What a look found: the verification, a hold for Martin when no sense can tell, or a reason to look again later. */
+export type Look =
+  | { kind: 'finished'; verification: PayloadOf<'verification.finished'> }
+  | { kind: 'hold'; reason: string }
+  | { kind: 'wait'; why: string };
+
+/** The probes worker, as Verify uses it: a ticket's check run again against the stable Service. */
+export interface ProbesPort {
+  verify(request: VerifyRequest, signal?: AbortSignal): Promise<VerifyAnswer>;
+}
+
+/** Where Verify looks. A sense whose backend is missing cannot look, and its work items wait at Verify. */
+export interface VerifyClients {
+  probes?: ProbesPort | null;
+  prometheus?: Prometheus | null;
+  loki?: Loki | null;
+}
+
+export interface LookOptions extends VerifyClients {
+  now: Date;
+  /** Whether the line runs a dry run: then a dry run's release is verified by its word. */
+  dryRun: boolean;
+  /** Aborted when the line stops: a check run again is given up. */
+  signal?: AbortSignal;
+  objectives?: Objectives;
+  policy?: Release['verify'];
+}
+
+type Context = Required<Omit<LookOptions, keyof VerifyClients | 'signal'>> &
+  Pick<LookOptions, 'signal'> &
+  VerifyClients;
+type ByOne = (signal: FirstSignal, target: Target, c: Context) => Promise<Look>;
+
+/** How each source of a ticket's first signal is verified. A sense the line adds (a canary's) adds its way here. */
+const BY_SOURCE: Record<SignalSource, ByOne> = {
+  probe: byCheck,
+  crawler: byCheck,
+  metrics: byObjective,
+  logs: byPattern,
+  report: async () => ({ kind: 'hold', reason: NO_SENSE.report }),
+  planner: async () => ({ kind: 'hold', reason: NO_SENSE.planner }),
+};
+
+const NO_SENSE = {
+  report:
+    'Only a visitor’s report saw this defect, and no sense can look at it again: Martin judges whether the fix cleared it',
+  planner:
+    'Only the planner noticed this defect, and no sense can look at it again: Martin judges whether the fix cleared it',
+};
+
+/** Looks once at the target by the sense that saw the defect. */
+export async function look(signal: FirstSignal | undefined, target: Target, options: LookOptions): Promise<Look> {
+  const c: Context = { objectives: OBJECTIVES, policy: RELEASE.verify, ...options };
+  if (target.dryRun) {
+    if (!c.dryRun) {
+      return {
+        kind: 'hold',
+        reason: 'A dry run’s release never shipped, and the line no longer runs the dry run that would verify it',
+      };
+    }
+    const sense = senseOf(signal);
+    return {
+      kind: 'finished',
+      verification: {
+        outcome: 'cleared',
+        ...(sense ? { sense } : {}),
+        check: (signal?.check ?? 'the dry run').slice(0, 120),
+        version: target.version,
+        against: target.against,
+        pages: [],
+        dryRun: true,
+      },
+    };
+  }
+  if (!signal) return { kind: 'hold', reason: 'The ticket has no signal for a sense to look at again' };
+  return BY_SOURCE[signal.sense](signal, target, c);
+}
+
+const senseOf = (signal: FirstSignal | undefined): Sense | undefined => SENSES.find((sense) => sense === signal?.sense);
+
+/** A verification of the target, by the signal's sense. */
+function finished(signal: FirstSignal, target: Target, outcome: 'cleared' | 'persists', evidence?: Evidence): Look {
+  const sense = senseOf(signal);
+  const kept = evidence && evidenceSchema.safeParse(evidence).success ? evidence : undefined;
+  return {
+    kind: 'finished',
+    verification: {
+      outcome,
+      ...(sense ? { sense } : {}),
+      check: signal.check.slice(0, 120),
+      version: target.version,
+      against: target.against,
+      ...(kept ? { evidence: kept } : {}),
+      pages: [],
+      dryRun: false,
+    },
+  };
+}
+
+/** A probe's check, or the crawler's, run again against the stable Service by the probes worker. */
+async function byCheck(signal: FirstSignal, target: Target, c: Context): Promise<Look> {
+  if (!c.probes) return { kind: 'wait', why: 'the line has no way to the probes (PROBES_URL)' };
+  const sense = signal.sense === 'crawler' ? 'crawler' : 'probe';
+  const answer = await c.probes.verify({ sense, check: signal.check, route: signal.route }, c.signal);
+  if (!sameVersion(answer.version, target.version)) {
+    return { kind: 'wait', why: `the stable Service runs ${answer.version}, not ${target.version}` };
+  }
+  if (answer.outcome === 'unsure') {
+    return { kind: 'wait', why: `the check could not tell (${answer.runs.join(', ')}): ${answer.message ?? ''}` };
+  }
+  return finished(signal, target, answer.outcome, answer.outcome === 'persists' ? answer.evidence : undefined);
+}
+
+/** The same version, whether either names its commit in full or shortened. */
+const sameVersion = (a: string, b: string) =>
+  a === b || (/^[0-9a-f]{7,40}$/.test(a) && /^[0-9a-f]{7,40}$/.test(b) && (a.startsWith(b) || b.startsWith(a)));
+
+/** One point a minute: as the intake draws an alert's series. */
+const STEP_SECONDS = 60;
+
+/** The alert's expression over the new version's requests to the route. */
+async function byObjective(signal: FirstSignal, target: Target, c: Context): Promise<Look> {
+  if (!c.prometheus) return { kind: 'wait', why: 'the line has no way to Prometheus (PROMETHEUS_URL)' };
+  const o = c.objectives;
+  const scope: Scope = {
+    version: target.version,
+    ...(signal.route.includes(':') ? { template: signal.route } : { route: signal.route }),
+  };
+  const measured = measureOfCheck(o, signal.check, scope);
+  if (!measured) return { kind: 'hold', reason: `No objective is measured as “${signal.check}”: Martin judges it` };
+  const { windowMinutes, minRequests } = c.policy.metrics;
+  const due = target.at.getTime() + windowMinutes * 60_000;
+  if (c.now.getTime() < due) return { kind: 'wait', why: `the window ends at ${new Date(due).toISOString()}` };
+  // Each point covers the objective's own window before it, so the points start that long after the promotion, and the
+  // window as a whole covers the requests since.
+  const window = Math.max(windowMinutes - o.windowMinutes, 1) * 60_000;
+  const start = new Date(Math.max(target.at.getTime() + o.windowMinutes * 60_000, c.now.getTime() - window));
+  const [asked, series] = await Promise.all([
+    c.prometheus.instant(requests({ ...o, windowMinutes }, scope), c.now),
+    c.prometheus.range(measured.series, start, c.now, STEP_SECONDS),
+  ]);
+  const verdict = judgeObjective(series?.values ?? [], {
+    threshold: measured.threshold,
+    served: asked[0]?.value ?? 0,
+    minRequests,
+    holdPoints: Math.max(1, Math.round((o.holdMinutes * 60) / STEP_SECONDS)),
+  });
+  if (verdict.kind === 'wait') return verdict;
+  const values = (series?.values ?? []).slice(-500);
+  const picture: Evidence | undefined =
+    series && values.length >= 2
+      ? {
+          kind: 'metric',
+          name: measured.name,
+          unit: measured.unit,
+          objective: measured.threshold,
+          start: new Date(
+            series.start.getTime() + (series.values.length - values.length) * STEP_SECONDS * 1000,
+          ).toISOString(),
+          stepSeconds: STEP_SECONDS,
+          values,
+        }
+      : undefined;
+  return finished(signal, target, verdict.outcome, picture);
+}
+
+/**
+ * Whether an objective's series has cleared: inside the objective at every point, with enough requests, or persisting:
+ * outside it for `holdPoints` in a row, as the alert would fire. Anything else cannot tell yet.
+ */
+export function judgeObjective(
+  values: readonly (number | null)[],
+  {
+    threshold,
+    served,
+    minRequests,
+    holdPoints,
+  }: { threshold: number; served: number; minRequests: number; holdPoints: number },
+): { kind: 'judged'; outcome: 'cleared' | 'persists' } | { kind: 'wait'; why: string } {
+  if (served < minRequests) {
+    return { kind: 'wait', why: `the new version served ${Math.round(served)} requests, fewer than ${minRequests}` };
+  }
+  const points = values.filter((value) => value !== null);
+  if (!points.length) return { kind: 'wait', why: 'the objective has no value yet' };
+  let run = 0;
+  let longest = 0;
+  for (const value of values) {
+    run = value !== null && value > threshold ? run + 1 : 0;
+    longest = Math.max(longest, run);
+  }
+  if (longest >= holdPoints) return { kind: 'judged', outcome: 'persists' };
+  if (points.every((value) => value <= threshold)) return { kind: 'judged', outcome: 'cleared' };
+  return { kind: 'wait', why: 'the objective was outside for a moment, shorter than an alert waits' };
+}
+
+/** The most error records one look reads. */
+const MAX_RECORDS = 5_000;
+
+/** The log watcher's pattern, in the new version's error records since the promotion. */
+async function byPattern(signal: FirstSignal, target: Target, c: Context): Promise<Look> {
+  if (!c.loki) return { kind: 'wait', why: 'the line has no way to Loki (LOKI_URL)' };
+  const o = c.objectives;
+  const { windowMinutes, minRequests } = c.policy.logs;
+  const due = target.at.getTime() + windowMinutes * 60_000;
+  if (c.now.getTime() < due) return { kind: 'wait', why: `the window ends at ${new Date(due).toISOString()}` };
+  const version = `service_version=${quoted(target.version)}`;
+  // The route's own errors, or for `*` those no request raised: other routes' never crowd them out of what is read.
+  const errorsOn = ` | route=${quoted(signal.route === '*' ? '' : signal.route)}`;
+  const requestsTo = signal.route === '*' ? '' : ` | route=${quoted(signal.route)}`;
+  const [errors, served] = await Promise.all([
+    c.loki.records(`${errorLogs(o)} | ${version}${errorsOn}`, target.at, c.now, MAX_RECORDS),
+    c.loki.instant(`sum(count_over_time(${requestLogs(o)} | ${version}${requestsTo} [${windowMinutes}m]))`, c.now),
+  ]);
+  const requested = Math.round(served[0]?.value ?? 0);
+  const kept = signal.evidence.flatMap((e) => (e.kind === 'logs' ? e.lines.map((line) => line.message) : []));
+  // A signal that kept no line names its route alone: any error there is the same, as far as anyone can tell.
+  const same = errors.filter(
+    (record) =>
+      (record.fields.route || '*') === signal.route &&
+      (!kept.length || kept.some((line) => sameError(record, keptLine(record).message, line, signal.route))),
+  );
+  const lines = (records: typeof same): Evidence => ({
+    kind: 'logs',
+    route: signal.route === '*' ? '/' : signal.route,
+    version: target.version,
+    requests: requested,
+    lines: records.slice(-20).map(keptLine),
+  });
+  if (same.length) return finished(signal, target, 'persists', lines(same));
+  // As many as Loki gave, none of them the pattern: the rest may hold it.
+  if (errors.length >= MAX_RECORDS)
+    return { kind: 'wait', why: `the route logged ${MAX_RECORDS} other errors or more` };
+  if (requested < minRequests) {
+    return { kind: 'wait', why: `the new version logged ${requested} requests, fewer than ${minRequests}` };
+  }
+  return finished(signal, target, 'cleared', lines([]));
+}
+
+/** What cleared a work item, in a sentence for its issue and its closing: the verification, or Martin's word. */
+export function whatCleared(
+  verification: PayloadOf<'verification.finished'> | undefined,
+  answer?: string,
+  policy: Release['verify'] = RELEASE.verify,
+): string {
+  if (!verification) return `Martin judged it cleared${answer ? `, saying: ${answer}` : ''}`;
+  const { sense, check, evidence, dryRun } = verification;
+  const version = short(verification.version ?? '');
+  if (dryRun) return 'The dry run’s word: its release never shipped, so no sense looked';
+  switch (sense) {
+    case 'probe':
+    case 'crawler':
+      return `The ${sense}’s check “${check}” passed ${times(policy.checks.inARow)} in a row on ${version}, which carries the fix`;
+    case 'metrics':
+      return `The ${check} of ${version}’s requests stayed inside its objective for ${policy.metrics.windowMinutes} minutes`;
+    case 'logs': {
+      const served = evidence?.kind === 'logs' ? `, over ${evidence.requests} requests` : '';
+      return `No error like the one the log watcher saw came from ${version} in ${policy.logs.windowMinutes} minutes${served}`;
+    }
+    default:
+      return `Verify found “${check}” cleared on ${version}`;
+  }
+}
+
+/** The comment on the issue as the factory closes it. */
+export function closingComment(
+  verification: PayloadOf<'verification.finished'> | undefined,
+  workItem: string,
+  answer?: string,
+): string {
+  return [
+    `Verified in production. ${whatCleared(verification, answer)}.`,
+    '',
+    `The factory’s work item #${workItem} is closed as verified.`,
+  ].join('\n');
+}
+
+const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
+
+const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);
+
+/** The probes worker's answer, checked: the evidence is checked again as the verification is made. */
+const verifyAnswer = z.object({
+  outcome: z.enum(['cleared', 'persists', 'unsure']),
+  version: z.string(),
+  runs: z.array(z.enum(['passed', 'failed', 'unsure'])),
+  message: z.string().optional(),
+  evidence: z.unknown().optional(),
+}) as z.ZodType<VerifyAnswer>;
+
+/**
+ * The probes worker over HTTP. Asking starts the verification, and asking again collects its answer: a crawl run four
+ * times takes longer than a request may wait. It asks every `pollMs` until there is an answer, or `deadlineMs` passes.
+ */
+export class ProbesClient implements ProbesPort {
+  readonly #url: string;
+  readonly #fetch: typeof fetch;
+  readonly #pollMs: number;
+  readonly #deadlineMs: number;
+
+  constructor(url: string, { fetcher = fetch, pollMs = 10_000, deadlineMs = 30 * 60_000 } = {}) {
+    this.#url = url.replace(/\/$/, '');
+    this.#fetch = fetcher;
+    this.#pollMs = pollMs;
+    this.#deadlineMs = deadlineMs;
+  }
+
+  async verify(request: VerifyRequest, signal?: AbortSignal): Promise<VerifyAnswer> {
+    const deadline = Date.now() + this.#deadlineMs;
+    for (;;) {
+      const response = await this.#fetch(`${this.#url}/v1/verify`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(request),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+      });
+      if (response.status === 200) return verifyAnswer.parse(await response.json());
+      if (response.status !== 202) throw new Error(`The probes answered a verification with ${response.status}`);
+      await response.body?.cancel();
+      if (Date.now() + this.#pollMs > deadline) throw new Error('The probes did not finish the check in time');
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, this.#pollMs);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(signal.reason);
+        });
+      });
+    }
+  }
+}

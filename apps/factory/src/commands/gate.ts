@@ -14,13 +14,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { DiskArtifacts } from '@software-factory/store';
-import { Crawler } from '../crawler/index.ts';
-import { compareJourneys, type Observe, type Seen, summary, toRunAgain } from '../gates/journeys.ts';
+import { compareJourneys, type Observe, summary } from '../gates/journeys.ts';
 import { annotate } from '../gates/report.ts';
 import { log } from '../log.ts';
-import { PROBES, probes } from '../probes/index.ts';
-import { versionOf } from '../senses/http.ts';
-import type { Sense } from '../senses/types.ts';
+import { observeApp } from '../senses/observe.ts';
 
 export const USAGE = '  factory gate journeys --base <url> --change <url> [--summary <file>]';
 
@@ -37,34 +34,7 @@ export async function run(args: string[]): Promise<number> {
   const store = new DiskArtifacts(await mkdtemp(join(tmpdir(), 'gate-')));
   const limit = Number(process.env.CRAWL_LIMIT ?? 150);
 
-  const observe: Observe = async (url, only) => {
-    const app = url.replace(/\/$/, '');
-    const version = await versionOf(app);
-    const again = only && toRunAgain(only);
-    const senses: Array<Sense & { close(): Promise<void> }> = [
-      ...(!again || again.probes.size ? [probes({ app, store, log })] : []),
-      ...(!again || again.crawl ? [new Crawler({ app, store, log, limit })] : []),
-    ];
-    const skip = again && new Set(PROBES.map((p) => p.id).filter((id) => !again.probes.has(id)));
-    const seen: Seen[] = [];
-    for (const sense of senses) {
-      try {
-        for (const o of await sense.pass(version, skip)) {
-          seen.push({
-            sense: sense.name,
-            check: o.check,
-            route: o.route,
-            failed: o.finding !== null && !o.trouble,
-            ...(o.trouble ? { trouble: o.trouble } : {}),
-            ...(o.finding ? { message: o.finding.message } : {}),
-          });
-        }
-      } finally {
-        await sense.close();
-      }
-    }
-    return seen;
-  };
+  const observe: Observe = async (url, only) => (await observeApp(url, only, { store, log, limit })).seen;
 
   const comparison = await compareJourneys(observe, values.base, values.change);
   const markdown = summary(comparison);

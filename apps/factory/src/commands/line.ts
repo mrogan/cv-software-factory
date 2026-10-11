@@ -28,10 +28,15 @@
  * run made, by its own word, taking LINE_DRY_RUN_RELEASE_SECONDS (60 by default) over each move: to start after the
  * merge, each step, and promotion.
  *
+ * Once a release is promoted, Verify asks the sense that saw each defect to look again: a probe's or the crawler's
+ * check through the probes worker at PROBES_URL, an alert's expression through Prometheus at PROMETHEUS_URL, the log
+ * watcher's pattern through Loki at LOKI_URL. A sense whose address is unset cannot look, and its work items wait at
+ * Verify; a dry run's release is verified by the dry run's word.
+ *
  * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
  * HANDBACK_PORT (8081); KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; LINE_TAKE;
- * RELEASE_ROLLOUT, PROMETHEUS_URL and LINE_DRY_RUN_RELEASE_SECONDS;
+ * RELEASE_ROLLOUT, PROMETHEUS_URL and LINE_DRY_RUN_RELEASE_SECONDS; PROBES_URL and LOKI_URL;
  * FACTORY_PROFILE (default local) and ALL_LOCAL, as the gateway's: the profile's cap on a work item's spend, which the
  * line holds at, and where `policy/models.ts` sends each agent's calls, so a step on a local model is given longer to
  * finish.
@@ -212,6 +217,7 @@ async function serve(): Promise<number> {
 
   // Off, the line takes no work, but still stops what the step API started when the line stops.
   const { Line } = await import('../line/worker.ts');
+  const { ProbesClient } = await import('../line/verify.ts');
   const line = new Line({
     sql,
     // Line events carry no artifacts, so the writer never looks in the artifact store.
@@ -233,6 +239,11 @@ async function serve(): Promise<number> {
       : null,
     dryRun: mode === 'dry-run',
     dryRunReleaseMs: releaseSeconds * 1000,
+    verify: {
+      probes: env.PROBES_URL?.trim() ? new ProbesClient(env.PROBES_URL.trim()) : null,
+      prometheus: env.PROMETHEUS_URL?.trim() ? telemetryFrom(env).prometheus : null,
+      loki: env.LOKI_URL?.trim() ? telemetryFrom(env).loki : null,
+    },
   });
   const abort = new AbortController();
   const working = line.run(abort.signal);

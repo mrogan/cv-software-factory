@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { LogRecord } from '../src/clients/loki.ts';
 import type { Tempo } from '../src/clients/tempo.ts';
 import { signalForPattern } from '../src/logs/errors.ts';
-import { describe as describeRecord, errorRecords, PatternMemory, reduce } from '../src/logs/patterns.ts';
+import {
+  describe as describeRecord,
+  errorRecords,
+  keptPattern,
+  PatternMemory,
+  reduce,
+  sameError,
+} from '../src/logs/patterns.ts';
 import { ns } from './fakes.ts';
 
 describe('reducing a message to a pattern', () => {
@@ -138,5 +145,43 @@ describe('the signal for a new pattern', () => {
     const without = await signalForPattern({ pattern: '* failed', records: unrouted }, tempo);
     expect(without?.route).toBe('*');
     expect(without?.evidence?.[0]).toMatchObject({ kind: 'logs', route: '/' });
+  });
+});
+
+describe('a pattern rebuilt from the lines a signal kept', () => {
+  it('puts any path of the route back to the route, so the same error on another path is the same', () => {
+    const route = '/departments/:department';
+    const kept = keptPattern('GET /departments/garden failed: TypeError: no "slug" on 42', route);
+    expect(kept).toBe('GET /departments/:department failed: TypeError: no <value> on <n>');
+    expect(keptPattern('GET /departments/kitchen failed: TypeError: no "id" on 7', route)).toBe(kept);
+    expect(keptPattern('GET /departments/kitchen failed: RangeError: too far', route)).not.toBe(kept);
+    // A route with no parameter, or none at all, is compared as it is.
+    expect(keptPattern('GET /about failed', '/about')).toBe('GET /about failed');
+    expect(keptPattern('Pool ended after 3 tries', '*')).toBe('Pool ended after <n> tries');
+  });
+});
+
+describe('the same error as a kept line', () => {
+  const route = '/departments/:department';
+  const kept = 'GET /departments/garden failed: TypeError: no "slug" on 42';
+  const record = (line: string, fields: Record<string, string>) => ({ ns: '1', time: new Date(0), line, fields });
+
+  it('is the exception the watcher grouped it by, whatever the line before it says', () => {
+    const exception = {
+      route,
+      path: '/departments/kitchen',
+      exception_type: 'TypeError',
+      exception_message: 'no "id" on 7',
+    };
+    const posted = record('POST /departments/kitchen failed', exception);
+    expect(sameError(posted, 'POST /departments/kitchen failed: TypeError: no "id" on 7', kept, route)).toBe(true);
+    const other = record('GET /departments/kitchen failed', { ...exception, exception_type: 'RangeError' });
+    expect(sameError(other, 'GET /departments/kitchen failed: RangeError: no "id" on 7', kept, route)).toBe(false);
+  });
+
+  it('is the whole line, where no exception is attached', () => {
+    const plain = record('GET /departments/kitchen failed', { route });
+    expect(sameError(plain, 'GET /departments/kitchen failed', 'GET /departments/garden failed', route)).toBe(true);
+    expect(sameError(plain, 'GET /departments/kitchen failed', 'POST /departments/garden failed', route)).toBe(false);
   });
 });

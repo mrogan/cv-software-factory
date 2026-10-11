@@ -121,7 +121,11 @@ const ARGS = {
     body: text(65_535),
     labels: z.array(text(50)).max(10).optional(),
   }),
-  closeIssue: z.strictObject({ number, reason: z.enum(['completed', 'not_planned']) }),
+  closeIssue: z.strictObject({
+    number,
+    reason: z.enum(['completed', 'not_planned']),
+    comment: text(65_535).min(1).optional(),
+  }),
   comment: z.strictObject({ number, body: text(65_535).min(1) }),
 } satisfies Record<keyof Omit<Actions, 'dryRun'>, z.ZodType>;
 
@@ -155,7 +159,7 @@ const CALLS: { [K in Name]: (actions: Actions, repo: string, args: z.infer<(type
   createCheckRun: (x, repo, report) => x.createCheckRun(repo, defined(report)),
   updateCheckRun: (x, repo, { id, ...report }) => x.updateCheckRun(repo, id, defined(report)),
   openIssue: (x, repo, issue) => x.openIssue(repo, defined(issue)),
-  closeIssue: (x, repo, { number, reason }) => x.closeIssue(repo, number, reason),
+  closeIssue: (x, repo, { number, reason, comment }) => x.closeIssue(repo, number, reason, comment),
   comment: (x, repo, { number, body }) => x.comment(repo, number, body),
 };
 

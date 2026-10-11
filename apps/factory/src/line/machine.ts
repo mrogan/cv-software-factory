@@ -36,16 +36,18 @@
  *
  * Martin's merge answers whatever held the change before it, and the work item goes on to Release and Verify:
  *
- *     merged → [waits for a deploy] → release started → promoted → verify → closed, verified
- *                       ▲                    │
- *                       └──── rolled back ───┘
+ *     merged → [waits for a deploy] → release started → promoted → verify → cleared → closed, verified
+ *                       ▲                    │                       │
+ *                       └──── rolled back ───┘                       └─ persists → back to Plan, once; then held
  *
  * A merged change waits at Release, held for Martin (`deploy`), until a release that carries it starts: the deploy
  * pull request that carries it is his to merge, and the release's start ends the hold by itself. A release that rolls
  * back holds it again, for the next. A dry run's merge, which no deploy can carry, is not held: it waits at Release
- * for the dry run's release. One that promotes moves it to Verify, where the sense that saw the defect looks again;
- * closing it as verified ends it. Work sent back to Plan from there starts a fresh pass: a new spec, a new pull
- * request, its own gates, review, merge and release.
+ * for the dry run's release. One that promotes moves it to Verify, where the sense that saw the defect looks again
+ * (`verify.ts`). A signal that has cleared closes the work item as verified. One that persists sends the work back to
+ * Plan, with the verification for the planner: a fresh pass, with a new spec, a new pull request, its own gates,
+ * review, merge and release. A second that persists holds for Martin, as does a ticket only a visitor's report saw,
+ * which no sense can look at again: approving closes it as verified, answering sends it back to Plan with his words.
  *
  * The events are folded into where the work item is (`fold`), and `decide` turns that into one next action. Each
  * action either appends events, which moves the work item on, or waits for something outside the line: the gates
@@ -78,6 +80,8 @@ export type Resolution =
   | 'return'
   /** Nothing for the line to do: it waits for him, as for his merge. */
   | 'wait'
+  /** He judges the fix verified in production, and the work item closes as verified. */
+  | 'verified'
   /** The work item closes unmerged. */
   | 'close';
 
@@ -106,8 +110,9 @@ export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
   merge: { approved: 'wait', rejected: 'close', answered: 'return' },
   // A deploy is merged by Martin, not answered: a release that carries the change ends the hold by itself.
   deploy: { approved: 'wait', rejected: 'close', answered: 'wait' },
-  // What his word on a verification does is Verify's to settle; until it does, the work item waits for him.
-  verify: { approved: 'wait', rejected: 'close', answered: 'wait' },
+  // At Verify, when no sense can tell or the signal persisted again: approving says the fix is verified, and answering
+  // sends the work back to the planner with what he said.
+  verify: { approved: 'verified', rejected: 'close', answered: 'replan' },
   // The cap is policy's: approving carries on, and the line holds again until the cap is raised.
   spend: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
   // The line makes no such hold yet: approving accepts the tests as they are, answering says what to test.
@@ -198,6 +203,11 @@ export interface WorkItemState {
     | undefined;
   /** The latest verification of that release, once it is promoted. */
   verification: PayloadOf<'verification.finished'> | undefined;
+  /**
+   * Every verification that found the ticket's signal persisting after a release, in every pass: how many is what
+   * `LIMITS.persists` bounds, and the planner is told of each.
+   */
+  persisted: PayloadOf<'verification.finished'>[];
   closed: boolean;
 }
 
@@ -225,6 +235,7 @@ const initial = (): WorkItemState => ({
   merged: false,
   release: undefined,
   verification: undefined,
+  persisted: [],
   closed: false,
 });
 
@@ -346,6 +357,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         break;
       case 'verification.finished':
         state.verification = event.payload;
+        if (event.payload.outcome === 'persists') state.persisted.push(event.payload);
         break;
       case 'work-item.closed':
         state.closed = true;
@@ -357,12 +369,12 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
 
 /**
  * Work sent back to Plan starts a fresh pass: the planner writes a new spec, and the coder's first round opens a new
- * pull request, with its own gates, review, merge and release. Only the ticket, the hold and Martin's answers carry
- * over: the planner should not forget an answer.
+ * pull request, with its own gates, review, merge and release. Only the ticket, the hold, Martin's answers and the
+ * verifications that persisted carry over: the planner should not forget an answer, nor a fix that did not work.
  */
 function startAgain(state: WorkItemState): void {
-  const { ticket, hold, answer, answers, closed } = state;
-  Object.assign(state, initial(), { ticket, hold, answer, answers, closed });
+  const { ticket, hold, answer, answers, persisted, closed } = state;
+  Object.assign(state, initial(), { ticket, hold, answer, answers, persisted, closed });
 }
 
 /** What approving a hold of the scope fence's says, for the planner. */
@@ -406,6 +418,11 @@ export type Next =
   | { do: 'wait'; for: 'gates' | 'martin' | 'release' }
   /** Verify the promoted release that carries the change, by the sense that saw the defect. */
   | { do: 'verify'; release: PayloadOf<'release.promoted'> }
+  /**
+   * Close the work item as verified, and its issue as completed, saying what cleared it: the verification, or Martin's
+   * word, with what he said.
+   */
+  | { do: 'verified'; verification: PayloadOf<'verification.finished'> | undefined; answer?: string }
   /** Close the work item, as Martin answered: before its merge, or after it, at Release or Verify. */
   | { do: 'close'; reason: string; merged: boolean }
   /** The work item is over: it closed. */
@@ -567,7 +584,17 @@ function afterMerge(s: WorkItemState): Decision {
     };
   }
   if (!release.promoted) return { stage: 'release', next: { do: 'wait', for: 'release' } };
-  return { stage: 'verify', next: { do: 'verify', release: release.promoted } };
+  const { verification } = s;
+  if (!verification) return { stage: 'verify', next: { do: 'verify', release: release.promoted } };
+  if (verification.outcome === 'cleared') return { stage: 'verify', next: { do: 'verified', verification } };
+  const seen = `${verification.sense ? `The ${verification.sense}` : 'Verify'} still saw “${verification.check}”`;
+  const on = `on ${verification.version ?? release.promoted.version}`;
+  if (s.persisted.length >= LIMITS.persists) {
+    const reason = `${seen} ${on}, after ${s.persisted.length} fixes were released: it needs Martin`.slice(0, 300);
+    return { stage: 'held', next: { do: 'hold', hold: { stage: 'verify', kind: 'held', cause: 'verify', reason } } };
+  }
+  const reason = `${seen} ${on}, the release that carried the fix`.slice(0, 200);
+  return { stage: 'plan', next: { do: 'return', from: 'verify', to: 'plan', reason } };
 }
 
 /**
@@ -590,6 +617,18 @@ export function unchangedHold(state: WorkItemState, why: string): PayloadOf<'hol
 function afterAnswer(answer: NonNullable<WorkItemState['answer']>, merged: boolean): Decision | undefined {
   const said = answer.text ? `: ${answer.text}` : '';
   switch (answer.resolution) {
+    case 'verified':
+      return {
+        stage: 'verify',
+        next: { do: 'verified', verification: undefined, ...(answer.text ? { answer: answer.text } : {}) },
+      };
+    case 'replan':
+      // After the merge, the planner's new spec starts a fresh pass: the work goes back to Plan for it.
+      if (!merged) return undefined;
+      return {
+        stage: 'plan',
+        next: { do: 'return', from: answer.stage, to: 'plan', reason: `Martin sent it back${said}`.slice(0, 200) },
+      };
     case 'close': {
       // Approving closes only a rejection, the planner's or the coder's finding nothing to fix: he agrees with it.
       const agent = answer.cause === 'nothing-to-fix' ? 'coder' : 'planner';

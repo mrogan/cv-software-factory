@@ -10,9 +10,15 @@ import type { Objectives } from '../../../../policy/objectives.ts';
 
 const REQUESTS = 'http_server_request_duration_seconds';
 
-/** What a query covers: every route that has one, or the one route. */
+/**
+ * What a query covers: every route that has one, or the one route; or every path a route template serves, as one, such
+ * as every `/products/:slug`. With a version, only the requests that version of the app served (`service_version`, the
+ * commit it was built from).
+ */
 export interface Scope {
   route?: string;
+  template?: string;
+  version?: string;
 }
 
 /** A label value as PromQL spells a string. */
@@ -21,13 +27,20 @@ export function quoted(value: string): string {
 }
 
 function matchers(o: Objectives, scope: Scope, extra: string[] = []): string {
-  const route = scope.route === undefined ? 'http_route!=""' : `http_route=${quoted(scope.route)}`;
-  return `{${[`job=${quoted(o.app.metricsJob)}`, route, ...extra].join(', ')}}`;
+  const route =
+    scope.template !== undefined
+      ? `http_route=~${quoted(templatePattern(scope.template))}`
+      : scope.route === undefined
+        ? 'http_route!=""'
+        : `http_route=${quoted(scope.route)}`;
+  const version = scope.version === undefined ? [] : [`service_version=${quoted(scope.version)}`];
+  return `{${[`job=${quoted(o.app.metricsJob)}`, route, ...version, ...extra].join(', ')}}`;
 }
 
-/** `sum by (http_route)` for every route, a plain `sum` for one. */
+/** `sum by (http_route)` for every route, a plain `sum` for one, or for a template's paths together. */
 function sum(scope: Scope, extraLabels: string[] = []): string {
-  const labels = [...extraLabels, ...(scope.route === undefined ? ['http_route'] : [])];
+  const one = scope.route !== undefined || scope.template !== undefined;
+  const labels = [...extraLabels, ...(one ? [] : ['http_route'])];
   return labels.length ? `sum by (${labels.join(', ')})` : 'sum';
 }
 
@@ -54,6 +67,17 @@ export function latency(o: Objectives, scope: Scope = {}): string {
 /** The versions the route's requests came from in the last window, busiest first. */
 export function versions(o: Objectives, scope: Scope): string {
   return `sort_desc(sum by (service_version) (increase(${REQUESTS}_count${matchers(o, scope)}[${window(o)}])))`;
+}
+
+/**
+ * The paths a route template serves, as a regular expression both PromQL and JavaScript read: each `:name` segment is
+ * any one segment, and the rest is literal. `/departments/:department` is `/departments/[^/]+`.
+ */
+export function templatePattern(template: string, segment = '[^/]+'): string {
+  return template
+    .split('/')
+    .map((part) => (part.startsWith(':') ? segment : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    .join('/');
 }
 
 /** What the latency objective is called when someone reads it: p95, p99. */
