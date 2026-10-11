@@ -77,8 +77,8 @@ const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'an image digest');
  * takes all of the traffic.
  */
 const canaryStep = z.strictObject({
-  /** The share of traffic it sends the canary, in percent. Zero before the first `setWeight`. */
-  weight: z.number().int().min(0).max(100),
+  /** The share of traffic it sends the canary, in percent, as a `canary.stepped` at that step has it. */
+  weight: z.number().int().min(1).max(100),
   /** How long it pauses at that weight in all, in seconds. Null when it waits there for someone to promote it. */
   pauseSeconds: count.nullable(),
   /** Whether a step analysis judges the canary at that weight, which a `canary.stepped` records when it ends. */

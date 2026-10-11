@@ -136,8 +136,9 @@ describe('validation', () => {
     const event = { ...opened, type: 'release.started', version: 3, actor: 'rollouts', payload };
     expect(validate(event)).toEqual({ ok: true });
     const withSteps = (steps: unknown) => validate({ ...event, payload: { ...payload, steps } }).ok;
-    // A pause with no duration waits for someone to promote the canary; a step before any weight holds it at none.
-    expect(withSteps([{ weight: 0, pauseSeconds: null, analysis: false }])).toBe(true);
+    // A pause with no duration waits for someone to promote the canary. A step is at 1% at the least, as its verdict is.
+    expect(withSteps([{ weight: 1, pauseSeconds: null, analysis: false }])).toBe(true);
+    expect(withSteps([{ weight: 0, pauseSeconds: 0, analysis: false }])).toBe(false);
     expect(withSteps([{ weight: 101, pauseSeconds: 0, analysis: false }])).toBe(false);
     expect(withSteps([{ weight: 25, pauseSeconds: -1, analysis: false }])).toBe(false);
     expect(withSteps([{ weight: 25, pauseSeconds: 60 }])).toBe(false);

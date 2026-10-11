@@ -149,33 +149,35 @@ const AMOUNT = String.raw`(\d+(?:\.\d*)?|\.\d+)(h|ms|m|s|us|µs|ns)`;
 
 /**
  * A pause's duration in seconds, as Argo Rollouts reads one: a number, or text of bare digits, is seconds; otherwise
- * a Go duration such as `3m` or `1h30m`. Undefined for anything else.
+ * a Go duration such as `3m` or `1h30m`. Undefined for anything else, and for more seconds than a number holds exactly.
  */
 export function secondsOf(duration: string | number): number | undefined {
-  if (typeof duration === 'number') return Number.isInteger(duration) && duration >= 0 ? duration : undefined;
-  if (/^\d+$/.test(duration)) return Number(duration);
+  const exact = (seconds: number) => (Number.isSafeInteger(seconds) && seconds >= 0 ? seconds : undefined);
+  if (typeof duration === 'number') return exact(duration);
+  if (/^\d+$/.test(duration)) return exact(Number(duration));
   if (!new RegExp(`^(?:${AMOUNT})+$`).test(duration)) return undefined;
   let seconds = 0;
   for (const [, amount, unit] of duration.matchAll(new RegExp(AMOUNT, 'g'))) {
     seconds += Number(amount) * (UNITS[unit as string] as number);
   }
-  return Math.round(seconds);
+  return exact(Math.round(seconds));
 }
 
 /**
  * The canary's steps as `release.started` records them. Argo Rollouts lists a weight, a pause and an analysis as steps
  * of their own; here each weight set is one step, with the pauses and the analysis that follow it, before the next
  * weight. Steps of any other kind change no weight and are not recorded. Null when a pause's duration cannot be read,
- * or there are more steps than an event holds: the steps are then not known, rather than known wrong.
+ * when a weight is outside 1 to 100 (a `canary.stepped` is at 1% at the least, so a step at none of the traffic would
+ * not match its verdict), including a pause or an analysis before any weight is set, or when there are more steps
+ * than an event holds: the steps are then not known, rather than known wrong.
  */
 export function planOf(steps: readonly RolloutStep[]): CanaryStep[] | null {
   const plan: CanaryStep[] = [];
   for (const step of steps) {
     if (step.setWeight !== undefined) plan.push({ weight: step.setWeight, pauseSeconds: 0, analysis: false });
     if (!step.pause && !step.analysis) continue;
-    // A pause or an analysis before any weight is set holds the canary at none of the traffic.
-    if (!plan.length) plan.push({ weight: 0, pauseSeconds: 0, analysis: false });
-    const current = plan.at(-1) as CanaryStep;
+    const current = plan.at(-1);
+    if (!current) return null;
     if (step.analysis) current.analysis = true;
     if (step.pause) {
       if (step.pause.duration === undefined) {
@@ -185,9 +187,10 @@ export function planOf(steps: readonly RolloutStep[]): CanaryStep[] | null {
       const seconds = secondsOf(step.pause.duration);
       if (seconds === undefined) return null;
       if (current.pauseSeconds !== null) current.pauseSeconds += seconds;
+      if (!Number.isSafeInteger(current.pauseSeconds ?? 0)) return null;
     }
   }
-  return plan.length <= MAX_CANARY_STEPS && plan.every((s) => s.weight >= 0 && s.weight <= 100) ? plan : null;
+  return plan.length <= MAX_CANARY_STEPS && plan.every((s) => s.weight >= 1 && s.weight <= 100) ? plan : null;
 }
 
 const hashOf = (run: AnalysisRun) => run.metadata.labels['rollouts-pod-template-hash'];

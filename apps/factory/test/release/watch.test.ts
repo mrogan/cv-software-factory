@@ -501,17 +501,21 @@ describe('a canary’s steps, as a release records them', () => {
     ]);
   });
 
-  it('hold the canary at none of the traffic before a weight is set, and until promoted at a pause with no duration', () => {
-    expect(plan([{ analysis: {} }, { setWeight: 25 }, { pause: {} }, { pause: { duration: '1m' } }])).toEqual([
-      { weight: 0, pauseSeconds: 0, analysis: true },
+  it('hold the canary until it is promoted at a pause with no duration', () => {
+    expect(plan([{ setWeight: 25 }, { pause: {} }, { pause: { duration: '1m' } }])).toEqual([
       { weight: 25, pauseSeconds: null, analysis: false },
     ]);
     // Steps of other kinds change no weight, and a Rollout with none of these steps has none.
     expect(plan([{}, {}])).toEqual([]);
   });
 
-  it('are not known when a pause cannot be read, or there are more than an event holds', () => {
+  it('are not known when a pause cannot be read, a step has none of the traffic, or there are more than an event holds', () => {
     expect(plan([{ setWeight: 25 }, { pause: { duration: 'a while' } }])).toBeNull();
+    // A step's verdict is at 1% at the least, so a step at none of the traffic would not match it.
+    expect(plan([{ analysis: {} }, { setWeight: 25 }])).toBeNull();
+    expect(plan([{ setWeight: 0 }, { setWeight: 25 }])).toBeNull();
+    // Pauses that add up to more seconds than a number holds exactly.
+    expect(plan([{ setWeight: 25 }, { pause: { duration: 2 ** 52 } }, { pause: { duration: 2 ** 52 } }])).toBeNull();
     expect(plan(Array.from({ length: 21 }, (_, i) => ({ setWeight: i + 1 })))).toBeNull();
   });
 
@@ -521,6 +525,10 @@ describe('a canary’s steps, as a release records them', () => {
     );
     expect(['', '3 m', 'm', '-1', '1d'].map(secondsOf)).toEqual(Array(5).fill(undefined));
     expect(secondsOf(-1)).toBeUndefined();
+    // More seconds than a number holds exactly are not read, rather than read as some other length.
+    expect(['9007199254740993', '9007199254740993s', `1${'0'.repeat(400)}h`].map(secondsOf)).toEqual(
+      Array(3).fill(undefined),
+    );
   });
 });
 
