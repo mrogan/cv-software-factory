@@ -10,3 +10,4 @@ resources:
   - kyverno.yaml
   - factory
   - website
+  - scoreboard

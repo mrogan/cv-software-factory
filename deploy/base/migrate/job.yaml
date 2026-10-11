@@ -1,5 +1,5 @@
-# Applies whatever migrations the store has not had, then sets the writer's and the console's passwords from their
-# Secrets. A Sync hook in wave 1: after Postgres (wave 0) is healthy, before the console (wave 2) starts. It runs
+# Applies whatever migrations the store has not had, then sets the writer's, the console's and the scoreboard's
+# passwords from their Secrets. A Sync hook in wave 1: after Postgres (wave 0) is healthy, before the console (wave 2) starts. It runs
 # the console's image, which carries the migrations, so a new image brings its migrations with it.
 apiVersion: batch/v1
 kind: Job
@@ -47,6 +47,14 @@ spec:
                 secretKeyRef:
                   name: postgres-console
                   key: password
+            # The same password as the scoreboard's own Secret, in its namespace (`make up`). Optional, so a cluster
+            # made before the scoreboard still migrates; its role then has no password, and cannot log in.
+            - name: SCOREBOARD_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-scoreboard
+                  key: password
+                  optional: true
           resources:
             requests:
               cpu: 20m

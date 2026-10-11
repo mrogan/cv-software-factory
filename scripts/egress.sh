@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Proves the network policies in deploy/base/factory: `make egress`.
+# Proves the network policies in deploy/, and that no service account of ours may read the scoreboard's Secrets:
+# `make egress`.
 #
 # Only the gateway (TypeSafe, Anthropic) and the GitHub worker (GitHub and GHCR) may reach the internet, over TLS, and
 # only triage and runners' agent pods may reach the gateway. This starts a pod labelled like a worker, which is what a
@@ -23,6 +24,12 @@
 # Then the app's own pods, whose code agents write: a pod labelled like them reaches DNS and the collector, and not
 # Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or the internet. The app is reached through Traefik
 # and by the probes, the crawler and the analysis, and not by another pod beside it.
+#
+# Then the scoreboard, which holds the answer key (milestone 6): it reaches Postgres, and nothing else: not the
+# collector, the gateway, the GitHub worker, the console, the probes, Prometheus, Loki, the app, the Kubernetes API, the
+# host, the metadata address or the internet. Nothing can reach it, as it serves nothing; its fence's ingress is
+# checked in scoreboard-fences.test.ts. And no service account in the guarded namespaces may read its Secrets, or start
+# a pod there that would mount them: each is asked of the API server (`kubectl auth can-i --as`).
 #
 # Every pod this starts runs an image the cluster already runs, pinned by digest, so nothing else is pulled and
 # admission control lets it in: the workers' pod the factory image the gateway runs, the runners' pods and the ones in
@@ -59,12 +66,23 @@ trap cleanup EXIT
 
 # What a pod runs to try an address: prints the HTTP status, or why it could not connect. A server's certificate is
 # not checked: the Kubernetes API's is the cluster's own, and reaching it at all is what counts. Given a host as well,
-# it names that host over plain HTTP, as a visitor's browser does to Traefik; `fetch` will not send a Host header.
+# it names that host over plain HTTP, as a visitor's browser does to Traefik; `fetch` will not send a Host header. A
+# tcp:// address is only connected to, for a server that does not speak HTTP, such as Postgres.
 try='process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const blocks = ["ECONNREFUSED", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT", "TimeoutError"];
 const names = ["ENOTFOUND", "EAI_AGAIN"];
 const [url, host] = process.argv.slice(1);
-const get = host
+const tcp = url.startsWith("tcp://") && new URL(url);
+const get = tcp
+  ? new Promise((resolve, reject) => {
+      const socket = require("node:net").connect({ host: tcp.hostname, port: Number(tcp.port), timeout: 6000 }, () => {
+        socket.end();
+        resolve({ tcp: true });
+      });
+      socket.on("timeout", () => socket.destroy(Object.assign(new Error("timeout"), { code: "TimeoutError" })));
+      socket.on("error", reject);
+    })
+  : host
   ? new Promise((resolve, reject) => {
       const req = require("node:http").get(url, { headers: { host }, timeout: 6000 }, (r) => {
         r.resume();
@@ -75,7 +93,7 @@ const get = host
     })
   : fetch(url, { signal: AbortSignal.timeout(6000) });
 get.then(
-  (r) => console.log("reached, HTTP " + r.status),
+  (r) => console.log(r.tcp ? "reached, TCP" : "reached, HTTP " + r.status),
   (e) => {
     const code = e.cause?.code ?? e.code ?? e.name;
     console.log((blocks.includes(code) ? "blocked: " : names.includes(code) ? "no name: " : "failed: ") + code);
@@ -160,8 +178,10 @@ expect() {
   local result
   local namespace=factory target=$2 node=/nodejs/bin/node
   # A target written <namespace>:<pod> runs the node on its PATH, which every image keeps but the factory image, whose
-  # node is /nodejs/bin/node. So the probes and the crawler, on the browser image, are written factory:<pod> too.
+  # node is /nodejs/bin/node. So the probes and the crawler, on the browser image, are written factory:<pod> too; the
+  # scoreboard runs the factory image.
   if [[ "$2" == *:* ]]; then namespace=${2%%:*} target=${2#*:} node=node; fi
+  if [ "$namespace" = scoreboard ]; then node=/nodejs/bin/node; fi
   result=$(kubectl --context "$context" -n "$namespace" exec "$target" -- "$node" -e "$try" "$3" ${5:+"$5"} 2>/dev/null)
   if [[ "$result" == "$4"* ]]; then printf '  ok    %-62s %s\n' "$1" "$result"; else
     printf '  FAIL  %-62s %s (wanted %s)\n' "$1" "$result" "$4"
@@ -282,8 +302,46 @@ expect "the reports controller cannot reach GHCR" kyverno:egress-kyverno https:/
 expect "the reports controller cannot reach a public address" kyverno:egress-kyverno https://1.1.1.1 blocked
 expect "the reports controller reaches the Kubernetes API" kyverno:egress-kyverno "https://$api_ip/version" reached
 
+echo "The scoreboard:"
+expect "the scoreboard reaches Postgres" scoreboard:deployment/scoreboard tcp://postgres.factory:5432 reached
+expect "the scoreboard cannot reach the collector" scoreboard:deployment/scoreboard http://otel-collector.telemetry:4318 blocked
+expect "the scoreboard cannot reach the gateway" scoreboard:deployment/scoreboard http://gateway.factory:8080/health blocked
+expect "the scoreboard cannot reach the GitHub worker" scoreboard:deployment/scoreboard http://github.factory:8080/health blocked
+expect "the scoreboard cannot reach the console" scoreboard:deployment/scoreboard http://console.factory blocked
+expect "the scoreboard cannot reach the probes" scoreboard:deployment/scoreboard http://probes.factory:8080/health blocked
+expect "the scoreboard cannot reach Prometheus" scoreboard:deployment/scoreboard http://prometheus-server.telemetry/-/healthy blocked
+expect "the scoreboard cannot reach Loki" scoreboard:deployment/scoreboard http://loki.telemetry:3100/ready blocked
+expect "the scoreboard cannot reach the app" scoreboard:deployment/scoreboard http://website.website blocked
+expect "the scoreboard cannot reach the Kubernetes API" scoreboard:deployment/scoreboard "https://$api_ip/version" blocked
+expect "the scoreboard cannot reach the API server on the node" scoreboard:deployment/scoreboard "https://$node_ip:6443" blocked
+expect "the scoreboard cannot reach the host" scoreboard:deployment/scoreboard http://0.250.250.254:1234/v1/models blocked
+expect "the scoreboard cannot reach the metadata address" scoreboard:deployment/scoreboard http://169.254.169.254 blocked
+expect "the scoreboard cannot reach GitHub" scoreboard:deployment/scoreboard https://api.github.com blocked
+expect "the scoreboard cannot reach a public address" scoreboard:deployment/scoreboard https://1.1.1.1 blocked
+
+# Who may read the scoreboard's Secrets, or start a pod beside them that would mount them, or run a command in its pod:
+# none of the service accounts in the namespaces the factory and the app run in, the scoreboard's own included. The
+# controllers that deploy and run everything (Argo CD's, the cluster's own) may, as they may every Secret, and run in
+# namespaces of their own.
+echo "The scoreboard's Secrets:"
+readable=0
+for ns in factory runners website scoreboard; do
+  for account in $(kubectl --context "$context" -n "$ns" get serviceaccounts -o jsonpath='{.items[*].metadata.name}'); do
+    for right in "get secrets" "list secrets" "watch secrets" "create pods" "create pods/exec" "create deployments.apps" \
+      "create jobs.batch"; do
+      # `can-i` answers no with exit status 1, and fails otherwise: only its own answer counts.
+      answer=$(kubectl --context "$context" -n scoreboard auth can-i $right --as "system:serviceaccount:$ns:$account" \
+        2>/dev/null) || true
+      if [ "$answer" = no ]; then continue; fi
+      printf '  FAIL  %-62s %s\n' "$ns/$account may $right in scoreboard" "${answer:-no answer}"
+      readable=1
+    done
+  done
+done
+if [ "$readable" = 1 ]; then failed=1; else echo "  ok    no service account in factory, runners, website or scoreboard may read them"; fi
+
 if [ "$failed" = 0 ]; then
   echo "Only the gateway, the GitHub worker and Kyverno's admission controller leave the cluster; the runners, the release,"
-  echo "the traffic and the app are fenced."
+  echo "the traffic, the app and the scoreboard are fenced."
 else echo "The network policies do not hold."; fi
 exit "$failed"

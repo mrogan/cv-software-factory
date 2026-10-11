@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Asks the cluster to start, in each guarded namespace, a pod on an image the pipeline did not sign, one on an image
 # signed by someone else and one on an image of ours that the namespace does not run, and keeps Kyverno's answers in
-# deploy/test/admission-refusals.json, for milestone 9's red team to show. Run it with both image policies enforcing
+# deploy/test/admission-refusals.json, for milestone 9's red team to show. Run it with every image policy enforcing
 # (Deny), as `main` has them: not during a `try-the-line` run, which switches `factory-images` to Audit.
 #
 # Each request is a server-side dry run: it passes through admission exactly as a real one does, and nothing is made.
@@ -14,7 +14,8 @@
 #                   and refused for its registry before its signature is looked at: only our GHCR's images are
 #                   verified, against their own repository's identity
 #   misplaced       ours, on GHCR, but not an image the namespace runs, so refused before its signature is looked
-#                   at: in `website` the factory's own image (only its browser runs there), elsewhere the app's
+#                   at: in `website` the factory's own image (only its browser runs there), in `scoreboard` the
+#                   factory's browser (only the factory's own image runs there), elsewhere the app's
 set -euo pipefail
 
 context="${KUBE_CONTEXT:-k3d-software-factory}"
@@ -22,6 +23,7 @@ out="$(dirname "$0")/../deploy/test/admission-refusals.json"
 
 factory=ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f
 website=ghcr.io/mrogan/cv-worlds-worst-website@sha256:8bc00e120b41cd55fe69e9a8c91d31882e57a3cfb01fc3e3a3060b34439dfe97
+browser=ghcr.io/mrogan/cv-software-factory/factory-browser@sha256:92e361d5acc472f26afd99d4b55fd78586284cdfc1e6cbeb1253db420838f2f9
 other=ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2
 
 try() { # namespace case image: one JSON line, what was asked and what the cluster answered
@@ -54,10 +56,14 @@ EOF
 }
 
 {
-  for ns in factory runners website; do
+  for ns in factory runners website scoreboard; do
     if [ "$ns" = website ]; then try "$ns" unsigned "$website"; else try "$ns" unsigned "$factory"; fi
     try "$ns" other-identity "$other"
-    if [ "$ns" = website ]; then try "$ns" misplaced "$factory"; else try "$ns" misplaced "$website"; fi
+    case "$ns" in
+      website) try "$ns" misplaced "$factory" ;;
+      scoreboard) try "$ns" misplaced "$browser" ;;
+      *) try "$ns" misplaced "$website" ;;
+    esac
   done
 } | jq -s . >"$out"
 jq -r '.[] | "\(.outcome)  \(.namespace)  \(.case): \(.message)"' "$out"

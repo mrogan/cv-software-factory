@@ -70,5 +70,29 @@
     "at": "2026-10-10T20:43:56Z",
     "outcome": "refused",
     "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-website-images\" denied the request: Policy website-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f"
+  },
+  {
+    "namespace": "scoreboard",
+    "case": "unsigned",
+    "image": "ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f",
+    "at": "2026-10-11T21:54:18Z",
+    "outcome": "refused",
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-scoreboard-images\" denied the request: Policy scoreboard-images failed: images must be signed by build.yml on main of the repository that builds them: ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f"
+  },
+  {
+    "namespace": "scoreboard",
+    "case": "other-identity",
+    "image": "ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2",
+    "at": "2026-10-11T21:54:18Z",
+    "outcome": "refused",
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-scoreboard-images\" denied the request: Policy scoreboard-images failed: images must come from this project's GHCR, or be named by digest in the policy: ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2"
+  },
+  {
+    "namespace": "scoreboard",
+    "case": "misplaced",
+    "image": "ghcr.io/mrogan/cv-software-factory/factory-browser@sha256:92e361d5acc472f26afd99d4b55fd78586284cdfc1e6cbeb1253db420838f2f9",
+    "at": "2026-10-11T21:54:19Z",
+    "outcome": "refused",
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-scoreboard-images\" denied the request: Policy scoreboard-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/mrogan/cv-software-factory/factory-browser@sha256:92e361d5acc472f26afd99d4b55fd78586284cdfc1e6cbeb1253db420838f2f9"
   }
 ]

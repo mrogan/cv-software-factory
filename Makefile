@@ -9,6 +9,8 @@ PLAYWRIGHT := mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af
 # The branch Argo CD deploys this repository's deploy/ from. `make up REVISION=my-branch` tries a change there
 # before it merges; the charts' values and the app's repository are still read from main.
 REVISION ?= main
+# The private checkout, which holds the answer key: `make up` gives the scoreboard each entry's id and fingerprint.
+PRIVATE_DIR ?= $(CURDIR)/../cv-software-factory-private
 
 # $(call as-writer,command): run a command on the host as the factory's writer, through a port-forward to Postgres.
 as-writer = $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
@@ -21,7 +23,7 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down gateway-key github-key check status e2e egress admission-ready eval samples real-store stop-the-line start-the-line
+.PHONY: help up down gateway-key github-key scoreboard-secrets check status e2e egress admission-ready eval samples real-store stop-the-line start-the-line
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -38,6 +40,7 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@$(call secret,factory,postgres-console,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(MAKE) --no-print-directory gateway-key
 	@$(MAKE) --no-print-directory github-key
+	@$(MAKE) --no-print-directory scoreboard-secrets
 	@$(call secret,telemetry,grafana-admin,--from-literal=admin-user=admin --from-literal=admin-password="$$(openssl rand -hex 24)")
 	sed 's|targetRevision: main|targetRevision: $(REVISION)|' deploy/argocd/root.yaml | $(KUBECTL) apply -f -
 	@echo "Waiting for Argo CD to deploy everything (a few minutes the first time)..."
@@ -78,7 +81,28 @@ github-key:
 				$(KUBECTL) apply -f - >/dev/null && echo "  The GitHub worker has the App's key, so it acts as the factory in GitHub."; \
 		else echo "  No App key (the Keychain's factory-github-app-key): the GitHub worker reads and writes nothing."; fi
 
-egress: ## Prove the network policies: only the gateway, the GitHub worker and Kyverno may leave the cluster (needs the factory's workers running)
+# The scoreboard's Secrets (deploy/base/scoreboard). Its role's password, made once, is in two: `factory`'s, for the
+# migrations that set it, and the scoreboard's own, for its pod. The answer key, each entry's id and fingerprint and
+# nothing else, goes from the private checkout to the cluster through stdin, checked as the scoreboard checks it, never
+# written to a file. Without the checkout there is no key, and the scoreboard is off. It reads the key when it starts,
+# so this restarts it.
+scoreboard-secrets: node_modules ## Give the scoreboard its password, and the answer key from the private checkout (PRIVATE_DIR)
+	@$(KUBECTL) create namespace scoreboard --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
+	@$(KUBECTL) -n factory get secret postgres-scoreboard >/dev/null 2>&1 || \
+		printf %s "$$(openssl rand -hex 24)" | \
+		$(KUBECTL) -n factory create secret generic postgres-scoreboard --from-file=password=/dev/stdin >/dev/null
+	@password="$$($(KUBECTL) -n factory get secret postgres-scoreboard -o jsonpath='{.data.password}' | base64 -d)" && \
+		[ -n "$$password" ] && printf %s "$$password" | \
+		$(KUBECTL) -n scoreboard create secret generic postgres --from-file=password=/dev/stdin --dry-run=client -o yaml | \
+		$(KUBECTL) apply -f - >/dev/null
+	@if [ -d "$(PRIVATE_DIR)/defects" ]; then \
+			key="$$(node scripts/answer-key.ts "$(PRIVATE_DIR)")" && printf %s "$$key" | \
+				$(KUBECTL) -n scoreboard create secret generic answer-key --from-file=key.json=/dev/stdin --dry-run=client -o yaml | \
+				$(KUBECTL) apply -f - >/dev/null && echo "  The scoreboard has the answer key, so it counts the tickets."; \
+		else echo "  No private checkout at $(PRIVATE_DIR): no answer key, and the scoreboard is off."; fi
+	@$(KUBECTL) -n scoreboard delete pod -l app.kubernetes.io/name=scoreboard --ignore-not-found >/dev/null
+
+egress: ## Prove the fences: only the gateway, the GitHub worker and Kyverno leave the cluster; the scoreboard reaches Postgres alone, and no service account of ours may read its Secrets (needs the workers running)
 	scripts/egress.sh
 
 admission-ready: ## Say whether every image the guarded namespaces run is signed, so admission control can enforce
