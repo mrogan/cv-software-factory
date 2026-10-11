@@ -231,7 +231,7 @@ export class Pictures {
     if (!this.#due(key)) return null;
     this.#tries.set(key, (this.#tries.get(key) ?? 0) + 1);
     const unusedSince = new Date(this.#now().getTime() - STORED_LATELY_MS);
-    const deleted = await this.#o.index.forget(this.#o.keepReleases ?? release.pictures.keepReleases, (hash) =>
+    const deleted = await this.#o.index.forget(this.#o.keepReleases ?? release.pictures.keepReleases, version, (hash) =>
       this.#o.store.remove(hash, unusedSince),
     );
     this.#done.add(key);

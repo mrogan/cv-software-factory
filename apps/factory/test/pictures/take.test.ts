@@ -46,7 +46,7 @@ class FakeIndex implements Index {
   readonly forgot: number[] = [];
   unnamed: string[] = [];
 
-  async forget(keep: number, remove: (hash: string) => Promise<void>) {
+  async forget(keep: number, _stable: string, remove: (hash: string) => Promise<boolean>) {
     this.forgot.push(keep);
     for (const hash of this.unnamed) await remove(hash);
     return this.unnamed.length;
@@ -73,7 +73,7 @@ function setup() {
     open: async () => null,
     remove: async (hash: string, unusedSince: Date) => {
       removed.push(unusedSince);
-      stored.delete(hash);
+      return stored.delete(hash);
     },
   };
   const pictures = new Pictures({

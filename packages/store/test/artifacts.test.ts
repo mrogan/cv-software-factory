@@ -35,9 +35,9 @@ describe('the artifact store on disk', () => {
     const artifacts = store();
     const hash = await artifacts.put(bytes('a picture'));
     const judged = new Date(Date.now() + 1000);
-    await artifacts.remove(hash, judged);
+    expect(await artifacts.remove(hash, judged)).toBe(true);
     expect(await artifacts.size(hash)).toBeNull();
-    await artifacts.remove(hash, judged);
+    expect(await artifacts.remove(hash, judged)).toBe(true);
     await artifacts.remove('../../etc/passwd', judged);
     expect(readdirSync(artifacts.dir)).toEqual([]);
   });
@@ -49,7 +49,8 @@ describe('the artifact store on disk', () => {
     utimesSync(join(artifacts.dir, hash), new Date(Date.now() - 2 * hour), new Date(Date.now() - 2 * hour));
     const judged = new Date(Date.now() - hour);
     await artifacts.put(bytes('a picture'));
-    await artifacts.remove(hash, judged);
+    expect(await artifacts.remove(hash, judged)).toBe(false);
     expect(await artifacts.size(hash)).toBe(9);
+    expect(readdirSync(artifacts.dir)).toEqual([hash]);
   });
 });

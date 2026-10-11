@@ -34,9 +34,12 @@ export class DiskArtifacts implements ArtifactStore {
   async put(bytes: Uint8Array): Promise<string> {
     const hash = sha256(bytes);
     if ((await this.size(hash)) === bytes.byteLength) {
-      // Stored already: touched, so a deletion that judged it unused before now leaves it (`remove`).
-      await utimes(this.path(hash), new Date(), new Date()).catch(() => {});
-      return hash;
+      // Stored already: touched, so a deletion that judged it unused before now leaves it (`remove`). One that took it
+      // away in between leaves nothing to touch, and it is written again.
+      try {
+        await utimes(this.path(hash), new Date(), new Date());
+        return hash;
+      } catch {}
     }
     await mkdir(this.dir, { recursive: true });
     // Written beside its final name, then renamed: a reader never sees half an artifact.
@@ -60,18 +63,27 @@ export class DiskArtifacts implements ArtifactStore {
   }
 
   /**
-   * Deletes an artifact, if it is there and was last stored before `unusedSince`. Only its writer may, and only once
-   * nothing names it: an event that names it would name nothing. One stored again since the writer judged it unused
-   * stays, as a new event may be about to name it. The probes worker deletes the pictures no release needs any more.
+   * Deletes an artifact, if it was last stored before `unusedSince`, and says whether it is gone. Only its writer may,
+   * and only once nothing names it: an event that names it would name nothing. One stored again since the writer judged
+   * it unused stays, as a new event may be about to name it. The probes worker deletes the pictures no release needs.
+   *
+   * It is moved aside before its time is read, so a `put` of the same bytes, in this process or another on the same
+   * folder, either touched it first and it is put back, or finds it gone and writes it again.
    */
-  async remove(hash: string, unusedSince: Date): Promise<void> {
-    if (!isHash(hash)) return;
+  async remove(hash: string, unusedSince: Date): Promise<boolean> {
+    if (!isHash(hash)) return true;
+    const aside = join(this.dir, `.${hash}.${process.pid}.removing`);
     try {
-      if ((await stat(this.path(hash))).mtimeMs >= unusedSince.getTime()) return;
+      await rename(this.path(hash), aside);
     } catch {
-      return;
+      return true;
     }
-    await rm(this.path(hash), { force: true });
+    if ((await stat(aside)).mtimeMs >= unusedSince.getTime()) {
+      await rename(aside, this.path(hash));
+      return false;
+    }
+    await rm(aside, { force: true });
+    return true;
   }
 
   private path(hash: string): string {

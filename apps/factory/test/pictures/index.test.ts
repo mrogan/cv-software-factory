@@ -134,7 +134,11 @@ describe('forgetting the pictures no release needs', () => {
     const index = new PictureIndex(database.writer);
     const forget = async (keep: number) => {
       const removed: string[] = [];
-      expect(await index.forget(keep, async (hash) => void removed.push(hash))).toBe(removed.length);
+      const deleted = await index.forget(keep, V3, async (hash) => {
+        removed.push(hash);
+        return true;
+      });
+      expect(deleted).toBe(removed.length);
       return removed.sort();
     };
     // Three releases, in order: the first replaced a version never pictured, each later one the one before.
@@ -197,7 +201,7 @@ describe('forgetting the pictures no release needs', () => {
     expect(await index.of(V3, V2)).toHaveLength(1);
   });
 
-  it('forgets a release Verify returned to Plan, and offers again an image whose removal failed', async () => {
+  it('forgets a release Verify returned to Plan, and offers again an image whose removal failed or was put off', async () => {
     const index = new PictureIndex(database.writer);
     await index.record([page(V1, OLD, '/', '12--')]);
     await index.record([page(V2, V1, '/', '34--')]);
@@ -214,20 +218,37 @@ describe('forgetting the pictures no release needs', () => {
       }),
     ]);
     const offered: string[] = [];
-    expect(await index.forget(1, async (h) => void offered.push(h))).toBe(0);
+    const offer = async (h: string) => {
+      offered.push(h);
+      return true;
+    };
+    expect(await index.forget(1, V2, offer)).toBe(0);
     await events.append(
       event(returned, 'work.returned', { from: 'verify', to: 'plan', reason: 'Martin sent it back' }),
     );
 
     await expect(
-      index.forget(1, async () => {
+      index.forget(1, V2, async () => {
         throw new Error('read-only file system');
       }),
     ).rejects.toThrow(/read-only/);
     expect(await index.of(V1, OLD)).toHaveLength(1);
-    expect(await index.forget(1, async (h) => void offered.push(h))).toBe(2);
+    // An image stored again lately is put off, and its row stays to offer it again.
+    expect(await index.forget(1, V2, async (h) => h !== hash('1'))).toBe(1);
+    expect(await index.of(V1, OLD)).toHaveLength(1);
+    expect(await index.forget(1, V2, offer)).toBe(2);
     expect(offered.sort()).toEqual([hash('1'), hash('2')]);
     expect(await index.of(V1, OLD)).toEqual([]);
+  });
+
+  it('keeps the release the stable version came from, though a later canary was pictured', async () => {
+    const index = new PictureIndex(database.writer);
+    await index.record([page(V1, OLD, '/', '12--')]);
+    // A later canary, pictured and then rolled back: the stable version is still the first's.
+    await index.record([page(V2, V1, '/', '34--')]);
+    expect(await index.forget(1, V1, async () => true)).toBe(0);
+    expect(await index.of(V1, OLD)).toHaveLength(1);
+    expect(await index.of(V2, V1)).toHaveLength(1);
   });
 });
 

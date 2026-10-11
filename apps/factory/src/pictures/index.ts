@@ -110,14 +110,15 @@ export class PictureIndex {
   }
 
   /**
-   * Forgets the pictures of every release but the last `keep` pictured and those a work item waits at Verify for: one
-   * promoted, carrying it, with no verification, return or close of it since. First `remove` is given each of their
-   * images that nothing names any more: no picture still kept (identical images are stored once), no event (whatever
-   * part of it names a hash), and no signal triage has still to take. Then their rows go, so an image whose removal
-   * failed is offered again next time, and no picture kept ever names an image that is gone. Gives back how many
-   * images were offered.
+   * Forgets the pictures of every release but the last `keep` pictured, the one whose canary `stable` now is (its pages
+   * after the rollout may be still to take), and those a work item waits at Verify for: one promoted, carrying it, with
+   * no verification, return or close of it since. First `remove` is given each of their images that nothing names any
+   * more: no picture still kept (identical images are stored once), no event (whatever part of it names a hash), and
+   * no signal triage has still to take. Then the rows go whose images are all gone, so an image whose removal failed
+   * or was put off is offered again next time, and no picture kept ever names an image that is gone. Gives back how
+   * many images were deleted.
    */
-  async forget(keep: number, remove: (hash: string) => Promise<void>): Promise<number> {
+  async forget(keep: number, stable: string, remove: (hash: string) => Promise<boolean>): Promise<number> {
     const sql = this.#sql;
     const releases = await sql<{ canary: string; stable: string }[]>`
       with releases as (
@@ -133,6 +134,7 @@ export class PictureIndex {
               and since.type in ('verification.finished', 'work.returned', 'work-item.closed'))
       ), kept as (
         (select canary, stable from releases order by taken desc limit ${keep})
+        union select canary, stable from releases where canary = ${stable}
         union select canary, stable from waiting
       )
       select canary, stable from releases
@@ -156,9 +158,12 @@ export class PictureIndex {
           select 1 from pictures
           where not ${forgotten}
             and (before->>'hash' = hash or after->>'hash' = hash or diff->>'hash' = hash or rollout->>'hash' = hash))`;
-    for (const { hash } of unnamed) await remove(hash);
-    await sql`delete from pictures where ${forgotten}`;
-    return unnamed.length;
+    const left: string[] = [];
+    for (const { hash } of unnamed) if (!(await remove(hash))) left.push(hash);
+    await sql`
+      delete from pictures where ${forgotten}
+        and not (array[before->>'hash', after->>'hash', diff->>'hash', rollout->>'hash'] && ${left}::text[])`;
+    return unnamed.length - left.length;
   }
 
   /** Remembers where a sense boxed what it found, in place of where it last did for the same check. */
