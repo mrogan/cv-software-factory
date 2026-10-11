@@ -103,11 +103,15 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   },
   // Version 2 adds the sense and the version verified, and whether the dry run answers for it; a version 1
   // verification was a sense's, though it never said which.
-  'verification.finished': { 1: (payload) => ({ ...payload, dryRun: false }) },
+  // Version 3 adds the canary to the senses, and its analysis to the evidence; a version 2 verification reads as it was.
+  'verification.finished': { 1: (payload) => ({ ...payload, dryRun: false }), 2: (payload) => payload },
   // Version 2 adds the planner's findings to the kinds of work item; a version 1 work item reads as it was.
   'work-item.opened': { 1: (payload) => payload },
   // Version 2 adds the planner to the sources of a signal; a version 1 signal reads as it was.
-  'signal.received': { 1: (payload) => payload },
+  // Version 3 adds the canary to the senses, and its analysis to the evidence; a version 2 signal reads as it was.
+  'signal.received': { 1: (payload) => payload, 2: (payload) => payload },
+  // Version 2 lets the canary reopen a ticket as any sense may; a version 1 reopening reads as it was.
+  'work-item.reopened': { 1: (payload) => payload },
   // Version 2 adds where each criterion comes from. A version 1 spec never said, so its criteria read without it.
   'spec.written': { 1: (payload) => payload },
   // Version 2 adds the pull request's whole change. A version 1 push recorded only its own files, which are the whole

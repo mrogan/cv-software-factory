@@ -1,7 +1,8 @@
 /**
- * What the line reads of a release, and nothing it could change: the app's Rollout and its AnalysisRuns, through the
- * Kubernetes API (get and list, in `website` only: deploy/base/analysis/line-reads-release.yaml), and each version's
- * figures from Prometheus, by the pod-template hash Argo Rollouts gives it. It polls; it never watches.
+ * What the line reads of a release, and nothing it could change: the app's Rollout and its AnalysisRuns, and the
+ * journeys Jobs' pods for what they found, through the Kubernetes API (get and list, in `website` only:
+ * deploy/base/analysis/line-reads-release.yaml), and each version's figures from Prometheus, by the pod-template hash
+ * Argo Rollouts gives it. It polls; it never watches.
  *
  * The schemas are subsets: only what the release watch (`watch.ts`) reads, so a field Argo Rollouts adds or drops
  * elsewhere changes nothing here.
@@ -10,8 +11,9 @@ import type { PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
 import { release as policy, type Release } from '../../../../policy/release.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
+import { type Regression, regressionsIn } from '../gates/journeys.ts';
 import type { Kube } from '../runners/kube.ts';
-import { versionQueries } from './analysis.ts';
+import { routeQueries, versionQueries } from './analysis.ts';
 
 const condition = z.object({
   type: z.string(),
@@ -57,12 +59,16 @@ const measurement = z.object({
   value: z.string().optional(),
   message: z.string().optional(),
   finishedAt: z.string().optional(),
+  /** For a Job's measure, the Job that took it: `job-name`. */
+  metadata: z.record(z.string(), z.string()).optional(),
 });
 
 /** One of the release's AnalysisRuns, as far as the watch reads it. */
 export const analysisRunSchema = z.object({
   metadata: z.object({
     name: z.string(),
+    /** Kubernetes's own id for the run: a rollback's signals are named by it. */
+    uid: z.string(),
     creationTimestamp: z.string(),
     labels: z.record(z.string(), z.string()).default({}),
     ownerReferences: z.array(z.object({ kind: z.string(), name: z.string() })).default([]),
@@ -211,4 +217,110 @@ export async function seriesOf(
     baseline,
     at: points - 1,
   };
+}
+
+/** The routes where the canary did worse on a measure, worst first, each version's figure in `unit`. */
+export interface RoutesWorse {
+  unit: string;
+  worse: { route: string; canary: number; baseline: number }[];
+}
+
+/** The most routes a rollback's signal names. */
+const MOST_ROUTES = 10;
+
+/**
+ * The routes where the canary did worse on a failed measure, from the release's first run to the failure, by the
+ * measure's own rule applied to each route the app named: a share of 5xx answers more than the limit above the
+ * baseline's on that route; a latency more than the baseline's and its margin. Only routes both versions served are
+ * compared. Undefined for a measure that has no figure by route (`enough-requests`, the journeys).
+ */
+export async function routesWorse(
+  prometheus: Prometheus,
+  measure: string,
+  hashes: { stable: string; canary: string },
+  from: Date,
+  failedAt: Date,
+  r: Release = policy,
+): Promise<RoutesWorse | undefined> {
+  if (measure !== 'errors' && measure !== 'latency') return undefined;
+  const seconds = Math.max(r.windowMinutes * 60, (failedAt.getTime() - from.getTime()) / 1000);
+  const byRoute = async (query: string) =>
+    new Map(
+      (await prometheus.instant(query, failedAt)).flatMap((sample) =>
+        sample.labels.http_route ? [[sample.labels.http_route, sample.value] as const] : [],
+      ),
+    );
+  const figures = async (hash: string) => {
+    const q = routeQueries(r, hash, seconds);
+    if (measure === 'latency') return byRoute(q.latency);
+    const [requests, errors] = await Promise.all([byRoute(q.requests), byRoute(q.errors)]);
+    return new Map(
+      [...requests].flatMap(([route, n]) => (n > 0 ? [[route, (errors.get(route) ?? 0) / n] as const] : [])),
+    );
+  };
+  const [canary, baseline] = await Promise.all([figures(hashes.canary), figures(hashes.stable)]);
+  const over = (c: number, b: number) =>
+    measure === 'errors'
+      ? c - b - r.errors.maxAbove
+      : c - b - Math.max(b * r.latency.maxRatioAbove, r.latency.minSecondsAbove);
+  const scale = measure === 'errors' ? 100 : 1000;
+  const round = (v: number) => Math.round(v * scale * 100) / 100;
+  const worse = [...canary]
+    .flatMap(([route, c]) => {
+      const b = baseline.get(route);
+      return b !== undefined && over(c, b) > 0 && ROUTE.test(route) ? [{ route, c, b, by: over(c, b) }] : [];
+    })
+    .sort((x, y) => y.by - x.by || x.route.localeCompare(y.route))
+    .slice(0, MOST_ROUTES)
+    .map(({ route, c, b }) => ({ route, canary: round(c), baseline: round(b) }));
+  return { unit: measure === 'errors' ? '%' : 'ms', worse };
+}
+
+/** A route as an event keeps one. The app names its routes, and anything else is left out. */
+const ROUTE = /^\/[^\s]{0,199}$/;
+
+/** A Job's name, as Kubernetes allows one. */
+const JOB_NAME = /^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/;
+
+const podList = z.object({
+  items: z.array(
+    z.object({
+      status: z
+        .object({
+          containerStatuses: z
+            .array(
+              z.object({
+                name: z.string(),
+                state: z.object({ terminated: z.object({ message: z.string().optional() }).optional() }).optional(),
+              }),
+            )
+            .default([]),
+        })
+        .default({ containerStatuses: [] }),
+    }),
+  ),
+});
+
+/**
+ * What the journeys found when they failed a run: the checks that passed on the baseline and failed on the canary, as
+ * the last failed Job of the run's journeys measure wrote them to its container's termination message
+ * (`comparisonMessage`). It finds the Job's pod by the `job-name` label Kubernetes gives it, in the run's namespace
+ * only. Undefined when there is no such Job or pod any more, or its message is missing or says something else.
+ */
+export async function journeysOf(kube: Kube, namespace: string, run: AnalysisRun): Promise<Regression[] | undefined> {
+  const measurements = run.status.metricResults.find((m) => m.name === 'journeys')?.measurements ?? [];
+  const failed = [...measurements].reverse().find((m) => m.phase === 'Failed') ?? measurements.at(-1);
+  const job = failed?.metadata?.['job-name'];
+  const where = failed?.metadata?.['job-namespace'];
+  if (!job || !JOB_NAME.test(job) || (where !== undefined && where !== namespace)) return undefined;
+  const selector = encodeURIComponent(`job-name=${job}`);
+  const pods = await kube.get(
+    `/api/v1/namespaces/${encodeURIComponent(namespace)}/pods?labelSelector=${selector}`,
+    podList,
+  );
+  const message = pods?.items
+    .flatMap((pod) => pod.status.containerStatuses)
+    .find((container) => container.name === 'journeys')?.state?.terminated?.message;
+  const regressions = regressionsIn(message);
+  return regressions?.length ? regressions : undefined;
 }

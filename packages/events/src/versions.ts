@@ -9,12 +9,12 @@ export const VERSIONS = {
   'work-item.opened': 2,
   'work-item.summarised': 1,
   'work-item.closed': 1,
-  'work-item.reopened': 1,
+  'work-item.reopened': 2,
   // Before the line: what a visitor started
   'defect.injected': 1,
   'attack.launched': 1,
   // Sense and triage
-  'signal.received': 2,
+  'signal.received': 3,
   'judgement.made': 1,
   'ticket.opened': 1,
   // Plan and build
@@ -31,7 +31,7 @@ export const VERSIONS = {
   'canary.stepped': 2,
   'release.promoted': 2,
   'release.rolled-back': 2,
-  'verification.finished': 2,
+  'verification.finished': 3,
   // Anywhere on the line
   'work.returned': 2,
   'hold.started': 5,

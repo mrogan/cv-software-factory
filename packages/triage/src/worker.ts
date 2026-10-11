@@ -17,7 +17,7 @@
  * One worker decides at a time (it holds an advisory lock), so two signals with the same new fingerprint cannot
  * open two tickets. It takes nothing while the line is stopped, and no report while the gateway waits on a spend cap.
  */
-import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/events';
+import type { InboxSignal, PayloadOf, SignalSource, SymptomClass } from '@software-factory/events';
 import { type EventWriter, lastEnd, nextWorkItem } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { INBOX } from '../../../policy/triage.ts';
@@ -66,7 +66,10 @@ interface Taken {
   received_at: Date;
 }
 
-type Ticket = { workItem: string } & Pick<PayloadOf<'ticket.opened'>, 'title' | 'category' | 'fingerprint'>;
+type Ticket = { workItem: string } & Pick<PayloadOf<'ticket.opened'>, 'title' | 'category' | 'fingerprint'> & {
+    /** The source of the signal that opened it. */
+    sense: SignalSource | undefined;
+  };
 
 export type Took = Outcome | 'idle' | 'stopped' | 'waiting' | 'failed';
 
@@ -183,11 +186,13 @@ export class Triage {
       if (decision === 'rejected') {
         await events.append(closedFinding(workItem, { rejected: true }, seed, now));
       } else {
-        const same = (await openTickets(sql)).find((ticket) => sameFingerprint(ticket.fingerprint, defect.fingerprint));
+        const same = (await openTickets(sql)).find((ticket) =>
+          sameFingerprint(ticket.fingerprint, defect.fingerprint, everyRoute(ticket.sense, 'planner')),
+        );
         if (same) {
           await events.append(closedFinding(workItem, { joined: same.workItem, by: 'martin' }, seed, now));
         } else {
-          const joined = await this.#joinFindings(defect.fingerprint, workItem, 'martin', seed);
+          const joined = await this.#joinFindings(defect.fingerprint, workItem, 'martin', seed, 'planner');
           await events.append([...approvedFinding(workItem, defect, now), ...joined]);
         }
       }
@@ -211,10 +216,12 @@ export class Triage {
     ticket: string,
     by: 'sense' | 'report' | 'martin',
     seed: string,
+    source: SignalSource,
   ) {
     const now = this.#o.now();
+    const every = everyRoute(source, 'planner');
     return (await parkedFindings(this.#o.sql))
-      .filter((parked) => parked.workItem !== ticket && sameFingerprint(fingerprint, parked.defect.fingerprint))
+      .filter((parked) => parked.workItem !== ticket && sameFingerprint(fingerprint, parked.defect.fingerprint, every))
       .flatMap((parked) =>
         closedFinding(parked.workItem, { joined: ticket, by }, `${seed}:joined:${parked.workItem}`, now),
       );
@@ -269,7 +276,7 @@ export class Triage {
       const route = privatePath(signal.route);
       // A planner's finding is about something beyond the ticket it was planning, so it never joins that one.
       const others = tickets.filter((ticket) => ticket.workItem !== signal.planning);
-      const candidates = others.filter((ticket) => onPage(ticket, route, page)).slice(0, 10);
+      const candidates = others.filter((ticket) => onPage(ticket, route, page, signal.sense)).slice(0, 10);
       const decision = await judgeReport(
         { page, text, route },
         candidates.map(candidateOf),
@@ -282,7 +289,11 @@ export class Triage {
       const { routed } = decision;
       const defect = routed.route === 'ticket' || (routed.route === 'park' && routed.defect !== undefined);
       const { fingerprint } = decision;
-      const same = fingerprint && others.find((ticket) => sameFingerprint(ticket.fingerprint, fingerprint));
+      const same =
+        fingerprint &&
+        others.find((ticket) =>
+          sameFingerprint(ticket.fingerprint, fingerprint, everyRoute(ticket.sense, signal.sense)),
+        );
       if (defect && same) {
         decision.routed = { route: 'repeat', joined: same.workItem };
         const first = decision.judgements[0];
@@ -295,19 +306,25 @@ export class Triage {
         // ticket closes and a sense's ticket can take it, or Martin answers.
         const held = decision.routed.route === 'park' && decision.routed.defect && decision.fingerprint;
         const planned = held
-          ? tickets.find((ticket) => ticket.workItem === signal.planning && sameFingerprint(ticket.fingerprint, held))
+          ? tickets.find(
+              (ticket) =>
+                ticket.workItem === signal.planning &&
+                sameFingerprint(ticket.fingerprint, held, everyRoute(ticket.sense, 'planner')),
+            )
           : undefined;
         await events.append(findingEvents(signal, taken.id, workItem, decision, now, planned?.workItem));
         return { outcome: 'finding', workItem, ticketOpened: false };
       }
       const opened = decision.routed.route === 'ticket' && decision.fingerprint;
-      const joined = opened ? await this.#joinFindings(opened, workItem, 'report', taken.id) : [];
+      const joined = opened ? await this.#joinFindings(opened, workItem, 'report', taken.id, signal.sense) : [];
       await events.append([...reportEvents(signal, taken.id, workItem, decision, now), ...joined]);
       return { outcome: 'report', workItem, ticketOpened: decision.routed.route === 'ticket' };
     }
 
     const fingerprint = { route: signal.route, class: signal.symptom as SymptomClass };
-    const ticket = tickets.find((open) => sameFingerprint(open.fingerprint, fingerprint));
+    const ticket = tickets.find((open) =>
+      sameFingerprint(open.fingerprint, fingerprint, everyRoute(open.sense, signal.sense)),
+    );
     if (!ticket) {
       // One fingerprint, one ticket: the same defect on a ticket closed as verified is a regression of it.
       // A signal the sense saw before that close is of the version the fix replaced: counted, as a repeat is. So is
@@ -321,7 +338,7 @@ export class Triage {
         return { outcome: 'reopened', workItem: verified.workItem, ticketOpened: false };
       }
       const workItem = await nextWorkItem(sql);
-      const joined = await this.#joinFindings(fingerprint, workItem, 'sense', taken.id);
+      const joined = await this.#joinFindings(fingerprint, workItem, 'sense', taken.id, signal.sense);
       await events.append([...senseTicket(signal, taken.id, workItem, now), ...joined]);
       return { outcome: 'opened', workItem, ticketOpened: true };
     }
@@ -375,15 +392,19 @@ export async function lineStopped(sql: Sql): Promise<boolean> {
 
 /** Tickets whose work item is open: never closed, or reopened since it last closed. */
 export async function openTickets(sql: Sql): Promise<Ticket[]> {
-  const rows = await sql<{ work_item: string; payload: PayloadOf<'ticket.opened'> }[]>`
-    select t.work_item, t.payload from events t
+  const rows = await sql<{ work_item: string; payload: PayloadOf<'ticket.opened'>; sense: SignalSource | null }[]>`
+    select t.work_item, t.payload,
+           (select s.payload->>'sense' from events s
+            where s.work_item = t.work_item and s.type = 'signal.received' order by s.seq limit 1) as sense
+    from events t
     where t.type = 'ticket.opened' and ${lastEnd(sql, 't.work_item')} is distinct from 'work-item.closed'
     order by t.seq desc`;
-  return rows.map(({ work_item, payload }) => ({
+  return rows.map(({ work_item, payload, sense }) => ({
     workItem: work_item,
     title: payload.title,
     category: payload.category,
     fingerprint: payload.fingerprint,
+    sense: sense ?? undefined,
   }));
 }
 
@@ -417,19 +438,31 @@ async function verifiedTicket(sql: Sql, fingerprint: { route: string; class: Sym
 
 type Fingerprint = PayloadOf<'ticket.opened'>['fingerprint'];
 
-/** The same problem: the same class on the same route, or on every route; or the same passage of the same page. */
-export function sameFingerprint(open: Fingerprint, found: Fingerprint): boolean {
+/**
+ * The same problem: the same class on the same route, or, when `every` allows it, on every route; or the same passage
+ * of the same page.
+ */
+export function sameFingerprint(open: Fingerprint, found: Fingerprint, every = true): boolean {
   if ('class' in open && 'class' in found) {
-    return open.class === found.class && (open.route === found.route || open.route === '*');
+    return open.class === found.class && (open.route === found.route || (every && open.route === '*'));
   }
   if ('page' in open && 'page' in found) return open.page === found.page && open.text === found.text;
   return false;
 }
 
+/**
+ * Whether an open ticket on every route (`*`) takes what is seen on one route of its class. A sense's `*` says it saw
+ * the problem on every page it checked. The canary's says only that a release did worse on more than one route, as a
+ * whole: another sense's signal on one route is not shown to be its defect, nor its rollback another sense's. So
+ * where either side is the canary, only the same route is the same problem.
+ */
+export const everyRoute = (ticket: SignalSource | undefined, found: SignalSource) =>
+  ticket !== 'canary' && found !== 'canary';
+
 /** Whether a report sent from a page could be about this ticket. */
-const onPage = (ticket: Ticket, route: string, page: string) =>
+const onPage = (ticket: Ticket, route: string, page: string, source: SignalSource) =>
   'class' in ticket.fingerprint
-    ? ticket.fingerprint.route === route || ticket.fingerprint.route === '*'
+    ? ticket.fingerprint.route === route || (everyRoute(ticket.sense, source) && ticket.fingerprint.route === '*')
     : ticket.fingerprint.page === page;
 
 const candidateOf = (ticket: Ticket): Candidate => ({

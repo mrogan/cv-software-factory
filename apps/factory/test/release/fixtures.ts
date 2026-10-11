@@ -66,6 +66,8 @@ type Phase = 'Running' | 'Successful' | 'Failed' | 'Error' | 'Inconclusive';
 export interface RunState {
   /** By default as Argo names it: the release, the Rollout's revision, and the step's index. */
   name?: string;
+  /** Kubernetes's id for it; by default one made from its name. */
+  uid?: string;
   hash?: string;
   stable?: string;
   /** A step run's index in the steps, or none for the background run. */
@@ -101,9 +103,11 @@ export function run(state: RunState): AnalysisRun {
   const isStep = state.step !== undefined;
   const metrics = { ...(isStep ? STEP_METRICS : BACKGROUND_METRICS), ...state.metrics };
   const phase = state.phase ?? 'Successful';
+  const name = state.name ?? `website-${hash}-4${isStep ? `-${state.step}` : ''}`;
   return analysisRunSchema.parse({
     metadata: {
-      name: state.name ?? `website-${hash}-4${isStep ? `-${state.step}` : ''}`,
+      name,
+      uid: state.uid ?? `uid-${name}`,
       namespace: 'website',
       creationTimestamp: state.created,
       labels: {

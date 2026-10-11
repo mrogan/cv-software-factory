@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type NewEvent, type PayloadOf, type Screenshot, VERSIONS } from '@software-factory/events';
+import { type InboxSignal, type NewEvent, type PayloadOf, type Screenshot, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { z } from 'zod';
@@ -11,6 +11,7 @@ import { GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { Line, type LineOptions } from '../../src/line/worker.ts';
 import { IndexedArtifacts, type Picture, PictureIndex } from '../../src/pictures/index.ts';
 import type { AnalysisRun, Rollout } from '../../src/release/read.ts';
+import { JOURNEY_FALLBACK } from '../../src/release/signals.ts';
 import type { Kube } from '../../src/runners/kube.ts';
 import { quiet } from '../github/fake.ts';
 import { CANARY, commitOf, digestOf, rollout, run, STABLE } from '../release/fixtures.ts';
@@ -30,7 +31,7 @@ afterEach(() => database?.end());
 let now = Date.parse('2026-10-11T09:00:00Z');
 
 const event = <K extends NewEvent['type']>(
-  workItem: string,
+  workItem: string | null,
   type: K,
   payload: PayloadOf<K>,
   actor: NewEvent['actor'],
@@ -51,7 +52,7 @@ const event = <K extends NewEvent['type']>(
  * A work item whose fix merged in pull request `number`, as `commit`, and which the line holds at Release. Its ticket
  * came from a probe, which the line here has no way to ask at Verify: there it waits.
  */
-async function merged(number: number, commit: string, sense: 'probe' | 'report' = 'probe'): Promise<string> {
+async function merged(number: number, commit: string, sense: 'probe' | 'report' | 'canary' = 'probe'): Promise<string> {
   const workItem = await nextWorkItem(database.writer);
   await events.append([
     event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'A redirect loop', sample: false }, 'triage'),
@@ -70,8 +71,13 @@ async function merged(number: number, commit: string, sense: 'probe' | 'report' 
     event(
       workItem,
       'signal.received',
-      { sense, check: 'departments', route: '/departments/:department', version: commitOf(STABLE) },
-      sense === 'probe' ? 'probe' : 'widget',
+      {
+        sense,
+        check: sense === 'canary' ? 'latency' : 'departments',
+        route: '/departments/:department',
+        version: commitOf(STABLE),
+      },
+      sense === 'report' ? 'widget' : sense,
     ),
     event(workItem, 'pull-request.merged', { number, commit, by: 'martin' }, 'martin'),
   ]);
@@ -83,10 +89,21 @@ async function merged(number: number, commit: string, sense: 'probe' | 'report' 
 class FakeKube implements Kube {
   rollout: Rollout | undefined;
   runs: AnalysisRun[] = [];
+  /** Each journeys Job's termination message, by the Job's name. */
+  readonly messages = new Map<string, string>();
   readonly asked: string[] = [];
 
   async get<T>(path: string, schema: z.ZodType<T>): Promise<T | undefined> {
     this.asked.push(path);
+    const pods = path.match(/^\/api\/v1\/namespaces\/website\/pods\?labelSelector=job-name%3D(.+)$/);
+    if (pods?.[1]) {
+      const message = this.messages.get(decodeURIComponent(pods[1]));
+      const items =
+        message === undefined
+          ? []
+          : [{ status: { containerStatuses: [{ name: 'journeys', state: { terminated: { message } } }] } }];
+      return schema.parse({ items });
+    }
     if (path === '/apis/argoproj.io/v1alpha1/namespaces/website/rollouts/website') {
       return this.rollout && schema.parse(this.rollout);
     }
@@ -110,6 +127,15 @@ class FakeKube implements Kube {
  * range is the same figure at every step.
  */
 function prometheus(asked: string[] = [], failing = false) {
+  // By route, the canary is slower on /search alone, and has more errors on /search and /cart.
+  const byRoute = (query: string): Record<string, number> => {
+    const canary = query.includes(CANARY);
+    if (query.includes('histogram_quantile')) {
+      return canary ? { '/search': 0.62, '/cart': 0.13 } : { '/search': 0.12, '/cart': 0.12 };
+    }
+    if (query.includes('5..')) return canary ? { '/search': 9, '/cart': 4 } : { '/search': 1, '/cart': 0 };
+    return canary ? { '/search': 60, '/cart': 40, '/about': 0 } : { '/search': 200, '/cart': 150 };
+  };
   const figure = (query: string) => {
     const canary = query.includes(CANARY);
     if (query.includes('histogram_quantile')) return canary ? 0.124 : 0.118;
@@ -121,6 +147,13 @@ function prometheus(asked: string[] = [], failing = false) {
     const query = url.searchParams.get('query') ?? '';
     asked.push(url.pathname);
     if (failing) return new Response('down', { status: 503 });
+    if (url.pathname === '/api/v1/query' && query.includes('http_route)')) {
+      const result = Object.entries(byRoute(query)).map(([route, value]) => ({
+        metric: { http_route: route },
+        value: [0, String(value)],
+      }));
+      return Response.json({ data: { result } });
+    }
     if (url.pathname === '/api/v1/query') {
       return Response.json({ data: { result: [{ metric: {}, value: [0, String(figure(query))] }] } });
     }
@@ -414,6 +447,147 @@ describe('the line’s watch of the app’s release', () => {
   });
 });
 
+describe('a rollback, as signals to triage', () => {
+  const inbox = async () =>
+    database.writer<{ sense: string; fingerprint: string; signal: InboxSignal }[]>`
+      select sense, fingerprint, signal from inbox order by signal->>'check'`;
+
+  /** A release carrying a fix, under way at 25%, and the line that watches it. */
+  async function underWay() {
+    const watching = line();
+    const { line: it, github, kube } = watching;
+    github.history = HISTORY;
+    github.revisions.set(digestOf(STABLE), commitOf(STABLE));
+    github.revisions.set(digestOf(CANARY), commitOf(CANARY));
+    kube.rollout = rollout({ current: STABLE, stable: STABLE });
+    await it.tick();
+    const carried = await merged(30, FIX_3);
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    kube.runs = [run({ created: new Date(now).toISOString(), phase: 'Running' })];
+    await it.tick();
+    return { ...watching, carried };
+  }
+
+  /** The background run, failed on errors, latency and the journeys, whose Job was `job`. */
+  function failedRun(job: string) {
+    const failed = run({
+      created: new Date(now).toISOString(),
+      completed: new Date(now + 3 * 60_000).toISOString(),
+      phase: 'Failed',
+      message: 'Metric "latency" assessed Failed due to failed (2) > failureLimit (1)',
+      metrics: {
+        errors: { phase: 'Failed', value: '[0.0119]' },
+        latency: { phase: 'Failed', value: '[0.247]', message: 'Metric "latency" assessed Failed' },
+        journeys: { phase: 'Failed' },
+      },
+    });
+    const journeys = failed.status.metricResults.find((m) => m.name === 'journeys');
+    for (const m of journeys?.measurements ?? []) m.metadata = { 'job-name': job, 'job-namespace': 'website' };
+    return failed;
+  }
+
+  it('sends one for each failed measure, by its class, where the canary did worse, once, across a restart', async () => {
+    const { line: it, github, kube } = await underWay();
+    const job = `${failedRun('x').metadata.uid}.journeys.2`;
+    kube.messages.set(
+      job,
+      JSON.stringify({
+        regressions: [
+          {
+            sense: 'probe',
+            check: 'checkout/console',
+            route: '/checkout',
+            symptom: 'browser-error',
+            message: 'An error',
+          },
+        ],
+      }),
+    );
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true });
+    kube.runs = [failedRun(job)];
+    await it.tick();
+
+    const sent = await inbox();
+    expect(sent.map((row) => [row.sense, row.fingerprint, row.signal.check])).toEqual([
+      ['canary', '* server-error', 'errors'],
+      ['canary', '/checkout browser-error', 'journeys'],
+      ['canary', '/search slow-response', 'latency'],
+    ]);
+    const [errors, journeys, latency] = sent.map((row) => row.signal);
+    expect(errors?.evidence?.[0]).toMatchObject({
+      kind: 'canary',
+      release: CANARY,
+      measure: { name: 'errors', phase: 'failed', value: 0.0119, limit: 0.01 },
+      routes: {
+        unit: '%',
+        worse: [
+          { route: '/search', canary: 15, baseline: 0.5 },
+          { route: '/cart', canary: 10, baseline: 0 },
+        ],
+      },
+      series: expect.objectContaining({ label: 'share of 5xx answers', unit: '%' }),
+    });
+    expect(latency?.evidence?.[0]).toMatchObject({
+      routes: { unit: 'ms', worse: [{ route: '/search', canary: 620, baseline: 120 }] },
+      measure: { message: 'Metric "latency" assessed Failed' },
+    });
+    expect(journeys?.evidence?.[0]).toMatchObject({
+      checks: [{ sense: 'probe', check: 'checkout/console', route: '/checkout', symptom: 'browser-error' }],
+    });
+
+    // Read again, and by a line started again: the same signals, none twice.
+    await it.tick();
+    const again = line();
+    again.github.history = github.history;
+    again.kube.rollout = kube.rollout;
+    again.kube.runs = kube.runs;
+    for (const [name, message] of kube.messages) again.kube.messages.set(name, message);
+    await again.line.tick();
+    expect(await inbox()).toHaveLength(3);
+  });
+
+  it('sends a failed journey under a fixed class on every route when its Job’s words are lost', async () => {
+    const { line: it, kube } = await underWay();
+    kube.messages.set('gone.journeys.1', 'Error: Chromium crashed');
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true });
+    kube.runs = [failedRun('gone.journeys.1')];
+    await it.tick();
+    const journeys = (await inbox()).find((row) => row.signal.check === 'journeys');
+    expect(journeys?.fingerprint).toBe(`* ${JOURNEY_FALLBACK}`);
+  });
+
+  it('sends nothing for Martin’s abort, which terminates the runs and fails none', async () => {
+    const { line: it, kube, carried } = await underWay();
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true });
+    kube.runs = [
+      run({
+        created: new Date(now).toISOString(),
+        completed: new Date(now + 60_000).toISOString(),
+        phase: 'Successful',
+        message: 'Run Terminated',
+        terminate: true,
+      }),
+    ];
+    await it.tick();
+    expect(await inbox()).toEqual([]);
+    expect(await typesOf(carried)).toEqual(['release.started by rollouts']);
+  });
+
+  it('waits to send a failed measure until it can read where the canary did worse', async () => {
+    const { line: it, kube } = await underWay();
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true });
+    kube.runs = [failedRun('a.journeys.1')];
+    const down = line({}, { prometheusDown: true });
+    down.github.history = HISTORY;
+    down.kube.rollout = kube.rollout;
+    down.kube.runs = kube.runs;
+    await down.line.tick();
+    expect((await inbox()).map((row) => row.signal.check)).toEqual(['journeys']);
+    await it.tick();
+    expect((await inbox()).map((row) => row.signal.check)).toEqual(['errors', 'journeys', 'latency']);
+  });
+});
+
 describe('a dry run’s release', () => {
   it('releases each merge the dry run made by its word, a while after the merge, and sends it on to Verify', async () => {
     const workItem = await merged(1_000_000_001, 'd'.repeat(40));
@@ -491,6 +665,36 @@ describe('Verify on the line', () => {
     expect(github.acts.filter((a) => a.action === 'closeIssue')).toEqual([]);
 
     expect(github.acts.filter((a) => a.action === 'closeIssue')).toEqual([]);
+  });
+
+  it('closes a canary’s ticket as verified once a release carrying its fix promotes with the failed measure passing', async () => {
+    const workItem = await merged(30, FIX_3, 'canary');
+    const release = 'f00dfeed01';
+    const measures = [
+      { name: 'errors', phase: 'successful' as const, value: -0.001, limit: 0.01 },
+      { name: 'latency', phase: 'successful' as const, value: -0.09, limit: 0 },
+    ];
+    const stepped = {
+      release,
+      version: commitOf(CANARY),
+      weight: 50,
+      analysis: { phase: 'successful' as const, requests: 230, measures },
+      dryRun: false,
+    };
+    await events.append([event(null, 'canary.stepped', stepped, 'rollouts')]);
+    await promote(workItem, release);
+    const { line: it, github } = line({ release: null });
+    await pass(it);
+    await pass(it);
+    const [verified] = await payloads(workItem, 'verification.finished');
+    expect(verified).toMatchObject({
+      outcome: 'cleared',
+      sense: 'canary',
+      check: 'latency',
+      evidence: { kind: 'canary', release, measure: measures[1] },
+    });
+    expect((await types(workItem)).slice(-2)).toEqual(['verification.finished', 'work-item.closed']);
+    expect(github.acts.filter((a) => a.action === 'closeIssue')).toHaveLength(1);
   });
 
   it('holds for Martin when a second fix’s release leaves the signal persisting, and keeps the issue open', async () => {

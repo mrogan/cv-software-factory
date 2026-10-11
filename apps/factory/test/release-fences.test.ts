@@ -63,7 +63,7 @@ describe('stopping a release is Martin’s (make stop-the-line)', () => {
 });
 
 describe('the line’s watch of a release', () => {
-  it('may get, list and watch the app’s Rollout and its AnalysisRuns, and nothing else in the app’s namespace', async () => {
+  it('may read the app’s Rollout, its AnalysisRuns and the journeys’ pods, and nothing else in the app’s namespace', async () => {
     const all = await manifests();
     const line = all.filter(({ manifest }) =>
       manifest.subjects?.some((s) => s.kind === 'ServiceAccount' && s.name === 'line' && s.namespace === 'factory'),
@@ -80,8 +80,10 @@ describe('the line’s watch of a release', () => {
         manifest.metadata?.namespace === 'website' &&
         manifest.metadata?.name === 'line-reads-release',
     );
+    // Pods to list, for a journeys Job's termination message: not their logs, nor any Job, Secret or other kind.
     expect(role?.manifest.rules).toEqual([
       { apiGroups: ['argoproj.io'], resources: ['rollouts', 'analysisruns'], verbs: READ },
+      { apiGroups: [''], resources: ['pods'], verbs: ['list'] },
     ]);
   });
 });

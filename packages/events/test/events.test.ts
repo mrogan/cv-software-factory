@@ -83,6 +83,7 @@ describe('validation', () => {
     const verified = {
       ...started,
       type: 'verification.finished',
+      version: 3,
       actor: 'factory',
       payload: { outcome: 'cleared', sense: 'probe', check: 'search', against: 'v0.9.3', pages: [], dryRun: false },
     };
@@ -390,7 +391,7 @@ describe('upcasting the real catalogue', () => {
       event: { version: 2, payload: opened.payload },
     });
     expect(upcast({ type: 'signal.received', version: 1, payload: signal.payload })).toMatchObject({
-      event: { version: 2, payload: signal.payload },
+      event: { version: 3, payload: signal.payload },
     });
     const finding = { kind: 'planner-finding', title: 'A finding on /about', sample: false };
     expect(validate({ ...opened, actor: 'planner', payload: finding })).toEqual({ ok: true });
@@ -562,7 +563,7 @@ describe('upcasting the real catalogue', () => {
   it('reads version 1 of verification.finished as a verification that ran, by a sense it never named', () => {
     const v1 = { outcome: 'cleared', check: 'Every page', against: 'v0.9.0', pages: [] };
     const read = upcast({ type: 'verification.finished', version: 1, payload: v1 });
-    expect(read).toMatchObject({ event: { version: 2, payload: { ...v1, dryRun: false } } });
+    expect(read).toMatchObject({ event: { version: 3, payload: { ...v1, dryRun: false } } });
     expect(read.ok && validate(asNew(read.event))).toEqual({ ok: true });
   });
 

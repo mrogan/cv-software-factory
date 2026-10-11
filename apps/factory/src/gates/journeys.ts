@@ -8,7 +8,8 @@
  *
  * The base and the change are observed at once, and only what failed on the change is observed again.
  */
-import type { Evidence } from '@software-factory/events';
+import { type Evidence, SYMPTOM_CLASSES, type SymptomClass } from '@software-factory/events';
+import { z } from 'zod';
 import { cell } from './report.ts';
 
 /** One check's result in one pass. */
@@ -17,6 +18,8 @@ export interface Seen {
   check: string;
   route: string;
   failed: boolean;
+  /** What a failed check called what it saw. */
+  symptom?: SymptomClass;
   /** Why the check could not tell, when it could not. */
   trouble?: string;
   message?: string;
@@ -101,4 +104,65 @@ export function summary(c: Comparison): string {
   if (c.unchanged.length)
     parts.push(`<details><summary>${c.unchanged.length} fail on both</summary>\n\n${table(c.unchanged)}\n\n</details>`);
   return parts.join('\n\n');
+}
+
+/**
+ * The comparison's regressions as one line of JSON, for whoever ran the gate to read back: the canary's analysis runs
+ * it as a Job, and the line reads what it wrote from its container's termination message, which Kubernetes keeps to
+ * 4 KiB. So it says only what a signal needs of each check, its words cut short, as many as fit, and how many more
+ * there were.
+ */
+export function comparisonMessage(c: Comparison, maxBytes = MESSAGE_BYTES): string {
+  const all = c.regressions.slice(0, MOST_REGRESSIONS).map((s) => ({
+    sense: s.sense,
+    check: s.check.slice(0, 80),
+    route: s.route,
+    ...(s.symptom ? { symptom: s.symptom } : {}),
+    ...((s.message ?? s.trouble) ? { message: (s.message ?? s.trouble ?? '').trim().slice(0, 300) } : {}),
+  }));
+  for (let n = all.length; n >= 0; n--) {
+    const more = c.regressions.length - n;
+    const text = JSON.stringify({ regressions: all.slice(0, n), ...(more ? { more } : {}) });
+    if (Buffer.byteLength(text) <= maxBytes) return text;
+  }
+  return JSON.stringify({ regressions: [], more: c.regressions.length });
+}
+
+/** Kubernetes keeps 4096 bytes of a container's termination message. */
+const MESSAGE_BYTES = 4096;
+/** The most regressions a message names: as many as a signal's evidence keeps. */
+const MOST_REGRESSIONS = 8;
+
+const regression = z.object({
+  sense: z.enum(['probe', 'crawler']),
+  check: z.string().trim().min(1).max(80),
+  route: z.union([
+    z
+      .string()
+      .regex(/^\/[^\s]*$/)
+      .max(200),
+    z.literal('*'),
+  ]),
+  symptom: z.enum(SYMPTOM_CLASSES).optional(),
+  message: z.string().trim().min(1).max(300).optional(),
+});
+export type Regression = z.infer<typeof regression>;
+
+const message = z.object({
+  regressions: z.array(regression).max(MOST_REGRESSIONS),
+  more: z.number().int().min(0).optional(),
+});
+
+/**
+ * The regressions a comparison message names, or undefined for one that is missing, is not JSON, or does not say what
+ * `comparisonMessage` writes: the gate crashed before writing it, or something else wrote there.
+ */
+export function regressionsIn(text: string | undefined): Regression[] | undefined {
+  if (!text?.trim()) return undefined;
+  try {
+    const parsed = message.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data.regressions : undefined;
+  } catch {
+    return undefined;
+  }
 }

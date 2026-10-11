@@ -38,6 +38,7 @@ const SENSE: Record<Signal['sense'], string> = {
   crawler: 'The crawler',
   metrics: 'The metrics',
   logs: 'The log watcher',
+  canary: 'The canary',
   report: 'A report',
   planner: 'The planner',
 };
@@ -83,6 +84,28 @@ export function evidenceLines(evidence: Evidence): string[] {
       return [
         `${count(evidence.requests, 'request')} to ${routeOf(evidence.route)} logged ${levels.join(', ') || 'nothing'}`,
         ...(trace ? [`  trace ${trace.id}: ${trace.spans.length} spans, the longest ${longest} ms`] : []),
+      ];
+    }
+    case 'canary': {
+      const { measure, series, routes, checks } = evidence;
+      const against = measure.limit === null ? '' : ` against a limit of ${measure.limit}`;
+      const value = measure.value === null ? '' : `, measured ${measure.value}${against}`;
+      const lately = (values: readonly (number | null)[]) => values.filter((v) => v !== null).at(-1) ?? 'nothing';
+      return [
+        `the canary's analysis of version ${evidence.version} against ${evidence.against}: ${measure.name} ${measure.phase}${value}${measure.message ? ` (${measure.message})` : ''}`,
+        ...(series
+          ? [
+              `  ${series.label} in ${series.unit} when it failed: the canary ${lately(series.canary.slice(0, series.at + 1))}, the baseline ${lately(series.baseline.slice(0, series.at + 1))}`,
+            ]
+          : []),
+        ...(routes?.worse.map(
+          (r) =>
+            `  worse on ${routeOf(r.route)}: ${r.canary} ${routes.unit} on the canary, ${r.baseline} on the baseline`,
+        ) ?? []),
+        ...(checks?.map(
+          (c) =>
+            `  ${c.sense} check "${c.check}" on ${c.route === '*' ? 'every page' : routeOf(c.route)} passed on the baseline and failed on the canary${c.message ? `: ${c.message}` : ''}`,
+        ) ?? []),
       ];
     }
   }

@@ -74,6 +74,7 @@ const SENSE_NAMES: Record<Exclude<Sense, 'report'>, string> = {
   crawler: 'The crawler',
   metrics: 'The metrics',
   logs: 'The log watcher',
+  canary: 'The canary',
 };
 
 /** A ticket's title, from what was seen and where. */
@@ -155,10 +156,14 @@ export function senseTicket(signal: InboxSignal, signalId: string, workItem: str
     fingerprint,
     traces: tracesOf(signal),
   });
+  const how =
+    signal.sense === 'canary'
+      ? `The canary’s analysis found it on ${where(signal.route)} in version ${signal.version}, which did worse on ${signal.check} than the version it would have replaced, and the release rolled back.`
+      : `${sense} found it on ${where(signal.route)} in version ${signal.version}, on two checks in a row: ${signal.check}.`;
   return writer.add('work-item.summarised', 'triage', 'Summary written', {
     title,
     description: `${sense} found it: ${signal.check}. Triage opened a ticket, ${category} and ${severity}, which waits for the planner.`,
-    story: `${sense} found it on ${where(signal.route)} in version ${signal.version}, on two checks in a row: ${signal.check}. A sense knows what it saw, so the ticket’s category and severity come from the policy’s table for the symptom, not from a model. Triage opened ticket #${workItem} with the evidence the sense captured. Nothing has been fixed yet: the ticket waits at Plan.`,
+    story: `${how} A sense knows what it saw, so the ticket’s category and severity come from the policy’s table for the symptom, not from a model. Triage opened ticket #${workItem} with the evidence the sense captured. Nothing has been fixed yet: the ticket waits at Plan.`,
   }).events;
 }
 

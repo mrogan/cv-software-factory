@@ -72,6 +72,21 @@ export function versionQueries(r: Release, hash: string) {
 }
 
 /**
+ * One version's figures on each route the app named, over `seconds` up to the moment asked: its requests, the 5xx
+ * answers among them, and its latency at the policy's percentile, in seconds. A rollback's signal compares them, to
+ * say where the canary did worse (`release/read.ts`).
+ */
+export function routeQueries(r: Release, hash: string, seconds: number) {
+  const window = `[${Math.max(1, Math.round(seconds))}s]`;
+  const of = (extra = '') => `{job="${r.app.metricsJob}", http_route!="", ${HASH}="${hash}"${extra}}`;
+  return {
+    requests: `sum by (http_route) (increase(${REQUESTS}_count${of()}${window}))`,
+    errors: `sum by (http_route) (increase(${REQUESTS}_count${of(', http_response_status_code=~"5.."')}${window}))`,
+    latency: `histogram_quantile(${r.latency.percentile}, sum by (le, http_route) (rate(${REQUESTS}_bucket${of()}${window})))`,
+  };
+}
+
+/**
  * The PromQL behind each measure, for one release policy. Each is written across lines, as the templates show it: a
  * version's figure on a line of its own.
  */
@@ -118,8 +133,12 @@ const LABELS = { 'app.kubernetes.io/name': 'journeys', 'app.kubernetes.io/part-o
 
 /**
  * The journeys gate (`factory gate journeys`), as a Job in the app's namespace: the stable Service is the base and the
- * canary's the change, and the Job fails when a check that passes on the base fails on the change twice.
+ * canary's the change, and the Job fails when a check that passes on the base fails on the change twice. It writes
+ * those checks to its container's termination message, where the line reads them when the journeys fail a release
+ * (`release/read.ts`). Only what the gate writes there: a gate that crashed before writing leaves it empty, rather
+ * than its logs, which the line would have no use for.
  */
+export const JOURNEYS_MESSAGE = '/dev/termination-log';
 function journeys(r: Release) {
   return {
     metadata: { labels: LABELS },
@@ -146,6 +165,9 @@ function journeys(r: Release) {
               // Pinned by digest with the factory's images (kustomize `images:`).
               image: 'factory-browser',
               args: ['src/cli.ts', 'gate', 'journeys', '--base', r.app.stable, '--change', r.app.canary],
+              env: [{ name: 'COMPARISON_FILE', value: JOURNEYS_MESSAGE }],
+              terminationMessagePath: JOURNEYS_MESSAGE,
+              terminationMessagePolicy: 'File',
               resources: { requests: { cpu: '200m', memory: '512Mi' }, limits: { memory: '2Gi' } },
               securityContext: {
                 allowPrivilegeEscalation: false,

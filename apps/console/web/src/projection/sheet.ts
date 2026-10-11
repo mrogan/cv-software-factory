@@ -157,6 +157,7 @@ const SENSE: Record<SignalSource, string> = {
   crawler: 'Crawler',
   metrics: 'Metrics',
   logs: 'Logs',
+  canary: 'Canary',
   report: 'Visitor report',
   planner: 'Planner',
 };
@@ -443,6 +444,7 @@ const SENSE_ADDED: Record<string, (evidence: NonNullable<PayloadOf<'signal.recei
     console: (e) => (e.kind === 'console' ? `${e.messages.length} console messages` : ''),
     accessibility: (e) =>
       e.kind === 'accessibility' ? `${e.findings.reduce((n, f) => n + f.elements.length, 0)} elements` : '',
+    canary: (e) => (e.kind === 'canary' ? `the analysis of its ${e.measure.name}` : ''),
   };
 
 /** What a sense's signal added to the ticket, in a few words. */
@@ -471,7 +473,8 @@ function seenBy(item: ItemState): Sighting[] {
       added: signal === opener ? undefined : added(signal),
     }),
   );
-  const unseen = SENSES.filter((sense) => !first.has(sense)).map(
+  // The canary sees only a release doing worse than the version before it, so it is no sense a ticket waits on.
+  const unseen = SENSES.filter((sense) => sense !== 'canary' && !first.has(sense)).map(
     (sense): Sighting => ({ sense, check: undefined, at: undefined, opened: false, added: undefined }),
   );
   return [...seen, ...unseen];
