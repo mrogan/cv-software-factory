@@ -132,17 +132,18 @@ A failure that a mechanism hands to a human (the test-integrity gate holding a p
 
 An item whose last step is `ticket.opened` has left Triage and sits at Plan, waiting for the planner, until something happens there; another sense's evidence or a report that repeats the ticket does not take it back up the line. At a spend cap (`spend.capped`, until `spend.cleared`), Triage uses the blocked drawing with its own word, **capped**: it takes no reports until the cap resets, and the senses' tickets still open, because they call no model.
 
-The figure in each caption counts the items in the stage (`2 PRs`), gives a canary's share of traffic at Release (`25%`), says how many are held (a mechanism stopped them) or waiting (the line asked Martin something) when the station is blocked or its beacon says it needs you, counts the tickets queued for an idle stage (`7 waiting`), gives a cap's reset time at a capped Triage (`until 01:00`), and otherwise counts what left the stage today (`3 today`), or says `none`.
+The figure in each caption counts the items in the stage (`2 PRs`), gives a canary's share of traffic at Release (`25%`, a release with no work item's too), says how many are held (a mechanism stopped them) or waiting (the line asked Martin something) when the station is blocked or its beacon says it needs you, counts the tickets queued for an idle stage (`7 waiting`), gives a cap's reset time at a capped Triage (`until 01:00`), and otherwise counts what left the stage today (`3 today`), or says `none`.
 
 ### On the line
 
 - Stations sit edge to edge; the rollers at each seam hide the belt joints.
 - Parcels (14 × 12, `surface` fill, `text` stroke) ride on the belt top (`--station-belt-top`, 186px), pile up in front of a station that needs you (with one running through it as well, while it works on another), and queue, up to three, in front of an idle station with tickets waiting for it. They are decorative; the counts live in the captions and the stage panel.
-- **Returns** are drawn as a dashed `signal` arc over the stations, from the sender back to the receiver, with a one-line label in a small pill (return icon, `t-data`). There are two kinds: a stage sending work back (Review → Build, Gates → Build), and Verify feeding new tickets from production back to Sense.
+- **Returns** are drawn as a dashed `signal` arc over the stations, from the sender back to the receiver, with a one-line label in a small pill (return icon, `t-data`). There are two kinds: a stage sending work back (Review → Build, Gates → Build, Verify → Plan when a signal persists), and Verify feeding new tickets from production back to Sense.
+- **A return stays only while it is true.** It is drawn until its work item moves on: its next event that moves it to a stage, a hold, or its close. After that it is a row in the sender's panel, and no longer an arc.
 - **One return at a time.** Returns queue newest first and show for about five seconds each, fading in and out. While its arc shows, the sender's station and caption switch to `returning`. With motion off, the newest return holds still. Under Stop the line, none show. Returns are fleeting, so each one is also written as a row in the sender's stage panel.
 - **The whole station is the hit target** (a `<button>` wrapping station and caption). Hover lifts the machine 3px through `::part(machine)`; the legs and belt never move, so the line stays continuous. When the stage panel is open, the stage name gets a 2px underline.
 - **Entry points sit on the stage they feed.** Admin sees a round `signal` + on Plan (request an improvement), repeated as a button in the Plan panel. Triage's panel lists what it takes work from: the six senses as rows (the probes, the crawler, metrics and logs watch the stable version; reports are what visitors send; the canary is a release's analysis, which signals when it rolls a release back), each with the signals that became events and the tickets they opened, counted from events alone (so live and replay agree), reports broken down by where triage sent them, and a line saying a sense's repeats are counted by the inbox, not here. A zero is written as `0`, in `text-muted`. Sources that aren't built for the demo (Slack, Linear or Jira) are shown with a dashed border and "not in the demo".
-- **A stage panel lists its items newest first**, by work-item number: those in the stage now, then those that left it today. A spend cap that holds, or cleared today, is a row in Triage's panel, written as returns are, so anyone who missed it can still see it happened.
+- **A stage panel lists its items newest first**, by work-item number: those in the stage now, then those that left it today. A work item is one row, with its state now; an earlier state it went through today is kept in the row, struck through ("~~sent back~~ · verified"), and read to a screen reader as "earlier". A spend cap that holds, or cleared today, is a row in Triage's panel, written as returns are, so anyone who missed it can still see it happened.
 - Under each station: stage name (`t-stage`), a dot and the state word, then the stage's figures and controls. The word is always there, so colour is never the only signal.
 
 ### In the app
@@ -156,7 +157,7 @@ Work items are shown as a **reel**: one card per work item, oldest on the left a
 ### The reel
 
 - **One card in the centre**, its neighbours either side at 90% scale and lower opacity, fading out at the reel's edges. Drag the cards, flick them, use the arrow keys, or drag the **timeline** underneath; release snaps to the nearest card. Clicking a neighbour brings it to the centre; clicking the centre card opens its sheet.
-- **The timeline** has one mark per work item, in its category glyph and outcome tone, a hairline at the start of each day, the version each release left the shop on (a version rolled back is struck through), and a playhead. Under it, one line says when the centre card happened and what version the shop was then.
+- **The timeline** has one mark per work item, in its category glyph and outcome tone, a hairline at the start of each day, the version each release left the shop on (a version rolled back is struck through, and a release with no work item is marked by its version alone, at its time), and a playhead. Under it, one line says when the centre card happened and what version the shop was then.
 - **Play the history** steps a card every 2.5 seconds and ends at now. On first view the reel plays the most recent eight work items once, when it scrolls into view. With motion off it never plays itself, and the cards move without animating.
 - **Needs you** cards (waiting on Martin, or held for a human) flash their outcome dot at `--motion-alarm`, like a station's beacon, and hold it still with its ring when motion is off. They take no edge rule: the picture often carries one already.
 
@@ -179,7 +180,8 @@ The outcomes, each a word and a tone. Work nobody needs to act on is in the quie
 | Held for a human, Needs you | Held for a human, Needs you | `attn`, flashing |
 | In progress | In progress | `signal`, blinking |
 | A ticket waiting for the planner | Waiting for the planner | `text-muted`, hollow |
-| A fix Martin merged, before a release takes it | Merged · waiting for release | `text-muted`, hollow: Martin has done his part, and nothing has verified it, so not green |
+| A fix Martin merged, waiting for the deploy that carries it | Needs you | `attn`, flashing: while the factory is Supervised, the deploy pull request is Martin's to merge |
+| A ticket open again after it was verified | Its outcome now, with an outline REOPENED pill before it | The outcome's own |
 | Closed with no change | Closed · no change | `text-muted` |
 | A report that described nothing wrong | Closed · no ticket | `text-muted` |
 | A report that gave orders to the system | Quarantined | `text-muted`: a guardrail worked, and nobody needs to act |
@@ -195,7 +197,10 @@ The picture is evidence, so it is always something the factory captured, never a
 | Performance | The metric over time, one series, with the objective dashed and the release marked; the headline before → after above it; a strip of page thumbnails saying no page changed |
 | Dependency update | Package logo and the version change; the screenshot strip below |
 | Security | Package logo and version change, and the image scan's findings before and after by severity |
-| Rollback | Canary against baseline on one axis, the rollback marked; a line saying how much traffic never saw it |
+| Rollback | Canary against baseline on one axis, the rollback marked; a line saying how much traffic never saw it. With no series (rolled back before a step was measured), the routes where it did worse, as the canary's ticket shows them |
+| A canary's ticket | "Rolled back at 25% · 3 min in", the routes where the canary did worse as paired bars (canary `attn`, baseline faint) with both figures, or the journeys' checks that failed on it; the analysis's words on the station face; how much traffic never saw it |
+| Merged, waiting for Martin's deploy | "Merged · waiting for Martin's deploy" in the `attn`-ruled panel: the pull request and its title in mono, a tick for the merge, hollow rings for the deploy pull request and the canary to come, and that the deploy is Martin's while the factory is Supervised |
+| A sense's ticket, after a release | A probe's or crawler's: its own page on a wipe, SEEN against CANARY while the canary runs, SEEN against FIXED once verified (BEFORE against FIXED when the signal had no shot). The logs' or metrics': their own picture at signal and at verification, no wipe |
 | Red-team attack | The gate's or policy's own refusal, verbatim, on the station face colour; "the site never changed" |
 | Not a defect, or a report's ticket | The page the report was about, and Jev's typed answers with their probabilities: what kind of report, how badly it hurts, and whether it gives orders to a system |
 | Observability | Log lines before and after, and the trace they now link to |
@@ -222,7 +227,7 @@ Package logos come from [theSVG](https://github.com/glincker/thesvg) (MIT; the m
 ### The sheet
 
 - Rises from the bottom to 90% of the viewport height (94% on a phone) over a `scrim`, with `--shadow-popover` and 14px top corners. Escape, the close button or the scrim close it, and focus returns to where it was. Previous and next step between work items, and the reel follows behind.
-- **Main column:** a paragraph saying what happened, and who wrote it once the describer has; for a visitor's report, the report (below); **How it went**, the stage scrubber with the site's screenshot at each step; **Evidence**, the problem's own evidence at full size (while the card shows what Martin is asked to decide, the sheet still shows what was wrong), the screenshots captured at signal, canary and rollout, and every page compared with the version before; **The spec** (or **The change**, where there is no spec), **Rounds** and **Review** (below).
+- **Main column:** a paragraph saying what happened, and who wrote it once the describer has; for a visitor's report, the report (below); **How it went**, the stage scrubber with the site's screenshot at each step; **Evidence**, the problem's own evidence at full size (while the card shows what Martin is asked to decide, the sheet still shows what was wrong) and the screenshots captured at signal, canary and rollout; **Release and Verify**, each release that carried it and every page compared with the version before (see Shipping); **The spec** (or **The change**, where there is no spec), **Rounds** and **Review** (below).
 - **Side column:** the facts (including "Code written by humans: 0 lines"), **Agents and models** (each agent's model, settings, steps, calls, tokens and cost, with a total), and **Gates** (each check, its result and time).
 - Each evidence block ends with a one-line **Source**: where the factory got it.
 
@@ -270,11 +275,13 @@ An **MR monogram**: Martin Rogan's initials in Instrument Serif, with the R set 
 
 One page, three widths. The console is designed to be read from top to bottom: *is it running → what is happening → what does it need from me*.
 
-| Width | The line | The reel and the sheet | Bottom row |
-|---|---|---|---|
-| ≥ 1180 | 8 stations in a row, scaled to fit; captions show state and one figure | Cards up to 620px with both neighbours showing; the sheet in two columns | Canary, Needs you (or Try it yourself), Controls |
-| 721–1179 | Same row, smaller; captions show state only | The same reel; the sheet in one column, its side column as two cards side by side | Canary full width, then two columns |
-| ≤ 720 | **Two rows of four stations**, reading left to right like text; the current return becomes one line of text underneath; tapping a station opens a bottom sheet | Cards the width of the screen with neighbours just showing; the timeline shows only the current version; the sheet at 94% height, one column, its scrubber showing dots and the current label | One column |
+The Canary panel sits full width directly under the line, at every width: it is the Release station opened up. The bottom row, Needs you (or Try it yourself) and Controls, comes with milestone 8, under the reel.
+
+| Width | The line | The Canary panel | The reel and the sheet | Bottom row |
+|---|---|---|---|---|
+| ≥ 1180 | 8 stations in a row, scaled to fit; captions show state and one figure | The steps on the left, the measures on the right | Cards up to 620px with both neighbours showing; the sheet in two columns | Needs you (or Try it yourself), Controls |
+| 721–1179 | Same row, smaller; captions show state only | The same, narrower | The same reel; the sheet in one column, its side column as two cards side by side | The same |
+| ≤ 720 | **Two rows of four stations**, reading left to right like text; the current return becomes one line of text underneath; tapping a station opens a bottom sheet | One column: the steps, then the measures, each baseline under its canary figure | Cards the width of the screen with neighbours just showing; the timeline shows only the current version; the sheet at 94% height, one column, its scrubber showing dots and the current label | One column |
 
 The phone keeps the stations: they are the thing people remember, and at a quarter of the width the face, hatch and beacon still read. What goes on the phone is detail: figures, the parcels on the belt, and the return arcs.
 
@@ -284,6 +291,7 @@ Each panel does one job:
 
 - **Header:** mark, name, whether the line is running (with the autonomy level), and Stop the line. Autonomy is set in Controls.
 - **Scoreboard:** three figures: found, verified fixed, median time to verified. No totals, false positives or separate "fixed" count: "fixed" and "verified" are too close to earn two places.
+- **Canary:** the release in flight against the version it replaces, step by step, for everyone. It says the canary decides for itself; promote, hold and roll back are admin's, in milestone 8.
 - **Captions under stations:** the name and one line: state word and one figure. Descriptions belong in the stage panel, switches in Controls.
 - **The reel:** every work item, oldest to now. Watching the shop change says more than a list; what waits on Martin is also listed in Needs you.
 - **The sheet:** one work item in full: the stage scrubber and the site at each step, the evidence, the change, the model calls and the gates.
@@ -307,10 +315,76 @@ The states real fixes bring, agreed as a set: a fix's spec and scope, its rounds
 - **The describer:** the story's source line says the describer wrote it, from what; the scrubber has a DESCRIBED chapter; the facts link the pull request on GitHub, where its description lives. A sample's pull request links nowhere.
 - **On the line:** a return's pill names the work item, the round and why ("#1311 · round 2 · 2 blocking"), from what the return records, in the words the line writes in its summary; on a phone the line under the stations names the stages too. Review's panel lists the wait for Martin's merge as "Needs you · waiting for Martin's merge", and a return as "Sent back to Build".
 - **Holds:** each picture follows the cause the hold records (`merge`, `scope`, `tests-first`, `spend`, `review`). A hold with another cause, or whose events lack what its picture shows, keeps the problem's evidence on the card, and its reason says why it waits.
-- **A merge:** the scrubber gets a MERGED chapter; for a fix waiting for a release it is the last, drawn as the hollow waiting ring, and Release counts it as "1 waiting", with a parcel on the belt.
+- **A merge:** the scrubber gets a MERGED chapter; for a fix waiting for Martin's deploy it is the last but one, before the waiting ring, and Release counts it as "1 waiting", with a parcel on the belt.
+
+## Shipping (milestone 6)
+
+The states that shipping brings, agreed as a set: the Canary panel, the scoreboard, the wait for Martin's deploy, each release's steps on the sheet, a rollback and its ticket, Verify and the pages it compared, a return from Verify, a reopened ticket, a dry run, and the scrubber for work that goes round more than once. The mockup draws each of them (`?canary=` and `?score=` show the panel's and the scoreboard's states; its comment lists them), and the console's tests draw them from the samples: in Paper at all three widths, the panel and the sheet's new section in Ink too, and with axe in both themes on a laptop and a phone.
+
+### The Canary panel
+
+The release in flight against the version it would replace, for everyone, full width under the line. It is always there: idle, it is one line.
+
+- **What it is drawn from:** every release event, on a work item or on the line, one release to a `release` id (a release that carries two work items has its events on each, and is drawn once). The panel shows the newest release while it is in flight and for 15 minutes after it ends, the same window as a station's "passed"; then it folds to one line.
+- **Head:** the state as a kicker (a dot and `t-label` caps, in the state's tone); the title in Instrument Serif: the carried work item's title, the first and "and 2 more", or "Carries no work item"; under it "Carries #1302", each number opening its sheet. On the right, in `t-data`: the release's id, the version before and the new one with its commit, and the image's digest with "signed · admitted", from `release.started`.
+- **The steps:** a bar that is the canary's share of the traffic, from 0 to 100%, with a stop at each step's weight. The steps are `release.started`'s (version 3): one per weight the Rollout sets, each with its pause; the final 100% is not listed, so the panel adds it, as "all". Under each stop, the weight and the pause ("3 min", or "waits" for a pause that waits for someone). A step measured passing is an `ok` ring with a tick, a failed one `attn` with a cross, the step being measured a `signal` ring with a dot, and a step to come an empty ring. The bar fills to the canary's weight in the release's tone; a rollback's or a stop's step is a dashed `attn` ring. When a release has no steps recorded (a version 2 event, a release found already live), the steps measured stand in, then 100%.
+- **The measures,** at the latest step measured: a table captioned "At the 25% step · measured 16:44:00", one row each for requests, errors, latency and the journeys, with the canary's figure, the baseline's in `text-muted`, and the verdict. Each measure has its rule in one caption line, in `policy/release.ts`'s terms ("share of 5xx answers · fails more than a point above"). Figures are tabular mono: requests counted, the 5xx share to two decimals, p99 in ms, and the journeys as "24 / 24" only when the step recorded counts; otherwise "—", and the verdict alone. The verdicts: **passed** (`ok`, tick), **failed** (`attn`, cross, and a 2px `attn` rule down the row's left edge), **measuring** (`signal`, ring) and **waiting** (`text-muted`). Before the first step is measured there is no table, and the note says when there will be.
+- **The note,** under the steps, says what happens next in the release's own times: "Measuring the 50% step until 16:47:30. If every measure passes, the canary takes all the traffic then; if one fails, it rolls back on its own."
+- **Last line, for everyone:** "The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything." Promote, hold and roll back are admin's, in milestone 8, and arrive with the bottom row.
+
+| State | Kicker | Tone | The note says |
+|---|---|---|---|
+| In flight | Canary · 50% of traffic | `signal`, blinking dot | when the step is measured, and what happens then |
+| Promoted | Promoted · all traffic | `ok` | when, how long it took, and that Verify now asks each ticket's sense |
+| Rolled back | Rolled back at 25% | `attn`, ringed | when, and how much of the traffic never saw it: "75% of the traffic never saw it: it stayed on v0.9.9" |
+| Stopped with the line | Stopped with the line at 50% | `attn`, ringed | that the version before takes all the traffic, and the release stays stopped until Martin retries it or a new deploy starts another; starting the line does not resume it |
+| A dry run | The same words, then a dashed "Dry run" pill | `text-muted` throughout | that the dry run answers for it: its merges were never made, so nothing shipped and nothing was measured |
+| Idle | "No release in flight", then "The last, v0.9.13, was promoted at 16:47 carrying #1302 · release 3b7e90c1d4" | `text-faint` dot; the last release's word in its own tone | (one line) |
+| No release yet | "No release yet. Each deploy Martin merges goes out here as a canary, beside the version it would replace." | | (one line) |
+
+Yellow stays the Release station's bird. Moving is ink, a measure that passed and a promotion are green, a failure, a rollback and a stop are warm (principles 1 and 2).
+
+- **A rollback:** the measures with the failed row ruled, then the analysis's words, verbatim, on the station face, as a refusal is shown. With no step measured, a sentence says so ("No step was measured: it rolled back 3 min into the 25% step, so the failed measure is the whole story") over a table of the measures `release.rolled-back` failed, each with what the analysis saw against its limit. When the rollback's signal opened a ticket, a line links it: "A rollback is a signal: triage opened #1308 Slow responses in a canary release".
+- **Stopped with the line** is inferred: `line.stopped` after a `release.started` that has no end. Stop the line writes no release event of its own.
+- **A dry run** earns no green and no warmth: its stops and verdicts are `text-muted` ("recorded"), its figures "—", and its image line "no image: nothing shipped". The dashed pill is the console's remark, like Sample.
+- **A release with no work item** (Martin's own commits, a dependency update) is drawn the same, titled "Carries no work item", with one line saying it is on the line, not the reel, unless it rolls back; its rollback's ticket is how it reaches the reel. The Release station counts it in its figure, Release's panel lists it as a row named by its version ("v0.9.10 · A release with no work item · rolled back at 25% · opened #1308"), which opens nothing, and the timeline marks its version.
+- **Widths:** from 721 up, the release's ids sit on the right of the head, the steps and note on the left of the body and the measures on the right. On a phone it is one column; the ids go under the title, each baseline figure goes under its canary figure, and the rules' caption lines are dropped.
+
+### The scoreboard
+
+- Three figures beside the app's name, from the latest `score.updated`: **found**, **verified fixed** (in `ok`, once it is above zero) and **median to verified**, as a duration ("1h 52m"). `t-figure` mono, captions in `t-caption` `text-muted`; the group is named "Scoreboard: seeded and injected defects".
+- Before the first verified fix, the median is "—" in `text-muted`, named "none yet", and verified fixed is a plain 0.
+- **Off:** a `score.updated` that says the scoreboard has no answer key draws "Scoreboard off" in mono `text-muted`, and one line: "This copy of the factory has no answer key, so it counts nothing." No `score.updated` at all (an older store, the replay site) draws nothing.
+- **Samples:** the dashed Sample pill, above the figures.
+- **Phone:** under the name and the line's status, left-aligned, 26px.
+- The figures never name a ticket, and found moves only on the scoreboard's slow cadence; the console shows them as they are and says nothing of either.
+
+### Release and Verify on the line and the cards
+
+- **The wait for Martin's deploy:** a merged work item holds at Release for the deploy pull request that will carry it. It is an approval, so its card says Needs you, flashing, and its Release segment is `attn`. The picture and the sheet's block (below) are the waiting-on-Martin pattern: "Merged · waiting for Martin's deploy", the pull request and its title in mono, a tick for the merge (by Martin, when, its commit) and hollow rings for what comes after ("The next deploy pull request carries it, with its ticket and issue"; "Then a canary against the version before, and Verify"), and "While the factory is Supervised, merging the deploy is Martin's. Everything after it is unattended." The events name no deploy pull request, so none is drawn. While the station works on a canary its beacon says it needs you too ("needs you · 50% · 1 waiting"); its panel's row reads "Needs you · waiting for Martin's deploy". A `release.started` that carries the work item ends the wait.
+- **Verify holds for Martin** when only a visitor's report saw the problem, or when the sense could not tell for a day: Held for a human, the same pattern, "Held at Verify · Martin judges whether it cleared", with the report's page before and after on a wipe, or the sense's last reason in its words.
+- **A persisting signal** sends the work back by itself, like a round, so it is never warm the first time: Verify → Plan is a return like any other ("#1310 · persists · back to Plan"). A second time, the work item holds for Martin, and that is `attn`.
+- **A reopened ticket:** while it is open again (from `work-item.reopened` until it next closes), its card and its sheet's kicker carry an outlined REOPENED pill before the outcome, whose word and tone are its own (In progress, Waiting for the planner). Its version pill says "back on v0.9.11". The sheet's facts gain "Reopened · Sat 15:58 · logs, a new error pattern on / from v0.9.11": the sense, what it saw, and on which version, from the event.
+- **A canary's ticket** comes from a rollback, so its card's picture is the rollback's: "Rolled back at 25% · 3 min in", a headline ("v0.9.10 was slower than v0.9.9"), the routes where the canary did worse, worst first, up to four on a card, as paired bars with both figures; or, for the journeys, each check that passed on the baseline and failed on the canary. Then the analysis's words on the station face, and how much of the traffic never saw it. With a series, the series' chart takes the routes' place on the card, and the routes go to the sheet; without one, a line says there is no series to draw. Its version pill says "seen on" the version that rolled back.
+- **The wipe at signal, canary and rollout:** for a probe's or crawler's ticket, the sides come from the pictures taken for it: its own page when the sense saw it (SEEN, `attn` dot), on the canary (CANARY, `signal` dot) and after full rollout (FIXED, `ok` dot), each tag with its version. The card wipes SEEN against CANARY while the canary runs, and SEEN against FIXED once verified; with no shot at the signal, BEFORE (the version before) against FIXED. A ticket from the logs or the metrics keeps its own picture, at signal and at verification: a page shows nothing of a log line.
+
+### Release and Verify on the sheet
+
+- **Evidence** keeps the problem's evidence and the three captures in a strip, each tagged as on the wipe. Tags inside a small picture never drop below 9px.
+- **Release and Verify** is a section of its own, after Evidence. One block for each release that carried the work item, newest first; the older ones are folded to their head, with "Show this release". A block:
+  - its head: "Release 6c9894bdfd · Sat 12:40" and the state word, as on the panel;
+  - one `t-data` line: the version before and the new one, the commit, the digest, signed, admitted, and "with #1301" when it carried other work items;
+  - a table, one row per measured step: the step, when it was measured, requests, errors and p99, each the canary's figure over the baseline's in `text-muted`, errors and latency with their verdict's glyph, and the journeys as counts or the verdict; "No step was measured" when there were none. On a phone the measured time and requests go;
+  - how it ended: "Promoted at 12:47:28, 7 min after it started", or "Rolled back at 25% at 14:29:56", the share of traffic that never saw it, and the analysis's words on the station face;
+  - its verification, under a dashed rule.
+- **The verify block:** "Verify · the log watcher · server-error on /" and the outcome: **Cleared** (`ok`, tick), **Persists · back to Plan** (`signal`, cross) or **Persists again · held for Martin** (`attn`, cross); the sense's own words on the station face; when, and on which version; then **every page against the version before**: up to four pages, the intended one first, then any that changed, then the same, each with its share of pixels changed and the word (intended, changed, same, in `text`, `text` and `ok`), and "And 8 more pages, the same to the pixel". Only the ticket's own check is marked, and only on its own page; a sense that looks at no page (the logs, the metrics, the canary) marks nothing, and a line says so.
+- **A tall screenshot** is the whole page, 1280 wide and up to 1600 tall. Its frame stays 16:10 and shows its top; marks are placed in the image's own scale, measured by its width, never as a share of its height. A mark below the frame is not drawn out of place: a dashed `attn` strip at the frame's foot names it ("↓ 1 more mark below the frame"). A shot shorter than the frame is shown whole, from the top, never cropped at the sides.
+- **The wait for Martin's deploy** is the section's one block while it waits, with the `attn` rule.
+- **The scrubber** has one chapter for each release, named by how it ended (PROMOTED, ROLLED BACK, STOPPED, or CANARY while in flight), PERSISTS for a verification that persists (nothing reopens), and REOPENED for a reopening. A pass begins at a return from Verify or a reopening. The first pass and the pass holding the chosen chapter are drawn in full; every other pass is one chapter, PASS 2, drawn as a dashed square, which opens when chosen. Chapters are spread evenly; past twelve, only the chosen one, the first and the last keep their labels. Under the scrubber, the events up to the chosen chapter, the last five of them, with "All events (17)" to show the rest and "Fewer events" to fold them again.
 
 ## Not decided yet
 
 - **Mark sign-off.** The MR monogram is a proposal until Martin approves it.
 - **Social card and README header,** built from the mark once it is approved.
 - **The audit log's table.**
+- **Promote, hold and roll back on the Canary panel,** and the bottom row they come with (milestone 8).

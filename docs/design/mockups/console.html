@@ -9,6 +9,9 @@
   Console mockup. Plain HTML, CSS and JS on top of the design system in ../system/ (read its README).
   Visual and behavioural reference for apps/console: copy the structure and rules, not the code.
   Query options: ?mode=visitor  ?theme=ink  ?motion=off  ?item=1288 (start the reel there)  &sheet (and open its sheet)
+  The states shipping brings (README, "Shipping"):
+    ?canary=flight (default) | line (no work item) | promoted | rolledback | early (rolled back before a step) | stopped | dry | idle | none
+    ?score=on (default) | first (nothing verified yet) | off (no answer key) | sample | none (no score.updated at all)
   The shop's screenshots are drawn in HTML here; in the app they are Playwright captures from the event store.
   Package logos are from theSVG (MIT), inlined so the page makes no third-party requests for them.
 -->
@@ -207,6 +210,9 @@ button.srow:hover { background: var(--surface); }
 .prog i.x, .prog i.w { background: var(--attn); }
 .prog i.s { background: transparent; border: 1px dashed var(--line-strong); }
 .prog i.n { background: var(--signal); }
+.prog i.q { background: transparent; border: 1px solid var(--text-muted); }
+.dot.hollow { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-muted); }
+.card-top .ends { display: inline-flex; align-items: center; gap: 10px; }
 
 /* ---- Visuals: one frame per card, scaled with container units ------------------------ */
 .vis { position: relative; aspect-ratio: 16 / 10; container-type: inline-size; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
@@ -287,6 +293,11 @@ button.srow:hover { background: var(--surface); }
 .sev .bars { display: flex; flex-direction: column; gap: .5cqw; }
 .sev .bars i { display: block; height: 1.2cqw; border-radius: .6cqw; background: var(--text-faint); min-width: .6cqw; }
 .sev .bars i.after { background: var(--ok); }
+.sev .bars i.canary { background: var(--attn); }
+.sev.routes { grid-template-columns: 14cqw 1fr 13cqw; }
+.vis .waits { display: flex; flex-direction: column; gap: 1.2cqw; font-size: 2cqw; }
+.vis .waits span { display: flex; gap: 1.4cqw; align-items: center; }
+.vis .waits .glyph { width: 2.4cqw; height: 2.4cqw; }
 .sev .bars i.zero { background: transparent; border: .2cqw solid var(--ok-line); width: 1.2cqw; }
 .sev .n { font-family: var(--font-mono); text-align: right; color: var(--text-2); }
 .term { flex: 1; padding: 2.6cqw 3cqw; border-radius: .8cqw; background: var(--station-face); color: var(--station-led-on); font: 1.95cqw/1.6 var(--font-mono); white-space: pre; overflow: hidden; }
@@ -418,23 +429,110 @@ table.models { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .side-card { padding: 18px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-panel); }
 .side-card h3 { margin: 0 0 10px; font: 400 22px/1.1 var(--font-display); }
 
-/* ---- Bottom row --------------------------------------------------------------------- */
-.bottom { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 20px; margin-top: 56px; }
-.canary-steps { display: flex; flex-direction: column; gap: 8px; }
+/* ---- Shipping: the Canary panel, the release blocks and the verify blocks -------------- */
+/* The console's remarks about itself (a sample, a dry run) wear a dashed edge, never the factory's tones. */
+.remark { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px dashed var(--line-strong); border-radius: 999px; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--text-2); white-space: nowrap; }
+.again { display: inline-flex; align-items: center; padding: 2px 9px; border: 1px solid var(--line-strong); border-radius: 999px; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1px; color: var(--text); white-space: nowrap; }
+.word { display: inline-flex; align-items: center; gap: 7px; font: 11px/1.4 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--tone, var(--text-2)); white-space: nowrap; }
+.word.tone-faint { color: var(--text-muted); }
+.linkish { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline 1px var(--line-strong); text-underline-offset: 4px; cursor: pointer; text-align: left; }
+.linkish:hover { text-decoration-color: var(--text); }
+.v { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: var(--tone, var(--text-muted)); }
+.v .glyph { width: 13px; height: 13px; }
+.v.tone-faint { color: var(--text-muted); }
+.words { margin: 0; padding: 10px 12px; border-radius: var(--radius-card); background: var(--station-face); color: var(--station-led-on); font: 12px/1.55 var(--font-mono); overflow-wrap: anywhere; }
+
+.canary-panel { margin-top: 44px; }
+.canary-panel .panel-head { align-items: flex-start; flex-wrap: wrap; }
+.canary-panel .panel-head > div:first-child { flex: 1 1 420px; }
+.canary-panel .kick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 8px; }
+.canary-panel .rel-id { font: 11px/1.5 var(--font-mono); color: var(--text-muted); text-align: right; }
+.canary-panel .rel-id b { font-weight: 400; color: var(--text-2); }
+.carries { margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--text-2); }
+.canary-body { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px 40px; align-items: start; }
+.canary-note { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+/* The steps: the bar is the share of the traffic the canary has, each stop a step of the Rollout. */
+.steps-track { position: relative; height: 66px; margin: 6px 14px 0 4px; }
+.steps-track .rl, .steps-track .fill { position: absolute; left: 0; top: 10px; height: 4px; border-radius: 2px; }
+.steps-track .rl { right: 0; background: var(--line); }
+.steps-track .fill { background: var(--tone, var(--signal)); }
+.steps-track .fill.tone-faint { background: var(--text-muted); }
+.steps-track .origin { position: absolute; left: 0; top: 26px; font: 11px/1 var(--font-mono); color: var(--text-faint); }
+.stop { position: absolute; top: 0; width: 64px; margin-left: -32px; display: flex; flex-direction: column; align-items: center; gap: 5px; font: 12px/1.1 var(--font-mono); color: var(--text-muted); text-align: center; }
+.stop i { width: 24px; height: 24px; border-radius: 12px; border: 1.5px solid var(--line-strong); background: var(--surface); display: grid; place-items: center; color: var(--tone, var(--text-muted)); }
+.stop i .glyph { width: 13px; height: 13px; }
+.stop.done i { border-color: var(--tone, var(--text-muted)); }
+.stop.now i { border-color: var(--signal); box-shadow: 0 0 0 3px var(--signal-wash); }
+.stop.now i::after { content: ""; width: 8px; height: 8px; border-radius: 4px; background: var(--signal); }
+.stop b { font-weight: 400; color: var(--text); }
+.stop small { font-size: 10.5px; }
+.stop.cut i { border-style: dashed; }
+table.measures { width: 100%; border-collapse: collapse; font-size: 13px; }
+.measures caption { text-align: left; padding: 0 0 8px; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); }
+.measures th { text-align: left; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); font-weight: 400; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); }
+.measures td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line); vertical-align: baseline; }
+.measures tr:last-child td { border-bottom: 0; }
+.measures td small { display: block; font-size: 11.5px; color: var(--text-muted); }
+.measures .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.measures .base { color: var(--text-muted); }
+.measures .base-inline { display: none; font-size: 11.5px; color: var(--text-muted); }
+.measures tr.failed td:first-child { box-shadow: inset 2px 0 0 var(--attn); padding-left: 10px; }
+/* Idle: the last release in one line. */
+.canary-panel.idle { flex-direction: row; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; padding: 16px 24px; }
+.canary-panel.idle p { margin: 0; font-size: 13.5px; color: var(--text-2); }
+.canary-panel.idle h2 { font-size: 22px; }
+
+/* The scoreboard's states beside the name. */
+.score .none { color: var(--text-muted); }
+.score-off { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; max-width: 300px; }
+.score-off b { font: 400 15px/1.2 var(--font-mono); color: var(--text-muted); }
+.score-off span { font-size: 12px; color: var(--text-muted); }
+.score-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+
+/* The sheet's Release and Verify section: one block per release, newest first, older ones folded. */
+.rels { display: flex; flex-direction: column; gap: 14px; }
+.rel { padding: 16px 18px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-panel); display: flex; flex-direction: column; gap: 12px; }
+.rel.needs { border-left: var(--stroke-rule) solid var(--attn); border-radius: var(--radius-rule) var(--radius-panel) var(--radius-panel) var(--radius-rule); }
+details.rel > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+details.rel > summary::-webkit-details-marker { display: none; }
+details.rel > summary .more { font: 11px/1 var(--font-mono); color: var(--text-muted); }
+details.rel[open] > summary .more { display: none; }
+details.rel:not([open]) { gap: 0; }
+.rel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 12px; flex-wrap: wrap; }
+.rel-head .label { color: var(--text-2); }
+.rel-facts { margin: 0; font: 11.5px/1.6 var(--font-mono); color: var(--text-muted); }
+.rel-facts b { font-weight: 400; color: var(--text-2); }
+table.steps { width: 100%; border-collapse: collapse; font: 12px/1.35 var(--font-mono); font-variant-numeric: tabular-nums; }
+.steps th { text-align: left; font: 10px/1.4 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); font-weight: 400; padding: 0 10px 6px 0; border-bottom: 1px solid var(--line); }
+.steps td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.steps tr:last-child td { border-bottom: 0; }
+.steps td small { display: block; color: var(--text-muted); font-size: 11px; }
+.steps .v { font-size: 12px; }
+.rel-end { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.verify { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px dashed var(--line-strong); }
+.pages-note { margin: 0; font-size: 12px; color: var(--text-muted); }
+.wait-rows { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.wait-rows li { display: flex; gap: 8px; align-items: baseline; }
+.wait-rows .glyph { width: 14px; height: 14px; flex: none; transform: translateY(2px); }
+/* A tall screenshot keeps the frame's 16:10 and shows its top; a mark below the fold is named at the edge, never drawn out of place. */
+.fold { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 1.2cqw 2cqw; background: linear-gradient(transparent, color-mix(in srgb, var(--surface) 92%, transparent) 45%); font: max(9px, 2.6cqw)/1 var(--font-mono); color: var(--attn); text-align: center; border-top: max(1px, .3cqw) dashed var(--attn-line); }
+.regress .changed, .regress .intended { color: var(--text) !important; }
+/* Type inside a small picture never drops below 9px. */
+.captures .wtag { font-size: 9px; padding: 3px 6px; left: 6px; bottom: 6px; border-radius: 4px; }
+.captures .wtag .dot { width: 6px; height: 6px; }
+/* The scrubber: a pass after the first is one chapter until chosen; the list shows a window of events. */
+.ch.pass i { width: 14px; height: 14px; margin-top: 15px; border-radius: 4px; border-style: dashed; }
+.ch.crowd span { display: none; }
+.ch.crowd.here span, .ch.crowd.end span, .ch.crowd.first span { display: block; }
+.all-events { align-self: flex-start; margin-top: 4px; }
+
+/* ---- Bottom row (milestone 8) ------------------------------------------------------- */
+.bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 56px; }
 .bar { position: relative; height: 6px; border-radius: 3px; background: var(--line); }
 .bar i { position: absolute; left: 0; top: 0; height: 6px; border-radius: 3px; background: var(--ok); }
 .bar.ink i { background: var(--signal); }
-.ticks { display: flex; justify-content: space-between; font: 12px/1 var(--font-mono); color: var(--text-muted); }
-.ticks b { font-weight: 400; color: var(--text); }
-table.signals { width: 100%; border-collapse: collapse; font-size: 13px; }
-.signals th { text-align: left; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); font-weight: 400; padding: 0 0 8px; border-bottom: 1px solid var(--line); }
-.signals td { padding: 10px 0; border-bottom: 1px solid var(--line); }
-.signals tr:last-child td { border-bottom: 0; }
-.signals td.mono { font-size: 13px; }
-.signals .ok { color: var(--ok); }
 .actions { display: flex; gap: 10px; margin-top: auto; flex-wrap: wrap; }
 .actions .btn.grow { flex: 1; }
-.check-pill { padding: 5px 10px; border: 1px solid var(--ok-line); border-radius: 999px; font: 12px/1.3 var(--font-mono); color: var(--ok); white-space: nowrap; }
 .need { display: flex; flex-direction: column; gap: 10px; padding: 16px 16px 16px 18px; background: var(--raised); border: 1px solid var(--line); border-left: var(--stroke-rule) solid var(--attn); border-radius: var(--radius-rule) var(--radius-card) var(--radius-card) var(--radius-rule); }
 .need .kind { font: 11px/1.4 var(--font-mono); letter-spacing: .8px; color: var(--attn); }
 .need .kind span { color: var(--text-muted); letter-spacing: 0; margin-left: 6px; font-family: var(--font-sans); font-size: 12px; }
@@ -465,8 +563,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
 
 /* ---- Laptop and tablet -------------------------------------------------------------- */
 @media (max-width: 1180px) {
-  .bottom { grid-template-columns: 1fr 1fr; }
-  .bottom .canary { grid-column: 1 / -1; }
+  .canary-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 20px 28px; }
   .stage .name { font-size: 20px; }
   .stage .fig { display: none; }
   .sheet-body { grid-template-columns: 1fr; }
@@ -523,6 +620,16 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   .panel { padding: 18px; }
   .actions .btn { flex: 1; padding: 0 10px; }
   .bottom { grid-template-columns: 1fr; margin-top: 40px; }
+  .canary-panel { margin-top: 32px; }
+  .canary-panel .rel-id { text-align: left; }
+  .canary-body { grid-template-columns: 1fr; }
+  .measures th:nth-child(3), .measures td:nth-child(3) { display: none; }
+  .measures td .base-inline { display: block; }
+  .measures td small { display: none; }
+  .canary-panel.idle { padding: 14px 18px; }
+  .score-off, .score-wrap { align-items: flex-start; text-align: left; }
+  .steps .opt { display: none; }
+  .rel { padding: 14px; }
   .try-grid { grid-template-columns: 1fr; }
 }
 .phone-status { display: none; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
@@ -573,11 +680,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
       <p class="sub">a deliberately broken shop, looked after by agents</p>
     </div>
     <div class="phone-status" id="phone-status"></div>
-    <div class="score" aria-label="Scoreboard: seeded and injected defects">
-      <div><b>14</b><span>found</span></div>
-      <div><b class="ok">11</b><span>verified fixed</span></div>
-      <div><b>19m</b><span>median to verified</span></div>
-    </div>
+    <div class="score-wrap" id="score"></div>
   </section>
 
   <section class="line" aria-label="The line" id="line">
@@ -595,6 +698,9 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
     <p class="ret-note" id="ret-note" aria-hidden="true"></p>
     <div class="stage-panel" id="stage-panel" role="dialog" aria-modal="false" aria-labelledby="stage-title" hidden></div>
   </section>
+
+  <!-- The Canary panel: the Release station opened up, for everyone. Drawn from the release's events (renderCanary). -->
+  <section class="panel canary-panel" id="canary" aria-labelledby="canary-title"></section>
 
   <section class="history" aria-labelledby="history-title">
     <div class="history-head">
@@ -618,35 +724,6 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   </section>
 
   <section class="bottom">
-    <article class="panel canary" aria-labelledby="canary-title">
-      <div class="panel-head">
-        <div style="display: flex; flex-direction: column; gap: 6px">
-          <span class="label" style="color: var(--ok)">Canary in flight · v0.9.9</span>
-          <h2 id="canary-title">Search returns only cats</h2>
-        </div>
-        <span class="check-pill">All checks passing</span>
-      </div>
-      <div class="canary-steps">
-        <div class="bar"><i style="width: 25%"></i></div>
-        <div class="ticks"><span>5%</span><b>25%</b><span>50%</span><span>100%</span></div>
-      </div>
-      <table class="signals">
-        <thead><tr><th>Signal</th><th>Canary</th><th>Baseline</th></tr></thead>
-        <tbody>
-          <tr><td>Error rate</td><td class="mono ok">0.20%</td><td class="mono muted">0.22%</td></tr>
-          <tr><td>p99 latency</td><td class="mono ok">131 ms</td><td class="mono muted">134 ms</td></tr>
-          <tr><td>Synthetic journeys</td><td class="mono ok">24 / 24</td><td class="mono muted">23 / 24</td></tr>
-        </tbody>
-      </table>
-      <p class="help" style="margin-top: auto">Moves to 50% in 6 min while every check keeps passing.</p>
-      <div class="actions admin-only" style="margin-top: 0">
-        <button type="button" class="btn ok grow">Promote to 50%</button>
-        <button type="button" class="btn">Hold</button>
-        <button type="button" class="btn attn-line">Roll back</button>
-      </div>
-      <p class="help visitor-only" hidden>The canary promotes itself while every check keeps passing, and rolls back on its own if one fails. Nobody needs to press anything.</p>
-    </article>
-
     <article class="panel admin-only" aria-labelledby="needs-title">
       <div class="panel-head"><h2 id="needs-title">Needs you</h2><span class="count-attn">2 waiting</span></div>
       <div class="need">
@@ -730,7 +807,7 @@ const LINE = [
   { kind: 'build',   status: 'idle',    fig: 'none' },
   { kind: 'gates',   status: 'blocked', fig: '1 held' },
   { kind: 'review',  status: 'idle',    fig: 'none' },
-  { kind: 'release', status: 'working', fig: '25%' },
+  { kind: 'release', status: 'working', beacon: 'needs-you', fig: '50% · 1 waiting' },
   { kind: 'verify',  status: 'passing', fig: '1 today' },
 ];
 
@@ -744,22 +821,31 @@ const STAGES = {
     sources: [['Sense', true], ['Visitor reports', true], ['Slack', false], ['Linear or Jira', false]], rows: [
     ['#1306', 'A report on “Key, spare”', 'Jev answering triage/v1', '', null, '2m']] },
   plan:    { blurb: 'Specs and questions. Improvements wait here for approval.', add: true, rows: [
+    ['#1312', 'Server errors on /', 'reopened · the planner is at work', '', '1312', '20m'],
+    ['#1310', 'Errors logged on every search', 'sent back from Verify · waiting for the planner', '', '1310', '25m'],
+    ['#1308', 'Slow responses in a canary release', 'waiting for the planner', '', '1308', '2h'],
     ['#1300', 'Sort products by price', 'spec ready · waiting for approval', 'attn', '1300', '50m']] },
   build:   { blurb: 'Coder agents write a failing test first, then the fix.', rows: [] },
   gates:   { blurb: 'Deterministic checks every PR must pass. Always enforced.', rows: [
     ['#1279', 'A PR deletes the failing test', 'held by the test-integrity gate', 'attn', '1279', '1d']] },
   review:  { blurb: 'An agent reviewer reads what passed the gates.', rows: [] },
   release: { blurb: 'Signed images behind a canary that can roll itself back.', rows: [
-    ['#1302', 'Search returns only cats', 'v0.9.9 at 25% · all checks passing', '', '1302', '2m']] },
-  verify:  { blurb: 'Has the original signal cleared in production? New problems it finds go back to Sense.', foot: 'and 6 more verified this week · 2 new tickets fed back to Sense', rows: [
-    ['#1296', 'Prices go negative', 'verified in 16 min', 'ok', '1296', '1h'],
-    ['#1293', 'Home page logs lost their trace', 'verified in 21 min', 'ok', '1293', '18h']] },
+    ['#1314', 'The contact form loses your message', 'Needs you · waiting for Martin’s deploy', 'attn', '1314', '25m'],
+    ['#1302', 'Search returns only cats', 'v0.9.13 · canary at 50% · every measure passed so far', '', '1302', '6m'],
+    // A release with no work item is a row too; it opens nothing, and the Canary panel below has it.
+    ['v0.9.10', 'A release with no work item', 'rolled back at 25% · opened #1308', 'attn', null, '2h']] },
+  // One row per work item: an earlier state it went through today is kept in the row, struck through (#209).
+  verify:  { blurb: 'Has the original signal cleared in production? New problems it finds go back to Sense.', foot: 'and 6 more verified this week', rows: [
+    ['#1312', 'Server errors on /', [['sent back', true], ['verified', true], ['reopened', false]], '', '1312', '20m'],
+    ['#1310', 'Errors logged on every search', [['sent back to Plan · the errors persist', false]], '', '1310', '25m'],
+    ['#1296', 'Prices go negative', 'verified in 23 min', 'ok', '1296', '7h']] },
 };
 
 // Returns: work going back upstream. Shown one at a time, newest first; a sender flips to "sending back" while its arc shows.
+// A return stays drawn only until its work item moves on: a later stage, a hold or its close (#209).
+// #1302's return from Gates is not here: it has since reached Release.
 const RETURNS = [
-  { from: 4, to: 3, text: 'Gates sent #1302 back · 1 check failed', sender: true },
-  { from: 7, to: 0, text: '2 new tickets from production this week' },
+  { from: 7, to: 2, text: '#1310 · persists · back to Plan', sender: true },
 ];
 
 const STAGE_NAME = { sense: 'Sense', triage: 'Triage', plan: 'Plan', build: 'Build', gates: 'Gates', review: 'Review', release: 'Release', verify: 'Verify' };
@@ -848,6 +934,7 @@ const CAT = { improvement: 'Improvement', functional: 'Functional', performance:
 const END = {
   verified: ['Verified', 'ok'], rolledback: ['Rolled back', 'attn'], blocked: ['Held for a human', 'attn', true],
   closed: ['Closed · no change', 'faint'], waiting: ['Needs you', 'attn', true], live: ['In progress', 'signal'],
+  planner: ['Waiting for the planner', 'faint'], deploy: ['Needs you', 'attn', true],
 };
 const STAGES_IN_ORDER = ['Sense', 'Triage', 'Plan', 'Build', 'Gates', 'Review', 'Release', 'Verify'];
 
@@ -885,21 +972,22 @@ const ITEMS = [
     ch: [['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console', 0, 'a'], ['SPEC', 'T+03:10', 'planner', 'Spec: three acceptance criteria, behind a flag', 14, 'a'],
       ['APPROVED', 'T+05:00', 'martin', 'Martin approved the spec', 22, 'a'], ['PR', 'T+14:30', 'coder', 'Tests first, then the change · PR #1273', 44, 'a'],
       ['GATES', 'T+18:10', 'actions', 'All 11 required checks passed', 58, 'a'], ['REVIEW', 'T+19:40', 'reviewer', 'Approved, one suggestion taken', 66, 'a'],
-      ['CANARY', 'T+24:05', 'rollouts', 'v0.9.0 promoted to 100%; flag switched on', 82, 'b'], ['VERIFIED', 'T+31:20', 'probe', 'Acceptance criteria pass in production', 100, 'b']],
+      ['PROMOTED', 'T+24:05', 'rollouts', 'v0.9.0 promoted to 100%; flag switched on', 82, 'b'], ['VERIFIED', 'T+31:20', 'probe', 'Acceptance criteria pass in production', 100, 'b']],
     criteria: [['Given', 'a product with one left, the card says “Only 1 left”'], ['Given', 'a product with more, the card gives the number'], ['Given', 'the flag is off, every card is as before']],
     files: [['src/pages/products.ts', 18, 3], ['src/flags.ts', 9, 0], ['public/site.css', 12, 0], ['test/pages-products.test.ts', 41, 0]],
     regress: { Products: ['4.6%', 'meant'], Home: ['2.1%', 'meant'] },
     models: [['planner', 1.3], ['coder', 1.6], ['reviewer', 1.1]], gates: 'pass' },
 
   { id: '1276', cat: 'dependency', kind: 'Dependency update from Dependabot', end: 'rolledback', title: 'OpenTelemetry SDK 0.230 rolled back by the canary',
-    desc: 'Every gate passed. At 5% of traffic the canary’s p99 latency tripled, and it rolled itself back in four minutes.',
-    lead: 'Dependabot proposed @opentelemetry/sdk-node 0.230.1. Every gate passed and the reviewer approved, and as a dependency change it waited for Martin, who approved it too. At 5% of traffic the canary’s p99 latency climbed to three times the baseline. Argo Rollouts rolled it back on its own and opened a ticket with the traces. Only canary traffic ever saw it.',
+    desc: 'Every gate passed. At 25% of traffic the canary’s p99 latency tripled, and it rolled itself back three and a half minutes in.',
+    lead: 'Dependabot proposed @opentelemetry/sdk-node 0.230.1. Every gate passed and the reviewer approved, and as a dependency change it waited for Martin, who approved it too. At 25% of traffic the canary’s p99 latency climbed to three times the baseline. Argo Rollouts rolled it back on its own, and the line sent the failed measure to triage, which opened a ticket with the series. Only canary traffic ever saw it.',
     ver: ['v0.9.1', 'v0.9.0'], burnt: true, live: 'v0.9.0', pr: '1275', day: 'Fri 2 Oct', time: '08:10', dur: '16 min', found: 'Dependabot', prog: 'ssssoox ',
     vis: { type: 'canary' },
     ch: [['PR', 'T+00:00', 'dependabot', 'Dependabot opened PR #1275: sdk-node 0.222.0 → 0.230.1', 0, null], ['GATES', 'T+03:40', 'actions', 'All 11 required checks passed', 22, null],
       ['REVIEW', 'T+05:10', 'reviewer', 'Approved; dependency change, so it waits for Martin', 34, null], ['APPROVED', 'T+09:00', 'martin', 'Martin approved the merge', 50, null],
-      ['CANARY', 'T+12:30', 'rollouts', 'v0.9.1 signed and admitted; canary at 5%', 70, null], ['ANALYSIS', 'T+15:50', 'rollouts', 'Canary p99 412 ms against 139 ms baseline', 92, null],
-      ['ROLLED BACK', 'T+15:54', 'rollouts', 'Traffic back on v0.9.0; ticket #1277 opened with traces', 100, null]],
+      ['MERGED', 'T+10:10', 'martin', 'Martin merged it, and its deploy', 62, null],
+      ['ROLLED BACK', 'T+15:54', 'rollouts', 'v0.9.1 at 25%: p99 412 ms against 139 ms; traffic back on v0.9.0, ticket #1277 opened', 100, null]],
+    rels: ['r1276'],
     files: [['package.json', 1, 1], ['pnpm-lock.yaml', 64, 58]],
     models: [['reviewer', 0.9]], gates: 'pass' },
 
@@ -920,7 +1008,7 @@ const ITEMS = [
     vis: { type: 'package' },
     ch: [['PR', 'T+00:00', 'dependabot', 'Dependabot opened PR #1281: node 24.21.0 → 24.21.1', 0, null], ['GATES', 'T+04:05', 'actions', 'All checks passed; image scan: no high findings', 24, null],
       ['REVIEW', 'T+05:30', 'reviewer', 'Approved; dependency change, so it waits for Martin', 34, null], ['APPROVED', 'T+08:40', 'martin', 'Martin approved the merge', 46, null],
-      ['CANARY', 'T+15:10', 'rollouts', 'v0.9.2 promoted to 100%', 76, null], ['VERIFIED', 'T+22:00', 'crawler', 'Every page matches v0.9.0 to the pixel', 100, null]],
+      ['PROMOTED', 'T+15:10', 'rollouts', 'v0.9.2 promoted to 100%', 76, null], ['VERIFIED', 'T+22:00', 'crawler', 'Every page matches v0.9.0 to the pixel', 100, null]],
     files: [['Dockerfile', 1, 1], ['mise.toml', 1, 1]],
     models: [['reviewer', 0.6]], gates: 'pass' },
 
@@ -942,7 +1030,7 @@ const ITEMS = [
     ch: [['SIGNAL', 'T+00:00', 'metrics', 'p95 on / at 640 ms against a 300 ms objective', 0, null], ['TICKET', 'T+00:40', 'triage', 'Ticket #1288 with a trace: 560 ms choosing the selection', 8, null],
       ['SPEC', 'T+02:30', 'planner', 'Spec: p95 under 300 ms, page unchanged', 18, null], ['PR', 'T+09:20', 'coder', 'Timing test first, then cached for an hour · PR #1290', 40, null],
       ['GATES', 'T+13:10', 'actions', 'All 11 required checks passed', 55, null], ['REVIEW', 'T+14:30', 'reviewer', 'Approved', 62, null],
-      ['CANARY', 'T+17:40', 'rollouts', 'Canary p95 88 ms against 640 ms baseline', 78, null], ['VERIFIED', 'T+24:10', 'metrics', 'p95 85 ms for 30 minutes; ticket closed', 100, null]],
+      ['PROMOTED', 'T+17:40', 'rollouts', 'v0.9.3 promoted: canary p95 88 ms against 640 ms baseline', 78, null], ['VERIFIED', 'T+24:10', 'metrics', 'p95 85 ms for 30 minutes; ticket closed', 100, null]],
     criteria: [['Given', 'a warm cache, the home page’s p95 is under 300 ms'], ['Given', 'the same week, the selection is the same four products'], ['Given', 'any page, it matches its screenshot from v0.9.2']],
     files: [['src/pages/home.ts', 14, 6], ['src/shop.ts', 22, 2], ['test/pages-home.test.ts', 36, 0]],
     models: [['jev', 1], ['planner', 1.1], ['coder', 1.5], ['reviewer', 1]], gates: 'pass' },
@@ -955,7 +1043,7 @@ const ITEMS = [
     ch: [['SIGNAL', 'T+00:00', 'crawler', 'Keyboard journey: Tab never reaches the filter', 0, 'a'], ['TICKET', 'T+00:50', 'triage', 'Ticket #1291 with a screenshot and focus order', 10, 'a'],
       ['SPEC', 'T+02:20', 'planner', 'Spec: every department reachable and visibly focused', 20, 'a'], ['PR', 'T+08:10', 'coder', 'Failing keyboard test first, then the fix · PR #1292', 44, 'a'],
       ['GATES', 'T+11:40', 'actions', 'All 11 required checks passed', 60, 'a'], ['REVIEW', 'T+12:50', 'reviewer', 'Approved', 68, 'a'],
-      ['CANARY', 'T+15:20', 'rollouts', 'v0.9.4 promoted to 100%', 82, 'b'], ['VERIFIED', 'T+19:05', 'crawler', 'Keyboard journey passes; ticket closed', 100, 'b']],
+      ['PROMOTED', 'T+15:20', 'rollouts', 'v0.9.4 promoted to 100%', 82, 'b'], ['VERIFIED', 'T+19:05', 'crawler', 'Keyboard journey passes; ticket closed', 100, 'b']],
     files: [['src/pages/products.ts', 8, 8], ['public/site.css', 6, 0], ['test/accessibility-fields.test.ts', 24, 0]],
     models: [['jev', 1], ['planner', 0.9], ['coder', 1.1], ['reviewer', 0.9]], gates: 'pass' },
 
@@ -967,23 +1055,26 @@ const ITEMS = [
     ch: [['SIGNAL', 'T+00:00', 'logs', 'Every log line from / is missing its trace id', 0, null], ['TICKET', 'T+00:45', 'triage', 'Ticket #1293 with log samples', 9, null],
       ['SPEC', 'T+02:40', 'planner', 'Spec: every log line on every route carries its trace', 20, null], ['PR', 'T+09:00', 'coder', 'Failing test first, then the fix · PR #1295', 44, null],
       ['GATES', 'T+12:30', 'actions', 'All 11 required checks passed', 58, null], ['REVIEW', 'T+13:40', 'reviewer', 'Approved', 66, null],
-      ['CANARY', 'T+16:50', 'rollouts', 'v0.9.5 promoted to 100%', 82, null], ['VERIFIED', 'T+21:00', 'logs', 'Trace ids on every line for 20 minutes', 100, null]],
+      ['PROMOTED', 'T+16:50', 'rollouts', 'v0.9.5 promoted to 100%', 82, null], ['VERIFIED', 'T+21:00', 'logs', 'Trace ids on every line for 20 minutes', 100, null]],
     files: [['src/shop.ts', 5, 3], ['src/log.ts', 4, 1], ['test/logging.test.ts', 29, 0]],
     models: [['jev', 1], ['planner', 0.8], ['coder', 1], ['reviewer', 0.8]], gates: 'pass' },
 
   { id: '1296', cat: 'functional', kind: 'Injected by a visitor', end: 'verified', title: 'Prices go negative',
-    desc: 'Injected from the menu at 09:02. A probe saw £-2.40 four minutes later; the fix was live and verified sixteen minutes after injection.',
-    lead: 'A visitor chose “Prices go negative” from the Inject a defect menu. The injector sent the change through the normal pipeline, and it went live as v0.9.6. Four minutes later the products journey saw a price of £-2.40. Triage opened a ticket with the screenshot, the planner wrote a spec, and the coder wrote a failing test before the fix. The fix went out as v0.9.7 and was verified sixteen minutes after the injection.',
-    ver: ['v0.9.6', 'v0.9.7'], live: 'v0.9.7', pr: '1298', day: 'Sat 3 Oct', time: '09:02', dur: '16 min', found: 'Probe · products journey', prog: 'oooooooo',
-    vis: { type: 'wipe', at: 50, a: ['BROKEN · v0.9.6', 'attn', () => PAGES.products({ price: (p) => -p, mark: (s) => ['', s === 'candle' ? 'Prices below zero' : ''] })],
+    desc: 'Injected from the menu at 09:02. A probe saw £-2.40 four minutes later; the fix was live and verified twenty-three minutes after injection.',
+    lead: 'A visitor chose “Prices go negative” from the Inject a defect menu. The injector sent the change through the normal pipeline, and it went live as v0.9.6. Four minutes later the products journey saw a price of £-2.40. Triage opened a ticket with the screenshot, the planner wrote a spec, and the coder wrote a failing test before the fix. The fix went out as v0.9.7 through a canary of two steps, and the probe’s own check passed twice on it, twenty-three minutes after the injection.',
+    ver: ['v0.9.6', 'v0.9.7'], live: 'v0.9.7', pr: '1298', day: 'Sat 3 Oct', time: '09:02', dur: '23 min', found: 'Probe · products journey', prog: 'oooooooo',
+    vis: { type: 'wipe', at: 50, a: ['SEEN · v0.9.6', 'attn', () => PAGES.products({ price: (p) => -p, mark: (s) => ['', s === 'candle' ? 'Prices below zero' : ''] })],
       b: ['FIXED · v0.9.7', 'ok', () => PAGES.products({ mark: (s) => ['good', s === 'ladder' ? 'Back above zero' : ''] })] },
     afterProducts: () => PAGES.products(),
     ch: [['INJECT', 'T+00:00', 'visitor', 'A visitor chose “Prices go negative”', 0, 'b'], ['ON SITE', 'T+03:10', 'injector', 'Injected change went live as v0.9.6', 18, 'a'],
       ['SIGNAL', 'T+04:20', 'probe', 'Products journey saw a price of £-2.40', 28, 'a'], ['TICKET', 'T+04:50', 'triage', 'Ticket #1296: functional, severity broken', 35, 'a'],
       ['SPEC', 'T+05:40', 'planner', 'Spec: a price can never be negative', 42, 'a'], ['PR', 'T+08:15', 'coder', 'Failing test first, then the fix · PR #1298', 55, 'a'],
       ['GATES', 'T+11:30', 'actions', 'All 11 required checks passed', 68, 'a'], ['REVIEW', 'T+12:20', 'reviewer', 'Approved', 74, 'a'],
-      ['CANARY', 'T+13:40', 'rollouts', 'v0.9.7 promoted to 100%', 86, 'b'], ['VERIFIED', 'T+16:05', 'probe', 'Every price positive on every page; ticket closed', 100, 'b']],
-    captures: [['Signal', 'T+04:20', 'a'], ['Canary at 25%', 'T+13:30', 'b'], ['Full rollout', 'T+16:05', 'b']],
+      ['MERGED', 'T+13:00', 'martin', 'Martin merged PR #1298, and its deploy', 80, 'a'],
+      ['PROMOTED', 'T+20:40', 'rollouts', 'v0.9.7 signed and admitted; 25% and 50% passed; promoted', 90, 'b'], ['VERIFIED', 'T+23:05', 'probe', 'The products journey passed twice on v0.9.7; ticket closed', 100, 'b']],
+    // The ticket's own page at signal, on the canary and after rollout: the wipe's sides (SEEN, CANARY, FIXED).
+    captures: [['SEEN · v0.9.6', 'At signal · T+04:20', 'a'], ['CANARY · v0.9.7', 'At 25% · T+15:10', 'b'], ['FIXED · v0.9.7', 'After rollout · T+23:05', 'b']],
+    rels: ['r1296'],
     criteria: [['Given', 'any product, its price on every page is above zero'], ['Given', 'a stored price, the page shows it to the penny'], ['Given', 'a negative stored price, the page refuses to render it and logs an error']],
     files: [['src/money.ts', 6, 2], ['test/money.test.ts', 28, 0], ['test/pages-products.test.ts', 12, 0]],
     regress: { Products: ['3.8%', 'meant'], 'A product': ['0.9%', 'meant'] },
@@ -999,20 +1090,131 @@ const ITEMS = [
     criteria: [['Given', 'the products page, choosing “Price, low to high” puts the cheapest first'], ['Given', 'a department is chosen, the sort applies within it'], ['Given', 'the flag is off, the page is unchanged']],
     models: [['planner', 1.4]], gates: 'none' },
 
+  { id: '1312', cat: 'functional', kind: 'Ticket from the logs', end: 'live', reopened: 'Sat 15:58 · logs, a new error pattern on / from v0.9.11', title: 'Server errors on /',
+    desc: 'Verified at the second pass, then the same fingerprint came back from a later release. The ticket, its issue and the work item are open again.',
+    lead: 'The log watcher saw GET / log an error while still answering 200. The first fix shipped as v0.9.8, and Verify found the same lines coming from it, so the work went back to Plan. The second fix shipped as v0.9.9 and Verify cleared it: no such error from v0.9.9 in 30 minutes, over 294 requests. At 15:58 the log watcher saw a new error pattern on / from v0.9.11, the same fingerprint, so the ticket reopened, with its issue, and the planner is at work on a third pass.',
+    ver: ['v0.9.7', 'v0.9.9'], live: 'v0.9.11', pr: '1318', day: 'Sat 3 Oct', time: '11:05', dur: '5 h 41 min so far', found: 'Logs · error pattern on /', prog: 'oon     ',
+    vis: { type: 'logsPair' },
+    logs: { title: 'Log lines from GET /: cleared on v0.9.9, then back on v0.9.11', foot: 'A new pattern with the same fingerprint, so the same ticket: one defect, one ticket.',
+      sides: [['verified · v0.9.9 · 13:17', '<span class="ok">no error like the ticket’s from v0.9.9</span>\n<span class="dim">in 30 minutes, over 294 requests</span>'],
+        ['reopened · v0.9.11 · 15:58', '<span class="dim">15:58:02</span> <span class="x">error</span>  GET /  200  visit counter overflowed\n<span class="dim">15:58:41</span> <span class="x">error</span>  GET /  200  visit counter overflowed']] },
+    ch: [['SIGNAL', 'T+00:00', 'logs', 'GET / logged an error and still answered 200', 0, null], ['TICKET', 'T+00:02', 'triage', 'Ticket #1312: functional, severity broken', 0, null],
+      ['SPEC', 'T+04:10', 'planner', 'Spec: GET / logs no error at any hour', 0, null], ['PR', 'T+12:30', 'coder', 'Failing test first, then the fix · PR #1313', 0, null],
+      ['GATES', 'T+18:40', 'actions', 'All 13 required checks passed', 0, null], ['REVIEW', 'T+21:00', 'reviewer', 'Approved', 0, null],
+      ['MERGED', 'T+24:30', 'martin', 'Martin merged PR #1313, and its deploy', 0, null],
+      ['PROMOTED', 'T+34:30', 'rollouts', 'v0.9.8 signed and admitted; 25% and 50% passed; promoted', 0, null],
+      ['PERSISTS', 'T+1:03:30', 'logs', 'The same lines from v0.9.8; back to Plan for a second pass', 0, null],
+      ['SPEC', 'T+1:05:10', 'planner', 'Spec, second pass: the verification as evidence', 0, null, 2], ['PR', 'T+1:16:00', 'coder', 'Removes the call that logged · PR #1318', 0, null, 2],
+      ['GATES', 'T+1:22:30', 'actions', 'All 13 required checks passed', 0, null, 2], ['REVIEW', 'T+1:25:00', 'reviewer', 'Approved', 0, null, 2],
+      ['MERGED', 'T+1:30:10', 'martin', 'Martin merged PR #1318, and its deploy', 0, null, 2],
+      ['PROMOTED', 'T+1:42:00', 'rollouts', 'v0.9.9 signed and admitted; 25% and 50% passed; promoted', 0, null, 2],
+      ['VERIFIED', 'T+2:12:10', 'logs', 'No error like it from v0.9.9 in 30 minutes, over 294 requests', 0, null, 2],
+      ['REOPENED', 'T+4:53:00', 'logs', 'A new error pattern on / from v0.9.11; ticket and issue reopened', 0, null, 3],
+      ['PLAN', 'T+4:54:10', 'planner', 'The planner is at work on a third pass', 0, null, 3]],
+    criteria: [['Given', 'any hour of the day, GET / logs no error'], ['Given', 'a visit, the page still greets the visitor']],
+    files: [['src/pages/home.ts', 4, 9], ['test/pages-home.test.ts', 31, 0]],
+    rels: ['r1312a', 'r1312b'],
+    models: [['planner', 2.2], ['coder', 2.4], ['reviewer', 2]], gates: 'pass' },
+
+  { id: '1308', cat: 'performance', kind: 'Ticket from the canary', end: 'planner', title: 'Slow responses in a canary release',
+    desc: 'A release with no work item rolled back at 25%: its p99 latency was far above the version before. The rollback is a signal, and this is its ticket.',
+    lead: 'v0.9.10 carried none of the factory’s work: it was Martin’s own commit. Its canary rolled back three minutes into the 25% step, before any step was measured, because latency failed twice against the version before. The line sent triage the failed measure, with the routes where the canary did worse, and triage opened this ticket. It waits for the planner.',
+    ver: null, seen: 'v0.9.10', live: 'v0.9.9', pr: null, day: 'Sat 3 Oct', time: '14:30', dur: '2 h 16 min so far', found: 'The canary · latency', prog: 'ooq     ',
+    vis: { type: 'canaryTicket' },
+    ch: [['SIGNAL', 'T+00:00', 'canary', 'Release v0.9.10 rolled back at 25%: latency failed twice', 0, null], ['TICKET', 'T+00:40', 'triage', 'Ticket #1308: performance, severity degraded', 50, null],
+      ['WAITING', 'T+00:41', 'line', 'Waiting for the planner', 100, null]],
+    models: [], gates: 'none' },
+
+  { id: '1310', cat: 'functional', kind: 'Ticket from the logs', end: 'live', title: 'Errors logged on every search',
+    desc: 'Its fix shipped in v0.9.11, and the log watcher still sees the same error from it. Verify sent the work back to Plan.',
+    lead: 'The log watcher saw every search log an error, though each still answered. The fix merged and went out in v0.9.11, beside Martin’s revert of v0.9.10. Thirty minutes after the promotion the same lines were still coming from v0.9.11, so Verify sent the work item back to Plan, with the verification as evidence. A second time, it would hold for Martin.',
+    ver: ['v0.9.9', 'v0.9.11'], live: 'v0.9.11', pr: '1311', day: 'Sat 3 Oct', time: '14:52', dur: '1 h 54 min so far', found: 'Logs · error pattern on /search', prog: 'oon     ',
+    vis: { type: 'logsPair' },
+    logs: { title: 'Log lines from GET /search, at signal and after release', foot: 'The same lines from the fixed version: the signal persists.',
+      sides: [['signal · v0.9.9 · 14:52', '<span class="dim">14:52:10</span> <span class="x">error</span>  GET /search  200  index not ready, retried\n<span class="dim">14:52:13</span> <span class="x">error</span>  GET /search  200  index not ready, retried'],
+        ['after release · v0.9.11 · 15:57', '<span class="dim">15:31:44</span> <span class="x">error</span>  GET /search  200  index not ready, retried\n<span class="dim">15:49:02</span> <span class="x">error</span>  GET /search  200  index not ready, retried']] },
+    ch: [['SIGNAL', 'T+00:00', 'logs', 'GET /search logged an error and still answered', 0, null], ['TICKET', 'T+00:30', 'triage', 'Ticket #1310: functional, severity degraded', 12, null],
+      ['PR', 'T+14:10', 'coder', 'Failing test first, then the fix · PR #1311', 30, null], ['REVIEW', 'T+19:20', 'reviewer', 'Approved', 44, null],
+      ['MERGED', 'T+24:00', 'martin', 'Martin merged PR #1311, and its deploy', 56, null], ['PROMOTED', 'T+35:00', 'rollouts', 'v0.9.11 signed and admitted; 25% and 50% passed; promoted', 72, null],
+      ['PERSISTS', 'T+1:05:00', 'logs', 'The same lines from v0.9.11; back to Plan', 90, null], ['PLAN', 'T+1:05:15', 'line', 'Waiting for the planner, with the verification as evidence', 100, null]],
+    files: [['src/search.ts', 6, 2], ['test/search.test.ts', 22, 0]],
+    rels: ['r1310'],
+    models: [['planner', 0.9], ['coder', 1.2], ['reviewer', 0.9]], gates: 'pass' },
+
+  { id: '1314', cat: 'functional', kind: 'Ticket from the probes', end: 'deploy', title: 'The contact form loses your message',
+    desc: 'The fix is merged. It waits for a deploy pull request to carry it, and merging that is Martin’s while the factory is Supervised.',
+    lead: 'The contact journey found that a message was cleared when sending it failed, so the visitor had to type it again. The fix passed every gate and review, and Martin merged it at 15:58. It now waits at Release for the next deploy pull request, which lists it with its ticket and issue; Martin merges that, and everything after it is unattended.',
+    ver: null, seen: 'v0.9.9', live: 'v0.9.12', pr: '1316', day: 'Sat 3 Oct', time: '15:21', dur: '1 h 25 min so far', found: 'Probe · contact journey', prog: 'oooooow ',
+    vis: { type: 'deploy' }, merged: ['1316', '15:58', '4be1a2c', 'fix: keep the contact form’s message when sending fails'],
+    ch: [['SIGNAL', 'T+00:00', 'probe', 'Contact journey: the message is gone after a failed send', 0, null], ['TICKET', 'T+00:35', 'triage', 'Ticket #1314: functional, severity broken', 14, null],
+      ['PR', 'T+18:20', 'coder', 'Failing test first, then the fix · PR #1316', 40, null], ['GATES', 'T+24:00', 'actions', 'All 13 required checks passed', 55, null],
+      ['REVIEW', 'T+27:30', 'reviewer', 'Approved', 66, null], ['MERGED', 'T+37:00', 'martin', 'Martin merged PR #1316', 82, null],
+      ['WAITING', 'T+37:01', 'line', 'Waiting for Martin’s deploy', 100, null]],
+    files: [['src/pages/contact.ts', 9, 3], ['test/contact.test.ts', 27, 0]],
+    models: [['planner', 0.8], ['coder', 1.1], ['reviewer', 0.9]], gates: 'pass' },
+
   { id: '1302', cat: 'functional', kind: 'Injected by a visitor', end: 'live', title: 'Search returns only cats',
-    desc: 'Whatever you search for, you get cats. The fix is on the canary at 25%, and every check is passing.',
-    lead: 'A visitor chose “Search returns only cats”. It went live as v0.9.8, and the search journey noticed within five minutes. The first fix failed an end-to-end journey at Gates and went back to Build; the second passed. It is on the canary now, as v0.9.9.',
-    ver: ['v0.9.8', 'v0.9.9'], live: 'v0.9.8', pr: '1305', day: 'Sat 3 Oct', time: '10:12', dur: '18 min so far', found: 'Probe · search journey', prog: 'oooooon ',
-    vis: { type: 'wipe', at: 37, a: ['BEFORE · v0.9.7', 'faint', () => PAGES.search('ladder', ['ladder'], { markCount: ['good', 'The ladder, as it should be'] })], b: ['NOW · v0.9.8', 'attn', () => PAGES.search('ladder', ['flap', 'china', 'catalogue'], { markName: (s) => s === 'flap' ? null : [s === 'china' ? 'up' : '', s === 'china' ? 'Cats, whatever the query' : ''] })] },
-    ch: [['INJECT', 'T+00:00', 'visitor', 'A visitor chose “Search returns only cats”', 0, 'a'], ['ON SITE', 'T+03:20', 'injector', 'Injected change went live as v0.9.8', 16, 'b'],
-      ['SIGNAL', 'T+04:40', 'probe', 'Search for “ladder” returned three cats', 24, 'b'], ['TICKET', 'T+05:10', 'triage', 'Ticket #1302: functional, severity broken', 30, 'b'],
-      ['SPEC', 'T+06:00', 'planner', 'Spec: results match the query', 36, 'b'], ['PR', 'T+08:40', 'coder', 'Failing test first, then the fix · PR #1305', 48, 'b'],
-      ['SENT BACK', 'T+10:30', 'actions', 'End-to-end journey failed; sent back to Build', 58, 'b'], ['GATES', 'T+13:00', 'actions', 'Second attempt: all 11 required checks passed', 70, 'b'],
-      ['REVIEW', 'T+14:10', 'reviewer', 'Approved', 78, 'b'], ['CANARY', 'T+16:30', 'rollouts', 'v0.9.9 signed and admitted; canary at 25%', 88, 'b'], ['LIVE', 'T+18:00', '', '', 100, 'b']],
+    desc: 'Whatever you search for, you get cats. The fix is on the canary at 50%, and every measure passed at 25%.',
+    lead: 'A visitor chose “Search returns only cats”. It went live as v0.9.12, and the search journey noticed within five minutes. The first fix failed an end-to-end journey at Gates and went back to Build; the second passed. Martin merged it and its deploy, and it is on the canary now, as v0.9.13, compared with v0.9.12 on errors, latency and the journeys.',
+    ver: ['v0.9.12', 'v0.9.13'], live: 'v0.9.12', pr: '1305', day: 'Sat 3 Oct', time: '16:05', dur: '41 min so far', found: 'Probe · search journey', prog: 'oooooon ',
+    vis: { type: 'wipe', at: 37, a: ['SEEN · v0.9.12', 'attn', () => PAGES.search('ladder', ['flap', 'china', 'catalogue'], { markName: (s) => s === 'flap' ? null : [s === 'china' ? 'up' : '', s === 'china' ? 'Cats, whatever the query' : ''] })], b: ['CANARY · v0.9.13', 'signal', () => PAGES.search('ladder', ['ladder'], { markCount: ['good', 'The ladder, as it should be'] })] },
+    ch: [['INJECT', 'T+00:00', 'visitor', 'A visitor chose “Search returns only cats”', 0, 'b'], ['ON SITE', 'T+10:20', 'injector', 'Injected change went live as v0.9.12', 16, 'a'],
+      ['SIGNAL', 'T+11:40', 'probe', 'Search for “ladder” returned three cats', 24, 'a'], ['TICKET', 'T+12:10', 'triage', 'Ticket #1302: functional, severity broken', 30, 'a'],
+      ['SPEC', 'T+13:00', 'planner', 'Spec: results match the query', 36, 'a'], ['PR', 'T+15:40', 'coder', 'Failing test first, then the fix · PR #1305', 46, 'a'],
+      ['SENT BACK', 'T+17:30', 'actions', 'End-to-end journey failed; sent back to Build', 55, 'a'], ['GATES', 'T+20:00', 'actions', 'Second attempt: all 13 required checks passed', 64, 'a'],
+      ['REVIEW', 'T+21:10', 'reviewer', 'Approved', 71, 'a'], ['MERGED', 'T+30:00', 'martin', 'Martin merged PR #1305, and its deploy', 79, 'a'],
+      ['CANARY', 'T+36:00', 'rollouts', 'v0.9.13 signed and admitted; 25% passed, measuring 50%', 88, 'b'], ['LIVE', 'T+41:00', '', '', 100, 'b']],
+    captures: [['SEEN · v0.9.12', 'At signal · T+11:40', 'a'], ['CANARY · v0.9.13', 'At 25% · T+39:00', 'b']],
     criteria: [['Given', 'a search for “ladder”, the ladder is the first result'], ['Given', 'a search that matches nothing, the page says so in the shop’s words']],
     files: [['src/pages/search.ts', 3, 5], ['test/search.test.ts', 19, 0]],
+    rels: ['r1302'],
     models: [['jev', 1], ['planner', 0.8], ['coder', 1.7], ['reviewer', 1]], gates: 'pass' },
 ];
+
+/* ==== Releases, as the line records them ====================================================
+   release.started (version 3 carries the Rollout's steps: weight, pause, whether analysed; the final 100% is not
+   listed, and null steps means not known), canary.stepped for each step the
+   analysis measured, then release.promoted or release.rolled-back. Stop the line writes no end: the console infers
+   "stopped" from line.stopped after a release that has not ended. A release is on every work item it carries, or on
+   the line when it carries none. Figures are [canary, baseline]. A step's verdicts are its measures' phases. */
+const STEPS = [[25, 180], [50, 180]];
+const ok4 = { requests: 'passed', errors: 'passed', latency: 'passed', journeys: 'passed' };
+const RELEASES = {
+  r1276: { id: '7c41d09e2a', version: 'v0.9.1', previous: 'v0.9.0', commit: '3e1f0aa', digest: 'sha256:5d0c…e81a', carries: ['1276'], day: 'Fri 2 Oct', start: '08:22:30', steps: STEPS, measured: [],
+    end: { kind: 'rolledback', at: '08:25:54', weight: 25, words: 'Metric "latency" assessed Failed due to failed (2) > failureLimit (1)',
+      failed: [['latency', 'Latency', 'p99 412 ms against 139 ms: 273 ms over its limit, at two looks running']] } },
+  r1296: { id: '4f2a9c71b0', version: 'v0.9.7', previous: 'v0.9.6', commit: 'c81d2e4', digest: 'sha256:a3f1…07bd', carries: ['1296'], day: 'Sat 3 Oct', start: '09:15:40', steps: STEPS,
+    measured: [{ w: 25, at: '09:18:40', req: [231, 702], err: [0.0043, 0.0057], p99: [41, 44], jour: [[24, 24], [24, 24]], v: ok4 },
+      { w: 50, at: '09:22:10', req: [478, 491], err: [0.0042, 0.0061], p99: [40, 43], jour: [[24, 24], [24, 24]], v: ok4 }],
+    end: { kind: 'promoted', at: '09:22:40' },
+    verify: { outcome: 'cleared', sense: 'probe', check: 'products-prices-positive', at: '09:25:05', version: 'v0.9.7', against: 'v0.9.6',
+      words: 'products-prices-positive passed twice in a row on v0.9.7, against the stable Service',
+      pages: [['Products', '3.8%', 'intended', 'products', true], ['A product', '0.9%', 'changed', 'product'], ['Home', '0.0%', 'same', 'home'], ['Search', '0.0%', 'same', 'search']], more: 8 } },
+  r1312a: { id: '9b0e66c2f1', version: 'v0.9.8', previous: 'v0.9.7', commit: '1d7a5be', digest: 'sha256:6e2b…f310', carries: ['1312'], day: 'Sat 3 Oct', start: '11:32:40', steps: STEPS,
+    measured: [{ w: 25, at: '11:35:40', req: [589, 1296], err: [0.0130, 0.0152], p99: [36, 42], jour: null, v: ok4 },
+      { w: 50, at: '11:39:10', req: [843, 889], err: [0.0155, 0.0135], p99: [42, 42], jour: null, v: ok4 }],
+    end: { kind: 'promoted', at: '11:39:10' },
+    verify: { outcome: 'persists', sense: 'logs', check: 'server-error on /', at: '12:08:30', version: 'v0.9.8', against: 'v0.9.7',
+      words: 'GET / from v0.9.8 logged “no greeting is set for this hour” 14 times in 30 minutes', pages: [], unmarked: true } },
+  r1312b: { id: '6c9894bdfd', version: 'v0.9.9', previous: 'v0.9.8', commit: '8255dac', digest: 'sha256:0b77…9c2e', carries: ['1312'], day: 'Sat 3 Oct', start: '12:40:28', steps: STEPS,
+    measured: [{ w: 25, at: '12:43:58', req: [576, 1026], err: [0.0170, 0.0117], p99: [35, 43], jour: null, v: ok4 },
+      { w: 50, at: '12:47:28', req: [839, 946], err: [0.0143, 0.0161], p99: [38, 42], jour: null, v: ok4 }],
+    end: { kind: 'promoted', at: '12:47:28' },
+    verify: { outcome: 'cleared', sense: 'logs', check: 'server-error on /', at: '13:17:30', version: 'v0.9.9', against: 'v0.9.8',
+      words: 'No error like the one the log watcher saw came from v0.9.9 in 30 minutes, over 294 requests',
+      pages: [['Home', '0.4%', 'intended', 'home'], ['Products', '0.0%', 'same', 'products'], ['A product', '0.0%', 'same', 'product'], ['Search', '0.0%', 'same', 'search']], more: 8, unmarked: true } },
+  r1308: { id: '68789944b6', version: 'v0.9.10', previous: 'v0.9.9', commit: 'e8f8808', digest: 'sha256:c4d9…2a61', carries: [], day: 'Sat 3 Oct', start: '14:26:56', steps: STEPS, measured: [],
+    end: { kind: 'rolledback', at: '14:29:56', weight: 25, ticket: '1308', words: 'Metric "latency" assessed Failed due to failed (2) > failureLimit (1)',
+      failed: [['latency', 'Latency', 'p99 between 380 and 460 ms against about 42 ms: 276 ms over its limit, at two looks running']] } },
+  r1310: { id: '9864fc5cb3', version: 'v0.9.11', previous: 'v0.9.9', commit: '680c351', digest: 'sha256:19ae…d4f0', carries: ['1310'], day: 'Sat 3 Oct', start: '15:20:31', steps: STEPS,
+    measured: [{ w: 25, at: '15:23:31', req: [590, 1252], err: [0.0111, 0.0157], p99: [42, 40], jour: null, v: ok4 },
+      { w: 50, at: '15:27:01', req: [838, 939], err: [0.0143, 0.0163], p99: [40, 43], jour: null, v: ok4 }],
+    end: { kind: 'promoted', at: '15:27:01' },
+    verify: { outcome: 'persists', sense: 'logs', check: 'server-error on /search', at: '15:57:10', version: 'v0.9.11', against: 'v0.9.9',
+      words: 'GET /search from v0.9.11 logged “index not ready, retried” 9 times in 30 minutes', pages: [], unmarked: true } },
+  r1302: { id: '3b7e90c1d4', version: 'v0.9.13', previous: 'v0.9.12', commit: '5b2c0d9', digest: 'sha256:e91f…5b08', carries: ['1302'], day: 'Sat 3 Oct', start: '16:41:00', steps: STEPS, now: 50, next: '16:47:30',
+    measured: [{ w: 25, at: '16:44:00', req: [584, 1240], err: [0.0103, 0.0148], p99: [38, 41], jour: null, v: ok4 }], end: null },
+};
 
 // Model calls per agent, from the gateway's log. Scaled per item in this mockup.
 const MODELS = {
@@ -1066,9 +1268,9 @@ const VIS = {
   canary: () => `<div class="pad">
     <div class="row" style="justify-content: space-between"><div class="pkg" style="gap: 2cqw"><svg style="width: 6cqw; height: 6cqw; color: var(--text)"><use href="#logo-otel"/></svg>
       <div><div class="name" style="font-size: 3.2cqw">@opentelemetry/sdk-node</div><div class="bump" style="font-size: 2cqw"><s>0.222.0</s>→<span>0.230.1</span></div></div></div>
-      <div class="cap" style="text-align: right">p99 latency, ms<br>canary at 5%</div></div>
+      <div class="cap" style="text-align: right">p99 latency, ms<br>canary at 25%</div></div>
     ${lineChart({ series: [{ data: CANARY, colour: 'var(--attn)', label: 'canary', dy: -4 }, { data: BASE, colour: 'var(--text-muted)', label: 'baseline' }], yMax: 450, ticks: [0, 200, 400], unit: 'ms', marker: [10, 'rolled back · 3:24', 'low'], xLabels: [[0, '0:00'], [3, '1:00'], [6, '2:00'], [9, '3:00'], [12, '4:00']] })}
-    <div class="unchanged">${glyph('check')}<span>Baseline users never saw it: 95% of traffic stayed on v0.9.0 throughout.</span></div></div>`,
+    <div class="unchanged">${glyph('check')}<span>75% of traffic never saw it: it stayed on v0.9.0 throughout.</span></div></div>`,
   package: () => `<div class="pad">
     <div class="pkg"><svg viewBox="0 0 256 292"><use href="#logo-node"/></svg><div><div class="name">Node.js base image</div><div class="bump"><s>24.21.0</s>→<span>24.21.1</span><span class="cap" style="margin-left: 1cqw">security release</span></div></div></div>
     <div><div class="row cap" style="margin-bottom: 1.4cqw"><svg style="width: 2.6cqw; height: 2.6cqw"><use href="#logo-trivy"/></svg>Image scan, before and after</div>
@@ -1101,6 +1303,25 @@ const VIS = {
 <span class="dim">17:12:41</span> info  GET /  200  85ms  trace_id=<span class="ok">a3ce929d0e0e4736</span></div></div>
     <div class="wf"><span>GET /</span><i style="width: 100%"></i><span>83 ms</span><span>  render home</span><i style="width: 22%; margin-left: 6%"></i><span>18 ms</span><span>  this week’s sundries</span><i style="width: 4%; margin-left: 9%"></i><span>3 ms · cached</span></div>
     </div>`,
+  // A canary's ticket: the routes where the canary did worse, and the analysis's own words. With no step measured
+  // there is no series to draw, and the picture says so rather than drawing nothing.
+  canaryTicket: () => `<div class="pad">
+    <div class="row" style="justify-content: space-between; align-items: flex-start"><div><div class="cap" style="color: var(--attn)">Rolled back at 25% · 3 min in</div>
+      <div style="font: 400 3.6cqw/1.15 var(--font-display); margin-top: .8cqw">v0.9.10 was slower than v0.9.9</div></div>
+      <div class="cap" style="text-align: right">p99 latency, ms<br>canary / baseline</div></div>
+    <div class="sev routes">${[['/', 460, 42], ['/products', 431, 40], ['/search', 402, 44], ['/about', 380, 39]].map(([r, c, b]) => `<span class="mono">${r}</span>
+      <span class="bars"><i class="canary" style="width: ${c / 5}%"></i><i style="width: ${b / 5}%"></i></span><span class="n">${c} / ${b}</span>`).join('')}</div>
+    <div class="term" style="flex: none; font-size: 1.7cqw; padding: 1.6cqw 2.2cqw; white-space: normal">Metric "latency" assessed Failed due to failed (2) &gt; failureLimit (1)</div>
+    <div class="unchanged">${glyph('check')}<span>75% of traffic never saw it: it stayed on v0.9.9. No step was measured, so there is no series to draw.</span></div></div>`,
+  logsPair: (it) => `<div class="pad"><div class="row cap"><svg style="width: 2.8cqw; height: 2.8cqw; color: var(--text)"><use href="#logo-otel"/></svg>${it.logs.title}</div>
+    <div class="logs">${it.logs.sides.map(([label, lines]) => `<div class="term"><span class="dim">${label}</span>
+${lines}</div>`).join('')}</div>
+    <div class="unchanged"><span>${it.logs.foot}</span></div></div>`,
+  // Merged, waiting for the deploy pull request that carries it: the waiting-on-Martin pattern, with the attn rule.
+  deploy: (it) => { const [pr, at, commit, title] = it.merged; return `<div class="pad"><div class="spec"><div class="cap" style="color: var(--attn)">Merged · waiting for Martin’s deploy</div>
+    <div style="font: 2.2cqw/1.4 var(--font-mono)">PR #${pr} · ${title}</div>
+    <div class="waits"><span>${glyph('check')}Merged by Martin at ${at} · ${commit}</span><span class="muted">${glyph('ring')}The next deploy pull request carries it, with its ticket and issue</span><span class="muted">${glyph('ring')}Then a canary against the version before, and Verify</span></div>
+    <div class="ask" style="color: var(--text-2)">While the factory is Supervised, merging the deploy is Martin’s. Everything after it is unattended.</div></div></div>`; },
   spec: (it) => `<div class="pad"><div class="spec"><div class="cap" style="color: var(--attn)">Spec · waiting for Martin</div>
     <div style="font: 400 3.2cqw/1.1 var(--font-display)">Products can be sorted by price, either way</div>
     <div class="gwt">${it.criteria.map(([k, v]) => `<b>${k.toUpperCase()}</b><span>${v}</span>`).join('')}</div>
@@ -1126,6 +1347,134 @@ const still = () => document.body.classList.contains('still');
 const indexOf = (id) => ITEMS.findIndex((i) => i.id === id);
 const reel = $('reel'), rail = $('rail');
 
+/* ==== Shipping: the Canary panel and the scoreboard ========================================== */
+
+const share = (x) => (x * 100).toFixed(2) + '%';
+const count = (x) => x.toLocaleString('en-GB');
+// A measure's verdict: [word, tone, glyph]. In flight is ink; only a pass earns green; a failure is warm.
+const VERDICT = { passed: ['passed', 'ok', 'check'], failed: ['failed', 'attn', 'cross'], measuring: ['measuring', 'signal', 'ring'], waiting: ['waiting', 'faint', 'dash'], dry: ['recorded', 'faint', 'dash'] };
+const verdict = (k, bare = false) => { const [w, t, g] = VERDICT[k]; return `<span class="v tone-${t}">${glyph(g)}${bare ? `<span class="sr">${w}</span>` : w}</span>`; };
+// The four measures, with how each is judged, in the words of policy/release.ts.
+const MEASURES = [
+  ['requests', 'Requests', 'enough to judge: at least 200 to the canary', (m, i) => count(m.req[i])],
+  ['errors', 'Errors', 'share of 5xx answers · fails more than a point above', (m, i) => share(m.err[i])],
+  ['latency', 'Latency', 'p99 · fails a quarter and 100 ms above', (m, i) => m.p99[i] + ' ms'],
+  ['journeys', 'Journeys', 'fails when a check passes on the baseline and fails here, twice', (m, i) => m.jour ? `${m.jour[i][0]} / ${m.jour[i][1]}` : '—'],
+];
+const minutes = (from, to) => { const t = (c) => c.split(':').reduce((a, n) => a * 60 + +n, 0); const d = t(to) - t(from); return `${Math.floor(d / 60)} min${d % 60 ? ` ${d % 60} s` : ''}`; };
+
+// How a release stands: [word, tone, dot class].
+function standing(r) {
+  if (!r.end) return [r.dry ? `Canary · ${r.now}%, as the dry run records it` : `Canary · ${r.now}% of traffic`, 'signal', 'blink'];
+  return { promoted: ['Promoted · all traffic', 'ok', ''], rolledback: [`Rolled back at ${r.end.weight}%`, 'attn', 'ring'], stopped: [`Stopped with the line at ${r.end.weight}%`, 'attn', 'ring'] }[r.end.kind];
+}
+
+// The steps: the bar is the canary's share of the traffic, each stop a step of the Rollout, at its weight.
+function stepsTrack(r) {
+  const [, tone] = standing(r);
+  const at = !r.end ? r.now : r.end.kind === 'promoted' ? 100 : r.end.weight;
+  // The steps the release recorded, then all the traffic. With none recorded (null), the steps measured stand in.
+  const plan = r.steps ?? r.measured.map((m) => [m.w, 0]);
+  const stops = [...plan, [100, 0]].map(([w, pause]) => {
+    const m = r.measured.find((x) => x.w === w);
+    let cls = '', t = 'faint', g = '';
+    if (m) { const bad = Object.values(m.v).includes('failed'); [cls, t, g] = r.dry ? ['done', 'faint', 'dash'] : bad ? ['done', 'attn', 'cross'] : ['done', 'ok', 'check']; }
+    else if (r.end?.kind === 'promoted' && w === 100) [cls, t, g] = r.dry ? ['done', 'faint', 'dash'] : ['done', 'ok', 'check'];
+    else if (r.end && r.end.kind !== 'promoted' && w === r.end.weight) [cls, t, g] = ['done cut', 'attn', r.end.kind === 'stopped' ? 'dash' : 'cross'];
+    else if (!r.end && w === r.now) cls = 'now';
+    const name = m ? `${w}%, ${VERDICT[g === 'cross' ? 'failed' : r.dry ? 'dry' : 'passed'][0]}` : cls === 'now' ? `${w}%, measuring now` : `${w}%`;
+    return `<span class="stop ${cls} tone-${t}" style="left: ${w}%" role="listitem" aria-label="${name}"><i>${g ? glyph(g) : ''}</i><b>${w}%</b><small>${w === 100 ? 'all' : pause === null ? 'waits' : pause / 60 + ' min'}</small></span>`;
+  }).join('');
+  return `<div class="steps-track" role="list" aria-label="The canary’s steps"><span class="rl"></span><span class="fill tone-${r.dry ? 'faint' : tone}" style="width: ${at}%"></span><span class="origin">0%</span>${stops}</div>`;
+}
+
+// The measures at the latest step the analysis measured.
+function measuresTable(r) {
+  const m = r.measured.at(-1);
+  if (!m) return '';
+  const failedName = r.end?.kind === 'rolledback' ? r.end.failed.map((f) => f[0]) : [];
+  const rows = MEASURES.map(([k, name, rule, fig]) => {
+    const v = r.dry ? 'dry' : m.v[k];
+    const c = r.dry ? '—' : fig(m, 0), b = r.dry ? '—' : fig(m, 1);
+    return `<tr class="${v === 'failed' || failedName.includes(k) ? 'failed' : ''}"><td>${name}<small>${rule}</small></td>
+      <td class="num">${c}<span class="base-inline">baseline ${b}</span></td><td class="num base">${b}</td><td>${verdict(v)}</td></tr>`;
+  }).join('');
+  return `<table class="measures"><caption>At the ${m.w}% step · ${r.dry ? `recorded ${m.at} by the dry run` : `measured ${m.at}`}</caption>
+    <thead><tr><th>Measure</th><th>Canary</th><th>Baseline</th><th>Verdict</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+const carried = (r) => r.carries.length
+  ? `<p class="carries"><span>Carries</span>${r.carries.map((id) => `<button type="button" class="linkish" data-open="${id}">#${id}${r.carries.length > 1 ? ' ' + esc(ITEMS[indexOf(id)].title) : ''}</button>`).join('')}</p>`
+  : `<p class="carries">Martin’s own commits or a dependency update: a release with no work item is on the line, not the reel, unless it rolls back.</p>`;
+
+// What the panel can show, by ?canary=. Each is a release as the events would leave it.
+function canaryScenario(k) {
+  const live = RELEASES.r1302, m25 = live.measured[0];
+  const m50 = { w: 50, at: '16:47:30', req: [846, 902], err: [0.0151, 0.0139], p99: [39, 42], jour: null, v: ok4 };
+  return {
+    flight: live,
+    line: { ...live, carries: [] },
+    promoted: { ...live, measured: [m25, m50], end: { kind: 'promoted', at: '16:47:30' } },
+    rolledback: { ...live, measured: [m25, { ...m50, err: [0.0392, 0.0139], v: { ...ok4, errors: 'failed' } }],
+      end: { kind: 'rolledback', at: '16:47:30', weight: 50, ticket: null, words: 'Metric "errors" assessed Failed due to failed (2) > failureLimit (1)', failed: [['errors', 'Errors', '3.92% of answers were 5xx against 1.39%: 2.53 points above, at two looks running']] } },
+    early: RELEASES.r1308,
+    stopped: { ...live, end: { kind: 'stopped', at: '16:45:12', weight: 50 } },
+    dry: { ...live, dry: true, digest: null },
+    idle: { idle: true, last: { ...live, measured: [m25, m50], end: { kind: 'promoted', at: '16:47:30' } } },
+    none: { none: true },
+  }[k] ?? live;
+}
+
+function renderCanary() {
+  const el = $('canary'), r = canaryScenario(q.get('canary') || 'flight');
+  if (r.none || r.idle) {
+    el.className = 'panel canary-panel idle';
+    el.innerHTML = r.none
+      ? `<h2 id="canary-title">Canary</h2><p>No release yet. Each deploy Martin merges goes out here as a canary, beside the version it would replace.</p>`
+      : `<h2 id="canary-title">Canary</h2><p><span class="word tone-faint"><span class="dot tone-faint"></span>No release in flight</span> &nbsp;The last, <b>${r.last.version}</b>, was promoted at ${r.last.end.at.slice(0, 5)} carrying <button type="button" class="linkish" data-open="${r.last.carries[0]}">#${r.last.carries[0]}</button> · release ${r.last.id}</p>`;
+    return;
+  }
+  el.className = 'panel canary-panel';
+  const [word, tone, dot] = standing(r);
+  const titles = r.carries.map((id) => ITEMS[indexOf(id)].title);
+  const title = !titles.length ? 'Carries no work item' : titles[0] + (titles.length > 1 ? ` and ${titles.length - 1} more` : '');
+  const image = r.dry ? 'no image: nothing shipped' : `${r.digest} · signed · admitted`;
+  let note, right = measuresTable(r);
+  if (r.dry) note = 'The dry run answers for this release: its merges were never made, so nothing shipped and nothing was measured. It records each step as the line would see it, so a soak goes round.';
+  else if (!r.end) note = `Measuring the ${r.now}% step until ${r.next}. If every measure passes, the canary takes all the traffic then; if one fails, it rolls back on its own.`;
+  else if (r.end.kind === 'promoted') note = `Promoted at ${r.end.at}, ${minutes(r.start, r.end.at)} after it started. Verify now asks the sense that saw each ticket whether it has cleared.`;
+  else if (r.end.kind === 'stopped') note = `Stop the line aborted the canary at ${r.end.weight}%, at ${r.end.at}. ${r.previous}, the version before, takes all the traffic. The release stays stopped until Martin retries it or a new deploy starts another; starting the line does not resume it.`;
+  else {
+    note = `Rolled back at ${r.end.at}, ${minutes(r.start, r.end.at)} in. ${100 - r.end.weight}% of the traffic never saw it: it stayed on ${r.previous}.${r.end.ticket ? '' : ''}`;
+    const failed = r.end.failed.map(([, name, said]) => `<tr class="failed"><td>${name}</td><td>${said}</td><td>${verdict('failed')}</td></tr>`).join('');
+    right = (r.measured.length ? measuresTable(r) : `<p class="canary-note" style="margin: 0 0 10px">No step was measured: it rolled back ${minutes(r.start, r.end.at)} into the ${r.end.weight}% step, so the failed measure is the whole story.</p>
+      <table class="measures"><thead><tr><th>Failed</th><th>What the analysis saw</th><th>Verdict</th></tr></thead><tbody>${failed}</tbody></table>`)
+      + `<p class="words" style="margin-top: 12px">${esc(r.end.words)}</p>`
+      + (r.end.ticket ? `<p class="canary-note">A rollback is a signal: triage opened <button type="button" class="linkish" data-open="${r.end.ticket}">#${r.end.ticket} ${esc(ITEMS[indexOf(r.end.ticket)].title)}</button>, with the routes where the canary did worse.</p>` : '');
+  }
+  el.innerHTML = `<div class="panel-head"><div style="min-width: 0">
+      <div class="kick"><span class="word tone-${tone}"><span class="dot tone-${tone} ${dot}"></span>${word}</span>${r.dry ? '<span class="remark">Dry run</span>' : ''}</div>
+      <h2 id="canary-title">${esc(title)}</h2>${carried(r)}</div>
+    <div class="rel-id">Release ${r.id}<br><b>${r.previous} → ${r.version}</b> · ${r.commit}<br>${image}</div></div>
+    <div class="canary-body"><div>${stepsTrack(r)}<p class="canary-note">${note}</p></div><div>${right}</div></div>
+    <p class="help">The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything.</p>`;
+}
+
+// The scoreboard, by ?score=. With no score.updated at all (an old store, the replay site) it draws nothing.
+function renderScore() {
+  const k = q.get('score') || 'on', el = $('score');
+  if (k === 'none') { el.hidden = true; return; }
+  if (k === 'off') {
+    el.innerHTML = `<div class="score-off" role="group" aria-label="Scoreboard"><b>Scoreboard off</b><span>This copy of the factory has no answer key, so it counts nothing.</span></div>`;
+    return;
+  }
+  const [found, fixed, median] = k === 'first' ? [3, 0, null] : [14, 11, '1h 52m'];
+  el.innerHTML = `${k === 'sample' ? '<span class="remark">Sample</span>' : ''}<div class="score" role="group" aria-label="Scoreboard: seeded and injected defects">
+    <div><b>${found}</b><span>found</span></div>
+    <div><b class="${fixed ? 'ok' : ''}">${fixed}</b><span>verified fixed</span></div>
+    <div><b class="${median ? '' : 'none'}">${median ?? '—'}${median ? '' : '<span class="sr">none yet</span>'}</b><span>median to verified</span></div></div>`;
+}
+
 /* ==== Header, modes and the line ========================================================== */
 
 function renderChrome() {
@@ -1149,12 +1498,12 @@ function renderChrome() {
 function renderLine() {
   $('stations').innerHTML = LINE.map((s, i) => {
     const status = S.stopped ? 'blocked' : s.status;
-    const [word, tone] = S.stopped ? ['stopped', 'attn'] : STATE[status];
+    const [word, tone] = S.stopped ? ['stopped', 'attn'] : s.beacon ? ['needs you', 'attn'] : STATE[status];
     const add = STAGES[s.kind].add && !S.visitor
       ? `<button type="button" class="add" data-add title="Request an improvement" aria-label="Request an improvement"><span><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5 V10.5 M1.5 6 H10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span></button>` : '';
     return `<div class="cell"><button type="button" class="stage" data-i="${i}" aria-expanded="${S.stage === i}" aria-controls="stage-panel"
         aria-label="${STAGE_NAME[s.kind]}: ${word}, ${esc(s.fig)}. Show what is in this stage">
-      <sf-station kind="${s.kind}" status="${status}" decorative ${still() ? 'motion="off"' : ''}></sf-station>
+      <sf-station kind="${s.kind}" status="${status}" ${s.beacon && !S.stopped ? `beacon="${s.beacon}"` : ''} decorative ${still() ? 'motion="off"' : ''}></sf-station>
       <span class="cap" aria-hidden="true">
         <span class="name">${STAGE_NAME[s.kind]}</span>
         <span class="state"><span class="dot tone-${tone} ${tone === 'attn' ? 'ring' : ''}"></span>${word}<span class="fig">&nbsp;· ${esc(s.fig)}</span></span>
@@ -1185,7 +1534,8 @@ function renderStagePanel() {
       `<span class="src ${live ? '' : 'off'}">${nm}${live ? '' : ' <em>not in the demo</em>'}</span>`).join('')}</div>` : ''}
     ${st.rows.length ? '' : `<div class="empty">Nothing in ${STAGE_NAME[s.kind]} right now.</div>`}
     ${st.rows.map(([id, title, note, tone, link, age]) => {
-      const body = `<span class="id">${esc(id)}</span><span>${esc(title)}<small class="${tone ? 'tone-' + tone : ''}" style="${tone ? 'color: var(--tone)' : ''}">${esc(note)}</small></span>`;
+      const said = Array.isArray(note) ? note.map(([w, gone]) => gone ? `<s><span class="sr">earlier: </span>${esc(w)}</s>` : esc(w)).join(' · ') : esc(note);
+      const body = `<span class="id">${esc(id)}</span><span>${esc(title)}<small class="${tone ? 'tone-' + tone : ''}" style="${tone ? 'color: var(--tone)' : ''}">${said}</small></span>`;
       return link
         ? `<button type="button" class="srow" data-open="${link}" aria-label="Open ${esc(id)} ${esc(title)}">${body}<span class="aside go">Open ›</span></button>`
         : `<div class="srow">${body}<span class="aside">${age}</span></div>`;
@@ -1263,19 +1613,22 @@ function cycleReturns() {
 function card(it, i) {
   const [word, tone, needs] = END[it.end];
   const prog = [...it.prog].map((c, k) => `<i class="${c.trim()}" title="${STAGES_IN_ORDER[k]}"></i>`).join('');
-  const ver = it.ver ? (it.burnt ? `<span class="ver"><s>${it.ver[0]}</s> → ${it.ver[1]}</span>` : `<span class="ver">${it.end === 'live' ? it.ver[0] + ' → <span class="muted">' + it.ver[1] + '</span>' : it.ver[1]}</span>`) : '<span class="ver muted">no release</span>';
+  const ver = it.seen ? `<span class="ver">seen on ${it.seen}</span>` : it.reopened ? `<span class="ver">back on ${it.live}</span>` : it.ver ? (it.burnt ? `<span class="ver"><s>${it.ver[0]}</s> → ${it.ver[1]}</span>` : `<span class="ver">${it.end === 'live' ? it.ver[0] + ' → <span class="muted">' + it.ver[1] + '</span>' : it.ver[1]}</span>`) : '<span class="ver muted">no release</span>';
+  const again = it.reopened ? '<span class="again">REOPENED</span>' : '';
   return `<article class="card" data-i="${i}" aria-roledescription="slide" aria-label="${i + 1} of ${n}: ${it.title}. ${word}">
     <div class="card-top"><span class="cat">${glyph(it.cat)}${CAT[it.cat]}<span class="kind">· ${it.kind}</span></span>
-      <span class="out tone-${tone}"><span class="dot ${it.end === 'live' ? 'blink' : needs ? 'ring alarm' : tone === 'attn' ? 'ring' : ''}"></span>${word}</span></div>
+      <span class="ends">${again}<span class="out tone-${tone}"><span class="dot ${it.end === 'live' ? 'blink' : it.end === 'planner' ? 'hollow' : needs ? 'ring alarm' : tone === 'attn' ? 'ring' : ''}"></span>${word}</span></span></div>
     ${visual(it)}
     <div><h3>${it.title}</h3><p class="desc">${it.desc}</p></div>
-    <div class="meta"><b>#${it.id}</b>${ver}${it.pr ? `<span class="opt">PR #${it.pr}</span>` : ''}<span>${it.day.slice(0, 3)} ${it.time}</span><span>${it.dur}</span><span>${money(spend(it))}</span></div>
+    <div class="meta"><b>#${it.id}</b>${ver}${it.pr ? `<span class="opt">PR #${it.pr}</span>` : ''}<span>${it.day.slice(0, 3)} ${it.time}</span><span>${it.dur}</span><span>${it.models.length ? money(spend(it)) : 'no model'}</span></div>
     <div class="card-foot"><span class="prog" role="img" aria-label="${progLabel(it)}">${prog}</span><span class="open-hint">OPEN ↑</span></div>
   </article>`;
 }
 function progLabel(it) {
   const k = [...it.prog].findIndex((c) => 'nxwk'.includes(c));
   if (k < 0) return 'Every stage passed';
+  const q = it.prog.indexOf('q');
+  if (k < 0 && q >= 0) return 'Queued at ' + STAGES_IN_ORDER[q];
   return { n: 'Now at ', x: 'Stopped at ', w: 'Waiting at ', k: 'Closed at ' }[it.prog[k]] + STAGES_IN_ORDER[k];
 }
 
@@ -1302,6 +1655,7 @@ function fitHeight() {
   reel.style.height = h + 12 + 'px';
 }
 
+const LINE_RELEASES = [{ before: '1308', ver: 'v0.9.10', burnt: true }];
 /* The timeline: one mark per work item, a little space between days, the playhead where the reel is. */
 const DAYS = [...new Set(ITEMS.map((i) => i.day))];
 const units = ITEMS.map((it, i) => i + DAYS.indexOf(it.day) * 0.5);
@@ -1313,9 +1667,11 @@ const pct = (f) => (f * 100).toFixed(3) + '%';
 function buildRail() {
   const days = DAYS.map((d) => { const i = ITEMS.findIndex((it) => it.day === d); return `<span class="day" style="left: calc(${pct(fx(i))} - 20px)">${d}</span>`; }).join('');
   const ticks = ITEMS.map((it, i) => `<span class="tick tone-${END[it.end][1]}" data-i="${i}" style="left: ${pct(fx(i))}">${glyph(it.cat)}</span>`).join('');
-  const vers = ITEMS.map((it, i) => it.ver && it.end !== 'live' && it.end !== 'waiting'
+  const vers = ITEMS.map((it, i) => it.ver && !['live', 'waiting', 'planner', 'deploy'].includes(it.end)
     ? `<span class="ver ${it.burnt ? 'burnt' : ''}" data-i="${i}" style="left: ${pct(fx(i))}">${it.burnt ? it.ver[0] : it.ver[1]}</span>` : '').join('');
-  rail.innerHTML = `<span class="track"></span>${days}${ticks}${vers}<span class="playhead"></span>`;
+  // A release with no work item has no card, but marks the timeline with its version, struck through if rolled back.
+  const line = LINE_RELEASES.map((r) => { const i = indexOf(r.before); return `<span class="ver ${r.burnt ? 'burnt' : ''}" style="left: ${pct((fx(i - 1) + fx(i)) / 2)}" title="A release with no work item">${r.ver}</span>`; }).join('');
+  rail.innerHTML = `<span class="track"></span>${days}${ticks}${vers}${line}<span class="playhead"></span>`;
 }
 function movePlayhead() { rail.querySelector('.playhead').style.left = pct(fxP(S.P)); }
 function renderRail() {
@@ -1441,7 +1797,7 @@ document.addEventListener('keydown', (e) => {
 let opener = null, sheetTimer = null;
 function openSheet(i, focus = true) {
   const first = S.sheet === null;
-  S.sheet = i; S.at = null; S.sheetPlay = false; clearInterval(sheetTimer);
+  S.sheet = i; S.at = null; S.sheetPlay = false; S.allEvents = false; clearInterval(sheetTimer);
   if (cur() !== i) go(i, { announce: false });
   renderSheet();
   if (first) {
@@ -1473,10 +1829,74 @@ function reportBlock(it) {
     : `<p class="report withheld">A visitor’s report. Its text is shown only to the visitor who sent it and to Martin; what triage made of it is below.</p>`;
 }
 
+/* The sheet's Release and Verify section: one block per release that carried the work item, newest first, the older
+   ones folded; each ends with what the sense that saw the problem found after rollout. */
+const SHOTS = { home: () => PAGES.home(), products: () => PAGES.products(), product: () => PAGES.product('clock'), search: () => PAGES.search('ladder', ['ladder']) };
+const SENSE = { probe: 'the probe', crawler: 'the crawler', metrics: 'the metrics', logs: 'the log watcher' };
+
+function pagesGrid(v, it) {
+  if (!v.pages.length) return '';
+  const order = { intended: 0, changed: 1, same: 2 };
+  const figs = [...v.pages].sort((a, b) => order[a[2]] - order[b[2]]).map(([page, d, kind, key, fold]) => {
+    // Only the ticket's own check is marked, and only on its own page; a sense that looks at no page marks nothing.
+    const shot = kind === 'intended' && !v.unmarked && it.id === '1296' ? PAGES.products({ mark: (s) => ['good', s === 'ladder' ? 'Back above zero' : ''] }) : SHOTS[key]();
+    const below = fold && !v.unmarked ? '<span class="fold">↓ 1 more mark below the frame</span>' : '';
+    return `<figure><div class="vis">${shot}${below}</div><figcaption><span>${page}</span><span class="mono ${kind}">${d} · ${kind}</span></figcaption></figure>`;
+  }).join('');
+  return `<div class="regress" style="margin-top: 4px"><span class="label">Every page against ${v.against}, the version before</span><div class="row">${figs}</div>
+    <p class="pages-note">${v.more ? `And ${v.more} more pages, the same to the pixel. ` : ''}${v.unmarked ? `No marks: ${SENSE[v.sense]} looks at no page, so nothing on one is its finding.` : 'The mark is the probe’s own check, on its own page.'}</p></div>`;
+}
+
+function verifyBlock(v, it, last) {
+  const [w, t, g] = v.outcome === 'cleared' ? ['Cleared', 'ok', 'check'] : v.held ? ['Persists again · held for Martin', 'attn', 'cross'] : ['Persists · back to Plan', 'signal', 'cross'];
+  return `<div class="verify"><div class="rel-head"><span class="label">Verify · ${SENSE[v.sense]} · ${esc(v.check)}</span><span class="word tone-${t}">${glyph(g)}${w}</span></div>
+    <p class="words">${esc(v.words)}</p>
+    <p class="rel-facts">${v.at} · on <b>${v.version}</b>${v.outcome === 'persists' && !v.held ? ' · the work item went back to Plan with this as evidence; a second time, it holds for Martin' : ''}</p>
+    ${pagesGrid(v, it)}</div>`;
+}
+
+function releaseBlock(r, it, folded) {
+  const [word, tone, dot] = standing(r);
+  const head = `<span class="label">Release ${r.id} · ${r.day.slice(0, 3)} ${r.start.slice(0, 5)}</span><span class="word tone-${tone}"><span class="dot tone-${tone} ${dot}"></span>${word}</span>`;
+  const others = r.carries.filter((id) => id !== it.id);
+  const facts = `<p class="rel-facts"><b>${r.previous} → ${r.version}</b> · commit ${r.commit} · ${r.digest} · signed · admitted${others.length ? ` · with #${others.join(', #')}` : ''}</p>`;
+  const steps = r.measured.length ? `<table class="steps"><thead><tr><th>Step</th><th class="opt">Measured</th><th class="opt">Requests</th><th>Errors</th><th>p99</th><th>Journeys</th></tr></thead><tbody>
+    ${r.measured.map((m) => `<tr><td>${m.w}%</td><td class="opt">${m.at}</td><td class="opt">${count(m.req[0])}<small>${count(m.req[1])}</small></td>
+      <td>${verdict(m.v.errors, true)} ${share(m.err[0])}<small>${share(m.err[1])}</small></td><td>${verdict(m.v.latency, true)} ${m.p99[0]} ms<small>${m.p99[1]} ms</small></td>
+      <td>${m.jour ? `${m.jour[0][0]} / ${m.jour[0][1]}<small>${m.jour[1][0]} / ${m.jour[1][1]}</small>` : verdict(m.v.journeys)}</td></tr>`).join('')}</tbody></table>
+    <p class="pages-note">Each figure on the canary, with the baseline’s under it.</p>` : '<p class="rel-end">No step was measured.</p>';
+  let end = '';
+  if (!r.end) end = `<p class="rel-end">On the canary at ${r.now}% now; the step is measured at ${r.next}.</p>`;
+  else if (r.end.kind === 'promoted') end = `<p class="rel-end">Promoted at ${r.end.at}, ${minutes(r.start, r.end.at)} after it started.</p>`;
+  else end = `<p class="rel-end">Rolled back at ${r.end.weight}% at ${r.end.at}. ${100 - r.end.weight}% of the traffic never saw it.</p><p class="words">${esc(r.end.words)}</p>`;
+  const body = `${facts}${steps}${end}${r.verify ? verifyBlock(r.verify, it) : ''}`;
+  return folded
+    ? `<details class="rel"><summary>${head}<span class="more">Show this release</span></summary>${body}</details>`
+    : `<article class="rel"><div class="rel-head">${head}</div>${body}</article>`;
+}
+
+function deployBlock(it) {
+  const [pr, at, commit] = it.merged;
+  return `<article class="rel needs"><div class="rel-head"><span class="label">Release · not yet</span><span class="word tone-attn"><span class="dot tone-attn ring alarm"></span>Needs you</span></div>
+    <p style="margin: 0; font: 400 24px/1.15 var(--font-display)">Merged · waiting for Martin’s deploy</p>
+    <ul class="wait-rows"><li>${glyph('check')}<span>PR #${pr} merged by Martin at ${at} · commit ${commit}</span></li>
+      <li class="muted">${glyph('ring')}<span>The next deploy pull request carries it, and lists it with its ticket and issue</span></li>
+      <li class="muted">${glyph('ring')}<span>Then a canary against the version before, and Verify</span></li></ul>
+    <p class="pages-note">While the factory is Supervised, merging the deploy is Martin’s. Everything after it is unattended.</p></article>`;
+}
+
+function releaseSection(it) {
+  if (!it.rels && it.end !== 'deploy') return '';
+  const blocks = [...(it.rels ?? [])].reverse().map((id, k) => releaseBlock(RELEASES[id], it, k > 0));
+  if (it.end === 'deploy') blocks.unshift(deployBlock(it));
+  return `<section class="sec"><h3>Release and Verify</h3><p class="help">Each release that carried it, newest first: the canary’s steps against the version before, then what the sense that saw the problem found after full rollout.</p>
+    <div class="rels">${blocks.join('')}</div></section>`;
+}
+
 function renderSheet() {
   const it = ITEMS[S.sheet], i = S.sheet, [word, tone, needs] = END[it.end];
   $('sheet-head').innerHTML = `<div style="min-width: 0">
-      <div class="kicker"><span class="cat">${glyph(it.cat)}${CAT[it.cat]}</span><span class="kind" style="font-size: 13px">${it.kind}</span><span class="out tone-${tone}"><span class="dot ${needs ? 'ring alarm' : ''}"></span>${word}</span></div>
+      <div class="kicker"><span class="cat">${glyph(it.cat)}${CAT[it.cat]}</span><span class="kind" style="font-size: 13px">${it.kind}</span><span class="out tone-${tone}"><span class="dot ${needs ? 'ring alarm' : it.end === 'planner' ? 'hollow' : ''}"></span>${word}</span>${it.reopened ? '<span class="again">REOPENED</span>' : ''}</div>
       <h2 id="sheet-title" tabindex="-1">${it.title}</h2></div>
     <div class="sheet-nav">
       <button type="button" class="icon-btn" data-sheet-go="-1" aria-label="Previous work item" ${i === 0 ? 'disabled' : ''}><svg class="glyph" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></button>
@@ -1485,31 +1905,32 @@ function renderSheet() {
       <button type="button" class="icon-btn" data-close aria-label="Close" style="margin-left: 8px"><svg class="glyph" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
     </div>`;
 
-  const rows = modelRows(it), total = spend(it), ongoing = it.end === 'live' || it.end === 'waiting';
-  const ver = it.ver ? (it.burnt ? `${it.ver[0]} · rolled back to ${it.ver[1]}` : it.end === 'live' ? `broken in ${it.ver[0]} · fix is ${it.ver[1]}` : `${it.ver[0]} → ${it.ver[1]}`) : 'No release';
-  const facts = [['Work item', '#' + it.id], ['Found by', it.found], ['Version', ver], ['Pull request', it.pr ? `<a href="#">#${it.pr}</a>` : '—'],
-    ['Started', `${it.day}, ${it.time}`], [ongoing ? 'So far' : 'Start to finish', it.dur.replace(' so far', '')], ['Model spend', money(total)], ['Code written by humans', '0 lines']];
+  const rows = modelRows(it), total = spend(it), ongoing = ['live', 'waiting', 'planner', 'deploy'].includes(it.end);
+  const ver = it.seen ? `seen on ${it.seen}` : it.ver ? (it.burnt ? `${it.ver[0]} · rolled back to ${it.ver[1]}` : it.reopened ? `${it.ver[0]} → ${it.ver[1]} · back on ${it.live}` : it.end === 'live' && it.id === '1302' ? `broken in ${it.ver[0]} · fix is ${it.ver[1]}` : `${it.ver[0]} → ${it.ver[1]}`) : 'No release';
+  const facts = [['Work item', '#' + it.id], ['Found by', it.found], ['Version', ver], ...(it.reopened ? [['Reopened', it.reopened]] : []), ['Pull request', it.pr ? `<a href="#">#${it.pr}</a>` : '—'],
+    ['Started', `${it.day}, ${it.time}`], [ongoing ? 'So far' : 'Start to finish', it.dur.replace(' so far', '')], ['Model spend', it.models.length ? money(total) : 'none'], ['Code written by humans', '0 lines']];
 
   const gates = it.gates === 'none' ? '<p class="help">No pull request, so no gates ran.</p>' : `<div class="gates">${GATES.map(([g, d]) => {
     const st = it.gates === 'integrity' && g === 'Test integrity' ? 'fail' : 'pass';
     return `<div class="gate ${st}">${glyph(st === 'fail' ? 'cross' : 'check')}<span>${g}</span><span class="mono">${d}</span></div>`;
   }).join('')}</div>${it.end === 'rolledback' ? '<p class="help" style="margin-top: 10px">Every gate passed. The canary caught what tests could not.</p>' : ''}`;
 
-  const models = `<table class="models"><thead><tr><th>Agent and model</th><th class="num">Calls</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead><tbody>
+  const models = !rows.length ? '<p class="help">No model was called: a sense knows what it saw, so the policy’s table gave the category and severity.</p>' : `<table class="models"><thead><tr><th>Agent and model</th><th class="num">Calls</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead><tbody>
     ${rows.map((r) => `<tr><td><div class="who"><svg style="color: var(--text)"><use href="#logo-${r.logo}"/></svg><span>${r.agent}<small>${r.family} ${r.model} · ${r.settings}</small></span></div></td>
       <td class="num">${r.calls}</td><td class="num">${r.tin ? kTok(r.tin) + ' in<small>' + kTok(r.tout) + ' out</small>' : '—'}</td><td class="num">${money(r.cost)}</td></tr>`).join('')}</tbody>
     <tfoot><tr><td>Total${ongoing ? ' so far' : ''}</td><td class="num">${rows.reduce((s, r) => s + r.calls, 0)}</td><td></td><td class="num">${money(total)}</td></tr></tfoot></table>`;
 
   const pageShot = { Home: () => PAGES.home(), Products: () => (it.afterProducts ?? PAGES.products)(), 'A product': () => PAGES.product('clock'), Search: () => PAGES.search('ladder', ['ladder']) };
-  const regress = it.ver && !it.burnt && !ongoing ? `<div class="regress"><span class="label">After rollout, against ${it.id === '1296' ? 'v0.9.5, before the injection' : 'the version before'}</span>
+  const regress = it.ver && !it.burnt && !ongoing && !it.rels ? `<div class="regress"><span class="label">After rollout, against ${it.id === '1296' ? 'v0.9.5, before the injection' : 'the version before'}</span>
     <div class="row">${Object.keys(pageShot).map((p) => { const [d, k] = it.regress?.[p] ?? ['0.0%', 'same'];
       return `<figure><div class="vis">${pageShot[p]()}</div><figcaption><span>${p}</span><span class="mono ${k}">${d}${k === 'meant' ? ' · intended' : ' · same'}</span></figcaption></figure>`; }).join('')}</div>
     <p class="source">Playwright screenshots of each page at full rollout, compared pixel by pixel with the version before.</p></div>` : '';
 
-  const captures = it.captures ? `<div class="captures">${it.captures.map(([l, t, s]) => `<figure><div class="vis">${(s === 'a' ? it.vis.a : it.vis.b)[2]()}</div><figcaption><span>${l}</span><span class="mono">${t}</span></figcaption></figure>`).join('')}</div>` : '';
+  const captures = it.captures ? `<div class="captures">${it.captures.map(([l, t, s]) => `<figure><div class="vis">${(s === 'a' ? it.vis.a : it.vis.b)[2]()}<span class="wtag l"><span class="dot tone-${l.startsWith('SEEN') ? 'attn' : l.startsWith('FIXED') ? 'ok' : 'signal'}"></span>${l}</span></div><figcaption><span>${t.split(' · ')[0]}</span><span class="mono">${t.split(' · ')[1]}</span></figcaption></figure>`).join('')}</div>` : '';
   const source = { wipe: 'Playwright screenshots, taken when the signal fired and after rollout. The marks are drawn from the elements the probe checked.', perf: 'Prometheus, snapshotted into the event at verify, so the graph outlives the metrics’ retention.',
     canary: 'Argo Rollouts’ analysis run, with the series it compared.', package: 'The lockfile diff, and the image scan of both images in the pipeline.', refusal: 'The check run’s output, stored with the event when the gate failed.',
-    judgement: 'The Jev request in the event’s payload: question set, model version and every answer with its probability.', logs: 'Loki and Tempo, excerpted into the event at signal and at verify.' }[it.vis.type];
+    judgement: 'The Jev request in the event’s payload: question set, model version and every answer with its probability.', logs: 'Loki and Tempo, excerpted into the event at signal and at verify.',
+    logsPair: 'Loki, excerpted into the signal’s event and the verification’s.', canaryTicket: 'The canary’s signal: the analysis’s words and the routes where the canary did worse, from Prometheus.' }[it.vis.type];
 
   const change = it.criteria || it.files ? `<section class="sec"><h3>${it.end === 'waiting' ? 'The spec' : 'The change'}</h3><p class="help">${it.end === 'waiting' ? 'Acceptance criteria the planner proposes. Nothing is built until Martin approves.' : 'What the spec asked for, and what the pull request touched.'}</p>
     ${it.criteria ? `<ul class="criteria">${it.criteria.map(([k, v]) => `<li>${glyph(ongoing ? 'dash' : 'check')}<span><em>${k.toUpperCase()}</em>${v}</span></li>`).join('')}</ul>` : ''}
@@ -1521,8 +1942,9 @@ function renderSheet() {
       <p class="lead">${it.lead}</p>
       ${reportBlock(it)}
       <section class="sec"><h3>How it went</h3><p class="help">Step through the stages. The console shows only what had happened by then: replay and the live view are the same code.</p><div id="sheet-replay"></div></section>
-      ${it.vis.type === 'spec' ? '' : `<section class="sec"><h3>Evidence</h3><p class="help">Captured when it happened, because the sources expire.</p>
+      ${['spec', 'deploy'].includes(it.vis.type) ? '' : `<section class="sec"><h3>Evidence</h3><p class="help">Captured when it happened, because the sources expire.</p>
         <div class="evidence-big">${visual(it)}</div><p class="source">${source}</p>${captures}${regress}</section>`}
+      ${releaseSection(it)}
       ${change}
     </div>
     <aside class="sheet-side">
@@ -1537,12 +1959,24 @@ function renderSheet() {
 function renderSheetReplay() {
   const it = ITEMS[S.sheet], last = it.ch.length - 1, at = atFor(it), [, tone] = END[it.end];
   const site = it.vis.type === 'wipe' ? it.ch[at][5] : null;
-  const chapters = it.ch.map((c, k) => {
-    const cls = ['ch', k === at && 'here', k < at && 'done', k === last && 'end'].filter(Boolean).join(' ');
-    return `<button type="button" class="${cls} ${k === last ? 'tone-' + (tone === 'faint' ? 'ok' : tone) : ''}" style="left: ${c[4]}%" data-at="${k}" aria-label="${c[1]} ${c[0].toLowerCase()}" aria-current="${k === at}"><i></i><span>${c[0]}</span></button>`;
+  // #210: the first pass and the pass holding the chosen chapter are drawn in full; any other pass is one chapter,
+  // PASS n, that opens when chosen. Past twelve chapters only the chosen one and the ends keep their labels.
+  const shown = chaptersShown(it, at);
+  const crowd = shown.length > 12;
+  const here = shown.findIndex((o) => o.ks.includes(at));
+  const chapters = shown.map((o, j) => {
+    const k = o.ks[0], c = it.ch[k], isLast = o.ks.includes(last), isHere = j === here;
+    const cls = ['ch', isHere && 'here', j < here && 'done', isLast && 'end', o.pass && 'pass', crowd && 'crowd', j === 0 && 'first'].filter(Boolean).join(' ');
+    const label = o.pass ? `PASS ${o.pass}` : c[0];
+    const name = o.pass ? `Pass ${o.pass}: ${o.ks.length} chapters, from ${c[1]}. Opens it` : `${c[1]} ${c[0].toLowerCase()}`;
+    return `<button type="button" class="${cls} ${isLast ? 'tone-' + (tone === 'faint' ? 'ok' : tone) : ''}" style="left: ${o.left}%" data-at="${k}" aria-label="${name}" aria-current="${isHere}"><i></i><span>${label}</span></button>`;
   }).join('');
+  // The events: only what had happened by the chosen chapter, five at a time unless all are asked for.
   const upto = it.end === 'live' ? Math.min(at, last - 1) : at;
-  const events = it.ch.slice(0, upto + 1).map((c, k) => `<div class="event ${k === upto ? 'now' : ''}"><span class="mono">${c[1]}</span><span class="mono actor">${c[2]}</span><span>${c[3]}</span></div>`).join('');
+  const all = it.ch.slice(0, upto + 1).map((c, k) => `<div class="event ${k === upto ? 'now' : ''}"><span class="mono">${c[1]}</span><span class="mono actor">${c[2]}</span><span>${c[3]}</span></div>`);
+  const windowed = !S.allEvents && all.length > 5;
+  const events = (windowed ? all.slice(-5) : all).join('')
+    + (all.length > 5 ? `<button type="button" class="btn small all-events" data-all-events>${S.allEvents ? 'Fewer events' : `All events (${all.length})`}</button>` : '');
   const shotSide = site ? (() => { const v = site === 'a' ? it.vis.a : it.vis.b;
     return `<div class="site"><div style="display: flex; justify-content: space-between"><span class="label">The site at ${it.ch[at][1]}</span><span class="label tone-${v[1]}" style="color: var(--tone)">${v[0].split(' · ')[0]}</span></div>
       <div class="vis">${v[2]()}</div></div>`; })() : '';
@@ -1551,8 +1985,24 @@ function renderSheetReplay() {
       <button type="button" class="icon-btn" data-step="-1" aria-label="Previous event"><svg class="glyph" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></button>
       <button type="button" class="btn primary" data-splay style="min-width: 84px">${S.sheetPlay ? 'Pause' : at === last ? 'Replay' : 'Play'}</button>
       <button type="button" class="icon-btn" data-step="1" aria-label="Next event"><svg class="glyph" viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></button></div>
-    <div class="scrub"><div class="rl"></div><div class="fill" style="width: ${it.ch[at][4]}%"></div>${chapters}</div>
+    <div class="scrub"><div class="rl"></div><div class="fill" style="width: ${shown[here].left}%"></div>${chapters}</div>
     <div class="events">${events}</div></div></div>`;
+}
+
+const passOf = (c) => c[6] ?? 1;
+// The chapters the scrubber draws: { ks: indexes into it.ch, pass: n when collapsed, left: % along }.
+function chaptersShown(it, at) {
+  const passes = it.ch.some((c) => passOf(c) > 1);
+  const open = new Set([1, passOf(it.ch[at])]);
+  const out = [];
+  it.ch.forEach((c, k) => {
+    const p = passOf(c);
+    if (!passes || open.has(p)) out.push({ ks: [k] });
+    else if (out.at(-1)?.pass === p) out.at(-1).ks.push(k);
+    else out.push({ ks: [k], pass: p });
+  });
+  out.forEach((o, j) => { o.left = passes ? (out.length === 1 ? 0 : (j / (out.length - 1)) * 100) : it.ch[o.ks[0]][4]; });
+  return out;
 }
 
 function sheetPlay() {
@@ -1597,6 +2047,7 @@ document.addEventListener('click', (e) => {
   if (d.at) { S.at = +d.at; S.sheetPlay = false; clearInterval(sheetTimer); return renderSheetReplay(); }
   if (d.step) { const it = ITEMS[S.sheet]; S.at = Math.max(0, Math.min(it.ch.length - 1, atFor(it) + +d.step)); S.sheetPlay = false; clearInterval(sheetTimer); return renderSheetReplay(); }
   if ('splay' in d) return sheetPlay();
+  if ('allEvents' in d) { S.allEvents = !S.allEvents; return renderSheetReplay(); }
   if (d.autonomy) { S.autonomy = d.autonomy; renderControls(); return renderChrome(); }
   if (d.switch) { S.switches[d.switch] = !S.switches[d.switch]; return renderControls(); }
   if (d.themeSet) return setTheme(d.themeSet);
@@ -1643,7 +2094,7 @@ function setMotion(on) {
 // Paper always first; Ink is a choice made on the page, not remembered.
 setTheme(q.get('theme') === 'ink' ? 'ink' : 'paper');
 setMotion(!(q.get('motion') === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches));
-renderChrome(); renderLine(); renderStagePanel(); renderControls(); cycleReturns();
+renderChrome(); renderLine(); renderStagePanel(); renderControls(); renderScore(); renderCanary(); cycleReturns();
 reel.innerHTML = ITEMS.map(card).join('');
 buildRail(); layout(); renderRail(); fitHeight();
 document.fonts?.ready.then(fitHeight);
