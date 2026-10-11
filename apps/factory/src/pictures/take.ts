@@ -13,9 +13,12 @@
  * - Either version moving while a page was taken (a promotion, a rollback) drops that page and ends the pass: its
  *   "before" might be of the after. Pages taken before stand; those missed are tried again, a few times.
  * - Once the canary is promoted, each page with a box is taken again on the stable Service: the page after rollout.
+ * - Then the pictures no release needs any more are deleted, once for each stable version: all but the last few
+ *   releases' (`policy/release.ts`), keeping those a work item waits at Verify for and every image an event names.
  */
 import type { Screenshot } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
+import { release } from '../../../../policy/release.ts';
 import type { Check } from '../capture.ts';
 import { templater } from '../senses/routes.ts';
 import { compare } from './compare.ts';
@@ -42,9 +45,11 @@ export interface PicturesOptions {
   /** The paths of the app's pages at an address, from its front door. */
   pages(app: string): Promise<string[]>;
   shoot: Shoot;
-  index: Pick<PictureIndex, 'pictured' | 'record' | 'awaitingRollout' | 'rolledOut' | 'looks'>;
-  /** Where the diffs go: the screenshots are put there by `shoot`. */
-  store: ArtifactStore;
+  index: Pick<PictureIndex, 'pictured' | 'record' | 'awaitingRollout' | 'rolledOut' | 'looks' | 'forget'>;
+  /** Where the diffs go, and the images no release needs are deleted from: the screenshots are put there by `shoot`. */
+  store: ArtifactStore & { remove(hash: string): Promise<void> };
+  /** How many releases' pictures are kept, besides those Verify waits for: the policy's by default. */
+  keepReleases?: number;
   log: {
     info(fields: object, message: string): void;
     warn(fields: object, message: string): void;
@@ -52,8 +57,8 @@ export interface PicturesOptions {
   now?: () => Date;
 }
 
-/** What a tick did: compared a canary's pages, took a rollout's, or nothing. */
-export type Took = { compared: number } | { rolledOut: number } | null;
+/** What a tick did: compared a canary's pages, took a rollout's, deleted images no release needs, or nothing. */
+export type Took = { compared: number } | { rolledOut: number } | { deleted: number } | null;
 
 export class Pictures {
   readonly #o: PicturesOptions;
@@ -74,7 +79,8 @@ export class Pictures {
       const versions = await this.#versions();
       if (!versions) return null;
       const { stable, canary } = versions;
-      return stable === canary ? await this.#rollout(stable) : await this.#compare(stable, canary);
+      if (stable !== canary) return await this.#compare(stable, canary);
+      return (await this.#rollout(stable)) ?? (await this.#forget(stable));
     } catch (error) {
       this.#o.log.warn({ err: describe(error) }, 'the pictures could not be taken');
       return null;
@@ -202,6 +208,22 @@ export class Pictures {
     for (const [picture, screenshot] of taken) await this.#o.index.rolledOut(picture, screenshot);
     if (taken.length === waiting.length) this.#done.add(key);
     return { rolledOut: taken.length };
+  }
+
+  /**
+   * Once the pages after a release's rollout are taken (or given up), the pictures no release needs any more are
+   * forgotten, and then their images deleted. Once for each stable version, and once when the worker starts.
+   */
+  async #forget(version: string): Promise<Took> {
+    const key = `forget at ${version}`;
+    if (this.#due(`rollout of ${version}`) || !this.#due(key)) return null;
+    this.#tries.set(key, (this.#tries.get(key) ?? 0) + 1);
+    const hashes = await this.#o.index.forget(this.#o.keepReleases ?? release.pictures.keepReleases);
+    for (const hash of hashes) await this.#o.store.remove(hash);
+    this.#done.add(key);
+    if (!hashes.length) return null;
+    this.#o.log.info({ version, images: hashes.length }, 'deleted the pictures no release needs');
+    return { deleted: hashes.length };
   }
 
   #due(key: string): boolean {

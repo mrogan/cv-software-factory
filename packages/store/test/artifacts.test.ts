@@ -30,4 +30,14 @@ describe('the artifact store on disk', () => {
     expect(await artifacts.size('0'.repeat(64))).toBeNull();
     expect(await artifacts.open('../../etc/passwd')).toBeNull();
   });
+
+  it('deletes an artifact, and nothing that is not a hash', async () => {
+    const artifacts = store();
+    const hash = await artifacts.put(bytes('a picture'));
+    await artifacts.remove(hash);
+    expect(await artifacts.size(hash)).toBeNull();
+    await artifacts.remove(hash);
+    await artifacts.remove('../../etc/passwd');
+    expect(readdirSync(artifacts.dir)).toEqual([]);
+  });
 });

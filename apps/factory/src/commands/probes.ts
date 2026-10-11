@@ -11,7 +11,8 @@
  * `run` also serves the page reader for triage (`POST /v1/pages` with a path, and `GET /health`) on PORT, 8080 by
  * default; and for the line's Verify, on VERIFY_PORT, 8081 by default, runs a ticket's probe or crawl again
  * (`POST /v1/verify`, `probes/verify.ts`). Given CANARY_URL, the canary Service's address, it pictures every page on
- * the stable version and on the canary while a canary runs, and compares them (`pictures/take.ts`).
+ * the stable version and on the canary while a canary runs, and compares them (`pictures/take.ts`); after each release,
+ * it deletes the pictures no release needs any more.
  *
  * Settings, from the environment: APP_URL, the app's address; ARTIFACTS_DIR, the artifact store's folder (`once`
  * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as the factory's

@@ -1,5 +1,5 @@
 /**
- * The index of a release's pictures (migration 0010): which pages were compared for which canary, with their
+ * The index of a release's pictures (migrations 0010 and 0013): which pages were compared for which canary, with their
  * screenshots' references, and where each sense last boxed an element. The images themselves are in the artifact
  * store, which the probes worker writes; the line has no way to that store, and reads this instead.
  */
@@ -107,6 +107,52 @@ export class PictureIndex {
     await this.#sql`
       update pictures set rollout = ${this.#sql.json(shot as never)}
       where canary = ${picture.canary} and stable = ${picture.stable} and path = ${picture.path} and rollout is null`;
+  }
+
+  /**
+   * Forgets the pictures of every release but the last `keep` pictured and those a work item waits at Verify for: one
+   * promoted, carrying it, with no verification or close of it since. Gives back the hashes of their images that
+   * nothing names any more, for the store to delete: no picture still kept (identical images are stored once), no
+   * event (whatever part of it names a hash), and no signal triage has still to take. Deleting them is the caller's,
+   * after this has committed, so no picture kept ever names an image that is gone.
+   */
+  async forget(keep: number): Promise<string[]> {
+    return this.#sql.begin(async (tx) => {
+      const gone = await tx<Record<'before' | 'after' | 'diff' | 'rollout', string | null>[]>`
+        with releases as (
+          select canary, stable, max(taken_at) as taken from pictures group by canary, stable
+        ), waiting as (
+          select promoted.payload->>'version' as canary, promoted.payload->>'previous' as stable
+          from events promoted
+          where promoted.type = 'release.promoted' and promoted.work_item is not null
+            and (promoted.payload->>'dryRun')::boolean is not true
+            and not exists (
+              select 1 from events since
+              where since.work_item = promoted.work_item and since.seq > promoted.seq
+                and since.type in ('verification.finished', 'work-item.closed'))
+        ), kept as (
+          (select canary, stable from releases order by taken desc limit ${keep})
+          union select canary, stable from waiting
+        )
+        delete from pictures p
+        where not exists (select 1 from kept where kept.canary = p.canary and kept.stable = p.stable)
+        returning before->>'hash' as before, after->>'hash' as after, diff->>'hash' as diff, rollout->>'hash' as rollout`;
+      const hashes = [...new Set(gone.flatMap((r) => Object.values(r)).filter((h) => h !== null))];
+      if (!hashes.length) return [];
+      // Every hash an event or a waiting signal names, read in one pass: an artifact is named by its SHA-256, so a
+      // string of 64 hex digits anywhere in them may be one, and is kept.
+      const unnamed = await tx<{ hash: string }[]>`
+        with named as (
+          select m[1] as hash from events, regexp_matches(artifacts::text || payload::text, '([0-9a-f]{64})', 'g') m
+          union select m[1] from inbox, regexp_matches(signal::text, '([0-9a-f]{64})', 'g') m where triaged_at is null
+        )
+        select hash from unnest(${hashes}::text[]) as hash
+        where hash not in (select hash from named)
+          and not exists (
+            select 1 from pictures
+            where before->>'hash' = hash or after->>'hash' = hash or diff->>'hash' = hash or rollout->>'hash' = hash)`;
+      return unnamed.map((r) => r.hash);
+    });
   }
 
   /** Remembers where a sense boxed what it found, in place of where it last did for the same check. */

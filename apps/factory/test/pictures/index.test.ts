@@ -2,7 +2,7 @@
  * The pictures' index, in Postgres as the factory's writer: what the probes worker records, and what the line reads,
  * including the artifacts it may attach to an event without a way to the store.
  */
-import { type NewEvent, type Screenshot, VERSIONS } from '@software-factory/events';
+import { type NewEvent, type PayloadOf, type Screenshot, VERSIONS } from '@software-factory/events';
 import { AppendRefused, EventWriter, nextWorkItem } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
@@ -92,7 +92,104 @@ describe('the pictures’ index', () => {
   it('lets the factory’s writer change nothing of a picture but its rollout', async () => {
     await new PictureIndex(database.writer).record([picture('/about')]);
     await expect(database.writer`update pictures set changed = 0`).rejects.toThrow(/permission denied/);
-    await expect(database.writer`delete from pictures`).rejects.toThrow(/permission denied/);
+  });
+});
+
+describe('forgetting the pictures no release needs', () => {
+  const V1 = '1'.repeat(40);
+  const V2 = '2'.repeat(40);
+  const V3 = '3'.repeat(40);
+  /** A page of a release, its images named by the hex digit each hash repeats: before, after, diff and rollout. */
+  const page = (canary: string, stable: string, path: string, [b, a, d, r]: string): Picture => ({
+    canary,
+    stable,
+    path,
+    route: path,
+    before: shot(b as string, stable),
+    after: shot(a as string, canary),
+    changed: 0.1,
+    diff: d === '-' ? null : shot(d as string, canary),
+    rollout: r === '-' ? null : shot(r as string, canary),
+  });
+  const hash = (fill: string) => fill.repeat(64);
+  const event = <K extends NewEvent['type']>(
+    workItem: string,
+    type: K,
+    payload: PayloadOf<K>,
+    artifacts: Screenshot[] = [],
+  ): NewEvent =>
+    ({
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      work_item: workItem,
+      type,
+      version: VERSIONS[type],
+      actor: 'factory',
+      summary: `${type} for the test`,
+      payload,
+      artifacts,
+    }) as NewEvent;
+
+  it('keeps the last releases, those Verify waits for, and every image still named; gives back the rest', async () => {
+    const index = new PictureIndex(database.writer);
+    // Three releases, in order: the first replaced a version never pictured, each later one the one before.
+    await index.record([page(V1, OLD, '/', '1234'), page(V1, OLD, '/about', '56--')]);
+    await index.record([page(V2, V1, '/', '789-')]);
+    await index.record([page(V3, V2, '/', '1ab-')]);
+    const events = new EventWriter(database.writer, { kind: 'real', artifacts: new IndexedArtifacts(database.writer) });
+
+    // The second release carried a fix that waits at Verify.
+    const waiting = await nextWorkItem(database.writer);
+    await events.append([
+      event(waiting, 'work-item.opened', { kind: 'defect-fix', title: 'A fix', sample: false }),
+      event(waiting, 'release.promoted', {
+        release: 'abc123',
+        version: V2,
+        previous: V1,
+        watched: true,
+        dryRun: false,
+      }),
+    ]);
+    // The first release's canary picture of / is on an event, and its diff named by a verification's pages.
+    const verified = await nextWorkItem(database.writer);
+    await events.append([
+      event(verified, 'work-item.opened', { kind: 'defect-fix', title: 'Another fix', sample: false }),
+      event(verified, 'hold.started', { stage: 'verify', kind: 'held', cause: 'verify', reason: 'Too quiet' }, [
+        shot('2', V1),
+      ]),
+      event(verified, 'verification.finished', {
+        outcome: 'cleared',
+        check: 'home',
+        against: OLD,
+        pages: [{ page: '/', route: '/', screenshot: hash('3'), changed: 0.1, intended: true }],
+        dryRun: false,
+      }),
+    ]);
+    // Its rollout is on a signal triage has still to take.
+    await database.writer`
+      insert into inbox (id, sense, fingerprint, signal)
+      values (${crypto.randomUUID()}, 'probe', '/ broken-image', ${database.writer.json({ artifacts: [shot('4', V1)] } as never)})`;
+
+    // The first release's / before is the third's too, stored once; its /about is named by nothing.
+    expect((await index.forget(1)).sort()).toEqual([hash('5'), hash('6')]);
+    expect(await index.of(V1, OLD)).toEqual([]);
+    expect(await index.of(V2, V1)).toHaveLength(1);
+    expect(await index.of(V3, V2)).toHaveLength(1);
+    expect(await index.forget(1)).toEqual([]);
+
+    // Verified: the second release is needed no more.
+    await events.append(
+      event(waiting, 'verification.finished', {
+        outcome: 'cleared',
+        check: 'home',
+        against: V1,
+        pages: [],
+        dryRun: false,
+      }),
+    );
+    expect((await index.forget(1)).sort()).toEqual([hash('7'), hash('8'), hash('9')]);
+    expect(await index.of(V2, V1)).toEqual([]);
+    expect(await index.of(V3, V2)).toHaveLength(1);
   });
 });
 

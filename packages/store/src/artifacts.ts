@@ -7,7 +7,7 @@
  */
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -53,6 +53,14 @@ export class DiskArtifacts implements ArtifactStore {
 
   async open(hash: string): Promise<Readable | null> {
     return (await this.size(hash)) === null ? null : createReadStream(this.path(hash));
+  }
+
+  /**
+   * Deletes an artifact, if it is there. Only its writer may, and only once nothing names it: an event that names it
+   * would name nothing. The probes worker deletes the pictures no release needs any more (`pictures/index.ts`).
+   */
+  async remove(hash: string): Promise<void> {
+    if (isHash(hash)) await rm(this.path(hash), { force: true });
   }
 
   private path(hash: string): string {
