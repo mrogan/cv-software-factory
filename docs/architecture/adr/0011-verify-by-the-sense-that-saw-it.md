@@ -11,7 +11,7 @@ A work item closes as verified only when, after its release is promoted, the sen
 
 A ticket only a visitor's report or the planner saw holds for Martin, since no sense can look again. The windows and counts are human-owned (`policy/release.ts`).
 
-A failed canary analysis is a signal from a sense of its own, `canary`, one for each measure that failed, and triage treats it as any sense's. Its `*` route means the canary did worse on more than one route, not that the defect is on every page, so it matches only another canary `*`.
+A failed canary analysis is a signal from a sense of its own, `canary`, one for each measure that failed, and triage treats it as any sense's. Its `*` route means routes the analysis could not narrow to one (the canary did worse on more than one, or on none it could name), not that the defect is on every page, so it matches only another canary `*`, and its ticket is titled "<class> in a canary release".
 
 ## Why
 
