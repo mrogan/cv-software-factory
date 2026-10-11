@@ -41,6 +41,8 @@ export interface Mark {
   n?: number | undefined;
 }
 
+const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
+
 /** A frame's height as a share of its width, until it is measured: a picture's frame is 16:10. */
 const FRAME = 10 / 16;
 
@@ -64,20 +66,24 @@ function useFrame() {
 /**
  * A screenshot of the app, with the probe's marks drawn where it looked. Several marks are numbered, keyed to a
  * list beside the picture: one label per side still holds, and the list has room for what the screenshot can't show.
- * The frame shows the shot's top at its full width, so a whole page shows only its top: marks are placed in the
- * shot's own scale, by its width, and those below the frame are counted at its foot instead.
+ * The frame shows the shot at its full width, so of a whole page it shows a window: the one that holds its first
+ * mark, a third of the way down, or its top when it has none. Marks are placed in the shot's own scale, by its width,
+ * and those outside the window are counted at the frame's foot instead.
  */
 export function Shot({
   shot,
   eager = false,
   marks: given,
   numbered = false,
+  anchor,
 }: {
   shot: Screenshot;
   eager?: boolean;
   /** Marks other than the screenshot's own boxes, such as the elements an accessibility check named. */
   marks?: Mark[];
   numbered?: boolean;
+  /** The mark to place the window by, when not the shot's own first: two shots compared share one window. */
+  anchor?: Mark | undefined;
 }) {
   const url = useArtifactUrl();
   const [failed, setFailed] = useState(false);
@@ -85,12 +91,16 @@ export function Shot({
   const marks: Mark[] = given ?? shot.boxes.map((box, i) => ({ ...box, ...(numbered && { n: i + 1 }) }));
   const named = marks.map((mark) => [mark.n, mark.label].filter(Boolean).join(' ')).filter(Boolean);
   const alt = `Screenshot of ${pageName(shot.route)} at ${shortVersion(shot.version)}${named.length ? `, marked: ${named.join('; ')}` : ''}`;
-  // The shot's height the frame shows, in the shot's own pixels, and the width that scales them to the frame's.
+  // The shot's height the frame shows, in the shot's own pixels, from where the window starts.
   const shown = shot.width * ratio;
+  const first = anchor ?? marks[0];
+  const top = first ? clamp(first.y - shown / 3, 0, Math.max(0, shot.height - shown)) : 0;
   const scale = (px: number) => `${(px / shot.width) * 100}cqw`;
-  // A mark mostly below the frame counts as below it, rather than be drawn half under the strip.
-  const inFrame = (mark: Mark) => mark.y + mark.height / 2 < shown;
-  const below = marks.filter((mark) => !inFrame(mark)).length;
+  // A mark counts as in the window by its middle, rather than be drawn half under its edge or the strip.
+  const middle = (mark: Mark) => mark.y + mark.height / 2 - top;
+  const inFrame = (mark: Mark) => middle(mark) >= 0 && middle(mark) < shown;
+  const above = marks.filter((mark) => middle(mark) < 0).length;
+  const outside = marks.length - marks.filter(inFrame).length;
   return (
     <div className="shot" ref={frame}>
       {failed ? (
@@ -110,6 +120,7 @@ export function Shot({
           loading={eager ? 'eager' : 'lazy'}
           decoding="async"
           draggable={false}
+          style={top ? { marginTop: `-${scale(top)}` } : undefined}
           onError={() => setFailed(true)}
         />
       )}
@@ -117,10 +128,10 @@ export function Shot({
         marks.filter(inFrame).map((box) => (
           <span
             key={`${box.x},${box.y},${box.kind}`}
-            className={`mk ${box.kind} ${box.y + box.height > shown * 0.8 ? 'up' : ''}`}
+            className={`mk ${box.kind} ${box.y + box.height - top > shown * 0.8 ? 'up' : ''}`}
             style={{
               left: scale(box.x),
-              top: scale(box.y),
+              top: scale(box.y - top),
               width: scale(box.width),
               height: scale(box.height),
             }}
@@ -133,16 +144,15 @@ export function Shot({
             )}
           </span>
         ))}
-      {!failed && below > 0 && (
+      {!failed && outside > 0 && (
         <span className="fold" aria-hidden="true">
-          ↓ {below} more {below === 1 ? 'mark' : 'marks'} below the frame
+          {above === outside ? '↑' : above ? '↕' : '↓'} {outside} more {outside === 1 ? 'mark' : 'marks'} outside the
+          frame
         </span>
       )}
     </div>
   );
 }
-
-const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 
 /**
  * Where a wipe starts: between the two sides' marks when it can be, so both show; otherwise just left of the
@@ -180,13 +190,15 @@ function Wipe({ before, after, tags, interactive }: Extract<PictureData, { type:
     if (box) set(((event.clientX - box.left) / box.width) * 100);
   };
   const [a, b] = tags;
+  // Both sides show the same window, so the wipe lines up: the one around the after side's mark, or the before's.
+  const anchor = after.boxes[0] ?? before.boxes[0];
   return (
     <div className="wipe" ref={wipe}>
       <div className="a">
-        <Shot shot={before} eager={interactive} />
+        <Shot shot={before} eager={interactive} anchor={anchor} />
       </div>
       <div className="b">
-        <Shot shot={after} eager={interactive} />
+        <Shot shot={after} eager={interactive} anchor={anchor} />
       </div>
       <span className="div" />
       <span

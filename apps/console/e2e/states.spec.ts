@@ -83,32 +83,38 @@ test('a screenshot that fails to load says so in its place', async ({ page }) =>
   await expect(card.getByRole('img', { name: /It could not be loaded/ }).first()).toBeVisible();
 });
 
-test('a whole page’s marks are placed by its width, and one below the frame is counted at its foot', async ({
+test('a whole page shows the window around its first mark, and counts the marks outside it', async ({
   page,
   request,
 }) => {
   type Shot = { kind: string; width: number; height: number; boxes: { y: number; label: string }[] };
   type Event = { work_item: string | null; type: string; artifacts: Shot[] };
   const events = (await (await request.get('/api/events')).json()) as Event[];
-  // The fix's picture as a whole page, 1600 tall, with a second mark further down than the frame shows.
+  // The fix's picture as a whole page, 1600 tall: its first mark far down, and a second where the mark was, near the top.
   for (const event of events) {
     if (event.work_item !== '1296' || event.type !== 'verification.finished') continue;
     for (const shot of event.artifacts) {
       const [mark] = shot.boxes;
       if (shot.kind !== 'screenshot' || !mark) continue;
       shot.height = 1600;
-      shot.boxes = [mark, { ...mark, y: 1200, label: 'Further down' }];
+      shot.boxes = [{ ...mark, y: 1200, label: 'Further down' }, mark];
     }
   }
   await page.route('**/api/events?after=0', (route) => route.fulfill({ json: events }));
   await page.goto(consoleUrl({ item: '1296' }));
   const after = page.locator('.card[data-place="centre"] .wipe .b .shot');
   await after.scrollIntoViewIfNeeded();
-  await expect(after.locator('.fold')).toHaveText('↓ 1 more mark below the frame');
+  await expect(after.locator('.fold')).toHaveText('↑ 1 more mark outside the frame');
   await expect(after.locator('.mk')).toHaveCount(1);
   const frame = await after.boundingBox();
   const mark = await after.locator('.mk').boundingBox();
   if (!frame || !mark) throw new Error('No frame or mark');
-  // 253 pixels down a page 1280 wide, at the frame's width: not 253 of its 1600 as a share of the frame's height.
-  expect(Math.abs(mark.y - frame.y - (253 / 1280) * frame.width)).toBeLessThan(1);
+  // The window would put the mark a third of the way down, but stops at the page's foot: it shows the last 800 of
+  // the page's 1600, each of the 1280 wide page's pixels drawn at the frame's width.
+  expect(Math.abs(mark.y - frame.y - ((1200 - 800) / 1280) * frame.width)).toBeLessThan(1);
+  // The before side, 800 tall, has no window further down to show: it stays at its top.
+  const before = page.locator('.card[data-place="centre"] .wipe .a .shot');
+  const image = await before.locator('img').boundingBox();
+  if (!image) throw new Error('No image');
+  expect(Math.abs(image.y - frame.y)).toBeLessThan(1);
 });
