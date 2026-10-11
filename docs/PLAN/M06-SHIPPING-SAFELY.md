@@ -21,10 +21,10 @@ Each part starts when the one before has met its criteria and its pull requests 
 The part's session orchestrates. It gives each pull request to a sub-agent of its own, and keeps its context for the stack. The sub-agent, for its pull request:
 
 1. Builds the task with its tests, and passes `make check`.
-2. Has a fresh sub-agent run `/code-review low` on the branch, and fixes what it finds. Where a miss is a hole rather than a bug (tasks 1, 2, 8 and 13), `/code-review medium` and `/security-review`.
+2. Has a fresh sub-agent run `/code-review medium` on the branch, and fixes what it finds. Where a miss is a hole rather than a bug (tasks 1, 2, 8 and 13), `/security-review` as well. Each runs once; a second runs only after a major change.
 3. Writes a short note on the change (why, the decisions it took and turned down, what it left out and where that went, how it was tested) in `scratch/pr/`, and runs `/visual-pr` with the base and the note. The skill writes the description in a context of its own, so the sub-agent's full context does not have to hold the whole diff again.
-4. Pushes, and opens the pull request with that description. Copilot reviews it.
-5. Answers Copilot. Fixed: reply with the commit and resolve. Wrong: reply with why and resolve. Arguable, or outside the task: reply and leave it open for the orchestrator. `main` needs every conversation resolved before a merge.
+4. Pushes, and opens the pull request with that description. Copilot reviews it once, on its own, on the first push; nothing requests that review, and later pushes are not reviewed.
+5. Answers Copilot. Fixed: reply with the commit and resolve. Wrong: reply with why and resolve. Arguable, or outside the task: reply and leave it open for the orchestrator. `main` needs every conversation resolved before a merge. A second Copilot review is the orchestrator's call, made only after a major change or when a sub-agent disagrees with Copilot.
 6. Reports to the orchestrator: the pull request, what each review found, how it was answered, and what is left open.
 
 Then the orchestrator reviews the stack as a whole, and fixes bottom up, one sub-agent to a pull request, rebasing what is above each fix before anything is pushed again.
