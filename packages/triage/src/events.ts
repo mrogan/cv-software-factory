@@ -12,6 +12,7 @@ import {
   type NewEvent,
   type PayloadOf,
   type Sense,
+  type SignalSource,
   type SymptomClass,
   VERSIONS,
 } from '@software-factory/events';
@@ -74,6 +75,7 @@ const SENSE_NAMES: Record<Exclude<Sense, 'report'>, string> = {
   crawler: 'The crawler',
   metrics: 'The metrics',
   logs: 'The log watcher',
+  canary: 'The canary',
 };
 
 /** A ticket's title, from what was seen and where. */
@@ -96,12 +98,22 @@ const TITLES: Record<SymptomClass, string> = {
   'wrong-metric': 'Metrics with a wrong label',
 };
 
-const where = (route: string) => (route === '*' ? 'every page' : shortPath(route));
+/**
+ * Where a canary's signal on `*` is: its analysis found the canary worse on more than one route, or could not name
+ * one. Any other sense's `*` is every page it checked.
+ */
+export const CANARY_ANY_ROUTE = 'routes it could not narrow to one';
 
-export const ticketTitle = (fingerprint: Fingerprint): string =>
-  'class' in fingerprint
-    ? `${TITLES[fingerprint.class]} on ${where(fingerprint.route)}`
-    : `Wrong words on ${shortPath(fingerprint.page)}`;
+const where = (route: string, sense?: SignalSource) =>
+  route !== '*' ? shortPath(route) : sense === 'canary' ? CANARY_ANY_ROUTE : 'every page';
+
+/** A ticket's title, from what was seen and where, and by which sense when it was a sense. */
+export const ticketTitle = (fingerprint: Fingerprint, sense?: SignalSource): string =>
+  !('class' in fingerprint)
+    ? `Wrong words on ${shortPath(fingerprint.page)}`
+    : fingerprint.route === '*' && sense === 'canary'
+      ? `${TITLES[fingerprint.class]} in a canary release`
+      : `${TITLES[fingerprint.class]} on ${where(fingerprint.route)}`;
 
 /** A report's ticket says a visitor raised it. Its title is the factory's words, never the visitor's. */
 export const reportedTitle = (fingerprint: Fingerprint): string => {
@@ -138,7 +150,7 @@ export function senseTicket(signal: InboxSignal, signalId: string, workItem: str
   const symptom = signal.symptom as SymptomClass;
   const { category, severity } = SYMPTOMS[symptom];
   const fingerprint = { route: signal.route, class: symptom };
-  const title = ticketTitle(fingerprint);
+  const title = ticketTitle(fingerprint, signal.sense);
   const sense = SENSE_NAMES[signal.sense as Exclude<Sense, 'report'>];
   const writer = new Writer(signalId, workItem, now);
   writer.add('work-item.opened', 'triage', `${sense} opened a work item`, {
@@ -155,16 +167,38 @@ export function senseTicket(signal: InboxSignal, signalId: string, workItem: str
     fingerprint,
     traces: tracesOf(signal),
   });
+  const how =
+    signal.sense === 'canary'
+      ? `The canary’s analysis found it on ${where(signal.route, signal.sense)} in version ${signal.version}, which did worse on ${signal.check} than the version it would have replaced, and the release rolled back.`
+      : `${sense} found it on ${where(signal.route)} in version ${signal.version}, on two checks in a row: ${signal.check}.`;
   return writer.add('work-item.summarised', 'triage', 'Summary written', {
     title,
     description: `${sense} found it: ${signal.check}. Triage opened a ticket, ${category} and ${severity}, which waits for the planner.`,
-    story: `${sense} found it on ${where(signal.route)} in version ${signal.version}, on two checks in a row: ${signal.check}. A sense knows what it saw, so the ticket’s category and severity come from the policy’s table for the symptom, not from a model. Triage opened ticket #${workItem} with the evidence the sense captured. Nothing has been fixed yet: the ticket waits at Plan.`,
+    story: `${how} A sense knows what it saw, so the ticket’s category and severity come from the policy’s table for the symptom, not from a model. Triage opened ticket #${workItem} with the evidence the sense captured. Nothing has been fixed yet: the ticket waits at Plan.`,
   }).events;
 }
 
 /** A sense's signal on an open ticket, the first time this sense has seen it: its evidence joins the ticket. */
 export function senseEvidence(signal: InboxSignal, signalId: string, workItem: string, now: Date): NewEvent[] {
   return signalEvent(new Writer(signalId, workItem, now), signal).events;
+}
+
+/**
+ * A sense's signal on a ticket closed as verified: the same defect came back. The work item reopens, saying what
+ * came back, and the signal joins it with its evidence.
+ */
+export function senseReopened(signal: InboxSignal, signalId: string, workItem: string, now: Date): NewEvent[] {
+  const sense = signal.sense as Exclude<Sense, 'report'>;
+  const reason = `${SENSE_NAMES[sense]} saw it again on ${where(signal.route, sense)} in version ${signal.version}: ${signal.check}`;
+  const writer = new Writer(signalId, workItem, now);
+  writer.add('work-item.reopened', 'triage', `Reopened: ${SENSE_NAMES[sense].toLowerCase()} saw it again`, {
+    sense,
+    check: signal.check,
+    route: signal.route,
+    version: signal.version,
+    reason: reason.slice(0, 200),
+  });
+  return signalEvent(writer, signal).events;
 }
 
 const QUARANTINED = 'The report holds instructions aimed at the system, so nothing acts on it';

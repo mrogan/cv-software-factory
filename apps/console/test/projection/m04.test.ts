@@ -219,6 +219,7 @@ describe('Triage’s panel', () => {
       { sense: 'crawler', signals: 6, tickets: 5, routes: undefined },
       { sense: 'metrics', signals: 1, tickets: 0, routes: undefined },
       { sense: 'logs', signals: 1, tickets: 0, routes: undefined },
+      { sense: 'canary', signals: 0, tickets: 0, routes: undefined },
       { sense: 'report', signals: 4, tickets: 1, routes: { quarantined: 1, parked: 1, closed: 1, joined: 0 } },
     ]);
   });

@@ -143,6 +143,9 @@ export function stageOf(event: PublicEvent): Stage | null {
       return 'release';
     case 'verification.finished':
       return 'verify';
+    // A verified ticket whose defect came back goes back to Plan, for a fresh pass.
+    case 'work-item.reopened':
+      return 'plan';
     case 'work.returned':
       return event.payload.to;
     case 'hold.started':
@@ -346,6 +349,16 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.outcome = CLOSED[event.payload.outcome];
         if (state.stage) state.visits[state.stage] = { ...(state.visits[state.stage] as Visit), leftAt: time };
         if (event.payload.outcome === 'discarded') state.category = 'not-a-defect';
+        break;
+      case 'work-item.reopened':
+        // Open again, it waits at Plan for the planner, and comes round to a release and a verification of its own.
+        state.closedAt = undefined;
+        state.hold = undefined;
+        state.queued = true;
+        release = undefined;
+        state.canary = undefined;
+        state.versions = { from: undefined, to: undefined, rolledBack: false, live: false };
+        state.evidence.verified = undefined;
         break;
     }
     if (event.type === 'judgement.made') {

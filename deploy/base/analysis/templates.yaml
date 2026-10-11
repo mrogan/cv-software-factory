@@ -93,6 +93,11 @@ spec:
                       - http://website.website
                       - --change
                       - http://website-canary.website
+                    env:
+                      - name: COMPARISON_FILE
+                        value: /dev/termination-log
+                    terminationMessagePath: /dev/termination-log
+                    terminationMessagePolicy: File
                     resources:
                       requests:
                         cpu: 200m
@@ -207,6 +212,11 @@ spec:
                       - http://website.website
                       - --change
                       - http://website-canary.website
+                    env:
+                      - name: COMPARISON_FILE
+                        value: /dev/termination-log
+                    terminationMessagePath: /dev/termination-log
+                    terminationMessagePolicy: File
                     resources:
                       requests:
                         cpu: 200m

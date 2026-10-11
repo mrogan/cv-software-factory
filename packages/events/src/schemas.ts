@@ -64,8 +64,48 @@ export const artifactRef = z.discriminatedUnion('kind', [
 ]);
 
 /**
+ * A release, as its events name it: in the cluster, the pod-template hash Argo Rollouts gives the canary, which the
+ * telemetry and the analysis tell the versions apart by. A dry run's release names itself.
+ */
+const releaseId = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, 'a release, such as the canary’s pod-template hash');
+const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'an image digest');
+
+/** How far an analysis, or one of its measures, has got, in Argo Rollouts' words. */
+const analysisPhase = z.enum(['pending', 'running', 'successful', 'failed', 'error', 'inconclusive']);
+
+/** One measure of the canary's analysis, as the analysis reported it (policy/release.ts names them). */
+const measure = z.strictObject({
+  /** As the analysis names it: `enough-requests`, `errors`, `latency` or `journeys`. */
+  name: slug,
+  phase: analysisPhase,
+  /**
+   * Its latest measurement, in the analysis's own terms. Null when it has none that JSON can hold: the journeys report
+   * no number, and a version with nothing to compare measures as infinitely worse.
+   */
+  value: z.number().nullable(),
+  /** What the value is held to: the most it may be, or for `enough-requests` the least. Null for no threshold. */
+  limit: z.number().nullable(),
+  /** The analysis's own words about it, when it has any: why it failed, or could not measure. */
+  message: text(300).optional(),
+});
+
+/** A measure on the canary and the baseline over the release, as the analysis compared them. */
+const series = z.strictObject({
+  /** What the values are, in words, such as `p99 latency`. */
+  label: text(60),
+  unit: text(16),
+  /** When the first value was taken. A version 1 rollback did not record it. */
+  start: timestamp.optional(),
+  stepSeconds: z.number().int().positive(),
+  canary: z.array(z.number().nullable()).min(2).max(500),
+  baseline: z.array(z.number().nullable()).min(2).max(500),
+  /** Where in the series the analysis failed the canary. */
+  at: count,
+});
+
+/**
  * Evidence small enough to keep in the event itself: a metric series; log lines and the trace they link to; an HTTP
- * exchange; what a browser's console said; or what an accessibility check found.
+ * exchange; what a browser's console said; what an accessibility check found; or a canary's analysis.
  */
 export const evidence = z.discriminatedUnion('kind', [
   z.strictObject({
@@ -150,6 +190,44 @@ export const evidence = z.discriminatedUnion('kind', [
       .min(1)
       .max(20),
   }),
+  /**
+   * A measure of a canary's analysis, against its baseline: what the analysis said of it, the series it compared, the
+   * routes where the canary did worse, worst first, and for the journeys, the checks that passed on the baseline and
+   * failed on the canary.
+   */
+  z.strictObject({
+    kind: z.literal('canary'),
+    release: releaseId,
+    /** The canary's version, and its baseline's: the version it would have replaced. */
+    version: appVersion,
+    against: appVersion,
+    measure,
+    series: series.optional(),
+    /** The routes where the canary did worse, worst first, each with its figure on both versions. */
+    routes: z
+      .strictObject({
+        unit: text(16),
+        worse: z
+          .array(z.strictObject({ route, canary: z.number(), baseline: z.number() }))
+          .min(1)
+          .max(10),
+      })
+      .optional(),
+    /** The journeys' checks that passed on the baseline and failed on the canary, as the comparison said. */
+    checks: z
+      .array(
+        z.strictObject({
+          sense: z.enum(['probe', 'crawler']),
+          check: text(80),
+          route: routeOrEvery,
+          symptom: z.enum(V.SYMPTOM_CLASSES).optional(),
+          message: text(300).optional(),
+        }),
+      )
+      .min(1)
+      .max(8)
+      .optional(),
+  }),
 ]);
 
 /** One answer from Jev (TYPESAFE.md): a label, a level on a rubric, or the probability of yes. Never free text. */
@@ -203,32 +281,6 @@ const fingerprint = z.union([
 /** A canary against its baseline, on the same measure. */
 const versus = <T extends z.ZodType>(value: T) => z.strictObject({ canary: value, baseline: value });
 
-/**
- * A release, as its events name it: in the cluster, the pod-template hash Argo Rollouts gives the canary, which the
- * telemetry and the analysis tell the versions apart by. A dry run's release names itself.
- */
-const releaseId = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, 'a release, such as the canary’s pod-template hash');
-const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'an image digest');
-
-/** How far an analysis, or one of its measures, has got, in Argo Rollouts' words. */
-const analysisPhase = z.enum(['pending', 'running', 'successful', 'failed', 'error', 'inconclusive']);
-
-/** One measure of the canary's analysis, as the analysis reported it (policy/release.ts names them). */
-const measure = z.strictObject({
-  /** As the analysis names it: `enough-requests`, `errors`, `latency` or `journeys`. */
-  name: slug,
-  phase: analysisPhase,
-  /**
-   * Its latest measurement, in the analysis's own terms. Null when it has none that JSON can hold: the journeys report
-   * no number, and a version with nothing to compare measures as infinitely worse.
-   */
-  value: z.number().nullable(),
-  /** What the value is held to: the most it may be, or for `enough-requests` the least. Null for no threshold. */
-  limit: z.number().nullable(),
-  /** The analysis's own words about it, when it has any: why it failed, or could not measure. */
-  message: text(300).optional(),
-});
-
 /** One version's figures over a step, each null when there was nothing to measure. */
 const figures = z.strictObject({
   requests: count.nullable(),
@@ -236,20 +288,6 @@ const figures = z.strictObject({
   p99Ms: count.nullable(),
   /** The journeys' checks that passed, of how many ran. */
   journeys: z.tuple([count, count]).nullable(),
-});
-
-/** A measure on the canary and the baseline over the release, as the analysis compared them. */
-const series = z.strictObject({
-  /** What the values are, in words, such as `p99 latency`. */
-  label: text(60),
-  unit: text(16),
-  /** When the first value was taken. A version 1 rollback did not record it. */
-  start: timestamp.optional(),
-  stepSeconds: z.number().int().positive(),
-  canary: z.array(z.number().nullable()).min(2).max(500),
-  baseline: z.array(z.number().nullable()).min(2).max(500),
-  /** Where in the series the analysis failed the canary. */
-  at: count,
 });
 
 /** The payload of each event type, at its current version. */
@@ -282,6 +320,19 @@ export const PAYLOADS = {
   'work-item.closed': z.strictObject({
     /** How it ended. Triage ends a report it quarantines or discards; anything else ends after the line. */
     outcome: z.enum(['verified', 'rolled-back', 'no-change', 'quarantined', 'discarded']),
+    reason: text(200),
+  }),
+  /**
+   * A ticket closed as verified came back: a sense's signal on the same fingerprint, so the same defect, regressed.
+   * The ticket and its work item open again, and the work goes back to Plan for a fresh pass. What came back is the
+   * signal's: the sense, its check, the route and the version it was seen on. The signal's own event follows, with its
+   * evidence.
+   */
+  'work-item.reopened': z.strictObject({
+    sense: z.enum(V.SENSES).exclude(['report']),
+    check: text(80),
+    route: routeOrEvery,
+    version: appVersion,
     reason: text(200),
   }),
 

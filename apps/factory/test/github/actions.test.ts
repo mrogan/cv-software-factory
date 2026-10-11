@@ -5,8 +5,54 @@ import { join } from 'node:path';
 import { DiskArtifacts } from '@software-factory/store';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
+import { GitHub } from '../../src/github/client.ts';
+import { carriesIn, carriesSection, DEPLOYS, DeployRefused, deployTitle } from '../../src/github/deploys.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
-import { calls, client, OTHER_SHA, quiet, REPO, SHA } from './fake.ts';
+import {
+  CLIENT_ID,
+  calls,
+  client,
+  fakeGitHub,
+  OTHER_SHA,
+  PRIVATE_KEY,
+  quiet,
+  REPO,
+  type Route,
+  type Sent,
+  SHA,
+} from './fake.ts';
+
+const APP_DEPLOY = DEPLOYS.find((t) => t.repo === REPO) as (typeof DEPLOYS)[number];
+const CARRIES = [{ workItem: '1001', title: 'Redirect loop on /departments', issue: 16, pullRequest: 17 }];
+
+/** The app's deploy pull request, #30, for SHA, as GitHub keeps it: what describing it reads and writes. */
+function deployPull(pull: { state?: string; head?: string; fork?: boolean; body?: string | null } = {}) {
+  let body = pull.body === undefined ? 'Runs `aaaaaaa` on the local cluster.' : pull.body;
+  const routes: Route[] = [
+    {
+      method: 'GET',
+      path: `/repos/${REPO}/pulls/30`,
+      answer: () => ({
+        body: {
+          state: pull.state ?? 'open',
+          title: deployTitle(APP_DEPLOY, SHA),
+          body,
+          head: { ref: pull.head ?? APP_DEPLOY.branch, repo: { full_name: pull.fork ? 'someone/fork' : REPO } },
+          base: { ref: 'main' },
+        },
+      }),
+    },
+    {
+      method: 'PATCH',
+      path: `/repos/${REPO}/pulls/30`,
+      answer: ({ body: change }) => {
+        body = (change as { body: string }).body;
+        return { body: {} };
+      },
+    },
+  ];
+  return { routes, body: () => body };
+}
 
 describe('acting in GitHub', () => {
   it('commits through GraphQL, so GitHub signs it, with the files as base64 and the message split', async () => {
@@ -141,6 +187,195 @@ describe('acting in GitHub', () => {
       { state: 'closed', state_reason: 'completed' },
     ]);
   });
+
+  it('closes an issue with a comment saying why, once, and says nothing on one already closed', async () => {
+    let state = 'open';
+    let failClose = 1;
+    const comments: { body: string }[] = [];
+    const { github, sent } = client([
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { state } }) },
+      { method: 'GET', path: /^\/repos\/.+\/issues\/16\/events/, answer: () => ({ body: [] }) },
+      { method: 'GET', path: /^\/repos\/.+\/issues\/16\/comments/, answer: () => ({ body: comments }) },
+      {
+        method: 'POST',
+        path: `/repos/${REPO}/issues/16/comments`,
+        answer: ({ body }) => {
+          comments.push(body as { body: string });
+          return { status: 201, body: {} };
+        },
+      },
+      {
+        method: 'PATCH',
+        path: `/repos/${REPO}/issues/16`,
+        answer: () => {
+          if (failClose-- > 0) return { status: 422, body: { message: 'Validation Failed' } };
+          state = 'closed';
+          return { body: {} };
+        },
+      },
+    ]);
+    const actions = new LiveActions(github);
+    // The first close comments, and its closing fails; trying again closes it, saying nothing twice.
+    await expect(actions.closeIssue(REPO, 16, 'completed', 'Verified in production.')).rejects.toThrow();
+    await actions.closeIssue(REPO, 16, 'completed', 'Verified in production.');
+    await actions.closeIssue(REPO, 16, 'completed', 'Verified in production.');
+    expect(comments).toEqual([{ body: 'Verified in production.' }]);
+    expect(
+      calls(sent)
+        .filter((s) => s.method !== 'GET')
+        .map((s) => [s.method, s.body]),
+    ).toEqual([
+      ['POST', { body: 'Verified in production.' }],
+      ['PATCH', { state: 'closed', state_reason: 'completed' }],
+      ['PATCH', { state: 'closed', state_reason: 'completed' }],
+    ]);
+  });
+
+  it('reopens a closed issue with a comment saying why, once in each closing, and leaves one already open', async () => {
+    let clock = 0;
+    const time = () => new Date(Date.UTC(2026, 9, 11, 9, clock++)).toISOString();
+    let issue = { state: 'closed', closed_at: time() };
+    let failReopen = 1;
+    const comments: { body: string; created_at: string }[] = [];
+    const { github, sent } = client([
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: issue }) },
+      {
+        method: 'GET',
+        path: /^\/repos\/.+\/issues\/16\/comments/,
+        answer: ({ path }) => {
+          const since = new URL(path, 'https://api.github.test').searchParams.get('since') ?? '';
+          return { body: comments.filter((made) => made.created_at >= since) };
+        },
+      },
+      {
+        method: 'POST',
+        path: `/repos/${REPO}/issues/16/comments`,
+        answer: ({ body }) => {
+          comments.push({ ...(body as { body: string }), created_at: time() });
+          return { status: 201, body: {} };
+        },
+      },
+      {
+        method: 'PATCH',
+        path: `/repos/${REPO}/issues/16`,
+        answer: () => {
+          if (failReopen-- > 0) return { status: 422, body: { message: 'Validation Failed' } };
+          issue = { state: 'open', closed_at: issue.closed_at };
+          return { body: {} };
+        },
+      },
+    ]);
+    const actions = new LiveActions(github);
+    // The first reopening comments, and fails to reopen; trying again reopens it, saying nothing twice.
+    await expect(actions.reopenIssue(REPO, 16, 'It came back.')).rejects.toThrow();
+    await actions.reopenIssue(REPO, 16, 'It came back.');
+    await actions.reopenIssue(REPO, 16, 'It came back.');
+    expect(comments.map((made) => made.body)).toEqual(['It came back.']);
+    // Closed again, and the same words come back: they are said again, for this closing.
+    issue = { state: 'closed', closed_at: time() };
+    await actions.reopenIssue(REPO, 16, 'It came back.');
+    expect(comments.map((made) => made.body)).toEqual(['It came back.', 'It came back.']);
+    expect(
+      calls(sent)
+        .filter((s) => s.method !== 'GET')
+        .map((s) => [s.method, s.body]),
+    ).toEqual([
+      ['POST', { body: 'It came back.' }],
+      ['PATCH', { state: 'open', state_reason: 'reopened' }],
+      ['PATCH', { state: 'open', state_reason: 'reopened' }],
+      ['POST', { body: 'It came back.' }],
+      ['PATCH', { state: 'open', state_reason: 'reopened' }],
+    ]);
+  });
+
+  it('says again on a reopened issue what an earlier closing said, as it closes it again', async () => {
+    const said = [{ body: 'Verified in production.' }];
+    const { github, sent } = client([
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { state: 'open' } }) },
+      {
+        method: 'GET',
+        path: /^\/repos\/.+\/issues\/16\/events/,
+        answer: () => ({
+          body: [
+            { event: 'closed', created_at: '2026-10-11T09:00:00Z' },
+            { event: 'reopened', created_at: '2026-10-11T10:00:00Z' },
+          ],
+        }),
+      },
+      {
+        method: 'GET',
+        path: /^\/repos\/.+\/issues\/16\/comments/,
+        answer: ({ path }) => ({ body: path.includes('since=2026-10-11T10%3A00%3A00Z') ? [] : said }),
+      },
+      { method: 'POST', path: `/repos/${REPO}/issues/16/comments`, answer: () => ({ status: 201, body: {} }) },
+      { method: 'PATCH', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: {} }) },
+    ]);
+    await new LiveActions(github).closeIssue(REPO, 16, 'completed', 'Verified in production.');
+    expect(calls(sent).filter((s) => s.method === 'POST')).toHaveLength(1);
+  });
+});
+
+describe('describing a deploy', () => {
+  it('writes what the deploy pull request carries into its body, and leaves a body that says it already', async () => {
+    const pull = deployPull();
+    const { github, sent } = client(pull.routes);
+    const actions = new LiveActions(github);
+    expect(await actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES })).toBe(true);
+    expect(pull.body()).toBe(`Runs \`aaaaaaa\` on the local cluster.\n\n${carriesSection(CARRIES)}`);
+    expect(await actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES })).toBe(false);
+    expect(await actions.describeDeploy(REPO, 30, { commit: SHA, carries: [] })).toBe(true);
+    expect(carriesIn(pull.body())).toBe(carriesSection([]));
+    expect(calls(sent).filter((c) => c.method === 'PATCH')).toHaveLength(2);
+  });
+
+  it('refuses a pull request that is not a deploy, and one no longer for the commit, or no longer open', async () => {
+    for (const [pull, commit, refusal] of [
+      [{ head: 'factory/1001-cart' }, SHA, DeployRefused],
+      [{ fork: true }, SHA, DeployRefused],
+      [{}, OTHER_SHA, { kind: 'conflict' }],
+      [{ state: 'closed' }, SHA, { kind: 'conflict' }],
+    ] as const) {
+      const { routes } = deployPull(pull);
+      const { github, sent } = client(routes);
+      const describing = new LiveActions(github).describeDeploy(REPO, 30, { commit, carries: CARRIES });
+      if (refusal === DeployRefused) await expect(describing).rejects.toBeInstanceOf(DeployRefused);
+      else await expect(describing).rejects.toMatchObject(refusal);
+      expect(calls(sent).filter((c) => c.method === 'PATCH')).toEqual([]);
+    }
+  });
+
+  it('waits for the watch’s write to the same body, so neither writes over the other with a body it read before', async () => {
+    const pull = deployPull();
+    const sent: Sent[] = [];
+    const fake = fakeGitHub(pull.routes, sent);
+    // The watch's write is slow to come back.
+    let letGo = () => {};
+    const slow = new Promise<void>((resolve) => (letGo = resolve));
+    let first = true;
+    const github = new GitHub({
+      credentials: { clientId: CLIENT_ID, privateKey: PRIVATE_KEY },
+      api: 'https://api.github.test',
+      log: quiet,
+      sleep: async () => {},
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === 'PATCH' && first) {
+          first = false;
+          await slow;
+        }
+        return fake.fetch(input, init);
+      }) as typeof fetch,
+    });
+    const actions = new LiveActions(github);
+    const move = actions.updatePullRequest(REPO, 30, { body: 'Runs `bbbbbbb` on the local cluster.' });
+    const describing = actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls(sent)).toEqual([]);
+    letGo();
+    await Promise.all([move, describing]);
+    // The description read the body the move wrote, and kept it.
+    expect(calls(sent).map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH']);
+    expect(pull.body()).toBe(`Runs \`bbbbbbb\` on the local cluster.\n\n${carriesSection(CARRIES)}`);
+  });
 });
 
 describe('a dry run', () => {
@@ -173,6 +408,51 @@ describe('a dry run', () => {
       { path: 'logo.png', base64: 'iVD//g==' },
     ]);
     expect(records.map((r) => r.action).sort()).toEqual(['commit', 'openPullRequest']);
+  });
+
+  it('records what it would have said a deploy carries', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    expect(await actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES })).toBe(true);
+    const [record] = await Promise.all(
+      (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+    );
+    expect(record).toEqual({
+      action: 'describeDeploy',
+      repo: REPO,
+      at: '2026-10-04T12:00:00.000Z',
+      args: { number: 30, commit: SHA, carries: CARRIES },
+    });
+  });
+
+  it('records the issue it would have closed, with what it would have said on it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    await actions.closeIssue(REPO, 16, 'completed', 'Verified in production.');
+    const [record] = await Promise.all(
+      (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+    );
+    expect(record).toMatchObject({
+      action: 'closeIssue',
+      args: { number: 16, reason: 'completed', comment: 'Verified in production.' },
+    });
+  });
+});
+
+describe('reopening an issue in a dry run', () => {
+  it('records the issue it would have reopened, with what it would have said on it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    await actions.reopenIssue(REPO, 16, 'It came back.');
+    const [record] = await Promise.all(
+      (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+    );
+    expect(record).toEqual({
+      action: 'reopenIssue',
+      repo: REPO,
+      at: '2026-10-04T12:00:00.000Z',
+      args: { number: 16, comment: 'It came back.' },
+    });
   });
 });
 
@@ -257,6 +537,24 @@ describe('the worker over HTTP', () => {
     close?.();
     const readOnly = await (await serve(keyless))('/v1/actions/comment', { repo: REPO, number: 1, body: 'hi' });
     expect(readOnly).toMatchObject({ status: 503, body: { error: 'read-only' } });
+  });
+
+  it('describes a deploy with its list checked at the door, and refuses a pull request that is not one', async () => {
+    const pull = deployPull({ head: 'factory/1001-cart' });
+    const { github, sent } = client(pull.routes);
+    const call = await serve(github);
+    const ask = (carries: unknown) =>
+      call('/v1/actions/describeDeploy', { repo: REPO, number: 30, commit: SHA, carries });
+    expect(await ask(CARRIES)).toMatchObject({ status: 422, body: { error: 'deploy-refused' } });
+    for (const carries of [
+      [{ ...CARRIES[0], workItem: '../1' }],
+      [{ ...CARRIES[0], title: 'x'.repeat(121) }],
+      [{ ...CARRIES[0], markdown: '**' }],
+      Array.from({ length: 51 }, () => CARRIES[0]),
+    ]) {
+      expect(await ask(carries)).toMatchObject({ status: 400 });
+    }
+    expect(calls(sent)).toHaveLength(1);
   });
 
   it('refuses a body that does not say it is JSON, which is all a web page can send unasked', async () => {

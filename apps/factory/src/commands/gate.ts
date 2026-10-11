@@ -7,20 +7,19 @@
  * `journeys` runs the probes and the crawler against the base's app and the change's, and fails on a check that
  * passes on the base and fails on the change twice (`gates/journeys.ts`). It observes the two apps at once; the second
  * time, it runs only the probes that failed, and the crawl only when one of its checks did. It writes its summary as
- * Markdown to the file, or prints it. CRAWL_LIMIT caps the crawl, 150 by default.
+ * Markdown to the file, or prints it. CRAWL_LIMIT caps the crawl, 150 by default. With COMPARISON_FILE set, it also
+ * writes the checks that regressed there as JSON (`comparisonMessage`): the canary's analysis sets it to the Job's
+ * termination message, which the line reads when the journeys fail a release.
  */
-import { appendFile, mkdtemp } from 'node:fs/promises';
+import { appendFile, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { DiskArtifacts } from '@software-factory/store';
-import { Crawler } from '../crawler/index.ts';
-import { compareJourneys, type Observe, type Seen, summary, toRunAgain } from '../gates/journeys.ts';
+import { compareJourneys, comparisonMessage, type Observe, summary } from '../gates/journeys.ts';
 import { annotate } from '../gates/report.ts';
 import { log } from '../log.ts';
-import { PROBES, probes } from '../probes/index.ts';
-import { versionOf } from '../senses/http.ts';
-import type { Sense } from '../senses/types.ts';
+import { observeApp } from '../senses/observe.ts';
 
 export const USAGE = '  factory gate journeys --base <url> --change <url> [--summary <file>]';
 
@@ -37,39 +36,13 @@ export async function run(args: string[]): Promise<number> {
   const store = new DiskArtifacts(await mkdtemp(join(tmpdir(), 'gate-')));
   const limit = Number(process.env.CRAWL_LIMIT ?? 150);
 
-  const observe: Observe = async (url, only) => {
-    const app = url.replace(/\/$/, '');
-    const version = await versionOf(app);
-    const again = only && toRunAgain(only);
-    const senses: Array<Sense & { close(): Promise<void> }> = [
-      ...(!again || again.probes.size ? [probes({ app, store, log })] : []),
-      ...(!again || again.crawl ? [new Crawler({ app, store, log, limit })] : []),
-    ];
-    const skip = again && new Set(PROBES.map((p) => p.id).filter((id) => !again.probes.has(id)));
-    const seen: Seen[] = [];
-    for (const sense of senses) {
-      try {
-        for (const o of await sense.pass(version, skip)) {
-          seen.push({
-            sense: sense.name,
-            check: o.check,
-            route: o.route,
-            failed: o.finding !== null && !o.trouble,
-            ...(o.trouble ? { trouble: o.trouble } : {}),
-            ...(o.finding ? { message: o.finding.message } : {}),
-          });
-        }
-      } finally {
-        await sense.close();
-      }
-    }
-    return seen;
-  };
+  const observe: Observe = async (url, only) => (await observeApp(url, only, { store, log, limit })).seen;
 
   const comparison = await compareJourneys(observe, values.base, values.change);
   const markdown = summary(comparison);
   if (values.summary) await appendFile(values.summary, `${markdown}\n`);
   else console.log(markdown);
+  if (process.env.COMPARISON_FILE) await writeFile(process.env.COMPARISON_FILE, comparisonMessage(comparison));
   for (const r of comparison.regressions)
     annotate('error', `${r.sense} ${r.check} on ${r.route}: ${r.message ?? r.trouble ?? 'failed'}`);
   return comparison.regressions.length ? 1 : 0;

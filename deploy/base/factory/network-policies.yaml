@@ -299,7 +299,9 @@ spec:
         - { protocol: TCP, port: 3100 } # Loki
         - { protocol: TCP, port: 3200 } # Tempo
 ---
-# The probes look at the app, and triage may call their page reader. The crawler looks at the app.
+# The probes look at the app; triage may call their page reader, and the line their verification, which runs a ticket's
+# check again after a release, on a port of its own: the line may not have the reader show it the app's pages. The
+# crawler looks at the app.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -318,6 +320,12 @@ spec:
               app.kubernetes.io/name: triage
       ports:
         - { protocol: TCP, port: 8080 }
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: line
+      ports:
+        - { protocol: TCP, port: 8081 }
   egress:
     - to:
         - namespaceSelector:
@@ -345,10 +353,13 @@ spec:
       ports:
         - { protocol: TCP, port: 8080 }
 ---
-# The line takes runners' handbacks, starts their Jobs through the Kubernetes API, and asks the GitHub worker to act.
-# The API server listens on the k3d node's own address, which Docker chooses when the cluster is made, on 6443. A policy
-# sees a connection after the `kubernetes` Service has translated it, so 6443 on a private address is all the line
-# needs, and it reaches nothing else on the cluster's or the local network's addresses.
+# The line takes runners' handbacks, starts their Jobs and reads the app's Rollout through the Kubernetes API, asks the
+# GitHub worker to act, and reads each version's figures in a release from Prometheus, on its pods' port behind the
+# Service's 80. At Verify it asks the probes to run a ticket's check again, and reads Prometheus and Loki for an alert's
+# expression and the log watcher's pattern on the new version. The API server listens on the k3d node's own address,
+# which Docker chooses when the cluster is made, on 6443. A policy sees a connection after the `kubernetes` Service has
+# translated it, so 6443 on a private address is all the line needs, and it reaches nothing else on the cluster's or the
+# local network's addresses.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -386,6 +397,31 @@ spec:
             cidr: 192.168.0.0/16
       ports:
         - { protocol: TCP, port: 6443 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/component: server
+      ports:
+        - { protocol: TCP, port: 9090 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - { protocol: TCP, port: 3100 }
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: probes
+      ports:
+        - { protocol: TCP, port: 8081 }
 ---
 # The traffic generator reaches the shop through Traefik, its front door, and nothing else: not the app's Services,
 # whose pods would skip the canary's split. A policy sees the connection after the Service has translated it, so the

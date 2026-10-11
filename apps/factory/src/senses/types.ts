@@ -39,6 +39,8 @@ export interface Observation {
   route: string;
   /** What the check kept as proof, taken when the finding was made. Empty for a pass. */
   artifacts: ArtifactRef[];
+  /** Where the screenshot of a finding was taken, and the elements boxed on it: the pictures box them too. */
+  look?: { path: string; elements: Check[] };
   /** Set when the check could not tell, such as a timeout or an app that did not answer: neither a pass nor a failure. */
   trouble?: string;
 }

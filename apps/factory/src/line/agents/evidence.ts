@@ -11,6 +11,7 @@
  * app's answer to a request the sense made itself.
  */
 import type { PayloadOf } from '@software-factory/events';
+import { CANARY_ANY_ROUTE } from '@software-factory/triage';
 import { count } from './agent.ts';
 
 /** A sense's signal as an agent sees it: everything but a visitor's report. */
@@ -20,12 +21,19 @@ type Evidence = NonNullable<Signal['evidence']>[number];
 /** A route without its query or fragment, which a route never needs and a visitor may have typed. */
 export const routeOf = (route: string) => route.split(/[?#]/)[0] || '/';
 
-/** Where the ticket is, as triage fingerprinted it, and how it was classed, with its traces if it has any. */
-export function ticketLines(ticket: PayloadOf<'ticket.opened'>): string[] {
+/**
+ * Where the ticket is, as triage fingerprinted it, and how it was classed, with its traces if it has any. A ticket on
+ * `*` is on every page the senses checked, but the canary's: triage gives a canary's `*` a ticket of its own, and it
+ * says the analysis found the canary worse on routes it could not narrow to one, which its evidence names if it can.
+ */
+export function ticketLines(ticket: PayloadOf<'ticket.opened'>, signals: readonly Signal[] = []): string[] {
   const { fingerprint } = ticket;
+  const anywhere = signals.some((s) => s.sense === 'canary')
+    ? `${CANARY_ANY_ROUTE}, as the canary's analysis found it`
+    : 'every page the senses checked';
   const where =
     'class' in fingerprint
-      ? `It is a ${fingerprint.class} on ${fingerprint.route === '*' ? 'every page the senses checked' : routeOf(fingerprint.route)}.`
+      ? `It is a ${fingerprint.class} on ${fingerprint.route === '*' ? anywhere : routeOf(fingerprint.route)}.`
       : `It is about the words "${fingerprint.text}" on ${routeOf(fingerprint.page)}, as the factory read the page.`;
   return [
     `${where} Category ${ticket.category}, severity ${ticket.severity}.`,
@@ -38,6 +46,7 @@ const SENSE: Record<Signal['sense'], string> = {
   crawler: 'The crawler',
   metrics: 'The metrics',
   logs: 'The log watcher',
+  canary: 'The canary',
   report: 'A report',
   planner: 'The planner',
 };
@@ -85,13 +94,36 @@ export function evidenceLines(evidence: Evidence): string[] {
         ...(trace ? [`  trace ${trace.id}: ${trace.spans.length} spans, the longest ${longest} ms`] : []),
       ];
     }
+    case 'canary': {
+      const { measure, series, routes, checks } = evidence;
+      const against = measure.limit === null ? '' : ` against a limit of ${measure.limit}`;
+      const value = measure.value === null ? '' : `, measured ${measure.value}${against}`;
+      const lately = (values: readonly (number | null)[]) => values.filter((v) => v !== null).at(-1) ?? 'nothing';
+      return [
+        `the canary's analysis of version ${evidence.version} against ${evidence.against}: ${measure.name} ${measure.phase}${value}${measure.message ? ` (${measure.message})` : ''}`,
+        ...(series
+          ? [
+              `  ${series.label} in ${series.unit} when it failed: the canary ${lately(series.canary.slice(0, series.at + 1))}, the baseline ${lately(series.baseline.slice(0, series.at + 1))}`,
+            ]
+          : []),
+        ...(routes?.worse.map(
+          (r) =>
+            `  worse on ${routeOf(r.route)}: ${r.canary} ${routes.unit} on the canary, ${r.baseline} on the baseline`,
+        ) ?? []),
+        ...(checks?.map(
+          (c) =>
+            `  ${c.sense} check "${c.check}" on ${c.route === '*' ? 'every page' : routeOf(c.route)} passed on the baseline and failed on the canary${c.message ? `: ${c.message}` : ''}`,
+        ) ?? []),
+      ];
+    }
   }
 }
 
 /** A sense's signal, as lines of a prompt: what it checked and where, then each piece of its evidence. */
 export function seen(signal: Signal): string[] {
   const symptom = signal.symptom ? `, ${signal.symptom}` : '';
-  const where = signal.route === '*' ? 'every page' : routeOf(signal.route);
+  const where =
+    signal.route !== '*' ? routeOf(signal.route) : signal.sense === 'canary' ? CANARY_ANY_ROUTE : 'every page';
   return [
     `- ${SENSE[signal.sense]}'s check "${signal.check}" on ${where} in version ${signal.version}${symptom}`,
     ...(signal.evidence ?? []).flatMap(evidenceLines).map((line) => `  - ${line}`),

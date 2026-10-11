@@ -43,6 +43,8 @@ export function gateRecord(events: readonly { type: string; payload: unknown }[]
     // Work sent back to Plan comes round again with a pull request of its own, which has not merged.
     if (type === 'work.returned' && (payload as { to?: string }).to === 'plan') record.merged = false;
     if (type === 'work-item.closed') record.closed = true;
+    // So does a work item that reopened, with nothing of the pass that closed.
+    if (type === 'work-item.reopened') Object.assign(record, { merged: false, closed: false });
   }
   return record;
 }
@@ -54,7 +56,14 @@ const durationOf = (run: CheckRun) =>
   run.startedAt && run.completedAt ? Math.max(0, Date.parse(run.completedAt) - Date.parse(run.startedAt)) : 0;
 
 type Draft = {
-  [K in EventType]: { type: K; actor: NewEvent['actor']; summary: string; payload: PayloadOf<K> };
+  [K in EventType]: {
+    type: K;
+    actor: NewEvent['actor'];
+    summary: string;
+    payload: PayloadOf<K>;
+    /** Pictures the probes worker took (`pictures/`): the line has no artifacts of its own. */
+    artifacts?: NewEvent['artifacts'];
+  };
 }[EventType];
 
 /**
@@ -152,8 +161,8 @@ export function gateEvents(
   return drafts;
 }
 
-/** A draft as an event of the work item, at its type's current version. */
-export const asEvent = (workItem: string, draft: Draft, ts: string): NewEvent =>
+/** A draft as an event of the work item, or of the line (null), at its type's current version. */
+export const asEvent = (workItem: string | null, draft: Draft, ts: string): NewEvent =>
   ({
     id: crypto.randomUUID(),
     ts,
@@ -163,7 +172,7 @@ export const asEvent = (workItem: string, draft: Draft, ts: string): NewEvent =>
     actor: draft.actor,
     summary: draft.summary,
     payload: draft.payload,
-    artifacts: [],
+    artifacts: draft.artifacts ?? [],
   }) as NewEvent;
 
 export type { Draft };

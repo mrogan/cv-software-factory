@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { InboxSignal, NewEvent, PayloadOf, Screenshot } from '@software-factory/events';
-import { DiskArtifacts, EventWriter, sendSignal } from '@software-factory/store';
+import { DiskArtifacts, EventWriter, lastEnd, sendSignal } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { INBOX } from '../../../../policy/triage.ts';
@@ -29,13 +29,16 @@ afterAll(() => database?.end());
 beforeEach(async () => {
   await database.owner`update inbox set triaged_at = now(), outcome = 'counted' where triaged_at is null`;
   const open = await writer<{ work_item: string }[]>`
-    select distinct work_item from events
-    where (type = 'ticket.opened' or (type = 'hold.started' and payload->>'cause' = 'finding'))
-      and work_item not in (select work_item from events where type = 'work-item.closed')`;
+    select distinct o.work_item from events o
+    where (o.type = 'ticket.opened' or (o.type = 'hold.started' and o.payload->>'cause' = 'finding'))
+      and ${lastEnd(writer, 'o.work_item')} is distinct from 'work-item.closed'`;
   for (const { work_item } of open) await events.append(closed(work_item));
 });
 
-function closed(item: string): NewEvent<'work-item.closed'> {
+function closed(
+  item: string,
+  outcome: PayloadOf<'work-item.closed'>['outcome'] = 'no-change',
+): NewEvent<'work-item.closed'> {
   return {
     id: crypto.randomUUID(),
     ts: at,
@@ -44,7 +47,7 @@ function closed(item: string): NewEvent<'work-item.closed'> {
     version: 1,
     actor: 'factory',
     summary: 'Closed for the next test',
-    payload: { outcome: 'no-change', reason: 'The next test starts with no open tickets' },
+    payload: { outcome, reason: 'The next test starts with no open tickets' },
     artifacts: [],
   } as NewEvent<'work-item.closed'>;
 }
@@ -119,6 +122,222 @@ describe('triage', () => {
       { work_item: string }[]
     >`select distinct work_item from inbox where work_item is not null`;
     for (const { work_item } of items) expect(Number(work_item)).toBeGreaterThanOrEqual(1000);
+  });
+
+  describe('a rollback’s signal, from the canary', () => {
+    const rollback = (overrides: Partial<InboxSignal> = {}) =>
+      found({
+        sense: 'canary',
+        check: 'latency',
+        route: '*',
+        symptom: 'slow-response',
+        version: 'c'.repeat(40),
+        evidence: [
+          {
+            kind: 'canary',
+            release: '68ff668868',
+            version: 'c'.repeat(40),
+            against: 'b'.repeat(40),
+            measure: { name: 'latency', phase: 'failed', value: 0.247, limit: 0 },
+            routes: {
+              unit: 'ms',
+              worse: [
+                { route: '/search', canary: 620, baseline: 120 },
+                { route: '/cart', canary: 410, baseline: 118 },
+              ],
+            },
+          },
+        ],
+        ...overrides,
+      });
+    const openedBy = async () =>
+      (
+        await writer<{ work_item: string }[]>`
+          select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`
+      )[0]?.work_item ?? '';
+
+    it('opens a ticket as any sense’s signal does, and adds the next rollback of the same measure to it', async () => {
+      await sendSignal(writer, rollback());
+      expect(await triage().takeOne()).toBe('opened');
+      const item = await openedBy();
+      const [ticket] = await writer<{ payload: PayloadOf<'ticket.opened'>; actor: string }[]>`
+        select payload, actor from events where work_item = ${item} and type = 'ticket.opened'`;
+      expect(ticket?.payload).toMatchObject({
+        title: 'Slow responses in a canary release',
+        category: 'performance',
+        severity: 'degraded',
+        fingerprint: { route: '*', class: 'slow-response' },
+      });
+      const [signal] = await writer<{ actor: string }[]>`
+        select actor from events where work_item = ${item} and type = 'signal.received'`;
+      expect(signal?.actor).toBe('canary');
+      const [summary] = await writer<{ payload: PayloadOf<'work-item.summarised'> }[]>`
+        select payload from events where work_item = ${item} and type = 'work-item.summarised'`;
+      expect(summary?.payload.story).toMatch(
+        /^The canary’s analysis found it on routes it could not narrow to one in version c{40}/,
+      );
+
+      // The next release that carries the defect fails the same way: the same ticket.
+      await sendSignal(writer, rollback({ observedAt: '2026-10-04T11:00:00.000Z' }));
+      expect(await triage().takeOne()).toBe('counted');
+    });
+
+    it('neither takes another sense’s signal on one route, nor is taken by another’s ticket on every route', async () => {
+      await sendSignal(writer, rollback());
+      expect(await triage().takeOne()).toBe('opened');
+      // The canary did worse on many routes: that is not the probe's defect on one of them.
+      await sendSignal(writer, found({ sense: 'probe', check: 'search', route: '/search', symptom: 'slow-response' }));
+      expect(await triage().takeOne()).toBe('opened');
+
+      // A sense saw a broken link on every page: a rollback on one route is a defect of its own.
+      await sendSignal(writer, found({ route: '*', check: 'links' }));
+      expect(await triage().takeOne()).toBe('opened');
+      await sendSignal(
+        writer,
+        rollback({ check: 'journeys', route: '/about', symptom: 'broken-link', evidence: undefined }),
+      );
+      expect(await triage().takeOne()).toBe('opened');
+      // Only the same route is the same problem: the probe's ticket on /search takes the canary's signal there. The
+      // crawler's every page is not the canary's.
+      await sendSignal(writer, rollback({ route: '/search', check: 'latency', evidence: undefined }));
+      expect(await triage().takeOne()).toBe('evidence');
+      await sendSignal(
+        writer,
+        rollback({ route: '*', check: 'journeys', symptom: 'broken-link', evidence: undefined }),
+      );
+      expect(await triage().takeOne()).toBe('opened');
+    });
+  });
+
+  it('reopens no other sense’s verified ticket on every route for a rollback on every route', async () => {
+    await sendSignal(writer, found({ route: '*', symptom: 'slow-response', check: 'speed' }));
+    expect(await triage().takeOne()).toBe('opened');
+    const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
+      select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
+    await events.append(closed(item, 'verified'));
+    await sendSignal(
+      writer,
+      found({
+        sense: 'canary',
+        check: 'latency',
+        route: '*',
+        symptom: 'slow-response',
+        observedAt: '2026-10-04T10:00:00.000Z',
+      }),
+    );
+    expect(await triage().takeOne()).toBe('opened');
+  });
+
+  describe('a ticket closed as verified', () => {
+    /** A signal the sense saw an hour after the tickets here close. */
+    const again = (overrides: Partial<InboxSignal> = {}) =>
+      found({ observedAt: '2026-10-04T10:00:00.000Z', ...overrides });
+
+    /** Opens a ticket for a signal, and closes it as given, after a verification when one is given. */
+    const ticketFor = async (
+      signal: InboxSignal,
+      outcome: PayloadOf<'work-item.closed'>['outcome'],
+      verification?: { dryRun: boolean },
+    ) => {
+      await sendSignal(writer, signal);
+      expect(await triage().takeOne()).toBe('opened');
+      const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
+        select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
+      if (verification) await events.append(cleared(item, verification.dryRun));
+      await events.append(closed(item, outcome));
+      return item;
+    };
+
+    /** The line's verification that the ticket's check has cleared, on a release that shipped or a dry run's. */
+    const cleared = (item: string, dryRun: boolean): NewEvent<'verification.finished'> => ({
+      id: crypto.randomUUID(),
+      ts: at,
+      work_item: item,
+      type: 'verification.finished',
+      version: 3,
+      actor: 'factory',
+      summary: 'Cleared',
+      payload: { outcome: 'cleared', check: 'links lead somewhere', against: 'c0ffee1', pages: [], dryRun },
+      artifacts: [],
+    });
+
+    it('reopens when a sense sees its fingerprint again, and is an open ticket from then on', async () => {
+      const item = await ticketFor(found({ route: '/reopen' }), 'verified');
+      await sendSignal(writer, again({ route: '/reopen', version: 'd03afe9' }));
+      expect(await triage().takeOne()).toBe('reopened');
+      expect((await types(item)).slice(-3)).toEqual(['work-item.closed', 'work-item.reopened', 'signal.received']);
+      const [reopened] = await writer<{ summary: string; payload: PayloadOf<'work-item.reopened'> }[]>`
+        select summary, payload from events where work_item = ${item} and type = 'work-item.reopened'`;
+      expect(reopened?.payload).toEqual({
+        sense: 'crawler',
+        check: 'links lead somewhere',
+        route: '/reopen',
+        version: 'd03afe9',
+        reason: 'The crawler saw it again on /reopen in version d03afe9: links lead somewhere',
+      });
+      const [inbox] = await writer`select outcome, work_item from inbox order by received_at desc limit 1`;
+      expect(inbox).toEqual({ outcome: 'reopened', work_item: item });
+
+      // Open again, it dedupes as any open ticket does: the same sense is counted, another's evidence joins once.
+      await sendSignal(writer, again({ route: '/reopen' }));
+      await sendSignal(writer, again({ route: '/reopen', sense: 'probe', check: 'every link leads somewhere' }));
+      expect([await triage().takeOne(), await triage().takeOne()]).toEqual(['counted', 'evidence']);
+    });
+
+    it('counts a signal the sense saw before the close: it is of the version the fix replaced', async () => {
+      const item = await ticketFor(found({ route: '/stale' }), 'verified');
+      await sendSignal(writer, found({ route: '/stale' }));
+      expect(await triage().takeOne()).toBe('counted');
+      const [inbox] = await writer`select outcome, work_item from inbox order by received_at desc limit 1`;
+      expect(inbox).toEqual({ outcome: 'counted', work_item: item });
+      expect(await types(item)).not.toContain('work-item.reopened');
+    });
+
+    it('counts a signal on a ticket a dry run verified: its fix never shipped, so it never reopens', async () => {
+      const item = await ticketFor(found({ route: '/dry' }), 'verified', { dryRun: true });
+      await sendSignal(writer, again({ route: '/dry' }));
+      expect(await triage().takeOne()).toBe('counted');
+      const [inbox] = await writer`select outcome, work_item from inbox order by received_at desc limit 1`;
+      expect(inbox).toEqual({ outcome: 'counted', work_item: item });
+      expect(await types(item)).not.toContain('work-item.reopened');
+    });
+
+    it('reopens a ticket verified on a release that shipped', async () => {
+      const item = await ticketFor(found({ route: '/shipped' }), 'verified', { dryRun: false });
+      await sendSignal(writer, again({ route: '/shipped' }));
+      expect(await triage().takeOne()).toBe('reopened');
+      expect((await types(item)).slice(-2)).toEqual(['work-item.reopened', 'signal.received']);
+    });
+
+    it('opens a new ticket when the same fingerprint returns on a ticket closed any other way', async () => {
+      const item = await ticketFor(found({ route: '/not-fixed' }), 'no-change');
+      await sendSignal(writer, again({ route: '/not-fixed' }));
+      expect(await triage().takeOne()).toBe('opened');
+      const [inbox] = await writer<
+        { work_item: string }[]
+      >`select work_item from inbox order by received_at desc limit 1`;
+      expect(inbox?.work_item).not.toBe(item);
+      expect(await types(item)).not.toContain('work-item.reopened');
+    });
+
+    it('goes by the last close: one closed again after it reopened, not as verified, stays closed', async () => {
+      const item = await ticketFor(found({ route: '/again' }), 'verified');
+      await sendSignal(writer, again({ route: '/again' }));
+      expect(await triage().takeOne()).toBe('reopened');
+      await events.append(closed(item, 'no-change'));
+      await sendSignal(writer, again({ route: '/again' }));
+      expect(await triage().takeOne()).toBe('opened');
+    });
+
+    it('matches its fingerprint exactly: a ticket on every page is not one page’s defect come back', async () => {
+      const every = { route: '*', symptom: 'missing-header', check: 'security headers' } as const;
+      const item = await ticketFor(found(every), 'verified');
+      await sendSignal(writer, again({ ...every, route: '/contact' }));
+      expect(await triage().takeOne()).toBe('opened');
+      expect(await types(item)).not.toContain('work-item.reopened');
+      await sendSignal(writer, again(every));
+      expect(await triage().takeOne()).toBe('reopened');
+    });
   });
 
   it('turns a report into a ticket, and a second report on the same page into a repeat of it', async () => {

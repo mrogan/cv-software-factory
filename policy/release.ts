@@ -11,6 +11,9 @@
  * Three measures, at each step and throughout the release: errors and latency from Prometheus, over every route at
  * once, and the journeys: the same comparison the app's pull requests pass (a check that passes on the baseline and
  * fails on the canary, twice), run against the two Services. The journeys have no thresholds of their own.
+ *
+ * After a release is promoted, Verify asks the sense that saw a ticket's defect whether it has cleared on the new
+ * version (`verify`).
  */
 import { objectives } from './objectives.ts';
 
@@ -46,6 +49,38 @@ export interface Release {
   background: { intervalMinutes: number; journeysIntervalMinutes: number; failures: number };
   /** The traffic generator (`factory traffic`): how many of the shop's pages it asks for each second. */
   traffic: { requestsPerSecond: number };
+  /**
+   * How Verify asks the sense that saw a ticket's defect whether it has cleared on the version a release promoted.
+   * Each look either says cleared or persists, or cannot tell yet (too soon, too little traffic, a check that could not
+   * finish), and then the line looks again `everyMinutes` later.
+   */
+  verify: {
+    /**
+     * A probe's or the crawler's check, run again against the stable Service: cleared when it passes `inARow` times in
+     * a row, and persists when it fails as many, as the senses signal only on a second failure. One look runs it at
+     * most `runs` times.
+     */
+    checks: { inARow: number; runs: number };
+    /**
+     * An alert's expression over the new version's requests alone, from `windowMinutes` after the promotion: cleared
+     * when it stays inside the objective for the window, with at least `minRequests` in it; persists when it is outside
+     * for the objective's `holdMinutes` in a row, as long as the alert waits before it fires.
+     */
+    metrics: { windowMinutes: number; minRequests: number };
+    /**
+     * The log watcher's pattern: persists on any error record of it from the new version since the promotion; cleared
+     * when there is none for `windowMinutes` after the promotion, in which the new version logged at least
+     * `minRequests` requests (to the ticket's route, when it has one).
+     */
+    logs: { windowMinutes: number; minRequests: number };
+    /** How long the line waits to look again when a sense could not tell. */
+    everyMinutes: number;
+    /**
+     * How long after the promotion a sense may go on not telling (too little traffic, a check it can no longer see, a
+     * backend that does not answer) before the work item holds for Martin, with the last reason.
+     */
+    waitHours: number;
+  };
 }
 
 export const release = {
@@ -64,4 +99,13 @@ export const release = {
   // (half an interval), a run falls mid-step, between the steps' own runs, so no two overlap on the laptop.
   background: { intervalMinutes: 1, journeysIntervalMinutes: 3, failures: 2 },
   traffic: { requestsPerSecond: 5 },
+  // Half an hour is two of the objectives' windows: at five requests a second over some forty pages, a route has
+  // about two hundred requests in it, ten times what an objective needs to judge one.
+  verify: {
+    checks: { inARow: 2, runs: 4 },
+    metrics: { windowMinutes: 30, minRequests: objectives.minRequests },
+    logs: { windowMinutes: 30, minRequests: objectives.minRequests },
+    everyMinutes: 5,
+    waitHours: 24,
+  },
 } satisfies Release;

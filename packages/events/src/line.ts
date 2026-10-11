@@ -20,6 +20,11 @@ export const LIMITS = {
    * output, and the second holds. Martin's answer to the hold starts the count again.
    */
   fenceRefusals: 2,
+  /**
+   * Verifications after a release that find the ticket's signal persisting before the work item holds: the first
+   * sends the work back to Plan, with the verification, and the second holds for Martin.
+   */
+  persists: 2,
 } as const;
 
 /**

@@ -19,6 +19,7 @@ import type { Logger } from 'pino';
 import { z } from 'zod';
 import { guardBranch } from './branches.ts';
 import { type GitHub, GitHubError } from './client.ts';
+import { carriesSection, type Deploy, DeployRefused, deployTarget, deployTitle, withCarries } from './deploys.ts';
 import { applyTo, filesIn, PatchRefused } from './patches.ts';
 import { CODEOWNERS_PATHS, inScope, protectedFrom } from './paths.ts';
 
@@ -152,6 +153,12 @@ export interface Actions {
   applyPatch(repo: string, patch: PatchCommit): Promise<string>;
   openPullRequest(repo: string, draft: PullRequestDraft): Promise<PullRequestRef>;
   updatePullRequest(repo: string, number: number, change: { title?: string; body?: string }): Promise<void>;
+  /**
+   * Says what a deploy pull request carries, in its body's Carries section (`deploys.ts`), when the pull request is
+   * open and still for `commit`; any other pull request is refused. Gives back whether the body changed: saying the
+   * same again changes nothing.
+   */
+  describeDeploy(repo: string, number: number, deploy: Deploy): Promise<boolean>;
   addLabels(repo: string, number: number, labels: string[]): Promise<void>;
   /** Marks a draft pull request ready for review. */
   readyForReview(repo: string, pullRequest: PullRequestRef): Promise<void>;
@@ -166,17 +173,37 @@ export interface Actions {
   createCheckRun(repo: string, report: CheckRunReport): Promise<number>;
   updateCheckRun(repo: string, id: number, report: Partial<CheckRunReport>): Promise<void>;
   openIssue(repo: string, issue: { title: string; body: string; labels?: string[] }): Promise<number>;
-  closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned'): Promise<void>;
+  /**
+   * Closes an issue. With a comment, it first says why on the issue, and only while the issue is open and does not say
+   * it already: closing one already closed, or trying again after a close that failed, says nothing again.
+   */
+  closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void>;
+  /**
+   * Opens a closed issue again, first saying why on it. Only while the issue is closed, and without saying it twice:
+   * reopening one already open, or trying again after a reopening that failed, says nothing again.
+   */
+  reopenIssue(repo: string, number: number, comment: string): Promise<void>;
   comment(repo: string, number: number, body: string): Promise<void>;
 }
 
 const SHA = z.string().regex(/^[0-9a-f]{40}$/);
+/** An issue, as closing and reopening one read it. */
+const ISSUE = z.object({ state: z.string(), closed_at: z.string().nullable().default(null) });
 const NUMBER = z.number().int().positive();
 const ID = z.object({ id: NUMBER });
 
 const CREATE_COMMIT = `mutation($input: CreateCommitOnBranchInput!) {
   createCommitOnBranch(input: $input) { commit { oid } }
 }`;
+
+/** What describing a deploy needs to know of its pull request. */
+const DEPLOY_PULL = z.object({
+  state: z.string(),
+  title: z.string(),
+  body: z.string().nullable(),
+  head: z.object({ ref: z.string(), repo: z.object({ full_name: z.string() }).nullable() }),
+  base: z.object({ ref: z.string() }),
+});
 
 const READY = `mutation($id: ID!) {
   markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } }
@@ -199,6 +226,13 @@ export class LiveActions implements Actions {
   readonly dryRun = false;
   readonly #github: GitHub;
   readonly #read: ReadFile;
+  /**
+   * The last write to each pull request's body, by repository and number. The deploy watch moving a pull request and
+   * the line describing it run in this one worker: a description waits for a move, so it never writes back the body
+   * of the build before. A move may still keep the Carries section the body had when its pass began, a description
+   * older than one that landed meanwhile; the line describes the moved pull request again, for its new commit.
+   */
+  readonly #bodies = new Map<string, Promise<unknown>>();
 
   constructor(github: GitHub) {
     this.#github = github;
@@ -271,7 +305,36 @@ export class LiveActions implements Actions {
   }
 
   async updatePullRequest(repo: string, number: number, change: { title?: string; body?: string }): Promise<void> {
-    await this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, change);
+    await this.#inTurn(repo, number, () => this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, change));
+  }
+
+  async describeDeploy(repo: string, number: number, { commit, carries, more }: Deploy): Promise<boolean> {
+    return this.#inTurn(repo, number, async () => {
+      const pull = await this.#github.read(repo, `/repos/${repo}/pulls/${number}`, DEPLOY_PULL);
+      // A fork's branch of the same name is not the deploy branch.
+      if (pull.head.repo?.full_name !== repo) throw new DeployRefused(`Pull request #${number} is not from ${repo}.`);
+      const target = deployTarget(repo, pull.head.ref);
+      // Moved on to a newer build since the line looked, or merged: the line looks again.
+      if (pull.state !== 'open' || pull.base.ref !== 'main' || pull.title !== deployTitle(target, commit)) {
+        throw new GitHubError('conflict', `Pull request #${number} is not open for ${commit.slice(0, 7)}.`, 409);
+      }
+      const body = withCarries(pull.body ?? '', carriesSection(carries, more));
+      if (body === pull.body) return false;
+      await this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, { body });
+      return true;
+    });
+  }
+
+  /** Does a write to a pull request's body once every write to it begun before has ended. */
+  #inTurn<T>(repo: string, number: number, write: () => Promise<T>): Promise<T> {
+    const key = `${repo}#${number}`;
+    const done = (this.#bodies.get(key) ?? Promise.resolve()).then(write);
+    const settled = done.catch(() => {});
+    this.#bodies.set(key, settled);
+    void settled.then(() => {
+      if (this.#bodies.get(key) === settled) this.#bodies.delete(key);
+    });
+    return done;
   }
 
   async addLabels(repo: string, number: number, labels: string[]): Promise<void> {
@@ -322,11 +385,46 @@ export class LiveActions implements Actions {
     return made.number;
   }
 
-  async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned'): Promise<void> {
+  async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void> {
+    if (comment !== undefined) {
+      const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, ISSUE);
+      if (issue.state !== 'open') return;
+      // A close whose comment was made and whose closing failed is tried again: the comment is not made twice. Only
+      // what was said since the issue last reopened counts: a close of an earlier pass may have said the same.
+      const events = await this.#github.read(
+        repo,
+        `/repos/${repo}/issues/${number}/events?per_page=100`,
+        z.array(z.object({ event: z.string(), created_at: z.string() })),
+      );
+      const reopened = events.findLast((event) => event.event === 'reopened')?.created_at ?? null;
+      if (!(await this.#said(repo, number, comment, reopened))) await this.comment(repo, number, comment);
+    }
     await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
       state: 'closed',
       state_reason: reason,
     });
+  }
+
+  async reopenIssue(repo: string, number: number, comment: string): Promise<void> {
+    const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, ISSUE);
+    if (issue.state !== 'closed') return;
+    // Only what was said since it closed counts: an earlier reopening may have said the same.
+    if (!(await this.#said(repo, number, comment, issue.closed_at))) await this.comment(repo, number, comment);
+    await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
+      state: 'open',
+      state_reason: 'reopened',
+    });
+  }
+
+  /** Whether an issue's comments since a time (or ever, with none) already say this, word for word. */
+  async #said(repo: string, number: number, body: string, since: string | null): Promise<boolean> {
+    const after = since ? `&since=${encodeURIComponent(since)}` : '';
+    const comments = await this.#github.read(
+      repo,
+      `/repos/${repo}/issues/${number}/comments?per_page=100${after}`,
+      z.array(z.object({ body: z.string().nullable() })),
+    );
+    return comments.some((made) => made.body === body);
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {
@@ -369,6 +467,9 @@ export interface DryRunPull {
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
+/** Where a dry run's numbers start: its pull requests, and so its merges, are numbered from here up. */
+export const DRY_RUN_NUMBERS_FROM = 1_000_000_000;
+
 /** File contents as they will read in the record. */
 function shown(contents: Uint8Array): { text: string } | { base64: string } {
   try {
@@ -397,7 +498,7 @@ export class DryRunActions implements Actions {
    * Numbers for what would have been made, from a billion up: positive, as every action that takes one requires,
    * and far beyond any this repository will reach, so none can be taken for a real one.
    */
-  #next = 1_000_000_000;
+  #next = DRY_RUN_NUMBERS_FROM;
 
   constructor(
     artifacts: ArtifactStore,
@@ -526,6 +627,11 @@ export class DryRunActions implements Actions {
     await this.#record('updatePullRequest', repo, { number, ...change });
   }
 
+  async describeDeploy(repo: string, number: number, deploy: Deploy): Promise<boolean> {
+    await this.#record('describeDeploy', repo, { number, ...deploy });
+    return true;
+  }
+
   async addLabels(repo: string, number: number, labels: string[]): Promise<void> {
     await this.#record('addLabels', repo, { number, labels });
   }
@@ -563,8 +669,12 @@ export class DryRunActions implements Actions {
     return this.#number();
   }
 
-  async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned'): Promise<void> {
-    await this.#record('closeIssue', repo, { number, reason });
+  async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void> {
+    await this.#record('closeIssue', repo, { number, reason, ...(comment === undefined ? {} : { comment }) });
+  }
+
+  async reopenIssue(repo: string, number: number, comment: string): Promise<void> {
+    await this.#record('reopenIssue', repo, { number, comment });
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {

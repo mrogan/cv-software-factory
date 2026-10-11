@@ -42,6 +42,10 @@ export interface PlannerInput {
   protectedPaths: readonly string[];
   /** Martin's answers to the holds at Plan, each with what he was asked. */
   answers: { asked: string; answer: string }[];
+  /** Each verification that found the signal persisting after a fix for this ticket was released. */
+  persisted?: PayloadOf<'verification.finished'>[];
+  /** Each time the ticket reopened: a fix for it was verified in production, and the same defect came back. */
+  reopened?: PayloadOf<'work-item.reopened'>[];
   /** Why the planner's last attempt failed, such as a scope its schema refused, so it does not hand that back again. */
   failure?: string | null | undefined;
 }
@@ -175,16 +179,36 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
     signals: await signals(),
     protectedPaths: await read('protectedPaths', { ref: commit }),
     answers: state.answers,
+    persisted: state.persisted,
+    reopened: state.reopened,
     failure,
   }),
   schema: ({ protectedPaths }) => plannerResult(protectedPaths),
-  prompt: ({ workItem, ticket, signals, protectedPaths, answers, failure }) =>
+  prompt: ({ workItem, ticket, signals, protectedPaths, answers, persisted = [], reopened = [], failure }) =>
     [
       `Plan the fix for ticket #${workItem}: ${ticket.title}.`,
-      ...ticketLines(ticket),
+      ...ticketLines(ticket, signals),
       ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
       ...(answers.length
         ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${a.asked} He said: ${a.answer}`)]
+        : []),
+      ...(persisted.length
+        ? [
+            '',
+            'A fix for this ticket was merged and released before, and the signal persisted:',
+            ...persisted.map(
+              (v) => `- The ${v.sense ?? 'sense'} still saw “${v.check}” on ${v.version ?? 'the new version'}.`,
+            ),
+            'Find out why that fix did not clear it before you plan another.',
+          ]
+        : []),
+      ...(reopened.length
+        ? [
+            '',
+            'A fix for this ticket was verified in production before, and the defect came back:',
+            ...reopened.map((r) => `- The ${r.sense} saw “${r.check}” again on ${r.version}.`),
+            'Find out what brought it back, and what let it through, before you plan another fix.',
+          ]
         : []),
       ...(failure ? ['', `Your last attempt at this plan failed: ${failure}. Do not hand back the same again.`] : []),
       '',

@@ -14,8 +14,22 @@
  * - At most one step at a time in each of Plan, Build and Review, and a ticket comes onto the line only when nothing
  *   is in Plan or waiting for Build (`queue.ts`). Each work item is leased while it is acted on.
  * - It reads its pull requests' gates and merges through the GitHub worker about once a minute (`gates.ts`).
+ * - About as often, it tells the app's deploy pull request which work items it carries: those whose fixes merged
+ *   between the commit the shop runs and the one the pull request runs, as a release starting records them. It says
+ *   so only when the list, or the pull request, has changed since it last did. Not with `only`: a soak of one work
+ *   item says nothing of the others.
+ * - About every thirty seconds, it reads the app's Rollout and its AnalysisRuns, and records each release on the work
+ *   items it carries, or on the line when it carries none (`release.ts`). It changes nothing in Kubernetes. In a dry
+ *   run, it answers for the releases of the dry run's merges, which never shipped.
+ * - Once a release is promoted, it asks the sense that saw each work item's defect to look again (`verify.ts`), one
+ *   look at a time for each work item, beside the steps. A look that cannot tell yet is tried again a few minutes
+ *   later. A cleared signal closes the work item as verified, and its issue as completed with what cleared it; one
+ *   that persists sends the work back to Plan, and the coder starts afresh, not from its old session.
+ * - A verified work item whose ticket triage reopened, because its signal came back, comes back into Plan for a fresh
+ *   pass once its issue is open again, with a comment saying what came back.
  * - With `only`, it acts on that one work item, taking its ticket onto the line if it is not there: it starts no
- *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end.
+ *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end. It still
+ *   watches the app's releases, and records one that carries that work item or none.
  * - When the line stops, it stops every step in hand, wherever it is, and takes nothing new; their work is lost and
  *   nothing of it is recorded, so starting again runs those steps afresh from the last event.
  * - A work item's runners' volume is deleted when it merges, as nothing after a merge needs it (a return to Plan
@@ -28,13 +42,17 @@
  * It acts in GitHub only through the GitHub worker, and every agent's model through the gateway: it holds no key.
  */
 import { hostname } from 'node:os';
-import type { PayloadOf, RawEvent } from '@software-factory/events';
+import type { Evidence, PayloadOf, RawEvent, SignalSource } from '@software-factory/events';
 import { returnWords, upcast } from '@software-factory/events';
 import { type EventWriter, sendSignal } from '@software-factory/store';
 import { lineStopped, uuidFrom } from '@software-factory/triage';
 import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
+import { release as RELEASE } from '../../../../policy/release.ts';
+import { type Carry, DEPLOYS, MAX_CARRIES } from '../github/deploys.ts';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../github/server.ts';
+import { GitHubWorkerError } from '../github/worker-client.ts';
+import type { PictureIndex } from '../pictures/index.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
 import {
   type Bounds,
@@ -64,7 +82,19 @@ import {
   type WorkItemState,
 } from './machine.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
+import { pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem } from './queue.ts';
+import { carried, Releases, type ReleaseWatchOptions } from './release.ts';
+import {
+  closingComment,
+  type FirstSignal,
+  type Look,
+  look,
+  reopeningComment,
+  type Target,
+  type VerifyClients,
+  whatCleared,
+} from './verify.ts';
 
 /** The runners, as the line uses them (`runners/steps.ts`). */
 export interface Steps {
@@ -94,6 +124,31 @@ export interface LineOptions {
   now?: () => Date;
   /** How often the gates and merges are read. */
   gatesEveryMs?: number;
+  /** How often the line looks at the app's deploy pull request, to say what it carries. */
+  deployEveryMs?: number;
+  /** The app's Rollout, and Prometheus, for the line's watch of its releases; null, as by default, watches none. */
+  release?: ReleaseWatchOptions | null;
+  /** How often the line reads the app's release. */
+  releaseEveryMs?: number;
+  /**
+   * Whether the line runs a dry run (LINE_MODE=dry-run): then it answers for the release of each merge the dry run
+   * made, which never shipped, by its own word.
+   */
+  dryRun?: boolean;
+  /** How long a dry run's release takes over each move: to start after the merge, each step, and its promotion. */
+  dryRunReleaseMs?: number;
+  /** Where Verify looks: the probes worker, Prometheus and Loki. A sense with none waits at Verify. */
+  verify?: VerifyClients;
+  /**
+   * The index of the pictures the probes worker took while each canary ran (`pictures/`), for the pages a verification
+   * compares with the version before; null, as by default, compares none. The line's event writer must know the
+   * pictures' artifacts (`IndexedArtifacts`).
+   */
+  pictures?: Pick<PictureIndex, 'of' | 'lookOf'> | null;
+  /** How long the line waits to look again when a sense could not tell (`policy/release.ts`'s `verify`). */
+  verifyEveryMs?: number;
+  /** How long after the promotion a sense may go on not telling before the work item holds for Martin. */
+  verifyWaitMs?: number;
   /**
    * False for a line that takes no work and only stops the steps in hand (the step API's) when the line stops.
    */
@@ -119,26 +174,38 @@ export interface LineOptions {
 
 export const APP_REPOSITORY = 'mrogan/cv-worlds-worst-website';
 
+/** What GitHub says of an issue that is gone (deleted or moved) or that the App may not change: asking again won't help. */
+const ISSUE_GONE = [403, 404, 410];
+
 /** How long a work item stays leased for an action that is not a step. */
 const ACTION_LEASE_SECONDS = 300;
 /** A step's lease: its deadline, ten minutes to prepare, and some to spare. */
 const leaseFor = (deadlineSeconds: number) => deadlineSeconds + 900;
 /** The lease for a handback's effects, renewed before them: a few writes in GitHub, each up to two minutes. */
 const EFFECTS_LEASE_SECONDS = 900;
+/** The lease for a look at Verify: the probes' half hour for a crawl run up to four times, and some to spare. */
+const VERIFY_LEASE_SECONDS = 2700;
 /** How long the line waits before trying a handback's effects again: doubling from 30 seconds, to 10 minutes. */
 const retryAfterMs = (tries: number) => Math.min(30_000 * 2 ** (tries - 1), 600_000);
 
 export class Line {
   readonly #o: Required<Omit<LineOptions, 'me'>>;
   readonly #queue: Queue;
+  readonly #releases: Releases;
   /** The steps in hand, by work item, with the stage each holds. */
-  readonly #inFlight = new Map<string, { stage: 'plan' | 'build' | 'review'; done: Promise<void> }>();
+  readonly #inFlight = new Map<string, { stage: 'plan' | 'build' | 'review' | 'verify'; done: Promise<void> }>();
+  /** When each work item at Verify whose last look could not tell may be looked at again. */
+  readonly #lookAgainAt = new Map<string, number>();
   #stopped = false;
   /** Aborted when the line stops, which stops every step started before, wherever it is. */
   #halt = new AbortController();
   #gatesReadAt = Number.NEGATIVE_INFINITY;
   /** The merged work items whose volume this worker has deleted, until a step makes one again. */
   readonly #volumeGone = new Set<string>();
+  #deployReadAt = Number.NEGATIVE_INFINITY;
+  #releaseReadAt = Number.NEGATIVE_INFINITY;
+  /** What the deploy pull request was last told it carries, with its number and commit; unknown after a start. */
+  #described: string | undefined;
 
   constructor(options: LineOptions) {
     this.#o = {
@@ -146,6 +213,15 @@ export class Line {
       agents: AGENTS,
       now: () => new Date(),
       gatesEveryMs: 60_000,
+      deployEveryMs: 60_000,
+      release: null,
+      releaseEveryMs: 30_000,
+      dryRun: false,
+      dryRunReleaseMs: 60_000,
+      verify: {},
+      pictures: null,
+      verifyEveryMs: RELEASE.verify.everyMinutes * 60_000,
+      verifyWaitMs: RELEASE.verify.waitHours * 60 * 60_000,
       takesWork: true,
       workItemLimitUsd: null,
       providerOf: () => 'anthropic',
@@ -156,6 +232,18 @@ export class Line {
     this.#queue = new Queue(options.sql, options.me ?? `line-${hostname()}`, {
       only: this.#o.only,
       take: this.#o.take,
+    });
+    this.#releases = new Releases({
+      sql: this.#o.sql,
+      events: this.#o.events,
+      github: this.#o.github,
+      repo: this.#o.repo,
+      log: this.#o.log,
+      now: this.#o.now,
+      watch: this.#o.release,
+      dryRun: this.#o.dryRun,
+      dryRunEveryMs: this.#o.dryRunReleaseMs,
+      only: this.#o.only,
     });
   }
 
@@ -184,6 +272,17 @@ export class Line {
       this.#gatesReadAt = this.#o.now().getTime();
       await this.#readGates();
     }
+    if (this.#o.only === null && this.#o.now().getTime() - this.#deployReadAt >= this.#o.deployEveryMs) {
+      this.#deployReadAt = this.#o.now().getTime();
+      await this.#describeDeploy().catch((error: unknown) =>
+        this.#o.log.warn({ err: errorOf(error) }, 'could not say what the deploy pull request carries'),
+      );
+    }
+    if (this.#o.now().getTime() - this.#releaseReadAt >= this.#o.releaseEveryMs) {
+      this.#releaseReadAt = this.#o.now().getTime();
+      await this.#releases.pass();
+    }
+    await this.#reopen();
     const taken = await this.#queue.admit();
     if (taken) this.#o.log.info({ workItem: taken }, 'a ticket came onto the line');
     for (const item of await this.#queue.free()) {
@@ -191,6 +290,35 @@ export class Line {
       await this.#advance(item).catch((error: unknown) =>
         this.#o.log.error({ workItem: item.workItem, err: errorOf(error) }, 'could not move a work item on'),
       );
+    }
+  }
+
+  /**
+   * Takes each reopened work item back into Plan, once its issue is open again, saying what came back. One whose issue
+   * GitHub cannot open for now stays where it is, and is tried again on the next pass. One whose issue is gone, or
+   * that the App may no longer open, comes back without it, and the line opens a new one as it enters Plan.
+   */
+  async #reopen(): Promise<void> {
+    for (const item of await this.#queue.reopened()) {
+      const { workItem } = item;
+      if (this.#inFlight.has(workItem)) continue;
+      let forgetIssue = false;
+      try {
+        const reopened = fold((await this.#events(workItem)).events).reopened.at(-1);
+        if (item.issue && reopened) {
+          const comment = reopeningComment(reopened, workItem);
+          await this.#o.github.act('reopenIssue', this.#o.repo, { number: item.issue, comment }).catch((error) => {
+            if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
+            this.#o.log.warn({ workItem, issue: item.issue, err: errorOf(error) }, 'the issue cannot be reopened');
+            forgetIssue = true;
+          });
+        }
+        if (await this.#queue.revive(workItem, { forgetIssue })) {
+          this.#o.log.info({ workItem, issue: item.issue }, 'a reopened work item came back onto the line');
+        }
+      } catch (error) {
+        this.#o.log.warn({ workItem, err: errorOf(error) }, 'could not take a reopened work item back onto the line');
+      }
     }
   }
 
@@ -245,11 +373,28 @@ export class Line {
         await this.#queue.drop(item.workItem);
         item = { ...item, effects: null };
       }
-      // Verifying is not the line's to do yet: a promoted release's work item waits at Verify.
-      if (next.do === 'wait' || next.do === 'verify') {
+      if (next.do === 'wait' || (next.do === 'verify' && !this.#lookDue(item.workItem))) {
         if (stage !== item.stage && (await this.#queue.claim(item.workItem, ACTION_LEASE_SECONDS))) {
           await this.#queue.release(item.workItem, stage);
         }
+        return;
+      }
+      if (next.do === 'verify') {
+        const claimed = await this.#queue.claim(item.workItem, VERIFY_LEASE_SECONDS);
+        if (!claimed) return;
+        await this.#queue.move(item.workItem, stage);
+        const workItem = item.workItem;
+        const done = this.#look(workItem, next.release, this.#halt.signal)
+          .catch((error: unknown) => {
+            this.#lookAgainAt.set(workItem, this.#o.now().getTime() + this.#o.verifyEveryMs);
+            this.#o.log.warn({ workItem, err: errorOf(error) }, 'Verify could not look: it looks again later');
+          })
+          .then(() => this.#release(workItem))
+          .catch((error: unknown) =>
+            this.#o.log.error({ workItem, err: errorOf(error) }, 'could not let go of a work item after a look'),
+          )
+          .finally(() => this.#inFlight.delete(workItem));
+        this.#inFlight.set(workItem, { stage: 'verify', done });
         return;
       }
       if (next.do === 'step') {
@@ -341,17 +486,20 @@ export class Line {
       }
       case 'return': {
         const { do: _, ...returned } = next;
-        const payload = { ...returned, round: state.round + 1 };
+        // Back to Plan, the pass starts afresh, and its coder's first round with it.
+        const payload = next.to === 'plan' ? returned : { ...returned, round: state.round + 1 };
         await this.#append(workItem, [
           {
             type: 'work.returned',
             actor: next.from === 'review' ? 'reviewer' : 'factory',
             // The console draws the same words, from the payload, in the return's pill on the line.
-            summary: `#${workItem} · round ${payload.round} · ${returnWords(payload)}`,
+            summary: `#${workItem} · ${'round' in payload ? `round ${payload.round}` : 'to Plan'} · ${returnWords(payload)}`,
             payload,
           },
         ]);
         await this.#queue.moved(workItem);
+        // The coder of a fresh pass starts a session of its own: the old one worked on a change that has merged.
+        if (next.to === 'plan') await this.#queue.setSession(workItem, null);
         return;
       }
       case 'hold':
@@ -372,11 +520,193 @@ export class Line {
           },
         ]);
         return;
+      case 'verified': {
+        // The issue first, with what cleared it: closing one already closed changes nothing, and says nothing again.
+        const reason = whatCleared(next.verification, next.answer);
+        if (item.issue) {
+          await this.#o.github.act('closeIssue', this.#o.repo, {
+            number: item.issue,
+            reason: 'completed',
+            comment: closingComment(next.verification, workItem, next.answer),
+          });
+        }
+        await this.#append(workItem, [
+          {
+            type: 'work-item.closed',
+            actor: 'factory',
+            summary: next.verification?.dryRun ? 'Verified by the dry run’s word, and closed' : 'Verified, and closed',
+            payload: { outcome: 'verified', reason: reason.slice(0, 200) },
+          },
+        ]);
+        this.#lookAgainAt.delete(workItem);
+        return;
+      }
       case 'finish':
         await this.#o.steps.finish(workItem);
         this.#o.log.info({ workItem }, 'the work item is over');
         return;
     }
+  }
+
+  /** Whether a work item at Verify may be looked at: never twice at once, and not before a look that could not tell. */
+  #lookDue(workItem: string): boolean {
+    if (this.#inFlight.has(workItem)) return false;
+    return (this.#lookAgainAt.get(workItem) ?? Number.NEGATIVE_INFINITY) <= this.#o.now().getTime();
+  }
+
+  /**
+   * One look at Verify, by the sense of the ticket's first signal, at the version the stable Service runs. What it
+   * found is appended, unless the line stopped meanwhile: a look is read-only, and the next start looks again.
+   */
+  async #look(workItem: string, promoted: PayloadOf<'release.promoted'>, signal: AbortSignal): Promise<void> {
+    const target = await this.#target(workItem, promoted);
+    const now = this.#o.now();
+    const first = await this.#firstSignal(workItem);
+    let found: Look;
+    try {
+      found = await look(first, target, {
+        ...this.#o.verify,
+        now,
+        dryRun: this.#o.dryRun,
+        signal,
+      });
+    } catch (error) {
+      found = { kind: 'wait', why: `the sense could not be asked: ${errorOf(error).message}` };
+    }
+    if (signal.aborted) return;
+    // A release promoted while the sense looked: what it saw was of a version no longer stable. Look again at once.
+    if (found.kind === 'finished' && !target.dryRun) {
+      const stable = await this.#target(workItem, promoted);
+      if (stable.version !== target.version) {
+        this.#o.log.info({ workItem, looked: target.version, stable: stable.version }, 'a release came between');
+        return;
+      }
+    }
+    // Read only when something is appended: a look that cannot tell yet comes round every few minutes.
+    const shown = () => this.#pictures(promoted, first);
+    switch (found.kind) {
+      case 'wait': {
+        const hours = this.#o.verifyWaitMs / 3_600_000;
+        if (now.getTime() - target.at.getTime() < this.#o.verifyWaitMs) {
+          this.#lookAgainAt.set(workItem, now.getTime() + this.#o.verifyEveryMs);
+          this.#o.log.info({ workItem, version: target.version, why: found.why }, 'Verify cannot tell yet');
+          return;
+        }
+        // A sense that still cannot tell long after the release may never: Martin judges, told why.
+        const reason = `Verify could not tell in ${hours} hours after the release: ${found.why}`.slice(0, 300);
+        await this.#append(workItem, [
+          {
+            ...holdDraft('factory', { stage: 'verify', kind: 'held', cause: 'verify', reason }),
+            artifacts: (await shown()).artifacts,
+          },
+        ]);
+        await this.#queue.moved(workItem);
+        return;
+      }
+      case 'hold':
+        // Martin judges with the pictures before him: every page on the version before and on the fix's.
+        await this.#append(workItem, [
+          {
+            ...holdDraft('factory', {
+              stage: 'verify',
+              kind: 'approval',
+              cause: 'verify',
+              reason: found.reason.slice(0, 300),
+            }),
+            artifacts: (await shown()).artifacts,
+          },
+        ]);
+        await this.#queue.moved(workItem);
+        return;
+      case 'finished': {
+        const { pages, artifacts } = await shown();
+        const v = { ...found.verification, pages };
+        const said = v.dryRun ? 'by the dry run’s word' : `by the ${v.sense ?? 'sense'}`;
+        await this.#append(workItem, [
+          {
+            type: 'verification.finished',
+            actor: v.sense && v.sense !== 'report' && !v.dryRun ? v.sense : 'factory',
+            summary: `${v.outcome === 'cleared' ? 'Cleared' : 'Persists'} on ${v.version?.slice(0, 7)}, ${said}`,
+            payload: v,
+            artifacts,
+          },
+        ]);
+        this.#lookAgainAt.delete(workItem);
+        await this.#queue.moved(workItem);
+        this.#o.log.info({ workItem, outcome: v.outcome, sense: v.sense, version: v.version }, 'verified a release');
+        return;
+      }
+    }
+  }
+
+  /**
+   * The release to verify a work item's fix on: the latest promoted since the one that carried it, which the stable
+   * Service runs and which carries the fix too, or the dry run's own.
+   */
+  async #target(workItem: string, promoted: PayloadOf<'release.promoted'>): Promise<Target> {
+    const { sql } = this.#o;
+    const [own] = await sql<{ seq: string; ts: Date }[]>`
+      select seq, ts from events
+      where work_item = ${workItem} and type = 'release.promoted' and payload->>'release' = ${promoted.release}
+      order by seq desc limit 1`;
+    const base = { against: promoted.previous, dryRun: promoted.dryRun };
+    if (!own) throw new Error(`Work item ${workItem} has no promotion of ${promoted.release}`);
+    if (promoted.dryRun) return { ...base, version: promoted.version, at: new Date(own.ts) };
+    const [latest] = await sql<{ version: string; release: string; previous: string; watched: boolean; ts: Date }[]>`
+      select payload->>'version' as version, payload->>'release' as release, payload->>'previous' as previous,
+             (payload->>'watched')::boolean is not false as watched, ts from events
+      where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true and seq >= ${own.seq}
+      order by seq desc limit 1`;
+    const release = latest?.release ?? promoted.release;
+    const watched = latest?.watched ?? promoted.watched;
+    // The analysis of its last step, on whichever work item (or the line) has it: a release found live has none.
+    const [step] = watched
+      ? await sql<{ measures: PayloadOf<'canary.stepped'>['analysis']['measures'] }[]>`
+          select payload->'analysis'->'measures' as measures from events
+          where type = 'canary.stepped' and payload->>'release' = ${release}
+          order by seq desc limit 1`
+      : [];
+    return {
+      ...base,
+      version: latest?.version ?? promoted.version,
+      at: new Date(latest?.ts ?? own.ts),
+      ...(watched
+        ? { analysis: { release, against: latest?.previous ?? promoted.previous, measures: step?.measures ?? [] } }
+        : {}),
+    };
+  }
+
+  /**
+   * The pages pictured while the release that carried the fix ran as a canary beside the version before, with the
+   * ticket's own marked (`pictures.ts`). A dry run's release never ran, and has none.
+   */
+  async #pictures(promoted: PayloadOf<'release.promoted'>, first: FirstSignal | undefined) {
+    const { pictures } = this.#o;
+    if (!pictures || promoted.dryRun) return { pages: [], artifacts: [] };
+    try {
+      const taken = await pictures.of(promoted.version, promoted.previous);
+      if (!taken.length) return { pages: [], artifacts: [] };
+      const look = first && (await pictures.lookOf(first.sense, first.check, first.route));
+      const shown = pagesFor(taken, { route: first?.route ?? '*', ...(look && { path: look.path }) });
+      if (first && !shown.pages.some((p) => p.intended)) {
+        this.#o.log.info({ release: promoted.release, route: first.route }, 'no page pictured is the ticket’s own');
+      }
+      return shown;
+    } catch (error) {
+      this.#o.log.warn({ release: promoted.release, err: errorOf(error) }, 'the release’s pictures could not be read');
+      return { pages: [], artifacts: [] };
+    }
+  }
+
+  /** The ticket's first signal: its sense, check, route and evidence, never a report's words. */
+  async #firstSignal(workItem: string): Promise<FirstSignal | undefined> {
+    const [row] = await this.#o.sql<
+      { sense: SignalSource; check: string; route: string; evidence: Evidence[] | null }[]
+    >`
+      select payload->>'sense' as sense, payload->>'check' as check, payload->>'route' as route,
+             payload->'evidence' as evidence
+      from events where work_item = ${workItem} and type = 'signal.received' order by seq limit 1`;
+    return row && { sense: row.sense, check: row.check, route: row.route, evidence: row.evidence ?? [] };
   }
 
   /** Runs one agent's step, and does what its handback says. `since` is the last event as the step starts. */
@@ -632,6 +962,49 @@ export class Line {
       } catch (error) {
         log.warn({ workItem: item.workItem, err: errorOf(error) }, 'could not read a pull request’s gates');
       }
+    }
+  }
+
+  /**
+   * Tells the app's open deploy pull request which work items it carries (`carried`): each whose latest fix merged
+   * after the commit the shop runs (the last promoted release's, else the one pinned now), up to the one the pull
+   * request runs. A dry run's merge commit, which GitHub never had, is in no range. The worker leaves a body that says
+   * the same as it is; the line does not ask again until the list or the pull request changes.
+   */
+  async #describeDeploy(): Promise<void> {
+    const { github, repo, log } = this.#o;
+    const target = DEPLOYS.find((t) => t.repo === repo);
+    if (!target) return;
+    const proposal = await github.read('deployProposal', repo, { branch: target.branch });
+    if (!proposal) return;
+    // Without a commit to start from, or with one GitHub never had, there is no range to look in.
+    const carries = await carried(this.#o, proposal.commit, proposal.pinned ?? undefined);
+    if (!carries) return;
+    // The latest merges by name, and the rest counted.
+    const named: Carry[] = carries
+      .slice(-MAX_CARRIES)
+      .map((c) => ({ ...c, title: c.title ?? `Work item ${c.workItem}` }));
+    const more = carries.length - named.length;
+    const deploy = { number: proposal.number, commit: proposal.commit, carries: named, ...(more ? { more } : {}) };
+    const said = JSON.stringify(deploy);
+    if (said === this.#described) return;
+    let changed: boolean;
+    try {
+      changed = await github.act('describeDeploy', repo, deploy);
+    } catch (error) {
+      // Merged or moved on since the watch last looked: its next pass says which pull request is open.
+      if ((error as { status?: number }).status === 409) {
+        log.debug({ number: proposal.number, commit: proposal.commit }, 'the deploy pull request moved on: later');
+        return;
+      }
+      throw error;
+    }
+    this.#described = said;
+    if (changed) {
+      log.info(
+        { number: proposal.number, commit: proposal.commit, carries: named.map((c) => c.workItem) },
+        'said what the deploy pull request carries',
+      );
     }
   }
 

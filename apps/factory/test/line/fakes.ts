@@ -1,13 +1,17 @@
 /**
- * Stand-ins for the line's two collaborators beyond the store: the runners, which hand back what each test's agents
- * say and write their calls to `model_calls` as the gateway would; and the GitHub worker, a repository in memory with
- * pull requests, check runs and issues.
+ * Stand-ins for the line's collaborators beyond the store: the runners, which hand back what each test's agents say
+ * and write their calls to `model_calls` as the gateway would; the GitHub worker, a repository in memory with pull
+ * requests, check runs and issues; and the probes worker, as Verify asks it to run a check again.
  */
 import type { Sql } from 'postgres';
 import type { Handback } from '../../../runner/src/step.ts';
+import type { DeployProposal } from '../../src/github/deploys.ts';
 import type { CheckRun, Comparison, PullRequestState } from '../../src/github/reads.ts';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../src/github/server.ts';
+import { GitHubWorkerError } from '../../src/github/worker-client.ts';
+import type { ProbesPort } from '../../src/line/verify.ts';
 import type { GitHubPort, Steps } from '../../src/line/worker.ts';
+import type { VerifyAnswer, VerifyRequest } from '../../src/probes/verify.ts';
 import { jobName } from '../../src/runners/jobs.ts';
 import type { StepOutcome, StepRequest } from '../../src/runners/steps.ts';
 
@@ -109,6 +113,18 @@ export class FakeGitHub implements GitHubPort {
    * stays one a finding can be anchored to, as it is on GitHub unless a later round removed it.
    */
   diff: Comparison['files'] = [];
+  /** The app's open deploy pull request, as the deploy watch has it, and the commits it runs since the pinned one. */
+  deploy: DeployProposal | null = null;
+  deployCommits: string[] = [];
+  /** Each of the app's images' commits, by digest, as its revision label names it. */
+  readonly revisions = new Map<string, string>();
+  /** The app's images whose signature does not verify, by digest. */
+  readonly unsigned = new Set<string>();
+  /**
+   * The app's main, oldest first. When it is set, `commits` compares two of its commits as GitHub does, and a commit
+   * not in it is one GitHub never had (404); when not, `commits` answers `deployCommits`.
+   */
+  history: string[] | undefined;
   #commits = 0;
 
   async act<K extends ActionName>(action: K, _repo: string, given: ActionArgs[K]): Promise<ActionResult<K>> {
@@ -136,6 +152,8 @@ export class FakeGitHub implements GitHubPort {
     switch (action) {
       case 'openIssue':
         return 41;
+      case 'describeDeploy':
+        return true;
       case 'applyPatch': {
         const sha = String(++this.#commits).padStart(40, 'f');
         for (const pr of this.pulls.values()) if (pr.head.ref === args.branch) pr.head.sha = sha;
@@ -203,6 +221,27 @@ export class FakeGitHub implements GitHubPort {
       }
       case 'checkout':
         return answer({ commit: args.sha, commits: [] });
+      case 'deployProposal':
+        return answer(structuredClone(this.deploy));
+      case 'commits': {
+        if (this.history) {
+          const [from, to] = [this.history.indexOf(String(args.base)), this.history.indexOf(String(args.head))];
+          if (from < 0 || to < 0) throw new GitHubWorkerError(404, 'not-found', 'No commit found');
+          const commits = this.history.slice(from + 1, to + 1);
+          const status = from === to ? 'identical' : from < to ? 'ahead' : 'behind';
+          return answer({ status, total: commits.length, commits });
+        }
+        const at = this.deployCommits;
+        return answer({ status: 'ahead', total: at.length, commits: [...at] });
+      }
+      case 'imageRevision':
+        return answer(this.revisions.get(String(args.digest)) ?? null);
+      case 'imageSigned':
+        return answer(
+          this.unsigned.has(String(args.digest))
+            ? { signed: false, reason: 'no signature by the pipeline' }
+            : { signed: true, reason: null },
+        );
       case 'pullRequestFrom': {
         const pr = [...this.pulls.values()].find((p) => p.head.ref === args.branch && p.state === 'open');
         return answer(pr ? structuredClone(pr) : null);
@@ -233,5 +272,24 @@ export class FakeGitHub implements GitHubPort {
     const pr = this.pulls.get(number);
     if (!pr) throw new Error(`No pull request #${number}`);
     Object.assign(pr, { state: 'closed', merged: true, mergeCommit: 'c'.repeat(40), mergedBy: 'mrogan' });
+  }
+}
+
+/** The probes worker, answering each verification as the test says, in turn, and counting what it was asked. */
+export class FakeProbes implements ProbesPort {
+  readonly asked: VerifyRequest[] = [];
+  /** What it answers, in turn; the last again once the rest are given. */
+  readonly answers: (VerifyAnswer | Error)[];
+
+  constructor(...answers: (VerifyAnswer | Error)[]) {
+    this.answers = answers;
+  }
+
+  async verify(request: VerifyRequest): Promise<VerifyAnswer> {
+    this.asked.push(request);
+    const answer = this.answers.length > 1 ? this.answers.shift() : this.answers[0];
+    if (!answer) throw new Error('No fake answer');
+    if (answer instanceof Error) throw answer;
+    return answer;
   }
 }

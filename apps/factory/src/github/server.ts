@@ -12,8 +12,8 @@
  * A body must say it is JSON: a web page cannot send that without the browser asking first, and the worker answers
  * no browser, so a page open on the same machine cannot make it act. Each body is checked with Zod at the door, and names a repository the worker is configured for, or it is refused.
  * A GitHub failure keeps its meaning: refused 403, not found 404, conflict 409, rate limited 429, GitHub or the
- * network failing 502, and a write with no key 503. A patch that will not apply, or a branch the factory does not
- * own, is 422.
+ * network failing 502, and a write with no key 503. A patch that will not apply, a branch the factory does not
+ * own, or a deploy pull request or image that is not one, is 422. GHCR failing is 502.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
@@ -21,8 +21,10 @@ import { z } from 'zod';
 import type { Actions } from './actions.ts';
 import { BranchRefused } from './branches.ts';
 import { GitHubError } from './client.ts';
+import { DeployRefused, MAX_CARRIES } from './deploys.ts';
 import { PatchRefused } from './patches.ts';
 import type { Reads } from './reads.ts';
+import { DIGEST, RegistryError } from './registry.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
@@ -39,6 +41,18 @@ const path = z
   .refine((p) => !p.startsWith('/') && !p.split('/').some((part) => part === '..' || part === ''), 'a relative path');
 const number = z.number().int().positive();
 const text = (max: number) => z.string().max(max);
+const digest = z.string().regex(DIGEST);
+/** An image as GHCR names it, such as `mrogan/cv-worlds-worst-website`. */
+const image = z
+  .string()
+  .max(200)
+  .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$/, 'an image as GHCR names it');
+const carry = z.strictObject({
+  workItem: z.string().regex(/^[1-9]\d{0,8}$/),
+  title: text(120).min(1),
+  issue: number.nullable(),
+  pullRequest: number,
+});
 const pullRequestRef = z.strictObject({ number, url: z.string(), nodeId: z.string().min(1) });
 const checkRun = z.strictObject({
   name: text(100).min(1),
@@ -85,6 +99,12 @@ const ARGS = {
     labels: z.array(text(50)).max(10).optional(),
   }),
   updatePullRequest: z.strictObject({ number, title: text(256).min(1).optional(), body: text(65_535).optional() }),
+  describeDeploy: z.strictObject({
+    number,
+    commit: sha,
+    carries: z.array(carry).max(MAX_CARRIES),
+    more: z.number().int().nonnegative().optional(),
+  }),
   addLabels: z.strictObject({ number, labels: z.array(text(50)).min(1).max(10) }),
   readyForReview: z.strictObject({ pullRequest: pullRequestRef }),
   updateBranch: z.strictObject({ number, expectedHead: sha }),
@@ -101,7 +121,12 @@ const ARGS = {
     body: text(65_535),
     labels: z.array(text(50)).max(10).optional(),
   }),
-  closeIssue: z.strictObject({ number, reason: z.enum(['completed', 'not_planned']) }),
+  closeIssue: z.strictObject({
+    number,
+    reason: z.enum(['completed', 'not_planned']),
+    comment: text(65_535).min(1).optional(),
+  }),
+  reopenIssue: z.strictObject({ number, comment: text(65_535).min(1) }),
   comment: z.strictObject({ number, body: text(65_535).min(1) }),
 } satisfies Record<keyof Omit<Actions, 'dryRun'>, z.ZodType>;
 
@@ -127,6 +152,7 @@ const CALLS: { [K in Name]: (actions: Actions, repo: string, args: z.infer<(type
   applyPatch: (x, repo, patch) => x.applyPatch(repo, patch),
   openPullRequest: (x, repo, draft) => x.openPullRequest(repo, defined(draft)),
   updatePullRequest: (x, repo, { number, ...change }) => x.updatePullRequest(repo, number, defined(change)),
+  describeDeploy: (x, repo, { number, ...deploy }) => x.describeDeploy(repo, number, defined(deploy)),
   addLabels: (x, repo, { number, labels }) => x.addLabels(repo, number, labels),
   readyForReview: (x, repo, { pullRequest }) => x.readyForReview(repo, pullRequest),
   updateBranch: (x, repo, { number, expectedHead }) => x.updateBranch(repo, number, expectedHead),
@@ -134,7 +160,8 @@ const CALLS: { [K in Name]: (actions: Actions, repo: string, args: z.infer<(type
   createCheckRun: (x, repo, report) => x.createCheckRun(repo, defined(report)),
   updateCheckRun: (x, repo, { id, ...report }) => x.updateCheckRun(repo, id, defined(report)),
   openIssue: (x, repo, issue) => x.openIssue(repo, defined(issue)),
-  closeIssue: (x, repo, { number, reason }) => x.closeIssue(repo, number, reason),
+  closeIssue: (x, repo, { number, reason, comment }) => x.closeIssue(repo, number, reason, comment),
+  reopenIssue: (x, repo, { number, comment }) => x.reopenIssue(repo, number, comment),
   comment: (x, repo, { number, body }) => x.comment(repo, number, body),
 };
 
@@ -148,6 +175,10 @@ const READS = {
   protectedPaths: z.strictObject({ ref: sha }),
   comparison: z.strictObject({ base: branch, head: sha }),
   checkout: z.strictObject({ sha }),
+  commits: z.strictObject({ base: sha, head: sha }),
+  imageRevision: z.strictObject({ image, digest }),
+  imageSigned: z.strictObject({ image, digest }),
+  deployProposal: z.strictObject({ branch }),
 } satisfies Record<keyof Reads, z.ZodType>;
 
 type ReadName = keyof typeof READS;
@@ -168,6 +199,10 @@ const READ_CALLS: {
   protectedPaths: (r, repo, { ref }) => r.protectedPaths(repo, ref),
   comparison: (r, repo, { base, head }) => r.comparison(repo, base, head),
   checkout: (r, repo, { sha }) => r.checkout(repo, sha),
+  commits: (r, repo, { base, head }) => r.commits(repo, base, head),
+  imageRevision: (r, repo, { image, digest }) => r.imageRevision(repo, image, digest),
+  imageSigned: (r, repo, { image, digest }) => r.imageSigned(repo, image, digest),
+  deployProposal: (r, repo, { branch }) => r.deployProposal(repo, branch),
 };
 
 /** An object without its undefined fields, as the actions' optional fields expect: absent, never undefined. */
@@ -284,6 +319,14 @@ export function createWorkerServer({
       if (error instanceof BranchRefused) {
         log.warn({ message: error.message }, 'a branch was refused');
         return send(res, 422, { error: 'branch-refused', message: error.message });
+      }
+      if (error instanceof DeployRefused) {
+        log.warn({ message: error.message }, 'a deploy was refused');
+        return send(res, 422, { error: 'deploy-refused', message: error.message });
+      }
+      if (error instanceof RegistryError) {
+        log.warn({ status: error.status, message: error.message }, 'ghcr.io failed a read');
+        return send(res, 502, { error: 'registry', message: error.message });
       }
       if (error instanceof GitHubError) {
         log.warn({ kind: error.kind, status: error.status, message: error.message }, 'github refused an action');

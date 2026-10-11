@@ -72,8 +72,11 @@ export type ReportCategory = (typeof REPORT_CATEGORIES)[number];
 export const TRIAGE_ROUTES = ['ticket', 'repeat', 'park', 'quarantine', 'discard'] as const;
 export type TriageRoute = (typeof TRIAGE_ROUTES)[number];
 
-/** The factory's five senses. */
-export const SENSES = ['probe', 'crawler', 'metrics', 'logs', 'report'] as const;
+/**
+ * The factory's senses. Five watch the stable version; the canary is the release's analysis, which sees a new version
+ * do worse than the one it would replace, and says so when it rolls it back.
+ */
+export const SENSES = ['probe', 'crawler', 'metrics', 'logs', 'canary', 'report'] as const;
 export type Sense = (typeof SENSES)[number];
 
 /**

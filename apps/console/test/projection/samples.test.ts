@@ -1,7 +1,7 @@
 import { STAGES } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { project, projectSheet, upTo } from '../../web/src/projection/index.ts';
-import { END, SAMPLES } from './support.ts';
+import { END, SAMPLES, work } from './support.ts';
 
 const view = project(SAMPLES, END);
 const card = (number: string) => view.cards.find((c) => c.number === number);
@@ -148,6 +148,29 @@ describe('a sheet', () => {
         : event,
     );
     expect(chapter(persisted, 'REOPENED')?.tone).toBe('attn');
+  });
+
+  it('opens a verified item again when its ticket reopens, back at Plan, waiting for the planner', () => {
+    const later = work('1296', END);
+    later.add(10, 'work-item.reopened', 'triage', {
+      sense: 'probe',
+      check: 'home journey',
+      route: '/',
+      version: 'v0.9.9',
+      reason: 'The probes saw it again on / in version v0.9.9: home journey',
+    });
+    const reopened = [...SAMPLES, ...later.events];
+    const at = later.at(11);
+    expect(projectSheet(SAMPLES, '1296', at)?.card).toMatchObject({ outcome: 'verified' });
+    const sheet = projectSheet(reopened, '1296', at);
+    expect(sheet?.card).toMatchObject({
+      outcome: 'waiting',
+      segments: ['passed', 'passed', 'queued', ...Array(5).fill('none')],
+    });
+    expect(sheet?.chapters.find((c) => c.label === 'REOPENED')).toMatchObject({ tone: 'attn' });
+    // Nothing of the closed pass's release says it is live or verified.
+    expect(sheet?.card.versions).toMatchObject({ from: undefined, to: undefined, rolledBack: false });
+    expect(sheet?.chapters.map((c) => c.label).slice(-2)).toEqual(['REOPENED', 'WAITING · PLAN']);
   });
 
   it('totals each agent’s calls, tokens and cost', () => {

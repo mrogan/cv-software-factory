@@ -1,7 +1,8 @@
+import type { PayloadOf } from '@software-factory/events';
 import { validateSignal } from '@software-factory/events/schemas';
 import { describe, expect, it } from 'vitest';
 import type { EffectsContext } from '../../src/line/agents/agent.ts';
-import { evidenceLines } from '../../src/line/agents/evidence.ts';
+import { evidenceLines, seen, ticketLines } from '../../src/line/agents/evidence.ts';
 import {
   findingSignal,
   MAX_PLANNER_FINDINGS,
@@ -192,6 +193,44 @@ describe('the planner’s prompt', () => {
     expect(prompt).toContain('Martin was asked, and answered:\n- Is the shop open on Tuesdays? He said: Yes, all day.');
   });
 
+  it('tells the planner of a fix released before whose signal persisted', () => {
+    const persisted = {
+      outcome: 'persists' as const,
+      sense: 'probe' as const,
+      check: 'search',
+      version: 'b'.repeat(40),
+      against: 'a'.repeat(40),
+      pages: [],
+      dryRun: false,
+    };
+    expect(planner.prompt(INPUT)).not.toContain('persisted');
+    expect(planner.prompt({ ...INPUT, persisted: [persisted] })).toContain(
+      [
+        'A fix for this ticket was merged and released before, and the signal persisted:',
+        `- The probe still saw “search” on ${'b'.repeat(40)}.`,
+        'Find out why that fix did not clear it before you plan another.',
+      ].join('\n'),
+    );
+  });
+
+  it('tells the planner of a fix verified before whose defect came back', () => {
+    const reopened = {
+      sense: 'probe' as const,
+      check: 'search',
+      route: '/search',
+      version: 'c'.repeat(40),
+      reason: 'The probes saw it again',
+    };
+    expect(planner.prompt(INPUT)).not.toContain('came back');
+    expect(planner.prompt({ ...INPUT, reopened: [reopened] })).toContain(
+      [
+        'A fix for this ticket was verified in production before, and the defect came back:',
+        `- The probe saw “search” again on ${'c'.repeat(40)}.`,
+        'Find out what brought it back, and what let it through, before you plan another fix.',
+      ].join('\n'),
+    );
+  });
+
   it('describes each kind of evidence in a line or two', () => {
     expect(
       evidenceLines({
@@ -234,6 +273,32 @@ describe('the planner’s prompt', () => {
         ],
       }),
     ).toEqual(["axe's image-alt (critical) on /: Images must have alternative text; at .card img"]);
+  });
+
+  it('tells a canary’s signal on every route as routes it could not narrow to one, and any other’s as every page', () => {
+    const ticket: PayloadOf<'ticket.opened'> = {
+      title: 'Server errors in a canary release',
+      category: 'errors',
+      severity: 'broken',
+      fingerprint: { route: '*', class: 'server-error' },
+      traces: [],
+    };
+    const signal = {
+      sense: 'canary',
+      check: 'errors',
+      route: '*',
+      version: 'c02efd8',
+      symptom: 'server-error',
+    } as const;
+    expect(ticketLines(ticket, [signal])[0]).toBe(
+      "It is a server-error on routes it could not narrow to one, as the canary's analysis found it. Category errors, severity broken.",
+    );
+    expect(seen(signal)[0]).toBe(
+      `- The canary's check "errors" on routes it could not narrow to one in version c02efd8, server-error`,
+    );
+    const probe = { ...signal, sense: 'probe' } as const;
+    expect(ticketLines(ticket, [probe])[0]).toMatch(/on every page the senses checked\./);
+    expect(seen(probe)[0]).toMatch(/on every page in version/);
   });
 });
 

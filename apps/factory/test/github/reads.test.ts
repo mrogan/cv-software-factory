@@ -6,8 +6,11 @@ import { DiskArtifacts } from '@software-factory/store';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { ownsBranch } from '../../src/github/branches.ts';
-import { LiveReads } from '../../src/github/reads.ts';
+import { DEPLOYS, DeployProposals, DeployRefused } from '../../src/github/deploys.ts';
+import { LiveReads, type ReleaseSources } from '../../src/github/reads.ts';
+import type { Registry } from '../../src/github/registry.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
+import { pipeline, UnsignedError } from '../../src/github/signatures.ts';
 import { GitHubWorker, GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { calls, client, OTHER_SHA, quiet, REPO, SHA } from './fake.ts';
 
@@ -148,6 +151,116 @@ describe('reading GitHub for the line', () => {
   });
 });
 
+describe('reading what a release is made of', () => {
+  const IMAGE = 'mrogan/cv-worlds-worst-website';
+  const DIGEST = `sha256:${'1'.repeat(64)}`;
+  const UNSIGNED = `sha256:${'2'.repeat(64)}`;
+  const sha = (n: number) => n.toString(16).padStart(40, '0');
+
+  /** GHCR, Sigstore and the deploy watch: each digest built from SHA, and only DIGEST signed by the app's pipeline. */
+  function sources(): ReleaseSources & { asked: unknown[] } {
+    const asked: unknown[] = [];
+    const proposals = new DeployProposals();
+    const app = DEPLOYS.find((t) => t.repo === REPO) as (typeof DEPLOYS)[number];
+    proposals.set(app, { number: 30, commit: SHA, pinned: OTHER_SHA, digests: [] });
+    return {
+      asked,
+      proposals,
+      registry: {
+        revision: async (image: string, digest: string) => {
+          asked.push(['revision', image, digest]);
+          return digest === DIGEST ? SHA : undefined;
+        },
+      } as Pick<Registry, 'revision'>,
+      signatures: {
+        verify: async (image, digest, signer) => {
+          asked.push(['verify', image, digest, signer]);
+          if (digest !== DIGEST) throw new UnsignedError('unsigned', `${image}@${digest} has no signature`);
+        },
+      },
+    };
+  }
+
+  it('lists every commit one has that the other has not, a page at a time, and says how the two stand', async () => {
+    const all = Array.from({ length: 230 }, (_, i) => sha(i + 1));
+    const { github } = client([
+      {
+        method: 'GET',
+        path: /\/compare\//,
+        answer: ({ path }) => {
+          const page = Number(new URL(path, 'https://x').searchParams.get('page'));
+          expect(path.startsWith(`/repos/${REPO}/compare/${OTHER_SHA}...${SHA}?per_page=100&page=`)).toBe(true);
+          return {
+            body: {
+              status: 'ahead',
+              total_commits: all.length,
+              commits: all.slice((page - 1) * 100, page * 100).map((s) => ({ sha: s })),
+            },
+          };
+        },
+      },
+    ]);
+    expect(await new LiveReads(github).commits(REPO, OTHER_SHA, SHA)).toEqual({
+      status: 'ahead',
+      total: 230,
+      commits: all,
+    });
+  });
+
+  it('says when one commit is not an ancestor of the other', async () => {
+    const { github } = client([
+      {
+        method: 'GET',
+        path: /\/compare\//,
+        answer: () => ({ body: { status: 'behind', total_commits: 0, commits: [] } }),
+      },
+    ]);
+    expect(await new LiveReads(github).commits(REPO, SHA, OTHER_SHA)).toEqual({
+      status: 'behind',
+      total: 0,
+      commits: [],
+    });
+  });
+
+  it('reads the commit an image was built from, and whether its pipeline signed it', async () => {
+    const { github } = client([]);
+    const given = sources();
+    const reads = new LiveReads(github, given);
+    expect(await reads.imageRevision(REPO, IMAGE, DIGEST)).toBe(SHA);
+    expect(await reads.imageRevision(REPO, IMAGE, UNSIGNED)).toBeNull();
+    expect(await reads.imageSigned(REPO, IMAGE, DIGEST)).toEqual({ signed: true, reason: null });
+    expect(await reads.imageSigned(REPO, IMAGE, UNSIGNED)).toEqual({
+      signed: false,
+      reason: `${IMAGE}@${UNSIGNED} has no signature`,
+    });
+    expect(given.asked).toContainEqual(['verify', IMAGE, DIGEST, pipeline(REPO)]);
+  });
+
+  it('reads only the images a repository deploys', async () => {
+    const { github } = client([]);
+    const given = sources();
+    const reads = new LiveReads(github, given);
+    for (const image of ['mrogan/cv-software-factory/factory', 'someone/else']) {
+      await expect(reads.imageRevision(REPO, image, DIGEST)).rejects.toBeInstanceOf(DeployRefused);
+      await expect(reads.imageSigned(REPO, image, DIGEST)).rejects.toBeInstanceOf(DeployRefused);
+    }
+    expect(given.asked).toEqual([]);
+  });
+
+  it('reads the open deploy pull request as the watch last saw it', async () => {
+    const { github } = client([]);
+    const reads = new LiveReads(github, sources());
+    expect(await reads.deployProposal(REPO, 'deploy/local')).toEqual({
+      number: 30,
+      commit: SHA,
+      pinned: OTHER_SHA,
+      digests: [],
+    });
+    expect(await reads.deployProposal(REPO, 'deploy/console-local')).toBeNull();
+    await expect(new LiveReads(github).deployProposal(REPO, 'deploy/local')).rejects.toThrow(/watches no deploys/);
+  });
+});
+
 describe('the paths no patch may change', () => {
   it('are the workflows, the deployment and what CODEOWNERS gives a person, at the commit asked about', async () => {
     const asked: string[] = [];
@@ -210,12 +323,12 @@ describe('the worker over HTTP, for the line', () => {
   let close: (() => void) | undefined;
   afterEach(() => close?.());
 
-  async function serve(routes = ROUTES) {
+  async function serve(routes = ROUTES, sources?: ReleaseSources) {
     const { github, sent } = client(routes);
     const dryRun = new DryRunActions(new DiskArtifacts(await mkdtemp(join(tmpdir(), 'dry-run-'))), quiet);
     const server = createWorkerServer({
       actions: new LiveActions(github),
-      reads: new LiveReads(github),
+      reads: new LiveReads(github, sources),
       dryRun,
       repositories: [REPO],
       health: () => ({}),
@@ -233,6 +346,29 @@ describe('the worker over HTTP, for the line', () => {
     expect(await worker.read('requiredChecks', REPO, { branch: 'main' })).toEqual(['test', 'journeys']);
     await expect(worker.read('checkRuns', REPO, { sha: 'nope' })).rejects.toMatchObject({ status: 400 });
     await expect(worker.read('pullRequest', 'someone/else', { number: 7 })).rejects.toBeInstanceOf(GitHubWorkerError);
+  });
+
+  it('answers the release reads, and refuses an image the repository does not deploy', async () => {
+    const proposals = new DeployProposals();
+    const registry = { revision: async () => SHA } as unknown as Registry;
+    const { worker } = await serve(ROUTES, { registry, signatures: { verify: async () => {} }, proposals });
+    const digest = `sha256:${'1'.repeat(64)}`;
+    expect(await worker.read('imageRevision', REPO, { image: 'mrogan/cv-worlds-worst-website', digest })).toBe(SHA);
+    expect(await worker.read('imageSigned', REPO, { image: 'mrogan/cv-worlds-worst-website', digest })).toEqual({
+      signed: true,
+      reason: null,
+    });
+    expect(await worker.read('deployProposal', REPO, { branch: 'deploy/local' })).toBeNull();
+    await expect(
+      worker.read('imageRevision', REPO, { image: 'mrogan/cv-software-factory/factory', digest }),
+    ).rejects.toMatchObject({ status: 422, kind: 'deploy-refused' });
+    for (const args of [
+      { image: 'ghcr.io/../x', digest },
+      { image: 'mrogan/cv-worlds-worst-website', digest: 'latest' },
+    ]) {
+      await expect(worker.read('imageRevision', REPO, args)).rejects.toMatchObject({ status: 400 });
+    }
+    await expect(worker.read('commits', REPO, { base: 'main', head: SHA })).rejects.toMatchObject({ status: 400 });
   });
 
   it('refuses to move, delete or commit to a branch the factory does not own, live or in a dry run', async () => {
