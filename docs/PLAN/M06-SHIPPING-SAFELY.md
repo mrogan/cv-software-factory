@@ -190,10 +190,10 @@ On the local cluster, with no line in the loop:
 
 ### Part B is done when
 
-- [ ] Work items 1001 and 1006 are verified against their own checks, and their issues (app #16 and #24) are closed by the App with what cleared them.
-- [ ] A release's events, step by step, are on every work item it carries, and a release that carries none is on the line.
-- [ ] A rollback opens a ticket with the series that condemned it.
-- [ ] A signal that persists after release sends its work item back to Plan, and a verified ticket whose signal returns reopens, each shown by a test and by one run.
+- [x] Work items 1001 and 1006 are verified against their own checks, and their issues (app #16 and #24) are closed by the App with what cleared them.
+- [x] A release's events, step by step, are on every work item it carries, and a release that carries none is on the line.
+- [x] A rollback opens a ticket with the series that condemned it.
+- [x] A signal that persists after release sends its work item back to Plan, and a verified ticket whose signal returns reopens, each shown by a test and by one run.
 
 ## Part C: the score and the show
 
@@ -223,7 +223,7 @@ Spec sections 3.2, 4.1 and 5.2; `COMPONENTS.md` (the scoreboard, the console's n
 
 ## Exit criteria
 
-- [ ] Parts A and B's criteria are met.
+- [x] Parts A and B's criteria are met.
 - [ ] A seeded defect is found, fixed, merged, shipped as a signed canary, promoted, verified by its own signal clearing, and closed, with its issue, with no human code and nobody touching it after the deploy merge. The scoreboard counts it. Every step is in the console.
 - [ ] A bad change that passes every gate is rolled back automatically, never reaches all traffic, and opens a ticket.
 - [ ] No image the pipeline did not sign runs in a guarded namespace.
@@ -274,6 +274,41 @@ On the local cluster, on 10 October 2026. Times are UTC and come from the Rollou
   | 25% | 23:00:54 | 224 | 0.19 points below | 101 ms under | pass |
   | 50% | 23:04:18 | 444 | 0.17 points below | 99 ms under | pass |
 
+### Part B
+
+On the local cluster, on 11 October 2026, with the line's models on Claude. Times are UTC and come from the line's events. A release is named by the canary's pod-template hash, with the app's commit after it. A step's figures are the ones the line recorded on `canary.stepped`, for the canary and the baseline: requests, the share of 5xx answers, and p99 latency. A cost is what the gateway counted for one agent's step, in dollars.
+
+- **1001 and 1006 verified.** Release found their fixes live on release 68ff668868 (464cd31), and Verify ran their own probe checks: `home-links-open` for 1001 and `search-takes-any-typed-text` for 1006 passed twice each. By 13:58 both had closed as verified, and the App closed the app's #16 and #24, each with a comment saying which check cleared it. It needed migration 0008's row move run again by hand. The migration went out with the console's deploy (#203) while the old line image still ran, and that image set the two rows back to ended. Martin ran the move again.
+- **A release on the line, rolled back, and its ticket** (the app's #39 and #40: the lock from Part A's bad release again). Release 68789944b6 (e8f8808) carried no work item, so its events went on the line. It started at 14:36:56 and rolled back at 14:39:56, during the 25% step, before any step was measured, so it has no `canary.stepped`. Latency failed twice, against a failure limit of one, with the canary's p99 at about 380 to 460 ms and its value 276 ms over the limit. The line sent triage the failed measure, and triage opened ticket 1034, "Slow responses in a canary release" (`slow-response` on `*`, performance, degraded), with the routes where the canary did worse and the series as evidence. The line did not take it: LINE_TAKE was used up.
+- **The revert's release on the line** (the app's #41 and #42). Release 9864fc5cb (680c351) carried no work item. It started at 14:53:31 and promoted at 15:00:01, 6 minutes 30 seconds later.
+
+  | Step | Recorded at | Canary | Baseline |
+  |---|---|---|---|
+  | 25% | 14:56:31 | 590 requests, 1.11% 5xx, p99 42 ms | 1,252 requests, 1.57% 5xx, p99 40 ms |
+  | 50% | 15:00:01 | 838 requests, 1.43% 5xx, p99 40 ms | 939 requests, 1.63% 5xx, p99 43 ms |
+
+  The journeys' figures are empty on both steps.
+- **Ticket 1035, carried through Release, persisting.** A drill (the app's #43 and #44) has `/` catch an error, log it, and still answer 200. Its release, 5f4d5fd6fd (43896d2), started on the line at 15:12:35. The log watcher saw the new pattern, and triage opened ticket 1035, "Server errors on /" (logs, `server-error`, broken), at 15:14:24. The line took it with LINE_TAKE at 6 and LINE_ONLY at 1035 (#207), and carried it from 15:23 to its merge hold at 15:28:56: the planner ($0.049), the coder ($0.062), 13 gates passed, the reviewer ($0.030) and the describer ($0.054), about $0.20 in all. Its fix is the app's #46, under issue #45. #208 took LINE_ONLY away again, so the deploy pull request (#48) would say what it carries, and it listed 1035. To make the signal persist, a revert of #46 (the app's #47) was meant to merge before the deploy; the test-integrity gate refused it, since it deleted #46's tests, and it was closed. A second drill (the app's #49) logs an error on `/` through a logger of its own, in `src/greeting.ts`, which #46's tests do not see. Release 867c4b7f55 (192dfe7) carried 1035, and its events went on 1035.
+
+  | Event | Recorded at | Canary | Baseline |
+  |---|---|---|---|
+  | `release.started` | 15:53:40 | | |
+  | `canary.stepped`, 25% | 15:57:10 | 589 requests, 1.30% 5xx, p99 36 ms | 1,296 requests, 1.52% 5xx, p99 42 ms |
+  | `canary.stepped`, 50%, and `release.promoted` | 16:00:40 | 843 requests, 1.55% 5xx, p99 42 ms | 889 requests, 1.35% 5xx, p99 42 ms |
+  | `verification.finished`, persists | 16:30:43 | | |
+  | `work.returned`, Verify to Plan | 16:30:58 | | |
+
+  Verification found the pattern's lines from 192dfe7 ("GET / found no greeting: Error: No greeting is set for this hour"), with screenshots of 12 pages, `/` marked intended.
+- **1035's second pass, verified.** The planner ($0.064), the coder ($0.272), the reviewer ($0.040) and the describer ($0.063), about $0.44, and about $0.63 for 1035 so far. The fix, the app's #50, removes the call that logged, with tests that read the app's output at every hour of the day. Release 6c9894bdfd (8255dac) carried 1035: started at 16:47:28, and promoted at 16:54:28.
+
+  | Step | Recorded at | Canary | Baseline |
+  |---|---|---|---|
+  | 25% | 16:50:58 | 576 requests, 1.70% 5xx, p99 35 ms | 1,026 requests, 1.17% 5xx, p99 43 ms |
+  | 50% | 16:54:28 | 839 requests, 1.43% 5xx, p99 38 ms | 946 requests, 1.61% 5xx, p99 42 ms |
+
+  At about 17:24, verification cleared: "No error like the one the log watcher saw came from 8255dac in 30 minutes, over 294 requests". 1035 closed as verified, and the App closed issue #45 as completed.
+- **1035 reopened.** A third drill (the app's #52) has every hundredth visit to `/` log a different error, a new pattern with the same fingerprint. Once 5b5702d was released, triage reopened 1035 at 18:00:24 (`work-item.reopened`, from the logs, on `/`, "new error pattern"), with the signal that reopened it. The App reopened issue #45, with a comment that begins "It came back after its fix was verified". The line took 1035 back into Plan: the planner at 18:01:05 ($0.057) and the coder at 18:01:56 ($0.091). The third fix, the app's #54, removes the counter, with a test of 250 visits; it passed 13 gates and review at 18:05, and held for Martin's merge at 18:06:25. He merged it and its deploy, and its release (7fd45f66f) was in its canary as this was written. 1035 has spent $0.879 over three passes, of its $1 cap.
+
 ## Retrospective
 
 ### Part A
@@ -292,3 +327,24 @@ Written as Part A's pull requests (#169 to #172, #174, #175 and #177, and the ap
 - Traefik counts requests per Service, not per version, and the errors and latency are the app's own figures: both are under the risks.
 
 **Left open:** the reel's render-count test is flaky (#182); egress by host name waits for milestone 10 (#176).
+
+### Part B
+
+Written as Part B's pull requests (#191 to #196, #201, #202, #205 and #206) merged, with the fix its runs needed (#212). What Part B taught, and what Part C starts from.
+
+**Learned on the cluster**
+
+- A migration races the image that reads it. Migration 0008 moved 1001 and 1006 to Release, and the line image still running set them back to ended. A migration that moves work items must reach the cluster with, or after, the image that understands them.
+- The test-integrity gate holds a fix against its own revert: a revert deletes the fix's tests, and the gate refuses that. So a drill that makes a signal persist has to slip past the fix's tests, the way a regression would.
+- A drill that only logs an error, and still answers 200, drives Verify and reopening deterministically. The gates and the canary do not see it, and the log watcher's ticket opened under two minutes after the release started.
+- A release that rolls back before its first step is measured has no `canary.stepped`: its `release.rolled-back` and the series it carries are the whole story.
+- The app labels `http_route` with the raw path, so the routes where the canary did worse are named by path.
+
+**For Part C**
+
+- The console: a return stays on the line for a day after its work item has moved on (#209); a sheet's replay scrubber is unreadable for a work item that goes round twice (#210); canary pictures box another sense's finding, and the console draws the boxes out of place (#211). #212 made a verified work item's sheet show the ticket's page on the fixed version, and each hold at Release and Verify say what it waits for.
+- The journeys' figures are empty in `canary.stepped`, so the Canary panel has nothing to show for them yet.
+- Canary pictures are never deleted (#198), a release of an image promoted before is not recorded (#199), and the factory's own requests count in the canary's errors and latency (#200).
+- LINE_TAKE is 6, and all six are taken, so the line takes nothing new until it is raised. 1035's third fix (the app's #54) is merged, and its verification comes after this record. `src/greeting.ts`, from the second drill, has been unused in the app since #50.
+
+**Left open:** the reel's render-count test is flaky (#182); egress by host name waits for milestone 10 (#176); a broken Mermaid diagram reaches a pull request's description (#197); and #198, #199, #200, #209, #210 and #211, above.
