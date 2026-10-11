@@ -12,12 +12,13 @@ import { type Database, freshDatabase } from './database.ts';
 let owner: Sql; // the database's owner, as the migration Job connects
 let writer: Sql;
 let reader: Sql;
+let scoreboard: Sql;
 let database: Database;
 const artifacts = new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-')));
 
 beforeAll(async () => {
   database = await freshDatabase('store');
-  ({ owner, writer, reader } = database);
+  ({ owner, writer, reader, scoreboard } = database);
 });
 
 afterAll(() => database?.end());
@@ -79,6 +80,7 @@ describe('migrations', () => {
       { version: 9, name: 'reopen-verified' },
       { version: 10, name: 'pictures' },
       { version: 11, name: 'canary-sense' },
+      { version: 12, name: 'scoreboard' },
     ]);
   });
 });
@@ -237,6 +239,61 @@ describe('append-only, by mechanism', () => {
       reader`insert into events (id, ts, type, version, actor, summary, payload, artifacts, public, sample)
              values (${uuid()}, now(), 'line.stopped', 1, 'martin', 'Stop', '{}', '[]', '{}', true)`,
     ).rejects.toThrow('permission denied');
+  });
+
+  it('lets the scoreboard read the events and append its own, and nothing else', async () => {
+    const score: NewEvent<'score.updated'> = {
+      id: uuid(),
+      ts: at(0),
+      work_item: null,
+      type: 'score.updated',
+      version: 1,
+      actor: 'scoreboard',
+      summary: 'The scoreboard is off: it has no answer key',
+      payload: { keyed: false },
+      artifacts: [],
+    };
+    await new EventWriter(scoreboard, { kind: 'sample', artifacts }).append(score);
+    expect(await scoreboard`select payload from events where id = ${score.id}`).toEqual([
+      { payload: { keyed: false } },
+    ]);
+    // Nothing but its own figures, on the line, as itself.
+    const refused = 'the scoreboard appends its own figures and nothing else';
+    await expect(new EventWriter(scoreboard, { kind: 'sample', artifacts }).append(opened(nextItem()))).rejects.toThrow(
+      refused,
+    );
+    await expect(
+      new EventWriter(scoreboard, { kind: 'sample', artifacts }).append({ ...score, id: uuid(), actor: 'factory' }),
+    ).rejects.toThrow(refused);
+    await expect(scoreboard`update events set summary = 'rewritten'`).rejects.toThrow('permission denied');
+    await expect(scoreboard`delete from events`).rejects.toThrow('permission denied');
+    await expect(scoreboard`select nextval('work_items')`).rejects.toThrow('permission denied');
+    await expect(scoreboard`create table mine (n integer)`).rejects.toThrow('permission denied');
+
+    // Every privilege it holds on anything in the schema, so a grant added later must be added here too.
+    const held = await owner<{ name: string; privilege: string }[]>`
+      select c.relname as name, p.privilege from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) p(privilege)
+      where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
+        and has_table_privilege('scoreboard_writer', c.oid, p.privilege)
+      union all
+      select c.relname, p.privilege from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      cross join unnest(array['USAGE', 'SELECT', 'UPDATE']) p(privilege)
+      where n.nspname = 'public' and c.relkind = 'S' and has_sequence_privilege('scoreboard_writer', c.oid, p.privilege)
+      union all
+      select a.attrelid::regclass::text, 'column ' || p.privilege from pg_attribute a
+      join pg_class c on c.oid = a.attrelid join pg_namespace n on n.oid = c.relnamespace
+      cross join unnest(array['UPDATE', 'REFERENCES']) p(privilege)
+      where n.nspname = 'public' and a.attnum > 0 and not a.attisdropped
+        and has_column_privilege('scoreboard_writer', a.attrelid, a.attnum, p.privilege)
+      order by 1, 2`;
+    expect(held).toEqual([
+      { name: 'events', privilege: 'INSERT' },
+      { name: 'events', privilege: 'SELECT' },
+      { name: 'store', privilege: 'SELECT' },
+    ]);
   });
 
   it('never mixes samples with real events', async () => {

@@ -140,6 +140,31 @@ describe('validation', () => {
     });
   });
 
+  it('keeps the scoreboard’s figures on the line, consistent, and says when it is off', () => {
+    const figures = { keyed: true, entries: 40, found: 9, verified: 3, medianMs: 2_700_000 };
+    const score = {
+      ...opened,
+      work_item: null,
+      type: 'score.updated',
+      version: 1,
+      actor: 'scoreboard',
+      payload: figures,
+    };
+    expect(validate(score)).toEqual({ ok: true });
+    expect(validate({ ...score, work_item: '1288' }).ok).toBe(false);
+    expect(validate({ ...score, payload: { keyed: false } })).toEqual({ ok: true });
+    expect(validate({ ...score, payload: { ...figures, verified: 0, medianMs: null } })).toEqual({ ok: true });
+    for (const wrong of [
+      { ...figures, verified: 10 }, // more verified than found
+      { ...figures, found: 41 }, // more found than there are entries
+      { ...figures, medianMs: null }, // verified, with no median
+      { ...figures, verified: 0 }, // a median with nothing verified
+      { keyed: false, entries: 40 }, // off, with figures
+    ]) {
+      expect(validate({ ...score, payload: wrong }).ok).toBe(false);
+    }
+  });
+
   it('names the ticket a repeat joined, and only for a repeat', () => {
     const repeat = { ...judgement, payload: { ...judgement.payload, route: 'repeat', joined: '1000' } };
     expect(validate(repeat)).toEqual({ ok: true });

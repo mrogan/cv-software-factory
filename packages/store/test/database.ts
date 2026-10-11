@@ -1,6 +1,7 @@
 /**
  * A fresh database for a test file, on the Postgres the setup provides (postgres.ts), migrated, with a connection
- * as each role: the owner (as the migration Job connects), the factory's writer and the console's reader.
+ * as each role: the owner (as the migration Job connects), the factory's writer, the console's reader and the
+ * scoreboard's writer.
  */
 import { inject } from 'vitest';
 import { createDatabase } from './postgres.ts';

@@ -43,6 +43,7 @@ export const VERSIONS = {
   'line.stopped': 1,
   'spend.capped': 2,
   'spend.cleared': 2,
+  'score.updated': 1,
 } as const;
 
 export type EventType = keyof typeof VERSIONS;
@@ -50,7 +51,13 @@ export type EventType = keyof typeof VERSIONS;
 export const EVENT_TYPES = Object.keys(VERSIONS) as EventType[];
 
 /** Types that belong to the line as a whole. */
-export const LINE_TYPES: readonly EventType[] = ['line.started', 'line.stopped', 'spend.capped', 'spend.cleared'];
+export const LINE_TYPES: readonly EventType[] = [
+  'line.started',
+  'line.stopped',
+  'spend.capped',
+  'spend.cleared',
+  'score.updated',
+];
 
 /**
  * Types that belong to a work item or to the line. A release's events are on each work item it carries, and on the
