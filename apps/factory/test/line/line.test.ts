@@ -1096,16 +1096,16 @@ describe('the line', () => {
       expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({ kind: 'approval', cause: 'merge' });
 
       now += mergeAfterMs;
-      await pass(); // the dry run merges it, and the work item waits at Release
+      await pass(); // the dry run merges it, and the work item waits at Release for the dry run's release, not held
       await pass();
-      expect(await stage(workItem)).toBe('held');
+      expect(await stage(workItem)).toBe('release');
       expect(steps.finished).toEqual([workItem]);
       const ended = await types(workItem);
       expect(ended.filter((t) => t === 'gates.finished')).toHaveLength(2);
       expect(ended.filter((t) => t === 'review.submitted')).toHaveLength(2);
       expect(ended).toContain('work.returned');
       expect(ended).toContain('work-item.summarised');
-      expect(ended.slice(-2)).toEqual(['pull-request.merged', 'hold.started']);
+      expect(ended.at(-1)).toBe('pull-request.merged');
       expect((await payloads(workItem, 'pull-request.merged'))[0]).toMatchObject({ by: 'factory' });
     } finally {
       server.close();
@@ -1447,9 +1447,6 @@ describe('the deploy pull request', () => {
     ];
     await merged(shipped, 15, sha('1'));
     await merged(carried, 17, sha('2'));
-    await merged(later, 25, sha('4'));
-    // Sent back after its merge, the first fix merges again, after the second's.
-    await merged(carried, 27, sha('5'));
     await database.writer`
       insert into line (work_item, stage, issue) values (${shipped}, 'ended', 14), (${carried}, 'ended', 16), (${later}, 'ended', 24)`;
     const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
@@ -1461,11 +1458,14 @@ describe('the deploy pull request', () => {
       {
         number: 30,
         commit: sha('3'),
-        carries: [{ workItem: carried, title: 'Server errors on /cart', issue: 16, pullRequest: 17 }],
+        carries: [{ workItem: carried, pullRequest: 17, title: 'Server errors on /cart', issue: 16 }],
       },
     ]);
 
-    // The watch moves the pull request on to a newer build, which carries one more.
+    // Another fix merges, and the first is sent back after its merge and merges again, after it. The watch moves the
+    // pull request on to a newer build, which carries both, the first in the place of its latest merge.
+    await merged(later, 25, sha('4'));
+    await merged(carried, 27, sha('5'));
     github.deploy = { ...github.deploy, commit: sha('5') };
     github.deployCommits = [sha('2'), sha('3'), sha('4'), sha('5')];
     await pass();
@@ -1478,6 +1478,36 @@ describe('the deploy pull request', () => {
     github.deploy = null;
     await pass();
     expect(described(github)).toHaveLength(2);
+  });
+
+  it('is told what it carries over the version the shop runs, not the one pinned, which may have rolled back', async () => {
+    const history = ['0', '1', '2', '3', '4', '5', '6'].map(sha);
+    const [held, after, closed] = [await ticket(), await ticket('broken', '/cart'), await ticket('broken', '/basket')];
+    // The shop runs 1. A release of 3, carrying the first fix, rolled back; main still pins it.
+    await events.append([
+      event(null, 'release.promoted', {
+        release: '6d8f9c7b54',
+        version: sha('1'),
+        previous: sha('0'),
+        commit: sha('1'),
+        watched: true,
+        dryRun: false,
+      }),
+    ]);
+    await merged(held, 15, sha('2'));
+    await merged(after, 17, sha('4'));
+    await merged(closed, 19, sha('5'));
+    await events.append([
+      event(closed, 'work-item.closed', { outcome: 'no-change', reason: 'Martin closed it' }, 'martin'),
+    ]);
+    await database.writer`
+      insert into line (work_item, stage, issue) values (${held}, 'held', 14), (${after}, 'held', 16), (${closed}, 'ended', 18)`;
+    const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
+    github.history = history;
+    github.deploy = { number: 30, commit: sha('6'), pinned: sha('3'), digests: [] };
+    await pass();
+    const [said] = described(github) as { carries: { workItem: string }[] }[];
+    expect(said?.carries.map((c) => c.workItem)).toEqual([held, after]);
   });
 
   it('is told it carries none when no fix of the line’s is in its range, and nothing when the pin is not known', async () => {

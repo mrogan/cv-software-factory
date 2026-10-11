@@ -42,8 +42,9 @@
  *
  * A merged change waits at Release, held for Martin (`deploy`), until a release that carries it starts: the deploy
  * pull request that carries it is his to merge, and the release's start ends the hold by itself. A release that rolls
- * back holds it again, for the next. One that promotes moves it to Verify, where the sense that saw the defect looks
- * again; closing it as verified ends it. Work sent back to Plan from there starts a fresh pass: a new spec, a new pull
+ * back holds it again, for the next. A dry run's merge, which no deploy can carry, is not held: it waits at Release
+ * for the dry run's release. One that promotes moves it to Verify, where the sense that saw the defect looks again;
+ * closing it as verified ends it. Work sent back to Plan from there starts a fresh pass: a new spec, a new pull
  * request, its own gates, review, merge and release.
  *
  * The events are folded into where the work item is (`fold`), and `decide` turns that into one next action. Each
@@ -55,6 +56,7 @@
  * rule for each cause and each answer.
  */
 import { ALWAYS_HELD, type HoldCause, LIMITS, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
+import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 
 /** The agents the line runs, each in a runner. */
 export type LineAgent = 'planner' | 'coder' | 'reviewer' | 'describer';
@@ -546,9 +548,15 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   }
 }
 
-/** Where a merged change is: waiting for a release to carry it, in one, or verified by the sense that saw the defect. */
+/**
+ * Where a merged change is: waiting for a release to carry it, in one, or verified by the sense that saw the defect.
+ * A dry run's merge, which no deploy pull request can carry, waits at Release for the dry run's release instead.
+ */
 function afterMerge(s: WorkItemState): Decision {
   const { release } = s;
+  if (!release && (s.pullRequest?.number ?? 0) >= DRY_RUN_NUMBERS_FROM) {
+    return { stage: 'release', next: { do: 'wait', for: 'release' } };
+  }
   if (!release || release.rolledBack) {
     const reason = release
       ? `The release that carried the fix, ${release.started.version}, rolled back: it waits for the next deploy pull request to carry it`

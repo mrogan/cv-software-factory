@@ -4,17 +4,18 @@
  * something new to record, what it needs for it:
  *
  * - for a release starting, the new image's commit and signature, through the GitHub worker (the line has no way to
- *   GHCR), and the work items it carries: those whose fixes merged between the commit the stable version runs and the
- *   new image's, as the deploy pull request lists them. For a version found live, each merged work item no release has
- *   carried whose fix is already in it. A commit GitHub never had (a dry run's) is in neither.
+ *   GHCR), and the work items it carries (`carried`): those whose fixes merged between the commit the last promoted
+ *   release runs and the new image's, as the deploy pull request lists them. For a version found live, each merged
+ *   work item no release has carried whose fix is already in it. A commit GitHub never had (a dry run's) is in neither.
  * - for each step, each version's figures from Prometheus; for a rollback, the series of each failed measure.
  *
  * A figure or series it could not read is left out, and the step or rollback recorded without it.
  *
  * In a dry run (`LINE_MODE=dry-run`), a work item whose merge the dry run made, which never shipped, is released by the
  * dry run's word instead: started a while after its merge, stepped, and promoted, each marked `dryRun`, so a soak goes
- * round. With `only`, the line watches no release of the app, which could carry other work items, and answers for the
- * dry run's release of that work item alone.
+ * round. With `only`, the line records a release only when it carries that work item or none (the line's own events
+ * keep the record of what the shop runs whole, which the next release is compared with), and answers for the dry
+ * run's release of that work item alone.
  *
  * It changes nothing in Kubernetes: the line may read the Rollout and its runs, and nothing else there.
  */
@@ -91,8 +92,8 @@ export class Releases {
 
   /** One pass: the app's release, then a dry run's. A failure in one leaves the other to go on. */
   async pass(): Promise<void> {
-    const { watch, dryRun, only, log } = this.#o;
-    if (watch && only === null) {
+    const { watch, dryRun, log } = this.#o;
+    if (watch) {
       await this.#watch(watch).catch((error: unknown) =>
         log.warn({ err: errorOf(error) }, 'could not read the app’s release'),
       );
@@ -105,7 +106,7 @@ export class Releases {
   }
 
   async #watch({ kube, rollout, prometheus }: ReleaseWatchOptions): Promise<void> {
-    const { log } = this.#o;
+    const { log, only } = this.#o;
     const read = await readRollout(kube, rollout);
     if (!read) {
       log.debug(rollout, 'no Rollout to watch');
@@ -148,7 +149,16 @@ export class Releases {
       figures,
       series,
     };
-    await this.#append(releaseEvents(o, recorded, facts), o);
+    const drafts = releaseEvents(o, recorded, facts);
+    // With `only`, a release that carries another work item is left unrecorded, as that work item is left as it is:
+    // recorded on `only` alone, its start would never reach the other. Once the line acts on them all again, it is
+    // recorded whole, or found live if it has shipped by then.
+    const others = [...drafts.keys()].filter((target) => target !== null && target !== only);
+    if (only !== null && others.length) {
+      log.info({ release: o.current, only, others }, 'the release carries other work items: left for the whole line');
+      return;
+    }
+    await this.#append(drafts, o);
   }
 
   /** What a release starting needs read: its image's commit and signature, and the work items it carries. */
@@ -162,30 +172,10 @@ export class Releases {
       return undefined;
     }
     const { signed } = await github.read('imageSigned', repo, { image, digest: start.digest });
-    const carries = start.found ? await this.#foundIn(commit) : await this.#between(start.previous?.commit, commit);
+    const carries = start.found
+      ? await this.#foundIn(commit)
+      : ((await carried(this.#o, commit, start.previous?.commit))?.map((c) => c.workItem) ?? []);
     return { commit, signed, carries };
-  }
-
-  /** The work items whose fixes merged after `base` and up to `head`, not closed, in the order they merged. */
-  async #between(base: string | undefined, head: string): Promise<string[]> {
-    const { sql, log } = this.#o;
-    if (!base) return [];
-    const range = await this.#commits(base, head);
-    if (!range?.commits.length) return [];
-    if (range.total > range.commits.length) {
-      log.warn({ base, head, total: range.total }, 'the release runs more commits than the line reads');
-    }
-    // Each work item's latest merge: one sent back after a merge is carried by the release of its latest fix only.
-    const rows = await sql<{ work_item: string }[]>`
-      select work_item from (
-        select distinct on (m.work_item) m.work_item, m.seq, m.payload->>'commit' as commit from events m
-        where m.type = 'pull-request.merged'
-          and not exists (select 1 from events c where c.work_item = m.work_item and c.type = 'work-item.closed')
-        order by m.work_item, m.seq desc
-      ) latest
-      where commit in ${sql(range.commits)}
-      order by seq`;
-    return rows.map((row) => row.work_item);
   }
 
   /** Every merged work item no release has carried, not a dry run's, whose fix is already in `commit`. */
@@ -193,21 +183,11 @@ export class Releases {
     const candidates = (await this.#merged()).filter((item) => !item.released && item.number < DRY_RUN_NUMBERS_FROM);
     const found = await Promise.all(
       candidates.map(async (item) => {
-        const ancestry = await this.#commits(item.commit, commit);
+        const ancestry = await commitsBetween(this.#o, item.commit, commit);
         return ancestry?.status === 'ahead' || ancestry?.status === 'identical';
       }),
     );
     return candidates.filter((_, i) => found[i]).map((item) => item.workItem);
-  }
-
-  /** The commits from `base` to `head`, or undefined when GitHub has never had one of them. */
-  async #commits(base: string, head: string) {
-    try {
-      return await this.#o.github.read('commits', this.#o.repo, { base, head });
-    } catch (error) {
-      if (error instanceof GitHubWorkerError && error.status === 404) return undefined;
-      throw error;
-    }
   }
 
   /** A dry run's merges, each released by its word: what is due of each release and not recorded. */
@@ -306,6 +286,73 @@ export class Releases {
       },
       'recorded the app’s release',
     );
+  }
+}
+
+/** A merged work item a range of the app's commits carries, as a deploy pull request names it. */
+export interface Carried {
+  workItem: string;
+  /** Its latest pull request, which merged. */
+  pullRequest: number;
+  title: string | null;
+  issue: number | null;
+}
+
+/**
+ * The merged work items a version of the app at `head` carries over the one the shop runs, in the order they merged:
+ * each whose latest merge is in the range, and that no closing has ended. One sent back after a merge is carried only
+ * by a version with its latest fix. The deploy pull request lists these, and a release starting records them.
+ *
+ * The range starts at the commit of the last release that shipped and was promoted, which is what the shop runs: not
+ * the one pinned on main, which after a rollback is the version that rolled back. Before any release is recorded, it
+ * starts at `fallback`. Undefined when there is no start, or GitHub has never had one of the commits (a dry run's).
+ */
+export async function carried(
+  o: Pick<ReleasesOptions, 'sql' | 'github' | 'repo' | 'log'>,
+  head: string,
+  fallback: string | undefined,
+): Promise<Carried[] | undefined> {
+  const { sql, log } = o;
+  const [promoted] = await sql<{ commit: string | null }[]>`
+    select payload->>'commit' as commit from events
+    where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true
+    order by seq desc limit 1`;
+  const base = promoted?.commit ?? fallback;
+  if (!base) return undefined;
+  const range = await commitsBetween(o, base, head);
+  if (!range) return undefined;
+  if (!range.commits.length) return [];
+  if (range.total > range.commits.length) {
+    log.warn(
+      { base, head, total: range.total, read: range.commits.length },
+      'the version runs more commits than the line reads: it names the work items among the first',
+    );
+  }
+  const rows = await sql<{ work_item: string; number: number; title: string | null; issue: number | null }[]>`
+    select latest.work_item, latest.number, l.issue,
+           (select t.public->'payload'->>'title' from events t
+             where t.work_item = latest.work_item and t.type = 'ticket.opened' order by t.seq limit 1) as title
+    from (
+      select distinct on (m.work_item) m.work_item, m.seq, m.payload->>'commit' as commit,
+             (m.payload->>'number')::int as number
+      from events m
+      where m.type = 'pull-request.merged'
+        and not exists (select 1 from events c where c.work_item = m.work_item and c.type = 'work-item.closed')
+      order by m.work_item, m.seq desc
+    ) latest
+    left join line l on l.work_item = latest.work_item
+    where latest.commit in ${sql(range.commits)}
+    order by latest.seq`;
+  return rows.map((row) => ({ workItem: row.work_item, pullRequest: row.number, title: row.title, issue: row.issue }));
+}
+
+/** The commits from `base` to `head`, or undefined when GitHub has never had one of them. */
+async function commitsBetween(o: Pick<ReleasesOptions, 'github' | 'repo'>, base: string, head: string) {
+  try {
+    return await o.github.read('commits', o.repo, { base, head });
+  } catch (error) {
+    if (error instanceof GitHubWorkerError && error.status === 404) return undefined;
+    throw error;
   }
 }
 

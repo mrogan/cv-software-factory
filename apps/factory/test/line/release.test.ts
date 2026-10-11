@@ -361,12 +361,45 @@ describe('the line’s watch of the app’s release', () => {
     expect(stepped?.figures).toBeUndefined();
   });
 
-  it('watches no release while the line acts on one work item only, and reads nothing for it', async () => {
+  it('records a release of the one work item the line acts on, and the line’s own, while it acts on that alone', async () => {
     const workItem = await merged(30, FIX_3);
-    const { line: it, kube } = line({ only: workItem });
+    const { line: it, github, kube } = line({ only: workItem });
+    github.history = HISTORY;
+    github.revisions.set(digestOf(STABLE), commitOf(STABLE));
+    github.revisions.set(digestOf(CANARY), commitOf(CANARY));
+    // The version found live carries none of the line's work: recorded on the line, as what the next is compared with.
     kube.rollout = rollout({ current: STABLE, stable: STABLE });
     await it.tick();
-    expect(kube.asked).toEqual([]);
+    expect(await typesOf(null)).toEqual(['release.started by factory', 'release.promoted by factory']);
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    await it.tick();
+    kube.rollout = rollout({ current: CANARY, stable: CANARY });
+    await it.tick();
+    expect(await typesOf(workItem)).toEqual(['release.started by rollouts', 'release.promoted by rollouts']);
+    expect(await stage(workItem)).toBe('verify');
+  });
+
+  it('leaves a release that carries another work item for the whole line, while it acts on one alone', async () => {
+    const { line: whole, github, kube } = line();
+    github.history = HISTORY;
+    github.revisions.set(digestOf(STABLE), commitOf(STABLE));
+    github.revisions.set(digestOf(CANARY), commitOf(CANARY));
+    kube.rollout = rollout({ current: STABLE, stable: STABLE });
+    await whole.tick();
+    const [workItem, other] = [await merged(30, FIX_3), await merged(31, FIX_4)];
+    const only = line({ only: workItem });
+    only.github.history = HISTORY;
+    for (const [digest, commit] of github.revisions) only.github.revisions.set(digest, commit);
+    only.kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    await only.line.tick();
+    expect(await typesOf(workItem)).toEqual([]);
+    expect(await typesOf(other)).toEqual([]);
+    expect(await typesOf(null)).toHaveLength(2);
+
+    // The line acts on them all again, and records it on both.
+    kube.rollout = only.kube.rollout;
+    await whole.tick();
+    for (const carried of [workItem, other]) expect(await typesOf(carried)).toEqual(['release.started by rollouts']);
   });
 });
 

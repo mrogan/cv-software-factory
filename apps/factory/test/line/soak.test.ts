@@ -27,8 +27,8 @@ const event = (time: string, type: keyof typeof VERSIONS, payload: unknown): Sto
 });
 
 /**
- * A work item a soak takes round: planned, built, through the gates, held at review, merged, held at Release until a
- * release carries it, and verified.
+ * A work item a dry run takes round: planned, built, through the gates, held at review, merged, waiting at Release for
+ * the dry run's release, and verified.
  */
 const RELEASE = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: true };
 
@@ -67,15 +67,18 @@ describe('a work item’s minutes in each stage', () => {
       build: 30,
       gates: 3,
       review: 7,
-      held: 20,
-      release: 10,
+      held: 10,
+      release: 20,
       verify: 10,
     });
   });
 
   it('counts a merged work item as on the line, waiting at Release, until a release carries it', () => {
     const merged = round('21:00').slice(0, 7);
-    expect(stageMinutes(merged, Date.parse(at('22:00')), Date.parse(at('23:59')))).toMatchObject({ held: 59 });
+    expect(stageMinutes(merged, Date.parse(at('22:00')), Date.parse(at('23:59')))).toMatchObject({
+      held: 10,
+      release: 49,
+    });
     const deploy = event('23:10', 'hold.started', {
       stage: 'release',
       kind: 'approval',

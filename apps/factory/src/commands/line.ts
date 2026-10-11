@@ -22,10 +22,11 @@
  *
  * RELEASE_ROLLOUT, the app's Rollout as `<namespace>/<name>`, has the line watch the app's releases: it reads the
  * Rollout and its AnalysisRuns, and each version's figures from Prometheus at PROMETHEUS_URL (required with it), and
- * records each release on the work items it carries. It changes nothing in Kubernetes. Unset, as by default, the line
- * watches no release. In
- * `dry-run`, the line answers for the release of each merge the dry run made, by its own word, taking
- * LINE_DRY_RUN_RELEASE_SECONDS (60 by default) over each move: to start after the merge, each step, and promotion.
+ * records each release on the work items it carries. It changes nothing in Kubernetes. With LINE_ONLY, it records a
+ * release only when it carries that work item or none, and leaves one that carries another for the whole line. Unset,
+ * as by default, the line watches no release. In `dry-run`, the line answers for the release of each merge the dry
+ * run made, by its own word, taking LINE_DRY_RUN_RELEASE_SECONDS (60 by default) over each move: to start after the
+ * merge, each step, and promotion.
  *
  * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
