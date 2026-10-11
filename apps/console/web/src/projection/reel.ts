@@ -64,7 +64,8 @@ export type Picture =
       unchanged: Screenshot[];
     }
   | { type: 'scan'; dependency: Dependency; findings: Findings; unchanged: Screenshot[] }
-  | { type: 'rollback'; dependency: Dependency | undefined; rollback: PayloadOf<'release.rolled-back'> }
+  /** A canary rolled back: the series of the first measure that failed it, and how much of the traffic saw it. */
+  | { type: 'rollback'; dependency: Dependency | undefined; weight: number; restored: string; series: Series }
   | { type: 'refusal'; mechanism: string; output: string }
   | { type: 'judgement'; page: Screenshot | undefined; judgement: Judgement }
   /** A report quarantined: the answer that decided it, against its threshold, and no page at all. */
@@ -131,6 +132,7 @@ export type Picture =
 
 type Dependency = NonNullable<PayloadOf<'work-item.opened'>['dependency']>;
 type Findings = NonNullable<PayloadOf<'gate.finished'>['findings']>;
+type Series = NonNullable<PayloadOf<'release.rolled-back'>['failed'][number]['series']>;
 
 export interface Versions {
   /** The version it broke or replaced. */
@@ -256,8 +258,15 @@ function unchangedPages(item: ItemState): Screenshot[] {
  * he is asked to decide. Without `waits`, the evidence alone, which the sheet shows whatever the card shows.
  */
 export function picture(item: ItemState, { waits = true }: { waits?: boolean } = {}): Picture {
-  const rolledBack = last(ofType(item, 'release.rolled-back'), () => true);
-  if (rolledBack) return { type: 'rollback', dependency: item.dependency, rollback: rolledBack.payload };
+  // The rollback of the latest release to carry the item, if it rolled back: one before it is history.
+  const latest = last(ofType(item, 'release.started'), () => true)?.payload.release;
+  const rolledBack = last(ofType(item, 'release.rolled-back'), (event) => event.payload.release === latest)?.payload;
+  // A rollback with no series to draw (the journeys failed it, say) is told by its other evidence.
+  const series = rolledBack?.failed.find((measure) => measure.series)?.series;
+  if (rolledBack && series) {
+    const { weight, restored } = rolledBack;
+    return { type: 'rollback', dependency: item.dependency, weight, restored, series };
+  }
 
   if (item.kind === 'red-team') {
     const refused = last(ofType(item, 'action.refused'), () => true);

@@ -179,21 +179,33 @@ describe('a station’s figure', () => {
     const one = work('1')
       .open()
       .add(1, 'release.started', 'rollouts', {
+        release: '7c9d5f8b6d',
         version: 'v1.0.1',
         previous: 'v1.0.0',
-        digest: `sha256:${'b'.repeat(64)}`,
-        signed: true,
-        admitted: true,
+        image: { digest: `sha256:${'b'.repeat(64)}`, signed: true, admitted: true },
+        watched: true,
+        dryRun: false,
       })
       .add(2, 'canary.stepped', 'rollouts', {
+        release: '7c9d5f8b6d',
         version: 'v1.0.1',
         weight: 25,
-        analysis: {
-          errorRate: { canary: 0, baseline: 0 },
-          p99Ms: { canary: 100, baseline: 100 },
-          journeys: { canary: [1, 1], baseline: [1, 1] },
-        },
+        analysis: { phase: 'successful', requests: 225, measures: [] },
+        dryRun: false,
       });
     expect(project(one.events, one.at(3)).stations.find((s) => s.stage === 'release')?.figure).toBe('25%');
+    // The end of an older release, after a newer one started, says nothing of the newer.
+    const late = one.add(4, 'release.rolled-back', 'rollouts', {
+      release: '4b5c6d7f8g',
+      version: 'v1.0.0',
+      restored: 'v0.9.9',
+      weight: 25,
+      reason: 'An older release',
+      failed: [],
+      dryRun: false,
+    });
+    const release = project(late.events, late.at(5)).stations.find((s) => s.stage === 'release');
+    expect(release).toMatchObject({ figure: '25%' });
+    expect(release?.status).not.toBe('failed');
   });
 });

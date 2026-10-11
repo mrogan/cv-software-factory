@@ -26,14 +26,14 @@ export const VERSIONS = {
   'review.submitted': 3,
   'pull-request.merged': 1,
   // Release and verify
-  'release.started': 1,
-  'canary.stepped': 1,
-  'release.promoted': 1,
-  'release.rolled-back': 1,
-  'verification.finished': 1,
+  'release.started': 2,
+  'canary.stepped': 2,
+  'release.promoted': 2,
+  'release.rolled-back': 2,
+  'verification.finished': 2,
   // Anywhere on the line
   'work.returned': 2,
-  'hold.started': 4,
+  'hold.started': 5,
   'hold.answered': 1,
   'action.refused': 2,
   'model.called': 2,
@@ -48,7 +48,18 @@ export type EventType = keyof typeof VERSIONS;
 
 export const EVENT_TYPES = Object.keys(VERSIONS) as EventType[];
 
-/** Types that belong to the line as a whole. Every other event belongs to a work item. */
+/** Types that belong to the line as a whole. */
 export const LINE_TYPES: readonly EventType[] = ['line.started', 'line.stopped', 'spend.capped', 'spend.cleared'];
+
+/**
+ * Types that belong to a work item or to the line. A release's events are on each work item it carries, and on the
+ * line when it carries none. Every other event belongs to a work item.
+ */
+export const RELEASE_TYPES: readonly EventType[] = [
+  'release.started',
+  'canary.stepped',
+  'release.promoted',
+  'release.rolled-back',
+];
 
 export const isEventType = (type: string): type is EventType => Object.hasOwn(VERSIONS, type);

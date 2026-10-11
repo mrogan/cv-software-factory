@@ -238,12 +238,19 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     state.visits[stage] = { enteredAt: time, leftAt: undefined };
     state.stage = stage;
   };
+  /** The latest release to carry the item. */
+  let release: string | undefined;
   for (const event of events) {
     const time = at(event);
     state.lastAt = time;
     // Once there is a ticket, another sense's signal or a report that repeats it adds evidence: it does not take
     // the ticket back up the line.
     const joining = state.ticket && (event.type === 'signal.received' || event.type === 'judgement.made');
+    // A step or end of a release other than the latest to carry the item says nothing about it.
+    const stale =
+      (event.type === 'canary.stepped' || event.type === 'release.promoted' || event.type === 'release.rolled-back') &&
+      event.payload.release !== release;
+    if (stale) continue;
     const stage = joining ? null : stageOf(event);
     if (stage) {
       enter(stage, time);
@@ -279,6 +286,13 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       case 'pull-request.pushed':
         state.pullRequest = event.payload.number;
         break;
+      case 'work.returned':
+        // Back to Plan, the work comes round again to a release of its own.
+        if (event.payload.to === 'plan') {
+          release = undefined;
+          state.canary = undefined;
+        }
+        break;
       case 'pull-request.merged':
         // The merge is Martin's answer to a wait for it: the line writes no other.
         state.hold = undefined;
@@ -299,8 +313,12 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.hold = undefined;
         break;
       case 'release.started':
+        // A release that carries the fix is the answer to its wait for a deploy, as the line reads it.
+        if (state.hold?.cause === 'deploy') state.hold = undefined;
+        release = event.payload.release;
         state.versions.from ??= event.payload.previous;
         state.versions.to = event.payload.version;
+        state.versions.rolledBack = false;
         state.canary = { version: event.payload.version, weight: 0 };
         break;
       case 'canary.stepped':

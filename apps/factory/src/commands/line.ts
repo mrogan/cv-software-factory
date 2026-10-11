@@ -34,9 +34,9 @@
  * bench's own folder (`BENCH_DIR`), the same on every run so that a run replays.
  *
  * `soak-check` reads the store and the cluster the morning after a soak (`line/soak.ts`): leases held past their
- * expiry, runners' Jobs and volumes left for ended work items, events that are not valid, the spend, and the work
- * items taken since `--since` (an ISO time; by default a day ago), by how each ended, with their minutes in each
- * stage. The spend is as it should be when each work item's is within FACTORY_PROFILE's cap on one, as on Claude;
+ * expiry, runners' Jobs and volumes left for ended work items and volumes for merged ones, events that are not valid,
+ * the spend, and the work items taken since `--since` (an ISO time; by default a day ago), by how each ended, with
+ * their minutes in each stage. The spend is as it should be when each work item's is within FACTORY_PROFILE's cap on one, as on Claude;
  * `--no-spend`, for a soak on the local model, allows nothing at all. It prints a few lines, or the report as JSON, and exits 1 if anything is not as a soak should leave it. On
  * a host it reads the cluster through KUBE_API_URL (what `kubectl proxy` serves).
  *

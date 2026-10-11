@@ -2,6 +2,7 @@ import { VERSIONS } from '@software-factory/events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import {
+  endOf,
   type LineRow,
   problemOf,
   type SoakFacts,
@@ -25,7 +26,12 @@ const event = (time: string, type: keyof typeof VERSIONS, payload: unknown): Sto
   payload,
 });
 
-/** A work item a dry-run soak takes round: planned, built, through the gates, held at review, and merged. */
+/**
+ * A work item a soak takes round: planned, built, through the gates, held at review, merged, held at Release until a
+ * release carries it, and verified.
+ */
+const RELEASE = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: true };
+
 const round = (start: string) => [
   event(start, 'ticket.opened', { title: 'Server errors on /search', severity: 'broken' }),
   event('22:20', 'spec.written', { outcome: 'Search answers.', criteria: [], scope: ['src/'], risks: [] }),
@@ -40,6 +46,9 @@ const round = (start: string) => [
   }),
   event('23:00', 'hold.started', { stage: 'review', kind: 'held', cause: 'failures', reason: 'The reviewer failed' }),
   event('23:10', 'pull-request.merged', { number: 1_000_000_001, commit: 'd'.repeat(40), by: 'factory' }),
+  event('23:20', 'release.started', RELEASE),
+  event('23:30', 'release.promoted', RELEASE),
+  event('23:40', 'work-item.closed', { outcome: 'verified', reason: 'Cleared' }),
 ];
 
 const row = (workItem: string, taken: string, more: Partial<LineRow> = {}): LineRow => ({
@@ -58,8 +67,22 @@ describe('a work item’s minutes in each stage', () => {
       build: 30,
       gates: 3,
       review: 7,
-      held: 10,
+      held: 20,
+      release: 10,
+      verify: 10,
     });
+  });
+
+  it('counts a merged work item as on the line, waiting at Release, until a release carries it', () => {
+    const merged = round('21:00').slice(0, 7);
+    expect(stageMinutes(merged, Date.parse(at('22:00')), Date.parse(at('23:59')))).toMatchObject({ held: 59 });
+    const deploy = event('23:10', 'hold.started', {
+      stage: 'release',
+      kind: 'approval',
+      cause: 'deploy',
+      reason: 'Merged',
+    });
+    expect(endOf([...merged, deploy], row('1', '22:00', { stage: 'held' }))).toBe('held: deploy');
   });
 
   it('counts a work item still on the line until now', () => {
@@ -109,7 +132,7 @@ describe('the morning’s report', () => {
   it('is all clear for a night that left nothing behind and spent nothing', () => {
     const report = soakReport(facts(), NONE);
     expect(report.ok).toBe(true);
-    expect(report.workItems).toMatchObject({ taken: 2, byEnd: { merged: 1, plan: 1 } });
+    expect(report.workItems).toMatchObject({ taken: 2, byEnd: { closed: 1, plan: 1 } });
     expect(report.workItems.stages.plan).toEqual({ items: 2, medianMinutes: (20 + 119) / 2, maxMinutes: 119 });
     expect(report.spend).toMatchObject({ usd: 0, calls: 41 });
     expect(soakText(report).split('\n')[0]).toContain('all clear');
@@ -141,9 +164,29 @@ describe('the morning’s report', () => {
     expect(report.events).toMatchObject({ checked: 120, invalid: 1 });
     const text = soakText(report);
     expect(text).toContain('NO  leases: 1 held past expiry (#2 by line-a)');
-    expect(text).toContain('left for ended work items: job reviewer-1-1-3-agent, volume work-1');
+    expect(text).toContain('left for ended or merged work items: job reviewer-1-1-3-agent, volume work-1');
     expect(text).toContain('#7 line.stopped v1: reason: Required');
     expect(text).toContain('NO  spend: $0.0400 over 2 calls (anthropic 2, $0.0400); none allowed');
+  });
+
+  it('names a volume left for a merged work item waiting for its release, but not one still at work', () => {
+    const merged = round('21:00').slice(0, 7);
+    const report = soakReport(
+      facts({
+        line: [row('1', '22:00', { stage: 'held' }), row('2', '22:00', { stage: 'plan' })],
+        events: new Map([
+          ['1', merged],
+          ['2', round('21:00').slice(0, 1)],
+        ]),
+        runners: [
+          { kind: 'volume', name: 'work-1', workItem: '1' },
+          { kind: 'volume', name: 'work-2', workItem: '2' },
+        ],
+      }),
+      NONE,
+    );
+    expect(report.ok).toBe(false);
+    expect(report.runners.left.map((r) => r.name)).toEqual(['work-1']);
   });
 
   it('is clear for a night on Claude whose work items each spent within the cap on one, and says the total', () => {

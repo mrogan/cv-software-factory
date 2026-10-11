@@ -75,6 +75,7 @@ describe('migrations', () => {
       { version: 5, name: 'line' },
       { version: 6, name: 'line-effects' },
       { version: 7, name: 'planner-findings' },
+      { version: 8, name: 'line-release-verify' },
     ]);
   });
 });

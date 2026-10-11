@@ -3,7 +3,7 @@
  * the second (`apps/factory/src/runners`); the shapes are here so both sides agree.
  *
  *     RUNNER_STEP   the step, as JSON (`Step`)
- *     WORK          the job's volume, which lives as long as the work item (default /work)
+ *     WORK          the job's volume, which lives until the work item merges or ends (default /work)
  *     PREPARE       the prepare pod's own folder, empty each time, for what it must not share with the agent
  *
  * The agent pod also has ANTHROPIC_BASE_URL (the gateway), ANTHROPIC_API_KEY (its job token, which is not a key) and

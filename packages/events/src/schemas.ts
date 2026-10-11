@@ -4,7 +4,7 @@
  * Node only: the browser imports types from here, never values, so Zod stays out of the console's bundle.
  */
 import { z } from 'zod';
-import { type EventType, LINE_TYPES, VERSIONS } from './versions.ts';
+import { type EventType, LINE_TYPES, RELEASE_TYPES, VERSIONS } from './versions.ts';
 import * as V from './vocabulary.ts';
 
 const text = (max: number) => z.string().trim().min(1).max(max);
@@ -203,6 +203,55 @@ const fingerprint = z.union([
 /** A canary against its baseline, on the same measure. */
 const versus = <T extends z.ZodType>(value: T) => z.strictObject({ canary: value, baseline: value });
 
+/**
+ * A release, as its events name it: in the cluster, the pod-template hash Argo Rollouts gives the canary, which the
+ * telemetry and the analysis tell the versions apart by. A dry run's release names itself.
+ */
+const releaseId = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, 'a release, such as the canary’s pod-template hash');
+const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'an image digest');
+
+/** How far an analysis, or one of its measures, has got, in Argo Rollouts' words. */
+const analysisPhase = z.enum(['pending', 'running', 'successful', 'failed', 'error', 'inconclusive']);
+
+/** One measure of the canary's analysis, as the analysis reported it (policy/release.ts names them). */
+const measure = z.strictObject({
+  /** As the analysis names it: `enough-requests`, `errors`, `latency` or `journeys`. */
+  name: slug,
+  phase: analysisPhase,
+  /**
+   * Its latest measurement, in the analysis's own terms. Null when it has none that JSON can hold: the journeys report
+   * no number, and a version with nothing to compare measures as infinitely worse.
+   */
+  value: z.number().nullable(),
+  /** What the value is held to: the most it may be, or for `enough-requests` the least. Null for no threshold. */
+  limit: z.number().nullable(),
+  /** The analysis's own words about it, when it has any: why it failed, or could not measure. */
+  message: text(300).optional(),
+});
+
+/** One version's figures over a step, each null when there was nothing to measure. */
+const figures = z.strictObject({
+  requests: count.nullable(),
+  errorRate: probability.nullable(),
+  p99Ms: count.nullable(),
+  /** The journeys' checks that passed, of how many ran. */
+  journeys: z.tuple([count, count]).nullable(),
+});
+
+/** A measure on the canary and the baseline over the release, as the analysis compared them. */
+const series = z.strictObject({
+  /** What the values are, in words, such as `p99 latency`. */
+  label: text(60),
+  unit: text(16),
+  /** When the first value was taken. A version 1 rollback did not record it. */
+  start: timestamp.optional(),
+  stepSeconds: z.number().int().positive(),
+  canary: z.array(z.number().nullable()).min(2).max(500),
+  baseline: z.array(z.number().nullable()).min(2).max(500),
+  /** Where in the series the analysis failed the canary. */
+  at: count,
+});
+
 /** The payload of each event type, at its current version. */
 export const PAYLOADS = {
   'work-item.opened': z.strictObject({
@@ -374,44 +423,87 @@ export const PAYLOADS = {
   }),
   'pull-request.merged': z.strictObject({ number: pullRequest, commit, by: z.enum(['martin', 'factory']) }),
 
-  'release.started': z.strictObject({
+  /**
+   * A release of the app began: Argo Rollouts started a canary of a new image, or, in a dry run, the dry run says one
+   * would have. Each of a release's events names it, and is on every work item it carries, or on the line when it
+   * carries none.
+   */
+  'release.started': z
+    .strictObject({
+      release: releaseId,
+      version: appVersion,
+      /** The version it replaces: the stable one, which the canary is compared with. */
+      previous: appVersion,
+      /** The app's commit it runs, as its image's revision says. A version 1 release never said. */
+      commit: commit.optional(),
+      /** The image, which admission control let in only because the pipeline signed it. A dry run's has none. */
+      image: z.strictObject({ digest, signed: z.boolean(), admitted: z.boolean() }).optional(),
+      /**
+       * Whether the line watched it go out. A release the line found already live (one that shipped before the line
+       * watched releases) is recorded as found, by the factory, with no steps: nobody saw them.
+       */
+      watched: z.boolean(),
+      /** A release the dry run answers for: its work items' merges were never made, so nothing shipped. */
+      dryRun: z.boolean(),
+    })
+    .refine((r) => r.dryRun === (r.image === undefined), {
+      message: 'a release that shipped names its image, and a dry run’s names none',
+      path: ['image'],
+    }),
+  /** A step of the canary: its weight, and what the analysis made of it, in the analysis's own terms. */
+  'canary.stepped': z.strictObject({
+    release: releaseId,
+    version: appVersion,
+    weight: z.number().int().min(1).max(100),
+    analysis: z.strictObject({
+      /** How the step's analysis ended, or how far it has got. */
+      phase: analysisPhase,
+      /** What the traffic split had sent the canary in the analysis's window. Null when it had not counted. */
+      requests: count.nullable(),
+      measures: z.array(measure).max(8),
+    }),
+    /** Each version's own figures over the step, from the telemetry by its pod-template hash, when they were read. */
+    figures: versus(figures).optional(),
+    dryRun: z.boolean(),
+  }),
+  /** The canary took all of the traffic: the release is the stable version now. */
+  'release.promoted': z.strictObject({
+    release: releaseId,
     version: appVersion,
     previous: appVersion,
-    digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-    signed: z.boolean(),
-    admitted: z.boolean(),
+    /** As `release.started` has them. A version 1 promotion never named its commit. */
+    commit: commit.optional(),
+    watched: z.boolean(),
+    dryRun: z.boolean(),
   }),
-  'canary.stepped': z.strictObject({
-    version: appVersion,
-    weight: z.number().int().min(1).max(100),
-    analysis: z.strictObject({
-      errorRate: versus(probability),
-      p99Ms: versus(count),
-      journeys: versus(z.tuple([count, count])),
-    }),
-  }),
-  'release.promoted': z.strictObject({ version: appVersion, previous: appVersion }),
+  /** The analysis failed the canary, and Argo Rollouts sent all of the traffic back to the stable version. */
   'release.rolled-back': z.strictObject({
+    release: releaseId,
     version: appVersion,
     restored: appVersion,
+    /** The canary's weight when it failed: the share of the traffic that ever saw it. */
     weight: z.number().int().min(1).max(100),
+    /** Why, in the analysis's words. */
     reason: text(200),
-    analysis: z.strictObject({
-      metric: text(60),
-      unit: text(16),
-      stepSeconds: z.number().int().positive(),
-      canary: z.array(z.number().nullable()).min(2).max(500),
-      baseline: z.array(z.number()).min(2).max(500),
-      /** Where in the series the rollback happened. */
-      at: count,
-    }),
+    /** Each measure that failed, with the series that condemned it when there is one to draw. */
+    failed: z.array(measure.extend({ series: series.optional() })).max(8),
+    dryRun: z.boolean(),
   }),
+  /**
+   * After a release, the sense that saw the defect looked again: whether what it saw has cleared on the new version.
+   * Every page is compared with the version before the fix, when there are pictures to compare.
+   */
   'verification.finished': z.strictObject({
     outcome: z.enum(['cleared', 'persists']),
+    /** The sense that verified it: the one whose signal opened the ticket. A version 1 verification never said. */
+    sense: z.enum(V.SENSES).optional(),
     check: text(120),
-    /** The version every page was compared with. */
+    /** The version verified: the release live when the sense looked. A version 1 verification never said. */
+    version: appVersion.optional(),
+    /** The version it was compared with: the one before the fix. */
     against: appVersion,
     evidence: evidence.optional(),
+    /** The pages compared, if any were: a sense that does not look at pages compares none. */
     pages: z
       .array(
         z.strictObject({
@@ -424,6 +516,8 @@ export const PAYLOADS = {
         }),
       )
       .max(12),
+    /** A verification the dry run answers for: its release never shipped, so no sense looked. */
+    dryRun: z.boolean(),
   }),
 
   'work.returned': z
@@ -595,9 +689,12 @@ export function validate(input: unknown): Validated {
   if (event.version !== VERSIONS[event.type]) {
     problems.push(`version ${event.version} of ${event.type} is not current; append version ${VERSIONS[event.type]}`);
   }
-  const line = LINE_TYPES.includes(event.type);
-  if (line && event.work_item !== null) problems.push(`${event.type} belongs to the line, not to a work item`);
-  if (!line && event.work_item === null) problems.push(`${event.type} needs a work item`);
+  // A release's events may be on a work item or on the line; every other type is on one or the other.
+  if (!RELEASE_TYPES.includes(event.type)) {
+    const line = LINE_TYPES.includes(event.type);
+    if (line && event.work_item !== null) problems.push(`${event.type} belongs to the line, not to a work item`);
+    if (!line && event.work_item === null) problems.push(`${event.type} needs a work item`);
+  }
   const payload = PAYLOADS[event.type].safeParse(event.payload);
   if (!payload.success) problems.push(...problemsOf(payload.error, 'payload'));
   return problems.length ? { ok: false, problems } : { ok: true };

@@ -1,7 +1,8 @@
 /**
  * The line after triage: takes tickets into Plan and carries each work item through its agents' steps, the gates
- * and review, to Martin's merge. What to do next is decided from the work item's events (`machine.ts`); this module
- * does it, and appends what happened.
+ * and review, to Martin's merge, and on to Release and Verify. What to do next is decided from the work item's events
+ * (`machine.ts`); this module does it, and appends what happened. A merged work item is held at Release until a
+ * release carries it, and waits there while the release runs; a promoted one waits at Verify.
  *
  * - A step runs in a runner (`Steps`), and its handback becomes events: the agent's result read through its schema,
  *   what the result does in GitHub (both in the agent's module, `agents/`), and one `model.called` with the step's
@@ -17,7 +18,9 @@
  *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end.
  * - When the line stops, it stops every step in hand, wherever it is, and takes nothing new; their work is lost and
  *   nothing of it is recorded, so starting again runs those steps afresh from the last event.
- * - When a work item ends, merged or closed, its runners' volume is deleted.
+ * - A work item's runners' volume is deleted when it merges, as nothing after a merge needs it (a return to Plan
+ *   starts afresh from main), so the work items waiting at Release and Verify hold none of the runners' quota; and
+ *   when it ends, closed, if it has one still.
  *
  * In a dry run, a pull request's head is a commit GitHub never had: the GitHub worker says which real commit it went
  * on and what the dry run's commits were, and the runner makes them before the step starts.
@@ -134,6 +137,8 @@ export class Line {
   /** Aborted when the line stops, which stops every step started before, wherever it is. */
   #halt = new AbortController();
   #gatesReadAt = Number.NEGATIVE_INFINITY;
+  /** The merged work items whose volume this worker has deleted, until a step makes one again. */
+  readonly #volumeGone = new Set<string>();
 
   constructor(options: LineOptions) {
     this.#o = {
@@ -231,6 +236,7 @@ export class Line {
     for (let actions = 0; item && actions < 5; actions++) {
       const { events, last } = await this.#events(item.workItem);
       const { stage, next } = decide(events, await this.#facts(item));
+      if (fold(events).merged) await this.#dropVolume(item.workItem);
       // A kept handback is for the step the work item still needs, with nothing appended since; any other is over.
       const pending = item.effects;
       const kept =
@@ -239,7 +245,8 @@ export class Line {
         await this.#queue.drop(item.workItem);
         item = { ...item, effects: null };
       }
-      if (next.do === 'wait') {
+      // Verifying is not the line's to do yet: a promoted release's work item waits at Verify.
+      if (next.do === 'wait' || next.do === 'verify') {
         if (stage !== item.stage && (await this.#queue.claim(item.workItem, ACTION_LEASE_SECONDS))) {
           await this.#queue.release(item.workItem, stage);
         }
@@ -262,6 +269,7 @@ export class Line {
         if (!claimed) return;
         await this.#queue.move(item.workItem, stage);
         const workItem = item.workItem;
+        this.#volumeGone.delete(workItem);
         const state = fold(events);
         const done = (
           kept && claimed.effects
@@ -293,6 +301,20 @@ export class Line {
   }
 
   /**
+   * Deletes a merged work item's volume, once: a work item waiting for a release would otherwise hold a share of the
+   * runners' quota (`deploy/base/runners/quota.yaml`) for as long as it waits. A failure is tried again next pass.
+   */
+  async #dropVolume(workItem: string): Promise<void> {
+    if (this.#volumeGone.has(workItem)) return;
+    try {
+      await this.#o.steps.finish(workItem);
+      this.#volumeGone.add(workItem);
+    } catch (error) {
+      this.#o.log.warn({ workItem, err: errorOf(error) }, 'could not delete a merged work item’s volume');
+    }
+  }
+
+  /**
    * Lets go of a work item, at the stage its events now put it in. Never at its end: only finishing ends a work item,
    * once its volume has gone, so a work item that ended while a step was in hand is still taken up and finished.
    */
@@ -304,7 +326,11 @@ export class Line {
   }
 
   /** An action that is not a step: quick, and done before the next. */
-  async #act(item: QueueItem, next: Exclude<Next, { do: 'step' | 'wait' }>, state: WorkItemState): Promise<void> {
+  async #act(
+    item: QueueItem,
+    next: Exclude<Next, { do: 'step' | 'wait' | 'verify' }>,
+    state: WorkItemState,
+  ): Promise<void> {
     const { workItem } = item;
     switch (next.do) {
       case 'open-issue': {
@@ -341,7 +367,7 @@ export class Line {
           {
             type: 'work-item.closed',
             actor: 'factory',
-            summary: 'Closed unmerged, as Martin answered',
+            summary: next.merged ? 'Closed after its merge, as Martin answered' : 'Closed unmerged, as Martin answered',
             payload: { outcome: 'no-change', reason: next.reason },
           },
         ]);
@@ -596,7 +622,8 @@ export class Line {
       try {
         const { raw } = await this.#raw(item.workItem);
         const state = fold(raw as LineEvent[]);
-        if (!state.pullRequest) continue;
+        // Once merged, the pull request has nothing more to say: the release carries the work item on.
+        if (!state.pullRequest || state.merged) continue;
         const pr = await github.read('pullRequest', repo, { number: state.pullRequest.number });
         const runs = pr.state === 'open' ? await github.read('checkRuns', repo, { sha: pr.head.sha }) : [];
         required ??= await github.read('requiredChecks', repo, { branch: 'main' });

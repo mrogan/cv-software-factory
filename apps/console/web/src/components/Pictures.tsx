@@ -465,38 +465,37 @@ function ScanPicture({ dependency, findings, unchanged }: Extract<PictureData, {
   );
 }
 
-function RollbackPicture({ dependency, rollback }: Extract<PictureData, { type: 'rollback' }>) {
-  const { analysis } = rollback;
+function RollbackPicture({ dependency, weight, restored, series }: Extract<PictureData, { type: 'rollback' }>) {
   const time = (i: number) => {
-    const s = i * analysis.stepSeconds;
+    const s = i * series.stepSeconds;
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   };
-  const n = Math.max(analysis.canary.length, analysis.baseline.length);
-  const minutes = [0, 1, 2, 3, 4].map((m) => Math.round((m * 60) / analysis.stepSeconds)).filter((i) => i < n);
+  const n = Math.max(series.canary.length, series.baseline.length);
+  const minutes = [0, 1, 2, 3, 4].map((m) => Math.round((m * 60) / series.stepSeconds)).filter((i) => i < n);
   return (
     <div className="pad">
       <div className="row spread">
         {dependency ? <Package dependency={dependency} small /> : <span />}
         <div className="cap right">
-          {analysis.metric}, {analysis.unit}
+          {series.label}, {series.unit}
           <br />
-          canary at {rollback.weight}%
+          canary at {weight}%
         </div>
       </div>
       <LineChart
-        label={`${analysis.metric} on the canary against the baseline, rolled back at ${time(analysis.at)}`}
+        label={`${series.label} on the canary against the baseline, rolled back at ${time(series.at)}`}
         series={[
-          { values: analysis.canary, tone: 'attn', label: 'canary' },
-          { values: analysis.baseline, tone: 'muted', label: 'baseline' },
+          { values: series.canary, tone: 'attn', label: 'canary' },
+          { values: series.baseline, tone: 'muted', label: 'baseline' },
         ]}
-        unit={analysis.unit}
-        marker={{ index: analysis.at, label: `rolled back · ${time(analysis.at)}`, low: true }}
+        unit={series.unit}
+        marker={{ index: series.at, label: `rolled back · ${time(series.at)}`, low: true }}
         xLabels={minutes.map((i) => [i, time(i)])}
       />
       <div className="unchanged">
         <Glyph name="check" />
         <span>
-          Baseline traffic never saw it: {100 - rollback.weight}% stayed on {rollback.restored} throughout.
+          Baseline traffic never saw it: {100 - weight}% stayed on {restored} throughout.
         </span>
       </div>
     </div>

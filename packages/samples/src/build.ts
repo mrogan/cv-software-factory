@@ -13,8 +13,10 @@ import type {
   NewEvent,
   PayloadOf,
   Screenshot,
+  Sense,
 } from '@software-factory/events';
 import { VERSIONS } from '@software-factory/events';
+import { release } from '../../../policy/release.ts';
 import { changed, shot } from './captures.ts';
 
 const hex = (name: string, length = 64) => createHash('sha256').update(name).digest('hex').slice(0, length);
@@ -124,6 +126,86 @@ export const PAGES = [
   ['Search', '/search', 'search'],
   ['Contact', '/contact', 'contact'],
 ] as const;
+
+/** The letters Kubernetes makes a pod-template hash of, which names a release. */
+const HASH_LETTERS = 'bcdfghjklmnpqrstvwxz2456789';
+
+/** A release's name, as a canary's pod-template hash looks. */
+export const releaseFor = (version: string) =>
+  [...Buffer.from(hex(`release:${version}`, 20), 'hex')].map((byte) => HASH_LETTERS[byte % 27]).join('');
+
+/** A release Argo Rollouts started, of a signed image that admission control let in. */
+export const started = (version: string, previous: string): PayloadOf<'release.started'> => ({
+  release: releaseFor(version),
+  version,
+  previous,
+  commit: commitFor(`release:${version}`),
+  image: { digest: digestFor(version), signed: true, admitted: true },
+  watched: true,
+  dryRun: false,
+});
+
+/** The release's promotion. */
+export const promoted = (version: string, previous: string): PayloadOf<'release.promoted'> => ({
+  release: releaseFor(version),
+  version,
+  previous,
+  commit: commitFor(`release:${version}`),
+  watched: true,
+  dryRun: false,
+});
+
+type Versus<T> = { canary: T; baseline: T };
+
+/** Each version's figures over a step, as a sample states them. */
+interface StepFigures {
+  errorRate: Versus<number>;
+  p99Ms: Versus<number>;
+  journeys: Versus<[number, number]>;
+  /** By default, what the traffic generator sends each version over the window, at the step's weight. */
+  requests?: Versus<number>;
+}
+
+/** A step every measure passed: the analysis's measures, worked out from the figures as the release policy judges. */
+export function stepped(version: string, weight: number, figures: StepFigures): PayloadOf<'canary.stepped'> {
+  const { errorRate, p99Ms, journeys } = figures;
+  const window = release.traffic.requestsPerSecond * release.windowMinutes * 60;
+  const requests = figures.requests ?? {
+    canary: Math.round((window * weight) / 100),
+    baseline: Math.round((window * (100 - weight)) / 100),
+  };
+  const baseline = p99Ms.baseline / 1000;
+  const most = baseline + Math.max(baseline * release.latency.maxRatioAbove, release.latency.minSecondsAbove);
+  const round = (n: number) => Math.round(n * 10_000) / 10_000;
+  const of = (side: 'canary' | 'baseline') => ({
+    requests: requests[side],
+    errorRate: errorRate[side],
+    p99Ms: p99Ms[side],
+    journeys: journeys[side],
+  });
+  return {
+    release: releaseFor(version),
+    version,
+    weight,
+    analysis: {
+      phase: 'successful',
+      requests: requests.canary,
+      measures: [
+        { name: 'enough-requests', phase: 'successful', value: requests.canary, limit: release.minRequests },
+        {
+          name: 'errors',
+          phase: 'successful',
+          value: round(errorRate.canary - errorRate.baseline),
+          limit: release.errors.maxAbove,
+        },
+        { name: 'latency', phase: 'successful', value: round(p99Ms.canary / 1000 - most), limit: 0 },
+        { name: 'journeys', phase: 'successful', value: null, limit: null },
+      ],
+    },
+    figures: { canary: of('canary'), baseline: of('baseline') },
+    dryRun: false,
+  };
+}
 
 export class Item {
   readonly number: string;
@@ -335,7 +417,7 @@ export class Item {
   verify(
     offset: string,
     summary: string,
-    { check, against, version, variant = 'published', evidence, marked }: Verification,
+    { sense = 'probe', check, against, version, variant = 'published', evidence, marked }: Verification,
   ): this {
     const pages = PAGES.map(([page, route, name]) => {
       const comparison = changed(`${variant}/${name}`);
@@ -353,7 +435,7 @@ export class Item {
       'verification.finished',
       'factory',
       summary,
-      { outcome: 'cleared', check, against, pages, ...(evidence && { evidence }) },
+      { outcome: 'cleared', sense, check, version, against, pages, ...(evidence && { evidence }), dryRun: false },
       marked ? [marked, ...screenshots] : screenshots,
     );
   }
@@ -374,6 +456,8 @@ interface ProbeTicket {
 }
 
 interface Verification {
+  /** The sense that verified it: the one that saw the defect. */
+  sense?: Sense;
   check: string;
   against: string;
   version: string;
