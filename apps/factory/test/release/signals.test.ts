@@ -114,15 +114,17 @@ describe('a rollback’s signals', () => {
     expect(validateSignal(many.signal)).toEqual({ ok: true });
   });
 
-  it('name a failed journey by its own check’s class and route, or by a fixed class on every route when it is lost', () => {
+  it('name a failed journey by its check’s class and route, every route for many, or a fixed class when it is lost', () => {
     const journeys = failedMeasures(observe(aborted, [failed]), recorded())[2];
     if (!journeys) throw new Error('the journeys failed');
     const regressions = [
       { sense: 'probe' as const, check: 'checkout/console', route: '/checkout', symptom: 'browser-error' as const },
       { sense: 'crawler' as const, check: 'links', route: '/about', message: 'A link leads nowhere' },
     ];
+    const one = canarySignal(journeys, { journeys: regressions.slice(0, 1) });
+    expect(one.signal).toMatchObject({ check: 'journeys', route: '/checkout', symptom: 'browser-error' });
     const read = canarySignal(journeys, { journeys: regressions });
-    expect(read.signal).toMatchObject({ check: 'journeys', route: '/checkout', symptom: 'browser-error' });
+    expect(read.signal).toMatchObject({ check: 'journeys', route: '*', symptom: 'browser-error' });
     expect(read.signal.evidence?.[0]).toMatchObject({ kind: 'canary', checks: regressions });
     expect(validateSignal(read.signal)).toEqual({ ok: true });
 
@@ -132,13 +134,16 @@ describe('a rollback’s signals', () => {
     expect(validateSignal(lost.signal)).toEqual({ ok: true });
   });
 
-  it('are named by the run, the measure and the route, so sending one again is the same signal', () => {
+  it('are named by the run and the measure, so sending one again is the same signal, whatever was read', () => {
     const [errors, latency] = failedMeasures(observe(aborted, [failed]), recorded());
     if (!errors || !latency) throw new Error('two failed measures');
     // Read again after a restart, it is the same.
     const again = failedMeasures(observe(aborted, [structuredClone(failed)]), recorded())[0];
     if (!again) throw new Error('read again');
     expect(canarySignal(again, {}).id).toBe(canarySignal(errors, {}).id);
+    // Read again when Prometheus says something else: still the same, so triage takes it once.
+    const routes = { unit: '%', worse: [{ route: '/search', canary: 15, baseline: 0.5 }] };
+    expect(canarySignal(again, { routes }).id).toBe(canarySignal(errors, {}).id);
     expect(canarySignal(latency, {}).id).not.toBe(canarySignal(errors, {}).id);
     const another = run({
       uid: 'another-run',

@@ -7,15 +7,16 @@
  * |---|---|---|
  * | errors | `server-error` | the one route where the canary did worse, or `*` for more than one, or none found |
  * | latency | `slow-response` | as for errors |
- * | journeys | the failing check's own | the failing check's own; `*` when the Job's words are lost |
+ * | journeys | the first failing check's own | that check's, or `*` for checks on more than one; `*` when the Job's words are lost |
  *
  * The signal comes from an AnalysisRun whose phase is Failed, never from the Rollout's state: Martin's abort leaves
  * the Rollout as a failed analysis does, but it terminates the runs, which fails none, so an abort sends nothing. Too
  * few requests fails a step too, but says the traffic fell short, not that the canary did worse: it sends nothing.
  *
- * A signal is named by the run, the measure and its route, so the line can send it again after a restart and triage
- * takes it once. Only the runs of a release the line recorded starting are read: an older run still in the cluster
- * was before the line watched.
+ * A signal is named by the run and the measure, so the line can send it again after a restart and triage takes it
+ * once, whatever it reads the second time: not by its route, which comes from reads (Prometheus, the Job's pod) that
+ * could answer differently later. Only the runs of a release the line recorded starting are read: an older run still
+ * in the cluster was before the line watched.
  */
 import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/events';
 import { uuidFrom } from '@software-factory/triage';
@@ -76,10 +77,10 @@ export function canarySignal(failed: FailedMeasure, read: Read): { id: string; s
   const { run, measure, started } = failed;
   const stands = SYMPTOMS[measure.name] ?? JOURNEY_FALLBACK;
   const first = read.journeys?.[0];
-  const { routes } = read;
-  const worse = routes?.worse ?? [];
+  const worse = read.routes?.worse ?? [];
   const symptom: SymptomClass = stands === 'journey' ? (first?.symptom ?? JOURNEY_FALLBACK) : stands;
-  const route = stands === 'journey' ? (first?.route ?? '*') : worse.length === 1 ? (worse[0]?.route ?? '*') : '*';
+  const routes = stands === 'journey' ? [...new Set(read.journeys?.map((r) => r.route))] : worse.map((r) => r.route);
+  const route = routes.length === 1 ? (routes[0] ?? '*') : '*';
   const at =
     run.status.completedAt ??
     run.status.metricResults.find((m) => m.name === measure.name)?.measurements.at(-1)?.finishedAt ??
@@ -100,7 +101,7 @@ export function canarySignal(failed: FailedMeasure, read: Read): { id: string; s
         against: started.previous,
         measure,
         ...(read.series ? { series: read.series } : {}),
-        ...(routes?.worse.length ? { routes } : {}),
+        ...(read.routes?.worse.length ? { routes: read.routes } : {}),
         ...(read.journeys?.length ? { checks: read.journeys } : {}),
       },
     ],
@@ -110,7 +111,7 @@ export function canarySignal(failed: FailedMeasure, read: Read): { id: string; s
       .trim(),
     artifacts: [],
   };
-  return { id: uuidFrom(`canary:${run.metadata.uid}:${measure.name}:${route}`), signal };
+  return { id: uuidFrom(`canary:${keyOf(failed)}`), signal };
 }
 
 const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);

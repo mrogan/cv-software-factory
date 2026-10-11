@@ -56,10 +56,10 @@ export interface Target {
   against: string;
   dryRun: boolean;
   /**
-   * The canary's analysis of that release: each measure at its last step. None for a release the line found live, or
-   * a dry run's, which no analysis judged.
+   * The canary's analysis of that release: the version it was compared with, and each measure at its last step. None
+   * for a release the line found live, or a dry run's, which no analysis judged.
    */
-  analysis?: { release: string; measures: Measure[] };
+  analysis?: { release: string; against: string; measures: Measure[] };
 }
 
 type Measure = PayloadOf<'canary.stepped'>['analysis']['measures'][number];
@@ -204,7 +204,7 @@ async function byAnalysis(signal: FirstSignal, target: Target): Promise<Look> {
     kind: 'canary',
     release: analysis.release,
     version: target.version,
-    against: target.against,
+    against: analysis.against,
     measure,
   });
 }
@@ -355,7 +355,7 @@ export function whatCleared(
       return `No error like the one the log watcher saw came from ${version} in ${policy.logs.windowMinutes} minutes${served}`;
     }
     case 'canary':
-      return `The canary’s ${check} passed against ${short(verification.against)} as ${version} was released, and it was promoted`;
+      return `The canary’s ${check} passed against ${short(evidence?.kind === 'canary' ? evidence.against : verification.against)} as ${version} was released, and it was promoted`;
     default:
       return `Verify found “${check}” cleared on ${version}`;
   }

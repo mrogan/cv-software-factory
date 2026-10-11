@@ -195,16 +195,35 @@ describe('triage', () => {
         rollback({ check: 'journeys', route: '/about', symptom: 'broken-link', evidence: undefined }),
       );
       expect(await triage().takeOne()).toBe('opened');
-      // Only the same route is the same problem: the probe's, and the crawler's on every page, still take the
-      // canary's.
+      // Only the same route is the same problem: the probe's ticket on /search takes the canary's signal there. The
+      // crawler's every page is not the canary's.
       await sendSignal(writer, rollback({ route: '/search', check: 'latency', evidence: undefined }));
       expect(await triage().takeOne()).toBe('evidence');
       await sendSignal(
         writer,
         rollback({ route: '*', check: 'journeys', symptom: 'broken-link', evidence: undefined }),
       );
-      expect(await triage().takeOne()).toBe('evidence');
+      expect(await triage().takeOne()).toBe('opened');
     });
+  });
+
+  it('reopens no other sense’s verified ticket on every route for a rollback on every route', async () => {
+    await sendSignal(writer, found({ route: '*', symptom: 'slow-response', check: 'speed' }));
+    expect(await triage().takeOne()).toBe('opened');
+    const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
+      select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
+    await events.append(closed(item, 'verified'));
+    await sendSignal(
+      writer,
+      found({
+        sense: 'canary',
+        check: 'latency',
+        route: '*',
+        symptom: 'slow-response',
+        observedAt: '2026-10-04T10:00:00.000Z',
+      }),
+    );
+    expect(await triage().takeOne()).toBe('opened');
   });
 
   describe('a ticket closed as verified', () => {
@@ -233,7 +252,7 @@ describe('triage', () => {
       ts: at,
       work_item: item,
       type: 'verification.finished',
-      version: 2,
+      version: 3,
       actor: 'factory',
       summary: 'Cleared',
       payload: { outcome: 'cleared', check: 'links lead somewhere', against: 'c0ffee1', pages: [], dryRun },

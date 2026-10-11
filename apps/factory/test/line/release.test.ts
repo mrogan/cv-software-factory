@@ -90,18 +90,17 @@ class FakeKube implements Kube {
   rollout: Rollout | undefined;
   runs: AnalysisRun[] = [];
   /** Each journeys Job's termination message, by the Job's name. */
-  readonly messages = new Map<string, string>();
+  readonly messages = new Map<string, string | null>();
   readonly asked: string[] = [];
 
   async get<T>(path: string, schema: z.ZodType<T>): Promise<T | undefined> {
     this.asked.push(path);
     const pods = path.match(/^\/api\/v1\/namespaces\/website\/pods\?labelSelector=job-name%3D(.+)$/);
     if (pods?.[1]) {
+      // null: the pod is there, and its container has not ended.
       const message = this.messages.get(decodeURIComponent(pods[1]));
-      const items =
-        message === undefined
-          ? []
-          : [{ status: { containerStatuses: [{ name: 'journeys', state: { terminated: { message } } }] } }];
+      const state = message === null ? { running: {} } : { terminated: { message } };
+      const items = message === undefined ? [] : [{ status: { containerStatuses: [{ name: 'journeys', state }] } }];
       return schema.parse({ items });
     }
     if (path === '/apis/argoproj.io/v1alpha1/namespaces/website/rollouts/website') {
@@ -554,6 +553,22 @@ describe('a rollback, as signals to triage', () => {
     await it.tick();
     const journeys = (await inbox()).find((row) => row.signal.check === 'journeys');
     expect(journeys?.fingerprint).toBe(`* ${JOURNEY_FALLBACK}`);
+  });
+
+  it('waits for a journeys Job whose container has not ended, then reads what it wrote', async () => {
+    const { line: it, kube } = await underWay();
+    kube.messages.set('slow.journeys.1', null);
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true });
+    kube.runs = [failedRun('slow.journeys.1')];
+    await it.tick();
+    expect((await inbox()).map((row) => row.signal.check)).toEqual(['errors', 'latency']);
+    kube.messages.set(
+      'slow.journeys.1',
+      JSON.stringify({ regressions: [{ sense: 'crawler', check: 'links', route: '/about', symptom: 'broken-link' }] }),
+    );
+    await it.tick();
+    const journeys = (await inbox()).find((row) => row.signal.check === 'journeys');
+    expect(journeys?.fingerprint).toBe('/about broken-link');
   });
 
   it('sends nothing for Martin’s abort, which terminates the runs and fails none', async () => {

@@ -187,7 +187,7 @@ export class Triage {
         await events.append(closedFinding(workItem, { rejected: true }, seed, now));
       } else {
         const same = (await openTickets(sql)).find((ticket) =>
-          sameFingerprint(ticket.fingerprint, defect.fingerprint, everyRoute(ticket.sense, 'planner')),
+          sameFingerprint(ticket.fingerprint, defect.fingerprint, { open: ticket.sense, found: 'planner' }),
         );
         if (same) {
           await events.append(closedFinding(workItem, { joined: same.workItem, by: 'martin' }, seed, now));
@@ -219,9 +219,12 @@ export class Triage {
     source: SignalSource,
   ) {
     const now = this.#o.now();
-    const every = everyRoute(source, 'planner');
     return (await parkedFindings(this.#o.sql))
-      .filter((parked) => parked.workItem !== ticket && sameFingerprint(fingerprint, parked.defect.fingerprint, every))
+      .filter(
+        (parked) =>
+          parked.workItem !== ticket &&
+          sameFingerprint(fingerprint, parked.defect.fingerprint, { open: source, found: 'planner' }),
+      )
       .flatMap((parked) =>
         closedFinding(parked.workItem, { joined: ticket, by }, `${seed}:joined:${parked.workItem}`, now),
       );
@@ -292,7 +295,7 @@ export class Triage {
       const same =
         fingerprint &&
         others.find((ticket) =>
-          sameFingerprint(ticket.fingerprint, fingerprint, everyRoute(ticket.sense, signal.sense)),
+          sameFingerprint(ticket.fingerprint, fingerprint, { open: ticket.sense, found: signal.sense }),
         );
       if (defect && same) {
         decision.routed = { route: 'repeat', joined: same.workItem };
@@ -309,7 +312,7 @@ export class Triage {
           ? tickets.find(
               (ticket) =>
                 ticket.workItem === signal.planning &&
-                sameFingerprint(ticket.fingerprint, held, everyRoute(ticket.sense, 'planner')),
+                sameFingerprint(ticket.fingerprint, held, { open: ticket.sense, found: 'planner' }),
             )
           : undefined;
         await events.append(findingEvents(signal, taken.id, workItem, decision, now, planned?.workItem));
@@ -323,13 +326,13 @@ export class Triage {
 
     const fingerprint = { route: signal.route, class: signal.symptom as SymptomClass };
     const ticket = tickets.find((open) =>
-      sameFingerprint(open.fingerprint, fingerprint, everyRoute(open.sense, signal.sense)),
+      sameFingerprint(open.fingerprint, fingerprint, { open: open.sense, found: signal.sense }),
     );
     if (!ticket) {
       // One fingerprint, one ticket: the same defect on a ticket closed as verified is a regression of it.
       // A signal the sense saw before that close is of the version the fix replaced: counted, as a repeat is. So is
       // any signal on a ticket a dry run verified: its fix never shipped, so the sense still sees what it saw.
-      const verified = await verifiedTicket(sql, fingerprint);
+      const verified = await verifiedTicket(sql, fingerprint, signal.sense);
       if (verified && (verified.dryRun || Date.parse(signal.observedAt) <= verified.closedAt.getTime())) {
         return { outcome: 'counted', workItem: verified.workItem, ticketOpened: false };
       }
@@ -410,13 +413,19 @@ export async function openTickets(sql: Sql): Promise<Ticket[]> {
 
 /**
  * The latest ticket whose last close or reopening is a close as verified, with exactly this fingerprint, when it
- * closed, and whether its last verification was a dry run's. Exactly: a ticket on every route matches each route's signal while it is open, but a signal on one route is
- * not the same defect come back as a ticket on all of them, nor the other way round. Only a verified close reopens (a
- * ticket closed any other way was never fixed, or never a defect), and only a sense's fingerprint is matched.
+ * closed, and whether its last verification was a dry run's. Exactly: a ticket on every route matches each route's
+ * signal while it is open, but a signal on one route is not the same defect come back as a ticket on all of them, nor
+ * the other way round. Only a verified close reopens (a ticket closed any other way was never fixed, or never a
+ * defect), and only a sense's fingerprint is matched. On every route, the canary's and the other senses' are not the
+ * same problem (`sameFingerprint`).
  */
-async function verifiedTicket(sql: Sql, fingerprint: { route: string; class: SymptomClass }) {
+async function verifiedTicket(sql: Sql, fingerprint: { route: string; class: SymptomClass }, source: SignalSource) {
   const [row] = await sql<{ work_item: string; closed_at: Date; dry_run: boolean }[]>`
     select t.work_item, last_end.ts as closed_at, coalesce(last_check.dry_run, false) as dry_run from events t
+    left join lateral (
+      select s.payload->>'sense' as sense from events s
+      where s.work_item = t.work_item and s.type = 'signal.received' order by s.seq limit 1
+    ) opener on true
     cross join lateral (
       select c.type, c.ts, c.payload->>'outcome' as outcome from events c
       where c.work_item = t.work_item and c.type in ('work-item.closed', 'work-item.reopened')
@@ -432,6 +441,7 @@ async function verifiedTicket(sql: Sql, fingerprint: { route: string; class: Sym
       and t.payload->'fingerprint'->>'route' = ${fingerprint.route}
       and t.payload->'fingerprint'->>'class' = ${fingerprint.class}
       and last_end.type = 'work-item.closed' and last_end.outcome = 'verified'
+      and (${fingerprint.route} <> '*' or (coalesce(opener.sense, '') = 'canary') = ${source === 'canary'})
     order by t.seq desc limit 1`;
   return row && { workItem: row.work_item, closedAt: new Date(row.closed_at), dryRun: row.dry_run };
 }
@@ -439,12 +449,21 @@ async function verifiedTicket(sql: Sql, fingerprint: { route: string; class: Sym
 type Fingerprint = PayloadOf<'ticket.opened'>['fingerprint'];
 
 /**
- * The same problem: the same class on the same route, or, when `every` allows it, on every route; or the same passage
- * of the same page.
+ * The same problem: the same class on the same route, or on every route; or the same passage of the same page. Given
+ * where the open ticket's first signal and what was found came from, a route of `*` means what its source means by it
+ * (`everyRoute`).
  */
-export function sameFingerprint(open: Fingerprint, found: Fingerprint, every = true): boolean {
+export function sameFingerprint(
+  open: Fingerprint,
+  found: Fingerprint,
+  sources?: { open: SignalSource | undefined; found: SignalSource },
+): boolean {
   if ('class' in open && 'class' in found) {
-    return open.class === found.class && (open.route === found.route || (every && open.route === '*'));
+    if (open.class !== found.class) return false;
+    const widens = !sources || everyRoute(sources.open, sources.found);
+    const alike = !sources || (sources.open === 'canary') === (sources.found === 'canary');
+    if (open.route === found.route) return open.route !== '*' || alike;
+    return widens && open.route === '*';
   }
   if ('page' in open && 'page' in found) return open.page === found.page && open.text === found.text;
   return false;
@@ -453,8 +472,9 @@ export function sameFingerprint(open: Fingerprint, found: Fingerprint, every = t
 /**
  * Whether an open ticket on every route (`*`) takes what is seen on one route of its class. A sense's `*` says it saw
  * the problem on every page it checked. The canary's says only that a release did worse on more than one route, as a
- * whole: another sense's signal on one route is not shown to be its defect, nor its rollback another sense's. So
- * where either side is the canary, only the same route is the same problem.
+ * whole: another sense's signal on one route is not shown to be its defect, nor its rollback another sense's, and the
+ * canary's `*` is not another sense's `*` either. So where either side is the canary, only the same route is the same
+ * problem, and on every route only when both are the canary's.
  */
 export const everyRoute = (ticket: SignalSource | undefined, found: SignalSource) =>
   ticket !== 'canary' && found !== 'canary';

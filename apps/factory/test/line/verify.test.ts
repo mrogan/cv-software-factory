@@ -288,7 +288,7 @@ describe('Verify by the canary', () => {
   const passing = { name: 'latency', phase: 'successful' as const, value: -0.101, limit: 0 };
   const analysed = (measures: (typeof passing)[]): Target => ({
     ...target,
-    analysis: { release: '7fc778d748', measures },
+    analysis: { release: '7fc778d748', against: BEFORE, measures },
   });
 
   it('clears when a release that carries the fix was promoted with the measure that failed passing', async () => {

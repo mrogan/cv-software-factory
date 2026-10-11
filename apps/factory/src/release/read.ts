@@ -302,25 +302,33 @@ const podList = z.object({
 });
 
 /**
- * What the journeys found when they failed a run: the checks that passed on the baseline and failed on the canary, as
- * the last failed Job of the run's journeys measure wrote them to its container's termination message
- * (`comparisonMessage`). It finds the Job's pod by the `job-name` label Kubernetes gives it, in the run's namespace
- * only. Undefined when there is no such Job or pod any more, or its message is missing or says something else.
+ * What the journeys found when they failed a run, as the last failed Job of the run's journeys measure wrote it to its
+ * container's termination message (`comparisonMessage`): `found`, the checks that passed on the baseline and failed on
+ * the canary; `running`, while the container has not ended, so there is nothing to read yet; or `lost`, when there is
+ * no such Job or pod any more, or its message is missing or says something else.
  */
-export async function journeysOf(kube: Kube, namespace: string, run: AnalysisRun): Promise<Regression[] | undefined> {
+export type Journeys = { kind: 'found'; regressions: Regression[] } | { kind: 'running' } | { kind: 'lost' };
+
+/**
+ * Reads what the journeys found (`Journeys`). It finds the Job's pod by the `job-name` label Kubernetes gives it, in
+ * the run's namespace only, and reads a pod whose container ended before one that has not.
+ */
+export async function journeysOf(kube: Kube, namespace: string, run: AnalysisRun): Promise<Journeys> {
   const measurements = run.status.metricResults.find((m) => m.name === 'journeys')?.measurements ?? [];
   const failed = [...measurements].reverse().find((m) => m.phase === 'Failed') ?? measurements.at(-1);
   const job = failed?.metadata?.['job-name'];
   const where = failed?.metadata?.['job-namespace'];
-  if (!job || !JOB_NAME.test(job) || (where !== undefined && where !== namespace)) return undefined;
+  if (!job || !JOB_NAME.test(job) || (where !== undefined && where !== namespace)) return { kind: 'lost' };
   const selector = encodeURIComponent(`job-name=${job}`);
   const pods = await kube.get(
     `/api/v1/namespaces/${encodeURIComponent(namespace)}/pods?labelSelector=${selector}`,
     podList,
   );
-  const message = pods?.items
+  const containers = (pods?.items ?? [])
     .flatMap((pod) => pod.status.containerStatuses)
-    .find((container) => container.name === 'journeys')?.state?.terminated?.message;
-  const regressions = regressionsIn(message);
-  return regressions?.length ? regressions : undefined;
+    .filter((container) => container.name === 'journeys');
+  const ended = containers.filter((container) => container.state?.terminated);
+  if (!ended.length) return containers.length ? { kind: 'running' } : { kind: 'lost' };
+  const regressions = ended.map((c) => regressionsIn(c.state?.terminated?.message)).find((r) => r?.length);
+  return regressions ? { kind: 'found', regressions } : { kind: 'lost' };
 }

@@ -13,8 +13,8 @@
  *
  * Each measure that failed a release it recorded is also a signal to triage, from the `canary` sense
  * (`release/signals.ts`), with the routes where the canary did worse, from Prometheus, or for the journeys, the checks
- * that regressed, from the Job's termination message. One whose routes or Job it could not read is sent on a later
- * pass, when it can: a signal's route is part of its name.
+ * that regressed, from the Job's termination message. One whose routes or Job it could not read yet is sent on a
+ * later pass, when it can.
  *
  * In a dry run (`LINE_MODE=dry-run`), a work item whose merge the dry run made, which never shipped, is released by the
  * dry run's word instead: started a while after its merge, stepped, and promoted, each marked `dryRun`, so a soak goes
@@ -189,40 +189,46 @@ export class Releases {
     watch: ReleaseWatchOptions,
   ): Promise<void> {
     const { sql, log } = this.#o;
-    for (const failed of failedMeasures(o, recorded)) {
+    const failures = failedMeasures(o, recorded);
+    // Only what the cluster still has is remembered: a run gone from it is never read again.
+    const live = new Set(failures.map(keyOf));
+    for (const key of this.#signalled) if (!live.has(key)) this.#signalled.delete(key);
+    for (const failed of failures) {
       const key = keyOf(failed);
       if (this.#signalled.has(key)) continue;
-      const read = await this.#readFor(failed, o, drawn, watch).catch((error: unknown) => {
-        log.warn(
-          { run: failed.run.metadata.name, measure: failed.measure.name, err: errorOf(error) },
-          'could not read a failed measure: its signal waits',
+      const about = { run: failed.run.metadata.name, measure: failed.measure.name };
+      try {
+        const read = await this.#readFor(failed, o, drawn, watch);
+        if (!read) continue;
+        const { id, signal } = canarySignal(failed, read);
+        await sendSignal(sql, signal, id);
+        this.#signalled.add(key);
+        log.info(
+          { ...about, route: signal.route, symptom: signal.symptom },
+          'sent triage a failed measure of the canary',
         );
-        return undefined;
-      });
-      if (!read) continue;
-      const { id, signal } = canarySignal(failed, read);
-      await sendSignal(sql, signal, id);
-      this.#signalled.add(key);
-      log.info(
-        { run: failed.run.metadata.name, measure: failed.measure.name, route: signal.route, symptom: signal.symptom },
-        'sent triage a failed measure of the canary',
-      );
+      } catch (error) {
+        // One measure that cannot be read or sent leaves the rest to go on, and is tried again on the next pass.
+        log.warn({ ...about, err: errorOf(error) }, 'could not send a failed measure of the canary: it waits');
+      }
     }
   }
 
   /**
    * What a failed measure's signal needs read: for errors and latency, the routes where the canary did worse, which
-   * must be read (they name the signal), and the series, which may be left out; for the journeys, what the Job wrote.
+   * must be read (they give the signal its route), and the series, which may be left out; for the journeys, what the
+   * Job wrote, once its container has ended. Undefined while there is nothing to read yet.
    */
   async #readFor(
     { run, measure }: FailedMeasure,
     o: Observed,
     drawn: ReadonlyMap<string, Series>,
     { kube, rollout, prometheus }: ReleaseWatchOptions,
-  ): Promise<Read> {
+  ): Promise<Read | undefined> {
     if (measure.name === 'journeys') {
       const journeys = await journeysOf(kube, rollout.namespace, run);
-      return journeys ? { journeys } : {};
+      if (journeys.kind === 'running') return undefined;
+      return journeys.kind === 'found' ? { journeys: journeys.regressions } : {};
     }
     const hashes = hashesOf(run);
     const at = run.status.completedAt;

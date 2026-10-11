@@ -652,8 +652,8 @@ export class Line {
     const base = { against: promoted.previous, dryRun: promoted.dryRun };
     if (!own) throw new Error(`Work item ${workItem} has no promotion of ${promoted.release}`);
     if (promoted.dryRun) return { ...base, version: promoted.version, at: new Date(own.ts) };
-    const [latest] = await sql<{ version: string; release: string; watched: boolean; ts: Date }[]>`
-      select payload->>'version' as version, payload->>'release' as release,
+    const [latest] = await sql<{ version: string; release: string; previous: string; watched: boolean; ts: Date }[]>`
+      select payload->>'version' as version, payload->>'release' as release, payload->>'previous' as previous,
              (payload->>'watched')::boolean is not false as watched, ts from events
       where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true and seq >= ${own.seq}
       order by seq desc limit 1`;
@@ -670,7 +670,9 @@ export class Line {
       ...base,
       version: latest?.version ?? promoted.version,
       at: new Date(latest?.ts ?? own.ts),
-      ...(watched ? { analysis: { release, measures: step?.measures ?? [] } } : {}),
+      ...(watched
+        ? { analysis: { release, against: latest?.previous ?? promoted.previous, measures: step?.measures ?? [] } }
+        : {}),
     };
   }
 
