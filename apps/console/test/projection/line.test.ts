@@ -204,6 +204,8 @@ describe('a station’s figure', () => {
       failed: [],
       dryRun: false,
     });
-    expect(project(late.events, late.at(5)).stations.find((s) => s.stage === 'release')?.figure).toBe('25%');
+    const release = project(late.events, late.at(5)).stations.find((s) => s.stage === 'release');
+    expect(release).toMatchObject({ figure: '25%' });
+    expect(release?.status).not.toBe('failed');
   });
 });

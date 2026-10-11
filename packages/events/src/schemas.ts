@@ -446,8 +446,8 @@ export const PAYLOADS = {
       /** A release the dry run answers for: its work items' merges were never made, so nothing shipped. */
       dryRun: z.boolean(),
     })
-    .refine((r) => r.dryRun || r.image !== undefined, {
-      message: 'a release that shipped names its image',
+    .refine((r) => r.dryRun === (r.image === undefined), {
+      message: 'a release that shipped names its image, and a dry run’s names none',
       path: ['image'],
     }),
   /** A step of the canary: its weight, and what the analysis made of it, in the analysis's own terms. */

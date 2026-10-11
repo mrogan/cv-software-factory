@@ -258,7 +258,9 @@ function unchangedPages(item: ItemState): Screenshot[] {
  * he is asked to decide. Without `waits`, the evidence alone, which the sheet shows whatever the card shows.
  */
 export function picture(item: ItemState, { waits = true }: { waits?: boolean } = {}): Picture {
-  const rolledBack = last(ofType(item, 'release.rolled-back'), () => true)?.payload;
+  // The rollback of the latest release to carry the item, if it rolled back: one before it is history.
+  const latest = last(ofType(item, 'release.started'), () => true)?.payload.release;
+  const rolledBack = last(ofType(item, 'release.rolled-back'), (event) => event.payload.release === latest)?.payload;
   // A rollback with no series to draw (the journeys failed it, say) is told by its other evidence.
   const series = rolledBack?.failed.find((measure) => measure.series)?.series;
   if (rolledBack && series) {

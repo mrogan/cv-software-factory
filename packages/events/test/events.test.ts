@@ -106,8 +106,14 @@ describe('validation', () => {
     expect(validate(event)).toEqual({ ok: true });
     expect(validate({ ...event, payload: { ...dry, dryRun: false } })).toEqual({
       ok: false,
-      problems: ['payload.image: a release that shipped names its image'],
+      problems: ['payload.image: a release that shipped names its image, and a dry run’s names none'],
     });
+    expect(
+      validate({
+        ...event,
+        payload: { ...dry, image: { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true } },
+      }).ok,
+    ).toBe(false);
   });
 
   it('keeps spend caps on the line', () => {
