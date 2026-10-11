@@ -41,9 +41,30 @@ export interface Mark {
   n?: number | undefined;
 }
 
+/** A frame's height as a share of its width, until it is measured: a picture's frame is 16:10. */
+const FRAME = 10 / 16;
+
+/** A frame's height as a share of its width, measured when it is laid out and whenever it changes size. */
+function useFrame() {
+  const frame = useRef<HTMLDivElement>(null);
+  const [ratio, setRatio] = useState(FRAME);
+  useLayoutEffect(() => {
+    if (!frame.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry?.contentRect ?? { width: 0, height: 0 };
+      if (width) setRatio(height / width);
+    });
+    observer.observe(frame.current);
+    return () => observer.disconnect();
+  }, []);
+  return [frame, ratio] as const;
+}
+
 /**
  * A screenshot of the app, with the probe's marks drawn where it looked. Several marks are numbered, keyed to a
  * list beside the picture: one label per side still holds, and the list has room for what the screenshot can't show.
+ * The frame shows the shot's top at its full width, so a whole page shows only its top: marks are placed in the
+ * shot's own scale, by its width, and those below the frame are counted at its foot instead.
  */
 export function Shot({
   shot,
@@ -59,11 +80,16 @@ export function Shot({
 }) {
   const url = useArtifactUrl();
   const [failed, setFailed] = useState(false);
+  const [frame, ratio] = useFrame();
   const marks: Mark[] = given ?? shot.boxes.map((box, i) => ({ ...box, ...(numbered && { n: i + 1 }) }));
   const named = marks.map((mark) => [mark.n, mark.label].filter(Boolean).join(' ')).filter(Boolean);
   const alt = `Screenshot of ${pageName(shot.route)} at ${shortVersion(shot.version)}${named.length ? `, marked: ${named.join('; ')}` : ''}`;
+  // The shot's height the frame shows, in the shot's own pixels, and the width that scales them to the frame's.
+  const shown = shot.width * ratio;
+  const scale = (px: number) => `${(px / shot.width) * 100}cqw`;
+  const below = marks.filter((mark) => mark.y >= shown).length;
   return (
-    <div className="shot">
+    <div className="shot" ref={frame}>
       {failed ? (
         <div className="shot-missing" role="img" aria-label={`${alt}. It could not be loaded.`}>
           <span className="label">Screenshot unavailable</span>
@@ -85,25 +111,32 @@ export function Shot({
         />
       )}
       {!failed &&
-        marks.map((box) => (
-          <span
-            key={`${box.x},${box.y},${box.kind}`}
-            className={`mk ${box.kind} ${box.y + box.height > shot.height * 0.8 ? 'up' : ''}`}
-            style={{
-              left: `${(box.x / shot.width) * 100}%`,
-              top: `${(box.y / shot.height) * 100}%`,
-              width: `${(box.width / shot.width) * 100}%`,
-              height: `${(box.height / shot.height) * 100}%`,
-            }}
-            aria-hidden="true"
-          >
-            {box.n !== undefined ? (
-              <span className="mk-n">{box.n}</span>
-            ) : (
-              box.label && <span className="mk-label">{box.label}</span>
-            )}
-          </span>
-        ))}
+        marks
+          .filter((box) => box.y < shown)
+          .map((box) => (
+            <span
+              key={`${box.x},${box.y},${box.kind}`}
+              className={`mk ${box.kind} ${box.y + box.height > shown * 0.8 ? 'up' : ''}`}
+              style={{
+                left: scale(box.x),
+                top: scale(box.y),
+                width: scale(box.width),
+                height: scale(box.height),
+              }}
+              aria-hidden="true"
+            >
+              {box.n !== undefined ? (
+                <span className="mk-n">{box.n}</span>
+              ) : (
+                box.label && <span className="mk-label">{box.label}</span>
+              )}
+            </span>
+          ))}
+      {!failed && below > 0 && (
+        <span className="fold" aria-hidden="true">
+          ↓ {below} more {below === 1 ? 'mark' : 'marks'} below the frame
+        </span>
+      )}
     </div>
   );
 }

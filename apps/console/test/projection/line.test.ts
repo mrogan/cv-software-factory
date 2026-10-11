@@ -1,4 +1,4 @@
-import type { PublicEvent } from '@software-factory/events';
+import type { PayloadOf, PublicEvent } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { project } from '../../web/src/projection/index.ts';
 import { PASSING_MS, RETURNING_MS, whileSending } from '../../web/src/projection/line.ts';
@@ -208,5 +208,61 @@ describe('a station’s figure', () => {
     const release = project(late.events, late.at(5)).stations.find((s) => s.stage === 'release');
     expect(release).toMatchObject({ figure: '25%' });
     expect(release?.status).not.toBe('failed');
+  });
+});
+
+describe('a return', () => {
+  const PUSHED = {
+    number: 7,
+    title: 'fix: the products journey',
+    branch: 'factory/1-products',
+    attempt: 2,
+    testsFirst: false,
+    files: [],
+    whole: [],
+  } satisfies PayloadOf<'pull-request.pushed'>;
+  /** Sent back by the gates at minute 3.5, then pushed again at Build at minute 5. */
+  const sentBack = () =>
+    work('1')
+      .open()
+      .add(1, 'gates.started', 'actions', payloads.gatesStarted)
+      .add(3, 'gates.finished', 'actions', payloads.gatesFailed)
+      .add(3.5, 'work.returned', 'factory', { from: 'gates', to: 'build', round: 2, reason: 'A check failed' })
+      .add(5, 'pull-request.pushed', 'coder', PUSHED);
+  const drawn = (events: PublicEvent[], t: number) => project(events, t).returns.map((r) => r.item);
+
+  it('is drawn while its work item is still in the stage it was sent to', () => {
+    const item = sentBack();
+    expect(drawn(item.events, item.at(6))).toEqual(['1']);
+    expect(drawn(item.events, item.at(600))).toEqual(['1']);
+  });
+
+  it.each([
+    ['its next stage', (w: ReturnType<typeof sentBack>) => w.add(7, 'gates.started', 'actions', payloads.gatesStarted)],
+    [
+      'a hold',
+      (w: ReturnType<typeof sentBack>) =>
+        w.add(7, 'hold.started', 'factory', { stage: 'build', kind: 'held', cause: 'scope', reason: 'Out of scope' }),
+    ],
+    [
+      'its close',
+      (w: ReturnType<typeof sentBack>) =>
+        w.add(7, 'work-item.closed', 'factory', { outcome: 'no-change', reason: 'Done' }),
+    ],
+  ])('is no longer drawn once its work item moves on: %s', (_, next) => {
+    const item = next(sentBack());
+    expect(drawn(item.events, item.at(6.9))).toEqual(['1']);
+    expect(drawn(item.events, item.at(8))).toEqual([]);
+  });
+
+  it('stays a row in its sender’s panel, struck through once the work item is back in the stage', () => {
+    const item = sentBack();
+    expect(project(item.events, item.at(6)).panels.gates.rows).toMatchObject([
+      { item: '1', note: 'Sent back to Build · round 2 · sent back from gates', earlier: [] },
+    ]);
+    item.add(7, 'gates.started', 'actions', payloads.gatesStarted);
+    expect(project(item.events, item.at(8)).panels.gates.rows).toMatchObject([
+      { item: '1', note: 'gates.started', earlier: ['sent back'] },
+    ]);
   });
 });
