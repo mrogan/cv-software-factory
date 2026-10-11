@@ -174,23 +174,29 @@ export class Releases {
     if (range.total > range.commits.length) {
       log.warn({ base, head, total: range.total }, 'the release runs more commits than the line reads');
     }
+    // Each work item's latest merge: one sent back after a merge is carried by the release of its latest fix only.
     const rows = await sql<{ work_item: string }[]>`
-      select m.work_item from events m
-      where m.type = 'pull-request.merged' and m.payload->>'commit' in ${sql(range.commits)}
-        and not exists (select 1 from events c where c.work_item = m.work_item and c.type = 'work-item.closed')
-      order by m.seq`;
-    return [...new Set(rows.map((row) => row.work_item))];
+      select work_item from (
+        select distinct on (m.work_item) m.work_item, m.seq, m.payload->>'commit' as commit from events m
+        where m.type = 'pull-request.merged'
+          and not exists (select 1 from events c where c.work_item = m.work_item and c.type = 'work-item.closed')
+        order by m.work_item, m.seq desc
+      ) latest
+      where commit in ${sql(range.commits)}
+      order by seq`;
+    return rows.map((row) => row.work_item);
   }
 
   /** Every merged work item no release has carried, not a dry run's, whose fix is already in `commit`. */
   async #foundIn(commit: string): Promise<string[]> {
-    const carried: string[] = [];
-    for (const item of await this.#merged()) {
-      if (item.released || item.number >= DRY_RUN_NUMBERS_FROM) continue;
-      const ancestry = await this.#commits(item.commit, commit);
-      if (ancestry && (ancestry.status === 'ahead' || ancestry.status === 'identical')) carried.push(item.workItem);
-    }
-    return carried;
+    const candidates = (await this.#merged()).filter((item) => !item.released && item.number < DRY_RUN_NUMBERS_FROM);
+    const found = await Promise.all(
+      candidates.map(async (item) => {
+        const ancestry = await this.#commits(item.commit, commit);
+        return ancestry?.status === 'ahead' || ancestry?.status === 'identical';
+      }),
+    );
+    return candidates.filter((_, i) => found[i]).map((item) => item.workItem);
   }
 
   /** The commits from `base` to `head`, or undefined when GitHub has never had one of them. */
@@ -230,6 +236,7 @@ export class Releases {
     const rows = await this.#o.sql<(RawEvent & { work_item: string; ts: Date })[]>`
       select e.seq, e.work_item, e.ts, e.type, e.version, e.payload from events e
       where e.work_item in (select work_item from events where type = 'pull-request.merged')
+        and e.type in ${this.#o.sql(FOLDED)}
         and not exists (select 1 from events c where c.work_item = e.work_item and c.type = 'work-item.closed')
       order by e.seq`;
     const byItem = new Map<string, { events: LineEvent[]; merge?: { number: number; commit: string; at: string } }>();
@@ -255,13 +262,15 @@ export class Releases {
   /** The release events recorded for these releases, upcast, in order. */
   async #recorded(names: string[]) {
     if (!names.length) return [];
-    const rows = await this.#o.sql<(RawEvent & { work_item: string | null })[]>`
-      select seq, work_item, type, version, payload from events
+    const rows = await this.#o.sql<(RawEvent & { work_item: string | null; ts: Date })[]>`
+      select seq, work_item, ts, type, version, payload from events
       where type in ${this.#o.sql(RELEASE_TYPES as string[])} and payload->>'release' in ${this.#o.sql(names)}
       order by seq`;
     return rows.flatMap((row) => {
       const read = upcast({ ...row, seq: Number(row.seq) });
-      return read.ok ? [{ work_item: row.work_item, type: read.event.type, payload: read.event.payload }] : [];
+      if (!read.ok) return [];
+      const { type, payload } = read.event;
+      return [{ work_item: row.work_item, ts: new Date(row.ts).toISOString(), type, payload }];
     });
   }
 
@@ -277,6 +286,15 @@ export class Releases {
   /** Appends every target's drafts at once: a release's events reach all of its work items, or none. */
   async #append(drafts: Map<Target, Draft[]>, o?: Observed): Promise<void> {
     if (!drafts.size) return;
+    // A work item closed while its release ran (Martin closed it at Release) takes no more events: the store refuses
+    // them, and would refuse the rest of the release's with them.
+    const items = [...drafts.keys()].filter((target) => target !== null);
+    const closed = items.length
+      ? await this.#o.sql<{ work_item: string }[]>`
+          select distinct work_item from events where type = 'work-item.closed' and work_item in ${this.#o.sql(items)}`
+      : [];
+    for (const { work_item } of closed) drafts.delete(work_item);
+    if (!drafts.size) return;
     const ts = this.#o.now().toISOString();
     const events = [...drafts].flatMap(([target, list]) => list.map((draft) => asEvent(target, draft, ts)));
     await this.#o.events.append(events);
@@ -289,6 +307,9 @@ export class Releases {
     );
   }
 }
+
+/** What `fold` needs to say whether a work item merged, and whether a release carries it. */
+const FOLDED = ['pull-request.merged', 'work.returned', 'release.started', 'release.promoted', 'release.rolled-back'];
 
 const errorOf = (error: unknown) => ({
   type: (error as Error)?.name ?? 'Error',

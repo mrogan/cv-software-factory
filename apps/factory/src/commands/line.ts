@@ -21,8 +21,9 @@
  * ticket and only one goes through.
  *
  * RELEASE_ROLLOUT, the app's Rollout as `<namespace>/<name>`, has the line watch the app's releases: it reads the
- * Rollout and its AnalysisRuns, and each version's figures from Prometheus at PROMETHEUS_URL, and records each release
- * on the work items it carries. It changes nothing in Kubernetes. Unset, as by default, the line watches no release. In
+ * Rollout and its AnalysisRuns, and each version's figures from Prometheus at PROMETHEUS_URL (required with it), and
+ * records each release on the work items it carries. It changes nothing in Kubernetes. Unset, as by default, the line
+ * watches no release. In
  * `dry-run`, the line answers for the release of each merge the dry run made, by its own word, taking
  * LINE_DRY_RUN_RELEASE_SECONDS (60 by default) over each move: to start after the merge, each step, and promotion.
  *
@@ -145,6 +146,11 @@ async function serve(): Promise<number> {
   const rollout = rolloutSetting.match(/^([a-z0-9][a-z0-9-]{0,62})\/([a-z0-9][a-z0-9.-]{0,252})$/);
   if (rolloutSetting !== '' && !rollout) {
     console.error(`RELEASE_ROLLOUT is ${JSON.stringify(rolloutSetting)}; it must be <namespace>/<name>, or unset.`);
+    return 2;
+  }
+  // Without Prometheus every step would be recorded without its figures, and every rollback without its series.
+  if (rollout && !(process.env.PROMETHEUS_URL ?? '').trim()) {
+    console.error('RELEASE_ROLLOUT is set, and PROMETHEUS_URL is not: set it to where the line reads the figures.');
     return 2;
   }
   const releaseSeconds = Number((process.env.LINE_DRY_RUN_RELEASE_SECONDS ?? '').trim() || 60);

@@ -69,6 +69,8 @@ export const analysisRunSchema = z.object({
   }),
   spec: z.object({
     args: z.array(z.object({ name: z.string(), value: z.string().optional() })).default([]),
+    /** Set when the run was stopped before its end: by an abort, or because the release went on without it. */
+    terminate: z.boolean().optional(),
     metrics: z.array(z.object({ name: z.string(), successCondition: z.string().nullish() })).default([]),
   }),
   status: z
@@ -118,9 +120,18 @@ export async function readRollout(
 type Figures = PayloadOf<'canary.stepped'>['figures'];
 type Series = NonNullable<PayloadOf<'release.rolled-back'>['failed'][number]['series']>;
 
-/** The two versions an AnalysisRun compared, by their pod-template hashes, as the Rollout passed them. */
+/** A pod-template hash, as Argo Rollouts makes one. */
+const HASH = /^[a-z0-9]{1,16}$/;
+
+/**
+ * The two versions an AnalysisRun compared, by their pod-template hashes, as the Rollout passed them. The app's
+ * repository writes the Rollout, and could pass any text: anything not shaped like a hash is not queried.
+ */
 export function hashesOf(run: AnalysisRun): { stable: string; canary: string } | undefined {
-  const arg = (name: string) => run.spec.args.find((a) => a.name === name)?.value;
+  const arg = (name: string) => {
+    const value = run.spec.args.find((a) => a.name === name)?.value;
+    return value && HASH.test(value) ? value : undefined;
+  };
   const stable = arg('stable-hash');
   const canary = arg('canary-hash');
   return stable && canary ? { stable, canary } : undefined;

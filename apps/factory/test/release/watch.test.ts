@@ -3,7 +3,7 @@ import { validate } from '@software-factory/events/schemas';
 import { describe, expect, it } from 'vitest';
 import type { Draft } from '../../src/line/gates.ts';
 import { asEvent } from '../../src/line/gates.ts';
-import type { AnalysisRun, Rollout } from '../../src/release/read.ts';
+import { type AnalysisRun, hashesOf, type Rollout } from '../../src/release/read.ts';
 import {
   dryRunEvents,
   dryRunRelease,
@@ -20,10 +20,11 @@ import { CANARY, commitOf, digestOf, rollout, run, STABLE } from './fixtures.ts'
 
 /**
  * A store of release events, as the line keeps it: each pass appends what `releaseEvents` drafts, and the next pass
- * reads it back. Starting the line again is a pass over the same store.
+ * reads it back. Starting the line again is a pass over the same store. A pass is a few seconds after the latest
+ * thing its runs say happened, as the line would see it.
  */
 function store(seed: { target: Target; type: string; payload: unknown }[] = []) {
-  const log = seed.map(({ target, type, payload }) => ({ work_item: target, type, payload }));
+  const log = seed.map(({ target, type, payload }) => ({ work_item: target, ts: t(-60), type, payload }));
   return {
     log,
     /** One pass over the Rollout and its runs; returns what it appended, by target, as `[type, summary]`. */
@@ -33,12 +34,14 @@ function store(seed: { target: Target; type: string; payload: unknown }[] = []) 
       const needs = releaseNeeds(o, recorded);
       const facts: Facts = { figures: new Map(), series: new Map(), ...read };
       const drafts = releaseEvents(o, recorded, facts);
+      const times = runs.flatMap((r) => [r.metadata.creationTimestamp, r.status.completedAt ?? '']).map(Date.parse);
+      const ts = new Date(Math.max(Date.parse(t(-60)), ...times.filter(Number.isFinite)) + 5_000).toISOString();
       for (const [target, list] of drafts) {
         for (const draft of list) {
           // Every draft is an event the store would take.
-          const event = asEvent(target, draft, '2026-10-11T12:00:00Z');
+          const event = asEvent(target, draft, ts);
           expect(validate(event)).toEqual({ ok: true });
-          log.push({ work_item: target, type: draft.type, payload: draft.payload });
+          log.push({ work_item: target, ts, type: draft.type, payload: draft.payload });
         }
       }
       return { needs, drafts, said: said(drafts) };
@@ -128,6 +131,16 @@ describe('a release, from the Rollout and its runs', () => {
     expect(s.of('1001', 'release.started')).toMatchObject([{ image: { signed: false, admitted: false } }]);
   });
 
+  it('says nothing of admission for pods that were made and never became available', () => {
+    const s = store(STABLE_RECORDED);
+    const stuck = rollout({
+      current: CANARY,
+      stable: STABLE,
+      conditions: [{ type: 'Progressing', status: 'False', reason: 'ProgressDeadlineExceeded' }],
+    });
+    expect(s.pass(stuck, [], { start: START }).said).toEqual({});
+  });
+
   it('waits to record a release until it knows the version the release replaces', () => {
     const s = store();
     const { needs, said } = s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 2, weight: 25 }), [
@@ -197,7 +210,8 @@ describe('a release, from the Rollout and its runs', () => {
     const runs = [background(), step(2)];
     s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), runs, { start: START });
     // The line was down for the rest of the release: the second step and the promotion, in one pass.
-    const again = store(s.log.map((e) => ({ target: e.work_item, type: e.type, payload: e.payload })));
+    const again = store();
+    again.log.splice(0, again.log.length, ...s.log);
     const all = [...runs, step(5)];
     expect(again.pass(rollout({ current: CANARY, stable: CANARY }), all).said).toEqual({
       1001: ['canary.stepped', 'release.promoted'],
@@ -275,13 +289,18 @@ describe('a release, from the Rollout and its runs', () => {
     const s = store(STABLE_RECORDED);
     const runs = [background(), step(2)];
     s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), runs, { start: START });
-    // `make stop-the-line`: the Rollout is aborted, and the runs are terminated, which fails none of them.
-    const terminated = [background({ phase: 'Successful', message: 'Run Terminated', terminate: true }), step(2)];
+    // `make stop-the-line` at 50%: the Rollout is aborted, and the runs are terminated, which fails none of them. The
+    // step's run in hand ends Successful, having judged nothing: it is no step.
+    const terminated = [
+      background({ phase: 'Successful', message: 'Run Terminated', terminate: true }),
+      step(2),
+      step(5, { message: 'Run Terminated', terminate: true }),
+    ];
     const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 3, abort: true });
     expect(s.pass(aborted, terminated).said).toEqual({});
     expect(s.pass(aborted, terminated).said).toEqual({});
     // An analysis that could not judge (Error) is no failure of the canary either: its step is recorded as it ended.
-    const error = step(5, { phase: 'Error' });
+    const error = step(5, { name: 'website-68ff668868-4-5.1', phase: 'Error', created: t(15), completed: t(15) });
     const judged = s.pass(aborted, [...terminated, error]);
     expect(judged.needs.failures).toEqual([]);
     expect(judged.said).toEqual({ 1001: ['canary.stepped'], 1006: ['canary.stepped'] });
@@ -290,7 +309,7 @@ describe('a release, from the Rollout and its runs', () => {
       background({ name: 'website-68ff668868-4.1', created: t(20) }),
       step(2),
       error,
-      step(5, { name: 'website-68ff668868-4-5.1', created: t(30), completed: t(30.5) }),
+      step(5, { name: 'website-68ff668868-4-5.2', created: t(30), completed: t(30.5) }),
     ];
     expect(s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 6, weight: 50 }), retried).said).toEqual({
       1001: ['canary.stepped'],
@@ -332,7 +351,25 @@ describe('a release, from the Rollout and its runs', () => {
     const { said } = s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), retry);
     expect(said).toEqual({ 1001: ['release.started', 'canary.stepped'] });
     expect(s.of('1001', 'release.started')).toHaveLength(2);
-    expect(s.pass(rollout({ current: CANARY, stable: CANARY }), retry).said).toEqual({ 1001: ['release.promoted'] });
+    // Martin aborts the retry: its earlier failure is not this attempt's, so nothing is recorded.
+    expect(s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, abort: true }), retry).said).toEqual({});
+    // A run that fails in this attempt rolls it back again.
+    const again = [
+      ...retry,
+      background({
+        name: 'website-68ff668868-4.1',
+        created: t(20),
+        completed: t(23),
+        phase: 'Failed',
+        metrics: { latency: { phase: 'Failed', value: '[0.3]' } },
+      }),
+    ];
+    expect(s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, abort: true }), again).said).toEqual({
+      1001: ['release.rolled-back'],
+    });
+    expect(
+      (s.of('1001', 'release.rolled-back')[1] as PayloadOf<'release.rolled-back'>).failed.map((m) => m.name),
+    ).toEqual(['latency']);
   });
 
   it('records a stable version it has no record of as found live, by the factory, and not watched', () => {
@@ -383,7 +420,7 @@ describe('a dry run’s release', () => {
   const merge = { commit: 'd'.repeat(40), at: '2026-10-11T10:00:00Z' };
   const at = (seconds: number) => new Date(Date.parse(merge.at) + seconds * 1000);
   const recordOf = (log: { type: string; payload: unknown }[]) =>
-    recordedFrom(log.map((e) => ({ work_item: '1007', ...e })))
+    recordedFrom(log.map((e) => ({ work_item: '1007', ts: merge.at, ...e })))
       .get(dryRunRelease(merge.commit))
       ?.get('1007');
 
@@ -412,5 +449,12 @@ describe('a dry run’s release', () => {
       expect.objectContaining({ previous: 'a'.repeat(40), dryRun: true }),
     ]);
     expect(log[0]?.payload).not.toHaveProperty('image');
+  });
+});
+
+describe('the versions a run compared', () => {
+  it('are read as pod-template hashes, and anything else the Rollout passed is not queried', () => {
+    expect(hashesOf(run({ created: t(0) }))).toEqual({ stable: STABLE, canary: CANARY });
+    expect(hashesOf(run({ created: t(0), stable: 'x"} or up{a="' }))).toBeUndefined();
   });
 });

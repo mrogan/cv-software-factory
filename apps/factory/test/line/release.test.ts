@@ -257,6 +257,36 @@ describe('the line’s watch of the app’s release', () => {
     }
   });
 
+  it('carries a work item by its latest merge, and leaves one closed while its release runs', async () => {
+    const { line: it, github, kube } = line();
+    github.history = HISTORY;
+    github.revisions.set(digestOf(STABLE), commitOf(STABLE));
+    github.revisions.set(digestOf(CANARY), commitOf(CANARY));
+    kube.rollout = rollout({ current: STABLE, stable: STABLE });
+    await it.tick();
+    const [carried, closing, mergedAgain] = [await merged(30, FIX_3), await merged(31, FIX_4), await merged(32, FIX_4)];
+    // Sent back after its merge, the third merged again, as a commit this release does not run.
+    await events.append([
+      event(mergedAgain, 'pull-request.merged', { number: 33, commit: 'e'.repeat(40), by: 'martin' }, 'martin'),
+    ]);
+    const t0 = new Date(now).toISOString();
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    kube.runs = [run({ created: t0, phase: 'Running' })];
+    await it.tick();
+    expect(await typesOf(carried)).toEqual(['release.started by rollouts']);
+    expect(await typesOf(closing)).toEqual(['release.started by rollouts']);
+    expect(await typesOf(mergedAgain)).toEqual([]);
+    // Martin closes one at Release: the release goes on for the other.
+    await events.append([
+      event(closing, 'work-item.closed', { outcome: 'no-change', reason: 'Martin closed it' }, 'martin'),
+    ]);
+    kube.runs = [...kube.runs, run({ step: 2, created: t0, completed: t0 })];
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 });
+    await it.tick();
+    expect(await typesOf(carried)).toEqual(['release.started by rollouts', 'canary.stepped by rollouts']);
+    expect(await typesOf(closing)).toEqual(['release.started by rollouts']);
+  });
+
   it('records a release that carries none of the line’s work on the line', async () => {
     const { line: it, github, kube } = line();
     github.history = HISTORY;

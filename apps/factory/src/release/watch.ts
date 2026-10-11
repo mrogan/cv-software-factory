@@ -15,11 +15,12 @@
  * - **Each step** is a step AnalysisRun that ended, in the order they were made: the n-th recorded is the n-th run.
  * - **It is promoted** when it is the stable version.
  * - **It rolls back** when the Rollout is aborted and an AnalysisRun of the release has failed. Only a run whose phase
- *   is Failed fails a release. Martin's abort (`make stop-the-line`) terminates the runs, which fails none, so it
- *   records nothing: the release stays unfinished, and its work items wait at Release, until he retries it and it goes
+ *   is Failed fails a release. Martin's abort (`make stop-the-line`) terminates the runs, which fails none (and a
+ *   terminated step run is no step), so it records nothing: the release stays unfinished, and its work items wait at Release, until he retries it and it goes
  *   on, or a later release carries them. So does an analysis that ends in Error, which says the analysis could not
  *   judge, not that the canary was worse.
- * - **Retried after a rollback**, a release starts again, under the same name, and goes on as before.
+ * - **Retried after a rollback**, a release starts again, under the same name, and goes on as before; only a run that
+ *   fails after that start rolls it back again.
  *
  * A stable version the line has no record of, with no release in flight, is recorded as found live: started and
  * promoted at once, by the factory, `watched: false`, on every merged work item no release has carried whose fix is
@@ -45,11 +46,13 @@ export type Series = NonNullable<Failed['series']>;
 
 /** What one work item (or the line) has recorded of one release. */
 export interface TargetRecord {
-  /** Its latest start. */
+  /** Its latest start, and when the line recorded it. */
   started: Started;
+  startedAt: string;
+  /** How many times it started: more than once when it was retried after a rollback. */
+  attempts: number;
   /** Steps recorded, over every attempt. */
   steps: number;
-  rollbacks: number;
   /** How its latest attempt ended, if it has. */
   ended: 'promoted' | 'rolled-back' | undefined;
 }
@@ -59,10 +62,10 @@ export type Recorded = Map<string, Map<Target, TargetRecord>>;
 
 /** The release events recorded, in order, as the store has them, upcast. */
 export function recordedFrom(
-  events: readonly { work_item: string | null; type: string; payload: unknown }[],
+  events: readonly { work_item: string | null; ts: string; type: string; payload: unknown }[],
 ): Recorded {
   const recorded: Recorded = new Map();
-  for (const { work_item: target, type, payload } of events) {
+  for (const { work_item: target, ts, type, payload } of events) {
     const name = (payload as { release?: string }).release;
     if (!name) continue;
     const targets = recorded.get(name) ?? new Map<Target, TargetRecord>();
@@ -71,8 +74,9 @@ export function recordedFrom(
     if (type === 'release.started') {
       targets.set(target, {
         started: payload as Started,
+        startedAt: ts,
+        attempts: (record?.attempts ?? 0) + 1,
         steps: record?.steps ?? 0,
-        rollbacks: record?.rollbacks ?? 0,
         ended: undefined,
       });
       continue;
@@ -80,10 +84,7 @@ export function recordedFrom(
     if (!record) continue;
     if (type === 'canary.stepped') record.steps += 1;
     if (type === 'release.promoted') record.ended = 'promoted';
-    if (type === 'release.rolled-back') {
-      record.rollbacks += 1;
-      record.ended = 'rolled-back';
-    }
+    if (type === 'release.rolled-back') record.ended = 'rolled-back';
   }
   return recorded;
 }
@@ -115,11 +116,9 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
   for (const [i, step] of steps.entries()) weights.push(step.setWeight ?? weights[i - 1] ?? 0);
   const stepIndex = status.currentStepIndex ?? 0;
   const current = status.currentPodHash;
-  const failedToCreate = status.conditions.some(
-    (c) =>
-      (c.type === 'ReplicaFailure' && c.status === 'True') ||
-      (c.type === 'Progressing' && c.reason === 'ProgressDeadlineExceeded'),
-  );
+  // The ReplicaSet could not make the canary's pods: admission refused them. A pod that was made and never became
+  // available (it crashed, or its image could not be pulled) says nothing of admission, and the release waits.
+  const failedToCreate = status.conditions.some((c) => c.type === 'ReplicaFailure' && c.status === 'True');
   const available =
     current !== undefined &&
     (current === status.stableRS || stepIndex > 0 || (status.canary?.weights?.canary.weight ?? 0) > 0);
@@ -142,9 +141,14 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
 const hashOf = (run: AnalysisRun) => run.metadata.labels['rollouts-pod-template-hash'];
 const isStep = (run: AnalysisRun) => run.metadata.labels['rollout-type'] === 'Step';
 
-/** A release's step runs that have ended, oldest first. */
+/**
+ * A release's step runs that have ended, oldest first. A run terminated (by an abort) ends Successful without having
+ * judged anything, so it is no step.
+ */
 export const stepsOf = (o: Observed, release: string) =>
-  o.runs.filter((run) => hashOf(run) === release && isStep(run) && ENDED.has(run.status.phase ?? ''));
+  o.runs.filter(
+    (run) => hashOf(run) === release && isStep(run) && ENDED.has(run.status.phase ?? '') && !run.spec.terminate,
+  );
 
 /** A release's runs that failed: the only ones that fail a release. */
 export const failuresOf = (o: Observed, release: string) =>
@@ -256,8 +260,8 @@ function forTarget(
 ): { drafts: Draft[]; steps: AnalysisRun[]; failures: AnalysisRun[] } {
   const drafts: Draft[] = [];
   const live = o.current === name || o.stable === name;
-  let { ended } = record;
-  const { started } = record;
+  const { started, ended } = record;
+  let retried = false;
   if (ended === 'promoted') return { drafts, steps: [], failures: [] };
   if (ended === 'rolled-back') {
     // Retried, it goes again; otherwise it is over.
@@ -268,7 +272,7 @@ function forTarget(
       summary: `${short(started.version)} started again after its rollback`,
       payload: started,
     });
-    ended = undefined;
+    retried = true;
   }
   const steps = stepsOf(o, name).slice(record.steps);
   for (const run of steps) {
@@ -295,6 +299,10 @@ function forTarget(
       },
     });
   }
+  // A retried release's earlier failures are its earlier attempts': only a run that failed after it started again
+  // fails this one. A first attempt's are all its own, however late the line saw it start.
+  const inAttempt = (run: AnalysisRun) =>
+    !retried && (record.attempts <= 1 || Date.parse(run.status.completedAt ?? '') > Date.parse(record.startedAt));
   let failures: AnalysisRun[] = [];
   // The stable version took all of the traffic: if the line missed the moment, a later release may be in flight.
   if (o.stable === name) {
@@ -311,8 +319,8 @@ function forTarget(
         dryRun: false,
       },
     });
-  } else if (o.aborted && o.current === name && failuresOf(o, name).length > record.rollbacks) {
-    failures = failuresOf(o, name).slice(record.rollbacks);
+  } else if (o.aborted && o.current === name && failuresOf(o, name).some(inAttempt)) {
+    failures = failuresOf(o, name).filter(inAttempt);
     const last = failures.at(-1) as AnalysisRun;
     const weight = weightOf(o, last);
     const failed: Failed[] = failures
@@ -372,7 +380,7 @@ export function releaseNeeds(o: Observed, recorded: Recorded): Needs {
   if (start && !start.found) {
     // What it will draft once started, whatever the image's commit turns out to be.
     const started = startedPayload(start, { commit: '0'.repeat(40), signed: true, carries: [] }, true, undefined);
-    add(forTarget(o, start.release, { started, steps: 0, rollbacks: 0, ended: undefined }, empty));
+    add(forTarget(o, start.release, { started, startedAt: '', attempts: 1, steps: 0, ended: undefined }, empty));
   }
   for (const name of named(o)) {
     for (const record of recorded.get(name)?.values() ?? []) add(forTarget(o, name, record, empty));
@@ -445,7 +453,7 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
       const admitted = o.admitted === true;
       const started = startedPayload(start, read, admitted, facts.lastPromoted);
       const how = `${read.signed ? 'signed' : 'not signed'} and ${admitted ? 'admitted' : 'refused admission'}`;
-      const record: TargetRecord = { started, steps: 0, rollbacks: 0, ended: undefined };
+      const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, ended: undefined };
       for (const target of targets) {
         add(target, [
           {
