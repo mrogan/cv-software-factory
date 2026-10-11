@@ -467,6 +467,8 @@ table.models { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .stop b { font-weight: 400; color: var(--text); }
 .stop small { font-size: 10.5px; }
 .stop.cut i { border-style: dashed; }
+.steps-track.dry .stop.now i { border-color: var(--text-muted); box-shadow: none; }
+.steps-track.dry .stop.now i::after { background: var(--text-muted); }
 table.measures { width: 100%; border-collapse: collapse; font-size: 13px; }
 .measures caption { text-align: left; padding: 0 0 8px; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); }
 .measures th { text-align: left; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); font-weight: 400; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); }
@@ -623,7 +625,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   .canary-panel { margin-top: 32px; }
   .canary-panel .rel-id { text-align: left; }
   .canary-body { grid-template-columns: 1fr; }
-  .measures th:nth-child(3), .measures td:nth-child(3) { display: none; }
+  .measures.figs th:nth-child(3), .measures.figs td:nth-child(3) { display: none; }
   .measures td .base-inline { display: block; }
   .measures td small { display: none; }
   .canary-panel.idle { padding: 14px 18px; }
@@ -803,7 +805,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
 const LINE = [
   { kind: 'sense',   status: 'working', fig: '3 signals' },
   { kind: 'triage',  status: 'working', fig: '1 report' },
-  { kind: 'plan',    status: 'blocked', fig: '1 spec' },
+  { kind: 'plan',    status: 'working', beacon: 'needs-you', fig: '1 waiting' },
   { kind: 'build',   status: 'idle',    fig: 'none' },
   { kind: 'gates',   status: 'blocked', fig: '1 held' },
   { kind: 'review',  status: 'idle',    fig: 'none' },
@@ -907,6 +909,10 @@ const PAGES = {
     <div class="facts"><span>Item 2</span><b>${pounds(price)}</b><span>${stock} in stock</span></div>
     <p>A wall clock showing ten past four. Correct twice daily, which is more than can be said for some.</p>
     <p class="notes">It has shown ten past four since it arrived. For best results, consult it at ten past four.</p></div></div>`); },
+  contact: (o = {}) => shot('/contact', 'Contact', `<h4>Write to us</h4>
+    <p>We read every letter, eventually.</p>
+    <div class="search" style="flex-direction: column; align-items: flex-start"><span style="flex: none; width: 52cqw; height: 14cqw" ${marked(o.mark ?? null)}></span><em>Send</em></div>
+    <p style="color: #7a3410">${o.error ?? ''}</p>`),
   home: () => shot('/', 'Home', `<h4>Welcome to the shop</h4>
     <p>Honest goods, honestly described. We opened in March, and it has gone well, considering.</p>
     <b style="font-family: var(--serif); font-size: 2.2cqw">This week’s sundries</b>
@@ -1083,7 +1089,7 @@ const ITEMS = [
   { id: '1300', cat: 'improvement', kind: 'Improvement requested by Martin', end: 'waiting', title: 'Sort products by price',
     desc: 'The spec is written and waiting for Martin, with one question from the planner. Nothing is built until he approves it.',
     lead: 'Martin asked for a way to sort products by price. The planner wrote a spec with three acceptance criteria and one question it could not settle alone. No code is written until Martin answers and approves.',
-    ver: null, live: 'v0.9.7', pr: null, day: 'Sat 3 Oct', time: '09:40', dur: '50 min so far', found: 'Martin, from the console', prog: 'ssw     ',
+    ver: null, live: 'v0.9.7', pr: null, day: 'Sat 3 Oct', time: '09:40', dur: '7 h so far', found: 'Martin, from the console', prog: 'ssw     ',
     vis: { type: 'spec' },
     ch: [['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console', 0, null], ['SPEC', 'T+02:40', 'planner', 'Spec written with three acceptance criteria', 45, null],
       ['QUESTION', 'T+03:10', 'planner', 'Asked: where do out-of-stock products sort?', 75, null], ['WAITING', 'T+03:12', 'console', 'Waiting for Martin to approve the spec', 100, null]],
@@ -1093,7 +1099,7 @@ const ITEMS = [
   { id: '1312', cat: 'functional', kind: 'Ticket from the logs', end: 'live', reopened: 'Sat 15:58 · logs, a new error pattern on / from v0.9.11', title: 'Server errors on /',
     desc: 'Verified at the second pass, then the same fingerprint came back from a later release. The ticket, its issue and the work item are open again.',
     lead: 'The log watcher saw GET / log an error while still answering 200. The first fix shipped as v0.9.8, and Verify found the same lines coming from it, so the work went back to Plan. The second fix shipped as v0.9.9 and Verify cleared it: no such error from v0.9.9 in 30 minutes, over 294 requests. At 15:58 the log watcher saw a new error pattern on / from v0.9.11, the same fingerprint, so the ticket reopened, with its issue, and the planner is at work on a third pass.',
-    ver: ['v0.9.7', 'v0.9.9'], live: 'v0.9.11', pr: '1318', day: 'Sat 3 Oct', time: '11:05', dur: '5 h 41 min so far', found: 'Logs · error pattern on /', prog: 'oon     ',
+    ver: ['v0.9.7', 'v0.9.9'], live: 'v0.9.11', shop: 'v0.9.7', pr: '1318', day: 'Sat 3 Oct', time: '11:05', dur: '5 h 41 min so far', found: 'Logs · error pattern on /', prog: 'oon     ',
     vis: { type: 'logsPair' },
     logs: { title: 'Log lines from GET /: cleared on v0.9.9, then back on v0.9.11', foot: 'A new pattern with the same fingerprint, so the same ticket: one defect, one ticket.',
       sides: [['verified · v0.9.9 · 13:17', '<span class="ok">no error like the ticket’s from v0.9.9</span>\n<span class="dim">in 30 minutes, over 294 requests</span>'],
@@ -1119,16 +1125,16 @@ const ITEMS = [
   { id: '1308', cat: 'performance', kind: 'Ticket from the canary', end: 'planner', title: 'Slow responses in a canary release',
     desc: 'A release with no work item rolled back at 25%: its p99 latency was far above the version before. The rollback is a signal, and this is its ticket.',
     lead: 'v0.9.10 carried none of the factory’s work: it was Martin’s own commit. Its canary rolled back three minutes into the 25% step, before any step was measured, because latency failed twice against the version before. The line sent triage the failed measure, with the routes where the canary did worse, and triage opened this ticket. It waits for the planner.',
-    ver: null, seen: 'v0.9.10', live: 'v0.9.9', pr: null, day: 'Sat 3 Oct', time: '14:30', dur: '2 h 16 min so far', found: 'The canary · latency', prog: 'ooq     ',
+    ver: null, seen: 'v0.9.10', live: 'v0.9.9', shop: 'v0.9.9', pr: null, day: 'Sat 3 Oct', time: '14:30', dur: '2 h 16 min so far', found: 'The canary · latency', prog: 'ooq     ',
     vis: { type: 'canaryTicket' },
     ch: [['SIGNAL', 'T+00:00', 'canary', 'Release v0.9.10 rolled back at 25%: latency failed twice', 0, null], ['TICKET', 'T+00:40', 'triage', 'Ticket #1308: performance, severity degraded', 50, null],
       ['WAITING', 'T+00:41', 'line', 'Waiting for the planner', 100, null]],
     models: [], gates: 'none' },
 
-  { id: '1310', cat: 'functional', kind: 'Ticket from the logs', end: 'live', title: 'Errors logged on every search',
+  { id: '1310', cat: 'functional', kind: 'Ticket from the logs', end: 'planner', title: 'Errors logged on every search',
     desc: 'Its fix shipped in v0.9.11, and the log watcher still sees the same error from it. Verify sent the work back to Plan.',
     lead: 'The log watcher saw every search log an error, though each still answered. The fix merged and went out in v0.9.11, beside Martin’s revert of v0.9.10. Thirty minutes after the promotion the same lines were still coming from v0.9.11, so Verify sent the work item back to Plan, with the verification as evidence. A second time, it would hold for Martin.',
-    ver: ['v0.9.9', 'v0.9.11'], live: 'v0.9.11', pr: '1311', day: 'Sat 3 Oct', time: '14:52', dur: '1 h 54 min so far', found: 'Logs · error pattern on /search', prog: 'oon     ',
+    ver: ['v0.9.9', 'v0.9.11'], live: 'v0.9.11', shop: 'v0.9.9', pr: '1311', day: 'Sat 3 Oct', time: '14:52', dur: '1 h 54 min so far', found: 'Logs · error pattern on /search', prog: 'ooq     ',
     vis: { type: 'logsPair' },
     logs: { title: 'Log lines from GET /search, at signal and after release', foot: 'The same lines from the fixed version: the signal persists.',
       sides: [['signal · v0.9.9 · 14:52', '<span class="dim">14:52:10</span> <span class="x">error</span>  GET /search  200  index not ready, retried\n<span class="dim">14:52:13</span> <span class="x">error</span>  GET /search  200  index not ready, retried'],
@@ -1136,7 +1142,7 @@ const ITEMS = [
     ch: [['SIGNAL', 'T+00:00', 'logs', 'GET /search logged an error and still answered', 0, null], ['TICKET', 'T+00:30', 'triage', 'Ticket #1310: functional, severity degraded', 12, null],
       ['PR', 'T+14:10', 'coder', 'Failing test first, then the fix · PR #1311', 30, null], ['REVIEW', 'T+19:20', 'reviewer', 'Approved', 44, null],
       ['MERGED', 'T+24:00', 'martin', 'Martin merged PR #1311, and its deploy', 56, null], ['PROMOTED', 'T+35:00', 'rollouts', 'v0.9.11 signed and admitted; 25% and 50% passed; promoted', 72, null],
-      ['PERSISTS', 'T+1:05:00', 'logs', 'The same lines from v0.9.11; back to Plan', 90, null], ['PLAN', 'T+1:05:15', 'line', 'Waiting for the planner, with the verification as evidence', 100, null]],
+      ['PERSISTS', 'T+1:05:00', 'logs', 'The same lines from v0.9.11; back to Plan', 90, null], ['PLAN', 'T+1:05:15', 'line', 'Waiting for the planner, with the verification as evidence', 100, null, 2]],
     files: [['src/search.ts', 6, 2], ['test/search.test.ts', 22, 0]],
     rels: ['r1310'],
     models: [['planner', 0.9], ['coder', 1.2], ['reviewer', 0.9]], gates: 'pass' },
@@ -1144,7 +1150,9 @@ const ITEMS = [
   { id: '1314', cat: 'functional', kind: 'Ticket from the probes', end: 'deploy', title: 'The contact form loses your message',
     desc: 'The fix is merged. It waits for a deploy pull request to carry it, and merging that is Martin’s while the factory is Supervised.',
     lead: 'The contact journey found that a message was cleared when sending it failed, so the visitor had to type it again. The fix passed every gate and review, and Martin merged it at 15:58. It now waits at Release for the next deploy pull request, which lists it with its ticket and issue; Martin merges that, and everything after it is unattended.',
-    ver: null, seen: 'v0.9.9', live: 'v0.9.12', pr: '1316', day: 'Sat 3 Oct', time: '15:21', dur: '1 h 25 min so far', found: 'Probe · contact journey', prog: 'oooooow ',
+    ver: null, seen: 'v0.9.9', live: 'v0.9.12', shop: 'v0.9.11', pr: '1316', day: 'Sat 3 Oct', time: '15:21', dur: '1 h 25 min so far', found: 'Probe · contact journey', prog: 'oooooow ',
+    // The card shows what Martin is asked to decide; the sheet's Evidence still shows what was wrong.
+    problem: { type: 'page', tag: ['SEEN · v0.9.9', 'attn'], page: () => PAGES.contact({ mark: ['', 'Your message is gone'], error: 'We could not send your letter. Please try again.' }) },
     vis: { type: 'deploy' }, merged: ['1316', '15:58', '4be1a2c', 'fix: keep the contact form’s message when sending fails'],
     ch: [['SIGNAL', 'T+00:00', 'probe', 'Contact journey: the message is gone after a failed send', 0, null], ['TICKET', 'T+00:35', 'triage', 'Ticket #1314: functional, severity broken', 14, null],
       ['PR', 'T+18:20', 'coder', 'Failing test first, then the fix · PR #1316', 40, null], ['GATES', 'T+24:00', 'actions', 'All 13 required checks passed', 55, null],
@@ -1322,6 +1330,7 @@ ${lines}</div>`).join('')}</div>
     <div style="font: 2.2cqw/1.4 var(--font-mono)">PR #${pr} · ${title}</div>
     <div class="waits"><span>${glyph('check')}Merged by Martin at ${at} · ${commit}</span><span class="muted">${glyph('ring')}The next deploy pull request carries it, with its ticket and issue</span><span class="muted">${glyph('ring')}Then a canary against the version before, and Verify</span></div>
     <div class="ask" style="color: var(--text-2)">While the factory is Supervised, merging the deploy is Martin’s. Everything after it is unattended.</div></div></div>`; },
+  page: (it) => `${it.vis.page()}<span class="wtag l"><span class="dot tone-${it.vis.tag[1]}"></span>${it.vis.tag[0]}</span>`,
   spec: (it) => `<div class="pad"><div class="spec"><div class="cap" style="color: var(--attn)">Spec · waiting for Martin</div>
     <div style="font: 400 3.2cqw/1.1 var(--font-display)">Products can be sorted by price, either way</div>
     <div class="gwt">${it.criteria.map(([k, v]) => `<b>${k.toUpperCase()}</b><span>${v}</span>`).join('')}</div>
@@ -1352,7 +1361,10 @@ const reel = $('reel'), rail = $('rail');
 const share = (x) => (x * 100).toFixed(2) + '%';
 const count = (x) => x.toLocaleString('en-GB');
 // A measure's verdict: [word, tone, glyph]. In flight is ink; only a pass earns green; a failure is warm.
-const VERDICT = { passed: ['passed', 'ok', 'check'], failed: ['failed', 'attn', 'cross'], measuring: ['measuring', 'signal', 'ring'], waiting: ['waiting', 'faint', 'dash'], dry: ['recorded', 'faint', 'dash'] };
+// The analysis's phases: successful, failed, running and pending, then error (it could not measure, and tries again)
+// and inconclusive (Argo Rollouts pauses the release until someone decides).
+const VERDICT = { passed: ['passed', 'ok', 'check'], failed: ['failed', 'attn', 'cross'], measuring: ['measuring', 'signal', 'ring'], waiting: ['waiting', 'faint', 'dash'],
+  error: ['could not measure', 'faint', 'dash'], inconclusive: ['inconclusive · waits for Martin', 'attn', 'ring'], dry: ['recorded', 'faint', 'dash'] };
 const verdict = (k, bare = false) => { const [w, t, g] = VERDICT[k]; return `<span class="v tone-${t}">${glyph(g)}${bare ? `<span class="sr">${w}</span>` : w}</span>`; };
 // The four measures, with how each is judged, in the words of policy/release.ts.
 const MEASURES = [
@@ -1365,7 +1377,8 @@ const minutes = (from, to) => { const t = (c) => c.split(':').reduce((a, n) => a
 
 // How a release stands: [word, tone, dot class].
 function standing(r) {
-  if (!r.end) return [r.dry ? `Canary · ${r.now}%, as the dry run records it` : `Canary · ${r.now}% of traffic`, 'signal', 'blink'];
+  if (r.dry) return [`Canary · ${r.now}%, as the dry run records it`, 'faint', ''];
+  if (!r.end) return [`Canary · ${r.now}% of traffic`, 'signal', 'blink'];
   return { promoted: ['Promoted · all traffic', 'ok', ''], rolledback: [`Rolled back at ${r.end.weight}%`, 'attn', 'ring'], stopped: [`Stopped with the line at ${r.end.weight}%`, 'attn', 'ring'] }[r.end.kind];
 }
 
@@ -1374,7 +1387,7 @@ function stepsTrack(r) {
   const [, tone] = standing(r);
   const at = !r.end ? r.now : r.end.kind === 'promoted' ? 100 : r.end.weight;
   // The steps the release recorded, then all the traffic. With none recorded (null), the steps measured stand in.
-  const plan = r.steps ?? r.measured.map((m) => [m.w, 0]);
+  const plan = r.steps ?? r.measured.map((m) => [m.w, undefined]);
   const stops = [...plan, [100, 0]].map(([w, pause]) => {
     const m = r.measured.find((x) => x.w === w);
     let cls = '', t = 'faint', g = '';
@@ -1382,10 +1395,11 @@ function stepsTrack(r) {
     else if (r.end?.kind === 'promoted' && w === 100) [cls, t, g] = r.dry ? ['done', 'faint', 'dash'] : ['done', 'ok', 'check'];
     else if (r.end && r.end.kind !== 'promoted' && w === r.end.weight) [cls, t, g] = ['done cut', 'attn', r.end.kind === 'stopped' ? 'dash' : 'cross'];
     else if (!r.end && w === r.now) cls = 'now';
-    const name = m ? `${w}%, ${VERDICT[g === 'cross' ? 'failed' : r.dry ? 'dry' : 'passed'][0]}` : cls === 'now' ? `${w}%, measuring now` : `${w}%`;
-    return `<span class="stop ${cls} tone-${t}" style="left: ${w}%" role="listitem" aria-label="${name}"><i>${g ? glyph(g) : ''}</i><b>${w}%</b><small>${w === 100 ? 'all' : pause === null ? 'waits' : pause / 60 + ' min'}</small></span>`;
+    const held = w === 100 ? 'all the traffic' : pause === null ? 'waits for someone' : pause === undefined ? '' : pause / 60 + ' min';
+    const how = cls.includes('cut') ? (r.end.kind === 'stopped' ? 'stopped here' : 'rolled back here') : m ? VERDICT[g === 'cross' ? 'failed' : r.dry ? 'dry' : 'passed'][0] : cls === 'now' ? 'measuring now' : cls ? 'passed' : 'to come';
+    return `<span class="stop ${cls} tone-${t}" style="left: ${w}%" role="listitem" aria-label="${w}%${held && w !== 100 ? ', ' + held : ''}, ${how}"><i>${g ? glyph(g) : ''}</i><b>${w}%</b><small>${w === 100 ? 'all' : pause === null ? 'waits' : held}</small></span>`;
   }).join('');
-  return `<div class="steps-track" role="list" aria-label="The canary’s steps"><span class="rl"></span><span class="fill tone-${r.dry ? 'faint' : tone}" style="width: ${at}%"></span><span class="origin">0%</span>${stops}</div>`;
+  return `<div class="steps-track ${r.dry ? 'dry' : ''}" role="list" aria-label="The canary’s steps"><span class="rl"></span><span class="fill tone-${r.dry ? 'faint' : tone}" style="width: ${at}%"></span><span class="origin">0%</span>${stops}</div>`;
 }
 
 // The measures at the latest step the analysis measured.
@@ -1399,7 +1413,7 @@ function measuresTable(r) {
     return `<tr class="${v === 'failed' || failedName.includes(k) ? 'failed' : ''}"><td>${name}<small>${rule}</small></td>
       <td class="num">${c}<span class="base-inline">baseline ${b}</span></td><td class="num base">${b}</td><td>${verdict(v)}</td></tr>`;
   }).join('');
-  return `<table class="measures"><caption>At the ${m.w}% step · ${r.dry ? `recorded ${m.at} by the dry run` : `measured ${m.at}`}</caption>
+  return `<table class="measures figs"><caption>At the ${m.w}% step · ${r.dry ? `recorded ${m.at} by the dry run` : `measured ${m.at}`}</caption>
     <thead><tr><th>Measure</th><th>Canary</th><th>Baseline</th><th>Verdict</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
@@ -1431,7 +1445,7 @@ function renderCanary() {
     el.className = 'panel canary-panel idle';
     el.innerHTML = r.none
       ? `<h2 id="canary-title">Canary</h2><p>No release yet. Each deploy Martin merges goes out here as a canary, beside the version it would replace.</p>`
-      : `<h2 id="canary-title">Canary</h2><p><span class="word tone-faint"><span class="dot tone-faint"></span>No release in flight</span> &nbsp;The last, <b>${r.last.version}</b>, was promoted at ${r.last.end.at.slice(0, 5)} carrying <button type="button" class="linkish" data-open="${r.last.carries[0]}">#${r.last.carries[0]}</button> · release ${r.last.id}</p>`;
+      : `<h2 id="canary-title">Canary</h2><p><span class="word tone-faint"><span class="dot tone-faint"></span>No release in flight</span> &nbsp;The last, <b>${r.last.version}</b>, was <span class="word tone-ok" style="text-transform: none; letter-spacing: 0">promoted</span> at ${r.last.end.at.slice(0, 5)} carrying <button type="button" class="linkish" data-open="${r.last.carries[0]}">#${r.last.carries[0]}</button> · release ${r.last.id}</p>`;
     return;
   }
   el.className = 'panel canary-panel';
@@ -1445,7 +1459,7 @@ function renderCanary() {
   else if (r.end.kind === 'promoted') note = `Promoted at ${r.end.at}, ${minutes(r.start, r.end.at)} after it started. Verify now asks the sense that saw each ticket whether it has cleared.`;
   else if (r.end.kind === 'stopped') note = `Stop the line aborted the canary at ${r.end.weight}%, at ${r.end.at}. ${r.previous}, the version before, takes all the traffic. The release stays stopped until Martin retries it or a new deploy starts another; starting the line does not resume it.`;
   else {
-    note = `Rolled back at ${r.end.at}, ${minutes(r.start, r.end.at)} in. ${100 - r.end.weight}% of the traffic never saw it: it stayed on ${r.previous}.${r.end.ticket ? '' : ''}`;
+    note = `Rolled back at ${r.end.at}, ${minutes(r.start, r.end.at)} in. ${100 - r.end.weight}% of the traffic never saw it: it stayed on ${r.previous}.`;
     const failed = r.end.failed.map(([, name, said]) => `<tr class="failed"><td>${name}</td><td>${said}</td><td>${verdict('failed')}</td></tr>`).join('');
     right = (r.measured.length ? measuresTable(r) : `<p class="canary-note" style="margin: 0 0 10px">No step was measured: it rolled back ${minutes(r.start, r.end.at)} into the ${r.end.weight}% step, so the failed measure is the whole story.</p>
       <table class="measures"><thead><tr><th>Failed</th><th>What the analysis saw</th><th>Verdict</th></tr></thead><tbody>${failed}</tbody></table>`)
@@ -1537,7 +1551,7 @@ function renderStagePanel() {
       const said = Array.isArray(note) ? note.map(([w, gone]) => gone ? `<s><span class="sr">earlier: </span>${esc(w)}</s>` : esc(w)).join(' · ') : esc(note);
       const body = `<span class="id">${esc(id)}</span><span>${esc(title)}<small class="${tone ? 'tone-' + tone : ''}" style="${tone ? 'color: var(--tone)' : ''}">${said}</small></span>`;
       return link
-        ? `<button type="button" class="srow" data-open="${link}" aria-label="Open ${esc(id)} ${esc(title)}">${body}<span class="aside go">Open ›</span></button>`
+        ? `<button type="button" class="srow" data-open="${link}" aria-label="Open ${esc(id)} ${esc(title)}: ${esc(Array.isArray(note) ? note.map(([w, gone]) => (gone ? 'earlier ' : '') + w).join(', ') : note)}">${body}<span class="aside go">Open ›</span></button>`
         : `<div class="srow">${body}<span class="aside">${age}</span></div>`;
     }).join('')}
     ${st.foot ? `<div class="srow" style="display: block"><span class="aside">${esc(st.foot)}</span></div>` : ''}
@@ -1625,10 +1639,9 @@ function card(it, i) {
   </article>`;
 }
 function progLabel(it) {
-  const k = [...it.prog].findIndex((c) => 'nxwk'.includes(c));
+  const k = [...it.prog].findIndex((c) => 'nxwk'.includes(c)), queued = it.prog.indexOf('q');
+  if (k < 0 && queued >= 0) return 'Queued at ' + STAGES_IN_ORDER[queued];
   if (k < 0) return 'Every stage passed';
-  const q = it.prog.indexOf('q');
-  if (k < 0 && q >= 0) return 'Queued at ' + STAGES_IN_ORDER[q];
   return { n: 'Now at ', x: 'Stopped at ', w: 'Waiting at ', k: 'Closed at ' }[it.prog[k]] + STAGES_IN_ORDER[k];
 }
 
@@ -1680,7 +1693,7 @@ function renderRail() {
   movePlayhead();
   rail.setAttribute('aria-valuemin', '1'); rail.setAttribute('aria-valuemax', String(n)); rail.setAttribute('aria-valuenow', String(c + 1));
   rail.setAttribute('aria-valuetext', `${c + 1} of ${n}: ${it.title}, ${it.day} ${it.time}`);
-  $('at-line').innerHTML = `<span><b>${it.day}, ${it.time}</b> · #${it.id} ${it.title}</span><span>The shop at <b class="mono">${it.live}</b>${it.end === 'live' ? ' · <span style="color: var(--attn)">broken now; the fix is on the canary</span>' : ''}</span>`;
+  $('at-line').innerHTML = `<span><b>${it.day}, ${it.time}</b> · #${it.id} ${it.title}</span><span>The shop at <b class="mono">${it.shop ?? it.live}</b>${it.rels && !RELEASES[it.rels.at(-1)].end ? ' · <span style="color: var(--attn)">broken now; the fix is on the canary</span>' : ''}</span>`;
   $('count').textContent = `${c + 1} of ${n}`;
   $('prev').disabled = c === 0; $('next').disabled = c === n - 1;
   $('now').setAttribute('aria-pressed', String(c === n - 1));
@@ -1847,7 +1860,7 @@ function pagesGrid(v, it) {
     <p class="pages-note">${v.more ? `And ${v.more} more pages, the same to the pixel. ` : ''}${v.unmarked ? `No marks: ${SENSE[v.sense]} looks at no page, so nothing on one is its finding.` : 'The mark is the probe’s own check, on its own page.'}</p></div>`;
 }
 
-function verifyBlock(v, it, last) {
+function verifyBlock(v, it) {
   const [w, t, g] = v.outcome === 'cleared' ? ['Cleared', 'ok', 'check'] : v.held ? ['Persists again · held for Martin', 'attn', 'cross'] : ['Persists · back to Plan', 'signal', 'cross'];
   return `<div class="verify"><div class="rel-head"><span class="label">Verify · ${SENSE[v.sense]} · ${esc(v.check)}</span><span class="word tone-${t}">${glyph(g)}${w}</span></div>
     <p class="words">${esc(v.words)}</p>
@@ -1896,7 +1909,7 @@ function releaseSection(it) {
 function renderSheet() {
   const it = ITEMS[S.sheet], i = S.sheet, [word, tone, needs] = END[it.end];
   $('sheet-head').innerHTML = `<div style="min-width: 0">
-      <div class="kicker"><span class="cat">${glyph(it.cat)}${CAT[it.cat]}</span><span class="kind" style="font-size: 13px">${it.kind}</span><span class="out tone-${tone}"><span class="dot ${needs ? 'ring alarm' : it.end === 'planner' ? 'hollow' : ''}"></span>${word}</span>${it.reopened ? '<span class="again">REOPENED</span>' : ''}</div>
+      <div class="kicker"><span class="cat">${glyph(it.cat)}${CAT[it.cat]}</span><span class="kind" style="font-size: 13px">${it.kind}</span>${it.reopened ? '<span class="again">REOPENED</span>' : ''}<span class="out tone-${tone}"><span class="dot ${needs ? 'ring alarm' : it.end === 'planner' ? 'hollow' : ''}"></span>${word}</span></div>
       <h2 id="sheet-title" tabindex="-1">${it.title}</h2></div>
     <div class="sheet-nav">
       <button type="button" class="icon-btn" data-sheet-go="-1" aria-label="Previous work item" ${i === 0 ? 'disabled' : ''}><svg class="glyph" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></button>
@@ -1930,6 +1943,7 @@ function renderSheet() {
   const source = { wipe: 'Playwright screenshots, taken when the signal fired and after rollout. The marks are drawn from the elements the probe checked.', perf: 'Prometheus, snapshotted into the event at verify, so the graph outlives the metrics’ retention.',
     canary: 'Argo Rollouts’ analysis run, with the series it compared.', package: 'The lockfile diff, and the image scan of both images in the pipeline.', refusal: 'The check run’s output, stored with the event when the gate failed.',
     judgement: 'The Jev request in the event’s payload: question set, model version and every answer with its probability.', logs: 'Loki and Tempo, excerpted into the event at signal and at verify.',
+    deploy: 'A Playwright screenshot, taken by the contact journey when it failed. The mark is drawn from the element it checked.',
     logsPair: 'Loki, excerpted into the signal’s event and the verification’s.', canaryTicket: 'The canary’s signal: the analysis’s words and the routes where the canary did worse, from Prometheus.' }[it.vis.type];
 
   const change = it.criteria || it.files ? `<section class="sec"><h3>${it.end === 'waiting' ? 'The spec' : 'The change'}</h3><p class="help">${it.end === 'waiting' ? 'Acceptance criteria the planner proposes. Nothing is built until Martin approves.' : 'What the spec asked for, and what the pull request touched.'}</p>
@@ -1942,8 +1956,8 @@ function renderSheet() {
       <p class="lead">${it.lead}</p>
       ${reportBlock(it)}
       <section class="sec"><h3>How it went</h3><p class="help">Step through the stages. The console shows only what had happened by then: replay and the live view are the same code.</p><div id="sheet-replay"></div></section>
-      ${['spec', 'deploy'].includes(it.vis.type) ? '' : `<section class="sec"><h3>Evidence</h3><p class="help">Captured when it happened, because the sources expire.</p>
-        <div class="evidence-big">${visual(it)}</div><p class="source">${source}</p>${captures}${regress}</section>`}
+      ${it.vis.type === 'spec' ? '' : `<section class="sec"><h3>Evidence</h3><p class="help">Captured when it happened, because the sources expire.</p>
+        <div class="evidence-big">${visual(it.problem ? { ...it, vis: it.problem } : it)}</div><p class="source">${source}</p>${captures}${regress}</section>`}
       ${releaseSection(it)}
       ${change}
     </div>
@@ -2047,7 +2061,7 @@ document.addEventListener('click', (e) => {
   if (d.at) { S.at = +d.at; S.sheetPlay = false; clearInterval(sheetTimer); return renderSheetReplay(); }
   if (d.step) { const it = ITEMS[S.sheet]; S.at = Math.max(0, Math.min(it.ch.length - 1, atFor(it) + +d.step)); S.sheetPlay = false; clearInterval(sheetTimer); return renderSheetReplay(); }
   if ('splay' in d) return sheetPlay();
-  if ('allEvents' in d) { S.allEvents = !S.allEvents; return renderSheetReplay(); }
+  if ('allEvents' in d) { S.allEvents = !S.allEvents; renderSheetReplay(); return document.querySelector('[data-all-events]')?.focus(); }
   if (d.autonomy) { S.autonomy = d.autonomy; renderControls(); return renderChrome(); }
   if (d.switch) { S.switches[d.switch] = !S.switches[d.switch]; return renderControls(); }
   if (d.themeSet) return setTheme(d.themeSet);
