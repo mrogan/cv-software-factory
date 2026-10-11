@@ -77,6 +77,7 @@ const SENSE_NAME: Record<Sense, string> = {
   crawler: 'Crawler',
   metrics: 'Metrics',
   logs: 'Logs',
+  canary: 'Canary',
   report: 'Reports',
 };
 
@@ -86,6 +87,7 @@ const CAPTURED: Record<Sense, [caption: string, source: string]> = {
   crawler: ['Crawler', 'the crawler’s request'],
   metrics: ['Metrics · alert', 'the series behind Prometheus’s alert'],
   logs: ['Log watcher', 'Loki'],
+  canary: ['Canary · analysis', 'Argo Rollouts’ analysis of the release'],
   report: ['Report', 'the widget'],
 };
 

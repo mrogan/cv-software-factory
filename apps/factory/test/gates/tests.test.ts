@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { newIn } from '../../src/gates/image-scan.ts';
 import { compare } from '../../src/gates/integrity.ts';
-import { compareJourneys, type Seen, summary, toRunAgain } from '../../src/gates/journeys.ts';
+import {
+  type Comparison,
+  compareJourneys,
+  comparisonMessage,
+  regressionsIn,
+  type Seen,
+  summary,
+  toRunAgain,
+} from '../../src/gates/journeys.ts';
 import { testsIn } from '../../src/gates/tests.ts';
 import { changedTests, outcomes } from '../../src/gates/tests-first.ts';
 
@@ -282,6 +290,67 @@ describe('journeys, when a route led to no page on the base', () => {
     ];
     const c = await compareJourneys(async () => runs.shift() ?? [], 'base', 'change');
     expect(c.regressions.map((s) => s.check)).toEqual(['missing-alt@/sale']);
+  });
+});
+
+describe('journeys, as the canary’s analysis Job reports them', () => {
+  const comparison = (regressions: Seen[]): Comparison => ({
+    regressions,
+    fixed: [],
+    unchanged: [],
+    flaky: [],
+    unsure: [],
+    checks: 40,
+  });
+  const regressed: Seen = {
+    sense: 'probe',
+    check: 'checkout/console',
+    route: '/checkout',
+    failed: true,
+    symptom: 'browser-error',
+    message: 'The browser’s console logged an error',
+  };
+
+  it('writes the checks that regressed for the line to read back, and nothing else of what they saw', () => {
+    const message = comparisonMessage(comparison([{ ...regressed, evidence: [] }]));
+    expect(JSON.parse(message)).toEqual({
+      regressions: [
+        {
+          sense: 'probe',
+          check: 'checkout/console',
+          route: '/checkout',
+          symptom: 'browser-error',
+          message: 'The browser’s console logged an error',
+        },
+      ],
+    });
+    expect(regressionsIn(message)).toEqual(JSON.parse(message).regressions);
+    // One that could not finish on the change has no class of its own: its trouble is its words.
+    const { symptom: _, message: __, ...rest } = regressed;
+    const stuck: Seen = { ...rest, failed: false, trouble: 'Timed out' };
+    expect(regressionsIn(comparisonMessage(comparison([stuck])))).toEqual([
+      { sense: 'probe', check: 'checkout/console', route: '/checkout', message: 'Timed out' },
+    ]);
+  });
+
+  it('fits Kubernetes’s 4 KiB, naming as many as fit and counting the rest', () => {
+    const long = Array.from({ length: 20 }, (_, i) => ({
+      ...regressed,
+      check: `check ${i} ${'é'.repeat(70)}`,
+      message: 'ü'.repeat(400),
+    }));
+    const message = comparisonMessage(comparison(long));
+    expect(Buffer.byteLength(message)).toBeLessThanOrEqual(4096);
+    const read = JSON.parse(message) as { regressions: unknown[]; more: number };
+    expect(read.regressions.length).toBeGreaterThan(0);
+    expect(read.regressions.length + read.more).toBe(20);
+    expect(regressionsIn(message)).toHaveLength(read.regressions.length);
+  });
+
+  it('reads nothing from a message that is missing, not JSON, or not what the gate writes', () => {
+    for (const text of [undefined, '', '  ', 'Error: Chromium crashed', '{"regressions":[{"sense":"probe"}]}', '[]']) {
+      expect(regressionsIn(text)).toBeUndefined();
+    }
   });
 });
 

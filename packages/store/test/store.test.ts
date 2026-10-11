@@ -48,7 +48,7 @@ function report(item: string): NewEvent<'signal.received'> {
     ts: at(1),
     work_item: item,
     type: 'signal.received',
-    version: 2,
+    version: 3,
     actor: 'widget',
     summary: 'Report: the clock says ten past four',
     payload: {
@@ -78,6 +78,7 @@ describe('migrations', () => {
       { version: 8, name: 'line-release-verify' },
       { version: 9, name: 'reopen-verified' },
       { version: 10, name: 'pictures' },
+      { version: 11, name: 'canary-sense' },
     ]);
   });
 });
@@ -154,7 +155,7 @@ describe('appending', () => {
       ...opened(item),
       id: uuid(),
       type: 'work-item.reopened',
-      version: 1,
+      version: 2,
       actor: 'triage',
       summary: 'Reopened: the probe saw it again',
       payload: {

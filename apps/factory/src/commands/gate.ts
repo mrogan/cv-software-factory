@@ -7,14 +7,16 @@
  * `journeys` runs the probes and the crawler against the base's app and the change's, and fails on a check that
  * passes on the base and fails on the change twice (`gates/journeys.ts`). It observes the two apps at once; the second
  * time, it runs only the probes that failed, and the crawl only when one of its checks did. It writes its summary as
- * Markdown to the file, or prints it. CRAWL_LIMIT caps the crawl, 150 by default.
+ * Markdown to the file, or prints it. CRAWL_LIMIT caps the crawl, 150 by default. With COMPARISON_FILE set, it also
+ * writes the checks that regressed there as JSON (`comparisonMessage`): the canary's analysis sets it to the Job's
+ * termination message, which the line reads when the journeys fail a release.
  */
-import { appendFile, mkdtemp } from 'node:fs/promises';
+import { appendFile, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { DiskArtifacts } from '@software-factory/store';
-import { compareJourneys, type Observe, summary } from '../gates/journeys.ts';
+import { compareJourneys, comparisonMessage, type Observe, summary } from '../gates/journeys.ts';
 import { annotate } from '../gates/report.ts';
 import { log } from '../log.ts';
 import { observeApp } from '../senses/observe.ts';
@@ -40,6 +42,7 @@ export async function run(args: string[]): Promise<number> {
   const markdown = summary(comparison);
   if (values.summary) await appendFile(values.summary, `${markdown}\n`);
   else console.log(markdown);
+  if (process.env.COMPARISON_FILE) await writeFile(process.env.COMPARISON_FILE, comparisonMessage(comparison));
   for (const r of comparison.regressions)
     annotate('error', `${r.sense} ${r.check} on ${r.route}: ${r.message ?? r.trouble ?? 'failed'}`);
   return comparison.regressions.length ? 1 : 0;

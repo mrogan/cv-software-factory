@@ -11,23 +11,38 @@
  *
  * A figure or series it could not read is left out, and the step or rollback recorded without it.
  *
+ * Each measure that failed a release it recorded is also a signal to triage, from the `canary` sense
+ * (`release/signals.ts`), with the routes where the canary did worse, from Prometheus, or for the journeys, the checks
+ * that regressed, from the Job's termination message. One whose routes or Job it could not read yet is sent on a
+ * later pass, when it can.
+ *
  * In a dry run (`LINE_MODE=dry-run`), a work item whose merge the dry run made, which never shipped, is released by the
  * dry run's word instead: started a while after its merge, stepped, and promoted, each marked `dryRun`, so a soak goes
  * round. With `only`, the line records a release only when it carries that work item or none (the line's own events
  * keep the record of what the shop runs whole, which the next release is compared with), and answers for the dry
  * run's release of that work item alone.
  *
- * It changes nothing in Kubernetes: the line may read the Rollout and its runs, and nothing else there.
+ * It changes nothing in Kubernetes: the line may read the Rollout, its runs and the journeys Jobs' pods, and nothing
+ * else there.
  */
 import { type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
-import { lastEnd } from '@software-factory/store';
+import { lastEnd, sendSignal } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import type { Prometheus } from '../clients/prometheus.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 import { DEPLOYS } from '../github/deploys.ts';
 import { GitHubWorkerError } from '../github/worker-client.ts';
-import { figuresAt, hashesOf, type RolloutRef, readRollout, seriesOf } from '../release/read.ts';
+import {
+  figuresAt,
+  hashesOf,
+  journeysOf,
+  type RolloutRef,
+  readRollout,
+  routesWorse,
+  seriesOf,
+} from '../release/read.ts';
+import { canarySignal, type FailedMeasure, failedMeasures, keyOf, type Read } from '../release/signals.ts';
 import {
   dryRunEvents,
   dryRunRelease,
@@ -38,6 +53,7 @@ import {
   named,
   type Observed,
   observe,
+  type Recorded,
   recordedFrom,
   releaseEvents,
   releaseNeeds,
@@ -86,6 +102,8 @@ interface Merged {
 
 export class Releases {
   readonly #o: ReleasesOptions;
+  /** The failed measures whose signals are in the inbox, by `keyOf`. A line started again sends them again, as the same. */
+  readonly #signalled = new Set<string>();
 
   constructor(options: ReleasesOptions) {
     this.#o = options;
@@ -157,9 +175,70 @@ export class Releases {
     const others = [...drafts.keys()].filter((target) => target !== null && target !== only);
     if (only !== null && others.length) {
       log.info({ release: o.current, only, others }, 'the release carries other work items: left for the whole line');
-      return;
+    } else {
+      await this.#append(drafts, o);
     }
-    await this.#append(drafts, o);
+    await this.#signal(o, recorded, series, { kube, rollout, prometheus });
+  }
+
+  /** Each failed measure of a release the line recorded, as a signal to triage, once. */
+  async #signal(
+    o: Observed,
+    recorded: Recorded,
+    drawn: ReadonlyMap<string, Series>,
+    watch: ReleaseWatchOptions,
+  ): Promise<void> {
+    const { sql, log } = this.#o;
+    const failures = failedMeasures(o, recorded);
+    // Only what the cluster still has is remembered: a run gone from it is never read again.
+    const live = new Set(failures.map(keyOf));
+    for (const key of this.#signalled) if (!live.has(key)) this.#signalled.delete(key);
+    for (const failed of failures) {
+      const key = keyOf(failed);
+      if (this.#signalled.has(key)) continue;
+      const about = { run: failed.run.metadata.name, measure: failed.measure.name };
+      try {
+        const read = await this.#readFor(failed, o, drawn, watch);
+        if (!read) continue;
+        const { id, signal } = canarySignal(failed, read);
+        await sendSignal(sql, signal, id);
+        this.#signalled.add(key);
+        log.info(
+          { ...about, route: signal.route, symptom: signal.symptom },
+          'sent triage a failed measure of the canary',
+        );
+      } catch (error) {
+        // One measure that cannot be read or sent leaves the rest to go on, and is tried again on the next pass.
+        log.warn({ ...about, err: errorOf(error) }, 'could not send a failed measure of the canary: it waits');
+      }
+    }
+  }
+
+  /**
+   * What a failed measure's signal needs read: for errors and latency, the routes where the canary did worse, which
+   * must be read (they give the signal its route), and the series, which may be left out; for the journeys, what the
+   * Job wrote, once its container has ended. Undefined while there is nothing to read yet.
+   */
+  async #readFor(
+    { run, measure }: FailedMeasure,
+    o: Observed,
+    drawn: ReadonlyMap<string, Series>,
+    { kube, rollout, prometheus }: ReleaseWatchOptions,
+  ): Promise<Read | undefined> {
+    if (measure.name === 'journeys') {
+      const journeys = await journeysOf(kube, rollout.namespace, run);
+      if (journeys.kind === 'running') return undefined;
+      return journeys.kind === 'found' ? { journeys: journeys.regressions } : {};
+    }
+    const hashes = hashesOf(run);
+    const at = run.status.completedAt;
+    const from = startOf(o, hashes?.canary ?? '');
+    if (!hashes || !at || !from) return {};
+    const routes = await routesWorse(prometheus, measure.name, hashes, new Date(from), new Date(at));
+    const series =
+      drawn.get(`${run.metadata.name}/${measure.name}`) ??
+      (await seriesOf(prometheus, measure.name, hashes, new Date(from), new Date(at)).catch(() => undefined));
+    return { ...(routes ? { routes } : {}), ...(series ? { series } : {}) };
   }
 
   /** What a release starting needs read: its image's commit and signature, and the work items it carries. */

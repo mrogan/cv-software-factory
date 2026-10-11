@@ -115,7 +115,7 @@ function first(input: CoderInput): string[] {
   const { workItem, ticket, signals, answer } = input;
   return [
     `Fix ticket #${workItem}: ${ticket.title}.`,
-    ...ticketLines(ticket),
+    ...ticketLines(ticket, signals),
     ...(signals.length ? ['', 'What the senses saw:', ...signals.flatMap(seen)] : []),
     '',
     'The spec you are held to:',

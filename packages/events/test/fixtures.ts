@@ -29,7 +29,7 @@ export const signal: NewEvent<'signal.received'> = {
   ts: '2026-10-02T12:15:00.200Z',
   work_item: '1284',
   type: 'signal.received',
-  version: 2,
+  version: 3,
   actor: 'widget',
   summary: `Report: ${REPORT_TEXT}`,
   payload: {

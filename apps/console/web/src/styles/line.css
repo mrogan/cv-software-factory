@@ -329,7 +329,7 @@ button.srow:hover {
   }
 }
 
-/* Where Triage's work comes from: the five senses as rows, counted from events, and sources not in the demo. */
+/* Where Triage's work comes from: the senses as rows, counted from events, and sources not in the demo. */
 .sources table {
   width: 100%;
   border-collapse: collapse;

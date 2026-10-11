@@ -134,7 +134,7 @@ function prompt({
     'The checkout is the pull request’s head. Its base is the branch `base`: `git diff base` is the change, and `git log base..HEAD` holds the coder’s commit messages, which say what it claims to have done. Hold those claims to the diff, not the other way round.',
     '',
     `The ticket: ${ticket.title}.`,
-    ...ticketLines(ticket),
+    ...ticketLines(ticket, signals),
     ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
     ...(answers.length
       ? [

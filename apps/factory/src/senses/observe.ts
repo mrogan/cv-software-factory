@@ -46,7 +46,7 @@ export async function observeApp(
           route: o.route,
           failed: o.finding !== null && !o.trouble,
           ...(o.trouble ? { trouble: o.trouble } : {}),
-          ...(o.finding ? { message: o.finding.message } : {}),
+          ...(o.finding ? { message: o.finding.message, symptom: o.finding.symptom } : {}),
           ...(o.finding?.evidence?.length ? { evidence: o.finding.evidence } : {}),
         });
       }

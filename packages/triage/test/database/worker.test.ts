@@ -124,6 +124,110 @@ describe('triage', () => {
     for (const { work_item } of items) expect(Number(work_item)).toBeGreaterThanOrEqual(1000);
   });
 
+  describe('a rollback’s signal, from the canary', () => {
+    const rollback = (overrides: Partial<InboxSignal> = {}) =>
+      found({
+        sense: 'canary',
+        check: 'latency',
+        route: '*',
+        symptom: 'slow-response',
+        version: 'c'.repeat(40),
+        evidence: [
+          {
+            kind: 'canary',
+            release: '68ff668868',
+            version: 'c'.repeat(40),
+            against: 'b'.repeat(40),
+            measure: { name: 'latency', phase: 'failed', value: 0.247, limit: 0 },
+            routes: {
+              unit: 'ms',
+              worse: [
+                { route: '/search', canary: 620, baseline: 120 },
+                { route: '/cart', canary: 410, baseline: 118 },
+              ],
+            },
+          },
+        ],
+        ...overrides,
+      });
+    const openedBy = async () =>
+      (
+        await writer<{ work_item: string }[]>`
+          select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`
+      )[0]?.work_item ?? '';
+
+    it('opens a ticket as any sense’s signal does, and adds the next rollback of the same measure to it', async () => {
+      await sendSignal(writer, rollback());
+      expect(await triage().takeOne()).toBe('opened');
+      const item = await openedBy();
+      const [ticket] = await writer<{ payload: PayloadOf<'ticket.opened'>; actor: string }[]>`
+        select payload, actor from events where work_item = ${item} and type = 'ticket.opened'`;
+      expect(ticket?.payload).toMatchObject({
+        title: 'Slow responses in a canary release',
+        category: 'performance',
+        severity: 'degraded',
+        fingerprint: { route: '*', class: 'slow-response' },
+      });
+      const [signal] = await writer<{ actor: string }[]>`
+        select actor from events where work_item = ${item} and type = 'signal.received'`;
+      expect(signal?.actor).toBe('canary');
+      const [summary] = await writer<{ payload: PayloadOf<'work-item.summarised'> }[]>`
+        select payload from events where work_item = ${item} and type = 'work-item.summarised'`;
+      expect(summary?.payload.story).toMatch(
+        /^The canary’s analysis found it on routes it could not narrow to one in version c{40}/,
+      );
+
+      // The next release that carries the defect fails the same way: the same ticket.
+      await sendSignal(writer, rollback({ observedAt: '2026-10-04T11:00:00.000Z' }));
+      expect(await triage().takeOne()).toBe('counted');
+    });
+
+    it('neither takes another sense’s signal on one route, nor is taken by another’s ticket on every route', async () => {
+      await sendSignal(writer, rollback());
+      expect(await triage().takeOne()).toBe('opened');
+      // The canary did worse on many routes: that is not the probe's defect on one of them.
+      await sendSignal(writer, found({ sense: 'probe', check: 'search', route: '/search', symptom: 'slow-response' }));
+      expect(await triage().takeOne()).toBe('opened');
+
+      // A sense saw a broken link on every page: a rollback on one route is a defect of its own.
+      await sendSignal(writer, found({ route: '*', check: 'links' }));
+      expect(await triage().takeOne()).toBe('opened');
+      await sendSignal(
+        writer,
+        rollback({ check: 'journeys', route: '/about', symptom: 'broken-link', evidence: undefined }),
+      );
+      expect(await triage().takeOne()).toBe('opened');
+      // Only the same route is the same problem: the probe's ticket on /search takes the canary's signal there. The
+      // crawler's every page is not the canary's.
+      await sendSignal(writer, rollback({ route: '/search', check: 'latency', evidence: undefined }));
+      expect(await triage().takeOne()).toBe('evidence');
+      await sendSignal(
+        writer,
+        rollback({ route: '*', check: 'journeys', symptom: 'broken-link', evidence: undefined }),
+      );
+      expect(await triage().takeOne()).toBe('opened');
+    });
+  });
+
+  it('reopens no other sense’s verified ticket on every route for a rollback on every route', async () => {
+    await sendSignal(writer, found({ route: '*', symptom: 'slow-response', check: 'speed' }));
+    expect(await triage().takeOne()).toBe('opened');
+    const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
+      select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
+    await events.append(closed(item, 'verified'));
+    await sendSignal(
+      writer,
+      found({
+        sense: 'canary',
+        check: 'latency',
+        route: '*',
+        symptom: 'slow-response',
+        observedAt: '2026-10-04T10:00:00.000Z',
+      }),
+    );
+    expect(await triage().takeOne()).toBe('opened');
+  });
+
   describe('a ticket closed as verified', () => {
     /** A signal the sense saw an hour after the tickets here close. */
     const again = (overrides: Partial<InboxSignal> = {}) =>
@@ -150,7 +254,7 @@ describe('triage', () => {
       ts: at,
       work_item: item,
       type: 'verification.finished',
-      version: 2,
+      version: 3,
       actor: 'factory',
       summary: 'Cleared',
       payload: { outcome: 'cleared', check: 'links lead somewhere', against: 'c0ffee1', pages: [], dryRun },

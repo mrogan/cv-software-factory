@@ -730,6 +730,7 @@ const SENSE_NAME: Record<Source['sense'], string> = {
   crawler: 'Crawler',
   metrics: 'Metrics',
   logs: 'Log watcher',
+  canary: 'Canary',
   report: 'Report',
 };
 

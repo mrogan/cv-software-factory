@@ -221,7 +221,8 @@ export function measuresOf(run: AnalysisRun): Measure[] {
   });
 }
 
-const short = (version: string) => version.slice(0, 7);
+/** A version as a reader takes it in: a commit by its first seven characters, anything else as it is. */
+export const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);
 
 /** What the line read about a release it starts recording. */
 export interface Start {

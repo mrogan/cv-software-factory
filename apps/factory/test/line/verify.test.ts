@@ -11,6 +11,7 @@ import {
   judgeObjective,
   type LookOptions,
   look,
+  reopeningComment,
   type Target,
   whatCleared,
 } from '../../src/line/verify.ts';
@@ -277,6 +278,52 @@ describe('Verify by the log watcher', () => {
   });
 });
 
+describe('Verify by the canary', () => {
+  const failed = { name: 'latency', phase: 'failed' as const, value: 0.247, limit: 0 };
+  const canary: FirstSignal = {
+    sense: 'canary',
+    check: 'latency',
+    route: '*',
+    evidence: [{ kind: 'canary', release: '68ff668868', version: BEFORE, against: 'c'.repeat(40), measure: failed }],
+  };
+  const passing = { name: 'latency', phase: 'successful' as const, value: -0.101, limit: 0 };
+  const analysed = (measures: (typeof passing)[]): Target => ({
+    ...target,
+    analysis: { release: '7fc778d748', against: BEFORE, measures },
+  });
+
+  it('clears when a release that carries the fix was promoted with the measure that failed passing', async () => {
+    const cleared = await look(canary, analysed([passing]), options());
+    expect(cleared).toEqual({
+      kind: 'finished',
+      verification: {
+        outcome: 'cleared',
+        sense: 'canary',
+        check: 'latency',
+        version: VERSION,
+        against: BEFORE,
+        evidence: { kind: 'canary', release: '7fc778d748', version: VERSION, against: BEFORE, measure: passing },
+        pages: [],
+        dryRun: false,
+      },
+    });
+    expect(cleared.kind === 'finished' && whatCleared(cleared.verification)).toBe(
+      'The canary’s latency passed against aaaaaaa as bbbbbbb was released, and it was promoted',
+    );
+  });
+
+  it('holds for Martin when no analysis judged the release, or its last step did not pass the measure', async () => {
+    expect(await look(canary, target, options())).toEqual({
+      kind: 'hold',
+      reason: 'No analysis judged bbbbbbb, which was found live: Martin judges whether its latency cleared',
+    });
+    expect(await look(canary, analysed([]), options())).toMatchObject({ kind: 'hold' });
+    expect(await look(canary, analysed([{ ...passing, phase: 'inconclusive' as never }]), options())).toMatchObject({
+      kind: 'hold',
+    });
+  });
+});
+
 describe('Verify when no sense can look', () => {
   it('holds for Martin when only a visitor’s report, or the planner, saw the defect', async () => {
     const report: FirstSignal = { sense: 'report', check: 'visitor report', route: '/about', evidence: [] };
@@ -339,5 +386,13 @@ describe('what cleared a work item, on its issue', () => {
         'The factory’s work item #1001 is closed as verified.',
       ].join('\n'),
     );
+  });
+
+  it('says where it came back: a canary’s every route is routes it could not narrow to one', () => {
+    const reopened = { sense: 'canary' as const, check: 'errors', route: '*', version: VERSION, reason: 'Back' };
+    expect(reopeningComment(reopened, '1001').split('\n')[0]).toBe(
+      'It came back after its fix was verified: the canary saw “errors” again on routes it could not narrow to one, in version bbbbbbb.',
+    );
+    expect(reopeningComment({ ...reopened, sense: 'crawler' }, '1001')).toMatch(/again on every page, in version/);
   });
 });

@@ -215,4 +215,29 @@ describe('the events triage writes', () => {
     const evidence = senseEvidence(found, '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d', '1001', NOW);
     expect(evidence.map((e) => [e.type, e.actor])).toEqual([['signal.received', 'crawler']]);
   });
+
+  it('say where a canary’s signal on every route is: routes its analysis could not narrow to one, not every page', () => {
+    const rollback = {
+      sense: 'canary' as const,
+      check: 'errors',
+      route: '*',
+      version: 'c02efd8',
+      symptom: 'server-error' as const,
+      observedAt: '2026-10-04T08:59:58.000Z',
+      artifacts: [],
+    };
+    const [opened, , ticket, summary] = senseTicket(rollback, '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5e', '1002', NOW);
+    expect(opened?.payload).toMatchObject({ title: 'Server errors in a canary release' });
+    expect(ticket?.payload).toMatchObject({ title: 'Server errors in a canary release' });
+    expect(JSON.stringify(summary?.payload)).not.toMatch(/every page/);
+    expect(summary?.payload).toMatchObject({ story: expect.stringContaining('on routes it could not narrow to one') });
+    // On one route, it is that route's, as any sense's is.
+    const [, , onOne] = senseTicket(
+      { ...rollback, route: '/search' },
+      '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5f',
+      '1003',
+      NOW,
+    );
+    expect(onOne?.payload).toMatchObject({ title: 'Server errors on /search' });
+  });
 });

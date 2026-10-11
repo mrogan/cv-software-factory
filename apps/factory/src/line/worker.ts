@@ -652,11 +652,28 @@ export class Line {
     const base = { against: promoted.previous, dryRun: promoted.dryRun };
     if (!own) throw new Error(`Work item ${workItem} has no promotion of ${promoted.release}`);
     if (promoted.dryRun) return { ...base, version: promoted.version, at: new Date(own.ts) };
-    const [latest] = await sql<{ version: string; ts: Date }[]>`
-      select payload->>'version' as version, ts from events
+    const [latest] = await sql<{ version: string; release: string; previous: string; watched: boolean; ts: Date }[]>`
+      select payload->>'version' as version, payload->>'release' as release, payload->>'previous' as previous,
+             (payload->>'watched')::boolean is not false as watched, ts from events
       where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true and seq >= ${own.seq}
       order by seq desc limit 1`;
-    return { ...base, version: latest?.version ?? promoted.version, at: new Date(latest?.ts ?? own.ts) };
+    const release = latest?.release ?? promoted.release;
+    const watched = latest?.watched ?? promoted.watched;
+    // The analysis of its last step, on whichever work item (or the line) has it: a release found live has none.
+    const [step] = watched
+      ? await sql<{ measures: PayloadOf<'canary.stepped'>['analysis']['measures'] }[]>`
+          select payload->'analysis'->'measures' as measures from events
+          where type = 'canary.stepped' and payload->>'release' = ${release}
+          order by seq desc limit 1`
+      : [];
+    return {
+      ...base,
+      version: latest?.version ?? promoted.version,
+      at: new Date(latest?.ts ?? own.ts),
+      ...(watched
+        ? { analysis: { release, against: latest?.previous ?? promoted.previous, measures: step?.measures ?? [] } }
+        : {}),
+    };
   }
 
   /**

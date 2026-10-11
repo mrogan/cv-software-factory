@@ -10,6 +10,9 @@
  * - The log watcher: no error record of its pattern from the new version for a window in which the new version served
  *   enough requests. Any such record, and it persists. The signal kept the lines, not the pattern, so the pattern is
  *   rebuilt from them as the watcher builds it (`logs/patterns.ts`).
+ * - The canary: the release that carries the fix, or a later one that carries it too, was promoted with the measure
+ *   that failed passing at its last step. A promoted release passed every step, so this clears at once, saying so; a
+ *   release found live, which no analysis judged, holds for Martin.
  * - A visitor's report, or the planner's finding, alone: no sense can look again. The work item holds for Martin.
  *
  * A look that cannot tell yet (too soon after the promotion, too little traffic, a check that could not finish, a
@@ -24,6 +27,7 @@
 import type { Evidence, PayloadOf, Sense, SignalSource } from '@software-factory/events';
 import { SENSES } from '@software-factory/events';
 import { evidence as evidenceSchema } from '@software-factory/events/schemas';
+import { CANARY_ANY_ROUTE } from '@software-factory/triage';
 import { z } from 'zod';
 import { objectives as OBJECTIVES, type Objectives } from '../../../../policy/objectives.ts';
 import { release as RELEASE, type Release } from '../../../../policy/release.ts';
@@ -35,6 +39,7 @@ import { keptLine } from '../logs/errors.ts';
 import { sameError } from '../logs/patterns.ts';
 import { errorLogs } from '../logs/watcher.ts';
 import type { VerifyAnswer, VerifyRequest } from '../probes/verify.ts';
+import { short } from '../release/watch.ts';
 import { requestLogs } from '../routes.ts';
 
 /** The ticket's first signal, as Verify reads it: never a report's words, which it has no use for. */
@@ -52,7 +57,14 @@ export interface Target {
   /** The version before the fix, which the release replaced. */
   against: string;
   dryRun: boolean;
+  /**
+   * The canary's analysis of that release: the version it was compared with, and each measure at its last step. None
+   * for a release the line found live, or a dry run's, which no analysis judged.
+   */
+  analysis?: { release: string; against: string; measures: Measure[] };
 }
+
+type Measure = PayloadOf<'canary.stepped'>['analysis']['measures'][number];
 
 /** What a look found: the verification, a hold for Martin when no sense can tell, or a reason to look again later. */
 export type Look =
@@ -87,12 +99,13 @@ type Context = Required<Omit<LookOptions, keyof VerifyClients | 'signal'>> &
   VerifyClients;
 type ByOne = (signal: FirstSignal, target: Target, c: Context) => Promise<Look>;
 
-/** How each source of a ticket's first signal is verified. A sense the line adds (a canary's) adds its way here. */
+/** How each source of a ticket's first signal is verified. */
 const BY_SOURCE: Record<SignalSource, ByOne> = {
   probe: byCheck,
   crawler: byCheck,
   metrics: byObjective,
   logs: byPattern,
+  canary: byAnalysis,
   report: async () => ({ kind: 'hold', reason: NO_SENSE.report }),
   planner: async () => ({ kind: 'hold', reason: NO_SENSE.planner }),
 };
@@ -165,6 +178,37 @@ async function byCheck(signal: FirstSignal, target: Target, c: Context): Promise
     return { kind: 'wait', why: `the check could not tell (${answer.runs.join(', ')}): ${answer.message ?? ''}` };
   }
   return finished(signal, target, answer.outcome, answer.outcome === 'persists' ? answer.evidence : undefined);
+}
+
+/**
+ * The canary's measure that failed, in the analysis of the release the stable Service runs: cleared when it passed at
+ * the release's last step. Verify looks only after a promotion, and a promoted release passed every step, so the
+ * analysis has already said; anything else is for Martin.
+ */
+async function byAnalysis(signal: FirstSignal, target: Target): Promise<Look> {
+  const failed = signal.evidence.find((e) => e.kind === 'canary');
+  const name = failed?.kind === 'canary' ? failed.measure.name : signal.check;
+  const { analysis } = target;
+  if (!analysis) {
+    return {
+      kind: 'hold',
+      reason: `No analysis judged ${short(target.version)}, which was found live: Martin judges whether its ${name} cleared`,
+    };
+  }
+  const measure = analysis.measures.find((m) => m.name === name);
+  if (measure?.phase !== 'successful') {
+    return {
+      kind: 'hold',
+      reason: `The analysis of ${short(target.version)} did not pass its ${name} at its last step: Martin judges it`,
+    };
+  }
+  return finished(signal, target, 'cleared', {
+    kind: 'canary',
+    release: analysis.release,
+    version: target.version,
+    against: analysis.against,
+    measure,
+  });
 }
 
 /** The same version, whether either names its commit in full or shortened. */
@@ -312,6 +356,8 @@ export function whatCleared(
       const served = evidence?.kind === 'logs' ? `, over ${evidence.requests} requests` : '';
       return `No error like the one the log watcher saw came from ${version} in ${policy.logs.windowMinutes} minutes${served}`;
     }
+    case 'canary':
+      return `The canary’s ${check} passed against ${short(evidence?.kind === 'canary' ? evidence.against : verification.against)} as ${version} was released, and it was promoted`;
     default:
       return `Verify found “${check}” cleared on ${version}`;
   }
@@ -332,7 +378,8 @@ export function closingComment(
 
 /** The comment on the issue as the factory opens it again: what came back, as the sense saw it. */
 export function reopeningComment(reopened: PayloadOf<'work-item.reopened'>, workItem: string): string {
-  const where = reopened.route === '*' ? 'every page' : `\`${reopened.route}\``;
+  const where =
+    reopened.route !== '*' ? `\`${reopened.route}\`` : reopened.sense === 'canary' ? CANARY_ANY_ROUTE : 'every page';
   return [
     `It came back after its fix was verified: the ${reopened.sense} saw “${reopened.check}” again on ${where}, in version ${short(reopened.version)}.`,
     '',
@@ -341,8 +388,6 @@ export function reopeningComment(reopened: PayloadOf<'work-item.reopened'>, work
 }
 
 const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
-
-const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);
 
 /** The probes worker's answer, checked: the evidence is checked again as the verification is made. */
 const verifyAnswer = z.object({
