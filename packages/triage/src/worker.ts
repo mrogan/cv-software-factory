@@ -2,8 +2,8 @@
  * The triage worker: takes each signal from the inbox once and decides what it becomes.
  *
  * - A sense's signal with a fingerprint no open ticket has opens a work item with its ticket, unless a ticket closed as
- *   verified has exactly that fingerprint: the same defect came back, so that ticket and its work item reopen. One the
- *   sense saw before that close is of the version the fix replaced, and is only counted.
+ *   verified has exactly that fingerprint: the same defect came back, so that ticket and its work item reopen. A
+ *   signal the sense saw before that close is of the version the fix replaced, and is only counted.
  * - One on an open ticket adds its evidence the first time each sense sees it; after that the inbox counts it,
  *   with no event, so the event count grows with tickets, not with the minutes a defect stays unfixed.
  * - Every report becomes events, judged by Jev: a new ticket, a repeat that joins an open one, or a work item
