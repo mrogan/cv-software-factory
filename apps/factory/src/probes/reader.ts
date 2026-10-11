@@ -5,14 +5,14 @@
  * (`verify.ts`).
  *
  *     POST /v1/pages   { "path": "/about" }  ->  { "screenshot": <Screenshot>, "passages": ["…"] }
- *     POST /v1/verify  { "sense", "check", "route" }  ->  { "outcome", "version", "runs", "evidence"? }
+ *     POST /v1/verify  { "sense", "check", "route" }  ->  202 while it runs, then { "outcome", "version", "runs", … }
  *     GET  /health
  */
 import { createServer, type Server } from 'node:http';
 import type { ArtifactStore } from '@software-factory/store';
 import { capture } from '../capture.ts';
 import type { BrowserSense } from '../senses/browser.ts';
-import { type VerifyAnswer, type VerifyRequest, verifyRequest } from './verify.ts';
+import { type VerifyRequest, type VerifyStatus, verifyRequest } from './verify.ts';
 
 export const MAX_PASSAGES = 40;
 export const MAX_PASSAGE_LENGTH = 200;
@@ -47,8 +47,11 @@ export interface ReaderOptions {
   /** The app's version now. */
   version(): Promise<string>;
   log: { info(fields: object, message: string): void; warn(fields: object, message: string): void };
-  /** Runs a ticket's check again against the app; without it, the worker verifies nothing. */
-  verify?: (request: VerifyRequest) => Promise<VerifyAnswer>;
+  /**
+   * Starts a ticket's check again against the app, or says how the one started is going (`Verifications`); without
+   * it, the worker verifies nothing.
+   */
+  verify?: (request: VerifyRequest) => VerifyStatus | Promise<VerifyStatus>;
 }
 
 export function readerServer({ app, sense, store, version, log, verify }: ReaderOptions): Server {
@@ -74,12 +77,10 @@ export function readerServer({ app, sense, store, version, log, verify }: Reader
           return reply(400, { error: 'the body is not JSON' });
         }
         if (!asked.success) return reply(400, { error: 'a verification names a sense, a check and a route' });
-        const started = Date.now();
-        const answer = await verify(asked.data);
-        log.info(
-          { ...asked.data, outcome: answer.outcome, runs: answer.runs, ms: Date.now() - started },
-          'a check was run again',
-        );
+        const status = await verify(asked.data);
+        if (status.state === 'running') return reply(202, { state: 'running' });
+        const { answer } = status;
+        log.info({ ...asked.data, outcome: answer.outcome, runs: answer.runs }, 'a check was run again');
         return reply(200, answer);
       }
       let path: string | null = null;

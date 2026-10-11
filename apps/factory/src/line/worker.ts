@@ -46,6 +46,7 @@ import { type EventWriter, sendSignal } from '@software-factory/store';
 import { lineStopped, uuidFrom } from '@software-factory/triage';
 import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
+import { release as RELEASE } from '../../../../policy/release.ts';
 import { type Carry, DEPLOYS, MAX_CARRIES } from '../github/deploys.ts';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../github/server.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
@@ -79,7 +80,15 @@ import {
 import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Pending, Queue, type QueueItem } from './queue.ts';
 import { carried, Releases, type ReleaseWatchOptions } from './release.ts';
-import { closingComment, type FirstSignal, look, type Target, type VerifyClients, whatCleared } from './verify.ts';
+import {
+  closingComment,
+  type FirstSignal,
+  type Look,
+  look,
+  type Target,
+  type VerifyClients,
+  whatCleared,
+} from './verify.ts';
 
 /** The runners, as the line uses them (`runners/steps.ts`). */
 export interface Steps {
@@ -124,8 +133,10 @@ export interface LineOptions {
   dryRunReleaseMs?: number;
   /** Where Verify looks: the probes worker, Prometheus and Loki. A sense with none waits at Verify. */
   verify?: VerifyClients;
-  /** How long the line waits to look again when a sense could not tell. */
+  /** How long the line waits to look again when a sense could not tell (`policy/release.ts`'s `verify`). */
   verifyEveryMs?: number;
+  /** How long after the promotion a sense may go on not telling before the work item holds for Martin. */
+  verifyWaitMs?: number;
   /**
    * False for a line that takes no work and only stops the steps in hand (the step API's) when the line stops.
    */
@@ -193,7 +204,8 @@ export class Line {
       dryRun: false,
       dryRunReleaseMs: 60_000,
       verify: {},
-      verifyEveryMs: 5 * 60_000,
+      verifyEveryMs: RELEASE.verify.everyMinutes * 60_000,
+      verifyWaitMs: RELEASE.verify.waitHours * 60 * 60_000,
       takesWork: true,
       workItemLimitUsd: null,
       providerOf: () => 'anthropic',
@@ -502,18 +514,35 @@ export class Line {
    */
   async #look(workItem: string, promoted: PayloadOf<'release.promoted'>, signal: AbortSignal): Promise<void> {
     const target = await this.#target(workItem, promoted);
-    const found = await look(await this.#firstSignal(workItem), target, {
-      ...this.#o.verify,
-      now: this.#o.now(),
-      dryRun: this.#o.dryRun,
-      signal,
-    });
+    const now = this.#o.now();
+    let found: Look;
+    try {
+      found = await look(await this.#firstSignal(workItem), target, {
+        ...this.#o.verify,
+        now,
+        dryRun: this.#o.dryRun,
+        signal,
+      });
+    } catch (error) {
+      found = { kind: 'wait', why: `the sense could not be asked: ${errorOf(error).message}` };
+    }
     if (signal.aborted) return;
     switch (found.kind) {
-      case 'wait':
-        this.#lookAgainAt.set(workItem, this.#o.now().getTime() + this.#o.verifyEveryMs);
-        this.#o.log.info({ workItem, version: target.version, why: found.why }, 'Verify cannot tell yet');
+      case 'wait': {
+        const hours = this.#o.verifyWaitMs / 3_600_000;
+        if (now.getTime() - target.at.getTime() < this.#o.verifyWaitMs) {
+          this.#lookAgainAt.set(workItem, now.getTime() + this.#o.verifyEveryMs);
+          this.#o.log.info({ workItem, version: target.version, why: found.why }, 'Verify cannot tell yet');
+          return;
+        }
+        // A sense that still cannot tell long after the release may never: Martin judges, told why.
+        const reason = `Verify could not tell in ${hours} hours after the release: ${found.why}`.slice(0, 300);
+        await this.#append(workItem, [
+          holdDraft('factory', { stage: 'verify', kind: 'held', cause: 'verify', reason }),
+        ]);
+        await this.#queue.moved(workItem);
         return;
+      }
       case 'hold':
         await this.#append(workItem, [
           holdDraft('factory', {

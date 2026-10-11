@@ -25,7 +25,7 @@ import { log } from '../log.ts';
 import { inbox } from '../outbox.ts';
 import { probes } from '../probes/index.ts';
 import { readerServer } from '../probes/reader.ts';
-import { oneAtATime, verifyCheck } from '../probes/verify.ts';
+import { Verifications, type VerifyRequest, verifyCheck } from '../probes/verify.ts';
 import { versionOf } from '../senses/http.ts';
 import { observeApp } from '../senses/observe.ts';
 import { SenseRunner } from '../senses/runner.ts';
@@ -94,9 +94,10 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
     every: seconds('PROBE_INTERVAL', 300),
   });
   const limit = Number(process.env.CRAWL_LIMIT ?? 150);
-  const verify = oneAtATime((request: Parameters<typeof verifyCheck>[1]) =>
+  const verifications = new Verifications((request) =>
     verifyCheck((only) => observeApp(app, only, { store, log, limit }), request),
   );
+  const verify = (request: VerifyRequest) => verifications.ask(request);
   const reader = readerServer({ app, sense, store, version: () => versionOf(app), log, verify });
   const port = Number(process.env.PORT ?? 8080);
   await new Promise<void>((resolve) => reader.listen(port, resolve));

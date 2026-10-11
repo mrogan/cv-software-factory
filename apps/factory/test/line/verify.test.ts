@@ -247,6 +247,8 @@ describe('Verify by the log watcher', () => {
       'GET /departments/kitchen failed: TypeError: Cannot read properties of undefined (reading "slug")',
     ]);
     for (const query of asked) expect(query).toContain(`service_version="${VERSION}"`);
+    // Only the route's errors are read, so other routes' never crowd them out.
+    expect(asked.find((q) => q.includes('severity_text'))).toContain('route="/departments/:department"');
     expect(asked.find((q) => q.includes('count_over_time'))).toContain('route="/departments/:department"');
   });
 
@@ -261,6 +263,12 @@ describe('Verify by the log watcher', () => {
       kind: 'wait',
       why: 'the new version logged 4 requests, fewer than 20',
     });
+    // As many records as one look reads, none of them the pattern: the rest might be.
+    const crowded = loki(
+      Array.from({ length: 5_000 }, () => error('/departments/kitchen', 'Something else entirely')),
+      300,
+    );
+    expect(await look(logs, target, options({ loki: crowded.client }))).toMatchObject({ kind: 'wait' });
     const soon = loki([], 300);
     expect(
       await look(logs, target, options({ loki: soon.client, now: new Date(PROMOTED + 5 * 60_000) })),
@@ -305,8 +313,8 @@ describe('a dry run’s verification', () => {
     );
   });
 
-  it('waits outside a dry run', async () => {
-    expect(await look(probe, dry, options())).toMatchObject({ kind: 'wait' });
+  it('holds for Martin outside a dry run, which nothing would verify', async () => {
+    expect(await look(probe, dry, options())).toMatchObject({ kind: 'hold' });
   });
 });
 

@@ -31,7 +31,7 @@ import { quoted, requests, type Scope } from '../alerts/queries.ts';
 import type { Loki } from '../clients/loki.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
 import { measureOfCheck } from '../intake/alerts.ts';
-import { MAX_MESSAGE, messageOf } from '../logs/errors.ts';
+import { keptLine } from '../logs/errors.ts';
 import { keptPattern } from '../logs/patterns.ts';
 import { errorLogs } from '../logs/watcher.ts';
 import type { VerifyAnswer, VerifyRequest } from '../probes/verify.ts';
@@ -108,7 +108,12 @@ const NO_SENSE = {
 export async function look(signal: FirstSignal | undefined, target: Target, options: LookOptions): Promise<Look> {
   const c: Context = { objectives: OBJECTIVES, policy: RELEASE.verify, ...options };
   if (target.dryRun) {
-    if (!c.dryRun) return { kind: 'wait', why: 'a dry run’s release is verified only in a dry run' };
+    if (!c.dryRun) {
+      return {
+        kind: 'hold',
+        reason: 'A dry run’s release never shipped, and the line no longer runs the dry run that would verify it',
+      };
+    }
     const sense = senseOf(signal);
     return {
       kind: 'finished',
@@ -244,6 +249,9 @@ export function judgeObjective(
   return { kind: 'wait', why: 'the objective was outside for a moment, shorter than an alert waits' };
 }
 
+/** The most error records one look reads. */
+const MAX_RECORDS = 5_000;
+
 /** The log watcher's pattern, in the new version's error records since the promotion. */
 async function byPattern(signal: FirstSignal, target: Target, c: Context): Promise<Look> {
   if (!c.loki) return { kind: 'wait', why: 'the line has no way to Loki (LOKI_URL)' };
@@ -252,10 +260,12 @@ async function byPattern(signal: FirstSignal, target: Target, c: Context): Promi
   const due = target.at.getTime() + windowMinutes * 60_000;
   if (c.now.getTime() < due) return { kind: 'wait', why: `the window ends at ${new Date(due).toISOString()}` };
   const version = `service_version=${quoted(target.version)}`;
-  const route = signal.route === '*' ? '' : ` | route=${quoted(signal.route)}`;
+  // The route's own errors, or for `*` those no request raised: other routes' never crowd them out of what is read.
+  const errorsOn = ` | route=${quoted(signal.route === '*' ? '' : signal.route)}`;
+  const requestsTo = signal.route === '*' ? '' : ` | route=${quoted(signal.route)}`;
   const [errors, served] = await Promise.all([
-    c.loki.records(`${errorLogs(o)} | ${version}`, target.at, c.now, 5_000),
-    c.loki.instant(`sum(count_over_time(${requestLogs(o)} | ${version}${route} [${windowMinutes}m]))`, c.now),
+    c.loki.records(`${errorLogs(o)} | ${version}${errorsOn}`, target.at, c.now, MAX_RECORDS),
+    c.loki.instant(`sum(count_over_time(${requestLogs(o)} | ${version}${requestsTo} [${windowMinutes}m]))`, c.now),
   ]);
   const requested = Math.round(served[0]?.value ?? 0);
   const patterns = new Set(
@@ -267,21 +277,19 @@ async function byPattern(signal: FirstSignal, target: Target, c: Context): Promi
   const same = errors.filter(
     (record) =>
       (record.fields.route || '*') === signal.route &&
-      (!patterns.size || patterns.has(keptPattern(messageOf(record).slice(0, MAX_MESSAGE), signal.route))),
+      (!patterns.size || patterns.has(keptPattern(keptLine(record).message, signal.route))),
   );
   const lines = (records: typeof same): Evidence => ({
     kind: 'logs',
     route: signal.route === '*' ? '/' : signal.route,
     version: target.version,
     requests: requested,
-    lines: records.slice(-20).map((record) => ({
-      ts: record.time.toISOString(),
-      level: 'error',
-      message: messageOf(record).slice(0, MAX_MESSAGE),
-      traceId: /^[0-9a-f]{32}$/.test(record.fields.trace_id ?? '') ? (record.fields.trace_id ?? null) : null,
-    })),
+    lines: records.slice(-20).map(keptLine),
   });
   if (same.length) return finished(signal, target, 'persists', lines(same));
+  // As many as Loki gave, none of them the pattern: the rest may hold it.
+  if (errors.length >= MAX_RECORDS)
+    return { kind: 'wait', why: `the route logged ${MAX_RECORDS} other errors or more` };
   if (requested < minRequests) {
     return { kind: 'wait', why: `the new version logged ${requested} requests, fewer than ${minRequests}` };
   }
@@ -328,7 +336,7 @@ export function closingComment(
 
 const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
 
-const short = (version: string) => (/^[0-9a-f]{40}$/.test(version) ? version.slice(0, 7) : version);
+const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);
 
 /** The probes worker's answer, checked: the evidence is checked again as the verification is made. */
 const verifyAnswer = z.object({
@@ -339,25 +347,43 @@ const verifyAnswer = z.object({
   evidence: z.unknown().optional(),
 }) as z.ZodType<VerifyAnswer>;
 
-/** The probes worker over HTTP. A crawl run twice takes minutes, so the line waits long for its answer. */
+/**
+ * The probes worker over HTTP. Asking starts the verification, and asking again collects its answer: a crawl run four
+ * times takes longer than a request may wait. It asks every `pollMs` until there is an answer, or `deadlineMs` passes.
+ */
 export class ProbesClient implements ProbesPort {
   readonly #url: string;
   readonly #fetch: typeof fetch;
+  readonly #pollMs: number;
+  readonly #deadlineMs: number;
 
-  constructor(url: string, fetcher: typeof fetch = fetch) {
+  constructor(url: string, { fetcher = fetch, pollMs = 10_000, deadlineMs = 30 * 60_000 } = {}) {
     this.#url = url.replace(/\/$/, '');
     this.#fetch = fetcher;
+    this.#pollMs = pollMs;
+    this.#deadlineMs = deadlineMs;
   }
 
   async verify(request: VerifyRequest, signal?: AbortSignal): Promise<VerifyAnswer> {
-    const timeout = AbortSignal.timeout(20 * 60_000);
-    const response = await this.#fetch(`${this.#url}/v1/verify`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(request),
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    });
-    if (!response.ok) throw new Error(`The probes answered a verification with ${response.status}`);
-    return verifyAnswer.parse(await response.json());
+    const deadline = Date.now() + this.#deadlineMs;
+    for (;;) {
+      const response = await this.#fetch(`${this.#url}/v1/verify`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(request),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+      });
+      if (response.status === 200) return verifyAnswer.parse(await response.json());
+      if (response.status !== 202) throw new Error(`The probes answered a verification with ${response.status}`);
+      await response.body?.cancel();
+      if (Date.now() + this.#pollMs > deadline) throw new Error('The probes did not finish the check in time');
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, this.#pollMs);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(signal.reason);
+        });
+      });
+    }
   }
 }

@@ -40,6 +40,16 @@ export function messageOf(record: LogRecord): string {
   return exception ? `${record.line}: ${exception}` : record.line;
 }
 
+/** A record as a signal's evidence keeps it, and as Verify compares it with what a signal kept. */
+export function keptLine(record: LogRecord) {
+  return {
+    ts: record.time.toISOString(),
+    level: levelOf(record),
+    message: messageOf(record).slice(0, MAX_MESSAGE),
+    traceId: TRACE_ID.test(record.fields.trace_id ?? '') ? (record.fields.trace_id ?? null) : null,
+  };
+}
+
 /**
  * The signal for a pattern new to the log, or nothing if its records do not say which version of the app wrote
  * them. An error is a `server-error` on the route of the request that raised it, or on every route when no request
@@ -71,12 +81,7 @@ export async function signalForPattern(found: NewPattern, tempo: Tempo): Promise
         route: route ?? '/',
         version,
         requests: found.records.length,
-        lines: records.map((r) => ({
-          ts: r.time.toISOString(),
-          level: levelOf(r),
-          message: messageOf(r).slice(0, MAX_MESSAGE),
-          traceId: TRACE_ID.test(r.fields.trace_id ?? '') ? (r.fields.trace_id ?? null) : null,
-        })),
+        lines: records.map(keptLine),
         ...(traceId && spans?.length ? { trace: { id: traceId, spans: spans.slice(0, 20) } } : {}),
       },
     ],

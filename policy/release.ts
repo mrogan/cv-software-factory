@@ -75,6 +75,11 @@ export interface Release {
     logs: { windowMinutes: number; minRequests: number };
     /** How long the line waits to look again when a sense could not tell. */
     everyMinutes: number;
+    /**
+     * How long after the promotion a sense may go on not telling (too little traffic, a check it can no longer see, a
+     * backend that does not answer) before the work item holds for Martin, with the last reason.
+     */
+    waitHours: number;
   };
 }
 
@@ -101,5 +106,6 @@ export const release = {
     metrics: { windowMinutes: 30, minRequests: objectives.minRequests },
     logs: { windowMinutes: 30, minRequests: objectives.minRequests },
     everyMinutes: 5,
+    waitHours: 24,
   },
 } satisfies Release;

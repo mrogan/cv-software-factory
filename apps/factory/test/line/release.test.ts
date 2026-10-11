@@ -550,7 +550,7 @@ describe('Verify on the line', () => {
     ]);
   });
 
-  it('looks again later when the sense cannot tell, and never closes on it', async () => {
+  it('looks again later when the sense cannot tell, never closes on it, and asks Martin after a day', async () => {
     const workItem = await merged(30, FIX_3);
     await promote(workItem);
     const probes = new FakeProbes(new Error('The probes did not answer'));
@@ -564,14 +564,29 @@ describe('Verify on the line', () => {
     await pass(it);
     expect(probes.asked).toHaveLength(2);
     expect(await types(workItem)).not.toContain('verification.finished');
+
+    // A day after the release, it still cannot tell: Martin is asked, told why.
+    now += 24 * 60 * 60_000;
+    await pass(it);
+    expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({
+      stage: 'verify',
+      kind: 'held',
+      cause: 'verify',
+      reason: expect.stringContaining('Verify could not tell in 24 hours after the release'),
+    });
   });
 
-  it('verifies a dry run’s work item by the dry run’s word, and closes it, only in a dry run', async () => {
-    const workItem = await merged(1_000_000_001, 'd'.repeat(40));
-    await promote(workItem, 'dry-run-dddddddddddd', 'd'.repeat(40), true);
+  it('verifies a dry run’s work item by the dry run’s word, and closes it, only in a dry run; outside one it holds', async () => {
+    // A line no longer in a dry run has nothing to verify it by: Martin judges.
+    const left = await merged(1_000_000_002, 'e'.repeat(40));
+    await promote(left, 'dry-run-eeeeeeeeeeee', 'e'.repeat(40), true);
     const live = line({ release: null });
     await pass(live.line);
-    expect(await types(workItem)).not.toContain('verification.finished');
+    expect(await types(left)).not.toContain('verification.finished');
+    expect((await payloads(left, 'hold.started')).at(-1)).toMatchObject({ stage: 'verify', cause: 'verify' });
+
+    const workItem = await merged(1_000_000_001, 'd'.repeat(40));
+    await promote(workItem, 'dry-run-dddddddddddd', 'd'.repeat(40), true);
 
     const { line: it, github } = line({ release: null, dryRun: true });
     await pass(it);

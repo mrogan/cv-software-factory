@@ -32,13 +32,17 @@ export function reduce(message: string): string {
  * A line a signal kept (`errors.ts`), or a record's line written the same way, as a pattern to compare: what a path of
  * the route's put in it is put back to the route, as `describe` does with a record's own path, and the rest reduced.
  * A signal keeps the lines and not the pattern, and its lines name the paths visitors asked for, which differ from one
- * request to the next.
+ * request to the next. Both sides are cut as the evidence cuts a line before they are compared.
  */
 export function keptPattern(kept: string, route: string): string {
-  if (route === '*' || !route.includes(':')) return reduce(kept);
-  const paths = new RegExp(templatePattern(route, '[^/\\s"\'?#:]+'), 'g');
-  return reduce(kept.replace(paths, route));
+  const paths = route !== '*' && route.includes(':') && new RegExp(templatePattern(route, '[^/\\s"\'?#:]+'), 'g');
+  // A line was cut before its paths were put back, at a place that moves with the path's length: only the start of
+  // the pattern is compared, short of where any cut could fall.
+  return reduce(paths ? kept.replace(paths, route) : kept).slice(0, KEPT_COMPARED);
 }
+
+/** How much of a kept line's pattern is compared: well short of where the evidence cuts a line (`MAX_MESSAGE`). */
+const KEPT_COMPARED = 200;
 
 /** An error record, with what the patterns and the signal need from it. */
 export interface ErrorRecord {

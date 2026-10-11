@@ -6,8 +6,16 @@ import type { Evidence } from '@software-factory/events';
 import { DiskArtifacts } from '@software-factory/store';
 import { describe, expect, it } from 'vitest';
 import type { Seen } from '../../src/gates/journeys.ts';
+import { ProbesClient } from '../../src/line/verify.ts';
 import { readerServer } from '../../src/probes/reader.ts';
-import { type ObserveStable, oneAtATime, type VerifyAnswer, verifyCheck } from '../../src/probes/verify.ts';
+import {
+  type ObserveStable,
+  oneAtATime,
+  Verifications,
+  type VerifyAnswer,
+  type VerifyRequest,
+  verifyCheck,
+} from '../../src/probes/verify.ts';
 
 const VERSION = 'b'.repeat(40);
 const request = { sense: 'probe', check: 'departments/redirect-loop', route: '/departments/:department' } as const;
@@ -105,7 +113,41 @@ describe('a check run again for Verify', () => {
   });
 });
 
-describe('the probes worker’s verification endpoint', () => {
+describe('the verifications in hand', () => {
+  it('starts one on asking, joins it on asking again, and gives its answer once, then forgets it', async () => {
+    const answer: VerifyAnswer = { outcome: 'cleared', version: VERSION, runs: ['passed', 'passed'] };
+    let finish = (_: VerifyAnswer) => {};
+    let runs = 0;
+    const verifications = new Verifications(
+      () =>
+        new Promise<VerifyAnswer>((resolve) => {
+          runs++;
+          finish = resolve;
+        }),
+    );
+    expect(verifications.ask(request)).toEqual({ state: 'running' });
+    await Promise.resolve();
+    expect(verifications.ask(request)).toEqual({ state: 'running' });
+    finish(answer);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(verifications.ask(request)).toEqual({ state: 'done', answer });
+    expect(verifications.ask(request)).toEqual({ state: 'running' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runs).toBe(2);
+  });
+
+  it('throws a failed one to the next to ask, then starts afresh', async () => {
+    const verifications = new Verifications(async () => {
+      throw new Error('Chromium would not start');
+    });
+    verifications.ask(request);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(() => verifications.ask(request)).toThrow('Chromium would not start');
+    expect(verifications.ask(request)).toEqual({ state: 'running' });
+  });
+});
+
+describe('the probes worker’s verification endpoint, and the line’s client', () => {
   const answer: VerifyAnswer = { outcome: 'cleared', version: VERSION, runs: ['passed', 'passed'] };
   const store = new DiskArtifacts('/nonexistent');
   const log = { info: () => {}, warn: () => {} };
@@ -116,34 +158,31 @@ describe('the probes worker’s verification endpoint', () => {
   };
 
   async function serve(verify?: (asked: typeof request) => Promise<VerifyAnswer>) {
-    const asked: unknown[] = [];
+    const verifications = verify && new Verifications((r) => verify(r as typeof request));
     const server = readerServer({
       app: 'http://website.test',
       sense,
       store,
       version: async () => VERSION,
       log,
-      ...(verify
-        ? {
-            verify: async (r) => {
-              asked.push(r);
-              return verify(r as typeof request);
-            },
-          }
-        : {}),
+      ...(verifications ? { verify: (r: VerifyRequest) => verifications.ask(r) } : {}),
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     const post = (body: string) => fetch(`${base}/v1/verify`, { method: 'POST', body });
-    return { post, asked, close: () => new Promise((resolve) => server.close(resolve)) };
+    return { base, post, close: () => new Promise((resolve) => server.close(resolve)) };
   }
 
-  it('runs the check it is asked for, and answers what the runs saw', async () => {
-    const { post, asked, close } = await serve(async () => answer);
+  it('answers that the check runs, then what the runs saw; the client asks until there is an answer', async () => {
+    const asked: unknown[] = [];
+    const { base, post, close } = await serve(async (r) => {
+      asked.push(r);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return answer;
+    });
     try {
-      const response = await post(JSON.stringify(request));
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual(answer);
+      expect((await post(JSON.stringify(request))).status).toBe(202);
+      expect(await new ProbesClient(base, { pollMs: 10 }).verify(request)).toEqual(answer);
       expect(asked).toEqual([request]);
     } finally {
       await close();
@@ -151,17 +190,16 @@ describe('the probes worker’s verification endpoint', () => {
   });
 
   it('refuses a body that is not a verification, and says when the check could not run', async () => {
-    const { post, asked, close } = await serve(async () => {
+    const { base, post, close } = await serve(async () => {
       throw new Error('Chromium would not start');
     });
     try {
       for (const body of ['not json', JSON.stringify({ ...request, sense: 'logs' }), JSON.stringify({ check: 'x' })]) {
         expect((await post(body)).status).toBe(400);
       }
-      expect(asked).toEqual([]);
-      const failed = await post(JSON.stringify(request));
-      expect(failed.status).toBe(502);
-      expect(await failed.json()).toEqual({ error: 'the check could not be run' });
+      await expect(new ProbesClient(base, { pollMs: 10 }).verify(request)).rejects.toThrow(
+        'The probes answered a verification with 502',
+      );
     } finally {
       await close();
     }
