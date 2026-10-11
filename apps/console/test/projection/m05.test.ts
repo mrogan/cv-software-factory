@@ -78,6 +78,32 @@ describe('a merged fix', () => {
     const [merged] = project(events, work('1').at(3)).cards;
     expect(merged?.outcome).toBe('merged');
   });
+
+  it('is not asked of Martin again by a later hold that said it was', () => {
+    const merge = 'Waiting for Martin to merge';
+    const events = work('1')
+      .open()
+      .add(1, 'hold.started', 'factory', { stage: 'review', kind: 'approval', cause: 'merge', reason: 'Merge' }, merge)
+      .add(2, 'pull-request.merged', 'martin', { number: 2, commit: 'b'.repeat(40), by: 'martin' })
+      .add(3, 'hold.started', 'factory', { stage: 'release', kind: 'approval', cause: 'deploy', reason: 'D' }, merge)
+      .add(4, 'hold.started', 'factory', { stage: 'verify', kind: 'approval', cause: 'verify', reason: 'V' }, merge)
+      .add(
+        5,
+        'hold.started',
+        'factory',
+        { stage: 'verify', kind: 'approval', cause: 'verify', reason: 'V' },
+        'Own words',
+      ).events;
+    const waits = projectSheet(events, '1', work('1').at(6))
+      ?.chapters.filter((c) => c.label === 'WAITING')
+      .map((c) => c.text);
+    expect(waits).toEqual([
+      merge,
+      'Waiting for a deploy pull request to carry the fix',
+      'Waiting for Martin to judge whether the fix cleared it',
+      'Own words',
+    ]);
+  });
 });
 
 describe('a fix held for a human', () => {

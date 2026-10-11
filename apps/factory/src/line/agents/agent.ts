@@ -10,7 +10,7 @@
  * What a result does in GitHub goes through `EffectsContext.once`, so the line can try a handback's effects again,
  * after GitHub or the store failed part-way, without running the agent again and without doing a write twice.
  */
-import type { InboxSignal, NewEvent, PayloadOf } from '@software-factory/events';
+import type { HoldCause, InboxSignal, NewEvent, PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../github/server.ts';
 import type { Handback, Step } from '../../runners/steps.ts';
@@ -247,13 +247,19 @@ export const answerOf = (state: WorkItemState) => state.answer?.text;
 
 export const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** What each approval the line holds for waits on, as its event's summary. */
+const APPROVALS: Partial<Record<HoldCause, string>> = {
+  spec: 'Waiting for Martin to approve the spec',
+  merge: 'Waiting for Martin to merge',
+  deploy: 'Waiting for a deploy pull request to carry the fix',
+  verify: 'Waiting for Martin to judge whether the fix cleared it',
+};
+
 /** A hold, as the event the line appends for it. */
 export function holdDraft(actor: NewEvent['actor'], hold: PayloadOf<'hold.started'>): Draft {
   const summary =
     hold.kind === 'approval'
-      ? hold.cause === 'spec'
-        ? 'Waiting for Martin to approve the spec'
-        : 'Waiting for Martin to merge'
+      ? (APPROVALS[hold.cause] ?? 'Waiting for Martin')
       : hold.kind === 'question'
         ? 'A question for Martin'
         : `Held for Martin at ${hold.stage}`;
