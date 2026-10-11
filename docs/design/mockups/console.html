@@ -1853,7 +1853,7 @@ function pagesGrid(v, it) {
   const figs = [...v.pages].sort((a, b) => order[a[2]] - order[b[2]]).map(([page, d, kind, key, fold]) => {
     // Only the ticket's own check is marked, and only on its own page; a sense that looks at no page marks nothing.
     const shot = kind === 'intended' && !v.unmarked && it.id === '1296' ? PAGES.products({ mark: (s) => ['good', s === 'ladder' ? 'Back above zero' : ''] }) : SHOTS[key]();
-    const below = fold && !v.unmarked ? '<span class="fold">↓ 1 more mark below the frame</span>' : '';
+    const below = fold && !v.unmarked ? '<span class="fold">↓ 1 more mark outside the frame</span>' : '';
     return `<figure><div class="vis">${shot}${below}</div><figcaption><span>${page}</span><span class="mono ${kind}">${d} · ${kind}</span></figcaption></figure>`;
   }).join('');
   return `<div class="regress" style="margin-top: 4px"><span class="label">Every page against ${v.against}, the version before</span><div class="row">${figs}</div>
