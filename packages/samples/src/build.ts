@@ -143,15 +143,15 @@ export const STEPS: NonNullable<PayloadOf<'release.started'>['steps']> = [
   { weight: 50, pauseSeconds: 180, analysis: true },
 ];
 
-/** A release Argo Rollouts started, of a signed image that admission control let in. */
-export const started = (version: string, previous: string): PayloadOf<'release.started'> => ({
+/** A release Argo Rollouts started, of a signed image that admission control let in, with the Rollout's steps. */
+export const started = (version: string, previous: string, steps = STEPS): PayloadOf<'release.started'> => ({
   release: releaseFor(version),
   version,
   previous,
   commit: commitFor(`release:${version}`),
   image: { digest: digestFor(version), signed: true, admitted: true },
   watched: true,
-  steps: STEPS,
+  steps,
   dryRun: false,
 });
 

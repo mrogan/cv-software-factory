@@ -79,7 +79,7 @@ const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'an image digest');
 const canaryStep = z.strictObject({
   /** The share of traffic it sends the canary, in percent. Zero before the first `setWeight`. */
   weight: z.number().int().min(0).max(100),
-  /** How long it waits at that weight, in seconds, before its analysis. Null when it waits for someone to promote it. */
+  /** How long it pauses at that weight in all, in seconds. Null when it waits there for someone to promote it. */
   pauseSeconds: count.nullable(),
   /** Whether a step analysis judges the canary at that weight, which a `canary.stepped` records when it ends. */
   analysis: z.boolean(),
@@ -514,7 +514,7 @@ export const PAYLOADS = {
        * them. Null when they are not known: a release found live, which nobody saw step, and a version 2 release, which
        * never said.
        */
-      steps: z.array(canaryStep).max(20).nullable(),
+      steps: z.array(canaryStep).max(V.MAX_CANARY_STEPS).nullable(),
       /** A release the dry run answers for: its work items' merges were never made, so nothing shipped. */
       dryRun: z.boolean(),
     })

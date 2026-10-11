@@ -356,9 +356,18 @@ describe('a release, from the Rollout and its runs', () => {
       failed,
       step(2, { name: 'website-68ff668868-4-2.1', created: t(20), completed: t(20.5) }),
     ];
-    const { said } = s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), retry);
+    // Its steps are no part of its name, so they are read again: here the Rollout went to half the traffic at once.
+    const retried = rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 });
+    retried.spec.strategy.canary = { steps: [{ setWeight: 50 }, { pause: { duration: '5m' } }, { analysis: {} }] };
+    const { said } = s.pass(retried, retry);
     expect(said).toEqual({ 1001: ['release.started', 'canary.stepped'] });
-    expect(s.of('1001', 'release.started')).toHaveLength(2);
+    expect(s.of('1001', 'release.started').map((p) => (p as PayloadOf<'release.started'>).steps)).toEqual([
+      [
+        { weight: 25, pauseSeconds: 180, analysis: true },
+        { weight: 50, pauseSeconds: 180, analysis: true },
+      ],
+      [{ weight: 50, pauseSeconds: 300, analysis: true }],
+    ]);
     // Martin aborts the retry: its earlier failure is not this attempt's, so nothing is recorded.
     expect(s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, abort: true }), retry).said).toEqual({});
     // A run that fails in this attempt rolls it back again.
@@ -507,7 +516,9 @@ describe('a canary’s steps, as a release records them', () => {
   });
 
   it('read durations as Argo Rollouts does: a number or bare digits in seconds, or a Go duration', () => {
-    expect([30, '45', '3m', '1h', '1m30s', '1.5m', '500ms'].map(secondsOf)).toEqual([30, 45, 180, 3600, 90, 90, 1]);
+    expect([30, '45', '3m', '1h', '1m30s', '1.5m', '.5m', '500ms', '2000000us', '3000000000ns'].map(secondsOf)).toEqual(
+      [30, 45, 180, 3600, 90, 90, 30, 1, 2, 3],
+    );
     expect(['', '3 m', 'm', '-1', '1d'].map(secondsOf)).toEqual(Array(5).fill(undefined));
     expect(secondsOf(-1)).toBeUndefined();
   });

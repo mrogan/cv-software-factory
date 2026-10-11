@@ -30,7 +30,7 @@
  * A dry run's merge never shipped, so no Rollout will carry it: in a dry run, `dryRunEvents` releases it by the dry
  * run's word, marked `dryRun`, so a soak goes round.
  */
-import type { PayloadOf } from '@software-factory/events';
+import { MAX_CANARY_STEPS, type PayloadOf } from '@software-factory/events';
 import type { Draft } from '../line/gates.ts';
 import type { AnalysisRun, Rollout } from './read.ts';
 
@@ -144,10 +144,8 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
 
 type RolloutStep = NonNullable<Rollout['spec']['strategy']['canary']>['steps'][number];
 
-/** The most steps `release.started` holds. */
-const MAX_STEPS = 20;
-
-const UNITS: Record<string, number> = { h: 3600, m: 60, s: 1, ms: 0.001 };
+const UNITS: Record<string, number> = { h: 3600, m: 60, s: 1, ms: 1e-3, us: 1e-6, µs: 1e-6, ns: 1e-9 };
+const AMOUNT = String.raw`(\d+(?:\.\d*)?|\.\d+)(h|ms|m|s|us|µs|ns)`;
 
 /**
  * A pause's duration in seconds, as Argo Rollouts reads one: a number, or text of bare digits, is seconds; otherwise
@@ -156,9 +154,9 @@ const UNITS: Record<string, number> = { h: 3600, m: 60, s: 1, ms: 0.001 };
 export function secondsOf(duration: string | number): number | undefined {
   if (typeof duration === 'number') return Number.isInteger(duration) && duration >= 0 ? duration : undefined;
   if (/^\d+$/.test(duration)) return Number(duration);
-  if (!/^(?:\d+(?:\.\d+)?(?:h|ms|m|s))+$/.test(duration)) return undefined;
+  if (!new RegExp(`^(?:${AMOUNT})+$`).test(duration)) return undefined;
   let seconds = 0;
-  for (const [, amount, unit] of duration.matchAll(/(\d+(?:\.\d+)?)(h|ms|m|s)/g)) {
+  for (const [, amount, unit] of duration.matchAll(new RegExp(AMOUNT, 'g'))) {
     seconds += Number(amount) * (UNITS[unit as string] as number);
   }
   return Math.round(seconds);
@@ -189,7 +187,7 @@ export function planOf(steps: readonly RolloutStep[]): CanaryStep[] | null {
       if (current.pauseSeconds !== null) current.pauseSeconds += seconds;
     }
   }
-  return plan.length <= MAX_STEPS && plan.every((s) => s.weight >= 0 && s.weight <= 100) ? plan : null;
+  return plan.length <= MAX_CANARY_STEPS && plan.every((s) => s.weight >= 0 && s.weight <= 100) ? plan : null;
 }
 
 const hashOf = (run: AnalysisRun) => run.metadata.labels['rollouts-pod-template-hash'];
@@ -325,7 +323,8 @@ function forTarget(
       type: 'release.started',
       actor: 'rollouts',
       summary: `${short(started.version)} started again after its rollback`,
-      payload: started,
+      // The steps as the Rollout has them now: they are no part of the release's name, so they may have changed.
+      payload: { ...started, steps: o.plan },
     });
     retried = true;
   }
@@ -489,7 +488,7 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
     const read = facts.start;
     const targets: Target[] = read.carries.length ? read.carries : [null];
     if (start.found) {
-      const started = startedPayload(start, read, true, facts.lastPromoted, null);
+      const started = startedPayload(start, read, true, facts.lastPromoted, o.plan);
       for (const target of targets) {
         add(target, [
           {
