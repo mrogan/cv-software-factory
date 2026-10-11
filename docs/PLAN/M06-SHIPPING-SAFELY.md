@@ -290,17 +290,24 @@ On the local cluster, on 11 October 2026, with the line's models on Claude. Time
   The journeys' figures are empty on both steps.
 - **Ticket 1035, carried through Release, persisting.** A drill (the app's #43 and #44) has `/` catch an error, log it, and still answer 200. Its release, 5f4d5fd6fd (43896d2), started on the line at 15:12:35. The log watcher saw the new pattern, and triage opened ticket 1035, "Server errors on /" (logs, `server-error`, broken), at 15:14:24. The line took it with LINE_TAKE at 6 and LINE_ONLY at 1035 (#207), and carried it from 15:23 to its merge hold at 15:28:56: the planner ($0.049), the coder ($0.062), 13 gates passed, the reviewer ($0.030) and the describer ($0.054), about $0.20 in all. Its fix is the app's #46, under issue #45. #208 took LINE_ONLY away again, so the deploy pull request (#48) would say what it carries, and it listed 1035. To make the signal persist, a revert of #46 (the app's #47) was meant to merge before the deploy; the test-integrity gate refused it, since it deleted #46's tests, and it was closed. A second drill (the app's #49) logs an error on `/` through a logger of its own, in `src/greeting.ts`, which #46's tests do not see. Release 867c4b7f55 (192dfe7) carried 1035, and its events went on 1035.
 
-  | Event | Recorded at |
-  |---|---|
-  | `release.started` | 15:53:40 |
-  | `canary.stepped`, 25% | 15:57:10 |
-  | `canary.stepped`, 50%, and `release.promoted` | 16:00:40 |
-  | `verification.finished`, persists | 16:30:43 |
-  | `work.returned`, Verify to Plan | 16:30:58 |
+  | Event | Recorded at | Canary | Baseline |
+  |---|---|---|---|
+  | `release.started` | 15:53:40 | | |
+  | `canary.stepped`, 25% | 15:57:10 | 589 requests, 1.30% 5xx, p99 36 ms | 1,296 requests, 1.52% 5xx, p99 42 ms |
+  | `canary.stepped`, 50%, and `release.promoted` | 16:00:40 | 843 requests, 1.55% 5xx, p99 42 ms | 889 requests, 1.35% 5xx, p99 42 ms |
+  | `verification.finished`, persists | 16:30:43 | | |
+  | `work.returned`, Verify to Plan | 16:30:58 | | |
 
   Verification found the pattern's lines from 192dfe7 ("GET / found no greeting: Error: No greeting is set for this hour"), with screenshots of 12 pages, `/` marked intended.
-- **1035's second pass, verified.** The planner ($0.064), the coder ($0.272), the reviewer ($0.040) and the describer ($0.063), about $0.44, and about $0.63 for 1035 so far. The fix, the app's #50, removes the call that logged, with tests that read the app's output at every hour of the day. Release 6c9894bdfd (8255dac) carried 1035: started at 16:47:28, stepped 25% at 16:50:58, stepped 50% and promoted at 16:54:28. At about 17:24, verification cleared: "No error like the one the log watcher saw came from 8255dac in 30 minutes, over 294 requests". 1035 closed as verified, and the App closed issue #45 as completed.
-- **1035 reopened.** A third drill (the app's #52) has every hundredth visit to `/` log a different error, a new pattern with the same fingerprint. Once 5b5702d was released, triage reopened 1035 at 18:00:24 (`work-item.reopened`, from the logs, on `/`, "new error pattern"), with the signal that reopened it. The App reopened issue #45, with a comment that begins "It came back after its fix was verified". The line took 1035 back into Plan: the planner at 18:01:05 ($0.057) and the coder at 18:01:56 ($0.091). The third fix, the app's #54, removes the counter, with a test of 250 visits; it passed 13 gates and review at 18:05, and waits at its merge hold since 18:06:25. 1035 has spent $0.879 over three passes, of its $1 cap.
+- **1035's second pass, verified.** The planner ($0.064), the coder ($0.272), the reviewer ($0.040) and the describer ($0.063), about $0.44, and about $0.63 for 1035 so far. The fix, the app's #50, removes the call that logged, with tests that read the app's output at every hour of the day. Release 6c9894bdfd (8255dac) carried 1035: started at 16:47:28, and promoted at 16:54:28.
+
+  | Step | Recorded at | Canary | Baseline |
+  |---|---|---|---|
+  | 25% | 16:50:58 | 576 requests, 1.70% 5xx, p99 35 ms | 1,026 requests, 1.17% 5xx, p99 43 ms |
+  | 50% | 16:54:28 | 839 requests, 1.43% 5xx, p99 38 ms | 946 requests, 1.61% 5xx, p99 42 ms |
+
+  At about 17:24, verification cleared: "No error like the one the log watcher saw came from 8255dac in 30 minutes, over 294 requests". 1035 closed as verified, and the App closed issue #45 as completed.
+- **1035 reopened.** A third drill (the app's #52) has every hundredth visit to `/` log a different error, a new pattern with the same fingerprint. Once 5b5702d was released, triage reopened 1035 at 18:00:24 (`work-item.reopened`, from the logs, on `/`, "new error pattern"), with the signal that reopened it. The App reopened issue #45, with a comment that begins "It came back after its fix was verified". The line took 1035 back into Plan: the planner at 18:01:05 ($0.057) and the coder at 18:01:56 ($0.091). The third fix, the app's #54, removes the counter, with a test of 250 visits; it passed 13 gates and review at 18:05, and held for Martin's merge at 18:06:25. He merged it and its deploy, and its release (7fd45f66f) was in its canary as this was written. 1035 has spent $0.879 over three passes, of its $1 cap.
 
 ## Retrospective
 
@@ -338,6 +345,6 @@ Written as Part B's pull requests (#191 to #196, #201, #202, #205 and #206) merg
 - The console: a return stays on the line for a day after its work item has moved on (#209); a sheet's replay scrubber is unreadable for a work item that goes round twice (#210); canary pictures box another sense's finding, and the console draws the boxes out of place (#211). #212 made a verified work item's sheet show the ticket's page on the fixed version, and each hold at Release and Verify say what it waits for.
 - The journeys' figures are empty in `canary.stepped`, so the Canary panel has nothing to show for them yet.
 - Canary pictures are never deleted (#198), a release of an image promoted before is not recorded (#199), and the factory's own requests count in the canary's errors and latency (#200).
-- LINE_TAKE is 6, and all six are taken, so the line takes nothing new until it is raised. The drills' code is still in the app: 1035's third fix (the app's #54) waits for Martin's merge, and `src/greeting.ts` has been unused since #50.
+- LINE_TAKE is 6, and all six are taken, so the line takes nothing new until it is raised. 1035's third fix (the app's #54) is merged, and its verification comes after this record. `src/greeting.ts`, from the second drill, has been unused in the app since #50.
 
 **Left open:** the reel's render-count test is flaky (#182); egress by host name waits for milestone 10 (#176); a broken Mermaid diagram reaches a pull request's description (#197); and #198, #199, #200, #209, #210 and #211, above.
