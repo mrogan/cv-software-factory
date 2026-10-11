@@ -24,6 +24,7 @@ import type { Sql } from 'postgres';
 import type { Prometheus } from '../clients/prometheus.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 import { DEPLOYS } from '../github/deploys.ts';
+import { GitHubWorkerError } from '../github/worker-client.ts';
 import { figuresAt, hashesOf, type RolloutRef, readRollout, seriesOf } from '../release/read.ts';
 import {
   dryRunEvents,
@@ -204,7 +205,7 @@ export class Releases {
     try {
       return await this.#o.github.read('commits', this.#o.repo, { base, head });
     } catch (error) {
-      if ((error as { status?: number }).status === 404) return undefined;
+      if (error instanceof GitHubWorkerError && error.status === 404) return undefined;
       throw error;
     }
   }
