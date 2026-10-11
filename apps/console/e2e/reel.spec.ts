@@ -40,6 +40,9 @@ test.describe('the reel', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test('drags without rendering on every frame', async ({ page }) => {
+    // The stream's opening and first message arrive a few hundred milliseconds in, and render the page: held, they
+    // can't land in one drag's count and not the other's.
+    await page.route('**/api/events/stream*', () => {});
     const counts: number[] = [];
     for (const frames of [8, 80]) {
       await page.goto(consoleUrl({ debug: 'renders' }));
