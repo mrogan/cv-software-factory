@@ -10,20 +10,28 @@ import type { ArtifactStore } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import type { Check } from '../capture.ts';
 
+/**
+ * A screenshot as the index keeps it: the reference an event carries, with the selector of the element each of its
+ * boxes was drawn round, in the order of the boxes. A page carries the boxes of every sense that boxed something on it,
+ * and the selectors are how the line keeps only a ticket's own (`line/pictures.ts`); no event carries them. A picture
+ * taken before they were kept has none.
+ */
+export type Shot = Screenshot & { selectors?: string[] };
+
 /** One page compared: on the stable version (before) and on the canary (after). */
 export interface Picture {
   canary: string;
   stable: string;
   path: string;
   route: string;
-  before: Screenshot;
-  after: Screenshot;
+  before: Shot;
+  after: Shot;
   /** The share of pixels that differ. */
   changed: number;
   /** Where they differ, or null when nothing does. */
   diff: Screenshot | null;
   /** The page on the stable Service after the canary was promoted, with the boxes; only for a page with any. */
-  rollout: Screenshot | null;
+  rollout: Shot | null;
 }
 
 /** Where a sense's signal was seen: the page its screenshot was taken on, and the elements it boxed there. */
@@ -43,11 +51,11 @@ interface PictureRow {
   stable: string;
   path: string;
   route: string;
-  before: Screenshot;
-  after: Screenshot;
+  before: Shot;
+  after: Shot;
   changed: number;
   diff: Screenshot | null;
-  rollout: Screenshot | null;
+  rollout: Shot | null;
 }
 
 export class PictureIndex {
@@ -95,7 +103,7 @@ export class PictureIndex {
   }
 
   /** Records a page after the rollout, once. */
-  async rolledOut(picture: Pick<Picture, 'canary' | 'stable' | 'path'>, shot: Screenshot): Promise<void> {
+  async rolledOut(picture: Pick<Picture, 'canary' | 'stable' | 'path'>, shot: Shot): Promise<void> {
     await this.#sql`
       update pictures set rollout = ${this.#sql.json(shot as never)}
       where canary = ${picture.canary} and stable = ${picture.stable} and path = ${picture.path} and rollout is null`;

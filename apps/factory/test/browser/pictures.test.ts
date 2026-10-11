@@ -71,6 +71,7 @@ describe('the pictures of a canary', () => {
       const own = recorded.find((p) => p.path === '/products/oak-stool');
       expect(own?.before.boxes).toHaveLength(1);
       expect(own?.after.boxes).toHaveLength(1);
+      expect(own?.after.selectors).toEqual(['main h1']);
       expect(own?.diff).not.toBeNull();
       for (const p of recorded) expect(await store.size(p.after.hash)).toBe(p.after.size);
     } finally {
