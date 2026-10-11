@@ -546,6 +546,11 @@ describe('upcasting the real catalogue', () => {
       },
     });
     expect(read.ok && validate(asNew(read.event))).toEqual({ ok: true });
+    // A label that gives no name that starts with a letter is named for what it is.
+    const odd = { ...v1, analysis: { ...v1.analysis, metric: '99th percentile' } };
+    const named = upcast({ type: 'release.rolled-back', version: 1, payload: odd });
+    expect(named).toMatchObject({ event: { payload: { failed: [{ name: 'metric' }] } } });
+    expect(named.ok && validate(asNew(named.event))).toEqual({ ok: true });
   });
 
   it('reads version 1 of verification.finished as a verification that ran, by a sense it never named', () => {

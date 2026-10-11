@@ -142,11 +142,11 @@ describe('migration 0008', () => {
   const MIGRATION = new URL('../../../../packages/store/migrations/0008_line-release-verify.sql', import.meta.url);
 
   /** A work item that ended on the line before Release, with the events that ended it. */
-  async function ended(...types: ('pull-request.merged' | 'work-item.closed')[]): Promise<string> {
+  async function ended(types: ('pull-request.merged' | 'work-item.closed')[], number = 17): Promise<string> {
     const workItem = await nextWorkItem(database.writer);
     const payloads = {
       'work-item.opened': { kind: 'defect-fix', title: 'Server errors', sample: false },
-      'pull-request.merged': { number: 17, commit: 'd'.repeat(40), by: 'martin' },
+      'pull-request.merged': { number, commit: 'd'.repeat(40), by: 'martin' },
       'work-item.closed': { outcome: 'no-change', reason: 'Closed unmerged' },
     };
     await writer().append(
@@ -169,14 +169,17 @@ describe('migration 0008', () => {
     return workItem;
   }
 
-  it('moves a work item that merged and never closed to Release, and leaves those that closed ended', async () => {
-    const merged = await ended('pull-request.merged');
-    const closed = await ended('pull-request.merged', 'work-item.closed');
-    const unmerged = await ended('work-item.closed');
+  it('moves a work item that merged and never closed to Release, and leaves those that closed or never shipped', async () => {
+    const merged = await ended(['pull-request.merged']);
+    const closed = await ended(['pull-request.merged', 'work-item.closed']);
+    const unmerged = await ended(['work-item.closed']);
+    // A dry run's pull requests are numbered from a billion up: its merge never shipped.
+    const dryRun = await ended(['pull-request.merged'], 1_000_000_003);
     await database.owner.unsafe(readFileSync(MIGRATION, 'utf-8'));
     const queue = new Queue(database.writer, 'test');
     expect(await queue.get(merged)).toMatchObject({ stage: 'release' });
     expect(await queue.get(closed)).toMatchObject({ stage: 'ended' });
     expect(await queue.get(unmerged)).toMatchObject({ stage: 'ended' });
+    expect(await queue.get(dryRun)).toMatchObject({ stage: 'ended' });
   });
 });

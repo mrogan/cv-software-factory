@@ -78,10 +78,12 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   'release.rolled-back': {
     1: ({ analysis, ...payload }) => {
       const { metric, unit, stepSeconds, canary, baseline, at } = analysis as Record<string, unknown>;
-      const name = String(metric)
+      const slug = String(metric)
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '');
+      // A name starts with a letter; a label that gives none is named for what it is.
+      const name = /^[a-z]/.test(slug) ? slug : 'metric';
       return {
         ...payload,
         release: payload.version,

@@ -194,5 +194,16 @@ describe('a station’s figure', () => {
         dryRun: false,
       });
     expect(project(one.events, one.at(3)).stations.find((s) => s.stage === 'release')?.figure).toBe('25%');
+    // The end of an older release, after a newer one started, says nothing of the newer.
+    const late = one.add(4, 'release.rolled-back', 'rollouts', {
+      release: '4b5c6d7f8g',
+      version: 'v1.0.0',
+      restored: 'v0.9.9',
+      weight: 25,
+      reason: 'An older release',
+      failed: [],
+      dryRun: false,
+    });
+    expect(project(late.events, late.at(5)).stations.find((s) => s.stage === 'release')?.figure).toBe('25%');
   });
 });

@@ -354,6 +354,11 @@ describe('after the merge', () => {
     expect(decide([...next, promoted('7f5b9c8d6', 'v0.9.5')], facts).stage).toBe('verify');
   });
 
+  it('pays no heed to a hold for a deploy decided as a release that carries the change started', () => {
+    const late = [...done, release(), deployHold(done), promoted()];
+    expect(decide(late, facts).next).toMatchObject({ do: 'verify' });
+  });
+
   it('pays no heed to a release before the merge, which cannot have carried the change', () => {
     const early = [...approved, mergeHold, release(), promoted(), merged];
     expect(decide(early, facts).next).toMatchObject({ do: 'hold', hold: { cause: 'deploy' } });

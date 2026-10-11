@@ -199,32 +199,35 @@ export interface WorkItemState {
   closed: boolean;
 }
 
+/** A work item with no events yet. */
+const initial = (): WorkItemState => ({
+  ticket: undefined,
+  spec: undefined,
+  pullRequest: undefined,
+  rebuild: undefined,
+  round: 1,
+  fenced: undefined,
+  fenceRefusals: 0,
+  gates: undefined,
+  gatesPassed: false,
+  gateReturns: 0,
+  review: undefined,
+  specApproved: false,
+  respecified: false,
+  reviews: [],
+  returns: [],
+  described: false,
+  hold: undefined,
+  answer: undefined,
+  answers: [],
+  merged: false,
+  release: undefined,
+  verification: undefined,
+  closed: false,
+});
+
 export function fold(events: readonly LineEvent[]): WorkItemState {
-  const state: WorkItemState = {
-    ticket: undefined,
-    spec: undefined,
-    pullRequest: undefined,
-    rebuild: undefined,
-    round: 1,
-    fenced: undefined,
-    fenceRefusals: 0,
-    gates: undefined,
-    gatesPassed: false,
-    gateReturns: 0,
-    review: undefined,
-    specApproved: false,
-    respecified: false,
-    reviews: [],
-    returns: [],
-    described: false,
-    hold: undefined,
-    answer: undefined,
-    answers: [],
-    merged: false,
-    release: undefined,
-    verification: undefined,
-    closed: false,
-  };
+  const state = initial();
   for (const event of events) {
     // Anything that moves the work item on is past the answer that moved it.
     if (MOVES_ON.has(event.type)) state.answer = undefined;
@@ -281,6 +284,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (event.payload.to === 'plan') startAgain(state);
         break;
       case 'hold.started':
+        // A hold for a deploy decided as a release started is already answered by it.
+        if (event.payload.cause === 'deploy' && state.release && !state.release.rolledBack) break;
         state.hold = event.payload;
         break;
       case 'hold.answered': {
@@ -350,30 +355,12 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
 
 /**
  * Work sent back to Plan starts a fresh pass: the planner writes a new spec, and the coder's first round opens a new
- * pull request, with its own gates, review, merge and release. What Martin said at Plan is kept: the planner should
- * not forget an answer.
+ * pull request, with its own gates, review, merge and release. Only the ticket, the hold and Martin's answers carry
+ * over: the planner should not forget an answer.
  */
 function startAgain(state: WorkItemState): void {
-  Object.assign(state, {
-    spec: undefined,
-    specApproved: false,
-    respecified: false,
-    pullRequest: undefined,
-    rebuild: undefined,
-    round: 1,
-    fenced: undefined,
-    fenceRefusals: 0,
-    gates: undefined,
-    gatesPassed: false,
-    gateReturns: 0,
-    review: undefined,
-    reviews: [],
-    returns: [],
-    described: false,
-    merged: false,
-    release: undefined,
-    verification: undefined,
-  } satisfies Partial<WorkItemState>);
+  const { ticket, hold, answer, answers, closed } = state;
+  Object.assign(state, initial(), { ticket, hold, answer, answers, closed });
 }
 
 /** What approving a hold of the scope fence's says, for the planner. */

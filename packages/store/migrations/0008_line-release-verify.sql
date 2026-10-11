@@ -6,8 +6,12 @@ alter table line add constraint line_stage_check
   check (stage in ('plan', 'build', 'gates', 'review', 'release', 'verify', 'held', 'ended'));
 
 -- Work items that merged before, and have not closed, ended at their merge: they take their place at Release, and the
--- line carries them on from their events.
+-- line carries them on from their events. A dry run's merges (its pull requests are numbered from a billion up) never
+-- shipped and never will, so those work items stay ended.
 update line set stage = 'release', moved_at = clock_timestamp()
 where stage = 'ended'
-  and exists (select 1 from events e where e.work_item = line.work_item and e.type = 'pull-request.merged')
+  and exists (
+    select 1 from events e
+    where e.work_item = line.work_item and e.type = 'pull-request.merged' and (e.payload->>'number')::bigint < 1000000000
+  )
   and not exists (select 1 from events e where e.work_item = line.work_item and e.type = 'work-item.closed');

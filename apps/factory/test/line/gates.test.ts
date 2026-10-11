@@ -51,6 +51,13 @@ describe('the gates, as events', () => {
     });
   });
 
+  it('read a pull request as unmerged again once the work went back to Plan for one of its own', () => {
+    const merged = { type: 'pull-request.merged', payload: { commit: SHA } };
+    expect(gateRecord([merged]).merged).toBe(true);
+    expect(gateRecord([merged, { type: 'work.returned', payload: { from: 'verify', to: 'plan' } }]).merged).toBe(false);
+    expect(gateRecord([merged, { type: 'work.returned', payload: { from: 'review', to: 'build' } }]).merged).toBe(true);
+  });
+
   it('finish when every required check and every other one has finished, failing on a required failure', () => {
     const record = gateRecord([
       { type: 'gates.started', payload: { commit: SHA } },

@@ -40,6 +40,8 @@ export function gateRecord(events: readonly { type: string; payload: unknown }[]
     if (type === 'gate.finished') record.finished.add(`${p.commit} ${p.check}`);
     if (type === 'gates.finished') record.done.add(p.commit ?? '');
     if (type === 'pull-request.merged') record.merged = true;
+    // Work sent back to Plan comes round again with a pull request of its own, which has not merged.
+    if (type === 'work.returned' && (payload as { to?: string }).to === 'plan') record.merged = false;
     if (type === 'work-item.closed') record.closed = true;
   }
   return record;

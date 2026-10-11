@@ -238,6 +238,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     state.visits[stage] = { enteredAt: time, leftAt: undefined };
     state.stage = stage;
   };
+  /** The latest release to carry the item. */
+  let release: string | undefined;
   for (const event of events) {
     const time = at(event);
     state.lastAt = time;
@@ -301,18 +303,24 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       case 'release.started':
         // A release that carries the fix is the answer to its wait for a deploy, as the line reads it.
         if (state.hold?.cause === 'deploy') state.hold = undefined;
+        release = event.payload.release;
         state.versions.from ??= event.payload.previous;
         state.versions.to = event.payload.version;
+        state.versions.rolledBack = false;
         state.canary = { version: event.payload.version, weight: 0 };
         break;
+      // A release's later events count only for the latest release to carry the item, as the line reads them.
       case 'canary.stepped':
-        state.canary = { version: event.payload.version, weight: event.payload.weight };
+        if (event.payload.release === release)
+          state.canary = { version: event.payload.version, weight: event.payload.weight };
         break;
       case 'release.promoted':
+        if (event.payload.release !== release) break;
         state.canary = undefined;
         state.versions.live = true;
         break;
       case 'release.rolled-back':
+        if (event.payload.release !== release) break;
         state.canary = undefined;
         state.versions.rolledBack = true;
         break;
