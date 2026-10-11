@@ -178,10 +178,17 @@ export interface Actions {
    * it already: closing one already closed, or trying again after a close that failed, says nothing again.
    */
   closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void>;
+  /**
+   * Opens a closed issue again, first saying why on it. Only while the issue is closed, and without saying it twice:
+   * reopening one already open, or trying again after a reopening that failed, says nothing again.
+   */
+  reopenIssue(repo: string, number: number, comment: string): Promise<void>;
   comment(repo: string, number: number, body: string): Promise<void>;
 }
 
 const SHA = z.string().regex(/^[0-9a-f]{40}$/);
+/** An issue, as closing and reopening one read it. */
+const ISSUE = z.object({ state: z.string(), closed_at: z.string().nullable().default(null) });
 const NUMBER = z.number().int().positive();
 const ID = z.object({ id: NUMBER });
 
@@ -380,20 +387,44 @@ export class LiveActions implements Actions {
 
   async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void> {
     if (comment !== undefined) {
-      const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, z.object({ state: z.string() }));
+      const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, ISSUE);
       if (issue.state !== 'open') return;
-      // A close whose comment was made and whose closing failed is tried again: the comment is not made twice.
-      const said = await this.#github.read(
+      // A close whose comment was made and whose closing failed is tried again: the comment is not made twice. Only
+      // what was said since the issue last reopened counts: a close of an earlier pass may have said the same.
+      const events = await this.#github.read(
         repo,
-        `/repos/${repo}/issues/${number}/comments?per_page=100`,
-        z.array(z.object({ body: z.string().nullable() })),
+        `/repos/${repo}/issues/${number}/events?per_page=100`,
+        z.array(z.object({ event: z.string(), created_at: z.string() })),
       );
-      if (!said.some((made) => made.body === comment)) await this.comment(repo, number, comment);
+      const reopened = events.findLast((event) => event.event === 'reopened')?.created_at ?? null;
+      if (!(await this.#said(repo, number, comment, reopened))) await this.comment(repo, number, comment);
     }
     await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
       state: 'closed',
       state_reason: reason,
     });
+  }
+
+  async reopenIssue(repo: string, number: number, comment: string): Promise<void> {
+    const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, ISSUE);
+    if (issue.state !== 'closed') return;
+    // Only what was said since it closed counts: an earlier reopening may have said the same.
+    if (!(await this.#said(repo, number, comment, issue.closed_at))) await this.comment(repo, number, comment);
+    await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
+      state: 'open',
+      state_reason: 'reopened',
+    });
+  }
+
+  /** Whether an issue's comments since a time (or ever, with none) already say this, word for word. */
+  async #said(repo: string, number: number, body: string, since: string | null): Promise<boolean> {
+    const after = since ? `&since=${encodeURIComponent(since)}` : '';
+    const comments = await this.#github.read(
+      repo,
+      `/repos/${repo}/issues/${number}/comments?per_page=100${after}`,
+      z.array(z.object({ body: z.string().nullable() })),
+    );
+    return comments.some((made) => made.body === body);
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {
@@ -640,6 +671,10 @@ export class DryRunActions implements Actions {
 
   async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void> {
     await this.#record('closeIssue', repo, { number, reason, ...(comment === undefined ? {} : { comment }) });
+  }
+
+  async reopenIssue(repo: string, number: number, comment: string): Promise<void> {
+    await this.#record('reopenIssue', repo, { number, comment });
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {

@@ -1,7 +1,9 @@
 /**
  * The triage worker: takes each signal from the inbox once and decides what it becomes.
  *
- * - A sense's signal with a fingerprint no open ticket has opens a work item with its ticket.
+ * - A sense's signal with a fingerprint no open ticket has opens a work item with its ticket, unless a ticket closed as
+ *   verified has exactly that fingerprint: the same defect came back, so that ticket and its work item reopen. A
+ *   signal the sense saw before that close is of the version the fix replaced, and is only counted.
  * - One on an open ticket adds its evidence the first time each sense sees it; after that the inbox counts it,
  *   with no event, so the event count grows with tickets, not with the minutes a defect stays unfixed.
  * - Every report becomes events, judged by Jev: a new ticket, a repeat that joins an open one, or a work item
@@ -16,7 +18,7 @@
  * open two tickets. It takes nothing while the line is stopped, and no report while the gateway waits on a spend cap.
  */
 import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/events';
-import { type EventWriter, nextWorkItem } from '@software-factory/store';
+import { type EventWriter, lastEnd, nextWorkItem } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { INBOX } from '../../../policy/triage.ts';
 import {
@@ -27,6 +29,7 @@ import {
   type ParkedDefect,
   reportEvents,
   senseEvidence,
+  senseReopened,
   senseTicket,
 } from './events.ts';
 import { type Judge, JudgeWaiting } from './judge.ts';
@@ -36,7 +39,7 @@ import { routeFinding, routeReport } from './routing.ts';
 import { privatePath } from './scrub.ts';
 
 /** What triage made of a signal, as the inbox records it. */
-export type Outcome = 'opened' | 'evidence' | 'counted' | 'report' | 'finding';
+export type Outcome = 'opened' | 'evidence' | 'counted' | 'report' | 'finding' | 'reopened';
 
 export interface Logger {
   info(fields: object, message: string): void;
@@ -248,7 +251,9 @@ export class Triage {
           : 'report'
         : done.type === 'work-item.opened'
           ? 'opened'
-          : 'evidence';
+          : done.type === 'work-item.reopened'
+            ? 'reopened'
+            : 'evidence';
       // Counted once already, if at all: the time it took is not this attempt's.
       return { outcome, workItem: done.work_item, ticketOpened: false };
     }
@@ -304,6 +309,17 @@ export class Triage {
     const fingerprint = { route: signal.route, class: signal.symptom as SymptomClass };
     const ticket = tickets.find((open) => sameFingerprint(open.fingerprint, fingerprint));
     if (!ticket) {
+      // One fingerprint, one ticket: the same defect on a ticket closed as verified is a regression of it.
+      // A signal the sense saw before that close is of the version the fix replaced: counted, as a repeat is. So is
+      // any signal on a ticket a dry run verified: its fix never shipped, so the sense still sees what it saw.
+      const verified = await verifiedTicket(sql, fingerprint);
+      if (verified && (verified.dryRun || Date.parse(signal.observedAt) <= verified.closedAt.getTime())) {
+        return { outcome: 'counted', workItem: verified.workItem, ticketOpened: false };
+      }
+      if (verified) {
+        await events.append(senseReopened(signal, taken.id, verified.workItem, now));
+        return { outcome: 'reopened', workItem: verified.workItem, ticketOpened: false };
+      }
       const workItem = await nextWorkItem(sql);
       const joined = await this.#joinFindings(fingerprint, workItem, 'sense', taken.id);
       await events.append([...senseTicket(signal, taken.id, workItem, now), ...joined]);
@@ -357,12 +373,11 @@ export async function lineStopped(sql: Sql): Promise<boolean> {
   return last?.type === 'line.stopped';
 }
 
-/** Tickets whose work item has not closed. Tickets close only when a fix is verified (milestone 6). */
+/** Tickets whose work item is open: never closed, or reopened since it last closed. */
 export async function openTickets(sql: Sql): Promise<Ticket[]> {
   const rows = await sql<{ work_item: string; payload: PayloadOf<'ticket.opened'> }[]>`
     select t.work_item, t.payload from events t
-    where t.type = 'ticket.opened'
-      and not exists (select 1 from events c where c.work_item = t.work_item and c.type = 'work-item.closed')
+    where t.type = 'ticket.opened' and ${lastEnd(sql, 't.work_item')} is distinct from 'work-item.closed'
     order by t.seq desc`;
   return rows.map(({ work_item, payload }) => ({
     workItem: work_item,
@@ -370,6 +385,34 @@ export async function openTickets(sql: Sql): Promise<Ticket[]> {
     category: payload.category,
     fingerprint: payload.fingerprint,
   }));
+}
+
+/**
+ * The latest ticket whose last close or reopening is a close as verified, with exactly this fingerprint, when it
+ * closed, and whether its last verification was a dry run's. Exactly: a ticket on every route matches each route's signal while it is open, but a signal on one route is
+ * not the same defect come back as a ticket on all of them, nor the other way round. Only a verified close reopens (a
+ * ticket closed any other way was never fixed, or never a defect), and only a sense's fingerprint is matched.
+ */
+async function verifiedTicket(sql: Sql, fingerprint: { route: string; class: SymptomClass }) {
+  const [row] = await sql<{ work_item: string; closed_at: Date; dry_run: boolean }[]>`
+    select t.work_item, last_end.ts as closed_at, coalesce(last_check.dry_run, false) as dry_run from events t
+    cross join lateral (
+      select c.type, c.ts, c.payload->>'outcome' as outcome from events c
+      where c.work_item = t.work_item and c.type in ('work-item.closed', 'work-item.reopened')
+      order by c.seq desc limit 1
+    ) last_end
+    left join lateral (
+      -- A version 1 verification has no dryRun: it was never a dry run's.
+      select (v.payload->>'dryRun')::boolean as dry_run from events v
+      where v.work_item = t.work_item and v.type = 'verification.finished'
+      order by v.seq desc limit 1
+    ) last_check on true
+    where t.type = 'ticket.opened'
+      and t.payload->'fingerprint'->>'route' = ${fingerprint.route}
+      and t.payload->'fingerprint'->>'class' = ${fingerprint.class}
+      and last_end.type = 'work-item.closed' and last_end.outcome = 'verified'
+    order by t.seq desc limit 1`;
+  return row && { workItem: row.work_item, closedAt: new Date(row.closed_at), dryRun: row.dry_run };
 }
 
 type Fingerprint = PayloadOf<'ticket.opened'>['fingerprint'];

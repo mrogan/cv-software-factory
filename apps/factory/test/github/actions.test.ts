@@ -194,6 +194,7 @@ describe('acting in GitHub', () => {
     const comments: { body: string }[] = [];
     const { github, sent } = client([
       { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { state } }) },
+      { method: 'GET', path: /^\/repos\/.+\/issues\/16\/events/, answer: () => ({ body: [] }) },
       { method: 'GET', path: /^\/repos\/.+\/issues\/16\/comments/, answer: () => ({ body: comments }) },
       {
         method: 'POST',
@@ -228,6 +229,89 @@ describe('acting in GitHub', () => {
       ['PATCH', { state: 'closed', state_reason: 'completed' }],
       ['PATCH', { state: 'closed', state_reason: 'completed' }],
     ]);
+  });
+
+  it('reopens a closed issue with a comment saying why, once in each closing, and leaves one already open', async () => {
+    let clock = 0;
+    const time = () => new Date(Date.UTC(2026, 9, 11, 9, clock++)).toISOString();
+    let issue = { state: 'closed', closed_at: time() };
+    let failReopen = 1;
+    const comments: { body: string; created_at: string }[] = [];
+    const { github, sent } = client([
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: issue }) },
+      {
+        method: 'GET',
+        path: /^\/repos\/.+\/issues\/16\/comments/,
+        answer: ({ path }) => {
+          const since = new URL(path, 'https://api.github.test').searchParams.get('since') ?? '';
+          return { body: comments.filter((made) => made.created_at >= since) };
+        },
+      },
+      {
+        method: 'POST',
+        path: `/repos/${REPO}/issues/16/comments`,
+        answer: ({ body }) => {
+          comments.push({ ...(body as { body: string }), created_at: time() });
+          return { status: 201, body: {} };
+        },
+      },
+      {
+        method: 'PATCH',
+        path: `/repos/${REPO}/issues/16`,
+        answer: () => {
+          if (failReopen-- > 0) return { status: 422, body: { message: 'Validation Failed' } };
+          issue = { state: 'open', closed_at: issue.closed_at };
+          return { body: {} };
+        },
+      },
+    ]);
+    const actions = new LiveActions(github);
+    // The first reopening comments, and fails to reopen; trying again reopens it, saying nothing twice.
+    await expect(actions.reopenIssue(REPO, 16, 'It came back.')).rejects.toThrow();
+    await actions.reopenIssue(REPO, 16, 'It came back.');
+    await actions.reopenIssue(REPO, 16, 'It came back.');
+    expect(comments.map((made) => made.body)).toEqual(['It came back.']);
+    // Closed again, and the same words come back: they are said again, for this closing.
+    issue = { state: 'closed', closed_at: time() };
+    await actions.reopenIssue(REPO, 16, 'It came back.');
+    expect(comments.map((made) => made.body)).toEqual(['It came back.', 'It came back.']);
+    expect(
+      calls(sent)
+        .filter((s) => s.method !== 'GET')
+        .map((s) => [s.method, s.body]),
+    ).toEqual([
+      ['POST', { body: 'It came back.' }],
+      ['PATCH', { state: 'open', state_reason: 'reopened' }],
+      ['PATCH', { state: 'open', state_reason: 'reopened' }],
+      ['POST', { body: 'It came back.' }],
+      ['PATCH', { state: 'open', state_reason: 'reopened' }],
+    ]);
+  });
+
+  it('says again on a reopened issue what an earlier closing said, as it closes it again', async () => {
+    const said = [{ body: 'Verified in production.' }];
+    const { github, sent } = client([
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { state: 'open' } }) },
+      {
+        method: 'GET',
+        path: /^\/repos\/.+\/issues\/16\/events/,
+        answer: () => ({
+          body: [
+            { event: 'closed', created_at: '2026-10-11T09:00:00Z' },
+            { event: 'reopened', created_at: '2026-10-11T10:00:00Z' },
+          ],
+        }),
+      },
+      {
+        method: 'GET',
+        path: /^\/repos\/.+\/issues\/16\/comments/,
+        answer: ({ path }) => ({ body: path.includes('since=2026-10-11T10%3A00%3A00Z') ? [] : said }),
+      },
+      { method: 'POST', path: `/repos/${REPO}/issues/16/comments`, answer: () => ({ status: 201, body: {} }) },
+      { method: 'PATCH', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: {} }) },
+    ]);
+    await new LiveActions(github).closeIssue(REPO, 16, 'completed', 'Verified in production.');
+    expect(calls(sent).filter((s) => s.method === 'POST')).toHaveLength(1);
   });
 });
 
@@ -351,6 +435,23 @@ describe('a dry run', () => {
     expect(record).toMatchObject({
       action: 'closeIssue',
       args: { number: 16, reason: 'completed', comment: 'Verified in production.' },
+    });
+  });
+});
+
+describe('reopening an issue in a dry run', () => {
+  it('records the issue it would have reopened, with what it would have said on it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    await actions.reopenIssue(REPO, 16, 'It came back.');
+    const [record] = await Promise.all(
+      (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+    );
+    expect(record).toEqual({
+      action: 'reopenIssue',
+      repo: REPO,
+      at: '2026-10-04T12:00:00.000Z',
+      args: { number: 16, comment: 'It came back.' },
     });
   });
 });

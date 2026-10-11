@@ -212,6 +212,24 @@ describe('the planner’s prompt', () => {
     );
   });
 
+  it('tells the planner of a fix verified before whose defect came back', () => {
+    const reopened = {
+      sense: 'probe' as const,
+      check: 'search',
+      route: '/search',
+      version: 'c'.repeat(40),
+      reason: 'The probes saw it again',
+    };
+    expect(planner.prompt(INPUT)).not.toContain('came back');
+    expect(planner.prompt({ ...INPUT, reopened: [reopened] })).toContain(
+      [
+        'A fix for this ticket was verified in production before, and the defect came back:',
+        `- The probe saw “search” again on ${'c'.repeat(40)}.`,
+        'Find out what brought it back, and what let it through, before you plan another fix.',
+      ].join('\n'),
+    );
+  });
+
   it('describes each kind of evidence in a line or two', () => {
     expect(
       evidenceLines({

@@ -76,6 +76,7 @@ describe('migrations', () => {
       { version: 6, name: 'line-effects' },
       { version: 7, name: 'planner-findings' },
       { version: 8, name: 'line-release-verify' },
+      { version: 9, name: 'reopen-verified' },
     ]);
   });
 });
@@ -134,6 +135,39 @@ describe('appending', () => {
       payload: { title: 'A visitor says the clock is wrong', description: 'It is sold as stopped.', story: 'It is.' },
     };
     await samples().append([opened(item), close, summary]);
+    await expect(samples().append(report(item))).rejects.toThrow(`work item ${item} is closed`);
+  });
+
+  it('reopens only a closed work item, which then takes events again until it closes again', async () => {
+    const item = nextItem();
+    const close: NewEvent<'work-item.closed'> = {
+      ...opened(item),
+      id: uuid(),
+      type: 'work-item.closed',
+      version: 1,
+      actor: 'factory',
+      summary: 'Verified, and closed',
+      payload: { outcome: 'verified', reason: 'The probe passed twice in a row' },
+    };
+    const reopen = (): NewEvent<'work-item.reopened'> => ({
+      ...opened(item),
+      id: uuid(),
+      type: 'work-item.reopened',
+      version: 1,
+      actor: 'triage',
+      summary: 'Reopened: the probe saw it again',
+      payload: {
+        sense: 'probe',
+        check: 'redirects resolve',
+        route: '/products/clock-stopped',
+        version: 'v0.9.3',
+        reason: 'The probe saw it again',
+      },
+    });
+    await samples().append(opened(item));
+    await expect(samples().append(reopen())).rejects.toThrow(`work item ${item} is not closed`);
+    await samples().append([close, reopen(), report(item)]);
+    await samples().append({ ...close, id: uuid() });
     await expect(samples().append(report(item))).rejects.toThrow(`work item ${item} is closed`);
   });
 

@@ -43,6 +43,8 @@ export function gateRecord(events: readonly { type: string; payload: unknown }[]
     // Work sent back to Plan comes round again with a pull request of its own, which has not merged.
     if (type === 'work.returned' && (payload as { to?: string }).to === 'plan') record.merged = false;
     if (type === 'work-item.closed') record.closed = true;
+    // So does a work item that reopened, with nothing of the pass that closed.
+    if (type === 'work-item.reopened') Object.assign(record, { merged: false, closed: false });
   }
   return record;
 }

@@ -138,6 +138,97 @@ describe('work at Release and Verify', () => {
   });
 });
 
+describe('a reopened work item', () => {
+  /** Appends a close or a reopening, as the line and triage write them. */
+  const closeOrReopen = (workItem: string, type: 'work-item.closed' | 'work-item.reopened', outcome = 'verified') =>
+    writer().append({
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      work_item: workItem,
+      type,
+      version: VERSIONS[type],
+      actor: type === 'work-item.closed' ? 'factory' : 'triage',
+      summary: `${type} for the test`,
+      payload:
+        type === 'work-item.closed'
+          ? { outcome, reason: 'The probe passed twice in a row' }
+          : { sense: 'probe', check: 'pages load', route: '/search', version: 'v0.9.6', reason: 'It came back' },
+      artifacts: [],
+    } as NewEvent);
+
+  it('comes back into Plan from its end, afresh, whatever else is on the line and whatever the limit', async () => {
+    const reopened = await ticket('degraded', '/search');
+    const queue = new Queue(database.writer, 'test', { take: 1 });
+    expect(await queue.admit()).toBe(reopened);
+    await database.writer`update line set stage = 'ended', failures = 2, failure = 'It failed', session = 'abc'
+                          where work_item = ${reopened}`;
+    await closeOrReopen(reopened, 'work-item.closed');
+    expect(await queue.reopened()).toEqual([]);
+    await closeOrReopen(reopened, 'work-item.reopened');
+    // Not straight after its end, while its volume may still be going.
+    expect(await queue.reopened()).toEqual([]);
+    await database.writer`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${reopened}`;
+    // Another ticket fills Plan, and the limit is reached: the reopened one comes back all the same, and only once.
+    await database.writer`insert into line (work_item, stage) values ('1999', 'plan')`;
+    expect((await queue.reopened()).map((item) => item.workItem)).toEqual([reopened]);
+    expect(await queue.revive(reopened)).toBe(true);
+    expect(await queue.revive(reopened)).toBe(false);
+    expect(await queue.get(reopened)).toMatchObject({
+      stage: 'plan',
+      failures: 0,
+      failure: null,
+      session: null,
+      effects: null,
+    });
+    expect(await queue.reopened()).toEqual([]);
+    // Reopened again, after another verified close, it comes back again.
+    await closeOrReopen(reopened, 'work-item.closed');
+    await closeOrReopen(reopened, 'work-item.reopened');
+    expect(await queue.revive(reopened, { forgetIssue: true })).toBe(true);
+    expect(await queue.get(reopened)).toMatchObject({ stage: 'plan', issue: null });
+  });
+
+  it('is handed to nobody from where it was, when it reopened before its end, until it comes back', async () => {
+    const queue = new Queue(database.writer, 'test');
+    const workItem = await ticket('broken', '/search');
+    await database.writer`insert into line (work_item, stage) values (${workItem}, 'verify')`;
+    await closeOrReopen(workItem, 'work-item.closed');
+    await closeOrReopen(workItem, 'work-item.reopened');
+    expect(await queue.free()).toEqual([]);
+    expect(await queue.claim(workItem, 60)).toBeUndefined();
+    expect((await queue.reopened()).map((item) => item.workItem)).toEqual([workItem]);
+    // Not while another holds it.
+    await database.writer`update line set held_by = 'other', held_until = now() + interval '1 minute'
+                          where work_item = ${workItem}`;
+    expect(await queue.reopened()).toEqual([]);
+    expect(await queue.revive(workItem)).toBe(false);
+    await database.writer`update line set held_by = null, held_until = null where work_item = ${workItem}`;
+    expect(await queue.revive(workItem)).toBe(true);
+    expect((await queue.free()).map((item) => item.workItem)).toEqual([workItem]);
+  });
+
+  it('is open to the queue again: the last of its closes and reopenings decides', async () => {
+    const queue = new Queue(database.writer, 'test');
+    const closed = await ticket('broken', '/search');
+    await closeOrReopen(closed, 'work-item.closed');
+    expect(await queue.admit()).toBeUndefined();
+    // Reopened before the line ever took it, it is taken as any open ticket is.
+    await closeOrReopen(closed, 'work-item.reopened');
+    expect(await queue.admit()).toBe(closed);
+  });
+
+  it('is left alone by a queue of another work item, and stays ended while it is closed', async () => {
+    const workItem = await ticket('broken', '/search');
+    await database.writer`insert into line (work_item, stage, moved_at) values (${workItem}, 'ended', now() - interval '1 hour')`;
+    await closeOrReopen(workItem, 'work-item.closed');
+    await closeOrReopen(workItem, 'work-item.reopened');
+    expect(await new Queue(database.writer, 'test', { only: '1999' }).reopened()).toEqual([]);
+    await closeOrReopen(workItem, 'work-item.closed', 'no-change');
+    expect(await new Queue(database.writer, 'test').reopened()).toEqual([]);
+    expect(await new Queue(database.writer, 'test').revive(workItem)).toBe(false);
+  });
+});
+
 describe('migration 0008', () => {
   const MIGRATION = new URL('../../../../packages/store/migrations/0008_line-release-verify.sql', import.meta.url);
 

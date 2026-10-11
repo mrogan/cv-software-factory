@@ -167,6 +167,24 @@ export function senseEvidence(signal: InboxSignal, signalId: string, workItem: s
   return signalEvent(new Writer(signalId, workItem, now), signal).events;
 }
 
+/**
+ * A sense's signal on a ticket closed as verified: the same defect came back. The work item reopens, saying what
+ * came back, and the signal joins it with its evidence.
+ */
+export function senseReopened(signal: InboxSignal, signalId: string, workItem: string, now: Date): NewEvent[] {
+  const sense = signal.sense as Exclude<Sense, 'report'>;
+  const reason = `${SENSE_NAMES[sense]} saw it again on ${where(signal.route)} in version ${signal.version}: ${signal.check}`;
+  const writer = new Writer(signalId, workItem, now);
+  writer.add('work-item.reopened', 'triage', `Reopened: ${SENSE_NAMES[sense].toLowerCase()} saw it again`, {
+    sense,
+    check: signal.check,
+    route: signal.route,
+    version: signal.version,
+    reason: reason.slice(0, 200),
+  });
+  return signalEvent(writer, signal).events;
+}
+
 const QUARANTINED = 'The report holds instructions aimed at the system, so nothing acts on it';
 
 /**

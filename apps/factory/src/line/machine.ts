@@ -49,6 +49,9 @@
  * review, merge and release. A second that persists holds for Martin, as does a ticket only a visitor's report saw,
  * which no sense can look at again: approving closes it as verified, answering sends it back to Plan with his words.
  *
+ * A verified ticket whose signal comes back reopens (triage decides it): the same defect regressed. The work item
+ * starts a fresh pass at Plan, as after a return to Plan, and the planner is told what came back.
+ *
  * The events are folded into where the work item is (`fold`), and `decide` turns that into one next action. Each
  * action either appends events, which moves the work item on, or waits for something outside the line: the gates
  * (GitHub's checks, which the line reads and appends as events) or Martin. The bounds a step has (its turns and
@@ -141,7 +144,8 @@ type Payloads = {
     | 'release.promoted'
     | 'release.rolled-back'
     | 'verification.finished'
-    | 'work-item.closed']: PayloadOf<K>;
+    | 'work-item.closed'
+    | 'work-item.reopened']: PayloadOf<K>;
 };
 
 /** Where a work item is, from its events. */
@@ -204,10 +208,14 @@ export interface WorkItemState {
   /** The latest verification of that release, once it is promoted. */
   verification: PayloadOf<'verification.finished'> | undefined;
   /**
-   * Every verification that found the ticket's signal persisting after a release, in every pass: how many is what
-   * `LIMITS.persists` bounds, and the planner is told of each.
+   * Every verification that found the ticket's signal persisting after a release, in every pass: how many since the
+   * ticket last reopened is what `LIMITS.persists` bounds, and the planner is told of each.
    */
   persisted: PayloadOf<'verification.finished'>[];
+  /** Each time the ticket reopened after it was verified, in order: what came back, which the planner is told. */
+  reopened: PayloadOf<'work-item.reopened'>[];
+  /** How many of `persisted` came before the last reopening: `LIMITS.persists` bounds those since, a fix's own. */
+  persistedBefore: number;
   closed: boolean;
 }
 
@@ -236,6 +244,8 @@ const initial = (): WorkItemState => ({
   release: undefined,
   verification: undefined,
   persisted: [],
+  reopened: [],
+  persistedBefore: 0,
   closed: false,
 });
 
@@ -362,6 +372,14 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
       case 'work-item.closed':
         state.closed = true;
         break;
+      // The same defect came back after it was verified: a fresh pass, as after a return to Plan. Nothing that held
+      // or answered the closed pass carries over to it.
+      case 'work-item.reopened':
+        startAgain(state);
+        Object.assign(state, { hold: undefined, answer: undefined, closed: false });
+        state.reopened.push(event.payload);
+        state.persistedBefore = state.persisted.length;
+        break;
     }
   }
   return state;
@@ -369,12 +387,13 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
 
 /**
  * Work sent back to Plan starts a fresh pass: the planner writes a new spec, and the coder's first round opens a new
- * pull request, with its own gates, review, merge and release. Only the ticket, the hold, Martin's answers and the
- * verifications that persisted carry over: the planner should not forget an answer, nor a fix that did not work.
+ * pull request, with its own gates, review, merge and release. Only the ticket, the hold, Martin's answers, the
+ * verifications that persisted and the reopenings carry over: the planner should not forget an answer, nor a fix that
+ * did not work or did not last.
  */
 function startAgain(state: WorkItemState): void {
-  const { ticket, hold, answer, answers, persisted, closed } = state;
-  Object.assign(state, initial(), { ticket, hold, answer, answers, persisted, closed });
+  const { ticket, hold, answer, answers, persisted, reopened, persistedBefore, closed } = state;
+  Object.assign(state, initial(), { ticket, hold, answer, answers, persisted, reopened, persistedBefore, closed });
 }
 
 /** What approving a hold of the scope fence's says, for the planner. */
@@ -399,6 +418,7 @@ const MOVES_ON = new Set<LineEvent['type']>([
   'release.promoted',
   'release.rolled-back',
   'verification.finished',
+  'work-item.reopened',
 ]);
 
 /** One thing to do next. */
@@ -589,8 +609,9 @@ function afterMerge(s: WorkItemState): Decision {
   if (verification.outcome === 'cleared') return { stage: 'verify', next: { do: 'verified', verification } };
   const seen = `${verification.sense ? `The ${verification.sense}` : 'Verify'} still saw “${verification.check}”`;
   const on = `on ${verification.version ?? release.promoted.version}`;
-  if (s.persisted.length >= LIMITS.persists) {
-    const reason = `${seen} ${on}, after ${s.persisted.length} fixes were released: it needs Martin`.slice(0, 300);
+  const persisted = s.persisted.length - s.persistedBefore;
+  if (persisted >= LIMITS.persists) {
+    const reason = `${seen} ${on}, after ${persisted} fixes were released: it needs Martin`.slice(0, 300);
     return { stage: 'held', next: { do: 'hold', hold: { stage: 'verify', kind: 'held', cause: 'verify', reason } } };
   }
   const reason = `${seen} ${on}, the release that carried the fix`.slice(0, 200);

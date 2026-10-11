@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { z } from 'zod';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import { Prometheus } from '../../src/clients/prometheus.ts';
+import { GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { Line, type LineOptions } from '../../src/line/worker.ts';
 import type { AnalysisRun, Rollout } from '../../src/release/read.ts';
 import type { Kube } from '../../src/runners/kube.ts';
@@ -617,6 +618,78 @@ describe('Verify on the line', () => {
       cause: 'verify',
       reason: expect.stringContaining('Verify could not tell in 24 hours after the release'),
     });
+  });
+
+  it('takes a verified work item back into Plan when its ticket reopens, once its issue is open again', async () => {
+    const workItem = await merged(30, FIX_3);
+    await promote(workItem);
+    const probes = new FakeProbes({ outcome: 'cleared', version: commitOf(CANARY), runs: ['passed', 'passed'] });
+    const steps = new FakeSteps(database.writer, { planner: () => 'fails' });
+    const { line: it, github } = line({ release: null, verify: { probes }, steps });
+    await pass(it);
+    await pass(it);
+    expect(await stage(workItem)).toBe('ended');
+
+    // Triage reopens it: the probe saw the same defect again, on a later version.
+    const later = 'e'.repeat(40);
+    const reopened = {
+      sense: 'probe' as const,
+      check: 'departments',
+      route: '/departments/:department',
+      version: later,
+      reason: 'The probes saw it again',
+    };
+    await events.append([event(workItem, 'work-item.reopened', reopened, 'triage')]);
+    await database.writer`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${workItem}`;
+    // GitHub fails the first time: it stays where it is, and comes back on the next pass.
+    github.failing.set('reopenIssue', 1);
+    await pass(it);
+    expect(await stage(workItem)).toBe('ended');
+    await pass(it);
+    expect(github.acts.filter((a) => a.action === 'reopenIssue')).toEqual([
+      {
+        action: 'reopenIssue',
+        args: {
+          number: 29,
+          comment: [
+            'It came back after its fix was verified: the probe saw “departments” again on `/departments/:department`, in version eeeeeee.',
+            '',
+            `The factory’s work item #${workItem} is open again, and goes back to Plan for another fix.`,
+          ].join('\n'),
+        },
+      },
+    ]);
+    // The fresh pass starts at Plan, with the planner told what came back.
+    expect(steps.requests.at(-1)).toMatchObject({ agent: 'planner', workItem, round: 1 });
+    expect(steps.requests.at(-1)?.prompt).toContain(`- The probe saw “departments” again on ${later}.`);
+    expect(await stage(workItem)).toBe('plan');
+    await pass(it);
+    expect(github.acts.filter((a) => a.action === 'reopenIssue')).toHaveLength(1);
+  });
+
+  it('opens a new issue for a reopened work item whose issue is gone', async () => {
+    const workItem = await merged(30, FIX_3);
+    await promote(workItem);
+    const probes = new FakeProbes({ outcome: 'cleared', version: commitOf(CANARY), runs: ['passed', 'passed'] });
+    const steps = new FakeSteps(database.writer, { planner: () => 'fails' });
+    const { line: it, github } = line({ release: null, verify: { probes }, steps });
+    await pass(it);
+    await pass(it);
+    const reopened = {
+      sense: 'probe' as const,
+      check: 'departments',
+      route: '/departments/:department',
+      version: 'e'.repeat(40),
+      reason: 'The probes saw it again',
+    };
+    await events.append([event(workItem, 'work-item.reopened', reopened, 'triage')]);
+    await database.writer`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${workItem}`;
+    github.refusing.set('reopenIssue', new GitHubWorkerError(404, 'not-found', 'Not Found'));
+    await pass(it);
+    expect(github.acts.at(-1)?.action).toBe('openIssue');
+    const [row] = await database.writer<{ stage: string; issue: number }[]>`
+      select stage, issue from line where work_item = ${workItem}`;
+    expect(row).toEqual({ stage: 'plan', issue: 41 });
   });
 
   it('verifies a dry run’s work item by the dry run’s word, and closes it, only in a dry run; outside one it holds', async () => {

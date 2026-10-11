@@ -119,14 +119,19 @@ export class EventWriter {
     return problems;
   }
 
-  /** A work item opens once, before anything else happens to it, and nothing but its summary follows its close. */
+  /**
+   * A work item opens once, before anything else happens to it, and nothing but its summary follows its close, until
+   * it reopens. Only a closed work item reopens. The last of its closes and reopenings says whether it is closed.
+   */
   async #checkSequence(tx: TransactionSql, batch: readonly NewEvent[]): Promise<string[]> {
     const items = [...new Set(batch.flatMap((event) => (event.work_item ? [event.work_item] : [])))];
     const known = items.length
       ? await tx<{ work_item: string; opened: boolean; closed: boolean }[]>`
           select work_item,
                  bool_or(type = 'work-item.opened') as opened,
-                 bool_or(type = 'work-item.closed') as closed
+                 coalesce((array_agg(type order by seq desc)
+                   filter (where type in ('work-item.closed', 'work-item.reopened')))[1] = 'work-item.closed', false)
+                   as closed
           from events where work_item in ${tx(items)} group by work_item`
       : [];
     const state = new Map(known.map((row) => [row.work_item, { opened: row.opened, closed: row.closed }]));
@@ -143,10 +148,13 @@ export class EventWriter {
         item.opened = true;
       } else if (!item.opened) {
         problems.push(`${at}: work item ${event.work_item} has not been opened`);
+      } else if (event.type === 'work-item.reopened') {
+        if (!item.closed) problems.push(`${at}: work item ${event.work_item} is not closed`);
       } else if (item.closed && event.type !== 'work-item.summarised') {
         problems.push(`${at}: work item ${event.work_item} is closed`);
       }
       if (event.type === 'work-item.closed') item.closed = true;
+      if (event.type === 'work-item.reopened') item.closed = false;
       state.set(event.work_item, item);
     }
     return problems;
@@ -206,6 +214,15 @@ export async function nextWorkItem(sql: Sql): Promise<string> {
   if (!row) throw new Error('The store gave no work item number');
   return row.next;
 }
+
+/**
+ * The last of a work item's closes and reopenings, as SQL to compare: `work-item.closed` while it is closed, and null
+ * for one that never closed. `column` names the work item in the query around it, qualified by its table, such as
+ * `t.work_item`: unqualified, it would name the subquery's own.
+ */
+export const lastEnd = (sql: Sql | TransactionSql, column: string) =>
+  sql`(select last_end.type from events last_end where last_end.work_item = ${sql(column)}
+       and last_end.type in ('work-item.closed', 'work-item.reopened') order by last_end.seq desc limit 1)`;
 
 /** Whether the store holds samples or real events, or null while it holds neither. */
 export async function storeKind(sql: Sql): Promise<'sample' | 'real' | null> {

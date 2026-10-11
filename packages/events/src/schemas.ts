@@ -284,6 +284,19 @@ export const PAYLOADS = {
     outcome: z.enum(['verified', 'rolled-back', 'no-change', 'quarantined', 'discarded']),
     reason: text(200),
   }),
+  /**
+   * A ticket closed as verified came back: a sense's signal on the same fingerprint, so the same defect, regressed.
+   * The ticket and its work item open again, and the work goes back to Plan for a fresh pass. What came back is the
+   * signal's: the sense, its check, the route and the version it was seen on. The signal's own event follows, with its
+   * evidence.
+   */
+  'work-item.reopened': z.strictObject({
+    sense: z.enum(V.SENSES).exclude(['report']),
+    check: text(80),
+    route: routeOrEvery,
+    version: appVersion,
+    reason: text(200),
+  }),
 
   'defect.injected': z.strictObject({ choice: text(80), version: appVersion, pullRequest }),
   'attack.launched': z.strictObject({ attack: text(120), expected: text(120) }),
