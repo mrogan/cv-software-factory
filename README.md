@@ -26,7 +26,7 @@ It is safe because of mechanisms, not because the prompts ask nicely: agents can
 You need macOS or Linux, [mise](https://mise.jdx.dev) and a container runtime ([OrbStack](https://orbstack.dev) on a Mac).
 
 ```sh
-mise install     # Node, pnpm, kubectl, k3d, helm, kustomize at pinned versions
+mise install     # Node, pnpm, kubectl and its Argo Rollouts plugin, k3d, helm, kustomize, cosign, all pinned
 make up          # a local Kubernetes cluster; Argo CD deploys the rest from this repo
 make samples     # twelve sample work items, so the console has something to show
 make status      # what is running, and where to open it
