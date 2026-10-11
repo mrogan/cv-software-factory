@@ -11,6 +11,7 @@ import {
   judgeObjective,
   type LookOptions,
   look,
+  reopeningComment,
   type Target,
   whatCleared,
 } from '../../src/line/verify.ts';
@@ -385,5 +386,13 @@ describe('what cleared a work item, on its issue', () => {
         'The factory’s work item #1001 is closed as verified.',
       ].join('\n'),
     );
+  });
+
+  it('says where it came back: a canary’s every route is routes it could not narrow to one', () => {
+    const reopened = { sense: 'canary' as const, check: 'errors', route: '*', version: VERSION, reason: 'Back' };
+    expect(reopeningComment(reopened, '1001').split('\n')[0]).toBe(
+      'It came back after its fix was verified: the canary saw “errors” again on routes it could not narrow to one, in version bbbbbbb.',
+    );
+    expect(reopeningComment({ ...reopened, sense: 'crawler' }, '1001')).toMatch(/again on every page, in version/);
   });
 });

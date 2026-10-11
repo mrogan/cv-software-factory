@@ -11,6 +11,7 @@
  * app's answer to a request the sense made itself.
  */
 import type { PayloadOf } from '@software-factory/events';
+import { CANARY_ANY_ROUTE } from '@software-factory/triage';
 import { count } from './agent.ts';
 
 /** A sense's signal as an agent sees it: everything but a visitor's report. */
@@ -20,12 +21,19 @@ type Evidence = NonNullable<Signal['evidence']>[number];
 /** A route without its query or fragment, which a route never needs and a visitor may have typed. */
 export const routeOf = (route: string) => route.split(/[?#]/)[0] || '/';
 
-/** Where the ticket is, as triage fingerprinted it, and how it was classed, with its traces if it has any. */
-export function ticketLines(ticket: PayloadOf<'ticket.opened'>): string[] {
+/**
+ * Where the ticket is, as triage fingerprinted it, and how it was classed, with its traces if it has any. A ticket on
+ * `*` is on every page the senses checked, but the canary's: triage gives a canary's `*` a ticket of its own, and it
+ * says the analysis found the canary worse on routes it could not narrow to one, which its evidence names if it can.
+ */
+export function ticketLines(ticket: PayloadOf<'ticket.opened'>, signals: readonly Signal[] = []): string[] {
   const { fingerprint } = ticket;
+  const anywhere = signals.some((s) => s.sense === 'canary')
+    ? `${CANARY_ANY_ROUTE}, as the canary's analysis found it`
+    : 'every page the senses checked';
   const where =
     'class' in fingerprint
-      ? `It is a ${fingerprint.class} on ${fingerprint.route === '*' ? 'every page the senses checked' : routeOf(fingerprint.route)}.`
+      ? `It is a ${fingerprint.class} on ${fingerprint.route === '*' ? anywhere : routeOf(fingerprint.route)}.`
       : `It is about the words "${fingerprint.text}" on ${routeOf(fingerprint.page)}, as the factory read the page.`;
   return [
     `${where} Category ${ticket.category}, severity ${ticket.severity}.`,
@@ -114,7 +122,8 @@ export function evidenceLines(evidence: Evidence): string[] {
 /** A sense's signal, as lines of a prompt: what it checked and where, then each piece of its evidence. */
 export function seen(signal: Signal): string[] {
   const symptom = signal.symptom ? `, ${signal.symptom}` : '';
-  const where = signal.route === '*' ? 'every page' : routeOf(signal.route);
+  const where =
+    signal.route !== '*' ? routeOf(signal.route) : signal.sense === 'canary' ? CANARY_ANY_ROUTE : 'every page';
   return [
     `- ${SENSE[signal.sense]}'s check "${signal.check}" on ${where} in version ${signal.version}${symptom}`,
     ...(signal.evidence ?? []).flatMap(evidenceLines).map((line) => `  - ${line}`),

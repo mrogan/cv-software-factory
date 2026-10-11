@@ -1,7 +1,8 @@
+import type { PayloadOf } from '@software-factory/events';
 import { validateSignal } from '@software-factory/events/schemas';
 import { describe, expect, it } from 'vitest';
 import type { EffectsContext } from '../../src/line/agents/agent.ts';
-import { evidenceLines } from '../../src/line/agents/evidence.ts';
+import { evidenceLines, seen, ticketLines } from '../../src/line/agents/evidence.ts';
 import {
   findingSignal,
   MAX_PLANNER_FINDINGS,
@@ -272,6 +273,32 @@ describe('the planner’s prompt', () => {
         ],
       }),
     ).toEqual(["axe's image-alt (critical) on /: Images must have alternative text; at .card img"]);
+  });
+
+  it('tells a canary’s signal on every route as routes it could not narrow to one, and any other’s as every page', () => {
+    const ticket: PayloadOf<'ticket.opened'> = {
+      title: 'Server errors in a canary release',
+      category: 'errors',
+      severity: 'broken',
+      fingerprint: { route: '*', class: 'server-error' },
+      traces: [],
+    };
+    const signal = {
+      sense: 'canary',
+      check: 'errors',
+      route: '*',
+      version: 'c02efd8',
+      symptom: 'server-error',
+    } as const;
+    expect(ticketLines(ticket, [signal])[0]).toBe(
+      "It is a server-error on routes it could not narrow to one, as the canary's analysis found it. Category errors, severity broken.",
+    );
+    expect(seen(signal)[0]).toBe(
+      `- The canary's check "errors" on routes it could not narrow to one in version c02efd8, server-error`,
+    );
+    const probe = { ...signal, sense: 'probe' } as const;
+    expect(ticketLines(ticket, [probe])[0]).toMatch(/on every page the senses checked\./);
+    expect(seen(probe)[0]).toMatch(/on every page in version/);
   });
 });
 

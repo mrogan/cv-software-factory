@@ -90,7 +90,7 @@ function prompt(input: DescriberInput): string {
     'The checkout is the pull request’s head. Its base is the branch `base`: `git diff base` is the change, and `git log base..HEAD` holds the coder’s commit messages, its own note of what was wrong and what it changed.',
     '',
     `The ticket: ${ticket.title}.`,
-    ...ticketLines(ticket),
+    ...ticketLines(ticket, signals),
     ...(signals.length ? ['', 'What the senses saw:', ...signals.flatMap(seen)] : []),
     '',
     'The spec the change is held to:',

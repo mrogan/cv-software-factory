@@ -187,7 +187,7 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
   prompt: ({ workItem, ticket, signals, protectedPaths, answers, persisted = [], reopened = [], failure }) =>
     [
       `Plan the fix for ticket #${workItem}: ${ticket.title}.`,
-      ...ticketLines(ticket),
+      ...ticketLines(ticket, signals),
       ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
       ...(answers.length
         ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${a.asked} He said: ${a.answer}`)]

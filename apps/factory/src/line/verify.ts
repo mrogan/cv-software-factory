@@ -27,6 +27,7 @@
 import type { Evidence, PayloadOf, Sense, SignalSource } from '@software-factory/events';
 import { SENSES } from '@software-factory/events';
 import { evidence as evidenceSchema } from '@software-factory/events/schemas';
+import { CANARY_ANY_ROUTE } from '@software-factory/triage';
 import { z } from 'zod';
 import { objectives as OBJECTIVES, type Objectives } from '../../../../policy/objectives.ts';
 import { release as RELEASE, type Release } from '../../../../policy/release.ts';
@@ -377,7 +378,8 @@ export function closingComment(
 
 /** The comment on the issue as the factory opens it again: what came back, as the sense saw it. */
 export function reopeningComment(reopened: PayloadOf<'work-item.reopened'>, workItem: string): string {
-  const where = reopened.route === '*' ? 'every page' : `\`${reopened.route}\``;
+  const where =
+    reopened.route !== '*' ? `\`${reopened.route}\`` : reopened.sense === 'canary' ? CANARY_ANY_ROUTE : 'every page';
   return [
     `It came back after its fix was verified: the ${reopened.sense} saw “${reopened.check}” again on ${where}, in version ${short(reopened.version)}.`,
     '',

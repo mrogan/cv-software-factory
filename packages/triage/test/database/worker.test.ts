@@ -163,7 +163,7 @@ describe('triage', () => {
       const [ticket] = await writer<{ payload: PayloadOf<'ticket.opened'>; actor: string }[]>`
         select payload, actor from events where work_item = ${item} and type = 'ticket.opened'`;
       expect(ticket?.payload).toMatchObject({
-        title: 'Slow responses on every page',
+        title: 'Slow responses in a canary release',
         category: 'performance',
         severity: 'degraded',
         fingerprint: { route: '*', class: 'slow-response' },
@@ -173,7 +173,9 @@ describe('triage', () => {
       expect(signal?.actor).toBe('canary');
       const [summary] = await writer<{ payload: PayloadOf<'work-item.summarised'> }[]>`
         select payload from events where work_item = ${item} and type = 'work-item.summarised'`;
-      expect(summary?.payload.story).toMatch(/^The canary’s analysis found it on every page in version c{40}/);
+      expect(summary?.payload.story).toMatch(
+        /^The canary’s analysis found it on routes it could not narrow to one in version c{40}/,
+      );
 
       // The next release that carries the defect fails the same way: the same ticket.
       await sendSignal(writer, rollback({ observedAt: '2026-10-04T11:00:00.000Z' }));
