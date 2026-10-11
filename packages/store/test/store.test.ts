@@ -241,7 +241,7 @@ describe('append-only, by mechanism', () => {
     ).rejects.toThrow('permission denied');
   });
 
-  it('lets the scoreboard read the events and append its own, and nothing else', async () => {
+  it('lets the scoreboard read the events and append its own figures to a real store, and nothing else', async () => {
     const score: NewEvent<'score.updated'> = {
       id: uuid(),
       ts: at(0),
@@ -253,10 +253,16 @@ describe('append-only, by mechanism', () => {
       payload: { keyed: false },
       artifacts: [],
     };
-    await new EventWriter(scoreboard, { kind: 'sample', artifacts }).append(score);
-    expect(await scoreboard`select payload from events where id = ${score.id}`).toEqual([
-      { payload: { keyed: false } },
-    ]);
+    // This store holds samples: its figures are refused here, by the writer and by SQL alike (the scoreboard's own
+    // tests append them to a real store).
+    await expect(new EventWriter(scoreboard, { kind: 'sample', artifacts }).append(score)).rejects.toThrow(
+      'the scoreboard counts real tickets only',
+    );
+    await expect(
+      scoreboard`insert into events (id, ts, type, version, actor, summary, payload, artifacts, public, sample)
+                 values (${uuid()}, now(), 'score.updated', 1, 'scoreboard', 'Off', '{"keyed": false}', '[]', '{}', true)`,
+    ).rejects.toThrow('the scoreboard counts real tickets only');
+    expect(Array.isArray(await scoreboard`select seq, payload from events limit 1`)).toBe(true);
     // Nothing but its own figures, on the line, as itself.
     const refused = 'the scoreboard appends its own figures and nothing else';
     await expect(new EventWriter(scoreboard, { kind: 'sample', artifacts }).append(opened(nextItem()))).rejects.toThrow(

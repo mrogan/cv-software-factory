@@ -11,14 +11,34 @@ import { SYMPTOM_CLASSES } from '@software-factory/events';
 import { z } from 'zod';
 import type { KeyEntry } from '../../../../policy/scoreboard.ts';
 
+/** As a ticket's fingerprint is bounded (`ticket.opened`), so that every entry is one a ticket could match. */
+const route = z
+  .string()
+  .regex(/^\/\S*$/)
+  .max(200);
 const fingerprint = z.union([
-  z.strictObject({ route: z.union([z.string().regex(/^\/\S*$/), z.literal('*')]), class: z.enum(SYMPTOM_CLASSES) }),
-  z.strictObject({ page: z.string().regex(/^\/\S*$/), text: z.string().trim().min(1) }),
+  z.strictObject({ route: z.union([route, z.literal('*')]), class: z.enum(SYMPTOM_CLASSES) }),
+  z.strictObject({ page: route, text: z.string().trim().min(1).max(200) }),
 ]);
 
-const key = z
-  .array(z.strictObject({ id: z.string().min(1), fingerprint }))
-  .refine((entries) => new Set(entries.map((entry) => entry.id)).size === entries.length, 'an id is repeated');
+/** What makes two fingerprints the same entry: a passage's case does not count, as `matches` ignores it. */
+const sameness = (f: KeyEntry['fingerprint']) =>
+  'route' in f ? JSON.stringify(['route', f.route, f.class]) : JSON.stringify(['page', f.page, f.text.toLowerCase()]);
+
+const key = z.array(z.strictObject({ id: z.string().min(1), fingerprint })).superRefine((entries, context) => {
+  // Each id, and each fingerprint, once: a fingerprint twice would count one ticket's find twice.
+  for (const [field, of] of [
+    ['id', (entry: KeyEntry) => entry.id],
+    ['fingerprint', (entry: KeyEntry) => sameness(entry.fingerprint)],
+  ] as const) {
+    const seen = new Map<string, number>();
+    entries.forEach((entry, i) => {
+      const first = seen.get(of(entry));
+      if (first === undefined) seen.set(of(entry), i);
+      else context.addIssue({ code: 'custom', path: [i, field], message: `repeats entry ${first}'s ${field}` });
+    });
+  }
+});
 
 /** The key's entries, or null when there is no file at `path`. */
 export async function loadKey(path: string): Promise<KeyEntry[] | null> {
@@ -42,6 +62,11 @@ export function parseKey(text: string): KeyEntry[] {
   }
   const parsed = key.safeParse(json);
   if (parsed.success) return parsed.data;
-  const where = parsed.error.issues.map((issue) => `${issue.path.join('.') || 'the key'} (${issue.code})`);
+  const where = parsed.error.issues.map((issue) =>
+    // A repeat names the entry it repeats, by position; every other message could quote a value, so only its code.
+    issue.code === 'custom'
+      ? `${issue.path.join('.')} ${issue.message}`
+      : `${issue.path.join('.') || 'the key'} (${issue.code})`,
+  );
   throw new Error(`The answer key is not valid: ${[...new Set(where)].slice(0, 5).join(', ')}.`);
 }

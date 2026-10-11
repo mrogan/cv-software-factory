@@ -220,4 +220,23 @@ describe('the key', () => {
       expect(() => parseKey(text)).not.toThrow(new RegExp(secret));
     }
   });
+
+  it('refuses an id or a fingerprint twice, naming the entries, and a fingerprint no ticket could have', () => {
+    const entry = (id: string, fingerprint: Fingerprint) => ({ id, fingerprint });
+    const twice =
+      (...entries: KeyEntry[]) =>
+      () =>
+        parseKey(JSON.stringify(entries));
+    expect(twice(KEY[0] as KeyEntry, { ...(KEY[1] as KeyEntry), id: 'a' })).toThrow(
+      "The answer key is not valid: 1.id repeats entry 0's id.",
+    );
+    expect(
+      twice(entry('x', { page: '/d', text: 'Moon is cheese' }), entry('y', { page: '/d', text: 'moon IS cheese' })),
+    ).toThrow("The answer key is not valid: 1.fingerprint repeats entry 0's fingerprint.");
+    expect(
+      twice(entry('x', { route: '/a', class: 'server-error' }), entry('y', { route: '/a', class: 'server-error' })),
+    ).toThrow('repeats entry 0');
+    expect(twice(entry('x', { page: '/d', text: 'a'.repeat(201) }))).toThrow('0.fingerprint');
+    expect(twice(entry('x', { route: `/${'a'.repeat(200)}`, class: 'server-error' }))).toThrow('0.fingerprint');
+  });
 });
