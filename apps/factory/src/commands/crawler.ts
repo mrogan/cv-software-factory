@@ -22,6 +22,7 @@ import postgres from 'postgres';
 import { Crawler } from '../crawler/index.ts';
 import { log } from '../log.ts';
 import { inbox } from '../outbox.ts';
+import { PictureIndex } from '../pictures/index.ts';
 import { versionOf } from '../senses/http.ts';
 import { SenseRunner } from '../senses/runner.ts';
 
@@ -77,11 +78,13 @@ async function loop(sense: Crawler, app: string): Promise<number> {
   const sql = process.env.DATABASE_URL
     ? postgres(process.env.DATABASE_URL, { onnotice: () => {} })
     : postgres({ onnotice: () => {} });
+  const index = new PictureIndex(sql);
   const runner = new SenseRunner({
     sense,
     log,
     version: () => versionOf(app),
     send: inbox(sql).send,
+    remember: (look, at) => index.remember(look, at),
     every: number('CRAWL_INTERVAL', 300) * 1000,
   });
   const stop = runner.start(number('VERSION_POLL', 15) * 1000);

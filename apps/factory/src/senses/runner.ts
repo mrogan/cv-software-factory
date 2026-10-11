@@ -12,6 +12,7 @@
  */
 import type { InboxSignal } from '@software-factory/events';
 import type { Logger } from 'pino';
+import type { Look } from '../pictures/index.ts';
 import type { Sense } from './types.ts';
 
 export interface RunnerOptions {
@@ -20,6 +21,8 @@ export interface RunnerOptions {
   version(): Promise<string>;
   /** Leaves a signal in the inbox. */
   send(signal: InboxSignal): Promise<void>;
+  /** Remembers where a signal's finding boxed the elements it found, for the release's pictures (`pictures/`). */
+  remember?(look: Look, at: Date): Promise<void>;
   log: Logger;
   /** Milliseconds between scheduled runs. Five minutes by default. */
   every?: number;
@@ -127,6 +130,12 @@ export class SenseRunner {
           run.signalled++;
         } catch (error) {
           log.error({ sense: sense.name, check, err: describe(error) }, 'the inbox did not take a signal');
+        }
+        if (observation.look && this.options.remember) {
+          const look = { sense: sense.name, check, route, ...observation.look };
+          await this.options.remember(look, new Date(this.now())).catch((error) => {
+            log.warn({ sense: sense.name, check, err: describe(error) }, 'where the finding was is not remembered');
+          });
         }
       }
       this.probedVersion = version;

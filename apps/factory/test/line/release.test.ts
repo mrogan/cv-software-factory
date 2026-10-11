@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
+import { type NewEvent, type PayloadOf, type Screenshot, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { z } from 'zod';
@@ -9,6 +9,7 @@ import { type Database, freshDatabase } from '../../../../packages/store/test/da
 import { Prometheus } from '../../src/clients/prometheus.ts';
 import { GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { Line, type LineOptions } from '../../src/line/worker.ts';
+import { IndexedArtifacts, type Picture, PictureIndex } from '../../src/pictures/index.ts';
 import type { AnalysisRun, Rollout } from '../../src/release/read.ts';
 import type { Kube } from '../../src/runners/kube.ts';
 import { quiet } from '../github/fake.ts';
@@ -715,5 +716,128 @@ describe('Verify on the line', () => {
       { outcome: 'verified', reason: 'The dry run’s word: its release never shipped, so no sense looked' },
     ]);
     expect(await stage(workItem)).toBe('ended');
+  });
+
+  describe('with the pictures taken while its release ran as a canary', () => {
+    const shot = (fill: string, path: string, version: string, boxed = false): Screenshot => ({
+      kind: 'screenshot',
+      hash: fill.repeat(64),
+      type: 'image/png',
+      size: 2048,
+      route: path.startsWith('/departments/') ? '/departments/:department' : path,
+      version,
+      width: 1280,
+      height: 1600,
+      boxes: boxed ? [{ x: 40, y: 200, width: 600, height: 120, kind: 'problem' }] : [],
+    });
+    /** Every page on the version before and on the release's, as the probes worker indexed them. */
+    async function pictured() {
+      const index = new PictureIndex(database.writer);
+      const [before, after] = [commitOf(STABLE), commitOf(CANARY)];
+      const page = (path: string, fills: string, changed: number, boxed = false): Picture => ({
+        canary: after,
+        stable: before,
+        path,
+        route: shot('0', path, after).route,
+        before: shot(fills[0] as string, path, before, boxed),
+        after: shot(fills[1] as string, path, after, boxed),
+        changed,
+        diff: changed ? shot(fills[2] as string, path, after) : null,
+        rollout: null,
+      });
+      await index.record([
+        page('/', '11', 0),
+        page('/about', '234', 0.3),
+        page('/departments/garden', '5678', 0.02, true),
+        page('/departments/home', '99', 0),
+      ]);
+      // After the promotion, the page with a box, again.
+      await index.rolledOut(
+        { canary: after, stable: before, path: '/departments/garden' },
+        shot('8', '/departments/garden', after, true),
+      );
+      return index;
+    }
+    const artifactsOf = async (workItem: string, type: string) =>
+      (
+        await database.writer<{ artifacts: Screenshot[] }[]>`
+          select artifacts from events where work_item = ${workItem} and type = ${type} order by seq desc limit 1`
+      )[0]?.artifacts.map((a) => a.hash[0]);
+    const lineWithPictures = async (options: Partial<LineOptions>) =>
+      line({
+        release: null,
+        events: new EventWriter(database.writer, { kind: 'real', artifacts: new IndexedArtifacts(database.writer) }),
+        pictures: await pictured(),
+        ...options,
+      });
+
+    it('names every page against the version before, the ticket’s own first and intended, with their screenshots', async () => {
+      const workItem = await merged(30, FIX_3);
+      await promote(workItem);
+      // The probe's signal was seen on the garden's page, with the heading boxed.
+      await new PictureIndex(database.writer).remember(
+        {
+          sense: 'probe',
+          check: 'departments',
+          route: '/departments/:department',
+          path: '/departments/garden',
+          elements: [{ selector: 'main h1', kind: 'problem' }],
+        },
+        new Date(now),
+      );
+      const probes = new FakeProbes({ outcome: 'cleared', version: commitOf(CANARY), runs: ['passed', 'passed'] });
+      const { line: it } = await lineWithPictures({ verify: { probes } });
+      await pass(it);
+      expect((await payloads(workItem, 'verification.finished'))[0]?.pages).toEqual([
+        {
+          page: '/departments/garden',
+          route: '/departments/:department',
+          screenshot: '6'.repeat(64),
+          changed: 0.02,
+          intended: true,
+        },
+        { page: '/about', route: '/about', screenshot: '3'.repeat(64), changed: 0.3, intended: false },
+        { page: '/', route: '/', screenshot: '1'.repeat(64), changed: 0, intended: false },
+        {
+          page: '/departments/home',
+          route: '/departments/:department',
+          screenshot: '9'.repeat(64),
+          changed: 0,
+          intended: false,
+        },
+      ]);
+      // Each page before and after, in that order, then the ticket's own page after the rollout, with its box.
+      expect(await artifactsOf(workItem, 'verification.finished')).toEqual([
+        '5',
+        '6',
+        '2',
+        '3',
+        '1',
+        '1',
+        '9',
+        '9',
+        '8',
+      ]);
+    });
+
+    it('holds a visitor’s report for Martin with every page before and after, its route’s pages intended', async () => {
+      const workItem = await merged(30, FIX_3, 'report');
+      await promote(workItem);
+      const { line: it } = await lineWithPictures({});
+      await pass(it);
+      expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({ stage: 'verify', cause: 'verify' });
+      // With no box to say which, every page of the report's route is its own.
+      expect(await artifactsOf(workItem, 'hold.started')).toEqual(['5', '6', '9', '9', '2', '3', '1', '1', '8']);
+    });
+
+    it('names none for a release the probes worker did not picture', async () => {
+      const workItem = await merged(30, FIX_3);
+      await promote(workItem, 'f00dfeed03', 'd'.repeat(40));
+      const probes = new FakeProbes({ outcome: 'cleared', version: 'd'.repeat(40), runs: ['passed', 'passed'] });
+      const { line: it } = await lineWithPictures({ verify: { probes } });
+      await pass(it);
+      expect((await payloads(workItem, 'verification.finished'))[0]?.pages).toEqual([]);
+      expect(await artifactsOf(workItem, 'verification.finished')).toEqual([]);
+    });
   });
 });

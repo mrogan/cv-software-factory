@@ -170,11 +170,12 @@ export class BrowserSense<Shared> implements Sense {
 
     const observations: Observation[] = [];
     for (const { id, finding: found, at } of results) {
+      const kept = found ? await this.keep(page, found, found.route ?? route, version, at) : { artifacts: [] };
       observations.push({
         check: id,
         route: found?.route ?? route,
         finding: found,
-        artifacts: found ? await this.keep(page, found, found.route ?? route, version, at) : [],
+        ...kept,
         // A check that ended in trouble cannot be said to have passed, whatever else it did not see.
         ...(trouble && !found && { trouble }),
       });
@@ -183,35 +184,39 @@ export class BrowserSense<Shared> implements Sense {
     return observations;
   }
 
-  /** Keeps the proof of a finding: a screenshot of the page it was seen on. */
-  private async keep(page: Page, found: Finding, route: string, version: string, at?: string): Promise<ArtifactRef[]> {
+  /** Keeps the proof of a finding: a screenshot of the page it was seen on, and where on it the boxes were. */
+  private async keep(
+    page: Page,
+    found: Finding,
+    route: string,
+    version: string,
+    at?: string,
+  ): Promise<Pick<Observation, 'artifacts' | 'look'>> {
     const { store } = this.options;
     const artifacts: ArtifactRef[] = [];
+    let look: Observation['look'];
     // The check is over: an element it looked at that is not on this page should not be waited for.
     page.setDefaultTimeout(2_000);
     try {
       // A finding from the watch was seen on some page the check opened earlier, so go back to it.
       if (at && page.url() !== at) await page.goto(at, { waitUntil: 'load', timeout: 10_000 });
-      const look = (found.look ?? []).slice(0, 4);
-      for (const box of look)
+      const elements = (found.look ?? []).slice(0, 4);
+      for (const box of elements)
         await page
           .locator(box.selector)
           .first()
           .scrollIntoViewIfNeeded({ timeout: 2_000 })
           .catch(() => {});
-      artifacts.push(
-        await capture(page, store, { route, version, checks: look }).catch((error) => {
-          this.options.log.warn(
-            { err: String(error), route },
-            'the boxes did not fit the screenshot; taking it without',
-          );
-          return capture(page, store, { route, version });
-        }),
-      );
+      const shot = await capture(page, store, { route, version, checks: elements }).catch((error) => {
+        this.options.log.warn({ err: String(error), route }, 'the boxes did not fit the screenshot; taking it without');
+        return capture(page, store, { route, version });
+      });
+      artifacts.push(shot);
+      if (shot.boxes.length) look = { path: pathOf(page.url()), elements };
     } catch (error) {
       this.options.log.warn({ err: String(error), route }, 'no screenshot of a finding');
     }
-    return artifacts;
+    return { artifacts, ...(look && { look }) };
   }
 }
 

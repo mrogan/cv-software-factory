@@ -254,6 +254,7 @@ expect "the app cannot reach a public address" website:egress-app https://1.1.1.
 expect "Traefik passes a visitor to the app" deployment/traffic http://traefik.kube-system/health "reached, HTTP 200" \
   website.localhost
 expect "the probes reach the app" factory:deployment/probes http://website.website/health "reached, HTTP 200"
+expect "the probes reach the canary, for its pictures" factory:deployment/probes http://website-canary.website/health "reached, HTTP 200"
 expect "the crawler reaches the app" factory:deployment/crawler http://website.website/health "reached, HTTP 200"
 expect "a pod beside the app reaches the collector" website:egress-stranger http://otel-collector.telemetry:4318 reached
 expect "a pod beside the app cannot reach it" website:egress-stranger http://website.website blocked
