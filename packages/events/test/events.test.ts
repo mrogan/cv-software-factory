@@ -8,6 +8,9 @@ import { type Catalogue, upcast } from '../src/upcast.ts';
 import { EVENT_TYPES } from '../src/versions.ts';
 import { gate, judgement, opened, REPORT_TEXT, signal, VISITOR_KEY } from './fixtures.ts';
 
+/** An event read back, as one about to be appended again: what it reads as must be valid now. */
+const asNew = (event: PublicEvent) => ({ ...opened, type: event.type, version: event.version, payload: event.payload });
+
 const viewOf = (event: NewEvent) =>
   publicView(event.type, { summary: event.summary, payload: event.payload, artifacts: event.artifacts });
 
@@ -39,6 +42,71 @@ describe('validation', () => {
     expect(validate({ ...opened, work_item: null })).toEqual({
       ok: false,
       problems: ['work-item.opened needs a work item'],
+    });
+  });
+
+  it('takes a release’s events on a work item it carries, or on the line when it carries none', () => {
+    const started = {
+      ...opened,
+      type: 'release.started',
+      version: 2,
+      actor: 'rollouts',
+      payload: {
+        release: '6d8f9c7b54',
+        version: 'v0.9.4',
+        previous: 'v0.9.3',
+        commit: 'a'.repeat(40),
+        image: { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true },
+        watched: true,
+        dryRun: false,
+      },
+    };
+    expect(validate(started)).toEqual({ ok: true });
+    expect(validate({ ...started, work_item: null })).toEqual({ ok: true });
+    const stepped = {
+      ...started,
+      type: 'canary.stepped',
+      payload: {
+        release: '6d8f9c7b54',
+        version: 'v0.9.4',
+        weight: 25,
+        analysis: {
+          phase: 'successful',
+          requests: 231,
+          measures: [{ name: 'enough-requests', phase: 'successful', value: 231, limit: 100 }],
+        },
+        dryRun: false,
+      },
+    };
+    expect(validate({ ...stepped, work_item: null })).toEqual({ ok: true });
+    // A verification is of a work item's ticket: never the line's.
+    const verified = {
+      ...started,
+      type: 'verification.finished',
+      actor: 'factory',
+      payload: { outcome: 'cleared', sense: 'probe', check: 'search', against: 'v0.9.3', pages: [], dryRun: false },
+    };
+    expect(validate(verified)).toEqual({ ok: true });
+    expect(validate({ ...verified, work_item: null })).toEqual({
+      ok: false,
+      problems: ['verification.finished needs a work item'],
+    });
+  });
+
+  it('names the image of a release that shipped, and none of a dry run’s', () => {
+    const { image: _, ...dry } = {
+      release: 'dry-run-1288',
+      version: 'a'.repeat(40),
+      previous: 'v0.9.3',
+      image: { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true },
+      watched: true,
+      dryRun: true,
+    };
+    const event = { ...opened, type: 'release.started', version: 2, actor: 'factory', payload: dry };
+    expect(validate(event)).toEqual({ ok: true });
+    expect(validate({ ...event, payload: { ...dry, dryRun: false } })).toEqual({
+      ok: false,
+      problems: ['payload.image: a release that shipped names its image'],
     });
   });
 
@@ -285,14 +353,14 @@ describe('upcasting the real catalogue', () => {
     expect(cause('held', 'build')).toBe('unknown');
   });
 
-  it('reads versions 2 and 3 of hold.started as they were, and takes a defect the planner noticed at version 4', () => {
+  it('reads versions 2 to 4 of hold.started as they were, and takes a defect the planner noticed at version 4', () => {
     const v2 = { stage: 'gates', kind: 'held', cause: 'gates', reason: 'The gates failed: test' };
     expect(upcast({ type: 'hold.started', version: 2, payload: v2 })).toMatchObject({
-      event: { version: 4, payload: v2 },
+      event: { version: 5, payload: v2 },
     });
     const nothing = { stage: 'build', kind: 'held', cause: 'nothing-to-fix', reason: 'The coder found nothing.' };
     expect(upcast({ type: 'hold.started', version: 3, payload: nothing })).toMatchObject({
-      event: { version: 4, payload: nothing },
+      event: { version: 5, payload: nothing },
     });
     const finding = {
       stage: 'triage',
@@ -301,7 +369,7 @@ describe('upcasting the real catalogue', () => {
       reason: 'The planner noticed a defect.',
       defect: { fingerprint: { route: '/basket', class: 'wrong-result' }, symptom: 'wrong-result' },
     };
-    const hold = (payload: object, version = 4) =>
+    const hold = (payload: object, version = 5) =>
       validate({ ...opened, type: 'hold.started', version, actor: 'triage', payload });
     expect(hold(finding)).toEqual({ ok: true });
     expect(hold(finding, 3).ok).toBe(false);
@@ -381,6 +449,110 @@ describe('upcasting the real catalogue', () => {
     expect(upcast({ type: 'pull-request.pushed', version: 1, payload: v1 })).toMatchObject({
       event: { version: 2, payload: { ...v1, whole: files } },
     });
+  });
+
+  it('reads version 4 of hold.started as it was, and holds for a deploy and a verification at version 5', () => {
+    const merge = { stage: 'review', kind: 'approval', cause: 'merge', reason: 'Waits for Martin’s merge' };
+    expect(upcast({ type: 'hold.started', version: 4, payload: merge })).toMatchObject({
+      event: { version: 5, payload: merge },
+    });
+    for (const cause of ['deploy', 'verify']) {
+      const payload = { stage: 'release', kind: 'approval', cause, reason: 'Waits for Martin' };
+      expect(validate({ ...opened, type: 'hold.started', version: 5, actor: 'factory', payload })).toEqual({
+        ok: true,
+      });
+    }
+  });
+
+  it('reads version 1 of a release’s events as a watched release that shipped, told apart by its version', () => {
+    const digest = `sha256:${'c'.repeat(64)}`;
+    const started = { version: 'v0.9.1', previous: 'v0.9.0', digest, signed: true, admitted: true };
+    const read = upcast({ type: 'release.started', version: 1, payload: started });
+    expect(read).toEqual({
+      ok: true,
+      event: {
+        type: 'release.started',
+        version: 2,
+        payload: {
+          release: 'v0.9.1',
+          version: 'v0.9.1',
+          previous: 'v0.9.0',
+          image: { digest, signed: true, admitted: true },
+          watched: true,
+          dryRun: false,
+        },
+      },
+    });
+    expect(read.ok && validate(asNew(read.event))).toEqual({ ok: true });
+    const promoted = upcast({
+      type: 'release.promoted',
+      version: 1,
+      payload: { version: 'v0.9.1', previous: 'v0.9.0' },
+    });
+    expect(promoted.ok && validate(asNew(promoted.event))).toEqual({ ok: true });
+  });
+
+  it('reads version 1 of canary.stepped as a passing step with each version’s figures', () => {
+    const analysis = {
+      errorRate: { canary: 0.0022, baseline: 0.0021 },
+      p99Ms: { canary: 140, baseline: 138 },
+      journeys: { canary: [6, 6], baseline: [24, 24] },
+    };
+    const read = upcast({ type: 'canary.stepped', version: 1, payload: { version: 'v0.9.1', weight: 25, analysis } });
+    expect(read).toMatchObject({
+      event: {
+        version: 2,
+        payload: {
+          release: 'v0.9.1',
+          weight: 25,
+          analysis: { phase: 'successful', requests: null, measures: [] },
+          figures: {
+            canary: { requests: null, errorRate: 0.0022, p99Ms: 140, journeys: [6, 6] },
+            baseline: { requests: null, errorRate: 0.0021, p99Ms: 138, journeys: [24, 24] },
+          },
+          dryRun: false,
+        },
+      },
+    });
+    expect(read.ok && validate(asNew(read.event))).toEqual({ ok: true });
+  });
+
+  it('reads version 1 of release.rolled-back as one failed measure, named by its label, with its series', () => {
+    const v1 = {
+      version: 'v0.9.1',
+      restored: 'v0.9.0',
+      weight: 5,
+      reason: 'p99 latency on the canary rose to three times the baseline’s',
+      analysis: { metric: 'p99 latency', unit: 'ms', stepSeconds: 20, canary: [140, 412], baseline: [138, 139], at: 1 },
+    };
+    const read = upcast({ type: 'release.rolled-back', version: 1, payload: v1 });
+    expect(read).toMatchObject({
+      event: {
+        version: 2,
+        payload: {
+          release: 'v0.9.1',
+          failed: [
+            {
+              name: 'p99-latency',
+              phase: 'failed',
+              value: null,
+              limit: null,
+              message: v1.reason,
+              series: { label: 'p99 latency', unit: 'ms', stepSeconds: 20, canary: [140, 412], at: 1 },
+            },
+          ],
+          dryRun: false,
+        },
+      },
+    });
+    expect(read.ok && validate(asNew(read.event))).toEqual({ ok: true });
+  });
+
+  it('reads version 1 of verification.finished as a verification that ran, by a sense it never named', () => {
+    const v1 = { outcome: 'cleared', check: 'Every page', against: 'v0.9.0', pages: [] };
+    const read = upcast({ type: 'verification.finished', version: 1, payload: v1 });
+    expect(read).toMatchObject({ event: { version: 2, payload: { ...v1, dryRun: false } } });
+    expect(read.ok && validate(asNew(read.event))).toEqual({ ok: true });
   });
 
   it('reads version 1 of work.returned as it was, with no round', () => {

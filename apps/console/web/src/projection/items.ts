@@ -299,6 +299,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.hold = undefined;
         break;
       case 'release.started':
+        // A release that carries the fix is the answer to its wait for a deploy, as the line reads it.
+        if (state.hold?.cause === 'deploy') state.hold = undefined;
         state.versions.from ??= event.payload.previous;
         state.versions.to = event.payload.version;
         state.canary = { version: event.payload.version, weight: 0 };

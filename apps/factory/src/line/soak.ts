@@ -75,7 +75,7 @@ export interface SoakFacts {
  */
 export type SpendLimit = { kind: 'capped'; profile: string; workItemUsd: number } | { kind: 'none' };
 
-const STAGES = ['plan', 'build', 'gates', 'review', 'held'] as const;
+const STAGES = ['plan', 'build', 'gates', 'review', 'release', 'verify', 'held'] as const;
 type TimedStage = (typeof STAGES)[number];
 
 export interface SoakReport {
@@ -96,7 +96,7 @@ export interface SoakReport {
   };
   workItems: {
     taken: number;
-    /** By how each ended (`merged`, `closed`), or where each waits (`held: <cause>`, or a stage). */
+    /** Those that ended (`closed`), and where each of the others waits (`held: <cause>`, or a stage). */
     byEnd: Record<string, number>;
     /** Minutes in each stage, across the work items that spent any time there. */
     stages: Partial<Record<TimedStage, { items: number; medianMinutes: number; maxMinutes: number }>>;
@@ -160,7 +160,6 @@ export function endOf(events: readonly StoredEvent[], row: LineRow): string {
       return read.ok ? [read.event as unknown as LineEvent] : [];
     }),
   );
-  if (state.merged) return 'merged';
   if (state.closed) return 'closed';
   if (state.hold) return `held: ${state.hold.cause}`;
   return row.stage;
@@ -210,8 +209,7 @@ export function soakReport(facts: SoakFacts, limit: SpendLimit): SoakReport {
     const events = facts.events.get(row.workItem) ?? [];
     const end = endOf(events, row);
     const last = Date.parse(events.at(-1)?.ts ?? '') || now;
-    const finished = end === 'merged' || end === 'closed';
-    const minutes = stageMinutes(events, row.takenAt.getTime(), finished ? last : now);
+    const minutes = stageMinutes(events, row.takenAt.getTime(), end === 'closed' ? last : now);
     return {
       workItem: row.workItem,
       end,

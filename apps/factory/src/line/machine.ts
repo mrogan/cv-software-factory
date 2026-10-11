@@ -34,6 +34,18 @@
  * A work item that has spent as much on models as one may holds before its next step, since the gateway would refuse
  * every call that step made.
  *
+ * Martin's merge answers whatever held the change before it, and the work item goes on to Release and Verify:
+ *
+ *     merged → [waits for a deploy] → release started → promoted → verify → closed, verified
+ *                       ▲                    │
+ *                       └──── rolled back ───┘
+ *
+ * A merged change waits at Release, held for Martin (`deploy`), until a release that carries it starts: the deploy
+ * pull request that carries it is his to merge, and the release's start ends the hold by itself. A release that rolls
+ * back holds it again, for the next. One that promotes moves it to Verify, where the sense that saw the defect looks
+ * again; closing it as verified ends it. Work sent back to Plan from there starts a fresh pass: a new spec, a new pull
+ * request, its own gates, review, merge and release.
+ *
  * The events are folded into where the work item is (`fold`), and `decide` turns that into one next action. Each
  * action either appends events, which moves the work item on, or waits for something outside the line: the gates
  * (GitHub's checks, which the line reads and appends as events) or Martin. The bounds a step has (its turns and
@@ -90,6 +102,10 @@ export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
   review: { approved: 'approve', rejected: 'close', answered: 'return' },
   'beyond-ticket': { approved: 'approve', rejected: 'close', answered: 'replan' },
   merge: { approved: 'wait', rejected: 'close', answered: 'return' },
+  // A deploy is merged by Martin, not answered: a release that carries the change ends the hold by itself.
+  deploy: { approved: 'wait', rejected: 'close', answered: 'wait' },
+  // What his word on a verification does is Verify's to settle; until it does, the work item waits for him.
+  verify: { approved: 'wait', rejected: 'close', answered: 'wait' },
   // The cap is policy's: approving carries on, and the line holds again until the cap is raised.
   spend: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
   // The line makes no such hold yet: approving accepts the tests as they are, answering says what to test.
@@ -114,6 +130,10 @@ type Payloads = {
     | 'hold.answered'
     | 'action.refused'
     | 'pull-request.merged'
+    | 'release.started'
+    | 'release.promoted'
+    | 'release.rolled-back'
+    | 'verification.finished'
     | 'work-item.closed']: PayloadOf<K>;
 };
 
@@ -163,6 +183,19 @@ export interface WorkItemState {
    */
   answers: { asked: string; answer: string }[];
   merged: boolean;
+  /**
+   * The latest release that carried the change since its merge: how it started, its promotion once it has one, and
+   * whether it rolled back.
+   */
+  release:
+    | {
+        started: PayloadOf<'release.started'>;
+        promoted: PayloadOf<'release.promoted'> | undefined;
+        rolledBack: boolean;
+      }
+    | undefined;
+  /** The latest verification of that release, once it is promoted. */
+  verification: PayloadOf<'verification.finished'> | undefined;
   closed: boolean;
 }
 
@@ -188,6 +221,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
     answer: undefined,
     answers: [],
     merged: false,
+    release: undefined,
+    verification: undefined,
     closed: false,
   };
   for (const event of events) {
@@ -243,6 +278,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
           state.round += 1;
           if (event.payload.from === 'gates') state.gateReturns += 1;
         }
+        if (event.payload.to === 'plan') startAgain(state);
         break;
       case 'hold.started':
         state.hold = event.payload;
@@ -278,6 +314,27 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         break;
       case 'pull-request.merged':
         state.merged = true;
+        // His merge answers whatever held the change before it: the change is in, and goes on to Release.
+        state.hold = undefined;
+        break;
+      case 'release.started':
+        state.release = { started: event.payload, promoted: undefined, rolledBack: false };
+        state.verification = undefined;
+        if (state.hold?.cause === 'deploy') state.hold = undefined;
+        break;
+      // The end of a release other than the latest to carry the change says nothing about it.
+      case 'release.promoted':
+        if (state.release?.started.release === event.payload.release) {
+          state.release = { ...state.release, promoted: event.payload };
+        }
+        break;
+      case 'release.rolled-back':
+        if (state.release?.started.release === event.payload.release) {
+          state.release = { ...state.release, rolledBack: true };
+        }
+        break;
+      case 'verification.finished':
+        state.verification = event.payload;
         break;
       case 'work-item.closed':
         state.closed = true;
@@ -285,6 +342,34 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
     }
   }
   return state;
+}
+
+/**
+ * Work sent back to Plan starts a fresh pass: the planner writes a new spec, and the coder's first round, which starts
+ * without its old session, opens a new pull request, with its own gates, review, merge and release. What Martin said
+ * at Plan is kept: the planner should not forget an answer.
+ */
+function startAgain(state: WorkItemState): void {
+  Object.assign(state, {
+    spec: undefined,
+    specApproved: false,
+    respecified: false,
+    pullRequest: undefined,
+    rebuild: undefined,
+    round: 1,
+    fenced: undefined,
+    fenceRefusals: 0,
+    gates: undefined,
+    gatesPassed: false,
+    gateReturns: 0,
+    review: undefined,
+    reviews: [],
+    returns: [],
+    described: false,
+    merged: false,
+    release: undefined,
+    verification: undefined,
+  } satisfies Partial<WorkItemState>);
 }
 
 /** What approving a hold of the scope fence's says, for the planner. */
@@ -304,6 +389,11 @@ const MOVES_ON = new Set<LineEvent['type']>([
   'work-item.summarised',
   'work.returned',
   'hold.started',
+  'pull-request.merged',
+  'release.started',
+  'release.promoted',
+  'release.rolled-back',
+  'verification.finished',
 ]);
 
 /** One thing to do next. */
@@ -319,11 +409,13 @@ export type Next =
   | { do: 'return'; from: Stage; to: Stage; reason: string; blocking?: number; failed?: string[] }
   /** Hold the work item for Martin. */
   | { do: 'hold'; hold: PayloadOf<'hold.started'> }
-  /** Nothing to do until something outside the line happens. */
-  | { do: 'wait'; for: 'gates' | 'martin' }
+  /** Nothing to do until something outside the line happens: the gates, Martin, or the release in flight. */
+  | { do: 'wait'; for: 'gates' | 'martin' | 'release' }
+  /** Verify the promoted release that carries the change, by the sense that saw the defect. */
+  | { do: 'verify'; release: PayloadOf<'release.promoted'> }
   /** Close the work item unmerged, as Martin answered. */
   | { do: 'close'; reason: string }
-  /** The work item is over: merged, or closed. */
+  /** The work item is over: it closed. */
   | { do: 'finish' };
 
 /** What the line knows of a work item beside its events: its issue, and how often its step in hand has failed. */
@@ -340,7 +432,7 @@ export interface Facts {
 }
 
 /** The stage a decision puts a work item in, as the line's table records it. */
-export type QueueStage = 'plan' | 'build' | 'gates' | 'review' | 'held' | 'ended';
+export type QueueStage = 'plan' | 'build' | 'gates' | 'review' | 'release' | 'verify' | 'held' | 'ended';
 
 export interface Decision {
   stage: QueueStage;
@@ -357,10 +449,11 @@ export const STAGE_OF: Record<LineAgent, 'plan' | 'build' | 'review'> = {
 
 export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   const s = fold(events);
-  if (s.merged || s.closed) return { stage: 'ended', next: { do: 'finish' } };
+  if (s.closed) return { stage: 'ended', next: { do: 'finish' } };
   if (s.hold) return { stage: 'held', next: { do: 'wait', for: 'martin' } };
   const answered = s.answer && afterAnswer(s.answer);
   if (answered) return answered;
+  if (s.merged) return afterMerge(s);
 
   const step = (agent: LineAgent): Decision => {
     const stage = STAGE_OF[agent];
@@ -460,6 +553,22 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
         },
       };
   }
+}
+
+/** Where a merged change is: waiting for a release to carry it, in one, or verified by the sense that saw the defect. */
+function afterMerge(s: WorkItemState): Decision {
+  const { release } = s;
+  if (!release || release.rolledBack) {
+    const reason = release
+      ? `The release that carried the fix, ${release.started.version}, rolled back: it waits for the next deploy pull request to carry it`
+      : `The fix${s.pullRequest ? ` in pull request #${s.pullRequest.number}` : ''} is merged, and waits for a deploy pull request to carry it to the shop`;
+    return {
+      stage: 'held',
+      next: { do: 'hold', hold: { stage: 'release', kind: 'approval', cause: 'deploy', reason } },
+    };
+  }
+  if (!release.promoted) return { stage: 'release', next: { do: 'wait', for: 'release' } };
+  return { stage: 'verify', next: { do: 'verify', release: release.promoted } };
 }
 
 /**

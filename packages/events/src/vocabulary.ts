@@ -148,6 +148,13 @@ export const HOLD_CAUSES = [
   'beyond-ticket',
   /** The change passed its gates and review, and waits for Martin to merge it. */
   'merge',
+  /**
+   * The change is merged and waits at Release for a deploy pull request to carry it, which Martin merges. A release
+   * that carries it ends the hold by itself; one that rolls back holds it again, for the next.
+   */
+  'deploy',
+  /** Verification after the release could not settle the ticket by itself, and waits for Martin to say. */
+  'verify',
   /** The work item has spent as much on models as one may: the gateway refuses its agents' calls. */
   'spend',
   /** The change's new tests pass without the fix (the tests-first check), so they prove nothing about it. */

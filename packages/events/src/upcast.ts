@@ -39,7 +39,69 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
     // Version 4 adds a defect the planner noticed, with its fingerprint, and a fix beyond its ticket, to the causes; a
     // version 3 hold reads as it was.
     3: (payload) => payload,
+    // Version 5 adds waiting for a deploy and for Martin's word on a verification; a version 4 hold reads as it was.
+    4: (payload) => payload,
   },
+  // Version 2 of a release's events names the release, says whether the line watched it and whether the dry run
+  // answers for it, and records the analysis's own measures. A version 1 release was told apart by its version, was
+  // watched, and shipped.
+  'release.started': {
+    1: ({ digest, signed, admitted, ...payload }) => ({
+      ...payload,
+      release: payload.version,
+      image: { digest, signed, admitted },
+      watched: true,
+      dryRun: false,
+    }),
+  },
+  // A version 1 step recorded each version's figures and no measures: the steps it recorded had passed.
+  'canary.stepped': {
+    1: ({ analysis, ...payload }) => {
+      const { errorRate, p99Ms, journeys } = analysis as Record<string, Record<'canary' | 'baseline', unknown>>;
+      const of = (version: 'canary' | 'baseline') => ({
+        requests: null,
+        errorRate: errorRate?.[version] ?? null,
+        p99Ms: p99Ms?.[version] ?? null,
+        journeys: journeys?.[version] ?? null,
+      });
+      return {
+        ...payload,
+        release: payload.version,
+        analysis: { phase: 'successful', requests: null, measures: [] },
+        figures: { canary: of('canary'), baseline: of('baseline') },
+        dryRun: false,
+      };
+    },
+  },
+  'release.promoted': { 1: (payload) => ({ ...payload, release: payload.version, watched: true, dryRun: false }) },
+  // A version 1 rollback recorded one failed measure, by its label, with its series and the reason as its words.
+  'release.rolled-back': {
+    1: ({ analysis, ...payload }) => {
+      const { metric, unit, stepSeconds, canary, baseline, at } = analysis as Record<string, unknown>;
+      const name = String(metric)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+      return {
+        ...payload,
+        release: payload.version,
+        failed: [
+          {
+            name,
+            phase: 'failed',
+            value: null,
+            limit: null,
+            message: payload.reason,
+            series: { label: metric, unit, stepSeconds, canary, baseline, at },
+          },
+        ],
+        dryRun: false,
+      };
+    },
+  },
+  // Version 2 adds the sense and the version verified, and whether the dry run answers for it; a version 1
+  // verification was a sense's, though it never said which.
+  'verification.finished': { 1: (payload) => ({ ...payload, dryRun: false }) },
   // Version 2 adds the planner's findings to the kinds of work item; a version 1 work item reads as it was.
   'work-item.opened': { 1: (payload) => payload },
   // Version 2 adds the planner to the sources of a signal; a version 1 signal reads as it was.

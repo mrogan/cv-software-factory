@@ -1,5 +1,5 @@
 /** A dependency update that passed every gate, and that the canary caught and rolled back on its own. */
-import { commitFor, digestFor, Item } from '../build.ts';
+import { commitFor, Item, releaseFor, started, stepped } from '../build.ts';
 
 export default new Item('1276', '2026-10-02T08:10:00+01:00')
   .at('0:00', 'work-item.opened', 'dependabot', 'Dependabot proposed @opentelemetry/sdk-node 0.230.1', {
@@ -40,35 +40,45 @@ export default new Item('1276', '2026-10-02T08:10:00+01:00')
     commit: commitFor('1276/merge'),
     by: 'factory',
   })
-  .at('12:30', 'release.started', 'rollouts', 'v0.9.1 signed and admitted; canary at 5%', {
-    version: 'v0.9.1',
-    previous: 'v0.9.0',
-    digest: digestFor('v0.9.1'),
-    signed: true,
-    admitted: true,
-  })
-  .at('12:40', 'canary.stepped', 'rollouts', 'Canary at 5%', {
-    version: 'v0.9.1',
-    weight: 5,
-    analysis: {
+  .at('12:30', 'release.started', 'rollouts', 'v0.9.1 signed and admitted; canary at 5%', started('v0.9.1', 'v0.9.0'))
+  .at(
+    '12:40',
+    'canary.stepped',
+    'rollouts',
+    'Canary at 5%',
+    stepped('v0.9.1', 5, {
       errorRate: { canary: 0.0022, baseline: 0.0021 },
       p99Ms: { canary: 140, baseline: 138 },
       journeys: { canary: [6, 6], baseline: [24, 24] },
-    },
-  })
+      requests: { canary: 118, baseline: 2244 },
+    }),
+  )
   .at('15:54', 'release.rolled-back', 'rollouts', 'Rolled back: canary p99 412 ms against 139 ms on the baseline', {
+    release: releaseFor('v0.9.1'),
     version: 'v0.9.1',
     restored: 'v0.9.0',
     weight: 5,
     reason: 'p99 latency on the canary rose to three times the baseline’s',
-    analysis: {
-      metric: 'p99 latency',
-      unit: 'ms',
-      stepSeconds: 20,
-      canary: [140, 168, 214, 262, 318, 364, 396, 412, 409, 411, null, null, null, null],
-      baseline: [138, 141, 137, 139, 140, 138, 142, 139, 137, 140, 138, 139, 141, 139],
-      at: 10,
-    },
+    failed: [
+      {
+        name: 'latency',
+        phase: 'failed',
+        // The canary's p99, less the most the baseline allows it (139 ms and 100 ms more), in seconds.
+        value: 0.173,
+        limit: 0,
+        message: 'Metric "latency" assessed Failed due to failed (2) > failureLimit (1)',
+        series: {
+          label: 'p99 latency',
+          unit: 'ms',
+          start: '2026-10-02T07:22:34.000Z',
+          stepSeconds: 20,
+          canary: [140, 168, 214, 262, 318, 364, 396, 412, 409, 411, null, null, null, null],
+          baseline: [138, 141, 137, 139, 140, 138, 142, 139, 137, 140, 138, 139, 141, 139],
+          at: 10,
+        },
+      },
+    ],
+    dryRun: false,
   })
   .at('15:55', 'work-item.closed', 'factory', 'Closed: rolled back', {
     outcome: 'rolled-back',

@@ -1,5 +1,5 @@
 /** A defect a visitor injected from the menu: noticed in four minutes, fixed and verified in sixteen. */
-import { commitFor, digestFor, Item, traceFor } from '../build.ts';
+import { commitFor, Item, promoted, started, stepped, traceFor } from '../build.ts';
 import { shot } from '../captures.ts';
 
 export default new Item('1296', '2026-10-03T09:02:00+01:00')
@@ -72,30 +72,20 @@ export default new Item('1296', '2026-10-03T09:02:00+01:00')
     commit: commitFor('1296/merge'),
     by: 'factory',
   })
-  .at('12:40', 'release.started', 'rollouts', 'v0.9.5 signed and admitted; canary at 25%', {
-    version: 'v0.9.5',
-    previous: 'v0.9.4',
-    digest: digestFor('v0.9.5'),
-    signed: true,
-    admitted: true,
-  })
+  .at('12:40', 'release.started', 'rollouts', 'v0.9.5 signed and admitted; canary at 25%', started('v0.9.5', 'v0.9.4'))
   .at(
     '13:30',
     'canary.stepped',
     'rollouts',
     'Canary at 25%: every price above zero on the canary',
-    {
-      version: 'v0.9.5',
-      weight: 25,
-      analysis: {
-        errorRate: { canary: 0.0019, baseline: 0.0021 },
-        p99Ms: { canary: 129, baseline: 131 },
-        journeys: { canary: [24, 24], baseline: [23, 24] },
-      },
-    },
+    stepped('v0.9.5', 25, {
+      errorRate: { canary: 0.0019, baseline: 0.0021 },
+      p99Ms: { canary: 129, baseline: 131 },
+      journeys: { canary: [24, 24], baseline: [23, 24] },
+    }),
     [shot('published/home-sundries', 'v0.9.5')],
   )
-  .at('13:40', 'release.promoted', 'rollouts', 'v0.9.5 promoted to 100%', { version: 'v0.9.5', previous: 'v0.9.4' })
+  .at('13:40', 'release.promoted', 'rollouts', 'v0.9.5 promoted to 100%', promoted('v0.9.5', 'v0.9.4'))
   .verify('16:05', 'Every price above zero on every page; every page matches v0.9.3, before the injection', {
     check: 'Every price above zero, on every page',
     against: 'v0.9.3',

@@ -231,9 +231,14 @@ describe('the line', () => {
     });
 
     github.merge();
-    await pass();
-    expect(steps.finished).toEqual([workItem]);
-    expect(await stage(workItem)).toBe('ended');
+    await pass(); // the merge, and the hold at Release for a deploy to carry it
+    expect(steps.finished).toEqual([]);
+    expect(await stage(workItem)).toBe('held');
+    expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({
+      stage: 'release',
+      kind: 'approval',
+      cause: 'deploy',
+    });
     expect(await types(workItem)).toEqual([
       'work-item.opened',
       'ticket.opened',
@@ -250,7 +255,25 @@ describe('the line', () => {
       'work-item.summarised',
       'hold.started',
       'pull-request.merged',
+      'hold.started',
     ]);
+    await pass(); // nothing to do until a release carries it
+    expect(github.acts).toHaveLength(8);
+
+    // A release carries it, and it waits at Release while the canary runs, then at Verify.
+    const release = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: false };
+    const image = { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true };
+    await events.append(event(workItem, 'release.started', { ...release, image }, 'rollouts'));
+    await pass();
+    expect(await stage(workItem)).toBe('release');
+    await events.append(event(workItem, 'release.promoted', release, 'rollouts'));
+    await pass();
+    expect(await stage(workItem)).toBe('verify');
+    expect(github.acts).toHaveLength(8);
+    await events.append(event(workItem, 'work-item.closed', { outcome: 'verified', reason: 'Cleared' }));
+    await pass();
+    expect(steps.finished).toEqual([workItem]);
+    expect(await stage(workItem)).toBe('ended');
     expect((await payloads(workItem, 'pull-request.pushed'))[0]).toEqual({
       number: 12,
       title: 'fix(search): escape the query',
@@ -1066,16 +1089,16 @@ describe('the line', () => {
       expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({ kind: 'approval', cause: 'merge' });
 
       now += mergeAfterMs;
-      await pass(); // the dry run merges it, and the work item ends
+      await pass(); // the dry run merges it, and the work item waits at Release
       await pass();
-      expect(await stage(workItem)).toBe('ended');
-      expect(steps.finished).toEqual([workItem]);
+      expect(await stage(workItem)).toBe('held');
+      expect(steps.finished).toEqual([]);
       const ended = await types(workItem);
       expect(ended.filter((t) => t === 'gates.finished')).toHaveLength(2);
       expect(ended.filter((t) => t === 'review.submitted')).toHaveLength(2);
       expect(ended).toContain('work.returned');
       expect(ended).toContain('work-item.summarised');
-      expect(ended.at(-1)).toBe('pull-request.merged');
+      expect(ended.slice(-2)).toEqual(['pull-request.merged', 'hold.started']);
       expect((await payloads(workItem, 'pull-request.merged'))[0]).toMatchObject({ by: 'factory' });
     } finally {
       server.close();

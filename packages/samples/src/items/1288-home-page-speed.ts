@@ -1,5 +1,5 @@
 /** A defect the metrics noticed: the home page was slow, and is now fast, and looks exactly the same. */
-import { commitFor, digestFor, Item, traceFor } from '../build.ts';
+import { commitFor, Item, promoted, started, stepped, traceFor } from '../build.ts';
 
 const trace = traceFor('1288/slow');
 
@@ -119,24 +119,21 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
     commit: commitFor('1288/merge'),
     by: 'factory',
   })
-  .at('22:00', 'release.started', 'rollouts', 'v0.9.3 signed and admitted; canary at 25%', {
-    version: 'v0.9.3',
-    previous: 'v0.9.2',
-    digest: digestFor('v0.9.3'),
-    signed: true,
-    admitted: true,
-  })
-  .at('23:30', 'canary.stepped', 'rollouts', 'Canary at 25%: p99 92 ms against 702 ms on the baseline', {
-    version: 'v0.9.3',
-    weight: 25,
-    analysis: {
+  .at('22:00', 'release.started', 'rollouts', 'v0.9.3 signed and admitted; canary at 25%', started('v0.9.3', 'v0.9.2'))
+  .at(
+    '23:30',
+    'canary.stepped',
+    'rollouts',
+    'Canary at 25%: p99 92 ms against 702 ms on the baseline',
+    stepped('v0.9.3', 25, {
       errorRate: { canary: 0.0018, baseline: 0.002 },
       p99Ms: { canary: 92, baseline: 702 },
       journeys: { canary: [24, 24], baseline: [24, 24] },
-    },
-  })
-  .at('25:20', 'release.promoted', 'rollouts', 'v0.9.3 promoted to 100%', { version: 'v0.9.3', previous: 'v0.9.2' })
+    }),
+  )
+  .at('25:20', 'release.promoted', 'rollouts', 'v0.9.3 promoted to 100%', promoted('v0.9.3', 'v0.9.2'))
   .verify('56:00', 'p95 on / under its objective for 30 minutes, and every page unchanged', {
+    sense: 'metrics',
     check: 'p95 under 300 ms on / for 30 minutes',
     against: 'v0.9.2',
     version: 'v0.9.3',

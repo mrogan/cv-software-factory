@@ -1,5 +1,5 @@
 /** A security release of the base image: the scan's high findings gone, and no page changed. */
-import { commitFor, digestFor, Item } from '../build.ts';
+import { commitFor, Item, promoted, started, stepped } from '../build.ts';
 
 const SCAN = {
   before: { critical: 0, high: 2, medium: 5, low: 11 },
@@ -48,23 +48,19 @@ export default new Item('1282', '2026-10-02T11:30:00+01:00')
     commit: commitFor('1282/merge'),
     by: 'factory',
   })
-  .at('11:00', 'release.started', 'rollouts', 'v0.9.2 signed and admitted; canary at 25%', {
-    version: 'v0.9.2',
-    previous: 'v0.9.0',
-    digest: digestFor('v0.9.2'),
-    signed: true,
-    admitted: true,
-  })
-  .at('12:30', 'canary.stepped', 'rollouts', 'Canary at 25%: every check passing', {
-    version: 'v0.9.2',
-    weight: 25,
-    analysis: {
+  .at('11:00', 'release.started', 'rollouts', 'v0.9.2 signed and admitted; canary at 25%', started('v0.9.2', 'v0.9.0'))
+  .at(
+    '12:30',
+    'canary.stepped',
+    'rollouts',
+    'Canary at 25%: every check passing',
+    stepped('v0.9.2', 25, {
       errorRate: { canary: 0.002, baseline: 0.0021 },
       p99Ms: { canary: 131, baseline: 133 },
       journeys: { canary: [24, 24], baseline: [24, 24] },
-    },
-  })
-  .at('15:10', 'release.promoted', 'rollouts', 'v0.9.2 promoted to 100%', { version: 'v0.9.2', previous: 'v0.9.0' })
+    }),
+  )
+  .at('15:10', 'release.promoted', 'rollouts', 'v0.9.2 promoted to 100%', promoted('v0.9.2', 'v0.9.0'))
   .verify('22:00', 'Every page matches v0.9.0, to the pixel', {
     check: 'Every page compared with v0.9.0',
     against: 'v0.9.0',

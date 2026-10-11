@@ -1,7 +1,8 @@
 /**
  * The line after triage: takes tickets into Plan and carries each work item through its agents' steps, the gates
- * and review, to Martin's merge. What to do next is decided from the work item's events (`machine.ts`); this module
- * does it, and appends what happened.
+ * and review, to Martin's merge, and on to Release and Verify. What to do next is decided from the work item's events
+ * (`machine.ts`); this module does it, and appends what happened. A merged work item is held at Release until a
+ * release carries it, and waits there while the release runs; a promoted one waits at Verify.
  *
  * - A step runs in a runner (`Steps`), and its handback becomes events: the agent's result read through its schema,
  *   what the result does in GitHub (both in the agent's module, `agents/`), and one `model.called` with the step's
@@ -17,7 +18,7 @@
  *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end.
  * - When the line stops, it stops every step in hand, wherever it is, and takes nothing new; their work is lost and
  *   nothing of it is recorded, so starting again runs those steps afresh from the last event.
- * - When a work item ends, merged or closed, its runners' volume is deleted.
+ * - When a work item ends, closed, its runners' volume is deleted.
  *
  * In a dry run, a pull request's head is a commit GitHub never had: the GitHub worker says which real commit it went
  * on and what the dry run's commits were, and the runner makes them before the step starts.
@@ -239,7 +240,8 @@ export class Line {
         await this.#queue.drop(item.workItem);
         item = { ...item, effects: null };
       }
-      if (next.do === 'wait') {
+      // Verifying is not the line's to do yet: a promoted release's work item waits at Verify.
+      if (next.do === 'wait' || next.do === 'verify') {
         if (stage !== item.stage && (await this.#queue.claim(item.workItem, ACTION_LEASE_SECONDS))) {
           await this.#queue.release(item.workItem, stage);
         }
@@ -304,7 +306,11 @@ export class Line {
   }
 
   /** An action that is not a step: quick, and done before the next. */
-  async #act(item: QueueItem, next: Exclude<Next, { do: 'step' | 'wait' }>, state: WorkItemState): Promise<void> {
+  async #act(
+    item: QueueItem,
+    next: Exclude<Next, { do: 'step' | 'wait' | 'verify' }>,
+    state: WorkItemState,
+  ): Promise<void> {
     const { workItem } = item;
     switch (next.do) {
       case 'open-issue': {
@@ -596,7 +602,8 @@ export class Line {
       try {
         const { raw } = await this.#raw(item.workItem);
         const state = fold(raw as LineEvent[]);
-        if (!state.pullRequest) continue;
+        // Once merged, the pull request has nothing more to say: the release carries the work item on.
+        if (!state.pullRequest || state.merged) continue;
         const pr = await github.read('pullRequest', repo, { number: state.pullRequest.number });
         const runs = pr.state === 'open' ? await github.read('checkRuns', repo, { sha: pr.head.sha }) : [];
         required ??= await github.read('requiredChecks', repo, { branch: 'main' });
