@@ -52,6 +52,7 @@ import { release as RELEASE } from '../../../../policy/release.ts';
 import { type Carry, DEPLOYS, MAX_CARRIES } from '../github/deploys.ts';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../github/server.ts';
 import { GitHubWorkerError } from '../github/worker-client.ts';
+import type { PictureIndex } from '../pictures/index.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
 import {
   type Bounds,
@@ -81,6 +82,7 @@ import {
   type WorkItemState,
 } from './machine.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
+import { pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem } from './queue.ts';
 import { carried, Releases, type ReleaseWatchOptions } from './release.ts';
 import {
@@ -137,6 +139,12 @@ export interface LineOptions {
   dryRunReleaseMs?: number;
   /** Where Verify looks: the probes worker, Prometheus and Loki. A sense with none waits at Verify. */
   verify?: VerifyClients;
+  /**
+   * The index of the pictures the probes worker took while each canary ran (`pictures/`), for the pages a verification
+   * compares with the version before; null, as by default, compares none. The line's event writer must know the
+   * pictures' artifacts (`IndexedArtifacts`).
+   */
+  pictures?: Pick<PictureIndex, 'of' | 'lookOf'> | null;
   /** How long the line waits to look again when a sense could not tell (`policy/release.ts`'s `verify`). */
   verifyEveryMs?: number;
   /** How long after the promotion a sense may go on not telling before the work item holds for Martin. */
@@ -211,6 +219,7 @@ export class Line {
       dryRun: false,
       dryRunReleaseMs: 60_000,
       verify: {},
+      pictures: null,
       verifyEveryMs: RELEASE.verify.everyMinutes * 60_000,
       verifyWaitMs: RELEASE.verify.waitHours * 60 * 60_000,
       takesWork: true,
@@ -552,9 +561,10 @@ export class Line {
   async #look(workItem: string, promoted: PayloadOf<'release.promoted'>, signal: AbortSignal): Promise<void> {
     const target = await this.#target(workItem, promoted);
     const now = this.#o.now();
+    const first = await this.#firstSignal(workItem);
     let found: Look;
     try {
-      found = await look(await this.#firstSignal(workItem), target, {
+      found = await look(first, target, {
         ...this.#o.verify,
         now,
         dryRun: this.#o.dryRun,
@@ -572,6 +582,8 @@ export class Line {
         return;
       }
     }
+    // Read only when something is appended: a look that cannot tell yet comes round every few minutes.
+    const shown = () => this.#pictures(promoted, first);
     switch (found.kind) {
       case 'wait': {
         const hours = this.#o.verifyWaitMs / 3_600_000;
@@ -583,24 +595,32 @@ export class Line {
         // A sense that still cannot tell long after the release may never: Martin judges, told why.
         const reason = `Verify could not tell in ${hours} hours after the release: ${found.why}`.slice(0, 300);
         await this.#append(workItem, [
-          holdDraft('factory', { stage: 'verify', kind: 'held', cause: 'verify', reason }),
+          {
+            ...holdDraft('factory', { stage: 'verify', kind: 'held', cause: 'verify', reason }),
+            artifacts: (await shown()).artifacts,
+          },
         ]);
         await this.#queue.moved(workItem);
         return;
       }
       case 'hold':
+        // Martin judges with the pictures before him: every page on the version before and on the fix's.
         await this.#append(workItem, [
-          holdDraft('factory', {
-            stage: 'verify',
-            kind: 'approval',
-            cause: 'verify',
-            reason: found.reason.slice(0, 300),
-          }),
+          {
+            ...holdDraft('factory', {
+              stage: 'verify',
+              kind: 'approval',
+              cause: 'verify',
+              reason: found.reason.slice(0, 300),
+            }),
+            artifacts: (await shown()).artifacts,
+          },
         ]);
         await this.#queue.moved(workItem);
         return;
       case 'finished': {
-        const { verification: v } = found;
+        const { pages, artifacts } = await shown();
+        const v = { ...found.verification, pages };
         const said = v.dryRun ? 'by the dry run’s word' : `by the ${v.sense ?? 'sense'}`;
         await this.#append(workItem, [
           {
@@ -608,6 +628,7 @@ export class Line {
             actor: v.sense && v.sense !== 'report' && !v.dryRun ? v.sense : 'factory',
             summary: `${v.outcome === 'cleared' ? 'Cleared' : 'Persists'} on ${v.version?.slice(0, 7)}, ${said}`,
             payload: v,
+            artifacts,
           },
         ]);
         this.#lookAgainAt.delete(workItem);
@@ -636,6 +657,28 @@ export class Line {
       where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true and seq >= ${own.seq}
       order by seq desc limit 1`;
     return { ...base, version: latest?.version ?? promoted.version, at: new Date(latest?.ts ?? own.ts) };
+  }
+
+  /**
+   * The pages pictured while the release that carried the fix ran as a canary beside the version before, with the
+   * ticket's own marked (`pictures.ts`). A dry run's release never ran, and has none.
+   */
+  async #pictures(promoted: PayloadOf<'release.promoted'>, first: FirstSignal | undefined) {
+    const { pictures } = this.#o;
+    if (!pictures || promoted.dryRun) return { pages: [], artifacts: [] };
+    try {
+      const taken = await pictures.of(promoted.version, promoted.previous);
+      if (!taken.length) return { pages: [], artifacts: [] };
+      const look = first && (await pictures.lookOf(first.sense, first.check, first.route));
+      const shown = pagesFor(taken, { route: first?.route ?? '*', ...(look && { path: look.path }) });
+      if (first && !shown.pages.some((p) => p.intended)) {
+        this.#o.log.info({ release: promoted.release, route: first.route }, 'no page pictured is the ticket’s own');
+      }
+      return shown;
+    } catch (error) {
+      this.#o.log.warn({ release: promoted.release, err: errorOf(error) }, 'the release’s pictures could not be read');
+      return { pages: [], artifacts: [] };
+    }
   }
 
   /** The ticket's first signal: its sense, check, route and evidence, never a report's words. */

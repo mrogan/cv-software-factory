@@ -56,7 +56,14 @@ const durationOf = (run: CheckRun) =>
   run.startedAt && run.completedAt ? Math.max(0, Date.parse(run.completedAt) - Date.parse(run.startedAt)) : 0;
 
 type Draft = {
-  [K in EventType]: { type: K; actor: NewEvent['actor']; summary: string; payload: PayloadOf<K> };
+  [K in EventType]: {
+    type: K;
+    actor: NewEvent['actor'];
+    summary: string;
+    payload: PayloadOf<K>;
+    /** Pictures the probes worker took (`pictures/`): the line has no artifacts of its own. */
+    artifacts?: NewEvent['artifacts'];
+  };
 }[EventType];
 
 /**
@@ -165,7 +172,7 @@ export const asEvent = (workItem: string | null, draft: Draft, ts: string): NewE
     actor: draft.actor,
     summary: draft.summary,
     payload: draft.payload,
-    artifacts: [],
+    artifacts: draft.artifacts ?? [],
   }) as NewEvent;
 
 export type { Draft };

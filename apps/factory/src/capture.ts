@@ -54,6 +54,65 @@ export async function capture(page: Page, store: ArtifactStore, options: Capture
   };
 }
 
+export interface PageCaptureOptions extends CaptureOptions {
+  /** The tallest the screenshot may be, in CSS pixels, from the top of the page. */
+  maxHeight: number;
+}
+
+/**
+ * Screenshots the whole page from its top, down to `maxHeight`, for comparing one version of a page with another:
+ * what has changed below the fold counts too. The boxes are in the page's own coordinates, and an element that is not
+ * on the page, or not in the picture, has none: a page that changed may have lost it. The PNG comes back with its
+ * reference, to be compared.
+ */
+export async function capturePage(
+  page: Page,
+  store: ArtifactStore,
+  options: PageCaptureOptions,
+): Promise<{ png: Uint8Array; screenshot: Screenshot }> {
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error('A capture needs a page with a fixed viewport');
+  await page.evaluate('window.scrollTo(0, 0)');
+  const tall = Number(await page.evaluate('document.documentElement.scrollHeight'));
+  const width = viewport.width;
+  const height = Math.max(viewport.height, Math.min(Math.round(tall) || 0, options.maxHeight));
+  // The page laid out at the picture's size, before anything is measured: a full-page screenshot would resize the
+  // viewport itself, and a page sized by the viewport's height would move under the boxes.
+  await page.setViewportSize({ width, height });
+  const boxes: Screenshot['boxes'] = [];
+  for (const check of (options.checks ?? []).slice(0, 4)) {
+    const box = await page
+      .locator(check.selector)
+      .first()
+      .boundingBox({ timeout: 2_000 })
+      .catch(() => null);
+    if (!box) continue;
+    const x = Math.max(0, Math.round(box.x));
+    const y = Math.max(0, Math.round(box.y));
+    const w = Math.round(Math.min(box.x + box.width, width) - x);
+    const h = Math.round(Math.min(box.y + box.height, height) - y);
+    if (w > 0 && h > 0)
+      boxes.push({ x, y, width: w, height: h, kind: check.kind, ...(check.label && { label: check.label }) });
+  }
+  const png = await page
+    .screenshot({ type: 'png', clip: { x: 0, y: 0, width, height }, animations: 'disabled', caret: 'hide' })
+    .finally(() => page.setViewportSize(viewport));
+  return {
+    png,
+    screenshot: {
+      kind: 'screenshot',
+      hash: await store.put(png),
+      type: 'image/png',
+      size: png.byteLength,
+      route: options.route,
+      version: options.version,
+      width,
+      height,
+      boxes,
+    },
+  };
+}
+
 /**
  * Runs in the browser, where images decode for free: the share of pixels that differ between two images of the
  * same size. A string, because this package is type-checked for Node, not for the DOM.

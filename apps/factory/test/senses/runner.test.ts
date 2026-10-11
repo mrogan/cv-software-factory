@@ -298,3 +298,41 @@ describe('start', () => {
     expect(passes).toHaveLength(2);
   });
 });
+
+describe('where a finding was', () => {
+  it('is remembered when the finding is signalled, for the pictures to box it', async () => {
+    const results = [broken, broken];
+    const sense: Sense = {
+      name: 'crawler',
+      async pass() {
+        const finding = results.shift() ?? null;
+        const look = { path: '/things/one', elements: [{ selector: 'main h1', kind: 'problem' as const }] };
+        return [{ check: 'one', route: '/things/:thing', finding, artifacts: [], ...(finding && { look }) }];
+      },
+    };
+    const remembered: unknown[] = [];
+    const state = { now: Date.parse('2026-10-03T12:00:00Z') };
+    const watched = new SenseRunner({
+      sense,
+      version: async () => V1,
+      send: async () => {},
+      remember: async (look, at) => void remembered.push({ ...look, at: at.toISOString() }),
+      log: pino({ level: 'silent' }),
+      now: () => state.now,
+    });
+    await watched.tick();
+    expect(remembered).toEqual([]);
+    state.now += 5 * MINUTE;
+    await watched.tick();
+    expect(remembered).toEqual([
+      {
+        sense: 'crawler',
+        check: 'one',
+        route: '/things/:thing',
+        path: '/things/one',
+        elements: [{ selector: 'main h1', kind: 'problem' }],
+        at: '2026-10-03T12:05:00.000Z',
+      },
+    ]);
+  });
+});

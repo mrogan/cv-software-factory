@@ -10,29 +10,38 @@
  *
  * `run` also serves the page reader for triage (`POST /v1/pages` with a path, and `GET /health`) on PORT, 8080 by
  * default; and for the line's Verify, on VERIFY_PORT, 8081 by default, runs a ticket's probe or crawl again
- * (`POST /v1/verify`, `probes/verify.ts`).
+ * (`POST /v1/verify`, `probes/verify.ts`). Given CANARY_URL, the canary Service's address, it pictures every page on
+ * the stable version and on the canary while a canary runs, and compares them (`pictures/take.ts`).
  *
  * Settings, from the environment: APP_URL, the app's address; ARTIFACTS_DIR, the artifact store's folder (`once`
  * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as the factory's
  * writer; PROBE_INTERVAL, seconds between runs, 300 by default; VERSION_POLL, seconds between looks at the app's
- * version, 15 by default; CRAWL_LIMIT, the most resources a crawl that Verify asks for reads, 150 by default.
+ * version, 15 by default; CRAWL_LIMIT, the most resources a crawl that Verify asks for reads, 150 by default;
+ * CANARY_URL, unset by default, when no pictures are taken.
  */
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DiskArtifacts } from '@software-factory/store';
 import postgres from 'postgres';
+import { capturePage } from '../capture.ts';
 import { log } from '../log.ts';
 import { inbox } from '../outbox.ts';
+import { PictureIndex } from '../pictures/index.ts';
+import { Pictures } from '../pictures/take.ts';
 import { probes } from '../probes/index.ts';
 import { readerServer } from '../probes/reader.ts';
 import { Verifications, verifyCheck, verifyServer } from '../probes/verify.ts';
 import { versionOf } from '../senses/http.ts';
 import { observeApp } from '../senses/observe.ts';
 import { SenseRunner } from '../senses/runner.ts';
+import { discover, httpGet } from '../traffic/traffic.ts';
 
 export const USAGE = `  factory probes run
   factory probes once`;
+
+/** The tallest a page's picture is: two screens of the browser's 800, enough to see what a release changed. */
+const PICTURE_HEIGHT = 1_600;
 
 const seconds = (name: string, fallback: number): number => {
   const value = Number(process.env[name] ?? fallback);
@@ -87,13 +96,32 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
   const sql = process.env.DATABASE_URL
     ? postgres(process.env.DATABASE_URL, { onnotice: () => {} })
     : postgres({ onnotice: () => {} });
+  const index = new PictureIndex(sql);
   const runner = new SenseRunner({
     sense,
     log,
     version: () => versionOf(app),
     send: inbox(sql).send,
+    remember: (look, at) => index.remember(look, at),
     every: seconds('PROBE_INTERVAL', 300),
   });
+  const canary = process.env.CANARY_URL?.replace(/\/$/, '');
+  const pictures =
+    canary &&
+    new Pictures({
+      stable: app.replace(/\/$/, ''),
+      canary,
+      version: versionOf,
+      pages: (at) => discover(httpGet(at)),
+      shoot: (at, path, { route, version, elements }) =>
+        sense.withPage(async (page) => {
+          await page.goto(new URL(path, at).href, { waitUntil: 'load' });
+          return capturePage(page, store, { route, version, checks: elements, maxHeight: PICTURE_HEIGHT });
+        }),
+      index,
+      store,
+      log,
+    });
   const limit = Number(process.env.CRAWL_LIMIT ?? 150);
   const verifications = new Verifications((request) =>
     verifyCheck((only) => observeApp(app, only, { store, log, limit }), request),
@@ -107,11 +135,14 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
   await new Promise<void>((resolve) => verifier.listen(verifyPort, resolve));
   log.info({ port: verifyPort }, 'the verification is listening');
   const stop = runner.start(seconds('VERSION_POLL', 15));
+  const stopPictures = pictures ? pictures.start(seconds('VERSION_POLL', 15)) : async () => {};
+  if (pictures) log.info({ canary }, 'pictures are taken while a canary runs');
   await new Promise<void>((resolve) => {
     process.once('SIGINT', resolve);
     process.once('SIGTERM', resolve);
   });
   await stop();
+  await stopPictures();
   await new Promise((resolve) => reader.close(resolve));
   await new Promise((resolve) => verifier.close(resolve));
   await sql.end();

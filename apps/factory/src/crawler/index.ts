@@ -9,7 +9,7 @@
  * page was opened, and is trouble on those where a link led to no page, so that a route the crawl could not see
  * into never passes. A class found on every page crawled is one finding on `*` instead of one on each route.
  */
-import type { ArtifactRef, Evidence, SymptomClass } from '@software-factory/events';
+import type { Evidence, SymptomClass } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
 import type { Browser } from 'playwright';
 import { capture } from '../capture.ts';
@@ -112,7 +112,7 @@ export class Crawler implements Sense {
             check: `${symptom}@${route}`.slice(0, 80),
             route,
             finding: found ?? null,
-            artifacts: found ? await this.keep(context, found, version, template) : [],
+            ...(found ? await this.keep(context, found, version, template) : { artifacts: [] }),
             ...(unknown && { trouble: unknown.message }),
           });
         }
@@ -133,7 +133,7 @@ export class Crawler implements Sense {
     found: Issue,
     version: string,
     template: (path: string) => string,
-  ): Promise<ArtifactRef[]> {
+  ): Promise<Pick<Observation, 'artifacts' | 'look'>> {
     const { app, store, log } = this.options;
     const page = await context.newPage();
     page.setDefaultTimeout(2_000);
@@ -143,21 +143,20 @@ export class Crawler implements Sense {
         timeout: this.options.pageTimeout ?? PAGE_TIMEOUT,
       });
       const route = template(found.at);
-      const look = (found.look ?? []).slice(0, 4);
-      for (const box of look)
+      const elements = (found.look ?? []).slice(0, 4);
+      for (const box of elements)
         await page
           .locator(box.selector)
           .first()
           .scrollIntoViewIfNeeded()
           .catch(() => {});
-      return [
-        await capture(page, store, { route, version, checks: look }).catch(() =>
-          capture(page, store, { route, version }),
-        ),
-      ];
+      const shot = await capture(page, store, { route, version, checks: elements }).catch(() =>
+        capture(page, store, { route, version }),
+      );
+      return { artifacts: [shot], ...(shot.boxes.length && { look: { path: found.at, elements } }) };
     } catch (error) {
       log.warn({ err: String(error).split('\n')[0], route: found.route }, 'no screenshot of a finding');
-      return [];
+      return { artifacts: [] };
     } finally {
       await page.close().catch(() => {});
     }

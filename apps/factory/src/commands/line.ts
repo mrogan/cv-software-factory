@@ -218,10 +218,12 @@ async function serve(): Promise<number> {
   // Off, the line takes no work, but still stops what the step API started when the line stops.
   const { Line } = await import('../line/worker.ts');
   const { ProbesClient } = await import('../line/verify.ts');
+  const { IndexedArtifacts, PictureIndex } = await import('../pictures/index.ts');
   const line = new Line({
     sql,
-    // Line events carry no artifacts, so the writer never looks in the artifact store.
-    events: new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts('/nonexistent') }),
+    // The line's only artifacts are the pictures the probes worker took, which its index vouches for.
+    events: new EventWriter(sql, { kind: 'real', artifacts: new IndexedArtifacts(sql) }),
+    pictures: new PictureIndex(sql),
     steps: runners,
     github: new GitHubWorker(env.GITHUB_WORKER_URL ?? 'http://github:8080', { dryRun: mode !== 'live' }),
     log,
