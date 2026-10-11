@@ -188,28 +188,45 @@ describe('acting in GitHub', () => {
     ]);
   });
 
-  it('closes an issue with a comment saying why, and says nothing on one already closed', async () => {
+  it('closes an issue with a comment saying why, once, and says nothing on one already closed', async () => {
     let state = 'open';
+    let failClose = 1;
+    const comments: { body: string }[] = [];
     const { github, sent } = client([
       { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { state } }) },
-      { method: 'POST', path: `/repos/${REPO}/issues/16/comments`, answer: () => ({ status: 201, body: {} }) },
+      { method: 'GET', path: /^\/repos\/.+\/issues\/16\/comments/, answer: () => ({ body: comments }) },
+      {
+        method: 'POST',
+        path: `/repos/${REPO}/issues/16/comments`,
+        answer: ({ body }) => {
+          comments.push(body as { body: string });
+          return { status: 201, body: {} };
+        },
+      },
       {
         method: 'PATCH',
         path: `/repos/${REPO}/issues/16`,
         answer: () => {
+          if (failClose-- > 0) return { status: 422, body: { message: 'Validation Failed' } };
           state = 'closed';
           return { body: {} };
         },
       },
     ]);
     const actions = new LiveActions(github);
+    // The first close comments, and its closing fails; trying again closes it, saying nothing twice.
+    await expect(actions.closeIssue(REPO, 16, 'completed', 'Verified in production.')).rejects.toThrow();
     await actions.closeIssue(REPO, 16, 'completed', 'Verified in production.');
     await actions.closeIssue(REPO, 16, 'completed', 'Verified in production.');
-    expect(calls(sent).map((s) => [s.method, s.path, s.body])).toEqual([
-      ['GET', `/repos/${REPO}/issues/16`, undefined],
-      ['POST', `/repos/${REPO}/issues/16/comments`, { body: 'Verified in production.' }],
-      ['PATCH', `/repos/${REPO}/issues/16`, { state: 'closed', state_reason: 'completed' }],
-      ['GET', `/repos/${REPO}/issues/16`, undefined],
+    expect(comments).toEqual([{ body: 'Verified in production.' }]);
+    expect(
+      calls(sent)
+        .filter((s) => s.method !== 'GET')
+        .map((s) => [s.method, s.body]),
+    ).toEqual([
+      ['POST', { body: 'Verified in production.' }],
+      ['PATCH', { state: 'closed', state_reason: 'completed' }],
+      ['PATCH', { state: 'closed', state_reason: 'completed' }],
     ]);
   });
 });

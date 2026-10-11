@@ -174,8 +174,8 @@ export interface Actions {
   updateCheckRun(repo: string, id: number, report: Partial<CheckRunReport>): Promise<void>;
   openIssue(repo: string, issue: { title: string; body: string; labels?: string[] }): Promise<number>;
   /**
-   * Closes an issue. With a comment, it first says why on the issue, and only while the issue is open: closing one
-   * already closed says nothing again.
+   * Closes an issue. With a comment, it first says why on the issue, and only while the issue is open and does not say
+   * it already: closing one already closed, or trying again after a close that failed, says nothing again.
    */
   closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void>;
   comment(repo: string, number: number, body: string): Promise<void>;
@@ -382,7 +382,13 @@ export class LiveActions implements Actions {
     if (comment !== undefined) {
       const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, z.object({ state: z.string() }));
       if (issue.state !== 'open') return;
-      await this.comment(repo, number, comment);
+      // A close whose comment was made and whose closing failed is tried again: the comment is not made twice.
+      const said = await this.#github.read(
+        repo,
+        `/repos/${repo}/issues/${number}/comments?per_page=100`,
+        z.array(z.object({ body: z.string().nullable() })),
+      );
+      if (!said.some((made) => made.body === comment)) await this.comment(repo, number, comment);
     }
     await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
       state: 'closed',

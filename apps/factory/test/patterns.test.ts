@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { LogRecord } from '../src/clients/loki.ts';
 import type { Tempo } from '../src/clients/tempo.ts';
 import { signalForPattern } from '../src/logs/errors.ts';
-import { describe as describeRecord, errorRecords, keptPattern, PatternMemory, reduce } from '../src/logs/patterns.ts';
+import {
+  describe as describeRecord,
+  errorRecords,
+  keptPattern,
+  PatternMemory,
+  reduce,
+  sameError,
+} from '../src/logs/patterns.ts';
 import { ns } from './fakes.ts';
 
 describe('reducing a message to a pattern', () => {
@@ -151,5 +158,30 @@ describe('a pattern rebuilt from the lines a signal kept', () => {
     // A route with no parameter, or none at all, is compared as it is.
     expect(keptPattern('GET /about failed', '/about')).toBe('GET /about failed');
     expect(keptPattern('Pool ended after 3 tries', '*')).toBe('Pool ended after <n> tries');
+  });
+});
+
+describe('the same error as a kept line', () => {
+  const route = '/departments/:department';
+  const kept = 'GET /departments/garden failed: TypeError: no "slug" on 42';
+  const record = (line: string, fields: Record<string, string>) => ({ ns: '1', time: new Date(0), line, fields });
+
+  it('is the exception the watcher grouped it by, whatever the line before it says', () => {
+    const exception = {
+      route,
+      path: '/departments/kitchen',
+      exception_type: 'TypeError',
+      exception_message: 'no "id" on 7',
+    };
+    const posted = record('POST /departments/kitchen failed', exception);
+    expect(sameError(posted, 'POST /departments/kitchen failed: TypeError: no "id" on 7', kept, route)).toBe(true);
+    const other = record('GET /departments/kitchen failed', { ...exception, exception_type: 'RangeError' });
+    expect(sameError(other, 'GET /departments/kitchen failed: RangeError: no "id" on 7', kept, route)).toBe(false);
+  });
+
+  it('is the whole line, where no exception is attached', () => {
+    const plain = record('GET /departments/kitchen failed', { route });
+    expect(sameError(plain, 'GET /departments/kitchen failed', 'GET /departments/garden failed', route)).toBe(true);
+    expect(sameError(plain, 'GET /departments/kitchen failed', 'POST /departments/garden failed', route)).toBe(false);
   });
 });

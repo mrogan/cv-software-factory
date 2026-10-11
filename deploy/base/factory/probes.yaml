@@ -43,6 +43,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            # The line's Verify, on a port of its own: the line may reach it, and not the page reader.
+            - name: verify
+              containerPort: 8081
           env:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector.telemetry:4318"

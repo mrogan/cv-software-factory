@@ -168,8 +168,8 @@ const ACTION_LEASE_SECONDS = 300;
 const leaseFor = (deadlineSeconds: number) => deadlineSeconds + 900;
 /** The lease for a handback's effects, renewed before them: a few writes in GitHub, each up to two minutes. */
 const EFFECTS_LEASE_SECONDS = 900;
-/** The lease for a look at Verify: a crawl run up to four times, and some to spare. */
-const VERIFY_LEASE_SECONDS = 1800;
+/** The lease for a look at Verify: the probes' half hour for a crawl run up to four times, and some to spare. */
+const VERIFY_LEASE_SECONDS = 2700;
 /** How long the line waits before trying a handback's effects again: doubling from 30 seconds, to 10 minutes. */
 const retryAfterMs = (tries: number) => Math.min(30_000 * 2 ** (tries - 1), 600_000);
 
@@ -527,6 +527,14 @@ export class Line {
       found = { kind: 'wait', why: `the sense could not be asked: ${errorOf(error).message}` };
     }
     if (signal.aborted) return;
+    // A release promoted while the sense looked: what it saw was of a version no longer stable. Look again at once.
+    if (found.kind === 'finished' && !target.dryRun) {
+      const stable = await this.#target(workItem, promoted);
+      if (stable.version !== target.version) {
+        this.#o.log.info({ workItem, looked: target.version, stable: stable.version }, 'a release came between');
+        return;
+      }
+    }
     switch (found.kind) {
       case 'wait': {
         const hours = this.#o.verifyWaitMs / 3_600_000;

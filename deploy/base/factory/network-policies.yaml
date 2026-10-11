@@ -300,7 +300,8 @@ spec:
         - { protocol: TCP, port: 3200 } # Tempo
 ---
 # The probes look at the app; triage may call their page reader, and the line their verification, which runs a ticket's
-# check again after a release. The crawler looks at the app.
+# check again after a release, on a port of its own: the line may not have the reader show it the app's pages. The
+# crawler looks at the app.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -315,10 +316,16 @@ spec:
   ingress:
     - from:
         - podSelector:
-            matchExpressions:
-              - { key: app.kubernetes.io/name, operator: In, values: [triage, line] }
+            matchLabels:
+              app.kubernetes.io/name: triage
       ports:
         - { protocol: TCP, port: 8080 }
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: line
+      ports:
+        - { protocol: TCP, port: 8081 }
   egress:
     - to:
         - namespaceSelector:
@@ -413,7 +420,7 @@ spec:
             matchLabels:
               app.kubernetes.io/name: probes
       ports:
-        - { protocol: TCP, port: 8080 }
+        - { protocol: TCP, port: 8081 }
 ---
 # The traffic generator reaches the shop through Traefik, its front door, and nothing else: not the app's Services,
 # whose pods would skip the canary's split. A policy sees the connection after the Service has translated it, so the

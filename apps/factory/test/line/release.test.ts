@@ -523,6 +523,49 @@ describe('Verify on the line', () => {
     expect(github.acts.filter((a) => a.action === 'closeIssue')).toEqual([]);
   });
 
+  it('drops what a sense saw when a release promoted while it looked, and looks again at the new one', async () => {
+    const workItem = await merged(30, FIX_3);
+    await promote(workItem);
+    const later = 'e'.repeat(40);
+    const asked: string[] = [];
+    const probes = {
+      verify: async () => {
+        asked.push('verify');
+        if (asked.length === 1) {
+          // Meanwhile, another release goes out, on the line.
+          await events.append([
+            event(
+              null as unknown as string,
+              'release.promoted',
+              {
+                release: 'f00dfeed09',
+                version: later,
+                previous: commitOf(CANARY),
+                commit: later,
+                watched: true,
+                dryRun: false,
+              },
+              'rollouts',
+            ),
+          ]);
+          return {
+            outcome: 'cleared' as const,
+            version: commitOf(CANARY),
+            runs: ['passed' as const, 'passed' as const],
+          };
+        }
+        return { outcome: 'cleared' as const, version: later, runs: ['passed' as const, 'passed' as const] };
+      },
+    };
+    const { line: it } = line({ release: null, verify: { probes } });
+    await pass(it);
+    expect(await types(workItem)).not.toContain('verification.finished');
+    await pass(it);
+    expect(await payloads(workItem, 'verification.finished')).toEqual([
+      expect.objectContaining({ outcome: 'cleared', version: later }),
+    ]);
+  });
+
   it('holds for Martin when only a visitor’s report saw the defect, and closes it as verified on his approval', async () => {
     const workItem = await merged(30, FIX_3, 'report');
     await promote(workItem);

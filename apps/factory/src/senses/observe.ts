@@ -18,12 +18,16 @@ export interface ObserveOptions {
   limit: number;
 }
 
-/** Runs the senses against the app at `url`, or only those that make `only`, and says what each check saw. */
+/**
+ * Runs the senses against the app at `url`, or only those that make `only`, and says what each check saw, with the
+ * version the app ran before and after: `after` differs, or is null when the app did not say, when a release came
+ * between and what was seen may be of either.
+ */
 export async function observeApp(
   url: string,
   only: readonly Pick<Seen, 'sense' | 'check'>[] | undefined,
   { store, log, limit }: ObserveOptions,
-): Promise<{ version: string; seen: Seen[] }> {
+): Promise<{ version: string; seen: Seen[]; after: string | null }> {
   const app = url.replace(/\/$/, '');
   const version = await versionOf(app);
   const again = only && toRunAgain(only);
@@ -50,5 +54,6 @@ export async function observeApp(
       await sense.close();
     }
   }
-  return { version, seen };
+  const after = await versionOf(app).catch(() => null);
+  return { version, seen, after };
 }

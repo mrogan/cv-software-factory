@@ -110,7 +110,7 @@ describe('the line’s Verify', () => {
     const egress = peers((await policy('line')).spec.egress, 'to');
     expect(egress).toContainEqual({
       peers: [['factory', { matchLabels: { 'app.kubernetes.io/name': 'probes' } }]],
-      ports: ['TCP/8080'],
+      ports: ['TCP/8081'],
     });
     expect(egress).toContainEqual({
       peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'loki' } }]],
@@ -129,17 +129,10 @@ describe('the line’s Verify', () => {
     expect(egress.flatMap((rule) => rule.ports)).not.toContain('TCP/3200');
   });
 
-  it('is let in by the probes, as triage is, and nobody else is', async () => {
+  it('is let in by the probes on the verification’s port alone, and the page reader’s is triage’s', async () => {
     expect(peers((await policy('probes')).spec.ingress, 'from')).toEqual([
-      {
-        peers: [
-          [
-            'factory',
-            { matchExpressions: [{ key: 'app.kubernetes.io/name', operator: 'In', values: ['triage', 'line'] }] },
-          ],
-        ],
-        ports: ['TCP/8080'],
-      },
+      { peers: [['factory', { matchLabels: { 'app.kubernetes.io/name': 'triage' } }]], ports: ['TCP/8080'] },
+      { peers: [['factory', { matchLabels: { 'app.kubernetes.io/name': 'line' } }]], ports: ['TCP/8081'] },
     ]);
   });
 });

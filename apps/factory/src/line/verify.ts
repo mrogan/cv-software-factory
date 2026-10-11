@@ -32,7 +32,7 @@ import type { Loki } from '../clients/loki.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
 import { measureOfCheck } from '../intake/alerts.ts';
 import { keptLine } from '../logs/errors.ts';
-import { keptPattern } from '../logs/patterns.ts';
+import { sameError } from '../logs/patterns.ts';
 import { errorLogs } from '../logs/watcher.ts';
 import type { VerifyAnswer, VerifyRequest } from '../probes/verify.ts';
 import { requestLogs } from '../routes.ts';
@@ -268,16 +268,12 @@ async function byPattern(signal: FirstSignal, target: Target, c: Context): Promi
     c.loki.instant(`sum(count_over_time(${requestLogs(o)} | ${version}${requestsTo} [${windowMinutes}m]))`, c.now),
   ]);
   const requested = Math.round(served[0]?.value ?? 0);
-  const patterns = new Set(
-    signal.evidence.flatMap((e) =>
-      e.kind === 'logs' ? e.lines.map((line) => keptPattern(line.message, signal.route)) : [],
-    ),
-  );
+  const kept = signal.evidence.flatMap((e) => (e.kind === 'logs' ? e.lines.map((line) => line.message) : []));
   // A signal that kept no line names its route alone: any error there is the same, as far as anyone can tell.
   const same = errors.filter(
     (record) =>
       (record.fields.route || '*') === signal.route &&
-      (!patterns.size || patterns.has(keptPattern(keptLine(record).message, signal.route))),
+      (!kept.length || kept.some((line) => sameError(record, keptLine(record).message, line, signal.route))),
   );
   const lines = (records: typeof same): Evidence => ({
     kind: 'logs',

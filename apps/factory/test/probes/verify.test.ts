@@ -3,18 +3,16 @@
  * beside the page reader. The senses are stood in for: what they see is the test's.
  */
 import type { Evidence } from '@software-factory/events';
-import { DiskArtifacts } from '@software-factory/store';
 import { describe, expect, it } from 'vitest';
 import type { Seen } from '../../src/gates/journeys.ts';
 import { ProbesClient } from '../../src/line/verify.ts';
-import { readerServer } from '../../src/probes/reader.ts';
 import {
   type ObserveStable,
   oneAtATime,
   Verifications,
   type VerifyAnswer,
-  type VerifyRequest,
   verifyCheck,
+  verifyServer,
 } from '../../src/probes/verify.ts';
 
 const VERSION = 'b'.repeat(40);
@@ -30,7 +28,7 @@ const http: Evidence = {
 };
 
 /** The senses, seeing each run in turn what the test lists: a pass, a failure, trouble, or a new version. */
-function senses(...runs: ('pass' | 'fail' | 'trouble' | 'moved' | 'missing')[]) {
+function senses(...runs: ('pass' | 'fail' | 'trouble' | 'moved' | 'during' | 'missing')[]) {
   const asked: (readonly Pick<Seen, 'sense' | 'check'>[])[] = [];
   const observe: ObserveStable = async (only) => {
     asked.push(only);
@@ -43,8 +41,10 @@ function senses(...runs: ('pass' | 'fail' | 'trouble' | 'moved' | 'missing')[]) 
       ...(run === 'trouble' ? { trouble: 'The page did not load in time' } : {}),
       ...(run === 'fail' ? { message: 'The page redirected to itself', evidence: [http] } : {}),
     };
+    const version = run === 'moved' ? 'c'.repeat(40) : VERSION;
     return {
-      version: run === 'moved' ? 'c'.repeat(40) : VERSION,
+      version,
+      after: run === 'during' ? 'c'.repeat(40) : version,
       seen: run === 'missing' ? [] : [seen, { ...seen, check: 'departments/console', failed: true }],
     };
   };
@@ -87,7 +87,13 @@ describe('a check run again for Verify', () => {
     expect(await verifyCheck(senses('missing').observe, request)).toMatchObject({ outcome: 'unsure' });
   });
 
-  it('cannot tell when the app moves to another version between runs', async () => {
+  it('cannot tell when the app moves to another version between runs, or during one', async () => {
+    expect(await verifyCheck(senses('pass', 'during').observe, request)).toEqual({
+      outcome: 'unsure',
+      version: VERSION,
+      runs: ['passed', 'unsure'],
+      message: `The app moved to ${'c'.repeat(40)}`,
+    });
     const moved = await verifyCheck(senses('pass', 'moved').observe, request);
     expect(moved).toEqual({
       outcome: 'unsure',
@@ -149,27 +155,14 @@ describe('the verifications in hand', () => {
 
 describe('the probes worker’s verification endpoint, and the line’s client', () => {
   const answer: VerifyAnswer = { outcome: 'cleared', version: VERSION, runs: ['passed', 'passed'] };
-  const store = new DiskArtifacts('/nonexistent');
   const log = { info: () => {}, warn: () => {} };
-  const sense = {
-    withPage: async () => {
-      throw new Error('The page reader is not asked');
-    },
-  };
 
-  async function serve(verify?: (asked: typeof request) => Promise<VerifyAnswer>) {
-    const verifications = verify && new Verifications((r) => verify(r as typeof request));
-    const server = readerServer({
-      app: 'http://website.test',
-      sense,
-      store,
-      version: async () => VERSION,
-      log,
-      ...(verifications ? { verify: (r: VerifyRequest) => verifications.ask(r) } : {}),
-    });
+  async function serve(verify: (asked: typeof request) => Promise<VerifyAnswer>) {
+    const verifications = new Verifications((r) => verify(r as typeof request));
+    const server = verifyServer({ verify: (r) => verifications.ask(r), log });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-    const post = (body: string) => fetch(`${base}/v1/verify`, { method: 'POST', body });
+    const post = (body: string, path = '/v1/verify') => fetch(`${base}${path}`, { method: 'POST', body });
     return { base, post, close: () => new Promise((resolve) => server.close(resolve)) };
   }
 
@@ -205,10 +198,10 @@ describe('the probes worker’s verification endpoint, and the line’s client',
     }
   });
 
-  it('is not served by a worker that verifies nothing', async () => {
-    const { post, close } = await serve();
+  it('serves the verification and nothing else: not the page reader, which is on its own port', async () => {
+    const { post, close } = await serve(async () => answer);
     try {
-      expect((await post(JSON.stringify(request))).status).toBe(404);
+      expect((await post(JSON.stringify({ path: '/about' }), '/v1/pages')).status).toBe(404);
     } finally {
       await close();
     }
