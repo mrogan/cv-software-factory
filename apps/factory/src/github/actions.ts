@@ -178,6 +178,11 @@ export interface Actions {
    * it already: closing one already closed, or trying again after a close that failed, says nothing again.
    */
   closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void>;
+  /**
+   * Opens a closed issue again, first saying why on it. Only while the issue is closed, and without saying it twice:
+   * reopening one already open, or trying again after a reopening that failed, says nothing again.
+   */
+  reopenIssue(repo: string, number: number, comment: string): Promise<void>;
   comment(repo: string, number: number, body: string): Promise<void>;
 }
 
@@ -383,17 +388,32 @@ export class LiveActions implements Actions {
       const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, z.object({ state: z.string() }));
       if (issue.state !== 'open') return;
       // A close whose comment was made and whose closing failed is tried again: the comment is not made twice.
-      const said = await this.#github.read(
-        repo,
-        `/repos/${repo}/issues/${number}/comments?per_page=100`,
-        z.array(z.object({ body: z.string().nullable() })),
-      );
-      if (!said.some((made) => made.body === comment)) await this.comment(repo, number, comment);
+      if (!(await this.#said(repo, number, comment))) await this.comment(repo, number, comment);
     }
     await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
       state: 'closed',
       state_reason: reason,
     });
+  }
+
+  async reopenIssue(repo: string, number: number, comment: string): Promise<void> {
+    const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, z.object({ state: z.string() }));
+    if (issue.state !== 'closed') return;
+    if (!(await this.#said(repo, number, comment))) await this.comment(repo, number, comment);
+    await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
+      state: 'open',
+      state_reason: 'reopened',
+    });
+  }
+
+  /** Whether an issue's comments already say this, word for word. */
+  async #said(repo: string, number: number, body: string): Promise<boolean> {
+    const comments = await this.#github.read(
+      repo,
+      `/repos/${repo}/issues/${number}/comments?per_page=100`,
+      z.array(z.object({ body: z.string().nullable() })),
+    );
+    return comments.some((made) => made.body === body);
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {
@@ -640,6 +660,10 @@ export class DryRunActions implements Actions {
 
   async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void> {
     await this.#record('closeIssue', repo, { number, reason, ...(comment === undefined ? {} : { comment }) });
+  }
+
+  async reopenIssue(repo: string, number: number, comment: string): Promise<void> {
+    await this.#record('reopenIssue', repo, { number, comment });
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {

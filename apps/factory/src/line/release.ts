@@ -20,6 +20,7 @@
  * It changes nothing in Kubernetes: the line may read the Rollout and its runs, and nothing else there.
  */
 import { type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
+import { lastEnd } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import type { Prometheus } from '../clients/prometheus.ts';
@@ -218,7 +219,7 @@ export class Releases {
       select e.seq, e.work_item, e.ts, e.type, e.version, e.payload from events e
       where e.work_item in (select work_item from events where type = 'pull-request.merged')
         and e.type in ${this.#o.sql(FOLDED)}
-        and not exists (select 1 from events c where c.work_item = e.work_item and c.type = 'work-item.closed')
+        and ${lastEnd(this.#o.sql, 'e.work_item')} is distinct from 'work-item.closed'
       order by e.seq`;
     const byItem = new Map<string, { events: LineEvent[]; merge?: { number: number; commit: string; at: string } }>();
     for (const row of rows) {
@@ -272,7 +273,8 @@ export class Releases {
     const items = [...drafts.keys()].filter((target) => target !== null);
     const closed = items.length
       ? await this.#o.sql<{ work_item: string }[]>`
-          select distinct work_item from events where type = 'work-item.closed' and work_item in ${this.#o.sql(items)}`
+          select distinct c.work_item from events c
+          where c.work_item in ${this.#o.sql(items)} and ${lastEnd(this.#o.sql, 'c.work_item')} = 'work-item.closed'`
       : [];
     for (const { work_item } of closed) drafts.delete(work_item);
     if (!drafts.size) return;
@@ -300,8 +302,9 @@ export interface Carried {
 
 /**
  * The merged work items a version of the app at `head` carries over the one the shop runs, in the order they merged:
- * each whose latest merge is in the range, and that no closing has ended. One sent back after a merge is carried only
- * by a version with its latest fix. The deploy pull request lists these, and a release starting records them.
+ * each whose latest merge is in the range, and that is not closed, or was reopened since. One sent back after a merge
+ * is carried only by a version with its latest fix. The deploy pull request lists these, and a release starting
+ * records them.
  *
  * The range starts at the commit of the last release that shipped and was promoted, which is what the shop runs: not
  * the one pinned on main, which after a rollback is the version that rolled back. Before any release is recorded, it
@@ -336,8 +339,7 @@ export async function carried(
       select distinct on (m.work_item) m.work_item, m.seq, m.payload->>'commit' as commit,
              (m.payload->>'number')::int as number
       from events m
-      where m.type = 'pull-request.merged'
-        and not exists (select 1 from events c where c.work_item = m.work_item and c.type = 'work-item.closed')
+      where m.type = 'pull-request.merged' and ${lastEnd(sql, 'm.work_item')} is distinct from 'work-item.closed'
       order by m.work_item, m.seq desc
     ) latest
     left join line l on l.work_item = latest.work_item
@@ -357,7 +359,14 @@ async function commitsBetween(o: Pick<ReleasesOptions, 'github' | 'repo'>, base:
 }
 
 /** What `fold` needs to say whether a work item merged, and whether a release carries it. */
-const FOLDED = ['pull-request.merged', 'work.returned', 'release.started', 'release.promoted', 'release.rolled-back'];
+const FOLDED = [
+  'pull-request.merged',
+  'work.returned',
+  'work-item.reopened',
+  'release.started',
+  'release.promoted',
+  'release.rolled-back',
+];
 
 const errorOf = (error: unknown) => ({
   type: (error as Error)?.name ?? 'Error',

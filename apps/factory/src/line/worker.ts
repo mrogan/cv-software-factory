@@ -25,6 +25,8 @@
  *   look at a time for each work item, beside the steps. A look that cannot tell yet is tried again a few minutes
  *   later. A cleared signal closes the work item as verified, and its issue as completed with what cleared it; one
  *   that persists sends the work back to Plan, and the coder starts afresh, not from its old session.
+ * - A verified work item whose ticket triage reopened, because its signal came back, comes back into Plan for a fresh
+ *   pass once its issue is open again, with a comment saying what came back.
  * - With `only`, it acts on that one work item, taking its ticket onto the line if it is not there: it starts no
  *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end. It still
  *   watches the app's releases, and records one that carries that work item or none.
@@ -85,6 +87,7 @@ import {
   type FirstSignal,
   type Look,
   look,
+  reopeningComment,
   type Target,
   type VerifyClients,
   whatCleared,
@@ -266,6 +269,7 @@ export class Line {
       this.#releaseReadAt = this.#o.now().getTime();
       await this.#releases.pass();
     }
+    await this.#reopen();
     const taken = await this.#queue.admit();
     if (taken) this.#o.log.info({ workItem: taken }, 'a ticket came onto the line');
     for (const item of await this.#queue.free()) {
@@ -273,6 +277,31 @@ export class Line {
       await this.#advance(item).catch((error: unknown) =>
         this.#o.log.error({ workItem: item.workItem, err: errorOf(error) }, 'could not move a work item on'),
       );
+    }
+  }
+
+  /**
+   * Takes each reopened work item back into Plan, once its issue is open again, saying what came back. One whose issue
+   * GitHub will not open yet stays where it is, and is tried again on the next pass.
+   */
+  async #reopen(): Promise<void> {
+    for (const item of await this.#queue.reopened()) {
+      const { workItem } = item;
+      try {
+        if (item.issue) {
+          const state = fold((await this.#events(workItem)).events);
+          const reopened = state.reopened.at(-1);
+          if (reopened) {
+            const comment = reopeningComment(reopened, workItem);
+            await this.#o.github.act('reopenIssue', this.#o.repo, { number: item.issue, comment });
+          }
+        }
+        if (await this.#queue.revive(workItem)) {
+          this.#o.log.info({ workItem, issue: item.issue }, 'a reopened work item came back onto the line');
+        }
+      } catch (error) {
+        this.#o.log.warn({ workItem, err: errorOf(error) }, 'could not take a reopened work item back onto the line');
+      }
     }
   }
 

@@ -231,6 +231,8 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
       return event.payload.outcome === 'cleared'
         ? { label: 'VERIFIED', tone: 'ok' }
         : { label: 'REOPENED', tone: 'attn' };
+    case 'work-item.reopened':
+      return { label: 'REOPENED', tone: 'attn' };
     case 'action.refused':
       return { label: 'REFUSED', tone: 'attn' };
     case 'work-item.closed':

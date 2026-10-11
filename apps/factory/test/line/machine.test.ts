@@ -416,6 +416,47 @@ describe('after the merge', () => {
     }
   });
 
+  it('starts a fresh pass at Plan when a verified ticket reopens, keeping what the planner should know', () => {
+    const closed: LineEvent = { type: 'work-item.closed', payload: { outcome: 'verified', reason: 'Cleared' } };
+    const reopened: LineEvent = {
+      type: 'work-item.reopened',
+      payload: { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.6', reason: 'It came back' },
+    };
+    const persisted = [...done, deployHold(done), release(), promoted(), verified('persists')];
+    const back: LineEvent = { type: 'work.returned', payload: { from: 'verify', to: 'plan', reason: 'It persists' } };
+    const second = [...persisted, back, ...done.slice(1), deployHold(done), release('7f5b9c8d6', 'v0.9.5')];
+    const ended = [...second, promoted('7f5b9c8d6', 'v0.9.5'), verified('cleared'), closed];
+    expect(decide(ended, facts).next).toEqual({ do: 'finish' });
+
+    const again = [...ended, reopened];
+    expect(decide(again, facts)).toEqual({ stage: 'plan', next: { do: 'step', agent: 'planner', round: 1 } });
+    const state = fold(again);
+    expect(state).toMatchObject({ closed: false, merged: false, spec: undefined, pullRequest: undefined });
+    expect(state.release).toBeUndefined();
+    expect(state.persisted).toEqual([verified('persists').payload]);
+    expect(state.reopened).toEqual([reopened.payload]);
+    // Its fresh pass goes round as any other, to a merge and a release of its own.
+    expect(decide([...again, ...done.slice(1)], facts).next).toMatchObject({ do: 'hold', hold: { cause: 'deploy' } });
+  });
+
+  it('forgets the answer that closed a work item when it reopens: his word on the last pass is not on this one', () => {
+    const hold: LineEvent = {
+      type: 'hold.started',
+      payload: { stage: 'verify', kind: 'approval', cause: 'verify', reason: 'No sense can look again' },
+    };
+    const closed: LineEvent = { type: 'work-item.closed', payload: { outcome: 'verified', reason: 'Martin said so' } };
+    const reopened: LineEvent = {
+      type: 'work-item.reopened',
+      payload: { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.6', reason: 'It came back' },
+    };
+    const live = [...done, deployHold(done), release(), promoted(), hold, answer('approved', 'It looks right')];
+    expect(decide(live, facts).next).toMatchObject({ do: 'verified' });
+    expect(decide([...live, closed, reopened], facts)).toEqual({
+      stage: 'plan',
+      next: { do: 'step', agent: 'planner', round: 1 },
+    });
+  });
+
   it('keeps the spend cap in force for the fresh pass’s steps after a return from Verify', () => {
     const back: LineEvent = { type: 'work.returned', payload: { from: 'verify', to: 'plan', reason: 'It persists' } };
     const returned = [...done, deployHold(done), release(), promoted(), verified('persists'), back];

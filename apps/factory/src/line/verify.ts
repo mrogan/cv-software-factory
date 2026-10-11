@@ -330,6 +330,16 @@ export function closingComment(
   ].join('\n');
 }
 
+/** The comment on the issue as the factory opens it again: what came back, as the sense saw it. */
+export function reopeningComment(reopened: PayloadOf<'work-item.reopened'>, workItem: string): string {
+  const where = reopened.route === '*' ? 'every page' : `\`${reopened.route}\``;
+  return [
+    `It came back after its fix was verified: the ${reopened.sense} saw “${reopened.check}” again on ${where}, in version ${short(reopened.version)}.`,
+    '',
+    `The factory’s work item #${workItem} is open again, and goes back to Plan for another fix.`,
+  ].join('\n');
+}
+
 const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
 
 const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);

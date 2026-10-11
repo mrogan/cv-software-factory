@@ -13,7 +13,12 @@
  * A queue with a limit (`take`, the line's LINE_TAKE) takes tickets by the same rule until that many work items have
  * come onto the line in all, and then no more, while those on it go on to their end. It counts the line's own rows,
  * which are never deleted, under the same lock: a restart, or a second worker, takes none beyond the limit.
+ *
+ * A work item that ended, closed as verified, and reopened (triage reopens it when its signal comes back) is taken
+ * back into Plan for a fresh pass (`revive`), whatever else is on the line and whatever the limit: it is one the line
+ * took already, and its defect is back in the shop.
  */
+import { lastEnd } from '@software-factory/store';
 import type { JSONValue, Sql } from 'postgres';
 import type { Handback } from '../runners/steps.ts';
 import type { Draft } from './gates.ts';
@@ -113,13 +118,37 @@ export class Queue {
         insert into line (work_item, stage)
         select t.work_item, 'plan' from events t
         where t.type = 'ticket.opened' and not t.sample ${only ? tx`and t.work_item = ${only}` : tx``}
-          and not exists (select 1 from events c where c.work_item = t.work_item and c.type = 'work-item.closed')
+          and ${lastEnd(tx, 't.work_item')} is distinct from 'work-item.closed'
           and not exists (select 1 from line l where l.work_item = t.work_item)
         order by case t.payload->>'severity' when 'broken' then 3 when 'degraded' then 2 else 1 end desc, t.seq
         limit 1
         returning work_item`;
       return taken?.work_item;
     }) as Promise<string | undefined>;
+  }
+
+  /** The work items that ended and have reopened since, waiting to come back into Plan: only the one, for a queue of one. */
+  async reopened(): Promise<QueueItem[]> {
+    const rows = await this.#sql<Row[]>`
+      select ${this.#sql(COLUMNS)} from line l
+      where l.stage = 'ended' and ${lastEnd(this.#sql, 'l.work_item')} = 'work-item.reopened'
+        ${this.#only ? this.#sql`and l.work_item = ${this.#only}` : this.#sql``}
+      order by l.taken_at`;
+    return rows.map(item);
+  }
+
+  /**
+   * Takes a reopened work item back into Plan, if it is still ended and reopened, for a fresh pass: nothing of its last
+   * step carries over, nor the coder's session. Its count of steps does, since it names the next step's job.
+   */
+  async revive(workItem: string): Promise<boolean> {
+    const rows = await this.#sql`
+      update line l set stage = 'plan', moved_at = clock_timestamp(), failures = 0, failure = null, effects = null,
+                        session = null
+      where l.work_item = ${workItem} and l.stage = 'ended'
+        and ${lastEnd(this.#sql, 'l.work_item')} = 'work-item.reopened'
+      returning l.work_item`;
+    return rows.length > 0;
   }
 
   /** The work items on the line that nobody holds, longest on it first: only the one, for a queue of one. */

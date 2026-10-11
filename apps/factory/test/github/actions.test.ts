@@ -229,6 +229,48 @@ describe('acting in GitHub', () => {
       ['PATCH', { state: 'closed', state_reason: 'completed' }],
     ]);
   });
+
+  it('reopens a closed issue with a comment saying why, once, and leaves one already open', async () => {
+    let state = 'closed';
+    let failReopen = 1;
+    const comments: { body: string }[] = [];
+    const { github, sent } = client([
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { state } }) },
+      { method: 'GET', path: /^\/repos\/.+\/issues\/16\/comments/, answer: () => ({ body: comments }) },
+      {
+        method: 'POST',
+        path: `/repos/${REPO}/issues/16/comments`,
+        answer: ({ body }) => {
+          comments.push(body as { body: string });
+          return { status: 201, body: {} };
+        },
+      },
+      {
+        method: 'PATCH',
+        path: `/repos/${REPO}/issues/16`,
+        answer: () => {
+          if (failReopen-- > 0) return { status: 422, body: { message: 'Validation Failed' } };
+          state = 'open';
+          return { body: {} };
+        },
+      },
+    ]);
+    const actions = new LiveActions(github);
+    // The first reopening comments, and fails to reopen; trying again reopens it, saying nothing twice.
+    await expect(actions.reopenIssue(REPO, 16, 'It came back.')).rejects.toThrow();
+    await actions.reopenIssue(REPO, 16, 'It came back.');
+    await actions.reopenIssue(REPO, 16, 'It came back.');
+    expect(comments).toEqual([{ body: 'It came back.' }]);
+    expect(
+      calls(sent)
+        .filter((s) => s.method !== 'GET')
+        .map((s) => [s.method, s.body]),
+    ).toEqual([
+      ['POST', { body: 'It came back.' }],
+      ['PATCH', { state: 'open', state_reason: 'reopened' }],
+      ['PATCH', { state: 'open', state_reason: 'reopened' }],
+    ]);
+  });
 });
 
 describe('describing a deploy', () => {
@@ -351,6 +393,23 @@ describe('a dry run', () => {
     expect(record).toMatchObject({
       action: 'closeIssue',
       args: { number: 16, reason: 'completed', comment: 'Verified in production.' },
+    });
+  });
+});
+
+describe('reopening an issue in a dry run', () => {
+  it('records the issue it would have reopened, with what it would have said on it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    await actions.reopenIssue(REPO, 16, 'It came back.');
+    const [record] = await Promise.all(
+      (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+    );
+    expect(record).toEqual({
+      action: 'reopenIssue',
+      repo: REPO,
+      at: '2026-10-04T12:00:00.000Z',
+      args: { number: 16, comment: 'It came back.' },
     });
   });
 });

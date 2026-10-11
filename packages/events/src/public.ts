@@ -55,6 +55,7 @@ export const PUBLIC_VIEWS = {
   'work-item.opened': ({ payload: { visitor: _key, ...payload }, ...event }) => redacted({ ...event, payload }),
   'work-item.summarised': redacted,
   'work-item.closed': redacted,
+  'work-item.reopened': redacted,
   'defect.injected': redacted,
   'attack.launched': redacted,
   'signal.received': (event) => {

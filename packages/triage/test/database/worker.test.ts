@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { InboxSignal, NewEvent, PayloadOf, Screenshot } from '@software-factory/events';
-import { DiskArtifacts, EventWriter, sendSignal } from '@software-factory/store';
+import { DiskArtifacts, EventWriter, lastEnd, sendSignal } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { INBOX } from '../../../../policy/triage.ts';
@@ -29,13 +29,16 @@ afterAll(() => database?.end());
 beforeEach(async () => {
   await database.owner`update inbox set triaged_at = now(), outcome = 'counted' where triaged_at is null`;
   const open = await writer<{ work_item: string }[]>`
-    select distinct work_item from events
-    where (type = 'ticket.opened' or (type = 'hold.started' and payload->>'cause' = 'finding'))
-      and work_item not in (select work_item from events where type = 'work-item.closed')`;
+    select distinct o.work_item from events o
+    where (o.type = 'ticket.opened' or (o.type = 'hold.started' and o.payload->>'cause' = 'finding'))
+      and ${lastEnd(writer, 'o.work_item')} is distinct from 'work-item.closed'`;
   for (const { work_item } of open) await events.append(closed(work_item));
 });
 
-function closed(item: string): NewEvent<'work-item.closed'> {
+function closed(
+  item: string,
+  outcome: PayloadOf<'work-item.closed'>['outcome'] = 'no-change',
+): NewEvent<'work-item.closed'> {
   return {
     id: crypto.randomUUID(),
     ts: at,
@@ -44,7 +47,7 @@ function closed(item: string): NewEvent<'work-item.closed'> {
     version: 1,
     actor: 'factory',
     summary: 'Closed for the next test',
-    payload: { outcome: 'no-change', reason: 'The next test starts with no open tickets' },
+    payload: { outcome, reason: 'The next test starts with no open tickets' },
     artifacts: [],
   } as NewEvent<'work-item.closed'>;
 }
@@ -119,6 +122,71 @@ describe('triage', () => {
       { work_item: string }[]
     >`select distinct work_item from inbox where work_item is not null`;
     for (const { work_item } of items) expect(Number(work_item)).toBeGreaterThanOrEqual(1000);
+  });
+
+  describe('a ticket closed as verified', () => {
+    /** Opens a ticket for a signal, and closes it as given. */
+    const ticketFor = async (signal: InboxSignal, outcome: PayloadOf<'work-item.closed'>['outcome']) => {
+      await sendSignal(writer, signal);
+      expect(await triage().takeOne()).toBe('opened');
+      const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
+        select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
+      await events.append(closed(item, outcome));
+      return item;
+    };
+
+    it('reopens when a sense sees its fingerprint again, and is an open ticket from then on', async () => {
+      const item = await ticketFor(found({ route: '/reopen' }), 'verified');
+      await sendSignal(writer, found({ route: '/reopen', version: 'd03afe9' }));
+      expect(await triage().takeOne()).toBe('reopened');
+      expect((await types(item)).slice(-3)).toEqual(['work-item.closed', 'work-item.reopened', 'signal.received']);
+      const [reopened] = await writer<{ summary: string; payload: PayloadOf<'work-item.reopened'> }[]>`
+        select summary, payload from events where work_item = ${item} and type = 'work-item.reopened'`;
+      expect(reopened?.payload).toEqual({
+        sense: 'crawler',
+        check: 'links lead somewhere',
+        route: '/reopen',
+        version: 'd03afe9',
+        reason: 'The crawler saw it again on /reopen in version d03afe9: links lead somewhere',
+      });
+      const [inbox] = await writer`select outcome, work_item from inbox order by received_at desc limit 1`;
+      expect(inbox).toEqual({ outcome: 'reopened', work_item: item });
+
+      // Open again, it dedupes as any open ticket does: the same sense is counted, another's evidence joins once.
+      await sendSignal(writer, found({ route: '/reopen' }));
+      await sendSignal(writer, found({ route: '/reopen', sense: 'probe', check: 'every link leads somewhere' }));
+      expect([await triage().takeOne(), await triage().takeOne()]).toEqual(['counted', 'evidence']);
+    });
+
+    it('opens a new ticket when the same fingerprint returns on a ticket closed any other way', async () => {
+      const item = await ticketFor(found({ route: '/not-fixed' }), 'no-change');
+      await sendSignal(writer, found({ route: '/not-fixed' }));
+      expect(await triage().takeOne()).toBe('opened');
+      const [inbox] = await writer<
+        { work_item: string }[]
+      >`select work_item from inbox order by received_at desc limit 1`;
+      expect(inbox?.work_item).not.toBe(item);
+      expect(await types(item)).not.toContain('work-item.reopened');
+    });
+
+    it('goes by the last close: one closed again after it reopened, not as verified, stays closed', async () => {
+      const item = await ticketFor(found({ route: '/again' }), 'verified');
+      await sendSignal(writer, found({ route: '/again' }));
+      expect(await triage().takeOne()).toBe('reopened');
+      await events.append(closed(item, 'no-change'));
+      await sendSignal(writer, found({ route: '/again' }));
+      expect(await triage().takeOne()).toBe('opened');
+    });
+
+    it('matches its fingerprint exactly: a ticket on every page is not one page’s defect come back', async () => {
+      const every = { route: '*', symptom: 'missing-header', check: 'security headers' } as const;
+      const item = await ticketFor(found(every), 'verified');
+      await sendSignal(writer, found({ ...every, route: '/contact' }));
+      expect(await triage().takeOne()).toBe('opened');
+      expect(await types(item)).not.toContain('work-item.reopened');
+      await sendSignal(writer, found(every));
+      expect(await triage().takeOne()).toBe('reopened');
+    });
   });
 
   it('turns a report into a ticket, and a second report on the same page into a repeat of it', async () => {
