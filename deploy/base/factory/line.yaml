@@ -110,14 +110,11 @@ spec:
             # the local model is given longer.
             - name: FACTORY_PROFILE
               value: local
-            # The line on Claude, over the senses' tickets. For Part B's drill it takes one more work item, and only
-            # 1035: LINE_TAKE is checked before LINE_ONLY, so both are needed.
+            # The line on Claude, over the senses' tickets: the first six that come onto it by its rule, and no other.
             - name: LINE_MODE
               value: live
             - name: LINE_TAKE
               value: "6"
-            - name: LINE_ONLY
-              value: "1035"
             # After the merge: the read-only watch of the app's releases, with each version's figures from Prometheus,
             # and Verify, which asks the probes (their verify port), Prometheus and Loki whether a ticket's signal cleared.
             - name: RELEASE_ROLLOUT
