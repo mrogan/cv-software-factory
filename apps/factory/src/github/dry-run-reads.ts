@@ -20,7 +20,8 @@ import { createHash } from 'node:crypto';
 import { structuredPatch } from 'diff';
 import type { DryRunActions, DryRunPull } from './actions.ts';
 import { APP_LOGIN } from './current.ts';
-import type { Checkout, CheckRun, Comparison, PullRequestState, Reads } from './reads.ts';
+import type { DeployProposal } from './deploys.ts';
+import type { Checkout, CheckRun, Commits, Comparison, PullRequestState, Reads, Signed } from './reads.ts';
 
 export interface DryRunTimes {
   /** How long after a commit the dry run's checks on it pass. */
@@ -110,6 +111,24 @@ export class DryRunReads implements Reads {
       files.push({ path, ...hunks(path, before ?? '', after ?? '') });
     }
     return { mergeBase: root, files };
+  }
+
+  /** As GitHub has them: a commit the dry run made is on no branch, and no image was built from one. */
+  commits(repo: string, base: string, head: string): Promise<Commits> {
+    return this.#live.commits(repo, base, head);
+  }
+
+  imageRevision(repo: string, image: string, digest: string): Promise<string | null> {
+    return this.#live.imageRevision(repo, image, digest);
+  }
+
+  imageSigned(repo: string, image: string, digest: string): Promise<Signed> {
+    return this.#live.imageSigned(repo, image, digest);
+  }
+
+  /** As the deploy watch has it, whether its proposals are real or the dry run's own. */
+  deployProposal(repo: string, branch: string): Promise<DeployProposal | null> {
+    return this.#live.deployProposal(repo, branch);
   }
 
   /** The real commit under one the dry run made, and its commits on it, each as a patch, oldest first. */

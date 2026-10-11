@@ -1030,6 +1030,10 @@ describe('the line', () => {
       pullRequest: no('such pull request'),
       comparison: no('such commit'),
       checkout: async (_repo, sha) => ({ commit: sha, commits: [] }),
+      commits: no('such commit'),
+      imageRevision: no('such image'),
+      imageSigned: no('such image'),
+      deployProposal: async () => null,
     };
     const files: Record<string, string> = { 'src/search.ts': 'old\n' };
     const made = new DryRunActions(
@@ -1426,6 +1430,80 @@ describe('the line', () => {
     await events.append(event(null, 'line.started', { autonomy: 'supervised' }, 'martin'));
     await pass();
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
+  });
+});
+
+describe('the deploy pull request', () => {
+  const sha = (c: string) => c.repeat(40);
+  const merged = (workItem: string, number: number, commit: string) =>
+    events.append([event(workItem, 'pull-request.merged', { number, commit, by: 'martin' }, 'martin')]);
+  const described = (github: FakeGitHub) => github.acts.filter((a) => a.action === 'describeDeploy').map((a) => a.args);
+
+  it('is told the work items whose fixes merged since the pinned commit, and told again only when that changes', async () => {
+    const [shipped, carried, later] = [
+      await ticket(),
+      await ticket('broken', '/cart'),
+      await ticket('broken', '/basket'),
+    ];
+    await merged(shipped, 15, sha('1'));
+    await merged(carried, 17, sha('2'));
+    await merged(later, 25, sha('4'));
+    await database.writer`
+      insert into line (work_item, stage, issue) values (${shipped}, 'ended', 14), (${carried}, 'ended', 16), (${later}, 'ended', 24)`;
+    const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
+    github.deploy = { number: 30, commit: sha('3'), pinned: sha('1'), digests: [] };
+    github.deployCommits = [sha('2'), sha('3')];
+    await pass();
+    await pass();
+    expect(described(github)).toEqual([
+      {
+        number: 30,
+        commit: sha('3'),
+        carries: [{ workItem: carried, title: 'Server errors on /cart', issue: 16, pullRequest: 17 }],
+      },
+    ]);
+
+    // The watch moves the pull request on to a newer build, which carries one more.
+    github.deploy = { ...github.deploy, commit: sha('5') };
+    github.deployCommits = [sha('2'), sha('3'), sha('4'), sha('5')];
+    await pass();
+    await pass();
+    expect(described(github).map((d) => (d.carries as { workItem: string }[]).map((c) => c.workItem))).toEqual([
+      [carried],
+      [carried, later],
+    ]);
+
+    // Merged: no pull request is open, and nothing is said.
+    github.deploy = null;
+    await pass();
+    expect(described(github)).toHaveLength(2);
+  });
+
+  it('is told it carries none when no fix of the line’s is in its range, and nothing when the pin is not known', async () => {
+    const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
+    github.deploy = { number: 30, commit: sha('3'), pinned: null, digests: [] };
+    await pass();
+    expect(described(github)).toEqual([]);
+    github.deploy = { ...github.deploy, pinned: sha('1') };
+    github.deployCommits = [sha('3')];
+    await pass();
+    expect(described(github)).toEqual([{ number: 30, commit: sha('3'), carries: [] }]);
+  });
+
+  it('is looked at about once a minute, and a failure to say so holds up nothing else', async () => {
+    const { pass, github } = line(AGENTS, events, { deployEveryMs: 60_000 });
+    github.deploy = { number: 30, commit: sha('3'), pinned: sha('1'), digests: [] };
+    github.failing.set('describeDeploy', 1);
+    const workItem = await ticket();
+    await pass();
+    // The ticket came onto the line all the same.
+    expect(await types(workItem)).toContain('spec.written');
+    expect(described(github)).toEqual([]);
+    await pass();
+    expect(described(github)).toEqual([]);
+    now += 60_000;
+    await pass();
+    expect(described(github)).toHaveLength(1);
   });
 });
 

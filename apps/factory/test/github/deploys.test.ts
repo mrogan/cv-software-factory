@@ -6,12 +6,16 @@ import { describe, expect, it } from 'vitest';
 import { type Actions, DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { ownsBranch } from '../../src/github/branches.ts';
 import {
+  carriesIn,
+  carriesSection,
   DEPLOYS,
+  DeployProposals,
   type DeployTarget,
   deployBody,
   deployWatch,
   SIGNING_GRACE_MS,
   scratchBranch,
+  withCarries,
 } from '../../src/github/deploys.ts';
 import { type Registry, RegistryError } from '../../src/github/registry.ts';
 import { releaseWatch } from '../../src/github/releases.ts';
@@ -42,6 +46,7 @@ interface Pull {
   state: 'open' | 'closed';
   merged_at: string | null;
   labels: { name: string }[];
+  body?: string | null;
 }
 
 /**
@@ -231,9 +236,18 @@ const watch = (
   { check }: { check: Pick<Signatures, 'verify'> } = signatures(),
   log = quiet,
   now = Date.now,
+  proposals?: DeployProposals,
 ) =>
   deployWatch(
-    { github: gh.github, registry, signatures: check, actions: actions ?? new LiveActions(gh.github), log, now },
+    {
+      github: gh.github,
+      registry,
+      signatures: check,
+      actions: actions ?? new LiveActions(gh.github),
+      log,
+      now,
+      ...(proposals ? { proposals } : {}),
+    },
     target,
   );
 
@@ -594,5 +608,98 @@ describe('the release watch', () => {
     move('b');
     await expect(pass()).rejects.toThrow();
     expect(runs).toBe(2);
+  });
+});
+
+describe('what a deploy carries', () => {
+  const carried = [
+    { workItem: '1001', title: 'Redirect loop on /departments/:department', issue: 16, pullRequest: 17 },
+    { workItem: '1006', title: 'Prices | totals <b>@mrogan</b> [x](y) `z` & co', issue: null, pullRequest: 25 },
+  ];
+
+  it('lists each work item with its ticket, issue and pull request, with nothing in a title read as markup', () => {
+    expect(carriesSection(carried).split('\n')).toEqual([
+      '<!-- factory: carries -->',
+      '### Carries',
+      '',
+      'It carries 2 work items of the line’s, whose fixes merged since the pinned commit:',
+      '',
+      '| Ticket | Title | Issue | Pull request |',
+      '|---|---|---|---|',
+      '| 1001 | Redirect loop on /departments/\\:department | #16 | #17 |',
+      '| 1006 | Prices \\| totals &lt;b&gt;&#64;mrogan&lt;/b&gt; \\[x\\](y) \\`z\\` &amp; co | – | #25 |',
+      '<!-- factory: /carries -->',
+    ]);
+    expect(carriesSection([])).toContain('It carries none of the line’s work items');
+  });
+
+  it('replaces the section a body has, or adds one, and finds it again', () => {
+    const body = 'Runs `bbbbbbb` on the local cluster.';
+    const once = withCarries(body, carriesSection(carried));
+    expect(once.startsWith(`${body}\n\n<!-- factory: carries -->`)).toBe(true);
+    expect(carriesIn(once)).toBe(carriesSection(carried));
+    const twice = withCarries(once, carriesSection([]));
+    expect(twice).toBe(`${body}\n\n${carriesSection([])}`);
+    expect(carriesIn(body)).toBeUndefined();
+    expect(carriesIn(null)).toBeUndefined();
+  });
+
+  it('keeps what the line said when the watch moves the pull request to a newer build', async () => {
+    const older = 'chore(deploy): run the factory aaaaaaa on the local cluster';
+    const section = carriesSection(carried);
+    const gh = github(FACTORY, {
+      pulls: [
+        {
+          number: 69,
+          title: older,
+          state: 'open',
+          merged_at: null,
+          labels: [{ name: 'deploy: local' }],
+          body: `Runs \`aaaaaaa\` on the local cluster.\n\n${section}`,
+        },
+      ],
+    });
+    await watch(gh, FACTORY)();
+    const { body } = (writes(gh.sent).at(-1) as { body: { body: string } }).body;
+    expect(body).toContain(`/commit/${commit('b')})`);
+    expect(body).not.toContain('Runs `aaaaaaa`');
+    expect(
+      body.endsWith(
+        `once this merges. A newer build moves this pull request on rather than opening another.\n\n${section}`,
+      ),
+    ).toBe(true);
+    // One the line never described is moved with no section.
+    const bare = github(FACTORY, {
+      pulls: [{ number: 69, title: older, state: 'open', merged_at: null, labels: [{ name: 'deploy: local' }] }],
+    });
+    await watch(bare, FACTORY)();
+    expect(carriesIn((writes(bare.sent).at(-1) as { body: { body: string } }).body.body)).toBeUndefined();
+  });
+
+  it('remembers each target’s open pull request for the line to read, and forgets it once it merges', async () => {
+    const proposals = new DeployProposals();
+    const gh = github(FACTORY);
+    await watch(gh, FACTORY, ghcr(), undefined, signatures(), quiet, Date.now, proposals)();
+    expect(proposals.get(FACTORY.repo, FACTORY.branch)).toEqual({
+      number: 70,
+      commit: commit('b'),
+      pinned: commit('a'),
+      digests: [
+        { name: 'factory', image: 'mrogan/cv-software-factory/factory', digest: digest('7') },
+        { name: 'factory-browser', image: 'mrogan/cv-software-factory/factory-browser', digest: digest('8') },
+      ],
+    });
+    expect(proposals.get(FACTORY.repo, CONSOLE.branch)).toBeNull();
+    // A worker started again learns of the open one on its first pass.
+    const title = 'chore(deploy): run the factory bbbbbbb on the local cluster';
+    const again = new DeployProposals();
+    const open = github(FACTORY, {
+      pulls: [{ number: 69, title, state: 'open', merged_at: null, labels: [{ name: 'deploy: local' }] }],
+    });
+    await watch(open, FACTORY, ghcr(), undefined, signatures(), quiet, Date.now, again)();
+    expect(again.get(FACTORY.repo, FACTORY.branch)).toMatchObject({ number: 69, commit: commit('b') });
+    // Merged: the pin is the newest build.
+    await watch(open, FACTORY, ghcr(commit('b')), undefined, signatures(), quiet, Date.now, again)();
+    expect(again.get(FACTORY.repo, FACTORY.branch)).toBeNull();
   });
 });

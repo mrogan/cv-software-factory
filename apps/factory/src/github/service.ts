@@ -8,7 +8,7 @@ import { type Actions, contentsReader, DryRunActions, LiveActions } from './acti
 import { GitHub } from './client.ts';
 import type { GitHubConfig } from './config.ts';
 import { currentWatch } from './current.ts';
-import { DEPLOYS, deployWatch } from './deploys.ts';
+import { DEPLOYS, DeployProposals, deployWatch } from './deploys.ts';
 import { DryRunReads } from './dry-run-reads.ts';
 import { Poller } from './poller.ts';
 import { LiveReads } from './reads.ts';
@@ -28,7 +28,9 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
     ? new DryRunActions(new DiskArtifacts(config.artifactsDir), log, undefined, contentsReader(github))
     : undefined;
   const actions: Actions = config.dryRun && dryRun ? dryRun : new LiveActions(github);
-  const liveReads = new LiveReads(github);
+  // What each deploy watch proposes, which the line reads to say what a deploy carries.
+  const proposals = new DeployProposals();
+  const liveReads = new LiveReads(github, { registry, signatures, proposals });
   const dryRunReads = dryRun ? new DryRunReads(dryRun, liveReads, config.dryRunTimes) : undefined;
   const poller = new Poller({ intervalMs: config.pollMs, log });
 
@@ -40,7 +42,7 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
     for (const target of DEPLOYS.filter((t) => config.repositories.includes(t.repo))) {
       poller.watch(
         `deploy ${target.branch} in ${target.repo}`,
-        deployWatch({ github, registry, signatures, actions, log }, target),
+        deployWatch({ github, registry, signatures, actions, log, proposals }, target),
       );
     }
     for (const repo of config.repositories) {

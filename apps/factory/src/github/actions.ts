@@ -19,6 +19,7 @@ import type { Logger } from 'pino';
 import { z } from 'zod';
 import { guardBranch } from './branches.ts';
 import { type GitHub, GitHubError } from './client.ts';
+import { type Carry, carriesSection, deployTarget, deployTitle, withCarries } from './deploys.ts';
 import { applyTo, filesIn, PatchRefused } from './patches.ts';
 import { CODEOWNERS_PATHS, inScope, protectedFrom } from './paths.ts';
 
@@ -152,6 +153,12 @@ export interface Actions {
   applyPatch(repo: string, patch: PatchCommit): Promise<string>;
   openPullRequest(repo: string, draft: PullRequestDraft): Promise<PullRequestRef>;
   updatePullRequest(repo: string, number: number, change: { title?: string; body?: string }): Promise<void>;
+  /**
+   * Says what a deploy pull request carries, in its body's Carries section (`deploys.ts`), when the pull request is
+   * open and still for `commit`; any other pull request is refused. Gives back whether the body changed: saying the
+   * same again changes nothing.
+   */
+  describeDeploy(repo: string, number: number, deploy: { commit: string; carries: Carry[] }): Promise<boolean>;
   addLabels(repo: string, number: number, labels: string[]): Promise<void>;
   /** Marks a draft pull request ready for review. */
   readyForReview(repo: string, pullRequest: PullRequestRef): Promise<void>;
@@ -178,6 +185,15 @@ const CREATE_COMMIT = `mutation($input: CreateCommitOnBranchInput!) {
   createCommitOnBranch(input: $input) { commit { oid } }
 }`;
 
+/** What describing a deploy needs to know of its pull request. */
+const DEPLOY_PULL = z.object({
+  state: z.string(),
+  title: z.string(),
+  body: z.string().nullable(),
+  head: z.object({ ref: z.string() }),
+  base: z.object({ ref: z.string() }),
+});
+
 const READY = `mutation($id: ID!) {
   markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } }
 }`;
@@ -199,6 +215,12 @@ export class LiveActions implements Actions {
   readonly dryRun = false;
   readonly #github: GitHub;
   readonly #read: ReadFile;
+  /**
+   * The last write to each pull request's body, by repository and number. The deploy watch moving a pull request and
+   * the line describing it run in this one worker: one waits for the other, so neither writes over the other's body
+   * with one it read before.
+   */
+  readonly #bodies = new Map<string, Promise<unknown>>();
 
   constructor(github: GitHub) {
     this.#github = github;
@@ -271,7 +293,38 @@ export class LiveActions implements Actions {
   }
 
   async updatePullRequest(repo: string, number: number, change: { title?: string; body?: string }): Promise<void> {
-    await this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, change);
+    await this.#inTurn(repo, number, () => this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, change));
+  }
+
+  async describeDeploy(
+    repo: string,
+    number: number,
+    { commit, carries }: { commit: string; carries: Carry[] },
+  ): Promise<boolean> {
+    return this.#inTurn(repo, number, async () => {
+      const pull = await this.#github.read(repo, `/repos/${repo}/pulls/${number}`, DEPLOY_PULL);
+      const target = deployTarget(repo, pull.head.ref);
+      // Moved on to a newer build since the line looked, or merged: the line looks again.
+      if (pull.state !== 'open' || pull.base.ref !== 'main' || pull.title !== deployTitle(target, commit)) {
+        throw new GitHubError('conflict', `Pull request #${number} is not open for ${commit.slice(0, 7)}.`, 409);
+      }
+      const body = withCarries(pull.body ?? '', carriesSection(carries));
+      if (body === pull.body) return false;
+      await this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, { body });
+      return true;
+    });
+  }
+
+  /** Does a write to a pull request's body once every write to it begun before has ended. */
+  #inTurn<T>(repo: string, number: number, write: () => Promise<T>): Promise<T> {
+    const key = `${repo}#${number}`;
+    const done = (this.#bodies.get(key) ?? Promise.resolve()).then(write);
+    const settled = done.catch(() => {});
+    this.#bodies.set(key, settled);
+    void settled.then(() => {
+      if (this.#bodies.get(key) === settled) this.#bodies.delete(key);
+    });
+    return done;
   }
 
   async addLabels(repo: string, number: number, labels: string[]): Promise<void> {
@@ -524,6 +577,11 @@ export class DryRunActions implements Actions {
 
   async updatePullRequest(repo: string, number: number, change: { title?: string; body?: string }): Promise<void> {
     await this.#record('updatePullRequest', repo, { number, ...change });
+  }
+
+  async describeDeploy(repo: string, number: number, deploy: { commit: string; carries: Carry[] }): Promise<boolean> {
+    await this.#record('describeDeploy', repo, { number, ...deploy });
+    return true;
   }
 
   async addLabels(repo: string, number: number, labels: string[]): Promise<void> {

@@ -5,8 +5,54 @@ import { join } from 'node:path';
 import { DiskArtifacts } from '@software-factory/store';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
+import { GitHub } from '../../src/github/client.ts';
+import { carriesIn, carriesSection, DEPLOYS, DeployRefused, deployTitle } from '../../src/github/deploys.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
-import { calls, client, OTHER_SHA, quiet, REPO, SHA } from './fake.ts';
+import {
+  CLIENT_ID,
+  calls,
+  client,
+  fakeGitHub,
+  OTHER_SHA,
+  PRIVATE_KEY,
+  quiet,
+  REPO,
+  type Route,
+  type Sent,
+  SHA,
+} from './fake.ts';
+
+const APP_DEPLOY = DEPLOYS.find((t) => t.repo === REPO) as (typeof DEPLOYS)[number];
+const CARRIES = [{ workItem: '1001', title: 'Redirect loop on /departments', issue: 16, pullRequest: 17 }];
+
+/** The app's deploy pull request, #30, for SHA, as GitHub keeps it: what describing it reads and writes. */
+function deployPull(pull: { state?: string; head?: string; body?: string | null } = {}) {
+  let body = pull.body === undefined ? 'Runs `aaaaaaa` on the local cluster.' : pull.body;
+  const routes: Route[] = [
+    {
+      method: 'GET',
+      path: `/repos/${REPO}/pulls/30`,
+      answer: () => ({
+        body: {
+          state: pull.state ?? 'open',
+          title: deployTitle(APP_DEPLOY, SHA),
+          body,
+          head: { ref: pull.head ?? APP_DEPLOY.branch },
+          base: { ref: 'main' },
+        },
+      }),
+    },
+    {
+      method: 'PATCH',
+      path: `/repos/${REPO}/pulls/30`,
+      answer: ({ body: change }) => {
+        body = (change as { body: string }).body;
+        return { body: {} };
+      },
+    },
+  ];
+  return { routes, body: () => body };
+}
 
 describe('acting in GitHub', () => {
   it('commits through GraphQL, so GitHub signs it, with the files as base64 and the message split', async () => {
@@ -143,6 +189,68 @@ describe('acting in GitHub', () => {
   });
 });
 
+describe('describing a deploy', () => {
+  it('writes what the deploy pull request carries into its body, and leaves a body that says it already', async () => {
+    const pull = deployPull();
+    const { github, sent } = client(pull.routes);
+    const actions = new LiveActions(github);
+    expect(await actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES })).toBe(true);
+    expect(pull.body()).toBe(`Runs \`aaaaaaa\` on the local cluster.\n\n${carriesSection(CARRIES)}`);
+    expect(await actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES })).toBe(false);
+    expect(await actions.describeDeploy(REPO, 30, { commit: SHA, carries: [] })).toBe(true);
+    expect(carriesIn(pull.body())).toBe(carriesSection([]));
+    expect(calls(sent).filter((c) => c.method === 'PATCH')).toHaveLength(2);
+  });
+
+  it('refuses a pull request that is not a deploy, and one no longer for the commit, or no longer open', async () => {
+    for (const [pull, commit, refusal] of [
+      [{ head: 'factory/1001-cart' }, SHA, DeployRefused],
+      [{}, OTHER_SHA, { kind: 'conflict' }],
+      [{ state: 'closed' }, SHA, { kind: 'conflict' }],
+    ] as const) {
+      const { routes } = deployPull(pull);
+      const { github, sent } = client(routes);
+      const describing = new LiveActions(github).describeDeploy(REPO, 30, { commit, carries: CARRIES });
+      if (refusal === DeployRefused) await expect(describing).rejects.toBeInstanceOf(DeployRefused);
+      else await expect(describing).rejects.toMatchObject(refusal);
+      expect(calls(sent).filter((c) => c.method === 'PATCH')).toEqual([]);
+    }
+  });
+
+  it('waits for the watch’s write to the same body, so neither writes over the other with a body it read before', async () => {
+    const pull = deployPull();
+    const sent: Sent[] = [];
+    const fake = fakeGitHub(pull.routes, sent);
+    // The watch's write is slow to come back.
+    let letGo = () => {};
+    const slow = new Promise<void>((resolve) => (letGo = resolve));
+    let first = true;
+    const github = new GitHub({
+      credentials: { clientId: CLIENT_ID, privateKey: PRIVATE_KEY },
+      api: 'https://api.github.test',
+      log: quiet,
+      sleep: async () => {},
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === 'PATCH' && first) {
+          first = false;
+          await slow;
+        }
+        return fake.fetch(input, init);
+      }) as typeof fetch,
+    });
+    const actions = new LiveActions(github);
+    const move = actions.updatePullRequest(REPO, 30, { body: 'Runs `bbbbbbb` on the local cluster.' });
+    const describing = actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls(sent)).toEqual([]);
+    letGo();
+    await Promise.all([move, describing]);
+    // The description read the body the move wrote, and kept it.
+    expect(calls(sent).map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH']);
+    expect(pull.body()).toBe(`Runs \`bbbbbbb\` on the local cluster.\n\n${carriesSection(CARRIES)}`);
+  });
+});
+
 describe('a dry run', () => {
   it('writes each action to the artifact store, sends nothing, and makes nothing that could pass for real', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
@@ -173,6 +281,21 @@ describe('a dry run', () => {
       { path: 'logo.png', base64: 'iVD//g==' },
     ]);
     expect(records.map((r) => r.action).sort()).toEqual(['commit', 'openPullRequest']);
+  });
+
+  it('records what it would have said a deploy carries', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    expect(await actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES })).toBe(true);
+    const [record] = await Promise.all(
+      (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+    );
+    expect(record).toEqual({
+      action: 'describeDeploy',
+      repo: REPO,
+      at: '2026-10-04T12:00:00.000Z',
+      args: { number: 30, commit: SHA, carries: CARRIES },
+    });
   });
 });
 
@@ -257,6 +380,24 @@ describe('the worker over HTTP', () => {
     close?.();
     const readOnly = await (await serve(keyless))('/v1/actions/comment', { repo: REPO, number: 1, body: 'hi' });
     expect(readOnly).toMatchObject({ status: 503, body: { error: 'read-only' } });
+  });
+
+  it('describes a deploy with its list checked at the door, and refuses a pull request that is not one', async () => {
+    const pull = deployPull({ head: 'factory/1001-cart' });
+    const { github, sent } = client(pull.routes);
+    const call = await serve(github);
+    const ask = (carries: unknown) =>
+      call('/v1/actions/describeDeploy', { repo: REPO, number: 30, commit: SHA, carries });
+    expect(await ask(CARRIES)).toMatchObject({ status: 422, body: { error: 'deploy-refused' } });
+    for (const carries of [
+      [{ ...CARRIES[0], workItem: '../1' }],
+      [{ ...CARRIES[0], title: 'x'.repeat(121) }],
+      [{ ...CARRIES[0], markdown: '**' }],
+      Array.from({ length: 51 }, () => CARRIES[0]),
+    ]) {
+      expect(await ask(carries)).toMatchObject({ status: 400 });
+    }
+    expect(calls(sent)).toHaveLength(1);
   });
 
   it('refuses a body that does not say it is JSON, which is all a web page can send unasked', async () => {

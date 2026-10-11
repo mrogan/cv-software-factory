@@ -22,6 +22,12 @@
  * Its title names the commit, as the build workflow's `changes` job reads it back: `chore(deploy): run console
  * 1f14f44 on the local cluster`. A proposal Martin closed without merging is not made again; the next build is.
  *
+ * The app's deploy pull request also says what it carries: the line's work items whose fixes merged between the
+ * pinned commit and the proposed one, each with its ticket, issue and pull request. The line works that out from its
+ * events and tells the worker (`describeDeploy`); the worker keeps no store. The watch remembers each target's open
+ * proposal (`DeployProposals`), which the line reads to know the range, and keeps the body's Carries section when it
+ * moves the pull request to a newer build, until the line says again.
+ *
  * Only images their pipeline signed are proposed: every digest must carry the signature of `build.yml` on main of the
  * repository that built it (`signatures.ts`), as admission will require. A build that does not is not proposed, and
  * the watch looks again each pass. The build workflow pushes its images, then signs them, so a build with no signature
@@ -82,6 +88,26 @@ export const DEPLOYS: DeployTarget[] = [
   },
 ];
 
+/** A deploy pull request, or an image a deploy pins, that is not one: asked of the worker, refused. */
+export class DeployRefused extends Error {
+  override name = 'DeployRefused';
+}
+
+/** The target a repository's branch is the deploy branch of; any other branch is refused. */
+export function deployTarget(repo: string, branch: string): DeployTarget {
+  const target = DEPLOYS.find((t) => t.repo === repo && t.branch === branch);
+  if (!target) throw new DeployRefused(`${branch} is not a deploy branch of ${repo}.`);
+  return target;
+}
+
+/** An image one of a repository's deploys pins, as GHCR names it; any other is refused. */
+export function deployedImage(repo: string, image: string): string {
+  if (!DEPLOYS.some((t) => t.repo === repo && t.images.some((i) => i.image === image))) {
+    throw new DeployRefused(`${image} is not an image ${repo} deploys.`);
+  }
+  return image;
+}
+
 /** How long after it first sees a build with no signature the watch warns of it: longer than the signing job takes. */
 export const SIGNING_GRACE_MS = 30 * 60_000;
 
@@ -100,6 +126,94 @@ export interface Proposal {
   /** The commit the pinned images were built from, when their labels say. */
   pinned?: string | undefined;
   digests: { name: string; image: string; digest: string }[];
+}
+
+/** A target's open deploy pull request, as its watch last saw or made it. */
+export interface DeployProposal {
+  number: number;
+  /** The commit it runs, and the one pinned on main now, when the pinned images' labels say. */
+  commit: string;
+  pinned: string | null;
+  digests: { name: string; image: string; digest: string }[];
+}
+
+/**
+ * The open deploy pull request of each target, by repository and branch, as the watches last saw or made them: what
+ * the line reads to say what a deploy carries. It lives as long as the worker; a worker started again knows each one
+ * after its watch's first pass.
+ */
+export class DeployProposals {
+  readonly #open = new Map<string, DeployProposal>();
+
+  set(target: DeployTarget, proposal: DeployProposal | undefined): void {
+    const key = `${target.repo} ${target.branch}`;
+    if (proposal) this.#open.set(key, proposal);
+    else this.#open.delete(key);
+  }
+
+  get(repo: string, branch: string): DeployProposal | null {
+    return this.#open.get(`${repo} ${branch}`) ?? null;
+  }
+}
+
+/** A work item a deploy carries: its ticket's number and title, its issue, and the pull request that merged its fix. */
+export interface Carry {
+  workItem: string;
+  title: string;
+  issue: number | null;
+  pullRequest: number;
+}
+
+/** Where the Carries section starts and ends in a deploy pull request's body, so it can be found and replaced. */
+const CARRIES_START = '<!-- factory: carries -->';
+const CARRIES_END = '<!-- factory: /carries -->';
+
+/**
+ * A ticket's title as plain text in a table: on one line, without a pipe, and with nothing GitHub would read as
+ * markdown, a link, an HTML tag or a mention. The title is the factory's own, but a cell is no place for markup.
+ */
+const plain = (title: string) =>
+  title
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[\\`*_[\]|~#:]/g, (c) => `\\${c}`)
+    // After the escapes, which would break the entities.
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/@/g, '&#64;');
+
+/** The Carries section of a deploy pull request's body: the work items its commits bring, or that they bring none. */
+export function carriesSection(carries: readonly Carry[]): string {
+  const rows = carries.map(
+    (c) => `| ${c.workItem} | ${plain(c.title)} | ${c.issue ? `#${c.issue}` : '–'} | #${c.pullRequest} |`,
+  );
+  const said = carries.length
+    ? `It carries ${carries.length === 1 ? 'one work item' : `${carries.length} work items`} of the line’s, whose fixes merged since the pinned commit:
+
+| Ticket | Title | Issue | Pull request |
+|---|---|---|---|
+${rows.join('\n')}`
+    : 'It carries none of the line’s work items: no fix of the line’s merged since the pinned commit.';
+  return `${CARRIES_START}
+### Carries
+
+${said}
+${CARRIES_END}`;
+}
+
+/** The Carries section a body holds, markers and all, if it holds one. */
+export function carriesIn(body: string | null | undefined): string | undefined {
+  const start = body?.indexOf(CARRIES_START) ?? -1;
+  const end = body?.indexOf(CARRIES_END, start) ?? -1;
+  if (!body || start === -1 || end === -1) return undefined;
+  return body.slice(start, end + CARRIES_END.length);
+}
+
+/** A body with its Carries section replaced by `section`, or with it added at the end where it has none. */
+export function withCarries(body: string, section: string): string {
+  const kept = carriesIn(body);
+  return kept ? body.replace(kept, () => section) : `${body.trimEnd()}\n\n${section}`;
 }
 
 const PIN_FILE = z
@@ -141,9 +255,10 @@ export function repin(file: string, proposal: Proposal): string {
 
 /**
  * What a deploy pull request says: the commit it runs, linked, with the changes since the one pinned now; each image
- * with the start of its digest, since the diff holds them in full; and where Argo CD deploys them from.
+ * with the start of its digest, since the diff holds them in full; and where Argo CD deploys them from. With the body
+ * it had, it keeps that body's Carries section, until the line says what the newer build carries.
  */
-export function deployBody(target: DeployTarget, proposal: Proposal): string {
+export function deployBody(target: DeployTarget, proposal: Proposal, before?: string | null): string {
   const url = `https://github.com/${target.repo}`;
   const short = (sha: string) => sha.slice(0, 7);
   const since = proposal.pinned
@@ -152,13 +267,15 @@ export function deployBody(target: DeployTarget, proposal: Proposal): string {
   const rows = proposal.digests.map((d) => `| \`${d.name}\` | \`${d.digest.slice(0, 'sha256:'.length + 12)}…\` |`);
   const overlay = target.file.split('/').slice(0, 3).join('/');
   const them = proposal.digests.length === 1 ? 'it' : 'them';
-  return `Runs [\`${short(proposal.commit)}\`](${url}/commit/${proposal.commit}) on the ${target.profile} cluster${since}.
+  const body = `Runs [\`${short(proposal.commit)}\`](${url}/commit/${proposal.commit}) on the ${target.profile} cluster${since}.
 
 | Image | Digest |
 |---|---|
 ${rows.join('\n')}
 
 Argo CD deploys ${them} from \`${overlay}\` once this merges. A newer build moves this pull request on rather than opening another.`;
+  const carries = carriesIn(before);
+  return carries ? `${body}\n\n${carries}` : body;
 }
 
 interface Dependencies {
@@ -168,6 +285,8 @@ interface Dependencies {
   actions: Actions;
   log: Logger;
   now?: () => number;
+  /** Where the watch says which pull request is open for its target, and what it proposes. */
+  proposals?: DeployProposals;
 }
 
 const SHA = z.string().regex(/^[0-9a-f]{40}$/);
@@ -182,6 +301,7 @@ const PULLS = z.array(
     merged_at: z.string().nullable(),
     labels: z.array(z.object({ name: z.string() })),
     head: z.object({ sha: z.string() }),
+    body: z.string().nullable().optional(),
   }),
 );
 const COMPARISON = z.object({ behind_by: z.number().int().nonnegative() });
@@ -230,7 +350,7 @@ export async function newerBuild(
  * its commit again on main's head when main has moved on with no newer build.
  */
 export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
-  const { github, signatures, actions, log, now = Date.now } = deps;
+  const { github, signatures, actions, log, now = Date.now, proposals = new DeployProposals() } = deps;
   const { repo } = target;
   const label = deployLabel(target);
   // What this worker last proposed, and at which head of main: a pass does nothing more until either moves, and a dry
@@ -280,7 +400,16 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
     const { body: file } = await github.poll(repo, `/repos/${repo}/contents/${target.file}?ref=${head}`, CONTENT);
     const pinFile = Buffer.from(file.content, 'base64').toString('utf-8');
     const proposal = await newerBuild(deps, target, pinFile, head);
-    if (!proposal || !(await signed(proposal))) return;
+    // Nothing newer than the pin: whatever was proposed has merged.
+    if (!proposal) return proposals.set(target, undefined);
+    // An unsigned build is not proposed, and the pull request for the one before stays as it is.
+    if (!(await signed(proposal))) return;
+    const open = (number: number): DeployProposal => ({
+      number,
+      commit: proposal.commit,
+      pinned: proposal.pinned ?? null,
+      digests: proposal.digests,
+    });
     const title = deployTitle(target, proposal.commit);
     if (proposed?.title === title && proposed.head === head) return;
 
@@ -298,12 +427,14 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
         );
       }
       proposed = { title, head };
+      proposals.set(target, undefined);
       return;
     }
     const existing = pulls.find((p) => p.state === 'open');
     if (existing?.title === title) {
       // Opened by an earlier pass that did not get as far as its label.
       if (!existing.labels.some((l) => l.name === label)) await actions.addLabels(repo, existing.number, [label]);
+      proposals.set(target, open(existing.number));
       if (!(await behind(existing.number, existing.head.sha, head))) {
         proposed = { title, head };
         return;
@@ -328,14 +459,16 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
     });
     await actions.setBranch(repo, target.branch, pins, { force: true });
     await actions.deleteBranch(repo, scratch);
-    const body = deployBody(target, proposal);
     if (existing?.title === title) {
       log.info(
         { repo, number: existing.number, commit: proposal.commit },
         'brought the deploy pull request up to date',
       );
     } else if (existing) {
+      // Moved, it keeps what the line said it carries, which the newer build carries too, until the line says again.
+      const body = deployBody(target, proposal, existing.body);
       await actions.updatePullRequest(repo, existing.number, { title, body });
+      proposals.set(target, open(existing.number));
       log.info(
         { repo, number: existing.number, commit: proposal.commit },
         'moved the deploy pull request to a newer build',
@@ -345,9 +478,10 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
         head: target.branch,
         base: 'main',
         title,
-        body,
+        body: deployBody(target, proposal),
         labels: [label],
       });
+      proposals.set(target, open(made.number));
       log.info({ repo, number: made.number, commit: proposal.commit }, 'opened a deploy pull request');
     }
     proposed = { title, head };
