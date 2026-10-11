@@ -1,7 +1,7 @@
 # The factory images CI built last, pinned by digest, and with them the workers that run them (deploy/base/factory), the
 # scoreboard (deploy/base/scoreboard) and the canary's analysis, whose journeys run on `factory-browser`
-# (deploy/base/analysis), so the cluster never has any of them without an image to run. The factory's GitHub worker moves the three digests together, in a pull request, when CI has
-# built all three from a newer commit.
+# (deploy/base/analysis), so the cluster never has any of them without an image to run. The factory's GitHub worker
+# moves the three digests together, in a pull request, when CI has built all three from a newer commit.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:

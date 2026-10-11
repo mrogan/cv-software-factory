@@ -1,6 +1,6 @@
 # Applies whatever migrations the store has not had, then sets the writer's, the console's and the scoreboard's
-# passwords from their Secrets. A Sync hook in wave 1: after Postgres (wave 0) is healthy, before the console (wave 2) starts. It runs
-# the console's image, which carries the migrations, so a new image brings its migrations with it.
+# passwords from their Secrets. A Sync hook in wave 1: after Postgres (wave 0) is healthy, before the console (wave 2)
+# starts. It runs the console's image, which carries the migrations, so a new image brings its migrations with it.
 apiVersion: batch/v1
 kind: Job
 metadata:

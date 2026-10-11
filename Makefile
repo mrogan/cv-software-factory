@@ -84,8 +84,9 @@ github-key:
 # The scoreboard's Secrets (deploy/base/scoreboard). Its role's password, made once, is in two: `factory`'s, for the
 # migrations that set it, and the scoreboard's own, for its pod. The answer key, each entry's id and fingerprint and
 # nothing else, goes from the private checkout to the cluster through stdin, checked as the scoreboard checks it, never
-# written to a file. Without the checkout there is no key, and the scoreboard is off. It reads the key when it starts,
-# so this restarts it.
+# written to a file. Without the checkout there is no key, and any key written before is deleted: the scoreboard is off.
+# It reads the key when it starts, so this restarts it. The migrations set the role's password from `factory`'s Secret
+# when Argo CD next syncs, so on a cluster made before the scoreboard, run this before the deploy that brings it.
 scoreboard-secrets: node_modules ## Give the scoreboard its password, and the answer key from the private checkout (PRIVATE_DIR)
 	@$(KUBECTL) create namespace scoreboard --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
 	@$(KUBECTL) -n factory get secret postgres-scoreboard >/dev/null 2>&1 || \
@@ -99,7 +100,8 @@ scoreboard-secrets: node_modules ## Give the scoreboard its password, and the an
 			key="$$(node scripts/answer-key.ts "$(PRIVATE_DIR)")" && printf %s "$$key" | \
 				$(KUBECTL) -n scoreboard create secret generic answer-key --from-file=key.json=/dev/stdin --dry-run=client -o yaml | \
 				$(KUBECTL) apply -f - >/dev/null && echo "  The scoreboard has the answer key, so it counts the tickets."; \
-		else echo "  No private checkout at $(PRIVATE_DIR): no answer key, and the scoreboard is off."; fi
+		else $(KUBECTL) -n scoreboard delete secret answer-key --ignore-not-found >/dev/null && \
+			echo "  No private checkout at $(PRIVATE_DIR): no answer key, and the scoreboard is off."; fi
 	@$(KUBECTL) -n scoreboard delete pod -l app.kubernetes.io/name=scoreboard --ignore-not-found >/dev/null
 
 egress: ## Prove the fences: only the gateway, the GitHub worker and Kyverno leave the cluster; the scoreboard reaches Postgres alone, and no service account of ours may read its Secrets (needs the workers running)

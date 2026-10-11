@@ -28,8 +28,8 @@
 # Then the scoreboard, which holds the answer key (milestone 6): it reaches Postgres, and nothing else: not the
 # collector, the gateway, the GitHub worker, the console, the probes, Prometheus, Loki, the app, the Kubernetes API, the
 # host, the metadata address or the internet. Nothing can reach it, as it serves nothing; its fence's ingress is
-# checked in scoreboard-fences.test.ts. And no service account in the guarded namespaces may read its Secrets, or start
-# a pod there that would mount them: each is asked of the API server (`kubectl auth can-i --as`).
+# checked in scoreboard-fences.test.ts. And no service account of ours, or of a chart but Argo Rollouts' controller,
+# may read its Secrets or reach them through a pod: each is asked of the API server (`kubectl auth can-i --as`).
 #
 # Every pod this starts runs an image the cluster already runs, pinned by digest, so nothing else is pulled and
 # admission control lets it in: the workers' pod the factory image the gateway runs, the runners' pods and the ones in
@@ -319,16 +319,21 @@ expect "the scoreboard cannot reach the metadata address" scoreboard:deployment/
 expect "the scoreboard cannot reach GitHub" scoreboard:deployment/scoreboard https://api.github.com blocked
 expect "the scoreboard cannot reach a public address" scoreboard:deployment/scoreboard https://1.1.1.1 blocked
 
-# Who may read the scoreboard's Secrets, or start a pod beside them that would mount them, or run a command in its pod:
-# none of the service accounts in the namespaces the factory and the app run in, the scoreboard's own included. The
-# controllers that deploy and run everything (Argo CD's, the cluster's own) may, as they may every Secret, and run in
-# namespaces of their own.
+# Who may read the scoreboard's Secrets, or reach them through a pod: start one beside them that would mount them, run
+# a command in the scoreboard's, add a debug container to it, or change what it runs. No service account in the
+# namespaces the factory, the app, the telemetry, Argo Rollouts and Kyverno run in, the scoreboard's own included, but
+# Argo Rollouts' controller, which reads Secrets in every namespace for its analyses' credentials, as a controller of
+# the whole cluster must. Argo CD's controllers, which deploy everything, and the cluster's own, in `kube-system`, may
+# too, as they may every Secret; neither namespace runs anything of ours.
 echo "The scoreboard's Secrets:"
 readable=0
-for ns in factory runners website scoreboard; do
+for ns in factory runners website scoreboard telemetry argo-rollouts kyverno; do
   for account in $(kubectl --context "$context" -n "$ns" get serviceaccounts -o jsonpath='{.items[*].metadata.name}'); do
-    for right in "get secrets" "list secrets" "watch secrets" "create pods" "create pods/exec" "create deployments.apps" \
-      "create jobs.batch"; do
+    if [ "$ns/$account" = argo-rollouts/argo-rollouts ]; then continue; fi
+    for right in "get secrets" "list secrets" "watch secrets" "create pods" "create pods/exec" "create pods/attach" \
+      "patch pods/ephemeralcontainers" "update pods/ephemeralcontainers" "create deployments.apps" \
+      "patch deployments.apps" "update deployments.apps" "create replicasets.apps" "create statefulsets.apps" \
+      "create daemonsets.apps" "create jobs.batch" "create cronjobs.batch"; do
       # `can-i` answers no with exit status 1, and fails otherwise: only its own answer counts.
       answer=$(kubectl --context "$context" -n scoreboard auth can-i $right --as "system:serviceaccount:$ns:$account" \
         2>/dev/null) || true
@@ -338,7 +343,7 @@ for ns in factory runners website scoreboard; do
     done
   done
 done
-if [ "$readable" = 1 ]; then failed=1; else echo "  ok    no service account in factory, runners, website or scoreboard may read them"; fi
+if [ "$readable" = 1 ]; then failed=1; else echo "  ok    no service account of ours, nor a chart's but Argo Rollouts', may read them"; fi
 
 if [ "$failed" = 0 ]; then
   echo "Only the gateway, the GitHub worker and Kyverno's admission controller leave the cluster; the runners, the release,"

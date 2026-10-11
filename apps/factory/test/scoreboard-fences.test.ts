@@ -51,14 +51,14 @@ async function manifests(): Promise<{ file: string; namespace?: string; manifest
 const inScoreboard = async () => (await manifests()).filter(({ namespace }) => namespace === 'scoreboard');
 
 /**
- * The AppProjects whose charts may make cluster-wide roles, and so could read any Secret: each chart's controller
- * needs them, and none deploys into `scoreboard`. Argo CD's own controller, installed by `make up`, may read every
- * Secret too, as it must to deploy anything; so may the cluster's own controllers. `make egress` asks the API server
- * about every service account in the namespaces the factory and the app run in.
+ * The AppProjects whose charts may make cluster-wide roles, each with its reason. None deploys into `scoreboard`, and
+ * of their controllers only Argo Rollouts' may read Secrets everywhere, which `make egress` allows by name; Grafana's
+ * and Loki's sidecars would too, by their charts' defaults, and are kept to their own namespace (below). Argo CD's own
+ * controllers, installed by `make up`, may read every Secret, as they must to deploy anything; so may the cluster's.
  */
 const MAY_MAKE_CLUSTER_ROLES: Record<string, string> = {
-  'software-factory': 'Argo Rollouts’ and the telemetry charts’ controllers, in their own namespaces',
-  admission: 'Kyverno, which reads every pod it admits, in its own namespace',
+  'software-factory': 'Argo Rollouts, which runs the app’s canaries, and the telemetry charts’ controllers',
+  admission: 'Kyverno, which must see every pod it admits',
 };
 
 describe('the scoreboard’s Secrets', () => {
@@ -115,6 +115,13 @@ describe('the scoreboard’s Secrets', () => {
     expect(clusterRoles.map(({ manifest }) => manifest.metadata?.name).sort()).toEqual(
       Object.keys(MAY_MAKE_CLUSTER_ROLES).sort(),
     );
+  });
+
+  it('are out of reach of the telemetry charts’ sidecars, which read Secrets in their own namespace alone', async () => {
+    for (const chart of ['grafana', 'loki']) {
+      const values = parse(await readFile(join(DEPLOY, `base/telemetry/values/${chart}.yaml`), 'utf-8'));
+      expect(values.rbac, chart).toEqual({ namespaced: true });
+    }
   });
 });
 
