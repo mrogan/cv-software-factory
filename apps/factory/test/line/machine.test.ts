@@ -354,6 +354,26 @@ describe('after the merge', () => {
     expect(decide([...next, promoted('7f5b9c8d6', 'v0.9.5')], facts).stage).toBe('verify');
   });
 
+  it('pays no heed to a release before the merge, which cannot have carried the change', () => {
+    const early = [...approved, mergeHold, release(), promoted(), merged];
+    expect(decide(early, facts).next).toMatchObject({ do: 'hold', hold: { cause: 'deploy' } });
+  });
+
+  it('closes a merged work item when Martin rejects its hold at Release or Verify, saying it merged', () => {
+    for (const cause of ['deploy', 'verify'] as const) {
+      const hold: LineEvent = {
+        type: 'hold.started',
+        payload: { stage: cause === 'deploy' ? 'release' : 'verify', kind: 'approval', cause, reason: 'Held' },
+      };
+      expect(decide([...done, hold, answer('rejected')], facts)).toEqual({
+        stage: 'held',
+        next: { do: 'close', reason: 'Martin rejected it', merged: true },
+      });
+      // Approving or answering waits for him, at Release for the deploy he merges.
+      expect(decide([...done, hold, answer('approved')], facts).next).toEqual({ do: 'wait', for: 'martin' });
+    }
+  });
+
   it('pays no heed to the end of a release other than the latest to carry it', () => {
     const later = [...done, release(), release('7f5b9c8d6', 'v0.9.5')];
     expect(decide([...later, rolledBack()], facts).next).toEqual({ do: 'wait', for: 'release' });
@@ -417,7 +437,7 @@ describe('Martin’s answer to a hold', () => {
     for (const cause of HOLD_CAUSES) {
       expect(decide([ticket, spec, held(cause, 'build'), answer('rejected', 'Not worth it')], facts)).toEqual({
         stage: 'held',
-        next: { do: 'close', reason: 'Martin rejected it: Not worth it' },
+        next: { do: 'close', reason: 'Martin rejected it: Not worth it', merged: false },
       });
     }
   });
@@ -444,7 +464,7 @@ describe('Martin’s answer to a hold', () => {
     ] as const) {
       expect(decide([ticket, held('ticket-rejected', 'plan'), answer(decision)], facts)).toEqual({
         stage: 'held',
-        next: { do: 'close', reason },
+        next: { do: 'close', reason, merged: false },
       });
     }
   });
@@ -847,7 +867,7 @@ describe('a coder that changes nothing, and says why', () => {
     const holding = [ticket, spec, unchanged([ticket, spec])];
     expect(decide([...holding, answer('approved')], facts)).toEqual({
       stage: 'held',
-      next: { do: 'close', reason: 'Martin agreed with the coder' },
+      next: { do: 'close', reason: 'Martin agreed with the coder', merged: false },
     });
     const answered = [...holding, answer('answered', 'It breaks on a basket of one')];
     expect(decide(answered, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });

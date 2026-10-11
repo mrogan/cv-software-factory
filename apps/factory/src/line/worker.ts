@@ -347,7 +347,7 @@ export class Line {
           {
             type: 'work-item.closed',
             actor: 'factory',
-            summary: 'Closed unmerged, as Martin answered',
+            summary: next.merged ? 'Closed after its merge, as Martin answered' : 'Closed unmerged, as Martin answered',
             payload: { outcome: 'no-change', reason: next.reason },
           },
         ]);

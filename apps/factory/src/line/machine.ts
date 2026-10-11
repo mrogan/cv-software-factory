@@ -316,8 +316,12 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         state.merged = true;
         // His merge answers whatever held the change before it: the change is in, and goes on to Release.
         state.hold = undefined;
+        state.release = undefined;
+        state.verification = undefined;
         break;
+      // A release before the merge cannot have carried the change.
       case 'release.started':
+        if (!state.merged) break;
         state.release = { started: event.payload, promoted: undefined, rolledBack: false };
         state.verification = undefined;
         if (state.hold?.cause === 'deploy') state.hold = undefined;
@@ -345,9 +349,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
 }
 
 /**
- * Work sent back to Plan starts a fresh pass: the planner writes a new spec, and the coder's first round, which starts
- * without its old session, opens a new pull request, with its own gates, review, merge and release. What Martin said
- * at Plan is kept: the planner should not forget an answer.
+ * Work sent back to Plan starts a fresh pass: the planner writes a new spec, and the coder's first round opens a new
+ * pull request, with its own gates, review, merge and release. What Martin said at Plan is kept: the planner should
+ * not forget an answer.
  */
 function startAgain(state: WorkItemState): void {
   Object.assign(state, {
@@ -413,8 +417,8 @@ export type Next =
   | { do: 'wait'; for: 'gates' | 'martin' | 'release' }
   /** Verify the promoted release that carries the change, by the sense that saw the defect. */
   | { do: 'verify'; release: PayloadOf<'release.promoted'> }
-  /** Close the work item unmerged, as Martin answered. */
-  | { do: 'close'; reason: string }
+  /** Close the work item, as Martin answered: before its merge, or after it, at Release or Verify. */
+  | { do: 'close'; reason: string; merged: boolean }
   /** The work item is over: it closed. */
   | { do: 'finish' };
 
@@ -451,7 +455,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   const s = fold(events);
   if (s.closed) return { stage: 'ended', next: { do: 'finish' } };
   if (s.hold) return { stage: 'held', next: { do: 'wait', for: 'martin' } };
-  const answered = s.answer && afterAnswer(s.answer);
+  const answered = s.answer && afterAnswer(s.answer, s.merged);
   if (answered) return answered;
   if (s.merged) return afterMerge(s);
 
@@ -588,14 +592,14 @@ export function unchangedHold(state: WorkItemState, why: string): PayloadOf<'hol
 }
 
 /** What the line does straight after Martin's answer, or undefined to carry on as the work item's events say. */
-function afterAnswer(answer: NonNullable<WorkItemState['answer']>): Decision | undefined {
+function afterAnswer(answer: NonNullable<WorkItemState['answer']>, merged: boolean): Decision | undefined {
   const said = answer.text ? `: ${answer.text}` : '';
   switch (answer.resolution) {
     case 'close': {
       // Approving closes only a rejection, the planner's or the coder's finding nothing to fix: he agrees with it.
       const agent = answer.cause === 'nothing-to-fix' ? 'coder' : 'planner';
       const why = answer.decision === 'approved' ? `Martin agreed with the ${agent}` : 'Martin rejected it';
-      return { stage: 'held', next: { do: 'close', reason: `${why}${said}`.slice(0, 200) } };
+      return { stage: 'held', next: { do: 'close', reason: `${why}${said}`.slice(0, 200), merged } };
     }
     case 'wait':
       return { stage: 'held', next: { do: 'wait', for: 'martin' } };
