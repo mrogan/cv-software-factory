@@ -164,9 +164,29 @@ describe('the morning’s report', () => {
     expect(report.events).toMatchObject({ checked: 120, invalid: 1 });
     const text = soakText(report);
     expect(text).toContain('NO  leases: 1 held past expiry (#2 by line-a)');
-    expect(text).toContain('left for ended work items: job reviewer-1-1-3-agent, volume work-1');
+    expect(text).toContain('left for ended or merged work items: job reviewer-1-1-3-agent, volume work-1');
     expect(text).toContain('#7 line.stopped v1: reason: Required');
     expect(text).toContain('NO  spend: $0.0400 over 2 calls (anthropic 2, $0.0400); none allowed');
+  });
+
+  it('names a volume left for a merged work item waiting for its release, but not one still at work', () => {
+    const merged = round('21:00').slice(0, 7);
+    const report = soakReport(
+      facts({
+        line: [row('1', '22:00', { stage: 'held' }), row('2', '22:00', { stage: 'plan' })],
+        events: new Map([
+          ['1', merged],
+          ['2', round('21:00').slice(0, 1)],
+        ]),
+        runners: [
+          { kind: 'volume', name: 'work-1', workItem: '1' },
+          { kind: 'volume', name: 'work-2', workItem: '2' },
+        ],
+      }),
+      NONE,
+    );
+    expect(report.ok).toBe(false);
+    expect(report.runners.left.map((r) => r.name)).toEqual(['work-1']);
   });
 
   it('is clear for a night on Claude whose work items each spent within the cap on one, and says the total', () => {

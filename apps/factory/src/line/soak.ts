@@ -3,8 +3,8 @@
  * an unattended night on the local model should leave (milestone 5, task 15). `factory line soak-check` prints it.
  *
  * - No lease held past its expiry: a worker that let go of nothing it took.
- * - No runner Job or volume left for a work item that has ended: each step's Jobs go when it ends, and a work item's
- *   volume when it ends.
+ * - No runner Job or volume left for a work item that has ended, and no volume for one that has merged: each step's
+ *   Jobs go when it ends, and a work item's volume when it merges or ends.
  * - Every event in the store valid against its type's schema, once upcast to the current version.
  * - The spend, from the gateway's audit log: each work item's within the profile's cap on one work item, with the total
  *   said too. A soak on the local model must spend nothing at all, and asks for that (`{ kind: 'none' }`).
@@ -152,14 +152,18 @@ export function stageMinutes(
   return minutes;
 }
 
-/** How a work item ended, or where it waits. */
-export function endOf(events: readonly StoredEvent[], row: LineRow): string {
-  const state = fold(
+/** A work item's state, as the line folds it from its events. */
+const stateOf = (events: readonly StoredEvent[]) =>
+  fold(
     events.flatMap((event) => {
       const read = upcast(event);
       return read.ok ? [read.event as unknown as LineEvent] : [];
     }),
   );
+
+/** How a work item ended, or where it waits. */
+export function endOf(events: readonly StoredEvent[], row: LineRow): string {
+  const state = stateOf(events);
   if (state.closed) return 'closed';
   if (state.hold) return `held: ${state.hold.cause}`;
   return row.stage;
@@ -185,12 +189,19 @@ export function soakReport(facts: SoakFacts, limit: SpendLimit): SoakReport {
     }));
 
   const ended = new Set(facts.line.filter((row) => row.stage === 'ended').map((row) => row.workItem));
+  const merged = new Set(
+    facts.line
+      .filter((row) => row.stage !== 'ended' && stateOf(facts.events.get(row.workItem) ?? []).merged)
+      .map((row) => row.workItem),
+  );
+  const leftFor = (r: Runner) =>
+    r.workItem !== undefined && (ended.has(r.workItem) || (r.kind === 'volume' && merged.has(r.workItem)));
   const runners = Array.isArray(facts.runners)
     ? {
         read: true,
         jobs: facts.runners.filter((r) => r.kind === 'job').length,
         volumes: facts.runners.filter((r) => r.kind === 'volume').length,
-        left: facts.runners.filter((r) => r.workItem !== undefined && ended.has(r.workItem)),
+        left: facts.runners.filter(leftFor),
       }
     : { read: false, error: facts.runners.error, jobs: 0, volumes: 0, left: [] };
 
@@ -251,7 +262,7 @@ export function soakText(report: SoakReport): string {
     `Soak since ${report.since}, read at ${report.at}: ${report.ok ? 'all clear' : 'something to look at'}.`,
     `${mark(!leases.stuck.length)} leases: ${leases.stuck.length ? `${leases.stuck.length} held past expiry (${leases.stuck.map((l) => `#${l.workItem} by ${l.heldBy}`).join(', ')})` : 'none held past expiry'}`,
     runners.read
-      ? `${mark(!runners.left.length)} runners: ${runners.jobs} jobs and ${runners.volumes} volumes; ${runners.left.length ? `left for ended work items: ${runners.left.map((r) => `${r.kind} ${r.name}`).join(', ')}` : 'none left for an ended work item'}`
+      ? `${mark(!runners.left.length)} runners: ${runners.jobs} jobs and ${runners.volumes} volumes; ${runners.left.length ? `left for ended or merged work items: ${runners.left.map((r) => `${r.kind} ${r.name}`).join(', ')}` : 'none left for an ended or merged work item'}`
       : `NO  runners: not read (${runners.error})`,
     `${mark(!events.invalid)} events: ${events.checked} checked, ${events.invalid ? `${events.invalid} not valid, first #${events.first[0]?.seq} ${events.first[0]?.type} v${events.first[0]?.version}: ${events.first[0]?.problem}` : 'all valid'}`,
     `${mark(spend.ok)} spend: $${spend.usd.toFixed(4)} over ${spend.calls} calls${spend.byProvider.length ? ` (${spend.byProvider.map((p) => `${p.provider} ${p.calls}, $${p.usd.toFixed(4)}`).join('; ')})` : ''}; ${spendLimitText(spend)}`,

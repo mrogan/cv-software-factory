@@ -1,14 +1,14 @@
 /**
  * A runner's Kubernetes objects, in the `runners` namespace: a volume per work item, and two Jobs per step.
  *
- * - The volume lives as long as the work item, so the checkout, its dependencies and the agent's session are there
+ * - The volume lives as long as the work item's work, so the checkout, its dependencies and the agent's session are there
  *   for the next step: the coder resumes its own session after review.
  * - The prepare Job checks out the commit and installs it. Its pod may reach GitHub and the npm registry, so it keeps
  *   its home, its settings and pnpm's store in an empty folder of its own, and runs nothing the agent could have left
  *   on the volume (apps/runner/src/prepare.ts).
  * - The agent Job runs the agent. Its pod reaches the gateway and the line's handback, and nothing else, and has no
  *   DNS; it holds its job token, which is not a credential anywhere else.
- * - The volume goes when the work item is over (`Runners.finish`).
+ * - The volume goes when the work item merges, or is over unmerged (`Runners.finish`).
  *
  * Both run the `factory-runner` image under the restricted Pod Security Standard, with no service account token and
  * a read-only root file system, and each has a deadline.

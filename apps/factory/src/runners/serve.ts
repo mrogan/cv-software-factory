@@ -6,7 +6,7 @@
  *
  *     :8081  POST /v1/handback      a job's result, with its token (agent pods)
  *     :8080  POST /v1/steps         run one step (`StepRequest`) and answer with how it went
- *            DELETE /v1/work-items/<id>  the work item is over: delete its volume
+ *            DELETE /v1/work-items/<id>  the work item merged or is over: delete its volume
  *            POST /v1/smoke         the smoke run, from a commit of the app (`smoke.ts`)
  *            GET  /health
  */

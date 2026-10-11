@@ -5,7 +5,7 @@
  *
  * The job token is made before the agent pod starts and ended when the step is over, however it ends, so the gateway
  * and the handback refuse it from then on. The Jobs are deleted afterwards; the volume stays for the next step, until
- * the work item is over (`finish`).
+ * the work item merges or is over (`finish`).
  *
  * The handback (`POST /v1/handback`) takes a job's result with its token, checked with Zod at the door, and hands it
  * to the step waiting for it. A job hands back once.
@@ -205,11 +205,11 @@ export class Runners {
     this.#o.log.info({ job }, 'the line stopped; the step’s jobs are deleted');
   }
 
-  /** The work item is over: its volume goes. */
+  /** The work item needs its volume no more, merged or over: it goes. A volume already gone is no error. */
   async finish(workItem: string): Promise<void> {
     const path = `/api/v1/namespaces/${NAMESPACE}/persistentvolumeclaims/${volume(workItem).metadata.name}`;
     await this.#o.kube.remove(path);
-    this.#o.log.info({ workItem }, 'the work item is over; its volume is deleted');
+    this.#o.log.info({ workItem }, 'the work item’s volume is deleted');
   }
 
   /** The addresses an agent pod needs, looked up here because it has no DNS of its own. */

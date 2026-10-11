@@ -231,7 +231,8 @@ describe('the line', () => {
     });
 
     github.merge();
-    await pass(); // the merge, and the hold at Release for a deploy to carry it
+    steps.finishFails = 2; // before the hold, and after it
+    await pass(); // the merge, and the hold at Release for a deploy to carry it; its volume cannot be deleted yet
     expect(steps.finished).toEqual([]);
     expect(await stage(workItem)).toBe('held');
     expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({
@@ -257,7 +258,8 @@ describe('the line', () => {
       'pull-request.merged',
       'hold.started',
     ]);
-    await pass(); // nothing to do until a release carries it
+    await pass(); // nothing to do until a release carries it, but nothing after the merge needs its volume
+    expect(steps.finished).toEqual([workItem]);
     expect(github.acts).toHaveLength(8);
 
     // A release carries it, and it waits at Release while the canary runs, then at Verify.
@@ -270,9 +272,10 @@ describe('the line', () => {
     await pass();
     expect(await stage(workItem)).toBe('verify');
     expect(github.acts).toHaveLength(8);
+    expect(steps.finished).toEqual([workItem]); // deleted once while it waited
     await events.append(event(workItem, 'work-item.closed', { outcome: 'verified', reason: 'Cleared' }));
     await pass();
-    expect(steps.finished).toEqual([workItem]);
+    expect(steps.finished).toEqual([workItem, workItem]); // and again as it ends, already gone
     expect(await stage(workItem)).toBe('ended');
     expect((await payloads(workItem, 'pull-request.pushed'))[0]).toEqual({
       number: 12,
@@ -1092,7 +1095,7 @@ describe('the line', () => {
       await pass(); // the dry run merges it, and the work item waits at Release
       await pass();
       expect(await stage(workItem)).toBe('held');
-      expect(steps.finished).toEqual([]);
+      expect(steps.finished).toEqual([workItem]);
       const ended = await types(workItem);
       expect(ended.filter((t) => t === 'gates.finished')).toHaveLength(2);
       expect(ended.filter((t) => t === 'review.submitted')).toHaveLength(2);
