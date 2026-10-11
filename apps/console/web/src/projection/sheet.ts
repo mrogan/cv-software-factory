@@ -15,7 +15,7 @@ import type {
 import { inScope, LIMITS, SENSES } from '@software-factory/events';
 import { clock } from '../format.ts';
 import { type Attempt, attempts, reviewThread, type ThreadReview } from './fixing.ts';
-import type { Capture, Hold, ItemState } from './items.ts';
+import { type Capture, type Hold, type ItemState, summaryOf } from './items.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
 
 export interface Chapter {
@@ -571,7 +571,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
       label: m.label,
       at: times[i] ?? t,
       actor: m.event?.actor,
-      text: m.event ? m.event.summary : item.queued ? 'Waiting for the planner' : 'Still on the line',
+      text: m.event ? summaryOf(m.event) : item.queued ? 'Waiting for the planner' : 'Still on the line',
       position: positions[i] ?? 100,
       site: [...item.captures].reverse().find((c) => c.at <= (times[i] ?? t) && c.side !== 'page'),
       tone: merged && i === marks.length - 1 ? 'faint' : m.tone,

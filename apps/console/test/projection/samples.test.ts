@@ -138,6 +138,71 @@ describe('a sheet', () => {
     expect(site('VERIFIED')).toBe('fixed');
   });
 
+  describe('the fix, from a verification laid out as the line lays it out', () => {
+    // Each page on the version before and then on the canary (the hash the page names), then the ticket's own pages
+    // after the rollout: 1296's verification, with its own page `/` intended, and pictures of both versions.
+    const laidOut = (rollout: boolean) =>
+      SAMPLES.map((event) => {
+        if (event.work_item !== '1296' || event.type !== 'verification.finished') return event;
+        const canary = event.artifacts.slice(1).flatMap((a) => (a.kind === 'screenshot' ? [a] : []));
+        const pages = event.payload.pages.map((page) => ({ ...page, intended: page.route === '/' }));
+        const before = (hash: string) => ({ hash: `b${hash.slice(1)}`, version: event.payload.against });
+        const after = canary.find((a) => a.route === '/');
+        return {
+          ...event,
+          payload: { ...event.payload, pages },
+          artifacts: [
+            ...pages.flatMap((page, i) => {
+              const shot = canary[i];
+              if (!shot || shot.hash !== page.screenshot) throw new Error('the samples’ pages and shots differ');
+              return [
+                {
+                  ...shot,
+                  ...before(shot.hash),
+                  boxes: [{ x: 0, y: 0, width: 1, height: 1, kind: 'problem' as const }],
+                },
+                shot,
+              ];
+            }),
+            ...(rollout && after ? [{ ...after, hash: 'f'.repeat(64) }] : []),
+          ],
+        };
+      });
+    const fixed = (events: typeof SAMPLES) => {
+      const sheet = projectSheet(events, '1296', END);
+      const verified = sheet?.chapters.find((c) => c.label === 'VERIFIED')?.site;
+      const evidence = sheet?.captures.filter((c) => c.side === 'fixed');
+      return { side: verified?.side, version: verified?.shot.version, hash: verified?.shot.hash, evidence };
+    };
+
+    it('shows the ticket’s own page after the rollout, when it was pictured again', () => {
+      const shown = fixed(laidOut(true));
+      expect(shown).toMatchObject({ side: 'fixed', version: 'v0.9.5', hash: 'f'.repeat(64) });
+      expect(shown.evidence?.map((c) => c.shot.hash)).toEqual(['f'.repeat(64)]);
+    });
+
+    it('else shows the ticket’s own page on the canary, never the version before', () => {
+      const events = laidOut(false);
+      const own = events.find((e) => e.work_item === '1296' && e.type === 'verification.finished');
+      const named = own?.type === 'verification.finished' ? own.payload.pages[0]?.screenshot : undefined;
+      const shown = fixed(events);
+      expect(shown).toMatchObject({ side: 'fixed', version: 'v0.9.5', hash: named });
+      expect(shown.evidence?.map((c) => c.shot.hash)).toEqual([named]);
+    });
+
+    it('shows no fix when no page compared is the ticket’s own', () => {
+      const events = laidOut(false).map((event) =>
+        event.type === 'verification.finished'
+          ? {
+              ...event,
+              payload: { ...event.payload, pages: event.payload.pages.map((p) => ({ ...p, intended: false })) },
+            }
+          : event,
+      );
+      expect(fixed(events)).toMatchObject({ side: 'canary', evidence: [] });
+    });
+  });
+
   it('draws a verification that found the problem still there as reopened, in the warm colour', () => {
     const chapter = (events: typeof SAMPLES, label: string) =>
       projectSheet(events, '1296', END)?.chapters.find((c) => c.label === label);

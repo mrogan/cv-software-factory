@@ -390,15 +390,46 @@ function sideOf(event: PublicEvent, kind: Kind, index: number): Capture['side'] 
       return kind === 'visitor-report' || kind === 'planner-finding' ? 'page' : 'broken';
     case 'canary.stepped':
       return 'canary';
-    case 'verification.finished': {
-      // A marked screenshot comes first, when there is one; the rest are the pages compared.
-      const first = event.artifacts[0];
-      if (index > 0 || first?.kind !== 'screenshot' || !first.boxes.length) return undefined;
-      return kind === 'improvement' ? 'after' : 'fixed';
-    }
+    case 'verification.finished':
+      return index === fixedOf(event) ? (kind === 'improvement' ? 'after' : 'fixed') : undefined;
     default:
       return undefined;
   }
+}
+
+/**
+ * Which of a verification's screenshots shows the fix. The line attaches, for each page compared, the page on the
+ * version before and then on the canary, whose hash the page names; then the ticket's own pages again after the
+ * rollout (`apps/factory/src/line/pictures.ts`). The fix is shown by a page after the rollout, or else by the ticket's
+ * own page on the canary. An event laid out otherwise, as the samples are, has a marked screenshot first, or none.
+ */
+function fixedOf(event: Extract<PublicEvent, { type: 'verification.finished' }>): number | undefined {
+  const { artifacts } = event;
+  const { pages } = event.payload;
+  const paired = pages.length > 0 && pages.every((page, i) => artifacts[2 * i + 1]?.hash === page.screenshot);
+  if (paired) {
+    if (artifacts.length > 2 * pages.length) return 2 * pages.length;
+    const own = pages.findIndex((page) => page.intended);
+    return own < 0 ? undefined : 2 * own + 1;
+  }
+  const first = artifacts[0];
+  return first?.kind === 'screenshot' && first.boxes.length ? 0 : undefined;
+}
+
+/** The words for a hold at Release or Verify that its summary may lack, by cause. */
+const AFTER_MERGE: Partial<Record<string, string>> = {
+  deploy: 'Waiting for a deploy pull request to carry the fix',
+  verify: 'Waiting for Martin to judge whether the fix cleared it',
+};
+
+/**
+ * An event's summary, as the console tells it. The line once wrote its holds for a deploy and for Martin's judgement
+ * at Verify as a wait for his merge, which he had already given; those read as the line now writes them.
+ */
+export function summaryOf(event: PublicEvent): string {
+  if (event.type !== 'hold.started' || event.payload.kind !== 'approval') return event.summary;
+  const words = AFTER_MERGE[event.payload.cause];
+  return words && event.summary === 'Waiting for Martin to merge' ? words : event.summary;
 }
 
 /** Groups events by work item, keeping their order, and folds each. Events with no work item are left out. */

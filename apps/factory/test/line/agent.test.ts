@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boundsOn, closesAnIssue, commitTitle, mentions, stepFrom } from '../../src/line/agents/agent.ts';
+import { boundsOn, closesAnIssue, commitTitle, holdDraft, mentions, stepFrom } from '../../src/line/agents/agent.ts';
 import { AGENTS } from '../../src/line/agents/index.ts';
 
 describe('a fix’s title', () => {
@@ -18,6 +18,28 @@ describe('a fix’s title', () => {
     expect(commitTitle.safeParse(title(80)).success).toBe(true);
     expect(commitTitle.safeParse(title(81)).success).toBe(false);
     expect(commitTitle.safeParse(title(81, 'cart')).success).toBe(false);
+  });
+});
+
+describe('a hold’s summary', () => {
+  const summary = (hold: Pick<Parameters<typeof holdDraft>[1], 'stage' | 'kind' | 'cause'>) =>
+    holdDraft('factory', { ...hold, reason: 'Why' }).summary;
+
+  it('says what each approval waits on', () => {
+    expect(summary({ stage: 'plan', kind: 'approval', cause: 'spec' })).toBe('Waiting for Martin to approve the spec');
+    expect(summary({ stage: 'review', kind: 'approval', cause: 'merge' })).toBe('Waiting for Martin to merge');
+    // After the merge, Martin is not asked to merge it again.
+    expect(summary({ stage: 'release', kind: 'approval', cause: 'deploy' })).toBe(
+      'Waiting for a deploy pull request to carry the fix',
+    );
+    expect(summary({ stage: 'verify', kind: 'approval', cause: 'verify' })).toBe(
+      'Waiting for Martin to judge whether the fix cleared it',
+    );
+  });
+
+  it('says where any other hold is held, and a question is a question', () => {
+    expect(summary({ stage: 'verify', kind: 'held', cause: 'verify' })).toBe('Held for Martin at verify');
+    expect(summary({ stage: 'plan', kind: 'question', cause: 'question' })).toBe('A question for Martin');
   });
 });
 
