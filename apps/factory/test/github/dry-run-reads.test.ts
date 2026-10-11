@@ -51,6 +51,13 @@ function live(asked: string[] = []): Reads {
     },
     comparison: no('comparison'),
     checkout: async (_repo, sha) => ({ commit: sha, commits: [] }),
+    commits: async (_repo, base, head) => {
+      asked.push(`commits ${base}...${head}`);
+      return { status: 'ahead', total: 1, commits: [head] };
+    },
+    imageRevision: async () => SHA,
+    imageSigned: async () => ({ signed: true, reason: null }),
+    deployProposal: async () => ({ number: 30, commit: SHA, pinned: null, digests: [] }),
   };
 }
 
@@ -163,6 +170,17 @@ describe('a dry run’s reads', () => {
     expect((await reads.pullRequest(REPO, 7)).nodeId).toBe('PR_real');
     await reads.checkRuns(REPO, SHA);
     expect(asked).toContain(`checkRuns ${SHA}`);
+  });
+
+  it('read what a release is made of as it really is: no image was built from a commit the dry run made', async () => {
+    const asked: string[] = [];
+    const { reads, commit } = await dryRun(asked);
+    expect(await reads.commits(REPO, SHA, commit)).toEqual({ status: 'ahead', total: 1, commits: [commit] });
+    expect(asked).toContain(`commits ${SHA}...${commit}`);
+    const image = 'mrogan/cv-worlds-worst-website';
+    expect(await reads.imageRevision(REPO, image, `sha256:${'1'.repeat(64)}`)).toBe(SHA);
+    expect(await reads.imageSigned(REPO, image, `sha256:${'1'.repeat(64)}`)).toEqual({ signed: true, reason: null });
+    expect(await reads.deployProposal(REPO, 'deploy/local')).toMatchObject({ number: 30 });
   });
 });
 

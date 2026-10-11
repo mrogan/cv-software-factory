@@ -5,6 +5,7 @@
  */
 import type { Sql } from 'postgres';
 import type { Handback } from '../../../runner/src/step.ts';
+import type { DeployProposal } from '../../src/github/deploys.ts';
 import type { CheckRun, Comparison, PullRequestState } from '../../src/github/reads.ts';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../src/github/server.ts';
 import type { GitHubPort, Steps } from '../../src/line/worker.ts';
@@ -109,6 +110,9 @@ export class FakeGitHub implements GitHubPort {
    * stays one a finding can be anchored to, as it is on GitHub unless a later round removed it.
    */
   diff: Comparison['files'] = [];
+  /** The app's open deploy pull request, as the deploy watch has it, and the commits it runs since the pinned one. */
+  deploy: DeployProposal | null = null;
+  deployCommits: string[] = [];
   #commits = 0;
 
   async act<K extends ActionName>(action: K, _repo: string, given: ActionArgs[K]): Promise<ActionResult<K>> {
@@ -136,6 +140,8 @@ export class FakeGitHub implements GitHubPort {
     switch (action) {
       case 'openIssue':
         return 41;
+      case 'describeDeploy':
+        return true;
       case 'applyPatch': {
         const sha = String(++this.#commits).padStart(40, 'f');
         for (const pr of this.pulls.values()) if (pr.head.ref === args.branch) pr.head.sha = sha;
@@ -203,6 +209,12 @@ export class FakeGitHub implements GitHubPort {
       }
       case 'checkout':
         return answer({ commit: args.sha, commits: [] });
+      case 'deployProposal':
+        return answer(structuredClone(this.deploy));
+      case 'commits': {
+        const at = this.deployCommits;
+        return answer({ status: 'ahead', total: at.length, commits: [...at] });
+      }
       case 'pullRequestFrom': {
         const pr = [...this.pulls.values()].find((p) => p.head.ref === args.branch && p.state === 'open');
         return answer(pr ? structuredClone(pr) : null);

@@ -6,13 +6,20 @@
  * base its change is measured from, and anchors its findings to lines the change shows. The worker itself touches no
  * store.
  *
+ * After the merge, the line reads what a release is made of through the worker too, since only it reaches GitHub and
+ * GHCR: the commits between two commits, and whether one is an ancestor of the other; the commit an image was built
+ * from, and whether its pipeline signed it; and the open deploy pull request, as the deploy watch last saw it.
+ *
  * Every read is a conditional request, so asking again about something that has not changed costs nothing against
  * the rate limit, and every answer is read through a Zod schema. Reading is harmless, so a dry run reads as a live
  * worker does; and a worker with no key reads the public repositories as anyone may.
  */
 import { z } from 'zod';
 import { type GitHub, GitHubError } from './client.ts';
+import { type DeployProposal, type DeployProposals, deployedImage } from './deploys.ts';
 import { CODEOWNERS_PATHS, protectedFrom } from './paths.ts';
+import type { Registry } from './registry.ts';
+import { pipeline, type Signatures, UnsignedError } from './signatures.ts';
 
 export interface PullRequestState {
   number: number;
@@ -63,6 +70,28 @@ export interface Comparison {
   files: { path: string; patch: string | null; added: number; removed: number }[];
 }
 
+/** The commits one commit has that another has not, and how the two stand. */
+export interface Commits {
+  /**
+   * `ahead` when the base is an ancestor of the head, `identical` when they are the same commit, `behind` when the
+   * head is an ancestor of the base, and `diverged` when neither is.
+   */
+  status: 'ahead' | 'behind' | 'identical' | 'diverged';
+  /** How many commits the head has that the base has not. */
+  total: number;
+  /** Those commits, oldest first: every one, up to `MAX_COMMITS`. */
+  commits: string[];
+}
+
+/** Whether an image carries its pipeline's signature, and if not, why not. */
+export interface Signed {
+  signed: boolean;
+  reason: string | null;
+}
+
+/** The most commits `commits` lists: ten pages of GitHub's comparison. A deploy carries tens. */
+export const MAX_COMMITS = 1000;
+
 export interface Reads {
   pullRequest(repo: string, number: number): Promise<PullRequestState>;
   checkRuns(repo: string, sha: string): Promise<CheckRun[]>;
@@ -81,6 +110,14 @@ export interface Reads {
   comparison(repo: string, base: string, head: string): Promise<Comparison>;
   /** Where a step checks a commit out from: GitHub has every commit but a dry run's. */
   checkout(repo: string, sha: string): Promise<Checkout>;
+  /** The commits `head` has that `base` has not, and whether either is an ancestor of the other. */
+  commits(repo: string, base: string, head: string): Promise<Commits>;
+  /** The commit an image of the repository's deploys was built from, by its label; null when it has none. */
+  imageRevision(repo: string, image: string, digest: string): Promise<string | null>;
+  /** Whether an image of the repository's deploys carries the signature of `build.yml` on its main. */
+  imageSigned(repo: string, image: string, digest: string): Promise<Signed>;
+  /** The open deploy pull request from a deploy branch, as the deploy watch last saw or made it; null when none. */
+  deployProposal(repo: string, branch: string): Promise<DeployProposal | null>;
 }
 
 const SHA = z.string().regex(/^[0-9a-f]{40}$/);
@@ -157,13 +194,29 @@ const COMPARE = z.object({
     .optional(),
 });
 
+const COMPARE_COMMITS = z.object({
+  status: z.enum(['ahead', 'behind', 'identical', 'diverged']),
+  total_commits: z.number().int().nonnegative(),
+  commits: z.array(z.object({ sha: SHA })),
+});
+
+/** What the release reads need beside GitHub, which only the GitHub worker has: GHCR, Sigstore, the deploy watch. */
+export interface ReleaseSources {
+  registry: Pick<Registry, 'revision'>;
+  signatures: Pick<Signatures, 'verify'>;
+  proposals: DeployProposals;
+}
+
 const segments = (branch: string) => branch.split('/').map(encodeURIComponent).join('/');
 
 export class LiveReads implements Reads {
   readonly #github: GitHub;
+  readonly #sources: ReleaseSources | undefined;
 
-  constructor(github: GitHub) {
+  /** Without `sources`, as in a test of the line's other reads, the release reads fail. */
+  constructor(github: GitHub, sources?: ReleaseSources) {
     this.#github = github;
+    this.#sources = sources;
   }
 
   async pullRequest(repo: string, number: number): Promise<PullRequestState> {
@@ -246,5 +299,45 @@ export class LiveReads implements Reads {
         removed: file.deletions,
       })),
     };
+  }
+
+  async commits(repo: string, base: string, head: string): Promise<Commits> {
+    const commits: string[] = [];
+    let status: Commits['status'] = 'identical';
+    let total = 0;
+    for (let page = 1; page <= MAX_COMMITS / 100; page++) {
+      const { body } = await this.#github.poll(
+        repo,
+        `/repos/${repo}/compare/${base}...${head}?per_page=100&page=${page}`,
+        COMPARE_COMMITS,
+      );
+      ({ status, total_commits: total } = body);
+      commits.push(...body.commits.map((c) => c.sha));
+      if (!body.commits.length || commits.length >= total) break;
+    }
+    return { status, total, commits };
+  }
+
+  async imageRevision(repo: string, image: string, digest: string): Promise<string | null> {
+    return (await this.#release().registry.revision(deployedImage(repo, image), digest)) ?? null;
+  }
+
+  async imageSigned(repo: string, image: string, digest: string): Promise<Signed> {
+    try {
+      await this.#release().signatures.verify(deployedImage(repo, image), digest, pipeline(repo));
+      return { signed: true, reason: null };
+    } catch (error) {
+      if (error instanceof UnsignedError) return { signed: false, reason: error.message };
+      throw error;
+    }
+  }
+
+  async deployProposal(repo: string, branch: string): Promise<DeployProposal | null> {
+    return this.#release().proposals.get(repo, branch);
+  }
+
+  #release(): ReleaseSources {
+    if (!this.#sources) throw new Error('This worker reads no images and watches no deploys.');
+    return this.#sources;
   }
 }
