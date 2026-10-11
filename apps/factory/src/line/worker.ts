@@ -582,7 +582,8 @@ export class Line {
         return;
       }
     }
-    const shown = await this.#pictures(promoted, first);
+    // Read only when something is appended: a look that cannot tell yet comes round every few minutes.
+    const shown = () => this.#pictures(promoted, first);
     switch (found.kind) {
       case 'wait': {
         const hours = this.#o.verifyWaitMs / 3_600_000;
@@ -596,7 +597,7 @@ export class Line {
         await this.#append(workItem, [
           {
             ...holdDraft('factory', { stage: 'verify', kind: 'held', cause: 'verify', reason }),
-            artifacts: shown.artifacts,
+            artifacts: (await shown()).artifacts,
           },
         ]);
         await this.#queue.moved(workItem);
@@ -612,13 +613,14 @@ export class Line {
               cause: 'verify',
               reason: found.reason.slice(0, 300),
             }),
-            artifacts: shown.artifacts,
+            artifacts: (await shown()).artifacts,
           },
         ]);
         await this.#queue.moved(workItem);
         return;
       case 'finished': {
-        const v = { ...found.verification, pages: shown.pages };
+        const { pages, artifacts } = await shown();
+        const v = { ...found.verification, pages };
         const said = v.dryRun ? 'by the dry run’s word' : `by the ${v.sense ?? 'sense'}`;
         await this.#append(workItem, [
           {
@@ -626,7 +628,7 @@ export class Line {
             actor: v.sense && v.sense !== 'report' && !v.dryRun ? v.sense : 'factory',
             summary: `${v.outcome === 'cleared' ? 'Cleared' : 'Persists'} on ${v.version?.slice(0, 7)}, ${said}`,
             payload: v,
-            artifacts: shown.artifacts,
+            artifacts,
           },
         ]);
         this.#lookAgainAt.delete(workItem);
@@ -668,7 +670,11 @@ export class Line {
       const taken = await pictures.of(promoted.version, promoted.previous);
       if (!taken.length) return { pages: [], artifacts: [] };
       const look = first && (await pictures.lookOf(first.sense, first.check, first.route));
-      return pagesFor(taken, { route: first?.route ?? '*', ...(look && { path: look.path }) });
+      const shown = pagesFor(taken, { route: first?.route ?? '*', ...(look && { path: look.path }) });
+      if (first && !shown.pages.some((p) => p.intended)) {
+        this.#o.log.info({ release: promoted.release, route: first.route }, 'no page pictured is the ticket’s own');
+      }
+      return shown;
     } catch (error) {
       this.#o.log.warn({ release: promoted.release, err: errorOf(error) }, 'the release’s pictures could not be read');
       return { pages: [], artifacts: [] };

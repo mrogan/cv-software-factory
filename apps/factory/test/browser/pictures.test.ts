@@ -54,7 +54,7 @@ describe('the pictures of a canary', () => {
           }
         },
         index: {
-          taken: async () => recorded.length > 0,
+          pictured: async () => new Set(recorded.map((p) => p.path)),
           record: async (pictures) => void recorded.push(...pictures),
           awaitingRollout: async () => [],
           rolledOut: async () => {},

@@ -22,6 +22,12 @@ create table pictures (
   primary key (canary, stable, path)
 );
 
+-- The line asks for a screenshot by its hash, whichever column holds it.
+create index pictures_before on pictures ((before->>'hash'));
+create index pictures_after on pictures ((after->>'hash'));
+create index pictures_diff on pictures ((diff->>'hash'));
+create index pictures_rollout on pictures ((rollout->>'hash'));
+
 -- Where a sense's signal was seen: the page its screenshot was taken on, and the elements it boxed there. The pictures
 -- box the same elements on the same page, so the ticket's own page can be seen on the canary and after the rollout as
 -- it was at the signal.

@@ -44,11 +44,11 @@ const picture = (path: string, boxed = false): Picture => ({
 describe('the pictures’ index', () => {
   it('records a canary’s pages once, and gives them back by canary and stable version', async () => {
     const index = new PictureIndex(database.writer);
-    expect(await index.taken(NEW, OLD)).toBe(false);
+    expect(await index.pictured(NEW, OLD)).toEqual(new Set());
     await index.record([picture('/about'), picture('/')]);
     await index.record([{ ...picture('/'), changed: 0.5 }]);
-    expect(await index.taken(NEW, OLD)).toBe(true);
-    expect(await index.taken(NEW, 'c'.repeat(40))).toBe(false);
+    expect(await index.pictured(NEW, OLD)).toEqual(new Set(['/', '/about']));
+    expect(await index.pictured(NEW, 'c'.repeat(40))).toEqual(new Set());
     const pages = await index.of(NEW, OLD);
     expect(pages.map((p) => [p.path, p.changed])).toEqual([
       ['/', 0.25],

@@ -57,10 +57,11 @@ export class PictureIndex {
     this.#sql = sql;
   }
 
-  /** Whether a canary has been compared with the stable version already. */
-  async taken(canary: string, stable: string): Promise<boolean> {
-    const [row] = await this.#sql`select 1 from pictures where canary = ${canary} and stable = ${stable} limit 1`;
-    return row !== undefined;
+  /** The paths of a canary's pages compared with the stable version already. */
+  async pictured(canary: string, stable: string): Promise<Set<string>> {
+    const rows = await this.#sql<{ path: string }[]>`
+      select path from pictures where canary = ${canary} and stable = ${stable}`;
+    return new Set(rows.map((r) => r.path));
   }
 
   /** Records a canary's pictures, all or none. A page already recorded keeps what it has. */
@@ -144,11 +145,14 @@ export class IndexedArtifacts implements ArtifactStore {
   }
 
   async size(hash: string): Promise<number | null> {
-    const [row] = await this.#sql<{ size: number }[]>`
-      select (shot->>'size')::bigint as size
-      from pictures, jsonb_array_elements(jsonb_build_array(before, after, diff, rollout)) as shot
-      where shot->>'hash' = ${hash}
-      limit 1`;
+    // Each column's hash is indexed (migration 0010), so this does not read every picture.
+    const [row] = await this.#sql<{ size: string }[]>`
+      select size from (
+        select before->>'hash' as hash, before->>'size' as size from pictures where before->>'hash' = ${hash}
+        union all select after->>'hash', after->>'size' from pictures where after->>'hash' = ${hash}
+        union all select diff->>'hash', diff->>'size' from pictures where diff->>'hash' = ${hash}
+        union all select rollout->>'hash', rollout->>'size' from pictures where rollout->>'hash' = ${hash}
+      ) as shots limit 1`;
     return row ? Number(row.size) : null;
   }
 

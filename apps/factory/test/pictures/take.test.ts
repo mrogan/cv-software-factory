@@ -21,8 +21,8 @@ class FakeIndex implements Index {
   readonly pictures: Picture[] = [];
   looked: Look[] = [];
 
-  async taken(canary: string, stable: string) {
-    return this.pictures.some((p) => p.canary === canary && p.stable === stable);
+  async pictured(canary: string, stable: string) {
+    return new Set(this.pictures.filter((p) => p.canary === canary && p.stable === stable).map((p) => p.path));
   }
 
   async record(pictures: readonly Picture[]) {
@@ -145,21 +145,35 @@ describe('the pictures of a canary', () => {
     expect(shots).toEqual([]);
   });
 
-  it('drops the pictures when a version moved while they were taken, and gives up after a few tries', async () => {
+  it('keeps the pages taken before a version moved, drops the one it moved during, and takes the rest later', async () => {
     const { pictures, versions, shots, index, during } = setup();
-    // Each time, the canary is promoted while its pages are pictured: the stable Service runs its version after.
+    // A rollback starts while /about is pictured: for a moment the stable Service answers otherwise.
     during.shot = () => {
-      if (shots.length % 6 === 2) versions[STABLE] = NEW;
+      if (shots.length === 4) versions[STABLE] = NEW;
+    };
+    expect(await pictures.tick()).toEqual({ compared: 1 });
+    expect(index.pictures.map((p) => p.path)).toEqual(['/']);
+    versions[STABLE] = OLD;
+    expect(await pictures.tick()).toEqual({ compared: 2 });
+    expect(index.pictures.map((p) => p.path)).toEqual(['/', '/about', '/products/glove-left']);
+    expect(shots).toHaveLength(8);
+    expect(await pictures.tick()).toBeNull();
+    expect(shots).toHaveLength(8);
+  });
+
+  it('gives up on a canary after a few passes that each saw a version move', async () => {
+    const { pictures, versions, shots, index, during } = setup();
+    during.shot = () => {
+      if (shots.length % 2 === 0) versions[STABLE] = NEW;
     };
     for (let i = 0; i < TRIES; i++) {
       versions[STABLE] = OLD;
       expect(await pictures.tick()).toBeNull();
     }
     expect(index.pictures).toEqual([]);
-    expect(shots).toHaveLength(6 * TRIES);
     versions[STABLE] = OLD;
     expect(await pictures.tick()).toBeNull();
-    expect(shots).toHaveLength(6 * TRIES);
+    expect(shots).toHaveLength(2 * TRIES);
   });
 
   it('boxes what a sense found on its page, on both versions, and pictures it again after the rollout', async () => {

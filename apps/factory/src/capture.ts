@@ -76,6 +76,9 @@ export async function capturePage(
   const tall = Number(await page.evaluate('document.documentElement.scrollHeight'));
   const width = viewport.width;
   const height = Math.max(viewport.height, Math.min(Math.round(tall) || 0, options.maxHeight));
+  // The page laid out at the picture's size, before anything is measured: a full-page screenshot would resize the
+  // viewport itself, and a page sized by the viewport's height would move under the boxes.
+  await page.setViewportSize({ width, height });
   const boxes: Screenshot['boxes'] = [];
   for (const check of (options.checks ?? []).slice(0, 4)) {
     const box = await page
@@ -91,13 +94,9 @@ export async function capturePage(
     if (w > 0 && h > 0)
       boxes.push({ x, y, width: w, height: h, kind: check.kind, ...(check.label && { label: check.label }) });
   }
-  const png = await page.screenshot({
-    type: 'png',
-    fullPage: true,
-    clip: { x: 0, y: 0, width, height },
-    animations: 'disabled',
-    caret: 'hide',
-  });
+  const png = await page
+    .screenshot({ type: 'png', clip: { x: 0, y: 0, width, height }, animations: 'disabled', caret: 'hide' })
+    .finally(() => page.setViewportSize(viewport));
   return {
     png,
     screenshot: {

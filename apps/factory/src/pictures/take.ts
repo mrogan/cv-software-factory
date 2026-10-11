@@ -9,8 +9,8 @@
  * - Once for each canary and the stable version it replaces. A canary retried after a rollback has them already.
  * - Every page the shop's front door leads to, as the traffic generator finds them, and every page a sense boxed an
  *   element on lately (`looks`), with those elements boxed on both versions: the ticket's own page, for the sheet.
- * - Either version moving while the pictures were taken (a promotion, a rollback) throws them away: a picture of the
- *   "before" might be of the after. A pass that failed is tried again, a few times.
+ * - Either version moving while a page was taken (a promotion, a rollback) drops that page and ends the pass: its
+ *   "before" might be of the after. Pages taken before stand; those missed are tried again, a few times.
  * - Once the canary is promoted, each page with a box is taken again on the stable Service: the page after rollout.
  */
 import type { Screenshot } from '@software-factory/events';
@@ -41,7 +41,7 @@ export interface PicturesOptions {
   /** The paths of the app's pages at an address, from its front door. */
   pages(app: string): Promise<string[]>;
   shoot: Shoot;
-  index: Pick<PictureIndex, 'taken' | 'record' | 'awaitingRollout' | 'rolledOut' | 'looks'>;
+  index: Pick<PictureIndex, 'pictured' | 'record' | 'awaitingRollout' | 'rolledOut' | 'looks'>;
   /** Where the diffs go: the screenshots are put there by `shoot`. */
   store: ArtifactStore;
   log: {
@@ -93,30 +93,38 @@ export class Pictures {
     }
   }
 
-  /** Every page on the stable version and on the canary, compared, once for the pair. */
+  /**
+   * Every page on the stable version and on the canary, compared, once for the pair. Each page is recorded as soon as
+   * both versions are seen not to have moved since before it was taken, so a canary promoted halfway keeps the pages
+   * taken before; a pass that missed some tries those again.
+   */
   async #compare(stable: string, canary: string): Promise<Took> {
     const key = `${canary} against ${stable}`;
     if (!this.#due(key)) return null;
-    if (await this.#o.index.taken(canary, stable)) {
+    const { log, store, index } = this.#o;
+    const looks = await index.looks(this.#now());
+    const found = await this.#o.pages(this.#o.stable);
+    // The pages a sense boxed come first, so a long shop never leaves them out, and a short canary takes them first.
+    const paths = [...new Set([...looks.map((l) => l.path), ...found])].slice(0, MOST_PAGES);
+    const already = await index.pictured(canary, stable);
+    const missing = paths.filter((path) => !already.has(path));
+    if (!missing.length) {
       this.#done.add(key);
       return null;
     }
     this.#tries.set(key, (this.#tries.get(key) ?? 0) + 1);
-    const { log, store } = this.#o;
     const started = Date.now();
-    const looks = await this.#o.index.looks(this.#now());
-    const found = await this.#o.pages(this.#o.stable);
-    // The pages a sense boxed come first, so a long shop never leaves them out.
-    const paths = [...new Set([...looks.map((l) => l.path), ...found])].slice(0, MOST_PAGES);
     const route = routeOf(paths, looks);
-    const pictures: Picture[] = [];
-    for (const path of paths) {
+    let recorded = 0;
+    let changed = 0;
+    for (const path of missing) {
       const shot = { route: route(path), elements: elementsOn(path, looks) };
+      let picture: Picture;
       try {
         const before = await this.#o.shoot(this.#o.stable, path, { ...shot, version: stable });
         const after = await this.#o.shoot(this.#o.canary, path, { ...shot, version: canary });
-        const { changed, diff } = compare(before.png, after.png);
-        pictures.push({
+        const comparison = compare(before.png, after.png);
+        picture = {
           canary,
           stable,
           path,
@@ -124,39 +132,38 @@ export class Pictures {
           before: before.screenshot,
           after: after.screenshot,
           // To a hundredth of a percent, and never to nothing when a pixel differs.
-          changed: Math.ceil(changed * 10_000) / 10_000,
-          diff: diff && {
+          changed: Math.ceil(comparison.changed * 10_000) / 10_000,
+          diff: comparison.diff && {
             ...after.screenshot,
-            hash: await store.put(diff),
-            size: diff.byteLength,
+            hash: await store.put(comparison.diff),
+            size: comparison.diff.byteLength,
             width: Math.max(before.screenshot.width, after.screenshot.width),
             height: Math.max(before.screenshot.height, after.screenshot.height),
             boxes: [],
           },
           rollout: null,
-        });
+        };
       } catch (error) {
         log.warn({ path, err: describe(error) }, 'a page could not be pictured on both versions');
+        continue;
       }
+      // Either version moving (a promotion, a rollback) may have come between the two pictures: this one is dropped,
+      // and those recorded before it stand.
+      if (!(await this.#still(stable, canary))) {
+        log.warn({ stable, canary, path }, 'a version moved while the pictures were taken; the rest are dropped');
+        break;
+      }
+      await index.record([picture]);
+      recorded++;
+      if (picture.changed > 0) changed++;
     }
-    if (!(await this.#still(stable, canary))) {
-      log.warn({ stable, canary }, 'a version moved while the pictures were taken; they are dropped');
-      return null;
-    }
-    if (!pictures.length) return null;
-    await this.#o.index.record(pictures);
-    this.#done.add(key);
+    if (recorded === missing.length) this.#done.add(key);
+    if (!recorded) return null;
     log.info(
-      {
-        stable,
-        canary,
-        pages: pictures.length,
-        changed: pictures.filter((p) => p.changed > 0).length,
-        ms: Date.now() - started,
-      },
-      'compared every page on the stable and the canary',
+      { stable, canary, pages: recorded, changed, ms: Date.now() - started },
+      'compared pages on the stable and the canary',
     );
-    return { compared: pictures.length };
+    return { compared: recorded };
   }
 
   /** The pages with a box, taken again once the canary they were pictured on is the stable version. */
