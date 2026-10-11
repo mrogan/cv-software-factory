@@ -1448,6 +1448,8 @@ describe('the deploy pull request', () => {
     await merged(shipped, 15, sha('1'));
     await merged(carried, 17, sha('2'));
     await merged(later, 25, sha('4'));
+    // Sent back after its merge, the first fix merges again, after the second's.
+    await merged(carried, 27, sha('5'));
     await database.writer`
       insert into line (work_item, stage, issue) values (${shipped}, 'ended', 14), (${carried}, 'ended', 16), (${later}, 'ended', 24)`;
     const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
@@ -1468,10 +1470,9 @@ describe('the deploy pull request', () => {
     github.deployCommits = [sha('2'), sha('3'), sha('4'), sha('5')];
     await pass();
     await pass();
-    expect(described(github).map((d) => (d.carries as { workItem: string }[]).map((c) => c.workItem))).toEqual([
-      [carried],
-      [carried, later],
-    ]);
+    const lists = described(github).map((d) => d.carries as { workItem: string; pullRequest: number }[]);
+    expect(lists.map((carries) => carries.map((c) => c.workItem))).toEqual([[carried], [later, carried]]);
+    expect(lists[1]?.[1]?.pullRequest).toBe(27);
 
     // Merged: no pull request is open, and nothing is said.
     github.deploy = null;

@@ -681,8 +681,10 @@ export class Line {
             where m.type = 'pull-request.merged' and m.payload->>'commit' in ${sql(range.commits)}
             order by m.seq`
         ).reduce((carried, row) => {
-          // A work item sent back after its merge may merge twice: it is listed once, with its latest pull request.
+          // A work item sent back after its merge may merge twice: it is listed once, with its latest pull request,
+          // in the place of its latest merge.
           const title = row.title ?? `Work item ${row.work_item}`;
+          carried.delete(row.work_item);
           return carried.set(row.work_item, {
             workItem: row.work_item,
             title,
