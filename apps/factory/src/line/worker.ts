@@ -51,6 +51,7 @@ import type { JSONValue, Sql } from 'postgres';
 import { release as RELEASE } from '../../../../policy/release.ts';
 import { type Carry, DEPLOYS, MAX_CARRIES } from '../github/deploys.ts';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../github/server.ts';
+import { GitHubWorkerError } from '../github/worker-client.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
 import {
   type Bounds,
@@ -164,6 +165,9 @@ export interface LineOptions {
 }
 
 export const APP_REPOSITORY = 'mrogan/cv-worlds-worst-website';
+
+/** What GitHub says of an issue that is gone (deleted or moved) or that the App may not change: asking again won't help. */
+const ISSUE_GONE = [403, 404, 410];
 
 /** How long a work item stays leased for an action that is not a step. */
 const ACTION_LEASE_SECONDS = 300;
@@ -282,21 +286,25 @@ export class Line {
 
   /**
    * Takes each reopened work item back into Plan, once its issue is open again, saying what came back. One whose issue
-   * GitHub will not open yet stays where it is, and is tried again on the next pass.
+   * GitHub cannot open for now stays where it is, and is tried again on the next pass. One whose issue is gone, or
+   * that the App may no longer open, comes back without it, and the line opens a new one as it enters Plan.
    */
   async #reopen(): Promise<void> {
     for (const item of await this.#queue.reopened()) {
       const { workItem } = item;
+      if (this.#inFlight.has(workItem)) continue;
+      let forgetIssue = false;
       try {
-        if (item.issue) {
-          const state = fold((await this.#events(workItem)).events);
-          const reopened = state.reopened.at(-1);
-          if (reopened) {
-            const comment = reopeningComment(reopened, workItem);
-            await this.#o.github.act('reopenIssue', this.#o.repo, { number: item.issue, comment });
-          }
+        const reopened = fold((await this.#events(workItem)).events).reopened.at(-1);
+        if (item.issue && reopened) {
+          const comment = reopeningComment(reopened, workItem);
+          await this.#o.github.act('reopenIssue', this.#o.repo, { number: item.issue, comment }).catch((error) => {
+            if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
+            this.#o.log.warn({ workItem, issue: item.issue, err: errorOf(error) }, 'the issue cannot be reopened');
+            forgetIssue = true;
+          });
         }
-        if (await this.#queue.revive(workItem)) {
+        if (await this.#queue.revive(workItem, { forgetIssue })) {
           this.#o.log.info({ workItem, issue: item.issue }, 'a reopened work item came back onto the line');
         }
       } catch (error) {

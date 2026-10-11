@@ -125,6 +125,10 @@ describe('triage', () => {
   });
 
   describe('a ticket closed as verified', () => {
+    /** A signal the sense saw an hour after the tickets here close. */
+    const again = (overrides: Partial<InboxSignal> = {}) =>
+      found({ observedAt: '2026-10-04T10:00:00.000Z', ...overrides });
+
     /** Opens a ticket for a signal, and closes it as given. */
     const ticketFor = async (signal: InboxSignal, outcome: PayloadOf<'work-item.closed'>['outcome']) => {
       await sendSignal(writer, signal);
@@ -137,7 +141,7 @@ describe('triage', () => {
 
     it('reopens when a sense sees its fingerprint again, and is an open ticket from then on', async () => {
       const item = await ticketFor(found({ route: '/reopen' }), 'verified');
-      await sendSignal(writer, found({ route: '/reopen', version: 'd03afe9' }));
+      await sendSignal(writer, again({ route: '/reopen', version: 'd03afe9' }));
       expect(await triage().takeOne()).toBe('reopened');
       expect((await types(item)).slice(-3)).toEqual(['work-item.closed', 'work-item.reopened', 'signal.received']);
       const [reopened] = await writer<{ summary: string; payload: PayloadOf<'work-item.reopened'> }[]>`
@@ -153,14 +157,23 @@ describe('triage', () => {
       expect(inbox).toEqual({ outcome: 'reopened', work_item: item });
 
       // Open again, it dedupes as any open ticket does: the same sense is counted, another's evidence joins once.
-      await sendSignal(writer, found({ route: '/reopen' }));
-      await sendSignal(writer, found({ route: '/reopen', sense: 'probe', check: 'every link leads somewhere' }));
+      await sendSignal(writer, again({ route: '/reopen' }));
+      await sendSignal(writer, again({ route: '/reopen', sense: 'probe', check: 'every link leads somewhere' }));
       expect([await triage().takeOne(), await triage().takeOne()]).toEqual(['counted', 'evidence']);
+    });
+
+    it('counts a signal the sense saw before the close: it is of the version the fix replaced', async () => {
+      const item = await ticketFor(found({ route: '/stale' }), 'verified');
+      await sendSignal(writer, found({ route: '/stale' }));
+      expect(await triage().takeOne()).toBe('counted');
+      const [inbox] = await writer`select outcome, work_item from inbox order by received_at desc limit 1`;
+      expect(inbox).toEqual({ outcome: 'counted', work_item: item });
+      expect(await types(item)).not.toContain('work-item.reopened');
     });
 
     it('opens a new ticket when the same fingerprint returns on a ticket closed any other way', async () => {
       const item = await ticketFor(found({ route: '/not-fixed' }), 'no-change');
-      await sendSignal(writer, found({ route: '/not-fixed' }));
+      await sendSignal(writer, again({ route: '/not-fixed' }));
       expect(await triage().takeOne()).toBe('opened');
       const [inbox] = await writer<
         { work_item: string }[]
@@ -171,20 +184,20 @@ describe('triage', () => {
 
     it('goes by the last close: one closed again after it reopened, not as verified, stays closed', async () => {
       const item = await ticketFor(found({ route: '/again' }), 'verified');
-      await sendSignal(writer, found({ route: '/again' }));
+      await sendSignal(writer, again({ route: '/again' }));
       expect(await triage().takeOne()).toBe('reopened');
       await events.append(closed(item, 'no-change'));
-      await sendSignal(writer, found({ route: '/again' }));
+      await sendSignal(writer, again({ route: '/again' }));
       expect(await triage().takeOne()).toBe('opened');
     });
 
     it('matches its fingerprint exactly: a ticket on every page is not one page’s defect come back', async () => {
       const every = { route: '*', symptom: 'missing-header', check: 'security headers' } as const;
       const item = await ticketFor(found(every), 'verified');
-      await sendSignal(writer, found({ ...every, route: '/contact' }));
+      await sendSignal(writer, again({ ...every, route: '/contact' }));
       expect(await triage().takeOne()).toBe('opened');
       expect(await types(item)).not.toContain('work-item.reopened');
-      await sendSignal(writer, found(every));
+      await sendSignal(writer, again(every));
       expect(await triage().takeOne()).toBe('reopened');
     });
   });

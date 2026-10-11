@@ -208,12 +208,14 @@ export interface WorkItemState {
   /** The latest verification of that release, once it is promoted. */
   verification: PayloadOf<'verification.finished'> | undefined;
   /**
-   * Every verification that found the ticket's signal persisting after a release, in every pass: how many is what
-   * `LIMITS.persists` bounds, and the planner is told of each.
+   * Every verification that found the ticket's signal persisting after a release, in every pass: how many since the
+   * ticket last reopened is what `LIMITS.persists` bounds, and the planner is told of each.
    */
   persisted: PayloadOf<'verification.finished'>[];
   /** Each time the ticket reopened after it was verified, in order: what came back, which the planner is told. */
   reopened: PayloadOf<'work-item.reopened'>[];
+  /** How many of `persisted` came before the last reopening: `LIMITS.persists` bounds those since, a fix's own. */
+  persistedBefore: number;
   closed: boolean;
 }
 
@@ -243,6 +245,7 @@ const initial = (): WorkItemState => ({
   verification: undefined,
   persisted: [],
   reopened: [],
+  persistedBefore: 0,
   closed: false,
 });
 
@@ -375,6 +378,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         startAgain(state);
         Object.assign(state, { hold: undefined, answer: undefined, closed: false });
         state.reopened.push(event.payload);
+        state.persistedBefore = state.persisted.length;
         break;
     }
   }
@@ -388,8 +392,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
  * did not work or did not last.
  */
 function startAgain(state: WorkItemState): void {
-  const { ticket, hold, answer, answers, persisted, reopened, closed } = state;
-  Object.assign(state, initial(), { ticket, hold, answer, answers, persisted, reopened, closed });
+  const { ticket, hold, answer, answers, persisted, reopened, persistedBefore, closed } = state;
+  Object.assign(state, initial(), { ticket, hold, answer, answers, persisted, reopened, persistedBefore, closed });
 }
 
 /** What approving a hold of the scope fence's says, for the planner. */
@@ -605,8 +609,9 @@ function afterMerge(s: WorkItemState): Decision {
   if (verification.outcome === 'cleared') return { stage: 'verify', next: { do: 'verified', verification } };
   const seen = `${verification.sense ? `The ${verification.sense}` : 'Verify'} still saw “${verification.check}”`;
   const on = `on ${verification.version ?? release.promoted.version}`;
-  if (s.persisted.length >= LIMITS.persists) {
-    const reason = `${seen} ${on}, after ${s.persisted.length} fixes were released: it needs Martin`.slice(0, 300);
+  const persisted = s.persisted.length - s.persistedBefore;
+  if (persisted >= LIMITS.persists) {
+    const reason = `${seen} ${on}, after ${persisted} fixes were released: it needs Martin`.slice(0, 300);
     return { stage: 'held', next: { do: 'hold', hold: { stage: 'verify', kind: 'held', cause: 'verify', reason } } };
   }
   const reason = `${seen} ${on}, the release that carried the fix`.slice(0, 200);

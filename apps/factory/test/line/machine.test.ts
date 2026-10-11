@@ -435,6 +435,11 @@ describe('after the merge', () => {
     expect(state.release).toBeUndefined();
     expect(state.persisted).toEqual([verified('persists').payload]);
     expect(state.reopened).toEqual([reopened.payload]);
+    // A verification that persists in the new pass sends it back to Plan once more: the limit counts this ticket's
+    // regression afresh.
+    const live = [...again, ...done.slice(1), deployHold(done), release('8a6c0d9e7', 'v0.9.7')];
+    const persists = [...live, promoted('8a6c0d9e7', 'v0.9.7'), verified('persists')];
+    expect(decide(persists, facts).next).toMatchObject({ do: 'return', from: 'verify', to: 'plan' });
     // Its fresh pass goes round as any other, to a merge and a release of its own.
     expect(decide([...again, ...done.slice(1)], facts).next).toMatchObject({ do: 'hold', hold: { cause: 'deploy' } });
   });

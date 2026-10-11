@@ -14,9 +14,10 @@
  * come onto the line in all, and then no more, while those on it go on to their end. It counts the line's own rows,
  * which are never deleted, under the same lock: a restart, or a second worker, takes none beyond the limit.
  *
- * A work item that ended, closed as verified, and reopened (triage reopens it when its signal comes back) is taken
- * back into Plan for a fresh pass (`revive`), whatever else is on the line and whatever the limit: it is one the line
- * took already, and its defect is back in the shop.
+ * A work item that closed as verified and reopened (triage reopens it when its signal comes back) is taken back into
+ * Plan for a fresh pass (`revive`), whatever else is on the line and whatever the limit: it is one the line took
+ * already, and its defect is back in the shop. It is taken back once for each reopening, from wherever its row was
+ * (ended, or not yet ended when it reopened), and until then the line hands it to nobody.
  */
 import { lastEnd } from '@software-factory/store';
 import type { JSONValue, Sql } from 'postgres';
@@ -81,6 +82,21 @@ const item = (row: Row): QueueItem => ({
 
 const COLUMNS = ['work_item', 'stage', 'steps', 'failures', 'failure', 'issue', 'session', 'effects'];
 
+/** A row (`l`) whose work item reopened since the line last took it back, and is open still. */
+const reopenedSince = (sql: Sql) =>
+  sql`coalesce(${lastEnd(sql, 'l.work_item')} = 'work-item.reopened'
+       and coalesce(l.reopened, 0) < (select max(r.seq) from events r
+                                      where r.work_item = l.work_item and r.type = 'work-item.reopened'), false)`;
+
+/** A row (`l`) under nobody's lease. */
+const unheld = (sql: Sql) => sql`(l.held_until is null or l.held_until < clock_timestamp())`;
+
+/**
+ * How long after its end a reopened work item waits before it comes back: its runners' volume was deleted as it
+ * ended, and a step that made it again while the old one was still going would mount one being deleted.
+ */
+const VOLUME_GONE_SECONDS = 60;
+
 export class Queue {
   readonly #sql: Sql;
   /** Who this worker is, as its leases name it. */
@@ -127,26 +143,34 @@ export class Queue {
     }) as Promise<string | undefined>;
   }
 
-  /** The work items that ended and have reopened since, waiting to come back into Plan: only the one, for a queue of one. */
+  /**
+   * The work items that reopened since the line last took them back, nobody holds, and are ready to come back into
+   * Plan (`VOLUME_GONE_SECONDS` after an end): only the one, for a queue of one.
+   */
   async reopened(): Promise<QueueItem[]> {
-    const rows = await this.#sql<Row[]>`
-      select ${this.#sql(COLUMNS)} from line l
-      where l.stage = 'ended' and ${lastEnd(this.#sql, 'l.work_item')} = 'work-item.reopened'
-        ${this.#only ? this.#sql`and l.work_item = ${this.#only}` : this.#sql``}
+    const sql = this.#sql;
+    const rows = await sql<Row[]>`
+      select ${sql(COLUMNS)} from line l
+      where ${reopenedSince(sql)} and ${unheld(sql)}
+        and (l.stage <> 'ended' or l.moved_at < clock_timestamp() - make_interval(secs => ${VOLUME_GONE_SECONDS}))
+        ${this.#only ? sql`and l.work_item = ${this.#only}` : sql``}
       order by l.taken_at`;
     return rows.map(item);
   }
 
   /**
-   * Takes a reopened work item back into Plan, if it is still ended and reopened, for a fresh pass: nothing of its last
-   * step carries over, nor the coder's session. Its count of steps does, since it names the next step's job.
+   * Takes a reopened work item back into Plan, if it has reopened since the line last took it back and nobody holds
+   * it, for a fresh pass: nothing of its last step carries over, nor the coder's session. Its count of steps does, since
+   * it names the next step's job. Without its issue (`forgetIssue`), the line opens a new one.
    */
-  async revive(workItem: string): Promise<boolean> {
-    const rows = await this.#sql`
+  async revive(workItem: string, { forgetIssue = false } = {}): Promise<boolean> {
+    const sql = this.#sql;
+    const rows = await sql`
       update line l set stage = 'plan', moved_at = clock_timestamp(), failures = 0, failure = null, effects = null,
-                        session = null
-      where l.work_item = ${workItem} and l.stage = 'ended'
-        and ${lastEnd(this.#sql, 'l.work_item')} = 'work-item.reopened'
+                        session = null, ${forgetIssue ? sql`issue = null,` : sql``}
+                        reopened = (select max(r.seq) from events r
+                                    where r.work_item = l.work_item and r.type = 'work-item.reopened')
+      where l.work_item = ${workItem} and ${reopenedSince(sql)} and ${unheld(sql)}
       returning l.work_item`;
     return rows.length > 0;
   }
@@ -154,22 +178,23 @@ export class Queue {
   /** The work items on the line that nobody holds, longest on it first: only the one, for a queue of one. */
   async free(): Promise<QueueItem[]> {
     const rows = await this.#sql<Row[]>`
-      select ${this.#sql(COLUMNS)} from line
-      where stage <> 'ended' and (held_until is null or held_until < clock_timestamp())
-        ${this.#only ? this.#sql`and work_item = ${this.#only}` : this.#sql``}
-      order by taken_at`;
+      select ${this.#sql(COLUMNS)} from line l
+      where l.stage <> 'ended' and ${unheld(this.#sql)} and not ${reopenedSince(this.#sql)}
+        ${this.#only ? this.#sql`and l.work_item = ${this.#only}` : this.#sql``}
+      order by l.taken_at`;
     return rows.map(item);
   }
 
   /**
    * Holds a work item for this worker for a while, so no other acts on it meanwhile. Undefined if another holds it,
-   * or it has ended. A step's lease outlasts the step's deadline; a crash leaves it to run out.
+   * it has ended, or it reopened and waits to come back into Plan. A step's lease outlasts the step's deadline; a crash
+   * leaves it to run out.
    */
   async claim(workItem: string, seconds: number): Promise<QueueItem | undefined> {
     const [row] = await this.#sql<Row[]>`
-      update line set held_by = ${this.#me}, held_until = clock_timestamp() + make_interval(secs => ${seconds})
-      where work_item = ${workItem} and stage <> 'ended'
-        and (held_until is null or held_until < clock_timestamp() or held_by = ${this.#me})
+      update line l set held_by = ${this.#me}, held_until = clock_timestamp() + make_interval(secs => ${seconds})
+      where l.work_item = ${workItem} and l.stage <> 'ended' and not ${reopenedSince(this.#sql)}
+        and (l.held_until is null or l.held_until < clock_timestamp() or l.held_by = ${this.#me})
       returning ${this.#sql(COLUMNS)}`;
     return row && item(row);
   }

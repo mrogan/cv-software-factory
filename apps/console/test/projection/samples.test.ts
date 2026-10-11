@@ -168,6 +168,8 @@ describe('a sheet', () => {
       segments: ['passed', 'passed', 'queued', ...Array(5).fill('none')],
     });
     expect(sheet?.chapters.find((c) => c.label === 'REOPENED')).toMatchObject({ tone: 'attn' });
+    // Nothing of the closed pass's release says it is live or verified.
+    expect(sheet?.card.versions).toMatchObject({ from: undefined, to: undefined, rolledBack: false });
     expect(sheet?.chapters.map((c) => c.label).slice(-2)).toEqual(['REOPENED', 'WAITING · PLAN']);
   });
 

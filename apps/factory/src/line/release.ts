@@ -303,8 +303,8 @@ export interface Carried {
 /**
  * The merged work items a version of the app at `head` carries over the one the shop runs, in the order they merged:
  * each whose latest merge is in the range, and that is not closed, or was reopened since. One sent back after a merge
- * is carried only by a version with its latest fix. The deploy pull request lists these, and a release starting
- * records them.
+ * is carried only by a version with its latest fix, and one reopened only by a merge since it reopened. The deploy
+ * pull request lists these, and a release starting records them.
  *
  * The range starts at the commit of the last release that shipped and was promoted, which is what the shop runs: not
  * the one pinned on main, which after a rollback is the version that rolled back. Before any release is recorded, it
@@ -340,6 +340,8 @@ export async function carried(
              (m.payload->>'number')::int as number
       from events m
       where m.type = 'pull-request.merged' and ${lastEnd(sql, 'm.work_item')} is distinct from 'work-item.closed'
+        and not exists (select 1 from events r
+                        where r.work_item = m.work_item and r.type = 'work-item.reopened' and r.seq > m.seq)
       order by m.work_item, m.seq desc
     ) latest
     left join line l on l.work_item = latest.work_item

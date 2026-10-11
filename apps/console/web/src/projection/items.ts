@@ -351,12 +351,14 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         if (event.payload.outcome === 'discarded') state.category = 'not-a-defect';
         break;
       case 'work-item.reopened':
-        // Open again, it waits at Plan for the planner, and comes round to a release of its own.
+        // Open again, it waits at Plan for the planner, and comes round to a release and a verification of its own.
         state.closedAt = undefined;
         state.hold = undefined;
         state.queued = true;
         release = undefined;
         state.canary = undefined;
+        state.versions = { from: undefined, to: undefined, rolledBack: false, live: false };
+        state.evidence.verified = undefined;
         break;
     }
     if (event.type === 'judgement.made') {

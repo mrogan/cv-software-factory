@@ -187,6 +187,8 @@ export interface Actions {
 }
 
 const SHA = z.string().regex(/^[0-9a-f]{40}$/);
+/** An issue, as closing and reopening one read it. */
+const ISSUE = z.object({ state: z.string(), closed_at: z.string().nullable().default(null) });
 const NUMBER = z.number().int().positive();
 const ID = z.object({ id: NUMBER });
 
@@ -385,10 +387,17 @@ export class LiveActions implements Actions {
 
   async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void> {
     if (comment !== undefined) {
-      const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, z.object({ state: z.string() }));
+      const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, ISSUE);
       if (issue.state !== 'open') return;
-      // A close whose comment was made and whose closing failed is tried again: the comment is not made twice.
-      if (!(await this.#said(repo, number, comment))) await this.comment(repo, number, comment);
+      // A close whose comment was made and whose closing failed is tried again: the comment is not made twice. Only
+      // what was said since the issue last reopened counts: a close of an earlier pass may have said the same.
+      const events = await this.#github.read(
+        repo,
+        `/repos/${repo}/issues/${number}/events?per_page=100`,
+        z.array(z.object({ event: z.string(), created_at: z.string() })),
+      );
+      const reopened = events.findLast((event) => event.event === 'reopened')?.created_at ?? null;
+      if (!(await this.#said(repo, number, comment, reopened))) await this.comment(repo, number, comment);
     }
     await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
       state: 'closed',
@@ -397,20 +406,22 @@ export class LiveActions implements Actions {
   }
 
   async reopenIssue(repo: string, number: number, comment: string): Promise<void> {
-    const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, z.object({ state: z.string() }));
+    const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, ISSUE);
     if (issue.state !== 'closed') return;
-    if (!(await this.#said(repo, number, comment))) await this.comment(repo, number, comment);
+    // Only what was said since it closed counts: an earlier reopening may have said the same.
+    if (!(await this.#said(repo, number, comment, issue.closed_at))) await this.comment(repo, number, comment);
     await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
       state: 'open',
       state_reason: 'reopened',
     });
   }
 
-  /** Whether an issue's comments already say this, word for word. */
-  async #said(repo: string, number: number, body: string): Promise<boolean> {
+  /** Whether an issue's comments since a time (or ever, with none) already say this, word for word. */
+  async #said(repo: string, number: number, body: string, since: string | null): Promise<boolean> {
+    const after = since ? `&since=${encodeURIComponent(since)}` : '';
     const comments = await this.#github.read(
       repo,
-      `/repos/${repo}/issues/${number}/comments?per_page=100`,
+      `/repos/${repo}/issues/${number}/comments?per_page=100${after}`,
       z.array(z.object({ body: z.string().nullable() })),
     );
     return comments.some((made) => made.body === body);
