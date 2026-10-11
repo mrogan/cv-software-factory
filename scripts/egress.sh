@@ -6,8 +6,8 @@
 # compromised one would be, and shows that it cannot reach TypeSafe, GitHub, the gateway, the GitHub worker, the app or
 # a public address, while the gateway can reach TypeSafe and the GitHub worker can reach GitHub.
 #
-# Then the line, which reaches the Kubernetes API and Prometheus, and not another address on the API's port, the node's
-# other ports, Loki or the app.
+# Then the line, which reaches the Kubernetes API, Prometheus, Loki and the probes' verification, and not another address
+# on the API's port, the node's other ports, Tempo or the app.
 #
 # Then the runners (ADR 0008): a pod made like an agent pod (its labels, no DNS, the line's two addresses in its hosts)
 # reaches the gateway and the line's handback and nothing else: not GitHub, the Kubernetes API, the cloud metadata
@@ -185,12 +185,15 @@ expect "the GitHub worker cannot reach the app" deployment/github http://website
 expect "the GitHub worker cannot reach the gateway" deployment/github http://gateway:8080/health blocked
 expect "triage reaches the gateway" deployment/triage http://gateway:8080/health reached
 expect "the intake cannot reach the gateway" deployment/intake http://gateway:8080/health blocked
+expect "the worker cannot reach the probes" "$pod" http://probes:8080/health blocked
 
 echo "The line:"
 expect "the line reaches the Kubernetes API" deployment/line "https://$api_ip/version" reached
 expect "the line reaches the API server on the node" deployment/line "https://$node_ip:6443/version" reached
 expect "the line reaches Prometheus" deployment/line http://prometheus-server.telemetry/-/healthy reached
-expect "the line cannot reach Loki" deployment/line http://loki.telemetry:3100/ready blocked
+expect "the line reaches Loki" deployment/line http://loki.telemetry:3100/ready reached
+expect "the line reaches the probes' verification" deployment/line http://probes:8080/health reached
+expect "the line cannot reach Tempo" deployment/line http://tempo.telemetry:3200/ready blocked
 expect "the line cannot reach the app" deployment/line http://website.website blocked
 expect "the line cannot reach the node's ingress" deployment/line "https://$node_ip:443" blocked
 expect "the line cannot reach a public address" deployment/line https://1.1.1.1 blocked

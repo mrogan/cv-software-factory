@@ -47,7 +47,7 @@ export function parse(body: unknown): Alert[] {
 }
 
 /** What an alert's objective is called, how it is measured and where it draws the line. */
-function measure(o: Objectives, objective: string | undefined, scope: query.Scope) {
+export function measure(o: Objectives, objective: string | undefined, scope: query.Scope) {
   if (objective === OBJECTIVES.errorRatio) {
     return {
       name: 'Share of requests with a 5xx status',
@@ -68,6 +68,13 @@ function measure(o: Objectives, objective: string | undefined, scope: query.Scop
     };
   }
   return undefined;
+}
+
+/** The objective a signal's check names (`error ratio`, `latency p95`), measured over the scope; or none. */
+export function measureOfCheck(o: Objectives, check: string, scope: query.Scope) {
+  return [OBJECTIVES.errorRatio, OBJECTIVES.latency]
+    .map((objective) => measure(o, objective, scope))
+    .find((measured) => measured?.check === check);
 }
 
 /** The signal for one firing alert. Throws `Refused` for one that names no route or symptom the factory knows. */

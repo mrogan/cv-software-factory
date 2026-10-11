@@ -47,7 +47,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const REPEAT_MS = 60 * 60 * 1000;
 
 /** The selector of the app's error records. */
-function errorLogs(o: Objectives): string {
+export function errorLogs(o: Objectives): string {
   return `{service_name=${quoted(o.app.logsService)}} | severity_text=~"(?i)error|fatal"`;
 }
 

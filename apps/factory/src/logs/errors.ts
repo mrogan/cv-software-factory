@@ -9,6 +9,8 @@ import type { NewPattern } from './patterns.ts';
 
 /** The lines a signal carries: enough to see the error, and few enough to read. */
 const MAX_LINES = 20;
+/** The most of a line the evidence keeps. */
+export const MAX_MESSAGE = 300;
 const TRACE_ID = /^[0-9a-f]{32}$/;
 const VERSION = /^(v\d+\.\d+\.\d+|[0-9a-f]{7,40})$/;
 
@@ -28,8 +30,11 @@ function levelOf(record: LogRecord): 'debug' | 'info' | 'warn' | 'error' {
   }
 }
 
-/** The line, with the exception the record attaches to it: the line alone says only that something failed. */
-function messageOf(record: LogRecord): string {
+/**
+ * The line, with the exception the record attaches to it: the line alone says only that something failed. A signal
+ * keeps it cut to 300 characters (`MAX_MESSAGE`).
+ */
+export function messageOf(record: LogRecord): string {
   const { exception_type: type, exception_message: message } = record.fields;
   const exception = [type, message].filter(Boolean).join(': ');
   return exception ? `${record.line}: ${exception}` : record.line;
@@ -69,7 +74,7 @@ export async function signalForPattern(found: NewPattern, tempo: Tempo): Promise
         lines: records.map((r) => ({
           ts: r.time.toISOString(),
           level: levelOf(r),
-          message: messageOf(r).slice(0, 300),
+          message: messageOf(r).slice(0, MAX_MESSAGE),
           traceId: TRACE_ID.test(r.fields.trace_id ?? '') ? (r.fields.trace_id ?? null) : null,
         })),
         ...(traceId && spans?.length ? { trace: { id: traceId, spans: spans.slice(0, 20) } } : {}),

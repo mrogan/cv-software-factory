@@ -2,6 +2,7 @@
  * New error patterns. Two errors that differ only in a number, an identifier or a quoted value are one error, so
  * each message is reduced to a pattern, and a pattern the log has not shown in the previous day is news.
  */
+import { templatePattern } from '../alerts/queries.ts';
 import type { LogRecord } from '../clients/loki.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -25,6 +26,18 @@ const REDUCTIONS: [RegExp, string][] = [
 
 export function reduce(message: string): string {
   return REDUCTIONS.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), message).trim();
+}
+
+/**
+ * A line a signal kept (`errors.ts`), or a record's line written the same way, as a pattern to compare: what a path of
+ * the route's put in it is put back to the route, as `describe` does with a record's own path, and the rest reduced.
+ * A signal keeps the lines and not the pattern, and its lines name the paths visitors asked for, which differ from one
+ * request to the next.
+ */
+export function keptPattern(kept: string, route: string): string {
+  if (route === '*' || !route.includes(':')) return reduce(kept);
+  const paths = new RegExp(templatePattern(route, '[^/\\s"\'?#:]+'), 'g');
+  return reduce(kept.replace(paths, route));
 }
 
 /** An error record, with what the patterns and the signal need from it. */

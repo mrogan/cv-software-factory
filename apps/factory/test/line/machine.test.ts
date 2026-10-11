@@ -337,13 +337,90 @@ describe('after the merge', () => {
     expect(decide(dry([...done, release(), promoted()]), facts).next).toMatchObject({ do: 'verify' });
   });
 
-  it('moves a promoted release’s work item to Verify', () => {
+  it('moves a promoted release’s work item to Verify, and closes it as verified once its signal has cleared', () => {
     const live = [...done, deployHold(done), release(), promoted()];
     expect(decide(live, facts)).toEqual({ stage: 'verify', next: { do: 'verify', release: promoted().payload } });
-    // A verification does not end it: closing it does.
-    expect(decide([...live, verified('cleared')], facts).stage).toBe('verify');
+    expect(decide([...live, verified('cleared')], facts)).toEqual({
+      stage: 'verify',
+      next: { do: 'verified', verification: verified('cleared').payload },
+    });
     const closed: LineEvent = { type: 'work-item.closed', payload: { outcome: 'verified', reason: 'Cleared' } };
     expect(decide([...live, verified('cleared'), closed], facts)).toEqual({ stage: 'ended', next: { do: 'finish' } });
+  });
+
+  it('closes a dry run’s work item as verified by the dry run’s word, as any other', () => {
+    const dry = (event: LineEvent): LineEvent =>
+      ({ ...event, payload: { ...event.payload, dryRun: true } }) as LineEvent;
+    const live = [...done, deployHold(done), dry(release()), dry(promoted()), dry(verified('cleared'))];
+    expect(decide(live, facts).next).toMatchObject({ do: 'verified', verification: { dryRun: true } });
+  });
+
+  it('sends the work back to Plan when its signal persists, and holds for Martin the second time', () => {
+    const live = [...done, deployHold(done), release(), promoted()];
+    const once = [...live, verified('persists')];
+    expect(decide(once, facts)).toEqual({
+      stage: 'plan',
+      next: {
+        do: 'return',
+        from: 'verify',
+        to: 'plan',
+        reason: 'The probe still saw “search” on v0.9.4, the release that carried the fix',
+      },
+    });
+    const back: LineEvent = { type: 'work.returned', payload: { from: 'verify', to: 'plan', reason: 'It persists' } };
+    // The fresh pass keeps the verification for the planner, and goes round to a release of its own.
+    expect(fold([...once, back]).persisted).toEqual([verified('persists').payload]);
+    const second = [...once, back, ...done.slice(1), deployHold(done), release('7f5b9c8d6', 'v0.9.5')];
+    const again = [...second, promoted('7f5b9c8d6', 'v0.9.5'), verified('persists')];
+    expect(fold(again).persisted).toHaveLength(2);
+    expect(decide(again, facts)).toEqual({
+      stage: 'held',
+      next: {
+        do: 'hold',
+        hold: {
+          stage: 'verify',
+          kind: 'held',
+          cause: 'verify',
+          reason: 'The probe still saw “search” on v0.9.4, after 2 fixes were released: it needs Martin',
+        },
+      },
+    });
+  });
+
+  it('settles a hold at Verify by his answer: verified, back to Plan with his words, or closed', () => {
+    const live = [...done, deployHold(done), release(), promoted()];
+    for (const reason of ['No sense can look again', 'The signal persisted twice']) {
+      const hold: LineEvent = {
+        type: 'hold.started',
+        payload: { stage: 'verify', kind: 'approval', cause: 'verify', reason },
+      };
+      const held = [...live, hold];
+      expect(decide(held, facts)).toEqual({ stage: 'held', next: { do: 'wait', for: 'martin' } });
+      expect(decide([...held, answer('approved', 'The page is right now')], facts)).toEqual({
+        stage: 'verify',
+        next: { do: 'verified', verification: undefined, answer: 'The page is right now' },
+      });
+      expect(decide([...held, answer('answered', 'The banner still overlaps')], facts)).toEqual({
+        stage: 'plan',
+        next: { do: 'return', from: 'verify', to: 'plan', reason: 'Martin sent it back: The banner still overlaps' },
+      });
+      // The planner is told what he was asked, and what he said.
+      expect(fold([...held, answer('answered', 'The banner still overlaps')]).answers).toEqual([
+        { asked: reason, answer: 'The banner still overlaps' },
+      ]);
+      expect(decide([...held, answer('rejected')], facts).next).toEqual({
+        do: 'close',
+        reason: 'Martin rejected it',
+        merged: true,
+      });
+    }
+  });
+
+  it('keeps the spend cap in force for the fresh pass’s steps after a return from Verify', () => {
+    const back: LineEvent = { type: 'work.returned', payload: { from: 'verify', to: 'plan', reason: 'It persists' } };
+    const returned = [...done, deployHold(done), release(), promoted(), verified('persists'), back];
+    const spend = { spentUsd: 2.5, limitUsd: 2 };
+    expect(decide(returned, { ...facts, spend }).next).toMatchObject({ do: 'hold', hold: { cause: 'spend' } });
   });
 
   it('holds the work item again when its release rolls back, for the next', () => {
@@ -386,9 +463,11 @@ describe('after the merge', () => {
         stage: 'held',
         next: { do: 'close', reason: 'Martin rejected it', merged: true },
       });
-      // Approving or answering waits for him, at Release for the deploy he merges.
-      expect(decide([...done, hold, answer('approved')], facts).next).toEqual({ do: 'wait', for: 'martin' });
     }
+    // Approving or answering a deploy's hold waits for him: the deploy he merges moves it on.
+    const deploy = deployHold(done);
+    expect(decide([...done, deploy, answer('approved')], facts).next).toEqual({ do: 'wait', for: 'martin' });
+    expect(decide([...done, deploy, answer('answered', 'Soon')], facts).next).toEqual({ do: 'wait', for: 'martin' });
   });
 
   it('pays no heed to the end of a release other than the latest to carry it', () => {

@@ -8,6 +8,7 @@
  *
  * The base and the change are observed at once, and only what failed on the change is observed again.
  */
+import type { Evidence } from '@software-factory/events';
 import { cell } from './report.ts';
 
 /** One check's result in one pass. */
@@ -19,6 +20,8 @@ export interface Seen {
   /** Why the check could not tell, when it could not. */
   trouble?: string;
   message?: string;
+  /** What a failed check kept as proof. */
+  evidence?: Evidence[];
 }
 
 export interface Comparison {
@@ -71,7 +74,7 @@ export async function compareJourneys(observe: Observe, base: string, change: st
  * What to run again to see `only` again: the probes, by id, that made them (a probe's checks are its id and what the
  * watch saw on its pages, such as `<id>/console`), and whether to crawl, since a crawl cannot look at one route alone.
  */
-export function toRunAgain(only: readonly Seen[]): { probes: Set<string>; crawl: boolean } {
+export function toRunAgain(only: readonly Pick<Seen, 'sense' | 'check'>[]): { probes: Set<string>; crawl: boolean } {
   return {
     probes: new Set(only.filter((s) => s.sense === 'probe').map((s) => s.check.split('/')[0] as string)),
     crawl: only.some((s) => s.sense === 'crawler'),

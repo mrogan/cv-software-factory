@@ -1,15 +1,18 @@
 /**
  * The page reader, for triage: it is given the path of a page of the app, and says what the page looks like and
  * what it says. A screenshot goes in the artifact store; the visible text comes back as passages for Jev to choose
- * from. The text of a page is never logged.
+ * from. The text of a page is never logged. Beside it, for the line's Verify, a ticket's check run again
+ * (`verify.ts`).
  *
  *     POST /v1/pages   { "path": "/about" }  ->  { "screenshot": <Screenshot>, "passages": ["…"] }
+ *     POST /v1/verify  { "sense", "check", "route" }  ->  { "outcome", "version", "runs", "evidence"? }
  *     GET  /health
  */
 import { createServer, type Server } from 'node:http';
 import type { ArtifactStore } from '@software-factory/store';
 import { capture } from '../capture.ts';
 import type { BrowserSense } from '../senses/browser.ts';
+import { type VerifyAnswer, type VerifyRequest, verifyRequest } from './verify.ts';
 
 export const MAX_PASSAGES = 40;
 export const MAX_PASSAGE_LENGTH = 200;
@@ -44,9 +47,11 @@ export interface ReaderOptions {
   /** The app's version now. */
   version(): Promise<string>;
   log: { info(fields: object, message: string): void; warn(fields: object, message: string): void };
+  /** Runs a ticket's check again against the app; without it, the worker verifies nothing. */
+  verify?: (request: VerifyRequest) => Promise<VerifyAnswer>;
 }
 
-export function readerServer({ app, sense, store, version, log }: ReaderOptions): Server {
+export function readerServer({ app, sense, store, version, log, verify }: ReaderOptions): Server {
   return createServer(async (req, res) => {
     const reply = (status: number, body: unknown) => {
       res.writeHead(status, { 'content-type': 'application/json' });
@@ -54,11 +59,28 @@ export function readerServer({ app, sense, store, version, log }: ReaderOptions)
     };
     try {
       if (req.method === 'GET' && req.url === '/health') return reply(200, { status: 'ok' });
-      if (req.method !== 'POST' || req.url !== '/v1/pages') return reply(404, { error: 'not found' });
+      const verifying = req.url === '/v1/verify' && verify !== undefined;
+      if (req.method !== 'POST' || (req.url !== '/v1/pages' && !verifying)) return reply(404, { error: 'not found' });
       let raw = '';
       for await (const chunk of req) {
         raw += chunk;
         if (raw.length > 1_000) return reply(413, { error: 'too large' });
+      }
+      if (verifying) {
+        let asked: ReturnType<typeof verifyRequest.safeParse>;
+        try {
+          asked = verifyRequest.safeParse(JSON.parse(raw));
+        } catch {
+          return reply(400, { error: 'the body is not JSON' });
+        }
+        if (!asked.success) return reply(400, { error: 'a verification names a sense, a check and a route' });
+        const started = Date.now();
+        const answer = await verify(asked.data);
+        log.info(
+          { ...asked.data, outcome: answer.outcome, runs: answer.runs, ms: Date.now() - started },
+          'a check was run again',
+        );
+        return reply(200, answer);
       }
       let path: string | null = null;
       try {
@@ -85,9 +107,11 @@ export function readerServer({ app, sense, store, version, log }: ReaderOptions)
     } catch (error) {
       log.warn(
         { err: error instanceof Error ? error.message.split('\n')[0] : String(error) },
-        'a page could not be read',
+        req.url === '/v1/verify' ? 'a check could not be run again' : 'a page could not be read',
       );
-      return reply(502, { error: 'the page could not be read' });
+      return reply(502, {
+        error: req.url === '/v1/verify' ? 'the check could not be run' : 'the page could not be read',
+      });
     }
   });
 }

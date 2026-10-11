@@ -13,7 +13,7 @@ import { createWorkerServer } from '../../src/github/server.ts';
 import { GitHubWorker, GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { APP_REPOSITORY, Line, type LineOptions, signalId } from '../../src/line/worker.ts';
 import { quiet } from '../github/fake.ts';
-import { type Agent, FakeGitHub, FakeSteps, MAIN } from './fakes.ts';
+import { type Agent, FakeGitHub, FakeProbes, FakeSteps, MAIN } from './fakes.ts';
 
 let database: Database;
 let events: EventWriter;
@@ -169,7 +169,8 @@ const stage = async (workItem: string) =>
 describe('the line', () => {
   it('carries a ticket through plan, build, gates, review and description to Martin’s merge', async () => {
     const workItem = await ticket();
-    const { pass, steps, github } = line();
+    const probes = new FakeProbes({ outcome: 'cleared', version: 'v0.9.4', runs: ['passed', 'passed'] });
+    const { pass, steps, github } = line(AGENTS, events, { verify: { probes } });
 
     await pass(); // the issue, and the planner
     expect(github.acts[0]).toMatchObject({ action: 'openIssue', args: { title: 'Server errors on /search' } });
@@ -268,13 +269,47 @@ describe('the line', () => {
     await events.append(event(workItem, 'release.started', { ...release, image }, 'rollouts'));
     await pass();
     expect(await stage(workItem)).toBe('release');
-    await events.append(event(workItem, 'release.promoted', release, 'rollouts'));
+    await events.append([
+      // The probe's signal the ticket was opened on, as triage records it on the work item.
+      event(
+        workItem,
+        'signal.received',
+        { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.3' },
+        'probe',
+      ),
+      event(workItem, 'release.promoted', release, 'rollouts'),
+    ]);
+    // The probe that saw the defect runs its check again against the stable Service, which passes twice in a row.
     await pass();
-    expect(await stage(workItem)).toBe('verify');
+    expect(probes.asked).toEqual([{ sense: 'probe', check: 'search', route: '/search' }]);
+    expect(await payloads(workItem, 'verification.finished')).toEqual([
+      {
+        outcome: 'cleared',
+        sense: 'probe',
+        check: 'search',
+        version: 'v0.9.4',
+        against: 'v0.9.3',
+        pages: [],
+        dryRun: false,
+      },
+    ]);
     expect(github.acts).toHaveLength(8);
     expect(steps.finished).toEqual([workItem]); // deleted once while it waited
-    await events.append(event(workItem, 'work-item.closed', { outcome: 'verified', reason: 'Cleared' }));
+    // It closes as verified, and its issue as completed, saying what cleared it.
     await pass();
+    expect(github.acts.at(-1)).toEqual({
+      action: 'closeIssue',
+      args: {
+        number: 41,
+        reason: 'completed',
+        comment: [
+          'Verified in production. The probe’s check “search” passed twice in a row on v0.9.4, which carries the fix.',
+          '',
+          `The factory’s work item #${workItem} is closed as verified.`,
+        ].join('\n'),
+      },
+    });
+    expect((await payloads(workItem, 'work-item.closed'))[0]).toMatchObject({ outcome: 'verified' });
     expect(steps.finished).toEqual([workItem, workItem]); // and again as it ends, already gone
     expect(await stage(workItem)).toBe('ended');
     expect((await payloads(workItem, 'pull-request.pushed'))[0]).toEqual({

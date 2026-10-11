@@ -12,7 +12,7 @@ import type { AnalysisRun, Rollout } from '../../src/release/read.ts';
 import type { Kube } from '../../src/runners/kube.ts';
 import { quiet } from '../github/fake.ts';
 import { CANARY, commitOf, digestOf, rollout, run, STABLE } from '../release/fixtures.ts';
-import { FakeGitHub, FakeSteps } from './fakes.ts';
+import { FakeGitHub, FakeProbes, FakeSteps } from './fakes.ts';
 
 let database: Database;
 let events: EventWriter;
@@ -45,8 +45,11 @@ const event = <K extends NewEvent['type']>(
     artifacts: [],
   }) as NewEvent;
 
-/** A work item whose fix merged in pull request `number`, as `commit`, and which the line holds at Release. */
-async function merged(number: number, commit: string): Promise<string> {
+/**
+ * A work item whose fix merged in pull request `number`, as `commit`, and which the line holds at Release. Its ticket
+ * came from a probe, which the line here has no way to ask at Verify: there it waits.
+ */
+async function merged(number: number, commit: string, sense: 'probe' | 'report' = 'probe'): Promise<string> {
   const workItem = await nextWorkItem(database.writer);
   await events.append([
     event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'A redirect loop', sample: false }, 'triage'),
@@ -61,6 +64,12 @@ async function merged(number: number, commit: string): Promise<string> {
         traces: [],
       },
       'triage',
+    ),
+    event(
+      workItem,
+      'signal.received',
+      { sense, check: 'departments', route: '/departments/:department', version: commitOf(STABLE) },
+      sense === 'probe' ? 'probe' : 'widget',
     ),
     event(workItem, 'pull-request.merged', { number, commit, by: 'martin' }, 'martin'),
   ]);
@@ -436,5 +445,144 @@ describe('a dry run’s release', () => {
     now += 10 * 60_000;
     await it.tick();
     expect(await typesOf(workItem)).toEqual([]);
+  });
+});
+
+describe('Verify on the line', () => {
+  /** A release of `commit` carrying the work item, promoted. */
+  async function promote(workItem: string, release = 'f00dfeed01', version = commitOf(CANARY), dryRun = false) {
+    const payload = { release, version, previous: commitOf(STABLE), commit: version, watched: !dryRun, dryRun };
+    await events.append([
+      event(workItem, 'release.started', { ...payload, ...(dryRun ? {} : { image: IMAGE }) }, 'rollouts'),
+      event(workItem, 'release.promoted', payload, 'rollouts'),
+    ]);
+  }
+  const IMAGE = { digest: digestOf(CANARY), signed: true, admitted: true };
+  const pass = async (it: Line) => {
+    await it.tick();
+    await it.idle();
+  };
+  const types = async (workItem: string) =>
+    (
+      await database.writer<{ type: string }[]>`
+        select type from events where work_item = ${workItem} and type not like 'release.%' order by seq`
+    ).map((r) => r.type);
+
+  it('sends the work back to Plan when the probe still fails, with a session of its own, and holds the second time', async () => {
+    const workItem = await merged(30, FIX_3);
+    await database.writer`update line set session = 'session-1' where work_item = ${workItem}`;
+    await promote(workItem);
+    const probes = new FakeProbes({ outcome: 'persists', version: commitOf(CANARY), runs: ['failed', 'failed'] });
+    const { line: it, github } = line({ release: null, verify: { probes } });
+    await pass(it); // Verify looks: it persists
+    await pass(it); // and the work goes back to Plan
+    expect((await types(workItem)).slice(-2)).toEqual(['verification.finished', 'work.returned']);
+    expect((await payloads(workItem, 'work.returned'))[0]).toEqual({
+      from: 'verify',
+      to: 'plan',
+      reason: `The probe still saw “departments” on ${commitOf(CANARY)}, the release that carried the fix`,
+    });
+    const [row] = await database.writer<{ stage: string; session: string | null }[]>`
+      select stage, session from line where work_item = ${workItem}`;
+    expect(row?.session).toBeNull();
+    // The issue stays open.
+    expect(github.acts.filter((a) => a.action === 'closeIssue')).toEqual([]);
+
+    expect(github.acts.filter((a) => a.action === 'closeIssue')).toEqual([]);
+  });
+
+  it('holds for Martin when a second fix’s release leaves the signal persisting, and keeps the issue open', async () => {
+    const workItem = await merged(30, FIX_3);
+    await promote(workItem);
+    const persisted = {
+      outcome: 'persists' as const,
+      sense: 'probe' as const,
+      check: 'departments',
+      version: commitOf(CANARY),
+      against: commitOf(STABLE),
+      pages: [],
+      dryRun: false,
+    };
+    // The first fix's pass, sent back from Verify; the second fix merged and released.
+    await events.append([
+      event(workItem, 'verification.finished', persisted, 'probe'),
+      event(workItem, 'work.returned', { from: 'verify', to: 'plan', reason: 'It persists' }, 'factory'),
+      event(workItem, 'pull-request.merged', { number: 31, commit: FIX_4, by: 'martin' }, 'martin'),
+    ]);
+    await promote(workItem, 'f00dfeed02');
+    const probes = new FakeProbes({ outcome: 'persists', version: commitOf(CANARY), runs: ['failed', 'failed'] });
+    const { line: it, github } = line({ release: null, verify: { probes } });
+    await pass(it);
+    await pass(it);
+    expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({
+      stage: 'verify',
+      kind: 'held',
+      cause: 'verify',
+    });
+    expect(await stage(workItem)).toBe('held');
+    expect(github.acts.filter((a) => a.action === 'closeIssue')).toEqual([]);
+  });
+
+  it('holds for Martin when only a visitor’s report saw the defect, and closes it as verified on his approval', async () => {
+    const workItem = await merged(30, FIX_3, 'report');
+    await promote(workItem);
+    const { line: it, github } = line({ release: null });
+    await pass(it);
+    expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({
+      stage: 'verify',
+      kind: 'approval',
+      cause: 'verify',
+    });
+    await events.append([
+      event(workItem, 'hold.answered', { decision: 'approved', answer: 'The page is right now' }, 'martin'),
+    ]);
+    await pass(it);
+    expect(github.acts.at(-1)).toEqual({
+      action: 'closeIssue',
+      args: {
+        number: 29,
+        reason: 'completed',
+        comment: expect.stringContaining('Martin judged it cleared, saying: The page is right now.'),
+      },
+    });
+    expect(await payloads(workItem, 'work-item.closed')).toEqual([
+      { outcome: 'verified', reason: 'Martin judged it cleared, saying: The page is right now' },
+    ]);
+  });
+
+  it('looks again later when the sense cannot tell, and never closes on it', async () => {
+    const workItem = await merged(30, FIX_3);
+    await promote(workItem);
+    const probes = new FakeProbes(new Error('The probes did not answer'));
+    const { line: it } = line({ release: null, verify: { probes }, verifyEveryMs: 5 * 60_000 });
+    await pass(it);
+    await pass(it);
+    expect(probes.asked).toHaveLength(1);
+    expect(await stage(workItem)).toBe('verify');
+    now += 5 * 60_000;
+    probes.answers.splice(0, 1, { outcome: 'unsure', version: commitOf(CANARY), runs: ['passed', 'unsure'] });
+    await pass(it);
+    expect(probes.asked).toHaveLength(2);
+    expect(await types(workItem)).not.toContain('verification.finished');
+  });
+
+  it('verifies a dry run’s work item by the dry run’s word, and closes it, only in a dry run', async () => {
+    const workItem = await merged(1_000_000_001, 'd'.repeat(40));
+    await promote(workItem, 'dry-run-dddddddddddd', 'd'.repeat(40), true);
+    const live = line({ release: null });
+    await pass(live.line);
+    expect(await types(workItem)).not.toContain('verification.finished');
+
+    const { line: it, github } = line({ release: null, dryRun: true });
+    await pass(it);
+    await pass(it);
+    expect(await payloads(workItem, 'verification.finished')).toEqual([
+      expect.objectContaining({ outcome: 'cleared', sense: 'probe', dryRun: true }),
+    ]);
+    expect(github.acts.at(-1)).toMatchObject({ action: 'closeIssue', args: { reason: 'completed' } });
+    expect(await payloads(workItem, 'work-item.closed')).toEqual([
+      { outcome: 'verified', reason: 'The dry run’s word: its release never shipped, so no sense looked' },
+    ]);
+    expect(await stage(workItem)).toBe('ended');
   });
 });

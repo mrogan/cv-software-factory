@@ -192,6 +192,26 @@ describe('the planner’s prompt', () => {
     expect(prompt).toContain('Martin was asked, and answered:\n- Is the shop open on Tuesdays? He said: Yes, all day.');
   });
 
+  it('tells the planner of a fix released before whose signal persisted', () => {
+    const persisted = {
+      outcome: 'persists' as const,
+      sense: 'probe' as const,
+      check: 'search',
+      version: 'b'.repeat(40),
+      against: 'a'.repeat(40),
+      pages: [],
+      dryRun: false,
+    };
+    expect(planner.prompt(INPUT)).not.toContain('persisted');
+    expect(planner.prompt({ ...INPUT, persisted: [persisted] })).toContain(
+      [
+        'A fix for this ticket was merged and released before, and the signal persisted:',
+        `- The probe still saw “search” on ${'b'.repeat(40)}.`,
+        'Find out why that fix did not clear it before you plan another.',
+      ].join('\n'),
+    );
+  });
+
   it('describes each kind of evidence in a line or two', () => {
     expect(
       evidenceLines({
