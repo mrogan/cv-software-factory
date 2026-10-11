@@ -13,7 +13,7 @@ import type {
 } from '@software-factory/events';
 import { isSense, STAGES } from '@software-factory/events';
 import { waitPicture } from './fixing.ts';
-import type { Capture, ItemState, Outcome } from './items.ts';
+import { type Capture, type ItemState, type Outcome, summaryOf } from './items.ts';
 
 export type Segment = 'passed' | 'skipped' | 'now' | 'queued' | 'stopped' | 'waiting' | 'closed' | 'none';
 
@@ -407,6 +407,7 @@ function isLocal(item: ItemState): boolean {
 
 export function card(item: ItemState, events: readonly PublicEvent[], t: number): Card {
   const end = item.closedAt ?? t;
+  const latest = last(item.events, (e) => e.type !== 'model.called');
   return {
     number: item.number,
     kind: item.kind,
@@ -415,7 +416,7 @@ export function card(item: ItemState, events: readonly PublicEvent[], t: number)
     outcome: item.outcome,
     sample: item.sample,
     title: item.title,
-    description: item.description ?? last(item.events, (e) => e.type !== 'model.called')?.summary ?? '',
+    description: item.description ?? (latest ? summaryOf(latest) : ''),
     picture: picture(item),
     versions: {
       from: item.versions.from,

@@ -103,6 +103,10 @@ describe('a merged fix', () => {
       'Waiting for Martin to judge whether the fix cleared it',
       'Own words',
     ]);
+    const held = events.slice(0, -1);
+    expect(project(held, work('1').at(6)).cards[0]?.description).toBe(
+      'Waiting for Martin to judge whether the fix cleared it',
+    );
   });
 });
 
