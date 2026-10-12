@@ -72,6 +72,33 @@ export const MEASURES = [
   ['journeys', 'Journeys', 'fails when a check passes on the baseline and fails here, twice'],
 ] as const;
 
+/**
+ * What the analysis saw of a measure that failed a release, against its limit, in the analysis's own terms
+ * (`apps/factory/src/release/analysis.ts`): the requests the split sent the canary, against the fewest it needs; the
+ * canary's share of 5xx answers above the baseline's, against the most it may be; how far its p99 went past the most
+ * it may be, rounded up, as any excess fails. A limit the analysis did not record is not said. A measure with no value
+ * says it in its own words, unless those are the rollback's or Argo Rollouts' ("Metric … assessed Failed due to …"):
+ * the journeys report no number, and errors and latency with none had no figures to compare, which the analysis
+ * counts as infinitely worse.
+ */
+export function sawOf({ name, value, limit, message }: Failed, reason: string): string {
+  const own = message !== reason && !/ assessed \w+ due to /.test(message ?? '') && message;
+  if (value === null)
+    return (
+      own ||
+      (name === 'journeys'
+        ? 'a check that passed on the baseline failed here'
+        : 'no figures to compare, which counts as infinitely worse')
+    );
+  const points = (x: number) => `${(x * 100).toFixed(2)} points`;
+  const against = (words: string) => (limit === null ? '' : `, against ${words}`);
+  if (name === 'latency') return `p99 ${Math.ceil((value - (limit ?? 0)) * 1000)} ms over its limit`;
+  if (name === 'errors')
+    return `5xx share ${points(value)} above the baseline’s${against(`at most ${points(limit ?? 0)}`)}`;
+  if (name === 'enough-requests') return `${value} requests to the canary${against(`at least ${limit}`)}`;
+  return `${value}${against(`a limit of ${limit}`)}`;
+}
+
 /** How long a release stays in full on the panel after it ends: as long as a station reads "passed". */
 const SHOWN_MS = 15 * 60_000;
 

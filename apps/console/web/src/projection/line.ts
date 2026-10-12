@@ -323,6 +323,12 @@ function returnOf(item: string, returned: PayloadOf<'work.returned'>, summary: s
 function noteOf(item: ItemState, stage: Stage): string {
   if (item.queued) return item.stage === 'release' ? 'Merged · waiting for release' : 'Waiting for the planner';
   if (item.hold?.cause === 'merge') return 'Needs you · waiting for Martin’s merge';
+  // A merged fix waits for a deploy pull request, again when the release that carried it rolled back.
+  if (item.hold?.cause === 'deploy')
+    return item.events.findLast((e) => e.type === 'pull-request.merged' || e.type === 'release.rolled-back')?.type ===
+      'release.rolled-back'
+      ? 'Needs you · rolled back, waiting for Martin’s next deploy'
+      : 'Needs you · waiting for Martin’s deploy';
   // Only Martin asks for improvements, so a visitor's suggestion waits for Martin, as does whatever the planner
   // noticed. A report that became a ticket and is held later, at Gates say, shows that hold's own reason.
   if (item.hold?.stage === 'triage' && (item.kind === 'visitor-report' || item.kind === 'planner-finding'))

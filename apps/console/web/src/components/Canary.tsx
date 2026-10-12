@@ -4,7 +4,7 @@
  */
 import { clock, clockSeconds, duration, isCommit, shortVersion, shortWhen } from '../format.ts';
 import type { CanaryView, Carried, Measured, Release } from '../projection/index.ts';
-import { MEASURES } from '../projection/release.ts';
+import { MEASURES, sawOf } from '../projection/release.ts';
 import { Glyph, type GlyphName } from './Glyph.tsx';
 
 export type Tone = 'signal' | 'ok' | 'attn' | 'faint';
@@ -147,7 +147,7 @@ function Measures({ r, m }: { r: Release; m: Measured }) {
         <tr>
           <th className="label">Measure</th>
           <th className="label">Canary</th>
-          <th className="label">Baseline</th>
+          <th className="label base">Baseline</th>
           <th className="label">Verdict</th>
         </tr>
       </thead>
@@ -160,7 +160,7 @@ function Measures({ r, m }: { r: Release; m: Measured }) {
             <tr key={name} className={phase === 'failed' ? 'failed' : ''}>
               <td>
                 {label}
-                <small>{rule}</small>
+                <small className="rule">{rule}</small>
               </td>
               <td className="mono">
                 {canary}
@@ -201,21 +201,27 @@ function Rollback({ r, onOpen }: { r: Release; onOpen: (item: string) => void })
             <thead>
               <tr>
                 <th className="label">Failed</th>
+                <th className="label">What the analysis saw</th>
                 <th className="label">Verdict</th>
               </tr>
             </thead>
             <tbody>
-              {end.failed.map((f) => (
-                <tr key={f.name} className="failed">
-                  <td>
-                    {label(f.name)}
-                    {f.message && f.message !== end.reason && <small>{f.message}</small>}
-                  </td>
-                  <td>
-                    <Verdict phase="failed" />
-                  </td>
-                </tr>
-              ))}
+              {end.failed.map((f, i) => {
+                const saw = sawOf(f, end.reason);
+                return (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: a measure can fail in more than one of the attempt's analyses, and an event's list never changes
+                  <tr key={i} className="failed">
+                    <td>
+                      {label(f.name)}
+                      {f.message && f.message !== end.reason && f.message !== saw && <small>{f.message}</small>}
+                    </td>
+                    <td>{saw}</td>
+                    <td>
+                      <Verdict phase="failed" />
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </>
