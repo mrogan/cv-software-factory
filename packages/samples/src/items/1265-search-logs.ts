@@ -1,5 +1,5 @@
 /** A defect the logs noticed: searches left no log record, so a slow one could not be followed. */
-import { commitFor, Item, promoted, started, stepped, traceFor } from '../build.ts';
+import { commitFor, Item, traceFor } from '../build.ts';
 
 const trace = traceFor('1265/before');
 const after = [traceFor('1265/after/1'), traceFor('1265/after/2')];
@@ -86,20 +86,19 @@ export default new Item('1265', '2026-09-29T14:10:00+01:00')
     commit: commitFor('1265/merge'),
     by: 'factory',
   })
-  .at('14:20', 'release.started', 'rollouts', 'v0.8.5 signed and admitted; canary at 25%', started('v0.8.5', 'v0.8.4'))
-  .at(
-    '15:10',
-    'canary.stepped',
-    'rollouts',
-    'Canary at 25%: every check passing',
-    stepped('v0.8.5', 25, {
+  .released('14:20', 'v0.8.5', 'v0.8.4', [
+    {
       errorRate: { canary: 0.0019, baseline: 0.0021 },
       p99Ms: { canary: 128, baseline: 131 },
       journeys: { canary: [24, 24], baseline: [24, 24] },
-    }),
-  )
-  .at('16:50', 'release.promoted', 'rollouts', 'v0.8.5 promoted to 100%', promoted('v0.8.5', 'v0.8.4'))
-  .verify('21:00', 'A log record, with its trace, for every search for 20 minutes', {
+    },
+    {
+      errorRate: { canary: 0.002, baseline: 0.002 },
+      p99Ms: { canary: 129, baseline: 131 },
+      journeys: { canary: [24, 24], baseline: [24, 24] },
+    },
+  ])
+  .verify('40:30', 'A log record, with its trace, for every search for 20 minutes', {
     sense: 'logs',
     check: 'A log record for every search',
     against: 'v0.8.4',
@@ -110,8 +109,8 @@ export default new Item('1265', '2026-09-29T14:10:00+01:00')
       version: 'v0.8.5',
       requests: 226,
       lines: [
-        { ts: '2026-09-29T13:29:07.412Z', level: 'info', message: 'GET /search 200 39ms', traceId: after[0] ?? null },
-        { ts: '2026-09-29T13:29:11.087Z', level: 'info', message: 'GET /search 200 42ms', traceId: after[1] ?? null },
+        { ts: '2026-09-29T13:49:07.412Z', level: 'info', message: 'GET /search 200 39ms', traceId: after[0] ?? null },
+        { ts: '2026-09-29T13:49:11.087Z', level: 'info', message: 'GET /search 200 42ms', traceId: after[1] ?? null },
       ],
       trace: {
         id: after[0] ?? '',
@@ -124,11 +123,11 @@ export default new Item('1265', '2026-09-29T14:10:00+01:00')
       },
     },
   })
-  .at('21:01', 'work-item.closed', 'factory', 'Closed: verified', {
+  .at('40:31', 'work-item.closed', 'factory', 'Closed: verified', {
     outcome: 'verified',
     reason: 'Every search leaves a log record with its trace',
   })
-  .at('21:02', 'work-item.summarised', 'factory', 'Summary written', {
+  .at('40:32', 'work-item.summarised', 'factory', 'Summary written', {
     title: 'Searches left no log record',
     description:
       'Every route but search wrote a log line for each request, so a slow search could not be followed from the logs. Now every search does.',

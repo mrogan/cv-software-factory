@@ -1,5 +1,5 @@
 /** A defect the metrics noticed: the home page was slow, and is now fast, and looks exactly the same. */
-import { commitFor, Item, promoted, started, stepped, traceFor } from '../build.ts';
+import { commitFor, Item, traceFor } from '../build.ts';
 
 const trace = traceFor('1288/slow');
 
@@ -119,20 +119,21 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
     commit: commitFor('1288/merge'),
     by: 'factory',
   })
-  .at('22:00', 'release.started', 'rollouts', 'v0.9.3 signed and admitted; canary at 25%', started('v0.9.3', 'v0.9.2'))
-  .at(
-    '23:30',
-    'canary.stepped',
-    'rollouts',
-    'Canary at 25%: p99 92 ms against 702 ms on the baseline',
-    stepped('v0.9.3', 25, {
+  .released('22:00', 'v0.9.3', 'v0.9.2', [
+    {
+      summary: 'Canary at 25%: p99 92 ms against 702 ms on the baseline',
       errorRate: { canary: 0.0018, baseline: 0.002 },
       p99Ms: { canary: 92, baseline: 702 },
       journeys: { canary: [24, 24], baseline: [24, 24] },
-    }),
-  )
-  .at('25:20', 'release.promoted', 'rollouts', 'v0.9.3 promoted to 100%', promoted('v0.9.3', 'v0.9.2'))
-  .verify('56:00', 'p95 on / under its objective for 30 minutes, and every page unchanged', {
+    },
+    {
+      summary: 'Canary at 50%: p99 95 ms against 698 ms on the baseline',
+      errorRate: { canary: 0.0019, baseline: 0.002 },
+      p99Ms: { canary: 95, baseline: 698 },
+      journeys: { canary: [24, 24], baseline: [24, 24] },
+    },
+  ])
+  .verify('58:10', 'p95 on / under its objective for 30 minutes, and every page unchanged', {
     sense: 'metrics',
     check: 'p95 under 300 ms on / for 30 minutes',
     against: 'v0.9.2',
@@ -148,11 +149,11 @@ export default new Item('1288', '2026-10-02T14:05:00+01:00')
       marker: { index: 18, label: 'v0.9.3 canary' },
     },
   })
-  .at('56:01', 'work-item.closed', 'factory', 'Closed: verified', {
+  .at('58:11', 'work-item.closed', 'factory', 'Closed: verified', {
     outcome: 'verified',
     reason: 'p95 is under the objective, and no page changed',
   })
-  .at('56:02', 'work-item.summarised', 'factory', 'Summary written', {
+  .at('58:12', 'work-item.summarised', 'factory', 'Summary written', {
     title: 'The home page chose this week’s sundries on every visit',
     description:
       'The home page now chooses “This week’s sundries” once a week, not on every visit. p95 fell from 640 ms to 85 ms, and every page looks the same.',

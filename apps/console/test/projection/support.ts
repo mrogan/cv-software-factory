@@ -24,6 +24,14 @@ export const SAMPLES: PublicEvent[] = parseLog(
 export const END = Date.parse(SAMPLES.at(-1)?.ts ?? '');
 
 /**
+ * A moment the samples show a merge waiting at Release, unheld: #1310's, in a dry run, which no deploy can carry, half
+ * a minute after it merged and before the dry run released it.
+ */
+export const MERGE_WAITING =
+  Date.parse(SAMPLES.find((e) => e.work_item === '1310' && e.type === 'pull-request.merged')?.ts ?? '') + 30_000;
+if (!Number.isFinite(MERGE_WAITING)) throw new Error('The samples have no merge of #1310 to wait for a release');
+
+/**
  * The console's milestone 4 test data (test/fixture): a day of invented work in a real store, from the senses'
  * first tickets to a spend cap reached and cleared.
  */

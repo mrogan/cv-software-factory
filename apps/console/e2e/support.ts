@@ -16,6 +16,8 @@ const log = fileURLToPath(new URL('../../../packages/samples/log/events.ndjson',
 const lines = readFileSync(log, 'utf-8').trim().split('\n');
 
 /** When the samples' last event happened: the server is told it is now, and pages pin t to it. */
+export { MERGE_WAITING } from '../test/projection/support.ts';
+
 export const END = Date.parse((JSON.parse(lines.at(-1) ?? '{}') as { ts: string }).ts);
 
 const fixtureLog = fileURLToPath(new URL('../test/fixture/log/events.ndjson', import.meta.url));
@@ -56,21 +58,23 @@ export const WIDTHS = {
 };
 export const THEMES = ['paper', 'ink'] as const;
 
-/** The console at the samples' last moment, with motion off unless asked for. */
+/** The console at the samples' last moment, or another, with motion off unless asked for. */
 export function consoleUrl({
   theme = 'paper',
   motion = false,
   item,
   sheet = false,
   debug,
+  at,
 }: {
   theme?: 'paper' | 'ink';
   motion?: boolean;
   item?: string | undefined;
   sheet?: boolean;
   debug?: string;
+  at?: number | undefined;
 } = {}): string {
-  const params = new URLSearchParams({ t: new Date(END).toISOString(), theme });
+  const params = new URLSearchParams({ t: new Date(at ?? END).toISOString(), theme });
   if (!motion) params.set('motion', 'off');
   if (item) params.set('item', item);
   if (sheet) params.set('sheet', '');

@@ -96,7 +96,7 @@ test.describe('the reel', () => {
     await page.clock.resume();
     await expect(page.locator('.reel')).not.toHaveClass(/dragging/);
     // A card and a third to the left, and half a card more for the flick.
-    await expect(page.locator('.transport .count')).toHaveText('17 of 19');
+    await expect(page.locator('.transport .count')).toHaveText('22 of 24');
     await expect(page.locator('.card[data-place="centre"]')).toHaveCount(1);
   });
 
@@ -116,7 +116,7 @@ test.describe('the reel', () => {
   test('brings a neighbour to the centre when it is clicked, and opens the centre card', async ({ page }) => {
     await page.goto(consoleUrl());
     await ready(page);
-    await page.locator('.card[data-index="17"]').click({ position: { x: 300, y: 40 } });
+    await page.locator('.card[data-index="22"]').click({ position: { x: 300, y: 40 } });
     await expect.poll(() => centre(page)).toBe('Discount codes refuse lower case');
     await page.locator('.card[data-place="centre"]').click({ position: { x: 300, y: 40 } });
     await expect(page.getByRole('dialog', { name: 'Discount codes refuse lower case' })).toBeVisible();
@@ -211,7 +211,7 @@ test.describe('playing the history on first view', () => {
     await ready(page);
     const count = page.locator('.transport .count');
     // Waiting where the latest eight begin.
-    await expect(count).toHaveText('12 of 19');
+    await expect(count).toHaveText('17 of 24');
     expect((await page.locator('.reel').boundingBox())?.y).toBeGreaterThan(560);
 
     await expect.poll(() => stream).toBeDefined();
@@ -226,9 +226,9 @@ test.describe('playing the history on first view', () => {
       headers: { 'content-type': 'text/event-stream' },
       body: `id: ${arrived.seq}\ndata: ${JSON.stringify(arrived)}\n\n`,
     });
-    await expect(count).toHaveText('12 of 20');
+    await expect(count).toHaveText('17 of 25');
 
     await page.locator('.reel').scrollIntoViewIfNeeded();
-    await expect(count).toHaveText('13 of 20', { timeout: 6000 });
+    await expect(count).toHaveText('18 of 25', { timeout: 6000 });
   });
 });

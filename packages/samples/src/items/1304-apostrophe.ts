@@ -1,8 +1,9 @@
 /**
- * A fix made overnight on the local model, at no cost, and merged by Martin in the morning. Nothing in milestone 5
- * releases it: it waits at Release for the next deploy.
+ * A fix made overnight on the local model, at no cost, and merged by Martin in the morning. It waits at Release for
+ * his deploy, and the release that carries it carries #1306's first fix too: one release, on both work items.
  */
 import { commitFor, Item } from '../build.ts';
+import { V098 } from './1306-basket-errors.ts';
 
 const LOCAL = { local: true };
 
@@ -82,4 +83,21 @@ export default new Item('1304', '2026-10-04T21:40:00+01:00')
     number: 1305,
     commit: commitFor('1304/merge'),
     by: 'martin',
+  })
+  .at('11:12:01', 'hold.started', 'factory', 'Waiting for a deploy pull request to carry the fix', {
+    stage: 'release',
+    kind: 'approval',
+    cause: 'deploy',
+    reason: 'The fix in pull request #1305 is merged, and waits for a deploy pull request to carry it to the shop',
+  })
+  .released('12:51:00', 'v0.9.8', 'v0.9.7', V098)
+  .verify('13:01:00', 'Cleared on v0.9.8, by the probe', {
+    actor: 'probe',
+    check: 'the contact form sends',
+    against: 'v0.9.7',
+    version: 'v0.9.8',
+  })
+  .at('13:01:01', 'work-item.closed', 'factory', 'Verified, and closed', {
+    outcome: 'verified',
+    reason: 'The probe’s check “the contact form sends” passed twice in a row on v0.9.8, which carries the fix',
   });

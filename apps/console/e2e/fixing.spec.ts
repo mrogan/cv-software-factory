@@ -1,10 +1,10 @@
 /**
- * Milestone 5's states in the browser, from the samples' last seven work items: what each says in words, so it reads
- * without colour, and WCAG 2.2 AA in both themes at a laptop's width and a phone's.
+ * Milestone 5's states in the browser, from the samples' milestone 5 work items and #1310's merge in a dry run: what
+ * each says in words, so it reads without colour, and WCAG 2.2 AA in both themes at a laptop's width and a phone's.
  */
 import { AxeBuilder } from '@axe-core/playwright';
 import type { Locator, Page } from '@playwright/test';
-import { consoleUrl, expect, ready, THEMES, test, WIDTHS } from './support.ts';
+import { consoleUrl, expect, MERGE_WAITING, ready, THEMES, test, WIDTHS } from './support.ts';
 
 const axe = (page: Page) =>
   new AxeBuilder({ page })
@@ -31,7 +31,7 @@ test.describe('fixing', () => {
   });
 
   test('a merged fix waits for a release, in the quiet tone, at no cost on the local model', async ({ page }) => {
-    await page.goto(consoleUrl({ item: '1304' }));
+    await page.goto(consoleUrl({ item: '1310', at: MERGE_WAITING }));
     await ready(page);
     await expect(centre(page).locator('.out')).toHaveText('Merged · waiting for release');
     await expect(centre(page).getByRole('img', { name: 'Waiting at Release' })).toBeVisible();
@@ -121,9 +121,10 @@ for (const width of ['laptop', 'phone'] as const) {
     test.describe(`fixing, ${width}, ${theme}`, () => {
       test.use({ viewport: WIDTHS[width] });
 
-      for (const item of ['1304', '1311', '1315', '1317', '1319', '1323']) {
+      // #1310 at the moment its dry run's merge waits for a release: the merged state.
+      for (const item of ['1310', '1311', '1315', '1317', '1319', '1323']) {
         test(`the card for #${item} has nothing for axe to find`, async ({ page }) => {
-          await page.goto(consoleUrl({ item, theme }));
+          await page.goto(consoleUrl({ item, theme, ...(item === '1310' && { at: MERGE_WAITING }) }));
           await ready(page);
           expect((await axe(page).include('.card[data-place="centre"]').analyze()).violations).toEqual([]);
         });
@@ -137,9 +138,9 @@ for (const width of ['laptop', 'phone'] as const) {
         expect((await axe(page).include('#stage-panel').analyze()).violations).toEqual([]);
       });
 
-      for (const item of ['1304', '1311', '1315', '1323']) {
+      for (const item of ['1310', '1311', '1315', '1323']) {
         test(`the sheet for #${item} has nothing for axe to find`, async ({ page }) => {
-          await page.goto(consoleUrl({ item, sheet: true, theme }));
+          await page.goto(consoleUrl({ item, sheet: true, theme, ...(item === '1310' && { at: MERGE_WAITING }) }));
           await page.getByRole('dialog').first().waitFor();
           await page.evaluate(() => document.fonts.ready);
           expect((await axe(page).include('.sheet').analyze()).violations).toEqual([]);

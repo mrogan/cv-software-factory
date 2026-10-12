@@ -53,6 +53,13 @@ function seconds(offset: string): number {
   return offset.split(':').reduce((total, part) => total * 60 + Number(part), 0);
 }
 
+/** An offset some seconds after another, as `h:mm:ss`. */
+export function later(offset: string, by: number): string {
+  const total = seconds(offset) + by;
+  const two = (n: number) => String(Math.floor(n)).padStart(2, '0');
+  return `${Math.floor(total / 3600)}:${two((total % 3600) / 60)}:${two(total % 60)}`;
+}
+
 /** US dollars per million tokens, as Anthropic lists them in October 2026. */
 const PRICES = {
   'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
@@ -165,16 +172,22 @@ export const promoted = (version: string, previous: string): PayloadOf<'release.
   dryRun: false,
 });
 
+/** A commit, as the line shortens one in what it writes: a version name stays whole. */
+export const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);
+
 type Versus<T> = { canary: T; baseline: T };
 
 /** Each version's figures over a step, as a sample states them. */
-interface StepFigures {
+export interface StepFigures {
   errorRate: Versus<number>;
   p99Ms: Versus<number>;
   journeys: Versus<[number, number]>;
   /** By default, what the traffic generator sends each version over the window, at the step's weight. */
   requests?: Versus<number>;
 }
+
+/** A step of a sample release: its figures, and, when a sample says more than the line would, its words and pictures. */
+export type Step = StepFigures & { summary?: string; artifacts?: ArtifactRef[] };
 
 /** A step every measure passed: the analysis's measures, worked out from the figures as the release policy judges. */
 export function stepped(version: string, weight: number, figures: StepFigures): PayloadOf<'canary.stepped'> {
@@ -218,14 +231,23 @@ export function stepped(version: string, weight: number, figures: StepFigures): 
 }
 
 export class Item {
-  readonly number: string;
+  /** The work item's number, or null for the line's own events. */
+  readonly number: string | null;
   readonly events: NewEvent[] = [];
   readonly #start: number;
+  /** What the events' ids are made from: the number, or for the line, a name of its own. */
+  readonly #name: string;
 
-  /** `start` is when the work item opened, in ISO 8601 with its offset. */
-  constructor(number: string, start: string) {
+  /**
+   * `start` is when the work item opened, in ISO 8601 with its offset. The line's own events, which belong to no work
+   * item, are written the same way, from a start and under a name that keeps their ids apart.
+   */
+  constructor(number: string, start: string);
+  constructor(number: null, start: string, name: string);
+  constructor(number: string | null, start: string, name = number ?? 'line') {
     this.number = number;
     this.#start = Date.parse(start);
+    this.#name = name;
   }
 
   /** When something happened, as an offset from the start. */
@@ -242,7 +264,7 @@ export class Item {
     artifacts: ArtifactRef[] = [],
   ): this {
     this.events.push({
-      id: uuidFor(`${this.number}/${this.events.length}`),
+      id: uuidFor(`${this.#name}/${this.events.length}`),
       ts: this.time(offset),
       work_item: this.number,
       type,
@@ -290,7 +312,7 @@ export class Item {
   ): this {
     const { model, settings } = local ? LOCAL : AGENT_SETTINGS[agent];
     const price = PRICES[model];
-    const next = random(`${this.number}/${agent}/${from}`);
+    const next = random(`${this.#name}/${agent}/${from}`);
     // Uneven shares that still add up to the totals.
     const weights = Array.from({ length: calls }, () => 0.6 + next());
     const sum = weights.reduce((a, b) => a + b, 0);
@@ -332,7 +354,7 @@ export class Item {
    * and the tests-first signal beside them when the run has one.
    */
   gates(offset: string, run: GateRun): this {
-    const commit = commitFor(`${this.number}/${run.pullRequest}/${run.attempt ?? 1}`);
+    const commit = commitFor(`${this.#name}/${run.pullRequest}/${run.attempt ?? 1}`);
     const { pullRequest, testsFirst } = run;
     const start = seconds(offset);
     const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
@@ -390,6 +412,30 @@ export class Item {
   }
 
   /**
+   * A release that went out step by step and was promoted, as the line records one: its start, then each step of the
+   * Rollout once its analysis passed, at the end of the step's pause, with the figures given for it, and the promotion
+   * moments after the last. One set of figures for each step.
+   */
+  released(
+    offset: string,
+    version: string,
+    previous: string,
+    figures: Step[],
+    { steps = STEPS, promotion = `${version} promoted to 100%` }: { steps?: typeof STEPS; promotion?: string } = {},
+  ): this {
+    if (figures.length !== steps.length) throw new Error(`${version}: one set of figures for each step`);
+    const summary = `${short(version)} signed and admitted; canary started`;
+    this.at(offset, 'release.started', 'rollouts', summary, started(version, previous, steps));
+    let at = offset;
+    steps.forEach((step, i) => {
+      const { summary = `Canary at ${step.weight}%: the analysis passed`, artifacts, ...measured } = figures[i] as Step;
+      at = later(at, step.pauseSeconds ?? 0);
+      this.at(at, 'canary.stepped', 'rollouts', summary, stepped(version, step.weight, measured), artifacts);
+    });
+    return this.at(later(at, 5), 'release.promoted', 'rollouts', promotion, promoted(version, previous));
+  }
+
+  /**
    * A probe's ticket, as triage opens one: the work item, the probe's signal with the HTTP exchange it made, the
    * ticket, and triage's summary, all at once. A sense knows what it saw, so no model is asked.
    */
@@ -414,7 +460,7 @@ export class Item {
         category,
         severity,
         fingerprint: { route, class: symptom },
-        traces: [traceFor(`${this.number}/signal`)],
+        traces: [traceFor(`${this.#name}/signal`)],
       })
       .at(offset, 'work-item.summarised', 'triage', 'Summary written', {
         title,
@@ -423,11 +469,24 @@ export class Item {
       });
   }
 
-  /** Every page, compared with the version before; `variant` names the screenshots of the app as it now is. */
+  /**
+   * Every page, compared with the version before; `variant` names the screenshots of the app as it now is. Cleared
+   * unless it says otherwise.
+   */
   verify(
     offset: string,
     summary: string,
-    { sense = 'probe', check, against, version, variant = 'published', evidence, marked }: Verification,
+    {
+      outcome = 'cleared',
+      sense = 'probe',
+      actor = 'factory',
+      check,
+      against,
+      version,
+      variant = 'published',
+      evidence,
+      marked,
+    }: Verification,
   ): this {
     const pages = PAGES.map(([page, route, name]) => {
       const comparison = changed(`${variant}/${name}`);
@@ -443,9 +502,9 @@ export class Item {
     return this.at(
       offset,
       'verification.finished',
-      'factory',
+      actor,
       summary,
-      { outcome: 'cleared', sense, check, version, against, pages, ...(evidence && { evidence }), dryRun: false },
+      { outcome, sense, check, version, against, pages, ...(evidence && { evidence }), dryRun: false },
       marked ? [marked, ...screenshots] : screenshots,
     );
   }
@@ -466,8 +525,11 @@ interface ProbeTicket {
 }
 
 interface Verification {
+  outcome?: PayloadOf<'verification.finished'>['outcome'];
   /** The sense that verified it: the one that saw the defect. */
   sense?: Sense;
+  /** Who the event is by: the sense, as the line writes it now, or the factory, as the first samples have it. */
+  actor?: Actor;
   check: string;
   against: string;
   version: string;
