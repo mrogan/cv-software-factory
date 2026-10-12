@@ -6,6 +6,10 @@ import { END, SAMPLES, work } from './support.ts';
 const view = project(SAMPLES, END);
 const card = (number: string) => view.cards.find((c) => c.number === number);
 
+// Projecting the whole sample log at every one of its moments takes about a second here and several on a shared CI
+// runner, past the default five.
+const WHOLE_TIMELINE = 30_000;
+
 describe('the samples, projected', () => {
   it('show every outcome', () => {
     expect(new Set(view.cards.map((c) => c.outcome))).toEqual(
@@ -23,7 +27,7 @@ describe('the samples, projected', () => {
     );
   });
 
-  it('put every station in every state at some point, and send work back', () => {
+  it('put every station in every state at some point, and send work back', { timeout: WHOLE_TIMELINE }, () => {
     const seen = new Set<string>();
     for (const event of SAMPLES) {
       const at = Date.parse(event.ts);
@@ -283,7 +287,7 @@ describe('replay', () => {
   }
   const instants = [...SAMPLES.map((event) => Date.parse(event.ts)), ...times(40)];
 
-  it('draws the same view at t from every event as from only the events up to t', () => {
+  it('draws the same view at t from every event as from only the events up to t', { timeout: WHOLE_TIMELINE }, () => {
     for (const t of instants) expect(project(SAMPLES, t)).toEqual(project(upTo(SAMPLES, t), t));
   });
 

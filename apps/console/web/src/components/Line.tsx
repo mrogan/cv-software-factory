@@ -218,8 +218,8 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
                   <span className="state">
                     <span className={`dot tone-${tone} ${tone === 'attn' ? 'ring' : ''}`} />
                     {word}
-                    {!pending && <span className={`fig ${capped ? 'keep' : ''}`}>&nbsp;· {figure}</span>}
                   </span>
+                  {!pending && <span className={`fig ${capped ? 'keep' : ''}`}>{figure}</span>}
                 </span>
               </button>
             </li>
@@ -434,29 +434,40 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
       {caps.map((spell) => (
         <CapRow key={`cap-${spell.cap}-${spell.reached}`} spell={spell} t={view.t} />
       ))}
-      {rows.map((row) => (
-        <button
-          key={`${row.item}-${row.at}`}
-          type="button"
-          className="srow"
-          onClick={() => onOpen(row.item)}
-          aria-label={`Open #${row.item}, ${row.title}: ${[...row.earlier.map((e) => `earlier ${e}`), row.note].join(', ')}`}
-        >
-          <span className="id">#{row.item}</span>
-          <span>
-            {row.title}
-            <small className={`tone-${row.tone}`}>
-              {row.earlier.map((e) => (
-                <span key={e}>
-                  <s>{e}</s> ·{' '}
-                </span>
-              ))}
-              {row.note}
-            </small>
-          </span>
-          <span className="aside go">Open ›</span>
-        </button>
-      ))}
+      {rows.map((row) =>
+        row.release ? (
+          // A release with no work item has no sheet to open: its row is the Canary panel's in one line.
+          <div key={`${row.item}-${row.at}`} className="srow">
+            <span className="id">{row.item}</span>
+            <span>
+              {row.title}
+              <small className={`tone-${row.tone}`}>{row.note}</small>
+            </span>
+          </div>
+        ) : (
+          <button
+            key={`${row.item}-${row.at}`}
+            type="button"
+            className="srow"
+            onClick={() => onOpen(row.item)}
+            aria-label={`Open #${row.item}, ${row.title}: ${[...row.earlier.map((e) => `earlier ${e}`), row.note].join(', ')}`}
+          >
+            <span className="id">#{row.item}</span>
+            <span>
+              {row.title}
+              <small className={`tone-${row.tone}`}>
+                {row.earlier.map((e) => (
+                  <span key={e}>
+                    <s>{e}</s> ·{' '}
+                  </span>
+                ))}
+                {row.note}
+              </small>
+            </span>
+            <span className="aside go">Open ›</span>
+          </button>
+        ),
+      )}
     </div>
   );
 }

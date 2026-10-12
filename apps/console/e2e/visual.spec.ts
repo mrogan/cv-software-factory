@@ -9,6 +9,7 @@
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
 import {
+  CANARY,
   consoleUrl,
   emptyStore,
   expect,
@@ -17,6 +18,7 @@ import {
   picturesDecodeAsDrawn,
   picturesShown,
   ready,
+  shown,
   THEMES,
   test,
   WIDTHS,
@@ -280,4 +282,33 @@ test.describe('a fix’s sheet in Ink', () => {
     await expect(section('Review')).toHaveScreenshot('m05-sheet-review-ink.png');
     await expect(side('Gates')).toHaveScreenshot('m05-sheet-gates-ink.png');
   });
+});
+
+/** Milestone 6's Canary panel, from the samples: in flight, and each way a release ends, at every width. */
+const PANEL = { 'in-flight': undefined, ...CANARY };
+
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, shipping`, () => {
+    test.use({ viewport });
+
+    for (const [state, at] of Object.entries(PANEL)) {
+      test(`the Canary panel: ${state}`, async ({ page }) => {
+        await page.goto(consoleUrl({ at }));
+        await shown(page);
+        await expect(page.locator('section.canary')).toHaveScreenshot(`m06-canary-${state}-${width}.png`);
+      });
+    }
+  });
+}
+
+test.describe('the Canary panel in Ink', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  for (const state of ['in-flight', 'rolled-back-no-step', 'dry-run'] as const) {
+    test(state, async ({ page }) => {
+      await page.goto(consoleUrl({ at: PANEL[state], theme: 'ink' }));
+      await shown(page);
+      await expect(page.locator('section.canary')).toHaveScreenshot(`m06-canary-${state}-ink.png`);
+    });
+  }
 });

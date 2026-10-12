@@ -19,6 +19,7 @@ import {
   station,
 } from './line.ts';
 import { type Card, card, type Timeline, timeline } from './reel.ts';
+import { type CanaryView, canaryView, releases } from './release.ts';
 import { type Sheet, sheet } from './sheet.ts';
 
 export type { Attempt, Finding, ThreadReview } from './fixing.ts';
@@ -37,6 +38,7 @@ export type {
 export { whileSending } from './line.ts';
 export type { Card, Picture, Segment, Source, Tag, Timeline, Versions } from './reel.ts';
 export { QUARANTINE_AT, segmentsLabel } from './reel.ts';
+export type { CanaryView, Carried, End, Measured, Release, Step } from './release.ts';
 export type {
   After,
   AgentRow,
@@ -58,6 +60,8 @@ export interface View {
   /** Work sent back upstream that has not moved on since, newest first, to be drawn one at a time. */
   returns: Return[];
   panels: Record<Stage, StagePanel>;
+  /** The Canary panel: the newest release, on a work item or on the line. */
+  canary: CanaryView;
   cards: Card[];
   timeline: Timeline;
 }
@@ -72,16 +76,17 @@ export function project(events: readonly PublicEvent[], t: number): View {
   const sent = returnsAt(seen, t);
   const returns = drawn(sent, items);
   const cards = items.map((item) => card(item, seen, t));
+  const shipped = releases(seen, items, t);
   return {
     t,
     sample: items.some((item) => item.sample),
     header: line,
-    stations: STAGES.map((stage) => station(stage, items, sent, line, t)),
+    stations: STAGES.map((stage) => station(stage, items, sent, line, t, shipped)),
     returns,
-    panels: Object.fromEntries(STAGES.map((stage) => [stage, panel(stage, items, sent, seen, line, t)])) as Record<
-      Stage,
-      StagePanel
-    >,
+    panels: Object.fromEntries(
+      STAGES.map((stage) => [stage, panel(stage, items, sent, seen, line, t, shipped)]),
+    ) as Record<Stage, StagePanel>,
+    canary: canaryView(shipped, t),
     cards,
     timeline: timeline(cards),
   };

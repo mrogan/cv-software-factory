@@ -4,11 +4,15 @@
  */
 
 const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' });
+const precise = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const weekday = new Intl.DateTimeFormat('en-GB', { weekday: 'short' });
 const day = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 
 /** 16:20 */
 export const clock = (at: number) => time.format(at);
+
+/** 16:20:30, for a canary's steps, which last minutes */
+export const clockSeconds = (at: number) => precise.format(at);
 
 /** Thu 16:20 */
 export const shortWhen = (at: number) => `${weekday.format(at)} ${time.format(at)}`;

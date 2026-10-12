@@ -387,11 +387,15 @@ function wipeOf(item: ItemState): Picture | undefined {
   return undefined;
 }
 
-/** The version the shop was on at a time: the last one promoted, injected or restored by then. */
+/**
+ * The version the shop was on at a time: the last one promoted, injected or restored by then. A dry run's release
+ * shipped nothing, so it never moves the shop.
+ */
 export function shopVersion(events: readonly PublicEvent[], at: number): string | undefined {
   let version: string | undefined;
   for (const event of events) {
     if (Date.parse(event.ts) > at) break;
+    if ('dryRun' in event.payload && event.payload.dryRun) continue;
     if (event.type === 'release.promoted' || event.type === 'defect.injected') version = event.payload.version;
     if (event.type === 'release.rolled-back') version = event.payload.restored;
     if (event.type === 'release.started' && !version) version = event.payload.previous;

@@ -51,6 +51,21 @@ export function fixtureUrl({
   return `${FIXTURE_ORIGIN}/?${params}`;
 }
 
+/**
+ * Moments in the samples that show each of the Canary panel's states (the design system's README, "Shipping"). The
+ * samples' last moment shows a release in flight.
+ */
+export const CANARY = {
+  'no-work-item': Date.parse('2026-10-06T07:04:00Z'),
+  promoted: Date.parse('2026-10-06T07:10:00Z'),
+  'rolled-back': Date.parse('2026-10-02T07:26:30Z'),
+  'rolled-back-no-step': Date.parse('2026-10-05T10:25:00Z'),
+  stopped: Date.parse('2026-10-06T06:40:00Z'),
+  'dry-run': Date.parse('2026-10-05T13:09:40Z'),
+  idle: Date.parse('2026-10-06T08:00:00Z'),
+  none: Date.parse('2026-09-29T08:00:00Z'),
+};
+
 export const WIDTHS = {
   phone: { width: 390, height: 844 },
   laptop: { width: 1024, height: 768 },
@@ -108,6 +123,12 @@ export async function emptyStore(page: Page, kind: 'sample' | 'real' | null): Pr
     }
     (globalThis as { EventSource: unknown }).EventSource = Quiet;
   }, kind);
+}
+
+/** The Canary panel drawn, with the fonts it is set in: at a moment before any work item, there is no card to wait for. */
+export async function shown(page: Page): Promise<void> {
+  await page.locator('section.canary').waitFor();
+  await page.evaluate(() => document.fonts.ready);
 }
 
 export async function ready(page: Page): Promise<void> {
