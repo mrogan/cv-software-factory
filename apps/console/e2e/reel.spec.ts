@@ -235,7 +235,7 @@ test.describe('playing the history on first view', () => {
 
 /**
  * The timeline's version labels never touch: where two would, one is thinned to a hairline, and the centre card's
- * keeps its label. At every width, at rest on the latest card, a rollback's (#1276) and a release's own (#1306).
+ * and the shop's version now keep their labels. At every width, at rest on the latest card, a rollback's (#1276) and a release's own (#1306).
  */
 for (const [width, viewport] of Object.entries(WIDTHS)) {
   test.describe(`${width}, the timeline's versions`, () => {
@@ -248,13 +248,16 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         const labels = await page.locator('.rail .ver').evaluateAll((marks) =>
           marks.map((m) => {
             const { left, right, width } = m.getBoundingClientRect();
-            return { text: m.textContent, left, right, shown: width > 1, here: m.classList.contains('here') };
+            const [here, now] = [m.classList.contains('here'), m.classList.contains('now')];
+            return { text: m.textContent, left, right, shown: width > 1, here, now };
           }),
         );
         const shown = labels.filter((l) => l.shown).sort((a, b) => a.left - b.left);
         for (const [a, b] of shown.slice(1).map((b, i) => [shown[i], b] as const))
           expect(b.left, `${a?.text} touches ${b.text}`).toBeGreaterThan(a?.right ?? 0);
         for (const here of labels.filter((l) => l.here)) expect(here.shown, `${here.text} at the centre`).toBe(true);
+        // The version the shop is on keeps its label too, wherever the timeline shows more than the centre's.
+        if (width !== 'phone') expect(labels.find((l) => l.now)?.shown, 'the shop’s version now').toBe(true);
       });
     }
   });

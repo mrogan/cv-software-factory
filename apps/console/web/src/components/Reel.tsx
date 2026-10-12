@@ -51,6 +51,8 @@ interface Drag {
 export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProps) {
   renders.reel++;
   const { cards, timeline } = view;
+  /** The version the shop is on: the last mark not struck through. */
+  const shopNow = timeline.versions.findLastIndex((v) => !v.rolledBack);
   const n = cards.length;
   const reel = useRef<HTMLElement>(null);
   const rail = useRef<HTMLDivElement>(null);
@@ -118,8 +120,8 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   }, [centre, n, title, outcome]);
 
   /**
-   * Version labels that would touch are thinned to a hairline: the centre card's keeps its label, then rollbacks and
-   * stops, then those nearest the centre. Measured where the reel rests and when the width changes.
+   * Version labels that would touch are thinned to a hairline: the centre card's keeps its label, then the one the
+   * shop is on now, then rollbacks and stops, then those nearest the centre. Measured where the reel rests and when the width changes.
    */
   const thin = useCallback(() => {
     const marks = [...(rail.current?.querySelectorAll<HTMLElement>('.ver') ?? [])];
@@ -127,8 +129,13 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     const here = (positions[centre] ?? 0) * 100;
     const kept: DOMRect[] = [];
     const rank = (m: HTMLElement) =>
-      (m.classList.contains('here') ? 0 : m.classList.contains('burnt') ? 200 : 400) +
-      Math.abs(Number.parseFloat(m.style.left) - here);
+      (m.classList.contains('here')
+        ? 0
+        : m.classList.contains('now')
+          ? 100
+          : m.classList.contains('burnt')
+            ? 200
+            : 400) + Math.abs(Number.parseFloat(m.style.left) - here);
     for (const mark of marks.sort((a, b) => rank(a) - rank(b))) {
       const box = mark.getBoundingClientRect();
       if (!box.width) continue;
@@ -422,10 +429,10 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
             <Glyph name={card.category} />
           </span>
         ))}
-        {timeline.versions.map(({ at, card, version, rolledBack }) => (
+        {timeline.versions.map(({ at, card, version, rolledBack }, i) => (
           <span
             key={`${version}-${at}`}
-            className={`ver ${rolledBack ? 'burnt' : ''} ${card === centre ? 'here' : ''}`}
+            className={`ver ${rolledBack ? 'burnt' : ''} ${card === centre ? 'here' : ''} ${i === shopNow ? 'now' : ''}`}
             style={{ left: `${at * 100}%` }}
           >
             {shortVersion(version)}
