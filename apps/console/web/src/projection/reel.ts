@@ -455,6 +455,10 @@ export function card(item: ItemState, events: readonly PublicEvent[], t: number)
   };
 }
 
+/** How a release last ended: while a retry is in flight, its earlier attempt's end still stands. */
+const ending = (r: Release | undefined) => r?.end ?? r?.retried.at(-1);
+const endAt = (r: Release | undefined) => ending(r)?.at ?? 0;
+
 /** Days are told apart by where the viewer is: a new day starts at their midnight. */
 const dayOf = (at: number) => {
   const day = new Date(at);
@@ -463,29 +467,38 @@ const dayOf = (at: number) => {
 };
 
 /**
- * The timeline: a card's width between work items, half one more between days, and a release with no work item takes
- * a card's place without a card, so its version sits between the work items either side of it in time.
+ * The timeline: a card's width between work items, half one more between days, and a release marked under no card
+ * takes a card's place without a card, so its version sits between the work items either side of it in time.
  *
- * A release marks the version it left the shop on once it has ended: under the first card it carries whose latest
- * release it is, or in its own place. A rollback and a stop with the line are struck through, since the shop went
- * back to the version before. A dry run shipped nothing, and marks nothing.
+ * A release marks the version it left the shop on once it has ended: under the first card whose latest release it
+ * is, or, when it carries no work item shown or all it carried went again in a later release, in its own place. A rollback
+ * and a stop with the line are struck through, since the shop went back to the version before. A dry run shipped
+ * nothing, and marks nothing.
  */
 export function timeline(cards: readonly Card[], shipped: readonly Release[]): Timeline {
-  const ended = shipped.filter((r) => r.end && !r.dryRun);
+  const ended = shipped.filter((r) => ending(r) && !r.dryRun).sort((a, b) => endAt(a) - endAt(b));
   const latest = new Map<string, Release>();
   for (const r of ended) for (const item of r.items) latest.set(item.number, r);
-  // The cards and the releases with no work item, in the order the shop's versions changed: a release goes after the
-  // last card that started before it ended and whose latest release, if it had one, ended before it too.
+  const under = new Map<number, Release>();
+  const marked = new Set<Release>();
+  for (const [i, c] of cards.entries()) {
+    const r = latest.get(c.number);
+    if (!r || marked.has(r)) continue;
+    under.set(i, r);
+    marked.add(r);
+  }
+  // The cards in the order they started, and each release in its own place before the first card that started after
+  // it ended or whose own mark ended after it, so the versions read in the order the shop's changed.
   type Entry = { at: number } & ({ card: number } | { release: Release });
   const entries: Entry[] = cards.map((c, card) => ({ card, at: c.startedAt }));
-  const changed = cards.map((c) => Math.max(c.startedAt, latest.get(c.number)?.end?.at ?? 0));
-  const alone = ended.filter((r) => !r.items.length).map((release) => ({ release, at: release.end?.at ?? 0 }));
-  for (const entry of alone.sort((a, b) => a.at - b.at)) {
-    const before = entries.findLastIndex((e) => ('card' in e ? (changed[e.card] ?? 0) : e.at) <= entry.at);
-    entries.splice(before + 1, 0, entry);
+  const changed = cards.map((c, i) => Math.max(c.startedAt, endAt(under.get(i))));
+  for (const release of ended.filter((r) => !marked.has(r))) {
+    const at = endAt(release);
+    const next = entries.findIndex((e) => 'card' in e && (changed[e.card] ?? 0) > at);
+    entries.splice(next < 0 ? entries.length : next, 0, { release, at });
   }
 
-  // Days only go forwards, even where a card started before a release placed ahead of it.
+  // Days only go forwards: a card that started before a release placed ahead of it is drawn on the release's day.
   const days: { unit: number; day: number }[] = [];
   const units = entries.map((entry, i) => {
     const day = Math.max(dayOf(entry.at), days.at(-1)?.day ?? 0);
@@ -496,15 +509,13 @@ export function timeline(cards: readonly Card[], shipped: readonly Release[]): T
   const at = (unit: number) => (entries.length > 1 ? unit / span : 0.5);
   const positions: number[] = [];
   const versions: Timeline['versions'] = [];
-  const marked = new Set<Release>();
   for (const [i, entry] of entries.entries()) {
     const place = at(units[i] ?? 0);
     const card = 'card' in entry ? entry.card : undefined;
     if (card !== undefined) positions.push(place);
-    const release = 'release' in entry ? entry.release : latest.get(cards[entry.card]?.number ?? '');
-    if (!release || marked.has(release)) continue;
-    marked.add(release);
-    versions.push({ at: place, card, version: release.version, rolledBack: release.end?.kind !== 'promoted' });
+    const release = 'release' in entry ? entry.release : under.get(entry.card);
+    if (release)
+      versions.push({ at: place, card, version: release.version, rolledBack: ending(release)?.kind !== 'promoted' });
   }
   return { positions, days: days.map(({ unit, day }) => ({ at: at(unit), day })), versions };
 }

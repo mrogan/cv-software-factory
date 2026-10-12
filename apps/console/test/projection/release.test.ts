@@ -6,7 +6,8 @@ import type { PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { release as policy } from '../../../../policy/release.ts';
 import { project, upTo } from '../../web/src/projection/index.ts';
-import { MEASURES, releases } from '../../web/src/projection/release.ts';
+import { type Card, timeline } from '../../web/src/projection/reel.ts';
+import { MEASURES, type Release, releases } from '../../web/src/projection/release.ts';
 import { END, SAMPLES, work } from './support.ts';
 
 const at = (iso: string) => Date.parse(iso);
@@ -112,7 +113,11 @@ describe('the timeline, from the samples', () => {
       expect(mark(version)?.at).toBeLessThan(place('1314'));
     }
     expect(mark('v0.9.11')?.at).toBeLessThan(mark('v0.9.12')?.at ?? 0);
-    expect(new Set([...timeline.positions, ...timeline.versions.map((v) => v.at)]).size).toBe(cards.length + 3);
+    const alone = releases(SAMPLES, [], END).filter((r) => r.end && !r.dryRun && !r.items.length);
+    expect(alone.map((r) => r.version)).toEqual(['v0.9.9', 'v0.9.11', 'v0.9.12']);
+    expect(new Set([...timeline.positions, ...timeline.versions.map((v) => v.at)]).size).toBe(
+      cards.length + alone.length,
+    );
   });
 
   it('marks a release under the first card whose latest release it is, whatever came of the card since', () => {
@@ -136,6 +141,51 @@ describe('the timeline, from the samples', () => {
       const kept = timeline.versions.filter((v) => !v.rolledBack && v.at <= (timeline.positions[i] ?? 0)).at(-1);
       expect([card.number, card.shopVersion]).toEqual([card.number, kept?.version]);
     }
+  });
+});
+
+describe('the timeline, from hand-made releases', () => {
+  const hour = 3_600_000;
+  const monday = at('2026-10-05T09:00:00Z');
+  const card = (number: string, hours: number) => ({ number, startedAt: monday + hours * hour }) as Card;
+  const shipped = (version: string, items: string[], hours: number, kind = 'promoted') =>
+    ({
+      version,
+      items: items.map((number) => ({ number })),
+      dryRun: false,
+      end: { kind, at: monday + hours * hour },
+    }) as Release;
+  const marks = (cards: Card[], all: Release[]) => {
+    const { positions, versions } = timeline(cards, all);
+    return [
+      ...cards.map((c, i) => ({ name: c.number, at: positions[i] ?? -1 })),
+      ...versions.map((v) => ({ name: v.rolledBack ? `~${v.version}~` : v.version, at: v.at })),
+    ]
+      .sort((a, b) => a.at - b.at)
+      .map((m) => m.name);
+  };
+
+  it('gives a release whose work item went again in a later one a place of its own, at its time', () => {
+    const cards = [card('1', 0), card('2', 5)];
+    const all = [shipped('v1', ['1'], 1, 'rolled-back'), shipped('v2', ['1'], 2)];
+    expect(marks(cards, all)).toEqual(['~v1~', '1', 'v2', '2']);
+    // And one whose work items are on no card, as if it carried none.
+    expect(marks(cards, [...all, shipped('v3', ['9'], 6)])).toEqual(['~v1~', '1', 'v2', '2', 'v3']);
+  });
+
+  it('keeps an attempt’s mark while its retry is in flight', () => {
+    const retry = {
+      ...shipped('v1', ['1'], 1, 'rolled-back'),
+      end: undefined,
+      retried: [{ kind: 'rolled-back', at: monday + hour }],
+    };
+    expect(marks([card('1', 0)], [retry as Release])).toEqual(['1', '~v1~']);
+  });
+
+  it('keeps the versions in the order the shop’s changed, where a card shipped after one that started later', () => {
+    // #1 started first and shipped last; #2 started before the release with no work item, and has not shipped.
+    const cards = [card('1', 0), card('2', 1)];
+    expect(marks(cards, [shipped('v1', [], 2), shipped('v2', ['1'], 3)])).toEqual(['v1', '1', 'v2', '2']);
   });
 });
 

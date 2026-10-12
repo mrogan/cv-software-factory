@@ -64,7 +64,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   const drag = useRef<Drag | undefined>(undefined);
   const scrubbing = useRef(false);
   // A live console's clock ticks every ten seconds, and each tick brings a new timeline with the same positions.
-  // Keyed on the positions themselves, the drawing changes only when a card is added.
+  // Keyed on the positions themselves, the drawing changes only when a card is added or a release takes a place.
   const positionsKey = timeline.positions.join(' ');
   // biome-ignore lint/correctness/useExhaustiveDependencies: the key stands for the positions
   const positions = useMemo(() => timeline.positions, [positionsKey]);
