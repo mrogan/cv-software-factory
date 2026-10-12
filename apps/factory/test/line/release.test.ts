@@ -9,7 +9,7 @@ import { type Database, freshDatabase } from '../../../../packages/store/test/da
 import { Prometheus } from '../../src/clients/prometheus.ts';
 import { GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { Line, type LineOptions } from '../../src/line/worker.ts';
-import { IndexedArtifacts, type Picture, PictureIndex } from '../../src/pictures/index.ts';
+import { IndexedArtifacts, type Picture, PictureIndex, type Shot } from '../../src/pictures/index.ts';
 import type { AnalysisRun, Rollout } from '../../src/release/read.ts';
 import { JOURNEY_FALLBACK } from '../../src/release/signals.ts';
 import type { Kube } from '../../src/runners/kube.ts';
@@ -944,7 +944,8 @@ describe('Verify on the line', () => {
   });
 
   describe('with the pictures taken while its release ran as a canary', () => {
-    const shot = (fill: string, path: string, version: string, boxed = false): Screenshot => ({
+    /** A page's screenshot; a boxed one boxes the heading and, for another sense's finding, the cards. */
+    const shot = (fill: string, path: string, version: string, boxed = false): Shot => ({
       kind: 'screenshot',
       hash: fill.repeat(64),
       type: 'image/png',
@@ -953,7 +954,13 @@ describe('Verify on the line', () => {
       version,
       width: 1280,
       height: 1600,
-      boxes: boxed ? [{ x: 40, y: 200, width: 600, height: 120, kind: 'problem' }] : [],
+      boxes: boxed
+        ? [
+            { x: 40, y: 200, width: 600, height: 120, kind: 'problem' },
+            { x: 40, y: 900, width: 1200, height: 400, kind: 'problem' },
+          ]
+        : [],
+      ...(boxed && { selectors: ['main h1', '.cards'] }),
     });
     /** Every page on the version before and on the release's, as the probes worker indexed them. */
     async function pictured() {
@@ -983,11 +990,20 @@ describe('Verify on the line', () => {
       );
       return index;
     }
-    const artifactsOf = async (workItem: string, type: string) =>
+    const screenshotsOf = async (workItem: string, type: string) =>
       (
         await database.writer<{ artifacts: Screenshot[] }[]>`
           select artifacts from events where work_item = ${workItem} and type = ${type} order by seq desc limit 1`
-      )[0]?.artifacts.map((a) => a.hash[0]);
+      )[0]?.artifacts ?? [];
+    const artifactsOf = async (workItem: string, type: string) =>
+      (await screenshotsOf(workItem, type)).map((a) => a.hash[0]);
+    /** The depth of each box, by the place and hash of the screenshots with any. */
+    const boxesOf = async (workItem: string, type: string) =>
+      Object.fromEntries(
+        (await screenshotsOf(workItem, type))
+          .map((a, i) => [`${i} ${a.hash[0]}`, a.boxes.map((b) => b.y)] as const)
+          .filter(([, ys]) => ys.length),
+      );
     const lineWithPictures = async (options: Partial<LineOptions>) =>
       line({
         release: null,
@@ -1043,6 +1059,9 @@ describe('Verify on the line', () => {
         '9',
         '8',
       ]);
+      // Only the heading its own check boxed, not the cards another sense's finding did; and nothing the index keeps.
+      expect(await boxesOf(workItem, 'verification.finished')).toEqual({ '0 5': [200], '1 6': [200], '8 8': [200] });
+      for (const a of await screenshotsOf(workItem, 'verification.finished')) expect(a).not.toHaveProperty('selectors');
     });
 
     it('holds a visitor’s report for Martin with every page before and after, its route’s pages intended', async () => {
@@ -1052,7 +1071,10 @@ describe('Verify on the line', () => {
       await pass(it);
       expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({ stage: 'verify', cause: 'verify' });
       // With no box to say which, every page of the report's route is its own.
-      expect(await artifactsOf(workItem, 'hold.started')).toEqual(['5', '6', '9', '9', '2', '3', '1', '1', '8']);
+      // A visitor's report boxes nothing: its pictures carry none of the boxes other checks drew, and no page after
+      // the rollout, which only another check's box was the reason for.
+      expect(await artifactsOf(workItem, 'hold.started')).toEqual(['5', '6', '9', '9', '2', '3', '1', '1']);
+      expect(await boxesOf(workItem, 'hold.started')).toEqual({});
     });
 
     it('names none for a release the probes worker did not picture', async () => {

@@ -84,9 +84,9 @@ function setup() {
         version,
         width: 40,
         height: 30,
-        boxes: elements.length ? [{ x: 1, y: 1, width: 10, height: 5, kind: 'problem' }] : [],
+        boxes: elements.slice(0, 1).map(() => ({ x: 1, y: 1, width: 10, height: 5, kind: 'problem' as const })),
       };
-      return { png: bytes, screenshot };
+      return { png: bytes, screenshot, selectors: elements.slice(0, 1).map((e) => e.selector) };
     },
     index,
     store,
@@ -202,12 +202,18 @@ describe('the pictures of a canary', () => {
     // The page a sense boxed comes first, named by the sense's route.
     expect(shots.slice(0, 2)).toEqual(['stable /products/glove-left boxed', 'canary /products/glove-left boxed']);
     expect(index.pictures[0]).toMatchObject({ path: '/products/glove-left', route: '/products/:slug', rollout: null });
+    // Each box keeps the selector it was drawn round, for the line to tell a ticket's own from another's.
+    expect(index.pictures[0]?.after).toMatchObject({ boxes: [{ kind: 'problem' }], selectors: ['main h1'] });
 
     // Promoted: both Services run the canary's version, and the boxed page is pictured once more on the stable.
     versions[STABLE] = NEW;
     expect(await pictures.tick()).toEqual({ rolledOut: 1 });
     expect(shots.at(-1)).toBe('stable /products/glove-left boxed');
-    expect(index.pictures[0]?.rollout).toMatchObject({ version: NEW, boxes: [{ kind: 'problem' }] });
+    expect(index.pictures[0]?.rollout).toMatchObject({
+      version: NEW,
+      boxes: [{ kind: 'problem' }],
+      selectors: ['main h1'],
+    });
     expect(await pictures.tick()).toBeNull();
     expect(shots).toHaveLength(7);
   });

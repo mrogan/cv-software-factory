@@ -1,9 +1,9 @@
 import type { Screenshot } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { MOST_PAGES, pagesFor } from '../../src/line/pictures.ts';
-import type { Picture } from '../../src/pictures/index.ts';
+import type { Picture, Shot } from '../../src/pictures/index.ts';
 
-const shot = (n: number): Screenshot => ({
+const shot = (n: number): Shot => ({
   kind: 'screenshot',
   hash: n.toString(16).padStart(64, '0'),
   type: 'image/png',
@@ -48,5 +48,50 @@ describe('the pages a verification names', () => {
     expect(own.pages.map((p) => p.intended)).toEqual([true, true, true]);
     const everywhere = pagesFor(shop.slice(0, 3), { route: '*' });
     expect(everywhere.pages.map((p) => p.intended)).toEqual([false, false, false]);
+  });
+
+  describe('the boxes on their screenshots', () => {
+    /** A page boxed by two checks: the price's heading, and the cards another finding was about. */
+    const boxed = (n: number): Shot => ({
+      ...shot(n),
+      boxes: [
+        { x: 0, y: 100, width: 600, height: 40, kind: 'problem' },
+        { x: 0, y: 900, width: 1200, height: 300, kind: 'problem' },
+      ],
+      selectors: ['main h1', '.cards'],
+    });
+    const page = (path: string, n: number): Picture => ({
+      ...picture(path, '/products/:slug', 0, n),
+      before: boxed(n * 2),
+      after: boxed(n * 2 + 1),
+      rollout: boxed(n * 2 + 100),
+    });
+    const pages = [page('/products/p01', 1), page('/products/p02', 2)];
+    const depths = (artifacts: Screenshot[]) => artifacts.map((a) => a.boxes.map((b) => b.y));
+
+    it('keeps only the ticket’s own check’s, on its own page, and no selector', () => {
+      const { artifacts } = pagesFor(pages, {
+        path: '/products/p01',
+        selectors: ['main h1'],
+        route: '/products/:slug',
+      });
+      expect(depths(artifacts)).toEqual([[100], [100], [], [], [100]]);
+      for (const a of artifacts) expect(a).not.toHaveProperty('selectors');
+    });
+
+    it('keeps none for a ticket whose sense boxes nothing, on any page of its route', () => {
+      const { pages: named, artifacts } = pagesFor(pages, { route: '/products/:slug' });
+      expect(named.map((p) => p.intended)).toEqual([true, true]);
+      // Nor a page after the rollout, which another check's box was the reason for.
+      expect(depths(artifacts)).toEqual([[], [], [], []]);
+    });
+
+    it('keeps every box on its own page from a picture taken before the boxes kept their selectors', () => {
+      const bare = ({ selectors: _, ...screenshot }: Shot): Shot => screenshot;
+      const old = pages.map((p) => ({ ...p, before: bare(p.before), after: bare(p.after), rollout: null }));
+      const { artifacts } = pagesFor(old, { path: '/products/p01', selectors: ['main h1'], route: '/products/:slug' });
+      expect(depths(artifacts)).toEqual([[100, 900], [100, 900], [], []]);
+      expect(depths(pagesFor(old, { route: '/products/:slug' }).artifacts)).toEqual([[], [], [], []]);
+    });
   });
 });
