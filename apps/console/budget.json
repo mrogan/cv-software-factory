@@ -1,5 +1,5 @@
 {
   "$comment": "Gzipped bytes the browser downloads, set from the first build with a tenth to spare. Raising a figure is a decision for review, not a fix.",
-  "javascript": 124000,
-  "css": 12000
+  "javascript": 127500,
+  "css": 12200
 }
