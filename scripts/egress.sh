@@ -360,8 +360,12 @@ for ns in factory runners website scoreboard telemetry argo-rollouts kyverno; do
 done
 # Many questions, so several at once. `can-i` answers no with exit status 1, and fails otherwise: only its own answer
 # counts, and anything but "no" is printed.
+# A subresource is asked as one: given `pods/exec`, `can-i` would ask about a pod named `exec`.
 answers=$(printf '%s\n' "${asks[@]}" | xargs -P 16 -L 1 bash -c '
-  answer=$(kubectl --context "$0" -n scoreboard auth can-i "$3" "$4" --as "system:serviceaccount:$1:$2" 2>/dev/null) || true
+  resource=${4%%/*} subresource=()
+  if [ "$resource" != "$4" ]; then subresource=(--subresource "${4#*/}"); fi
+  answer=$(kubectl --context "$0" -n scoreboard auth can-i "$3" "$resource" "${subresource[@]}" \
+    --as "system:serviceaccount:$1:$2" 2>/dev/null) || true
   if [ "$answer" != no ]; then printf "  FAIL  %-62s %s\n" "$1/$2 may $3 $4 in scoreboard" "${answer:-no answer}"; fi
 ' "$context")
 if [ -n "$answers" ]; then echo "$answers"; failed=1; else
