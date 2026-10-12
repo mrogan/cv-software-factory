@@ -396,12 +396,6 @@ Written as Part C's pull requests (#218 to #225, #230 to #234 and #237, the app'
 - The planner's first result can miss its schema on a page with a query; running the step again was enough.
 - Argo Rollouts' controller may read every Secret in the cluster, by its chart. It is the one exception `make egress` names for the scoreboard's.
 
-**What's left.** Open: egress by host name waits for milestone 10 (#176); a broken Mermaid diagram reaches a pull request's description (#197); a release of an image promoted before is not recorded (#199); a ticket's own box can be crowded off its page's pictures (#235); trying Preact (#236); and the reviewer's open threads (#240). To file:
+**What's left.** Open: egress by host name waits for milestone 10 (#176); a broken Mermaid diagram reaches a pull request's description (#197); a release of an image promoted before is not recorded (#199); a ticket's own box can be crowded off its page's pictures (#235); trying Preact (#236); and the reviewer's open threads (#240). Filed from Part C's runs: the scoreboard's loop has no test (#244); during a canary the senses' requests count in the baseline's figures only (#245); an aborted release is inferred, where a `release.aborted` event would record it (#246, milestone 8); a signal counted into an open ticket leaves no trace on it (#247); optionally, found moving only when enough tickets opened in its window (#248), and the scoreboard reaching Postgres with no DNS (#249); and the reel's render-count test still flakes (#250).
 
-- The scoreboard's loop (`serve()`, which wakes on an append and every minute) has no test of its own.
-- During a canary the probes' and the crawler's requests count in the baseline's figures only, since they look at the stable version and send no `x-unmeasured`.
-- Stop the line's abort is inferred by the console from `line.stopped` after an unended `release.started`; a `release.aborted` event would say it.
-- A signal counted into an open ticket appends no event to it.
-- Optionally, a minimum number of tickets in a window before found moves, since a window with one ticket hides little.
-- Optionally, the scoreboard reaching Postgres with no DNS, so its fence names one peer.
-- The console against its design: Release's panel row for a fix waiting for the deploy gives the hold's reason, where the design says "Needs you · waiting for Martin's deploy"; the Canary panel's rollback with no step measured leaves out what the analysis saw against its limit, which the event carries; and on a phone the panel drops a measure's error message with the rules' captions.
+The console's three gaps against its design, found while writing this (Release's panel row for a fix waiting for the deploy, a rollback with no step measured leaving out what the analysis saw against its limit, and a phone dropping a measure's error message), are fixed in a console pull request of their own.
