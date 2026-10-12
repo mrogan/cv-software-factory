@@ -301,7 +301,9 @@ describe('a round on the line', () => {
       ['1323', ['sent back'], 'Review asked for changes: '],
       ['1311', [], 'Needs you · waiting for Ma'],
       ['1325', [], 'Sent back to Build · round'],
+      ['1321', [], 'passed on to release'],
       ['1319', [], 'Sent back to Build · round'],
+      ['1314', [], 'passed on to release'],
     ]);
   });
 });
