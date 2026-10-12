@@ -16,18 +16,9 @@ const log = fileURLToPath(new URL('../../../packages/samples/log/events.ndjson',
 const lines = readFileSync(log, 'utf-8').trim().split('\n');
 
 /** When the samples' last event happened: the server is told it is now, and pages pin t to it. */
-export const END = Date.parse((JSON.parse(lines.at(-1) ?? '{}') as { ts: string }).ts);
+export { MERGE_WAITING } from '../test/projection/support.ts';
 
-/**
- * A moment the samples show a merge waiting at Release, unheld: #1310's, in a dry run, which no deploy can carry, half a
- * minute after it merged and before the dry run released it.
- */
-export const MERGE_WAITING =
-  Date.parse(
-    lines
-      .map((line) => JSON.parse(line) as { ts: string; work_item: string | null; type: string })
-      .find((event) => event.work_item === '1310' && event.type === 'pull-request.merged')?.ts ?? '',
-  ) + 30_000;
+export const END = Date.parse((JSON.parse(lines.at(-1) ?? '{}') as { ts: string }).ts);
 
 const fixtureLog = fileURLToPath(new URL('../test/fixture/log/events.ndjson', import.meta.url));
 const fixtureLines = readFileSync(fixtureLog, 'utf-8').trim().split('\n');
@@ -74,16 +65,16 @@ export function consoleUrl({
   item,
   sheet = false,
   debug,
-  at = END,
+  at,
 }: {
   theme?: 'paper' | 'ink';
   motion?: boolean;
   item?: string | undefined;
   sheet?: boolean;
   debug?: string;
-  at?: number;
+  at?: number | undefined;
 } = {}): string {
-  const params = new URLSearchParams({ t: new Date(at).toISOString(), theme });
+  const params = new URLSearchParams({ t: new Date(at ?? END).toISOString(), theme });
   if (!motion) params.set('motion', 'off');
   if (item) params.set('item', item);
   if (sheet) params.set('sheet', '');

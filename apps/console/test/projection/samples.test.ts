@@ -14,10 +14,11 @@ describe('the samples, projected', () => {
   });
 
   it('show every picture in the design system’s table', () => {
-    expect([...new Set(view.cards.map((c) => c.picture.type))]).toEqual(
-      expect.arrayContaining([
+    // And none for #1308, the canary's ticket, whose rollback picture the console does not draw yet.
+    expect(new Set(view.cards.map((c) => c.picture.type))).toEqual(
+      new Set([
         ...['wipe', 'metric', 'logs', 'package', 'scan', 'rollback', 'refusal', 'judgement', 'spec', 'http'],
-        ...['merge', 'scope', 'tests-pass', 'spend', 'blocking'],
+        ...['merge', 'scope', 'tests-pass', 'spend', 'blocking', 'none'],
       ]),
     );
   });

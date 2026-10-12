@@ -5,7 +5,7 @@
  * apart, each event marked `dryRun`. Nothing reached GitHub or the shop, and the scoreboard does not count it fixed.
  */
 import type { PayloadOf } from '@software-factory/events';
-import { commitFor, Item } from '../build.ts';
+import { commitFor, Item, short } from '../build.ts';
 
 const LOCAL = { local: true };
 
@@ -14,7 +14,7 @@ const PULL_REQUEST = 1_000_000_004;
 const MERGE = commitFor('1310/dry-run-merge');
 /** A dry run's release is named by its merge, and its version is the merge's commit. */
 const RELEASE = `dry-run-${MERGE.slice(0, 12)}`;
-const SHORT = MERGE.slice(0, 7);
+const SHORT = short(MERGE);
 /** What it would have replaced: the stable version then. */
 const PREVIOUS = 'v0.9.10';
 /** How far apart the dry run's release events are: `LINE_DRY_RUN_RELEASE_SECONDS`. */

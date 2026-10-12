@@ -1,6 +1,6 @@
 /**
- * Milestone 5's states in the browser, from the samples' last seven work items: what each says in words, so it reads
- * without colour, and WCAG 2.2 AA in both themes at a laptop's width and a phone's.
+ * Milestone 5's states in the browser, from the samples' milestone 5 work items and #1310's merge in a dry run: what
+ * each says in words, so it reads without colour, and WCAG 2.2 AA in both themes at a laptop's width and a phone's.
  */
 import { AxeBuilder } from '@axe-core/playwright';
 import type { Locator, Page } from '@playwright/test';

@@ -233,7 +233,7 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
 
     for (const [state, { item, at }] of Object.entries(FIXING)) {
       test(`a card: ${state}`, async ({ page }) => {
-        await page.goto(consoleUrl({ item, ...(at && { at }) }));
+        await page.goto(consoleUrl({ item, at }));
         await ready(page);
         const card = page.locator('.card[data-place="centre"]');
         await card.scrollIntoViewIfNeeded();

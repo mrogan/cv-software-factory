@@ -1,12 +1,13 @@
 /**
- * Milestone 5's states (the design system's README, "Fixing"), projected from the samples' last seven work items:
+ * Milestone 5's states (the design system's README, "Fixing"), projected from the samples' milestone 5 work items:
  * the spec and its scope, the rounds, the review thread, the gates by attempt, a round on the line, the wait for
- * Martin's merge, the four holds, a merge waiting for a release, a local model, and the describer's step.
+ * Martin's merge, the four holds, a local model, and the describer's step; and a merge waiting for a release, which
+ * only a dry run's merge does now, at the moment #1310's does.
  */
 import type { PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { project, projectSheet } from '../../web/src/projection/index.ts';
-import { END, SAMPLES, work } from './support.ts';
+import { END, MERGE_WAITING, SAMPLES, work } from './support.ts';
 
 const view = project(SAMPLES, END);
 const card = (number: string) => view.cards.find((c) => c.number === number);
@@ -50,8 +51,7 @@ describe('the wait for Martin’s merge', () => {
 describe('a merged fix', () => {
   // Every merge waits for Martin's deploy now, but for a dry run's, which no deploy can carry: #1310's waits at
   // Release, unheld, for the minute until the dry run releases it.
-  const merged = SAMPLES.find((e) => e.work_item === '1310' && e.type === 'pull-request.merged');
-  const at = Date.parse(merged?.ts ?? '') + 30_000;
+  const at = MERGE_WAITING;
   const then = project(SAMPLES, at);
 
   it('waits at Release for a release, in the quiet tone, with Review passed', () => {

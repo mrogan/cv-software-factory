@@ -37,7 +37,7 @@ function key(events: readonly NewEvent[]): KeyEntry[] {
 
 /** When the scoreboard was given its key: before it, the scoreboard says once that it is off. */
 const KEYED_AT = Date.parse('2026-09-29T09:00:00+01:00');
-/** How long after a change the scoreboard's next pass publishes it. */
+/** How often the scoreboard passes over the events. */
 const PASS_MS = 30_000;
 
 type Score = PayloadOf<'score.updated'>;
@@ -61,14 +61,17 @@ export function scoreEvents(events: readonly NewEvent[]): NewEvent<'score.update
   const start = Date.parse(events[0]?.ts ?? '');
   const end = Date.parse(events.at(-1)?.ts ?? '');
   const every = SCOREBOARD.foundEveryHours * 3_600_000;
-  const moments = [
-    ...scored.map((event) => Date.parse(event.ts)),
-    ...Array.from({ length: Math.floor((end - KEYED_AT) / every) + 1 }, (_, i) => lastBoundary(KEYED_AT) + i * every),
-  ]
-    .filter((at) => at >= KEYED_AT && at + PASS_MS <= end)
-    .sort((a, b) => a - b);
-  const published: [at: number, score: Score][] = [[start + PASS_MS, { keyed: false }]];
-  for (const at of [KEYED_AT - PASS_MS, ...moments]) {
+  // The scoreboard passes every half minute: a change is published at the first pass after it, with any other
+  // change that came before that pass.
+  const pass = (at: number) => Math.ceil(at / PASS_MS) * PASS_MS;
+  const first = lastBoundary(KEYED_AT);
+  const passes = [
+    KEYED_AT,
+    ...scored.map((event) => pass(Date.parse(event.ts))),
+    ...Array.from({ length: Math.floor((end - first) / every) + 1 }, (_, i) => first + i * every),
+  ].filter((at) => at >= KEYED_AT && at <= end);
+  const published: [at: number, score: Score][] = [[pass(start + 1), { keyed: false }]];
+  for (const at of [...new Set(passes)].sort((a, b) => a - b)) {
     const { falsePositives: _, ...figured } = figures(
       tickets(scored.filter((event) => Date.parse(event.ts) <= at)),
       entries,
@@ -76,7 +79,7 @@ export function scoreEvents(events: readonly NewEvent[]): NewEvent<'score.update
     );
     const score: Score = { keyed: true, ...figured };
     const last = published.at(-1)?.[1];
-    if (!last || !same(score, last)) published.push([at + PASS_MS, score]);
+    if (!last || !same(score, last)) published.push([at, score]);
   }
   return published.map(([at, score], i) => ({
     id: uuidFor(`line/score/${i}`),

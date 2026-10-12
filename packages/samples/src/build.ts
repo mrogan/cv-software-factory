@@ -173,7 +173,7 @@ export const promoted = (version: string, previous: string): PayloadOf<'release.
 });
 
 /** A commit, as the line shortens one in what it writes: a version name stays whole. */
-const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);
+export const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);
 
 type Versus<T> = { canary: T; baseline: T };
 
@@ -312,7 +312,7 @@ export class Item {
   ): this {
     const { model, settings } = local ? LOCAL : AGENT_SETTINGS[agent];
     const price = PRICES[model];
-    const next = random(`${this.number}/${agent}/${from}`);
+    const next = random(`${this.#name}/${agent}/${from}`);
     // Uneven shares that still add up to the totals.
     const weights = Array.from({ length: calls }, () => 0.6 + next());
     const sum = weights.reduce((a, b) => a + b, 0);
@@ -354,7 +354,7 @@ export class Item {
    * and the tests-first signal beside them when the run has one.
    */
   gates(offset: string, run: GateRun): this {
-    const commit = commitFor(`${this.number}/${run.pullRequest}/${run.attempt ?? 1}`);
+    const commit = commitFor(`${this.#name}/${run.pullRequest}/${run.attempt ?? 1}`);
     const { pullRequest, testsFirst } = run;
     const start = seconds(offset);
     const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
@@ -460,7 +460,7 @@ export class Item {
         category,
         severity,
         fingerprint: { route, class: symptom },
-        traces: [traceFor(`${this.number}/signal`)],
+        traces: [traceFor(`${this.#name}/signal`)],
       })
       .at(offset, 'work-item.summarised', 'triage', 'Summary written', {
         title,
