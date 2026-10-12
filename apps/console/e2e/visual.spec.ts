@@ -18,6 +18,8 @@ import {
   picturesDecodeAsDrawn,
   picturesShown,
   ready,
+  SCORE,
+  scored,
   shown,
   THEMES,
   test,
@@ -312,3 +314,20 @@ test.describe('the Canary panel in Ink', () => {
     });
   }
 });
+
+/** Milestone 6's scoreboard beside the app's name, from the samples: off, before the first fix, and with figures. */
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, the scoreboard`, () => {
+    test.use({ viewport });
+
+    for (const theme of THEMES) {
+      for (const [state, at] of Object.entries(SCORE)) {
+        test(`${state}, ${theme}`, async ({ page }) => {
+          await page.goto(consoleUrl({ at, theme }));
+          await scored(page);
+          await expect(page.locator('section.intro')).toHaveScreenshot(`m06-score-${state}-${width}-${theme}.png`);
+        });
+      }
+    }
+  });
+}

@@ -352,7 +352,7 @@ Yellow stays the Release station's bird. Moving is ink, a measure that passed an
 
 ### The scoreboard
 
-- Three figures beside the app's name, from the latest `score.updated`: **found**, **verified fixed** (in `ok`, once it is above zero) and **median to verified**, as a duration ("1h 52m"). `t-figure` mono, captions in `t-caption` `text-muted`; the group is named "Scoreboard: seeded and injected defects".
+- Three figures beside the app's name, from the latest `score.updated`: **found**, **verified fixed** (in `ok`, once it is above zero) and **median to verified**, as the console writes a duration ("1 h 52 min"). `t-figure` mono, captions in `t-caption` `text-muted`; the group is named "Scoreboard: seeded and injected defects".
 - Before the first verified fix, the median is "—" in `text-muted`, named "none yet", and verified fixed is a plain 0.
 - **Off:** a `score.updated` that says the scoreboard has no answer key draws "Scoreboard off" in mono `text-muted`, and one line: "This copy of the factory has no answer key, so it counts nothing." No `score.updated` at all (an older store, the replay site) draws nothing.
 - **Samples:** the dashed Sample pill, above the figures.

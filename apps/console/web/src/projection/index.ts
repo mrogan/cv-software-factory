@@ -14,8 +14,10 @@ import {
   panel,
   type Return,
   returnsAt,
+  type Score,
   type StagePanel,
   type Station,
+  score,
   station,
 } from './line.ts';
 import { type Card, card, type Timeline, timeline } from './reel.ts';
@@ -30,6 +32,7 @@ export type {
   PanelRow,
   ProviderSpell,
   Return,
+  Score,
   SenseCount,
   StagePanel,
   Station,
@@ -56,6 +59,8 @@ export interface View {
   /** The store holds samples, and the console says so. */
   sample: boolean;
   header: Header;
+  /** The scoreboard, beside the app's name; nothing when it has never published. */
+  score: Score | undefined;
   stations: Station[];
   /** Work sent back upstream that has not moved on since, newest first, to be drawn one at a time. */
   returns: Return[];
@@ -81,6 +86,7 @@ export function project(events: readonly PublicEvent[], t: number): View {
     t,
     sample: items.some((item) => item.sample),
     header: line,
+    score: score(seen),
     stations: STAGES.map((stage) => station(stage, items, sent, line, t, shipped)),
     returns,
     panels: Object.fromEntries(

@@ -1482,7 +1482,7 @@ function renderScore() {
     el.innerHTML = `<div class="score-off" role="group" aria-label="Scoreboard"><b>Scoreboard off</b><span>This copy of the factory has no answer key, so it counts nothing.</span></div>`;
     return;
   }
-  const [found, fixed, median] = k === 'first' ? [3, 0, null] : [14, 11, '1h 52m'];
+  const [found, fixed, median] = k === 'first' ? [3, 0, null] : [14, 11, '1 h 52 min'];
   el.innerHTML = `${k === 'sample' ? '<span class="remark">Sample</span>' : ''}<div class="score" role="group" aria-label="Scoreboard: seeded and injected defects">
     <div><b>${found}</b><span>found</span></div>
     <div><b class="${fixed ? 'ok' : ''}">${fixed}</b><span>verified fixed</span></div>

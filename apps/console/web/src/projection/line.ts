@@ -166,6 +166,18 @@ export function header(events: readonly PublicEvent[]): Header {
   return { ...state, capped: holding.find((spell) => spell.cap === 'month') ?? holding[0], waiting };
 }
 
+/** The scoreboard's figures, or that it is off. */
+export type Score = PayloadOf<'score.updated'>;
+
+/** What the scoreboard said last, or nothing if it never has: an older store, or the replay site. */
+export function score(events: readonly PublicEvent[]): Score | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if (event?.type === 'score.updated') return event.payload;
+  }
+  return undefined;
+}
+
 /** Items in a stage now: open, and that stage their latest. */
 const inStage = (items: readonly ItemState[], stage: Stage) =>
   items.filter((item) => item.closedAt === undefined && item.stage === stage);

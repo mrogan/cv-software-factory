@@ -1,5 +1,6 @@
 import type { Autonomy } from '@software-factory/events';
-import type { Header as LineState } from '../projection/index.ts';
+import { duration } from '../format.ts';
+import type { Header as LineState, Score } from '../projection/index.ts';
 import type { Theme } from '../settings.ts';
 import type { Connection } from '../source.ts';
 import { Mark } from './Mark.tsx';
@@ -62,6 +63,48 @@ export function LineStatus({ line, connection }: { line: LineState; connection: 
       <span className="dot tone-ok blink" aria-hidden="true" />
       Line running{line.autonomy && ` · ${AUTONOMY[line.autonomy]}`}
     </>
+  );
+}
+
+/**
+ * The scoreboard beside the app's name: its three figures as it last published them, or that it is off. It never
+ * names a ticket, and draws nothing when it has never published.
+ */
+export function Scoreboard({ score, sample }: { score: Score | undefined; sample: boolean }) {
+  if (!score) return null;
+  if (!score.keyed) {
+    return (
+      <p className="score-off">
+        <b>Scoreboard off</b> <span>This copy of the factory has no answer key, so it counts nothing.</span>
+      </p>
+    );
+  }
+  return (
+    <div className="score-wrap">
+      {sample && <span className="pill-sample">Sample</span>}
+      {/* biome-ignore lint/a11y/useSemanticElements: a fieldset holds a form's controls, and these are figures */}
+      <div className="score" role="group" aria-label="Scoreboard: seeded and injected defects">
+        <div>
+          <b>{score.found}</b>
+          <span>found</span>
+        </div>
+        <div>
+          <b className={score.verified ? 'ok' : undefined}>{score.verified}</b>
+          <span>verified fixed</span>
+        </div>
+        <div>
+          {score.medianMs === null ? (
+            <b className="none">
+              <span aria-hidden="true">—</span>
+              <span className="sr">none yet</span>
+            </b>
+          ) : (
+            <b>{duration(score.medianMs)}</b>
+          )}
+          <span>median to verified</span>
+        </div>
+      </div>
+    </div>
   );
 }
 

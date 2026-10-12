@@ -66,6 +66,16 @@ export const CANARY = {
   none: Date.parse('2026-09-29T08:00:00Z'),
 };
 
+/**
+ * Moments in the samples that show each of the scoreboard's states: off before it has its key, counting from
+ * nothing before the first verified fix, and with every figure by the end.
+ */
+export const SCORE = {
+  off: Date.parse('2026-09-29T07:30:00Z'),
+  first: Date.parse('2026-09-29T09:00:00Z'),
+  figures: END,
+};
+
 export const WIDTHS = {
   phone: { width: 390, height: 844 },
   laptop: { width: 1024, height: 768 },
@@ -128,6 +138,12 @@ export async function emptyStore(page: Page, kind: 'sample' | 'real' | null): Pr
 /** The Canary panel drawn, with the fonts it is set in: at a moment before any work item, there is no card to wait for. */
 export async function shown(page: Page): Promise<void> {
   await page.locator('section.canary').waitFor();
+  await page.evaluate(() => document.fonts.ready);
+}
+
+/** The scoreboard drawn beside the app's name, with the fonts it is set in. */
+export async function scored(page: Page): Promise<void> {
+  await page.locator('.intro').locator('.score, .score-off').waitFor();
   await page.evaluate(() => document.fonts.ready);
 }
 

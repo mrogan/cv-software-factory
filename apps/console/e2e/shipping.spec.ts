@@ -1,11 +1,11 @@
 /**
- * Milestone 6's Canary panel in the browser, from the samples' releases: what each state says in words, so it reads
- * without colour, that its work items open their sheets, and WCAG 2.2 AA in both themes at a laptop's width and a
- * phone's.
+ * Milestone 6's Canary panel and scoreboard in the browser, from the samples: what each state says in words, so it
+ * reads without colour, that the panel's work items open their sheets, and WCAG 2.2 AA in both themes at a laptop's
+ * width and a phone's.
  */
 import { AxeBuilder } from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { CANARY, consoleUrl, expect, shown, THEMES, test, WIDTHS } from './support.ts';
+import { CANARY, consoleUrl, expect, SCORE, scored, shown, THEMES, test, WIDTHS } from './support.ts';
 
 const panel = (page: Page) => page.getByRole('region', { name: /./ }).and(page.locator('section.canary'));
 
@@ -65,6 +65,55 @@ for (const [width, viewport] of Object.entries({ laptop: WIDTHS.laptop, phone: W
           const results = await new AxeBuilder({ page })
             .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
             .include('section.canary')
+            .analyze();
+          expect(results.violations).toEqual([]);
+        });
+      }
+    });
+  }
+}
+
+test.describe('the scoreboard', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('says it is off, then counts from nothing, then shows its three figures', async ({ page }) => {
+    const intro = page.locator('section.intro');
+    await page.goto(consoleUrl({ at: SCORE.off }));
+    await scored(page);
+    await expect(intro.locator('.score-off')).toHaveText(
+      'Scoreboard off This copy of the factory has no answer key, so it counts nothing.',
+    );
+    await page.goto(consoleUrl({ at: SCORE.first }));
+    await scored(page);
+    const score = intro.getByRole('group', { name: 'Scoreboard: seeded and injected defects' });
+    await expect(score.locator('div')).toHaveText(['0found', '0verified fixed', '—none yetmedian to verified']);
+    await page.goto(consoleUrl());
+    await scored(page);
+    await expect(score.locator('div')).toHaveText([
+      /^\d+found$/,
+      /^\d+verified fixed$/,
+      /^\d[\d a-z]*median to verified$/,
+    ]);
+  });
+
+  test('draws nothing before the scoreboard has said anything', async ({ page }) => {
+    await page.goto(consoleUrl({ at: Date.parse('2026-09-29T07:00:00Z') }));
+    await shown(page);
+    await expect(page.locator('section.intro').locator('.score, .score-off')).toHaveCount(0);
+  });
+});
+
+for (const [width, viewport] of Object.entries({ laptop: WIDTHS.laptop, phone: WIDTHS.phone })) {
+  for (const theme of THEMES) {
+    test.describe(`the scoreboard, accessible, ${width}, ${theme}`, () => {
+      test.use({ viewport });
+      for (const [state, at] of Object.entries(SCORE)) {
+        test(state, async ({ page }) => {
+          await page.goto(consoleUrl({ at, theme }));
+          await scored(page);
+          const results = await new AxeBuilder({ page })
+            .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+            .include('section.intro')
             .analyze();
           expect(results.violations).toEqual([]);
         });
