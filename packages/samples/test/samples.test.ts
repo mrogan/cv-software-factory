@@ -57,9 +57,15 @@ describe('the samples', () => {
         (event) =>
           event.work_item === start.work_item && 'release' in event.payload && event.payload.release === release,
       );
-      const weights = later.flatMap((event) => (event.type === 'canary.stepped' ? [event.payload.weight] : []));
       const promotion = later.findIndex((event) => event.type === 'release.promoted');
-      if (promotion >= 0) expect(weights, release).toEqual(steps?.map((step) => step.weight));
+      if (promotion < 0) continue;
+      // Every step the release recorded, each measured before the promotion, and none after it.
+      const weights = later.flatMap((event) => (event.type === 'canary.stepped' ? [event.payload.weight] : []));
+      const before = later
+        .slice(0, promotion)
+        .flatMap((event) => (event.type === 'canary.stepped' ? [event.payload.weight] : []));
+      expect(before, release).toEqual(steps?.map((step) => step.weight));
+      expect(weights, release).toEqual(before);
     }
   });
 

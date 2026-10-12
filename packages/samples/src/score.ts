@@ -1,6 +1,6 @@
 /**
  * The scoreboard over the samples, worked out by the scoreboard's own figures (`factory`'s `scoreboard/figures.ts`)
- * against an invented answer key, as its worker would publish them: off until it has a key, then a `score.updated`
+ * against an invented answer key, at the moments its worker would publish them: off until it has a key, then a `score.updated`
  * each time a figure changes, verified and the median as soon as they do, found only on the slow cadence.
  */
 import type { NewEvent, PayloadOf } from '@software-factory/events';
@@ -37,8 +37,8 @@ function key(events: readonly NewEvent[]): KeyEntry[] {
 
 /** When the scoreboard was given its key: before it, the scoreboard says once that it is off. */
 const KEYED_AT = Date.parse('2026-09-29T09:00:00+01:00');
-/** How often the scoreboard passes over the events. */
-const PASS_MS = 30_000;
+/** How long after an event is appended the scoreboard's pass publishes what it changed. */
+const PASS_MS = 1_000;
 
 type Score = PayloadOf<'score.updated'>;
 
@@ -61,16 +61,15 @@ export function scoreEvents(events: readonly NewEvent[]): NewEvent<'score.update
   const start = Date.parse(events[0]?.ts ?? '');
   const end = Date.parse(events.at(-1)?.ts ?? '');
   const every = SCOREBOARD.foundEveryHours * 3_600_000;
-  // The scoreboard passes every half minute: a change is published at the first pass after it, with any other
-  // change that came before that pass.
-  const pass = (at: number) => Math.ceil(at / PASS_MS) * PASS_MS;
+  // The scoreboard passes as each event is appended (`factory scoreboard` listens for them), a moment later, and once
+  // a minute besides, which is how a boundary of the slow cadence reaches it with no event.
   const first = lastBoundary(KEYED_AT);
   const passes = [
     KEYED_AT,
-    ...scored.map((event) => pass(Date.parse(event.ts))),
+    ...scored.map((event) => Date.parse(event.ts) + PASS_MS),
     ...Array.from({ length: Math.floor((end - first) / every) + 1 }, (_, i) => first + i * every),
   ].filter((at) => at >= KEYED_AT && at <= end);
-  const published: [at: number, score: Score][] = [[pass(start + 1), { keyed: false }]];
+  const published: [at: number, score: Score][] = [[start + PASS_MS, { keyed: false }]];
   for (const at of [...new Set(passes)].sort((a, b) => a - b)) {
     const { falsePositives: _, ...figured } = figures(
       tickets(scored.filter((event) => Date.parse(event.ts) <= at)),
