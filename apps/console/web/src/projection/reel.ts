@@ -73,6 +73,13 @@ export type Picture =
   /** A visitor's suggestion, parked for Martin: the page it named and Jev's answers, waiting on him. */
   | { type: 'suggestion'; page: Screenshot | undefined; judgement: Judgement }
   | { type: 'spec'; spec: PayloadOf<'spec.written'>; question: string | undefined }
+  /** A merged fix waiting for Martin's deploy: the pull request it waits with, and its merge. */
+  | {
+      type: 'deploy';
+      pullRequest: number | undefined;
+      title: string | undefined;
+      merged: { at: number; commit: string; byMartin: boolean } | undefined;
+    }
   /** A fix waiting for Martin's merge: the pull request, and what says it is safe to merge. */
   | {
       type: 'merge';
@@ -172,6 +179,8 @@ export interface Card {
   segments: Segment[];
   /** The version the shop was on once this item was done with it, or now if it is not. */
   shopVersion: string | undefined;
+  /** While a verified ticket is open again: when, and what the sense saw, on which version. */
+  reopened: ItemState['reopened'];
 }
 
 export interface Timeline {
@@ -438,6 +447,7 @@ export function card(item: ItemState, events: readonly PublicEvent[], t: number)
     spend: item.spend,
     segments: segments(item),
     shopVersion: shopVersion(events, end),
+    reopened: item.reopened,
   };
 }
 

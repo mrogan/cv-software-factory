@@ -389,6 +389,16 @@ header.top .wrap {
   color: var(--text-muted);
   white-space: nowrap;
 }
+/* An outlined pill, solid where Sample's is dashed: a ticket open again. */
+.pill-sample.again {
+  border-style: solid;
+  color: var(--text);
+}
+.again-out {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 
 /* Footer */
 footer.foot {

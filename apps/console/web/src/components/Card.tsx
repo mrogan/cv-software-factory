@@ -74,13 +74,17 @@ export function VersionPill({
   versions,
   seenOn,
   from: page,
+  back,
 }: {
   versions: Versions;
   seenOn?: string | undefined;
   from?: string | undefined;
+  /** A reopened ticket's version, the one its sense saw it on again, until a release of its own. */
+  back?: string | undefined;
 }) {
   const { rolledBack, onCanary } = versions;
   const [from, to] = [versions.from, versions.to].map((v) => v && shortVersion(v));
+  if (!to && !from && back) return <span className="ver">back on {shortVersion(back)}</span>;
   if (!to && !from && page) return <span className="ver">from {page}</span>;
   if (!to && !from && seenOn) return <span className="ver">seen on {shortVersion(seenOn)}</span>;
   if (!to && !from) return <span className="ver muted">no release</span>;
@@ -134,15 +138,22 @@ export const Card = memo(function Card({ card, index, count, ref }: CardProps) {
       className="card"
       data-index={index}
       aria-roledescription="slide"
-      aria-label={`${index + 1} of ${count}: ${card.title}. ${word}`}
+      aria-label={`${index + 1} of ${count}: ${card.title}. ${card.reopened ? 'Reopened. ' : ''}${word}`}
     >
-      <div className="card-top">
+      <div className={`card-top ${card.reopened ? 'again' : ''}`}>
         <span className="cat">
           <Glyph name={card.category} />
           {CATEGORY_NAME[card.category]}
           <span className="kind">· {kindName(card)}</span>
         </span>
-        <OutcomeWord outcome={card.outcome} />
+        {card.reopened ? (
+          <span className="again-out">
+            <span className="pill-sample again">Reopened</span>
+            <OutcomeWord outcome={card.outcome} />
+          </span>
+        ) : (
+          <OutcomeWord outcome={card.outcome} />
+        )}
       </div>
       <Picture picture={card.picture} interactive={false} />
       <div>
@@ -152,7 +163,7 @@ export const Card = memo(function Card({ card, index, count, ref }: CardProps) {
       <div className="meta">
         {card.sample && <span className="pill-sample">Sample</span>}
         <b>#{card.number}</b>
-        <VersionPill versions={card.versions} seenOn={card.seenOn} from={card.from} />
+        <VersionPill versions={card.versions} seenOn={card.seenOn} from={card.from} back={card.reopened?.version} />
         {card.pullRequest && <span className="opt">PR #{card.pullRequest}</span>}
         <span>{shortWhen(card.startedAt)}</span>
         <span>

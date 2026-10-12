@@ -1,11 +1,11 @@
 /**
- * Milestone 6's Canary panel and scoreboard in the browser, from the samples: what each state says in words, so it
- * reads without colour, that the panel's work items open their sheets, and WCAG 2.2 AA in both themes at a laptop's
- * width and a phone's.
+ * Milestone 6's Canary panel, a sheet's releases and the scoreboard in the browser, from the samples: what each state
+ * says in words, so it reads without colour, that the panel's work items open their sheets, and WCAG 2.2 AA in both
+ * themes at a laptop's width and a phone's.
  */
 import { AxeBuilder } from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { CANARY, consoleUrl, expect, SCORE, scored, shown, THEMES, test, WIDTHS } from './support.ts';
+import { CANARY, consoleUrl, expect, RETURNED, SCORE, scored, shown, THEMES, test, WIDTHS } from './support.ts';
 
 const panel = (page: Page) => page.getByRole('region', { name: /./ }).and(page.locator('section.canary'));
 
@@ -53,6 +53,70 @@ test.describe('the Canary panel', () => {
     await expect(panel(page)).toContainText('No release in flight The last, v0.9.12, was promoted at 08:06');
   });
 });
+
+test.describe('a sheet’s releases', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('tells each release, newest first, with what Verify found after it', async ({ page }) => {
+    await page.goto(consoleUrl({ item: '1306', sheet: true }));
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.locator('.kicker')).toContainText('Reopened');
+    await expect(sheet.locator('.facts-dl')).toContainText('logs, new error pattern on /basket from v0.9.12');
+    const blocks = sheet.locator('.rels > .rel');
+    await expect(blocks.first().locator('.out')).toHaveText('Promoted · all traffic');
+    await expect(blocks.first().locator('.verify .v')).toHaveText('Cleared');
+    await expect(blocks.first()).toContainText('No marks: the log watcher looks at no page');
+    // The older release is folded to its head, and opens.
+    await expect(blocks.nth(1).locator('.verify')).toBeHidden();
+    await blocks.nth(1).getByText('Show this release').click();
+    await expect(blocks.nth(1).locator('.verify .v')).toHaveText('Persists · back to Plan');
+    await expect(blocks.nth(1)).toContainText('with #1304');
+  });
+
+  test('folds the passes it is not in, and windows the events', async ({ page }) => {
+    await page.goto(consoleUrl({ item: '1306', sheet: true }));
+    const replay = page.getByRole('dialog').locator('.replay');
+    await expect(replay.locator('.event')).toHaveCount(5);
+    await replay.getByRole('button', { name: /^All events \(\d+\)$/ }).click();
+    await expect(replay.locator('.event')).not.toHaveCount(5);
+    await replay.getByRole('button', { name: 'Fewer events' }).click();
+    await expect(replay.locator('.event')).toHaveCount(5);
+    await replay.getByRole('button', { name: /^Pass 2: / }).click();
+    await expect(replay.getByRole('button', { name: /persists$/ })).toBeVisible();
+    await expect(replay.locator('.ch.pass span')).toHaveText(['PASS 3']);
+  });
+
+  test('says a wait for Martin’s deploy, and a return from Verify, in the design’s words', async ({ page }) => {
+    await page.goto(consoleUrl({ item: '1321', sheet: true }));
+    await expect(page.getByRole('dialog').locator('.deploy-wait')).toContainText(
+      'Merged · waiting for Martin’s deploy',
+    );
+    await page.goto(consoleUrl({ at: RETURNED }));
+    await shown(page);
+    await expect(page.locator('.ret-pill')).toHaveText('#1306 · persists · back to Plan');
+  });
+});
+
+for (const [width, viewport] of Object.entries({ laptop: WIDTHS.laptop, phone: WIDTHS.phone })) {
+  for (const theme of THEMES) {
+    test.describe(`a sheet’s releases, accessible, ${width}, ${theme}`, () => {
+      test.use({ viewport });
+      // #1304 and #1306 go round with a release they share: their scrubbers crowded on a phone (#210).
+      for (const item of ['1304', '1306', '1310', '1321', '1276']) {
+        test(`the sheet for #${item}`, async ({ page }) => {
+          await page.goto(consoleUrl({ item, sheet: true, theme }));
+          await page.getByRole('dialog').first().waitFor();
+          await page.evaluate(() => document.fonts.ready);
+          const results = await new AxeBuilder({ page })
+            .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+            .include('.sheet')
+            .analyze();
+          expect(results.violations).toEqual([]);
+        });
+      }
+    });
+  }
+}
 
 for (const [width, viewport] of Object.entries({ laptop: WIDTHS.laptop, phone: WIDTHS.phone })) {
   for (const theme of THEMES) {

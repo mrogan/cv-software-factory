@@ -144,6 +144,8 @@ describe('a release’s steps', () => {
     const [r] = releases(one.events, [], one.at(14));
     expect(r).toMatchObject({ startedAt: one.at(10), end: undefined, weight: 50, step: 1 });
     expect(r?.items.map((i) => i.number)).toEqual(['1']);
+    // The sheet says how the attempt it replaced ended.
+    expect(r?.retried).toEqual([expect.objectContaining({ kind: 'rolled-back', at: one.at(3), weight: 25 })]);
   });
 
   it('holds at a step the analysis could not judge, or left for someone to decide', () => {

@@ -250,6 +250,14 @@ html[data-motion="off"] .scrim {
   color: var(--text-muted);
   white-space: nowrap;
 }
+/* The last chapter's label ends at its target, so it stays inside the scrubber. */
+.ch:last-child {
+  align-items: flex-end;
+}
+/* Past twelve chapters, only the chosen one and the ends keep their labels. */
+.ch.crowd span {
+  visibility: hidden;
+}
 .ch.here span {
   margin-top: 6px;
   color: var(--text);
@@ -326,11 +334,98 @@ html[data-motion="off"] .scrim {
   gap: 14px;
   margin-top: 8px;
 }
+.regress figcaption .change {
+  color: var(--text);
+}
 .regress figcaption .change.same {
   color: var(--ok);
 }
-.regress figcaption .change.meant {
-  color: var(--text);
+
+/* Release and Verify: one block for each release, newest first, the older ones folded to their head. */
+.rels {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.rel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+details.rel:not([open]) {
+  gap: 0;
+}
+.rel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+.rel-head .out {
+  white-space: normal;
+  line-height: 1.4;
+}
+summary.rel-head {
+  cursor: pointer;
+  list-style: none;
+}
+.rel-head .more {
+  margin-left: auto;
+  font: 11px / 1 var(--font-mono);
+  color: var(--text-muted);
+}
+details[open] .more {
+  display: none;
+}
+.rel-facts,
+.rel-end {
+  margin: 0;
+  font: 11.5px / 1.6 var(--font-mono);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.rel-facts b {
+  font-weight: 400;
+  color: var(--text-2);
+}
+.rel-end {
+  font: 13px / 1.5 var(--font-sans);
+  color: var(--text-2);
+}
+.ship td .v {
+  margin-right: 6px;
+}
+.verify {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line-strong);
+}
+.verify .regress {
+  margin-top: 4px;
+}
+.rel .words {
+  margin: 0;
+}
+.deploy-wait {
+  max-width: 600px;
+}
+.deploy-wait .vis {
+  aspect-ratio: auto;
+  border: 0;
+}
+.deploy-wait .pad {
+  position: static;
+  padding: 0;
+}
+.all-events {
+  min-height: 36px;
+  margin-top: 8px;
 }
 
 /* The change */
@@ -570,9 +665,24 @@ table.models {
   .event {
     grid-template-columns: 56px minmax(0, 1fr);
   }
+  .ship .opt {
+    display: none;
+  }
+  .ship td small {
+    display: block;
+  }
   .event .actor {
     display: none;
   }
+}
+
+/* A pass after the first, folded to one chapter until chosen. */
+.ch.pass i {
+  width: 14px;
+  height: 14px;
+  margin-top: 15px;
+  border-radius: 4px;
+  border-style: dashed;
 }
 
 /* A chapter where the work waits for a stage to take it: a larger hollow ring, labelled in words. */

@@ -51,8 +51,12 @@ export type {
   ScopeRow,
   SenseEvidence,
   Sheet,
+  Shipped,
+  Shown,
   Sighting,
+  Verified,
 } from './sheet.ts';
+export { marksNote, SENSE_NAME, scrubbed, TARGET } from './sheet.ts';
 
 export interface View {
   t: number;

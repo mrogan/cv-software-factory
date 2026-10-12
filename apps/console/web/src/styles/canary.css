@@ -81,8 +81,8 @@
 .canary .canary-note.first {
   margin: 0 0 10px;
 }
-.canary .words {
-  margin-top: 12px;
+p.words {
+  margin: 12px 0 0;
   padding: 10px 12px;
   border-radius: var(--radius-card);
   background: var(--station-face);

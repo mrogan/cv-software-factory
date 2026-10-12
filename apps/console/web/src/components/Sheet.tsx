@@ -13,9 +13,9 @@ import {
   inWords,
   isCommit,
   money,
-  percent,
   plural,
   shortVersion,
+  shortWhen,
   sinceStart,
   tokens,
   when,
@@ -30,10 +30,12 @@ import type {
   Sighting,
   ThreadReview,
 } from '../projection/index.ts';
+import { scrubbed, TARGET } from '../projection/index.ts';
 import { kindName, ONGOING, OutcomeWord, spendWords } from './Card.tsx';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { LogoMark } from './Logos.tsx';
 import { Picture, Shot } from './Pictures.tsx';
+import { ShippedSection } from './Shipped.tsx';
 
 /** Pinned models by a readable name. A local model the console does not know shows as its id, still labelled local. */
 const MODEL_NAME: Record<string, string> = {
@@ -61,6 +63,7 @@ const SOURCE: Record<PictureData['type'], string> = {
   suggestion: 'The Jev request in the event, and the factory’s own screenshot of the page the report named.',
   spec: 'The planner’s spec, as it waits for Martin.',
   merge: 'The pull request’s last push, its checks and its review, as the events record them.',
+  deploy: 'The merge, as the events record it.',
   scope: 'The scope fence’s own output, stored with the event when it refused.',
   'tests-pass': 'The tests-first check’s own output, from running the change’s tests on the base.',
   spend: 'The gateway’s log of every call, summed for each agent.',
@@ -223,6 +226,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                   {CATEGORY_NAME[card.category]}
                 </span>
                 <span className="kind">{kindName(card)}</span>
+                {card.reopened && <span className="pill-sample again">Reopened</span>}
                 <OutcomeWord outcome={card.outcome} />
                 {card.sample && <span className="pill-sample">Sample</span>}
               </div>
@@ -344,30 +348,9 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                       ))}
                     </div>
                   )}
-                  {sheet.pages && (
-                    <div className="regress">
-                      <span className="label">After rollout, against {sheet.pages.against}</span>
-                      <div className="row">
-                        {sheet.pages.list.map((page) => (
-                          <figure key={page.page}>
-                            <div className="vis">{page.screenshot && <Shot shot={page.screenshot} />}</div>
-                            <figcaption>
-                              <span>{page.page}</span>
-                              <span className={`mono change ${page.intended ? 'meant' : 'same'}`}>
-                                {percent(page.changed)} · {page.intended ? 'intended' : 'same'}
-                              </span>
-                            </figcaption>
-                          </figure>
-                        ))}
-                      </div>
-                      <Source>
-                        Playwright screenshots of each page at full rollout, compared pixel by pixel with the version
-                        before.
-                      </Source>
-                    </div>
-                  )}
                 </Section>
               )}
+              <ShippedSection sheet={sheet} />
               {sheet.spec ? (
                 <SpecSection sheet={sheet} />
               ) : (
@@ -418,12 +401,21 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                   </>
                 )}
                 {!sheet.seenBy && <Fact name="Found by">{sheet.facts.foundBy}</Fact>}
-                {!released && card.seenOn ? (
+                {!released && card.reopened ? (
+                  <Fact name="Version">back on {shortVersion(card.reopened.version)}</Fact>
+                ) : !released && card.seenOn ? (
                   <Fact name="Seen on">
                     <Version version={card.seenOn} sample={card.sample} />
                   </Fact>
                 ) : (
                   <Fact name="Version">{versions}</Fact>
+                )}
+                {card.reopened && (
+                  <Fact name="Reopened">
+                    {shortWhen(card.reopened.at)} · {card.reopened.sense}, {card.reopened.check} on{' '}
+                    {card.reopened.route === '*' ? 'every page' : card.reopened.route} from{' '}
+                    {shortVersion(card.reopened.version)}
+                  </Fact>
                 )}
                 {card.pullRequest && (
                   <Fact name="Pull request">
@@ -914,11 +906,27 @@ const SIDE_TAG: Record<string, [string, 'attn' | 'ok' | 'faint' | 'signal']> = {
   after: ['AFTER', 'ok'],
 };
 
-/** The stage scrubber: a chapter per step, the events up to the chosen one, and the site as it stood then. */
+/**
+ * The stage scrubber: a chapter per step, the events up to the chosen one, and the site as it stood then. A pass after
+ * the first is one chapter until it holds the chosen one (`scrubbed`); the events are the last five, or all of them.
+ */
 function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) {
   const last = chapters.length - 1;
   const [at, setAt] = useState(last);
   const [playing, setPlaying] = useState(false);
+  const [all, setAll] = useState(false);
+  const scrub = useRef<HTMLDivElement>(null);
+  // The scrubber's width decides how many chapters keep a target's width apart; it is measured when it changes.
+  const [width, setWidth] = useState(TARGET * 13);
+  useLayoutEffect(() => {
+    const el = scrub.current;
+    if (!el) return;
+    const measure = () => setWidth(el.getBoundingClientRect().width);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const chapter = chapters[Math.min(at, last)];
   const start = chapters[0]?.at ?? 0;
 
@@ -936,6 +944,9 @@ function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) 
   const site = chapter.site;
   const [tag, tone] = site ? (SIDE_TAG[site.side] ?? ['', 'faint']) : ['', 'faint'];
   const events = chapters.slice(0, at + 1).filter((c) => c.actor);
+  const listed = all ? events : events.slice(-5);
+  const shown = scrubbed(chapters, Math.min(at, last), width);
+  const here = shown.findIndex((s) => at >= s.index && at < s.index + s.count);
   return (
     <div className={`replay ${site ? '' : 'solo'}`}>
       {site && (
@@ -992,36 +1003,48 @@ function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) 
             <Glyph name="right" />
           </button>
         </div>
-        <div className="scrub">
+        <div className="scrub" ref={scrub}>
           <div className="rl" />
-          <div className="fill" style={{ width: `${chapter.position}%` }} />
-          {chapters.map((c, i) => (
-            <button
-              key={`${c.label}-${c.at}`}
-              type="button"
-              className={`ch tone-${c.tone} ${i === at ? 'here' : ''} ${i < at ? 'done' : ''} ${i % 2 ? 'odd' : ''} ${c.waiting ? 'waiting' : ''}`}
-              style={{ left: `${c.position}%` }}
-              aria-label={`${sinceStart(c.at - start)}, ${c.label.toLowerCase()}`}
-              aria-current={i === at ? 'step' : undefined}
-              onClick={() => {
-                setPlaying(false);
-                setAt(i);
-              }}
-            >
-              <i />
-              <span>{c.label}</span>
-            </button>
-          ))}
+          <div className="fill" style={{ width: `${shown[here]?.left ?? 0}%` }} />
+          {shown.map((s, j) => {
+            const c = chapters[s.index] as Chapter;
+            const label = s.pass ? `PASS ${s.pass}` : c.label;
+            const name = s.pass
+              ? `Pass ${s.pass}: ${s.count} steps, from ${sinceStart(c.at - start)}`
+              : `${sinceStart(c.at - start)}, ${c.label.toLowerCase()}`;
+            return (
+              <button
+                key={s.index}
+                type="button"
+                className={`ch tone-${s.pass ? 'faint' : c.tone} ${j === here ? 'here' : ''} ${j < here ? 'done' : ''} ${j % 2 ? 'odd' : ''} ${c.waiting && !s.pass ? 'waiting' : ''} ${s.pass ? 'pass' : ''} ${s.labelled ? '' : 'crowd'}`}
+                style={{ left: `${s.left}%` }}
+                aria-label={name}
+                aria-current={j === here ? 'step' : undefined}
+                onClick={() => {
+                  setPlaying(false);
+                  setAt(s.index);
+                }}
+              >
+                <i />
+                <span>{label}</span>
+              </button>
+            );
+          })}
         </div>
         <ol className="events">
-          {events.map((c, i) => (
-            <li key={`${c.label}-${c.at}`} className={`event ${i === events.length - 1 ? 'now' : ''}`}>
+          {listed.map((c, i) => (
+            <li key={`${c.label}-${c.at}`} className={`event ${i === listed.length - 1 ? 'now' : ''}`}>
               <span className="mono">{sinceStart(c.at - start)}</span>
               <span className="mono actor">{c.actor}</span>
               <span>{c.text}</span>
             </li>
           ))}
         </ol>
+        {events.length > 5 && (
+          <button type="button" className="btn small all-events" onClick={() => setAll(!all)}>
+            {all ? 'Fewer events' : `All events (${events.length})`}
+          </button>
+        )}
       </div>
     </div>
   );

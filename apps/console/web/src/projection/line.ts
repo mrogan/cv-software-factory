@@ -312,6 +312,8 @@ export function returnsAt(events: readonly PublicEvent[], t: number): Return[] {
  */
 function returnOf(item: string, returned: PayloadOf<'work.returned'>, summary: string, at: number): Return {
   const { from, to, round } = returned;
+  // Verify sends work back only when the signal persists: the line's summary says only where it came from.
+  if (from === 'verify') return { item, from, to, text: `#${item} · persists · back to Plan`, detail: 'persists', at };
   if (round === undefined) return { item, from, to, text: summary, detail: summary, at };
   const detail = `round ${round} · ${returnWords(returned)}`;
   return { item, from, to, text: `#${item} · ${detail}`, detail, at };
