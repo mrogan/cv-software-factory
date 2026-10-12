@@ -9,13 +9,13 @@ resources:
 - ../../../base/runners
 - ../../../base/analysis
 images:
-- digest: sha256:835948dd96b89af86ebaa887177fca459f0d2e566069886ba697a20ad87ead63
+- digest: sha256:a51e0d7663f88667f533d7296756f22e2a63f521d5072fc736ae1a3c6cc3ed39
   name: factory
   newName: ghcr.io/mrogan/cv-software-factory/factory
-- digest: sha256:92e361d5acc472f26afd99d4b55fd78586284cdfc1e6cbeb1253db420838f2f9
+- digest: sha256:283911746e81cf815a4eb552fda20ecd86f5f040dec79e58ca5a5ad19bfa7d3b
   name: factory-browser
   newName: ghcr.io/mrogan/cv-software-factory/factory-browser
-- digest: sha256:cd094cbdb12000e570504d63baa68ee1d4078ad5748adaf4c87a642d65db8eb4
+- digest: sha256:4537386bd3b4bdab43857ed5b80d404988375033d4c099c6584534bebe0efbff
   name: factory-runner
   newName: ghcr.io/mrogan/cv-software-factory/factory-runner
 # The line starts runners with the runner image it is pinned to here, so its reference goes into the line's settings.
