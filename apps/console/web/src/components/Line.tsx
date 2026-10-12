@@ -218,8 +218,8 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
                   <span className="state">
                     <span className={`dot tone-${tone} ${tone === 'attn' ? 'ring' : ''}`} />
                     {word}
-                    {!pending && <span className={`fig ${capped ? 'keep' : ''}`}>&nbsp;· {figure}</span>}
                   </span>
+                  {!pending && <span className={`fig ${capped ? 'keep' : ''}`}>{figure}</span>}
                 </span>
               </button>
             </li>

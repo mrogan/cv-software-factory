@@ -5,6 +5,7 @@
 import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-factory/events';
 import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
 import type { ItemState } from './items.ts';
+import { inFlight, type Release } from './release.ts';
 
 export type Status = 'idle' | 'working' | 'returning' | 'passing' | 'blocked' | 'failed';
 /** A person should look at a station that is still at work: an item in it failed, or waits on them. */
@@ -81,7 +82,10 @@ export interface Return {
 }
 
 export interface PanelRow {
+  /** The work item's number, or for a release with no work item, its version. */
   item: string;
+  /** A release with no work item: its row opens nothing. */
+  release?: true;
   title: string;
   note: string;
   /** States it went through in the stage today before this one, struck through in the row: "sent back". */
@@ -216,6 +220,7 @@ export function station(
   returns: readonly Return[],
   line: Header,
   t: number,
+  shipped: readonly Release[] = [],
 ): Station {
   const present = inStage(items, stage);
   // A ticket waiting for the planner is in the stage, but nothing is being done to it: it queues, and the station
@@ -224,8 +229,10 @@ export function station(
   const here = present.filter((item) => !item.queued);
   const held = here.filter((item) => item.hold);
   const failed = here.filter((item) => item.failure?.stage === stage && !item.hold);
+  // At Release, the canary in flight, whether it carries work or not.
+  const flight = stage === 'release' ? inFlight(shipped) : undefined;
   // A failure or a hold stops the station only when nothing else in it is in progress; otherwise it lights the beacon.
-  const busy = here.some((item) => !item.hold && !failed.includes(item));
+  const busy = Boolean(flight) || here.some((item) => !item.hold && !failed.includes(item));
   const left = leavers(items, stage);
   const today = left.filter(({ at }) => at >= startOfDay(t)).length;
   // At a spend cap, triage takes no reports until it resets. The senses' tickets need no model, so they still open.
@@ -236,17 +243,23 @@ export function station(
   else if (failed.length && !busy) status = 'failed';
   else if ((held.length && !busy) || capped) status = 'blocked';
   else if (returns.some((r) => r.from === stage && t - r.at <= RETURNING_MS)) status = 'returning';
-  else if (here.length) status = 'working';
-  else if (left.some(({ at }) => t - at <= PASSING_MS)) status = 'passing';
+  else if (here.length || flight) status = 'working';
+  else if (
+    left.some(({ at }) => t - at <= PASSING_MS) ||
+    (stage === 'release' && shipped.some((r) => r.end?.kind === 'promoted' && t - r.end.at <= PASSING_MS))
+  )
+    status = 'passing';
   else status = 'idle';
   const lit = status === 'working' || status === 'returning';
   const beacon = !lit ? undefined : failed.length ? 'failed' : held.length ? 'needs-you' : undefined;
 
-  const canary = here.find((item) => item.canary)?.canary;
+  const share = flight && (flight.weight ? `${flight.weight}%` : 'starting');
   let figure: string;
   // Held when a mechanism stopped every one of them; waiting when the line asked Martin something.
-  if (held.length) figure = `${held.length} ${held.every((item) => item.hold?.kind === 'held') ? 'held' : 'waiting'}`;
-  else if (stage === 'release' && canary) figure = canary.weight ? `${canary.weight}%` : 'starting';
+  if (held.length) {
+    const words = `${held.length} ${held.every((item) => item.hold?.kind === 'held') ? 'held' : 'waiting'}`;
+    figure = share ? `${share} · ${words}` : words;
+  } else if (share) figure = share;
   else if (here.length) figure = count(here.length, NOUNS[stage]);
   else if (queued.length) figure = `${queued.length} waiting`;
   else figure = today ? `${today} today` : 'none';
@@ -323,6 +336,7 @@ export function panel(
   events: readonly PublicEvent[],
   line: Header,
   t: number,
+  shipped: readonly Release[] = [],
 ): StagePanel {
   const present = inStage(items, stage);
   const now = present.map(
@@ -371,13 +385,48 @@ export function panel(
     }
   }
   const triage = stage === 'triage';
+  // Release lists the releases that carry no work item too, by version: the one in flight first, then today's.
+  const flight = inFlight(shipped);
+  const own = (stage === 'release' ? shipped : [])
+    .filter((r) => !r.items.length && (r === flight || (r.end && r.end.at >= startOfDay(t))))
+    .reverse()
+    .map(ownRow);
   return {
     stage,
     // What is in the stage, then what left it today, each newest first: the store numbers work items in order.
-    rows: [...now.sort(newestFirst), ...[...done, ...back].sort(newestFirst)],
+    rows: [
+      ...own.filter((row) => row.tone === 'signal'),
+      ...now.sort(newestFirst),
+      ...[...done, ...back].sort(newestFirst),
+      ...own.filter((row) => row.tone !== 'signal'),
+    ],
     senses: triage ? senseCounts(items, events) : undefined,
     caps: triage ? line.caps.filter((spell) => spell.cleared === undefined || spell.cleared >= startOfDay(t)) : [],
     queued: present.filter((item) => item.queued).length,
+  };
+}
+
+/** A release with no work item, as a row in Release's panel: "v0.9.10 · rolled back at 25% · opened #1308". */
+function ownRow(r: Release): PanelRow {
+  const { end } = r;
+  const note = !end
+    ? r.weight
+      ? `canary at ${r.weight}%`
+      : 'canary starting'
+    : end.kind === 'promoted'
+      ? 'promoted'
+      : end.kind === 'stopped'
+        ? `stopped with the line at ${end.weight}%`
+        : `rolled back at ${end.weight}%${end.ticket ? ` · opened #${end.ticket.number}` : ''}`;
+  const tone = !end ? 'signal' : end.kind === 'promoted' ? 'faint' : 'attn';
+  return {
+    item: r.version,
+    release: true,
+    title: 'A release with no work item',
+    note,
+    earlier: [],
+    tone,
+    at: end?.at ?? r.startedAt,
   };
 }
 

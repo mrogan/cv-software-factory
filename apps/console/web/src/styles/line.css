@@ -63,8 +63,12 @@
   color: var(--text-2);
   white-space: nowrap;
 }
+/* The figure has a line of its own, so a long one ("50% · 1 waiting") never runs into the next station's. */
 .stage .fig {
+  margin-top: -3px;
+  font: 11px / 1.4 var(--font-mono);
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 /* Over the stations: parcels on the belt and the return arc, in the line's own 1344 × 220 coordinates. */
@@ -393,15 +397,8 @@ button.srow:hover {
   }
 }
 @media (max-width: 720px) {
-  .stage .fig.keep {
-    display: block;
-    width: 100%;
-    text-align: center;
-    white-space: nowrap;
-  }
-  .stage .state:has(.fig.keep) {
-    flex-wrap: wrap;
-    justify-content: center;
-    white-space: normal;
+  .stage .fig {
+    margin-top: 0;
+    font-size: 10px;
   }
 }

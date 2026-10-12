@@ -5,6 +5,7 @@ import '../../../../docs/design/system/tokens.css';
 import './styles/fonts.css';
 import './styles/base.css';
 import './styles/line.css';
+import './styles/canary.css';
 import './styles/reel.css';
 import './styles/pictures.css';
 import './styles/sheet.css';

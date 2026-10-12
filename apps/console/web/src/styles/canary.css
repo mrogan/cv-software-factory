@@ -1,0 +1,293 @@
+/* The Canary panel: the Release station opened up, full width under the line. */
+
+.canary {
+  margin-top: 44px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+.canary h2 {
+  margin: 0;
+  font: 400 28px / 1.05 var(--font-display);
+  letter-spacing: -0.2px;
+}
+.canary p {
+  margin: 0;
+}
+.canary-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+.canary-head > div {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+.canary .kick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-bottom: 8px;
+}
+.canary .rel-id {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  text-align: right;
+}
+.rel-id b {
+  font-weight: 400;
+  color: var(--text-2);
+}
+.canary .carries {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline 1px var(--line-strong);
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+.linkish:hover {
+  text-decoration-color: var(--text);
+}
+.canary-body {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 20px 40px;
+  align-items: start;
+}
+.canary .canary-note {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.canary .canary-note.first {
+  margin: 0 0 10px;
+}
+.canary .words {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-card);
+  background: var(--station-face);
+  color: var(--station-led-on);
+  font: 12px / 1.55 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.v {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  color: var(--tone);
+}
+.v .glyph {
+  width: 13px;
+  height: 13px;
+}
+.v.tone-faint {
+  color: var(--text-muted);
+}
+
+/* The steps: the bar is the canary's share of the traffic, each stop a step of the Rollout, at its weight. */
+.steps-track {
+  position: relative;
+  height: 66px;
+  margin: 6px 24px 0 4px;
+}
+.steps-track .rl,
+.steps-track .fill {
+  position: absolute;
+  left: 0;
+  top: 10px;
+  height: 4px;
+  border-radius: 2px;
+}
+.steps-track .rl {
+  right: 0;
+  background: var(--line);
+}
+.steps-track .fill {
+  background: var(--tone);
+}
+.steps-track .fill.tone-faint {
+  background: var(--text-muted);
+}
+.steps-track .origin {
+  position: absolute;
+  top: 30px;
+  font: 11px / 1 var(--font-mono);
+  color: var(--text-muted);
+}
+.steps-track ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.stop {
+  position: absolute;
+  top: 0;
+  width: 64px;
+  margin-left: -32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  font: 12px / 1.1 var(--font-mono);
+  color: var(--text-muted);
+}
+.stop b {
+  font-weight: 400;
+  color: var(--text);
+}
+.stop small {
+  font-size: 10.5px;
+}
+.stop i {
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  color: var(--tone);
+}
+.stop i .glyph {
+  width: 13px;
+  height: 13px;
+}
+.stop.done i {
+  border-color: var(--tone);
+}
+.stop.now i {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-wash);
+}
+.stop.now i::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--signal);
+}
+.stop.cut i {
+  border-style: dashed;
+}
+.steps-track.dry .stop.now i {
+  border-color: var(--text-muted);
+  box-shadow: none;
+}
+.steps-track.dry .stop.now i::after {
+  background: var(--text-muted);
+}
+
+/* The measures at the latest step measured. */
+.measures {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.measures caption {
+  text-align: left;
+  padding-bottom: 8px;
+}
+.measures th,
+.measures td {
+  text-align: left;
+  font-weight: 400;
+  padding: 0 12px 8px 0;
+  vertical-align: baseline;
+}
+.measures td {
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+.measures small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.measures .mono {
+  white-space: nowrap;
+}
+.measures .base,
+.measures .base-inline {
+  color: var(--text-muted);
+}
+.measures .base-inline {
+  display: none;
+  font-size: 11.5px;
+}
+.measures tr.failed td:first-child {
+  box-shadow: inset 2px 0 0 var(--attn);
+  padding-left: 10px;
+}
+
+/* Idle: the last release in one line. */
+.canary.idle {
+  flex-flow: row wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+  padding: 16px 24px;
+}
+.canary.idle h2 {
+  font-size: 22px;
+}
+.canary.idle p {
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.canary .said {
+  color: var(--tone);
+}
+.canary .said.tone-faint {
+  color: var(--text-muted);
+}
+
+@media (max-width: 1180px) {
+  .canary-body {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+    gap: 20px 28px;
+  }
+}
+@media (max-width: 720px) {
+  .canary {
+    margin-top: 32px;
+    padding: 18px;
+  }
+  .canary .rel-id {
+    text-align: left;
+  }
+  .canary-body {
+    grid-template-columns: 1fr;
+  }
+  .measures th:nth-child(3),
+  .measures td:nth-child(3),
+  .measures td small {
+    display: none;
+  }
+  .measures .base-inline {
+    display: block;
+  }
+  .canary.idle {
+    padding: 14px 18px;
+  }
+}
