@@ -81,6 +81,12 @@ export interface Release {
      */
     waitHours: number;
   };
+  /**
+   * The pictures of a release (every page on the stable version and on the canary, and their diffs) are kept for the
+   * last `keepReleases` releases pictured, and for any a work item waits at Verify for; the rest are deleted. A
+   * verification's own pages stay as long as its event names them.
+   */
+  pictures: { keepReleases: number };
 }
 
 export const release = {
@@ -108,4 +114,7 @@ export const release = {
     everyMinutes: 5,
     waitHours: 24,
   },
+  // A release's pictures take about 12 MB, and at most about 26 MB (sixty pages, every one changed), on a volume of
+  // 1 Gi the senses' screenshots share. Five cover a canary retried after a rollback, and take at most an eighth.
+  pictures: { keepReleases: 5 },
 } satisfies Release;

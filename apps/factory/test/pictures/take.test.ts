@@ -41,6 +41,16 @@ class FakeIndex implements Index {
   async looks() {
     return this.looked;
   }
+
+  /** The releases forgotten, as the most kept each time; and the images to delete, as the index would give them. */
+  readonly forgot: number[] = [];
+  unnamed: string[] = [];
+
+  async forget(keep: number, _stable: string, remove: (hash: string) => Promise<boolean>) {
+    this.forgot.push(keep);
+    for (const hash of this.unnamed) await remove(hash);
+    return this.unnamed.length;
+  }
 }
 
 /** Two Services and a browser: the canary's `/about` has a new heading; every other page is the same on both. */
@@ -52,6 +62,7 @@ function setup() {
   const front = { answers: true };
   const shots: string[] = [];
   const stored = new Map<string, Uint8Array>();
+  const removed: Date[] = [];
   const index = new FakeIndex();
   const store = {
     put: async (bytes: Uint8Array) => {
@@ -60,6 +71,10 @@ function setup() {
     },
     size: async (hash: string) => stored.get(hash)?.byteLength ?? null,
     open: async () => null,
+    remove: async (hash: string, unusedSince: Date) => {
+      removed.push(unusedSince);
+      return stored.delete(hash);
+    },
   };
   const pictures = new Pictures({
     stable: STABLE,
@@ -90,9 +105,11 @@ function setup() {
     },
     index,
     store,
+    keepReleases: 2,
     log: quiet,
+    now: () => new Date('2026-10-11T09:00:00Z'),
   });
-  return { pictures, versions, shots, index, stored, during, front };
+  return { pictures, versions, shots, index, stored, removed, during, front };
 }
 
 describe('the pictures of a canary', () => {
@@ -216,5 +233,47 @@ describe('the pictures of a canary', () => {
     });
     expect(await pictures.tick()).toBeNull();
     expect(shots).toHaveLength(7);
+  });
+
+  it('deletes what no release needs between releases, after the rollout’s pages, once for each stable version', async () => {
+    const { pictures, versions, index, stored, removed } = setup();
+    index.looked = [
+      { sense: 'probe', check: 'home', route: '/', path: '/', elements: [{ selector: 'h1', kind: 'problem' }] },
+    ];
+    await pictures.tick();
+    // While a canary runs, nothing is forgotten.
+    expect(index.forgot).toEqual([]);
+    const [old] = [...stored.keys()];
+    index.unnamed = [old as string];
+
+    // Promoted: the page after the rollout first, then the pictures no release needs.
+    versions[STABLE] = NEW;
+    expect(await pictures.tick()).toEqual({ rolledOut: 1 });
+    expect(index.forgot).toEqual([]);
+    expect(await pictures.tick()).toEqual({ deleted: 1 });
+    expect(index.forgot).toEqual([2]);
+    expect(stored.has(old as string)).toBe(false);
+    // Only if it was not stored again in the ten minutes before.
+    expect(removed).toEqual([new Date('2026-10-11T08:50:00Z')]);
+    expect(await pictures.tick()).toBeNull();
+    expect(index.forgot).toEqual([2]);
+
+    // The next release, once promoted, forgets again.
+    index.unnamed = [];
+    versions[CANARY] = 'c'.repeat(40);
+    await pictures.tick();
+    versions[STABLE] = 'c'.repeat(40);
+    await pictures.tick();
+    await pictures.tick();
+    expect(index.forgot).toEqual([2, 2]);
+  });
+
+  it('forgets between releases when the canary Service does not answer', async () => {
+    const { pictures, versions, index } = setup();
+    delete versions[CANARY];
+    expect(await pictures.tick()).toBeNull();
+    expect(index.forgot).toEqual([2]);
+    expect(await pictures.tick()).toBeNull();
+    expect(index.forgot).toEqual([2]);
   });
 });
