@@ -2,6 +2,7 @@
  * A work item's release and verification on its sheet and its card (the design system's README, "Shipping"): from
  * the samples' work that goes round twice, is reopened, waits for Martin's deploy, and ships in a dry run.
  */
+import type { PublicEvent } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { type Chapter, project, projectSheet, scrubbed, TARGET } from '../../web/src/projection/index.ts';
 import { spread } from '../../web/src/projection/sheet.ts';
@@ -62,6 +63,29 @@ describe('a work item that goes round more than once', () => {
       '3 WAITING · PLAN',
     ]);
     expect(chapters.some((c) => c.label === 'CANARY')).toBe(false);
+  });
+
+  it('warms a persisting verification only the second time, when the work holds for Martin', () => {
+    const verified = SAMPLES.filter((e) => e.work_item === '1306' && e.type === 'verification.finished').at(-1);
+    const closed = SAMPLES.find((e) => e.work_item === '1306' && e.type === 'work-item.closed');
+    const held = SAMPLES.flatMap((event): PublicEvent[] => {
+      if (event === verified && event.type === 'verification.finished')
+        return [{ ...event, payload: { ...event.payload, outcome: 'persists' } }];
+      if (event === closed) {
+        const payload = { stage: 'verify', kind: 'held', cause: 'verify', reason: 'It needs Martin' } as const;
+        return [{ ...event, type: 'hold.started', payload } as PublicEvent];
+      }
+      return [event];
+    });
+    const s = projectSheet(held, '1306', Date.parse(closed?.ts ?? ''));
+    expect(s?.chapters.filter((c) => c.label === 'PERSISTS').map((c) => c.tone)).toEqual(['signal', 'attn']);
+    expect(s?.shipped[0]?.verification).toMatchObject({ outcome: 'persists', held: true, words: 'It needs Martin' });
+  });
+
+  it('ends a fix waiting for Martin’s deploy at the waiting ring, after its merge', () => {
+    const chapters = sheet('1321')?.chapters ?? [];
+    expect(chapters.slice(-2).map((c) => c.label)).toEqual(['MERGED', 'WAITING']);
+    expect(chapters.at(-1)?.waiting).toBe(true);
   });
 
   it('says a return from Verify in the design’s words, on the line and in the events', () => {

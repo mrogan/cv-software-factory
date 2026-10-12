@@ -321,6 +321,8 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
 
     for (const [state, item] of Object.entries(SHIPPED)) {
       test(`a sheet’s Release and Verify: ${state}`, async ({ page }) => {
+        // Tall enough that the section is in the sheet whole, at every width.
+        await page.setViewportSize({ ...viewport, height: 2400 });
         const { section } = await sheetParts(page, item);
         const part = section('Release and Verify');
         await picturesShown(part);
@@ -349,6 +351,7 @@ test.describe('the Canary panel in Ink', () => {
   }
 
   test('a sheet’s Release and Verify', async ({ page }) => {
+    await page.setViewportSize({ ...WIDTHS.desktop, height: 2400 });
     const { section } = await sheetParts(page, '1306', 'ink');
     const part = section('Release and Verify');
     await picturesShown(part);

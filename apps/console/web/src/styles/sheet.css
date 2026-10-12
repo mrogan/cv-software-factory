@@ -250,6 +250,10 @@ html[data-motion="off"] .scrim {
   color: var(--text-muted);
   white-space: nowrap;
 }
+/* The last chapter's label ends at its target, so it stays inside the scrubber. */
+.ch:last-child {
+  align-items: flex-end;
+}
 /* Past twelve chapters, only the chosen one and the ends keep their labels. */
 .ch.crowd span {
   visibility: hidden;
@@ -360,6 +364,10 @@ details.rel:not([open]) {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 6px 12px;
+}
+.rel-head .out {
+  white-space: normal;
+  line-height: 1.4;
 }
 summary.rel-head {
   cursor: pointer;

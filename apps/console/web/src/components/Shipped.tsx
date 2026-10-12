@@ -37,14 +37,11 @@ export function ShippedSection({ sheet }: { sheet: SheetData }) {
             <Picture picture={deploy} interactive={false} />
           </div>
         )}
-        {shipped.map((s, i) => (
-          <Block
-            key={`${s.release.id}-${s.release.startedAt}`}
-            shipped={s}
-            own={own}
-            folded={i > 0 || Boolean(deploy)}
-          />
-        ))}
+        {/* While it waits for Martin's deploy, the wait is the section's one block. */}
+        {!deploy &&
+          shipped.map((s, i) => (
+            <Block key={`${s.release.id}-${s.release.startedAt}`} shipped={s} own={own} folded={i > 0} />
+          ))}
       </div>
     </section>
   );

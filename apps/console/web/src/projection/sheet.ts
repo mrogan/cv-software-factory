@@ -262,9 +262,9 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
     case 'verification.finished':
       if (event.payload.dryRun)
         return { label: event.payload.outcome === 'cleared' ? 'VERIFIED' : 'PERSISTS', tone: 'faint' };
-      return event.payload.outcome === 'cleared'
-        ? { label: 'VERIFIED', tone: 'ok' }
-        : { label: 'PERSISTS', tone: 'signal' };
+      // A second time, the work holds for Martin, and that is warm.
+      if (event.payload.outcome === 'cleared') return { label: 'VERIFIED', tone: 'ok' };
+      return { label: 'PERSISTS', tone: afterVerify(item, event)?.type === 'hold.started' ? 'attn' : 'signal' };
     case 'work-item.reopened':
       return { label: 'REOPENED', tone: 'attn' };
     case 'action.refused':
@@ -660,6 +660,17 @@ const listed = (words: readonly string[]) =>
 /** The senses that look at no page, so that nothing on one is their finding. */
 const PAGELESS = new Set<string | undefined>(['logs', 'metrics', 'canary']);
 
+/** The line's next word on a verification: its close, the work's return to Plan, or a hold for Martin. */
+const afterVerify = (item: ItemState, event: PublicEvent) =>
+  item.events
+    .slice(item.events.indexOf(event) + 1)
+    .find(
+      (e) =>
+        e.type === 'work-item.closed' ||
+        e.type === 'work.returned' ||
+        (e.type === 'hold.started' && e.payload.cause === 'verify'),
+    );
+
 /** What Verify found, from its event and the line's next word on it: a close, a return or a hold. */
 function verified(
   item: ItemState,
@@ -667,13 +678,7 @@ function verified(
   shots: Map<string, Screenshot>,
 ): Verified {
   const p = event.payload;
-  const after = item.events.slice(item.events.indexOf(event) + 1);
-  const next = after.find(
-    (e) =>
-      e.type === 'work-item.closed' ||
-      e.type === 'work.returned' ||
-      (e.type === 'hold.started' && e.payload.cause === 'verify'),
-  );
+  const next = afterVerify(item, event);
   const marked = !PAGELESS.has(p.sense);
   const order = (page: PageComparison) => (page.intended ? 0 : page.changed > 0 ? 1 : 2);
   const pages = p.pages
@@ -759,7 +764,12 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
       pass: m.pass,
       site: [...item.captures].reverse().find((c) => c.at <= (times[i] ?? t) && c.side !== 'page'),
       tone: merged && i === marks.length - 1 ? 'faint' : m.tone,
-      ...(((!m.event && item.queued) || (merged && i === marks.length - 1)) && { waiting: true }),
+      // A merged fix waits, for a release or for Martin's deploy: its last chapter is the waiting ring.
+      ...(((!m.event && item.queued) ||
+        (i === marks.length - 1 &&
+          (merged || (m.event?.type === 'hold.started' && m.event.payload.cause === 'deploy')))) && {
+        waiting: true,
+      }),
     }),
   );
 

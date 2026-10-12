@@ -140,7 +140,7 @@ export const Card = memo(function Card({ card, index, count, ref }: CardProps) {
       aria-roledescription="slide"
       aria-label={`${index + 1} of ${count}: ${card.title}. ${card.reopened ? 'Reopened. ' : ''}${word}`}
     >
-      <div className="card-top">
+      <div className={`card-top ${card.reopened ? 'again' : ''}`}>
         <span className="cat">
           <Glyph name={card.category} />
           {CATEGORY_NAME[card.category]}
