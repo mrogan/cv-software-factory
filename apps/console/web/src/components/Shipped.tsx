@@ -3,21 +3,12 @@
  * ones folded, each with its steps against the version before, how it ended, and what Verify found after it. While a
  * merged fix waits for Martin's deploy, that wait is the section's first block.
  */
-import type { Sense } from '@software-factory/events';
 import { clock, clockSeconds, duration, isCommit, percent, shortVersion, shortWhen } from '../format.ts';
 import type { End, Release, Sheet as SheetData, Shipped, Verified } from '../projection/index.ts';
+import { marksNote, SENSE_NAME } from '../projection/index.ts';
 import { figureOf, phaseOf, standing, VERDICT, Verdict } from './Canary.tsx';
 import { Glyph } from './Glyph.tsx';
 import { Picture, Shot } from './Pictures.tsx';
-
-const SENSE: Record<Sense, string> = {
-  probe: 'the probe',
-  crawler: 'the crawler',
-  metrics: 'the metrics',
-  logs: 'the log watcher',
-  canary: 'the canary',
-  report: 'a report',
-};
 
 export function ShippedSection({ sheet }: { sheet: SheetData }) {
   const { shipped, deploy } = sheet;
@@ -228,21 +219,12 @@ function Verify({ v }: { v: Verified }) {
       : v.held
         ? (['Persists again · held for Martin', 'attn', 'cross'] as const)
         : (['Persists · back to Plan', 'signal', 'cross'] as const);
-  const more = v.more.count
-    ? `And ${v.more.count} more ${v.more.count === 1 ? 'page' : 'pages'}${v.more.same ? ', the same to the pixel' : ''}. `
-    : '';
-  const note =
-    more +
-    (!v.marked
-      ? `No marks: ${v.sense ? SENSE[v.sense] : 'the sense'} looks at no page, so nothing on one is its finding.`
-      : v.pages.some((page) => page.screenshot?.boxes.length)
-        ? 'The mark is the sense’s own check, on its own page.'
-        : '');
+  const note = marksNote(v);
   return (
     <div className="verify">
       <div className="rel-head">
         <span className="label">
-          Verify · {v.sense ? SENSE[v.sense] : 'the sense'} · {v.check}
+          Verify · {v.sense ? SENSE_NAME[v.sense] : 'the sense'} · {v.check}
         </span>
         <span className={`v tone-${v.dryRun ? 'faint' : tone}`}>
           <Glyph name={glyph} />
@@ -282,9 +264,10 @@ function Verify({ v }: { v: Verified }) {
               );
             })}
           </div>
-          {note && <p className="help">{note}</p>}
         </div>
       )}
+      {/* Said even with no pages: a sense that looks at none compares none. */}
+      {note && <p className="help">{note}</p>}
     </div>
   );
 }

@@ -56,7 +56,7 @@ export type {
   Sighting,
   Verified,
 } from './sheet.ts';
-export { scrubbed, TARGET } from './sheet.ts';
+export { marksNote, SENSE_NAME, scrubbed, TARGET } from './sheet.ts';
 
 export interface View {
   t: number;

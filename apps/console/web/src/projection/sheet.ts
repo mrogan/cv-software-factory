@@ -292,7 +292,7 @@ const ticketedBefore = (item: ItemState, event: PublicEvent) => {
  * evenly spread when there are too many for the gap.
  */
 export function spread(raw: readonly number[], gap = 7.5): number[] {
-  if (raw.length < 2) return raw.map(() => 0);
+  if (raw.length < 2) return [...raw];
   if ((raw.length - 1) * gap > 100) return raw.map((_, i) => (i / (raw.length - 1)) * 100);
   const out: number[] = [];
   for (const [i, p] of raw.entries()) out.push(i === 0 ? p : Math.max(p, (out[i - 1] ?? 0) + gap));
@@ -659,6 +659,31 @@ const listed = (words: readonly string[]) =>
 
 /** The senses that look at no page, so that nothing on one is their finding. */
 const PAGELESS = new Set<string | undefined>(['logs', 'metrics', 'canary']);
+
+/** The sense's own name, as the Verify block says it. */
+export const SENSE_NAME: Record<Sense, string> = {
+  probe: 'the probe',
+  crawler: 'the crawler',
+  metrics: 'the metrics',
+  logs: 'the log watcher',
+  canary: 'the canary',
+  report: 'a report',
+};
+
+/**
+ * What the Verify block says under its pages: the pages left out, and whose marks they carry, or that the sense looks
+ * at no page, which it says even when it compared none.
+ */
+export function marksNote(v: Verified): string {
+  const more = v.more.count
+    ? `And ${v.more.count} more ${v.more.count === 1 ? 'page' : 'pages'}${v.more.same ? ', the same to the pixel' : ''}. `
+    : '';
+  if (!v.marked)
+    return `${more}No marks: ${v.sense ? SENSE_NAME[v.sense] : 'the sense'} looks at no page, so nothing on one is its finding.`;
+  return v.pages.some((page) => page.screenshot?.boxes.length)
+    ? `${more}The mark is the sense’s own check, on its own page.`
+    : more.trim();
+}
 
 /** The line's next word on a verification: its close, the work's return to Plan, or a hold for Martin. */
 const afterVerify = (item: ItemState, event: PublicEvent) =>

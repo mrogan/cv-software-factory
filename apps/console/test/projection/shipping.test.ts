@@ -4,7 +4,7 @@
  */
 import type { PublicEvent } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
-import { type Chapter, project, projectSheet, scrubbed, TARGET } from '../../web/src/projection/index.ts';
+import { type Chapter, marksNote, project, projectSheet, scrubbed, TARGET } from '../../web/src/projection/index.ts';
 import { spread } from '../../web/src/projection/sheet.ts';
 import { END, SAMPLES } from './support.ts';
 
@@ -31,6 +31,14 @@ describe('Release and Verify on the sheet', () => {
     expect(verification?.marked).toBe(false);
     expect(verification?.pages.every((p) => !p.screenshot?.boxes.length)).toBe(true);
     expect(verification?.pages.length).toBeLessThanOrEqual(4);
+  });
+
+  it('says a pageless sense marks nothing, even when it compared no page', () => {
+    const verification = sheet('1306')?.shipped[0]?.verification;
+    if (!verification) throw new Error('no verification');
+    expect(marksNote({ ...verification, pages: [], more: { count: 0, same: true } })).toBe(
+      'No marks: the log watcher looks at no page, so nothing on one is its finding.',
+    );
   });
 
   it('shows the wait for Martin’s deploy as the merge, on the card and the sheet', () => {
@@ -138,5 +146,7 @@ describe('the scrubber', () => {
     expect(spread([0, 0, 0, 100])).toEqual([0, 7.5, 15, 100]);
     expect(spread([0, 98, 99, 100])).toEqual([0, 85, 92.5, 100]);
     expect(spread(Array(21).fill(0))[1]).toBe(5);
+    // A single chapter keeps its place in time.
+    expect(spread([40])).toEqual([40]);
   });
 });
