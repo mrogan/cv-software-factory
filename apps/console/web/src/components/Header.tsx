@@ -95,7 +95,8 @@ export function Scoreboard({ score, sample }: { score: Score | undefined; sample
         <div>
           {score.medianMs === null ? (
             <b className="none">
-              —<span className="sr">none yet</span>
+              <span aria-hidden="true">—</span>
+              <span className="sr">none yet</span>
             </b>
           ) : (
             <b>{duration(score.medianMs)}</b>
