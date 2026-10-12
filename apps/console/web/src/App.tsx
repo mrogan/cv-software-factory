@@ -5,7 +5,7 @@ import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useR
 import { OriginContext } from './artifacts.ts';
 import { Canary } from './components/Canary.tsx';
 import { Footer } from './components/Footer.tsx';
-import { Header, LineStatus } from './components/Header.tsx';
+import { Header, LineStatus, Scoreboard } from './components/Header.tsx';
 import { Line } from './components/Line.tsx';
 import { LogoSymbols } from './components/Logos.tsx';
 import { Reel } from './components/Reel.tsx';
@@ -96,6 +96,7 @@ export function App() {
             <span className="status phone-status">
               <LineStatus line={view.header} connection={source.connection} />
             </span>
+            <Scoreboard score={view.score} sample={view.sample} />
           </section>
           <States source={source} view={view} />
           {/* The stations draw at once, idle, and take their states as the events arrive. */}
