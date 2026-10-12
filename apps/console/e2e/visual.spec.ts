@@ -4,7 +4,9 @@
  * all three widths. Milestone 4's states come from its test data: a card for each new picture and outcome, the line
  * with tickets waiting and with a spend cap, Triage's panel, a ticket's and a quarantined report's sheets, and an
  * empty store for real events. Milestone 5's come from the samples: a card for each wait and hold, Review's panel,
- * and a fix's spec, rounds, review, gates and models, the sheet in Ink too.
+ * and a fix's spec, rounds, review, gates and models, the sheet in Ink too. Milestone 6's come from the samples too:
+ * the Canary panel in each state, a reopened card and one waiting for Martin's deploy, a sheet's releases, and the
+ * scrubber for work that goes round three times.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -289,6 +291,12 @@ test.describe('a fix’s sheet in Ink', () => {
 /** Milestone 6's Canary panel, from the samples: in flight, and each way a release ends, at every width. */
 const PANEL = { 'in-flight': undefined, ...CANARY };
 
+/** Milestone 6's cards: a ticket open again, and a merge waiting for Martin's deploy. */
+const SHIPPED_CARDS = { reopened: '1306', 'deploy-wait': '1321' };
+
+/** A sheet's releases: twice round and verified, a rollback, a dry run, and the wait for Martin's deploy. */
+const SHIPPED = { 'twice-round': '1306', 'rolled-back': '1276', 'dry-run': '1310', 'deploy-wait': '1321' };
+
 for (const [width, viewport] of Object.entries(WIDTHS)) {
   test.describe(`${width}, shipping`, () => {
     test.use({ viewport });
@@ -300,6 +308,32 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         await expect(page.locator('section.canary')).toHaveScreenshot(`m06-canary-${state}-${width}.png`);
       });
     }
+
+    for (const [state, item] of Object.entries(SHIPPED_CARDS)) {
+      test(`a card: ${state}`, async ({ page }) => {
+        await page.goto(consoleUrl({ item }));
+        await ready(page);
+        const card = page.locator('.card[data-place="centre"]');
+        await picturesShown(card);
+        await expect(card).toHaveScreenshot(`m06-card-${state}-${width}.png`);
+      });
+    }
+
+    for (const [state, item] of Object.entries(SHIPPED)) {
+      test(`a sheet’s Release and Verify: ${state}`, async ({ page }) => {
+        const { section } = await sheetParts(page, item);
+        const part = section('Release and Verify');
+        await picturesShown(part);
+        await expect(part).toHaveScreenshot(`m06-sheet-release-${state}-${width}.png`);
+      });
+    }
+
+    test('a sheet’s scrubber, for work that goes round three times', async ({ page }) => {
+      const { section } = await sheetParts(page, '1306');
+      await expect(section('How it went')).toHaveScreenshot(`m06-sheet-scrubber-${width}.png`);
+      await page.getByRole('button', { name: /^Pass 2/ }).click();
+      await expect(section('How it went')).toHaveScreenshot(`m06-sheet-scrubber-pass-2-${width}.png`);
+    });
   });
 }
 
@@ -313,6 +347,13 @@ test.describe('the Canary panel in Ink', () => {
       await expect(page.locator('section.canary')).toHaveScreenshot(`m06-canary-${state}-ink.png`);
     });
   }
+
+  test('a sheet’s Release and Verify', async ({ page }) => {
+    const { section } = await sheetParts(page, '1306', 'ink');
+    const part = section('Release and Verify');
+    await picturesShown(part);
+    await expect(part).toHaveScreenshot('m06-sheet-release-ink.png');
+  });
 });
 
 /** Milestone 6's scoreboard beside the app's name, from the samples: off, before the first fix, and with figures. */

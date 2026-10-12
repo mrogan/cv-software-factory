@@ -245,6 +245,7 @@ function refusals(item: ItemState): Refusal[] {
  */
 export function waitPicture(item: ItemState): Picture | undefined {
   const hold = item.hold;
+  if (hold?.cause === 'deploy') return deployPicture(item);
   if (!hold || item.dependency) return undefined;
   switch (hold.cause) {
     case 'merge':
@@ -261,6 +262,23 @@ export function waitPicture(item: ItemState): Picture | undefined {
     default:
       return undefined;
   }
+}
+
+/** A merged fix waiting for the deploy pull request that will carry it: the pull request it waits with. */
+export function deployPicture(item: ItemState): Extract<Picture, { type: 'deploy' }> | undefined {
+  if (item.hold?.cause !== 'deploy') return undefined;
+  const merged = ofType(item, 'pull-request.merged').at(-1);
+  const pushed = ofType(item, 'pull-request.pushed').at(-1)?.payload;
+  return {
+    type: 'deploy',
+    pullRequest: pushed?.number ?? item.pullRequest,
+    title: pushed?.title,
+    merged: merged && {
+      at: Date.parse(merged.ts),
+      commit: merged.payload.commit,
+      byMartin: merged.payload.by === 'martin',
+    },
+  };
 }
 
 /** The pull request Martin is asked to merge, with its whole change: every round together, as a merge brings it in. */

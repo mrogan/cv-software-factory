@@ -92,9 +92,10 @@
 }
 .card-top {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 6px 12px;
   min-height: 24px;
 }
 .cat {

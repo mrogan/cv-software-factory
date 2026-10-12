@@ -76,6 +76,14 @@ export const SCORE = {
   figures: END,
 };
 
+/** A minute after Verify sent #1306 back to Plan, while its return is drawn on the line. */
+export const RETURNED =
+  Date.parse(
+    lines
+      .map((line) => JSON.parse(line) as { ts: string; type: string; work_item: string | null })
+      .find((e) => e.work_item === '1306' && e.type === 'work.returned')?.ts ?? '',
+  ) + 60_000;
+
 export const WIDTHS = {
   phone: { width: 390, height: 844 },
   laptop: { width: 1024, height: 768 },

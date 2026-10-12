@@ -54,6 +54,8 @@ export interface Release {
   /** When the step it is at ends, if its pause ends by itself. */
   until: number | undefined;
   end: End | undefined;
+  /** How each earlier attempt of the same release ended, oldest first: a retry goes again from the first step. */
+  retried: End[];
 }
 
 /** What the Canary panel shows: no release yet, the newest one in full, or, once it has ended a while, one line. */
@@ -143,6 +145,8 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
         continue;
       }
       const items = known?.items ?? [];
+      const ended = known && endOf(known);
+      const retried = known ? [...known.retried, ...(ended ? [ended] : [])] : [];
       if (event.work_item && !items.some((i) => i.number === event.work_item)) items.push(carried(event.work_item));
       byId.delete(p.release);
       const listed = p.steps?.length ? p.steps : null;
@@ -163,6 +167,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
         weight: 0,
         until: undefined,
         end: undefined,
+        retried,
         stoppedAt: undefined,
       });
       continue;
@@ -183,16 +188,24 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     }
   }
   return [...byId.values()].map((r): Release => {
-    const { listed: _listed, stoppedAt, ...release } = r;
-    if (!r.planned)
-      release.steps = [...new Set([...r.measured.map((m) => m.weight), 100])].map((weight) => ({ ...ALL, weight }));
-    const end = r.end ?? (stoppedAt === undefined ? undefined : { kind: 'stopped' as const, at: stoppedAt, weight: 0 });
+    const { listed: _listed, stoppedAt: _stoppedAt, ...release } = r;
+    if (!r.planned) release.steps = measuredSteps(r);
+    const end = endOf(r);
     const place = position(r, end?.at ?? t);
-    if (end?.kind === 'stopped') end.weight = place.weight;
     const ticket = tickets.get(r.id);
     if (end?.kind === 'rolled-back' && ticket) end.ticket = carried(ticket);
     return { ...release, ...place, weight: end && end.kind !== 'stopped' ? end.weight : place.weight, end };
   });
+}
+
+/** A release that recorded no steps: the steps measured stand in, then all of the traffic. */
+const measuredSteps = (r: Building) =>
+  [...new Set([...r.measured.map((m) => m.weight), 100])].map((weight) => ({ ...ALL, weight }));
+
+/** How a release ended, if it has: by its own event, or stopped with the line at the step it was at. */
+function endOf(r: Building): End | undefined {
+  if (r.end || r.stoppedAt === undefined) return r.end;
+  return { kind: 'stopped', at: r.stoppedAt, weight: position(r, r.stoppedAt).weight };
 }
 
 /** The newest release, in full while it is in flight and for a while after; then one line. */

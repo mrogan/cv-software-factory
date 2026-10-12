@@ -114,6 +114,8 @@ export interface ItemState {
   reportPage: string | undefined;
   /** When it was last sent back, while it has not moved on since: to another stage, a hold or its close. */
   sentBack: number | undefined;
+  /** While a verified ticket is open again: when, and what the sense saw, on which version. */
+  reopened: (PayloadOf<'work-item.reopened'> & { at: number }) | undefined;
 }
 
 /** The stage an event moves its item to, if any. */
@@ -230,6 +232,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     seenOn: undefined,
     reportPage: undefined,
     sentBack: undefined,
+    reopened: undefined,
   };
   /** Moves the item into a stage: leaving the one it was in, if this is further along the line. */
   const enter = (stage: Stage, time: number) => {
@@ -352,6 +355,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.closedAt = time;
         state.hold = undefined;
         state.sentBack = undefined;
+        state.reopened = undefined;
         state.queued = false;
         state.outcome = CLOSED[event.payload.outcome];
         if (state.stage) state.visits[state.stage] = { ...(state.visits[state.stage] as Visit), leftAt: time };
@@ -366,6 +370,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.canary = undefined;
         state.versions = { from: undefined, to: undefined, rolledBack: false, live: false };
         state.evidence.verified = undefined;
+        state.reopened = { ...event.payload, at: time };
         break;
     }
     if (event.type === 'judgement.made') {
@@ -431,9 +436,12 @@ const AFTER_MERGE: Partial<Record<string, string>> = {
 
 /**
  * An event's summary, as the console tells it. The line once wrote its holds for a deploy and for Martin's judgement
- * at Verify as a wait for his merge, which he had already given; those read as the line now writes them.
+ * at Verify as a wait for his merge, which he had already given; those read as the line now writes them. Verify sends
+ * work back only when its signal persists, so a return from it says so, in the design's words.
  */
 export function summaryOf(event: PublicEvent): string {
+  if (event.type === 'work.returned' && event.payload.from === 'verify')
+    return 'Persists · back to Plan, with the verification as evidence';
   if (event.type !== 'hold.started' || event.payload.kind !== 'approval') return event.summary;
   const words = AFTER_MERGE[event.payload.cause];
   return words && event.summary === 'Waiting for Martin to merge' ? words : event.summary;

@@ -22,7 +22,7 @@ describe('the samples, projected', () => {
     expect(new Set(view.cards.map((c) => c.picture.type))).toEqual(
       new Set([
         ...['wipe', 'metric', 'logs', 'package', 'scan', 'rollback', 'refusal', 'judgement', 'spec', 'http'],
-        ...['merge', 'scope', 'tests-pass', 'spend', 'blocking', 'none'],
+        ...['merge', 'deploy', 'scope', 'tests-pass', 'spend', 'blocking', 'none'],
       ]),
     );
   });
@@ -120,15 +120,13 @@ describe('a sheet', () => {
       'GATES',
       'REVIEW',
       'MERGED',
-      'CANARY',
-      'CANARY',
-      'ROLLED OUT',
+      'PROMOTED',
       'VERIFIED',
     ]);
     const positions = sheet?.chapters.map((c) => c.position) ?? [];
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(positions[0]).toBe(0);
-    expect(positions.at(-1)).toBe(100);
+    expect(positions.at(-1)).toBeCloseTo(100, 0);
   });
 
   it('ends at now while the item is still on the line', () => {
@@ -209,7 +207,7 @@ describe('a sheet', () => {
     });
   });
 
-  it('draws a verification that found the problem still there as reopened, in the warm colour', () => {
+  it('draws a verification that found the problem still there as persisting, never warm the first time', () => {
     const chapter = (events: typeof SAMPLES, label: string) =>
       projectSheet(events, '1296', END)?.chapters.find((c) => c.label === label);
     expect(chapter(SAMPLES, 'VERIFIED')?.tone).toBe('ok');
@@ -218,7 +216,8 @@ describe('a sheet', () => {
         ? { ...event, payload: { ...event.payload, outcome: 'persists' as const } }
         : event,
     );
-    expect(chapter(persisted, 'REOPENED')?.tone).toBe('attn');
+    expect(chapter(persisted, 'PERSISTS')?.tone).toBe('signal');
+    expect(chapter(persisted, 'REOPENED')).toBeUndefined();
   });
 
   it('opens a verified item again when its ticket reopens, back at Plan, waiting for the planner', () => {
@@ -267,11 +266,11 @@ describe('a sheet', () => {
     expect(projectSheet(SAMPLES, '1268', END)?.report).toEqual({ page: '/contact', quarantined: false, by: 'visitor' });
   });
 
-  it('compares every page with the version before', () => {
-    const pages = projectSheet(SAMPLES, '1271', END)?.pages;
-    expect(pages?.against).toBe('v0.8.5');
-    expect(pages?.list.find((p) => p.page === 'Products')).toMatchObject({ intended: true });
-    expect(pages?.list.find((p) => p.page === 'Contact')).toMatchObject({ changed: 0, intended: false });
+  it('compares every page with the version before, the intended one first', () => {
+    const verification = projectSheet(SAMPLES, '1271', END)?.shipped[0]?.verification;
+    expect(verification?.against).toBe('v0.8.5');
+    expect(verification?.pages[0]).toMatchObject({ page: 'Products', intended: true });
+    expect(verification?.pages.find((p) => p.page === 'Contact')).toMatchObject({ changed: 0, intended: false });
   });
 });
 

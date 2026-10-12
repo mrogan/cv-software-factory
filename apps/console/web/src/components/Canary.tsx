@@ -7,11 +7,11 @@ import type { CanaryView, Carried, Measured, Release } from '../projection/index
 import { MEASURES } from '../projection/release.ts';
 import { Glyph, type GlyphName } from './Glyph.tsx';
 
-type Tone = 'signal' | 'ok' | 'attn' | 'faint';
+export type Tone = 'signal' | 'ok' | 'attn' | 'faint';
 type Phase = Measured['stepped']['analysis']['phase'];
 
 /** A measure's verdict, from the analysis's own phases: in flight is ink, only a pass is green, a failure is warm. */
-const VERDICT: Record<Phase | 'dry' | 'none', [word: string, tone: Tone, glyph: GlyphName]> = {
+export const VERDICT: Record<Phase | 'dry' | 'none', [word: string, tone: Tone, glyph: GlyphName]> = {
   successful: ['passed', 'ok', 'check'],
   failed: ['failed', 'attn', 'cross'],
   running: ['measuring', 'signal', 'ring'],
@@ -22,7 +22,7 @@ const VERDICT: Record<Phase | 'dry' | 'none', [word: string, tone: Tone, glyph: 
   none: ['not measured', 'faint', 'dash'],
 };
 
-function Verdict({ phase }: { phase: keyof typeof VERDICT }) {
+export function Verdict({ phase }: { phase: keyof typeof VERDICT }) {
   const [word, tone, glyph] = VERDICT[phase];
   return (
     <span className={`v tone-${tone}`}>
@@ -33,7 +33,7 @@ function Verdict({ phase }: { phase: keyof typeof VERDICT }) {
 }
 
 /** How the release stands, as the kicker says it, in its tone. */
-function standing(r: Release): [word: string, tone: Tone, dot: string] {
+export function standing(r: Release): [word: string, tone: Tone, dot: string] {
   const { end, weight } = r;
   if (!end) {
     const word = weight ? `Canary · ${weight}%` : 'Canary · starting';
@@ -109,19 +109,34 @@ const ms = (x: number | null | undefined) => (x == null ? '—' : `${x} ms`);
 const count = (x: number | null | undefined) => (x == null ? '—' : x.toLocaleString('en-GB'));
 const out = (x: [number, number] | null | undefined) => (x ? `${x[0]} / ${x[1]}` : '—');
 
+/** A measure's figure at a step, on the canary or the baseline: none for a dry run, which measured nothing. */
+export function figureOf(r: Release, m: Measured, name: string, side: 'canary' | 'baseline'): string {
+  const { analysis, figures } = m.stepped;
+  if (r.dryRun) return '—';
+  if (!figures) return name === 'enough-requests' && side === 'canary' ? count(analysis.requests) : '—';
+  const f = figures[side];
+  if (name === 'errors') return share(f.errorRate);
+  if (name === 'latency') return ms(f.p99Ms);
+  if (name === 'journeys') return out(f.journeys);
+  return count(f.requests ?? (side === 'canary' ? analysis.requests : null));
+}
+
+/**
+ * A measure's verdict at a step. A measure the rollback failed is failed, whatever the step's own analysis said of
+ * it. A step of an analysis that names no measures (an older event's) passed or failed as a whole; a measure missing
+ * from one that names them was not measured.
+ */
+export function phaseOf(r: Release, m: Measured, name: string): keyof typeof VERDICT {
+  const { analysis } = m.stepped;
+  if (r.dryRun) return 'dry';
+  if (r.end?.kind === 'rolled-back' && r.end.weight === m.weight && r.end.failed.some((f) => f.name === name))
+    return 'failed';
+  return analysis.measures.find((x) => x.name === name)?.phase ?? (analysis.measures.length ? 'none' : analysis.phase);
+}
+
 /** The measures at the latest step measured: the canary's figure, the baseline's, and the verdict. */
 function Measures({ r, m }: { r: Release; m: Measured }) {
-  const { analysis, figures } = m.stepped;
-  const failed = r.end?.kind === 'rolled-back' ? r.end.failed.map((f) => f.name) : [];
-  const row = (name: string, side: 'canary' | 'baseline') => {
-    if (r.dryRun) return '—';
-    if (!figures) return name === 'enough-requests' && side === 'canary' ? count(analysis.requests) : '—';
-    const f = figures[side];
-    if (name === 'errors') return share(f.errorRate);
-    if (name === 'latency') return ms(f.p99Ms);
-    if (name === 'journeys') return out(f.journeys);
-    return count(f.requests ?? (side === 'canary' ? analysis.requests : null));
-  };
+  const { analysis } = m.stepped;
   return (
     <table className="measures">
       <caption className="label">
@@ -139,15 +154,8 @@ function Measures({ r, m }: { r: Release; m: Measured }) {
       <tbody>
         {MEASURES.map(([name, label, rule]) => {
           const measure = analysis.measures.find((x) => x.name === name);
-          // A measure the rollback failed is failed, whatever the step's own analysis said of it.
-          // A step of an analysis that names no measures (an older event's) passed or failed as a whole; a measure missing
-          // from one that names them was not measured.
-          const phase = r.dryRun
-            ? 'dry'
-            : failed.includes(name)
-              ? 'failed'
-              : (measure?.phase ?? (analysis.measures.length ? 'none' : analysis.phase));
-          const [canary, baseline] = [row(name, 'canary'), row(name, 'baseline')];
+          const phase = phaseOf(r, m, name);
+          const [canary, baseline] = [figureOf(r, m, name, 'canary'), figureOf(r, m, name, 'baseline')];
           return (
             <tr key={name} className={phase === 'failed' ? 'failed' : ''}>
               <td>

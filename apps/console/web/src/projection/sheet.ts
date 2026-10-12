@@ -13,18 +13,24 @@ import type {
   SymptomClass,
 } from '@software-factory/events';
 import { inScope, LIMITS, SENSES } from '@software-factory/events';
-import { clock } from '../format.ts';
-import { type Attempt, attempts, reviewThread, type ThreadReview } from './fixing.ts';
+import { clock, shortVersion } from '../format.ts';
+import { type Attempt, attempts, deployPicture, reviewThread, type ThreadReview } from './fixing.ts';
 import { type Capture, type Hold, type ItemState, summaryOf } from './items.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
+import { type Release, releases } from './release.ts';
 
 export interface Chapter {
   label: string;
   at: number;
   actor: PublicEvent['actor'] | undefined;
   text: string;
-  /** Where along the scrubber, from 0 to 100. */
+  /** Where along the scrubber by time, from 0 to 100: the scrubber spreads them out (`scrubbed`). */
   position: number;
+  /**
+   * The pass through the line it belongs to: a persisting verification sends the work round again, and a reopening
+   * starts it again.
+   */
+  pass: number;
   /** The site's screenshot as it stood at this point, if the factory had captured one. */
   site: Capture | undefined;
   tone: 'signal' | 'ok' | 'attn' | 'faint';
@@ -87,6 +93,33 @@ export interface PageComparison {
   intended: boolean;
 }
 
+/** What Verify found after a release: the sense that saw the problem, asked again. */
+export interface Verified {
+  outcome: 'cleared' | 'persists';
+  /** A second persisting signal: the work holds for Martin. */
+  held: boolean;
+  sense: Sense | undefined;
+  check: string;
+  at: number;
+  version: string | undefined;
+  against: string;
+  /** The line's words on what it found: why it closed, sent the work back, or held it. */
+  words: string;
+  dryRun: boolean;
+  /** Up to four pages, the intended first, then any that changed, then the same; marked only by a sense that looks at pages. */
+  pages: PageComparison[];
+  /** Whether the sense looks at a page, so that its check can be marked on one. */
+  marked: boolean;
+  /** The pages left out, and whether every one of them was the same to the pixel. */
+  more: { count: number; same: boolean };
+}
+
+/** A release that carried the work item, and what Verify found after it. */
+export interface Shipped {
+  release: Release;
+  verification: Verified | undefined;
+}
+
 /** One sense that saw a ticket's problem: the check it ran, and when it first saw it. */
 export interface Sighting {
   sense: Sense;
@@ -116,7 +149,10 @@ export interface Sheet {
   chapters: Chapter[];
   /** Screenshots taken at the signal, on the canary and at rollout, for the evidence. */
   captures: Capture[];
-  pages: { against: string; list: PageComparison[] } | undefined;
+  /** Each release that carried it, newest first, with its verification. */
+  shipped: Shipped[];
+  /** While a merged fix waits for Martin's deploy: the pull request it waits with. */
+  deploy: Extract<Picture, { type: 'deploy' }> | undefined;
   /** Who wrote the paragraph at the top: the describer, once it has. */
   storyBy: 'describer' | undefined;
   /** The evidence of the problem, which the card's picture stands in for while the work waits on Martin. */
@@ -214,7 +250,7 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
     case 'gates.finished':
       return { label: 'GATES', tone: event.payload.conclusion === 'passed' ? 'signal' : 'attn' };
     case 'work.returned':
-      return { label: 'SENT BACK', tone: 'attn' };
+      return event.payload.from === 'verify' ? { label: 'PLAN', tone: 'signal' } : { label: 'SENT BACK', tone: 'attn' };
     case 'review.submitted':
       return { label: 'REVIEW', tone: 'signal' };
     case 'work-item.summarised':
@@ -222,16 +258,13 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
       return event.actor === 'describer' ? { label: 'DESCRIBED', tone: 'signal' } : undefined;
     case 'pull-request.merged':
       return { label: 'MERGED', tone: 'signal' };
-    case 'canary.stepped':
-      return { label: 'CANARY', tone: 'signal' };
-    case 'release.promoted':
-      return { label: 'ROLLED OUT', tone: 'signal' };
-    case 'release.rolled-back':
-      return { label: 'ROLLED BACK', tone: 'attn' };
+    // A persisting signal sends the work round again by itself, so it is not warm the first time; nothing reopens.
     case 'verification.finished':
+      if (event.payload.dryRun)
+        return { label: event.payload.outcome === 'cleared' ? 'VERIFIED' : 'PERSISTS', tone: 'faint' };
       return event.payload.outcome === 'cleared'
         ? { label: 'VERIFIED', tone: 'ok' }
-        : { label: 'REOPENED', tone: 'attn' };
+        : { label: 'PERSISTS', tone: 'signal' };
     case 'work-item.reopened':
       return { label: 'REOPENED', tone: 'attn' };
     case 'action.refused':
@@ -253,20 +286,70 @@ const ticketedBefore = (item: ItemState, event: PublicEvent) => {
   return opened >= 0 && opened < item.events.indexOf(event);
 };
 
-/** Positions along the scrubber: by time, but never closer than a minimum gap, so labels stay apart. */
-export function spread(times: readonly number[], start: number, end: number, gap = 7.5): number[] {
-  const span = Math.max(1, end - start);
-  const raw = times.map((at) => Math.min(100, Math.max(0, ((at - start) / span) * 100)));
+/**
+ * Positions along the scrubber, from positions by time: never closer than a minimum gap, so labels stay apart and each
+ * chapter keeps a target of its own. Pushed right where they crowd, then back from the end where that runs past it;
+ * evenly spread when there are too many for the gap.
+ */
+export function spread(raw: readonly number[], gap = 7.5): number[] {
+  if (raw.length < 2) return raw.map(() => 0);
+  if ((raw.length - 1) * gap > 100) return raw.map((_, i) => (i / (raw.length - 1)) * 100);
   const out: number[] = [];
   for (const [i, p] of raw.entries()) out.push(i === 0 ? p : Math.max(p, (out[i - 1] ?? 0) + gap));
-  // Squeeze back into 0–100 if the gaps pushed past the end.
-  const over = (out.at(-1) ?? 0) - 100;
-  if (over > 0) {
-    const first = out[0] ?? 0;
-    const scale = (100 - first) / ((out.at(-1) ?? 100) - first || 1);
-    return out.map((p) => first + (p - first) * scale);
-  }
+  for (let i = out.length - 1; i >= 0; i--)
+    out[i] = Math.min(out[i] ?? 0, i === out.length - 1 ? 100 : (out[i + 1] ?? 100) - gap);
   return out;
+}
+
+/** One chapter on the scrubber: a chapter, or a pass folded to one, at its place and with its label or none. */
+export interface Shown {
+  /** The first chapter it stands for, which choosing it chooses, and how many it stands for. */
+  index: number;
+  count: number;
+  /** A pass folded to one chapter: PASS 2. */
+  pass: number | undefined;
+  left: number;
+  /** Past twelve, only the chosen chapter, the first and the last keep their labels. */
+  labelled: boolean;
+}
+
+/** The narrowest gap between two chapters' targets, in pixels (WCAG 2.2's target size). */
+export const TARGET = 24;
+
+/**
+ * The chapters the scrubber draws, with the chapter at `at` chosen, in `width` pixels. The first pass and the pass
+ * holding the chosen chapter are drawn in full, and every other pass is one chapter, which opens when chosen; when
+ * that leaves too many to keep a target's width apart, the first pass folds too. A work item with one pass is spread
+ * by time, and one with more evenly.
+ */
+export function scrubbed(chapters: readonly Chapter[], at: number, width: number): Shown[] {
+  const room = Math.max(2, Math.floor(width / TARGET) + 1);
+  const chosen = chapters[at]?.pass ?? 1;
+  const passes = new Set(chapters.map((c) => c.pass)).size > 1;
+  const fold = (open: Set<number>) => {
+    const out: Omit<Shown, 'left' | 'labelled'>[] = [];
+    chapters.forEach((c, index) => {
+      const last = out.at(-1);
+      if (!passes || open.has(c.pass)) out.push({ index, count: 1, pass: undefined });
+      else if (last?.pass === c.pass) last.count += 1;
+      else out.push({ index, count: 1, pass: c.pass });
+    });
+    return out;
+  };
+  let shown = fold(new Set([1, chosen]));
+  if (shown.length > room) shown = fold(new Set([chosen]));
+  const here = shown.findIndex((s) => at >= s.index && at < s.index + s.count);
+  const lefts = passes
+    ? shown.map((_, j) => (shown.length < 2 ? 0 : (j / (shown.length - 1)) * 100))
+    : spread(
+        shown.map((s) => chapters[s.index]?.position ?? 0),
+        Math.max(7.5, 100 / (room - 1)),
+      );
+  return shown.map((s, j) => ({
+    ...s,
+    left: lefts[j] ?? 0,
+    labelled: shown.length <= 12 || j === here || j === 0 || j === shown.length - 1,
+  }));
 }
 
 const SETTINGS = (settings: PayloadOf<'model.called'>['settings']) =>
@@ -545,14 +628,114 @@ function noModel(item: ItemState): string | undefined {
 
 const where = (route: string) => (route === '*' ? 'every page' : route);
 
+/** A release's events, which the scrubber draws as one chapter for each release. */
+const releaseOf = (event: PublicEvent) =>
+  event.type === 'release.started' ||
+  event.type === 'canary.stepped' ||
+  event.type === 'release.promoted' ||
+  event.type === 'release.rolled-back'
+    ? event.payload.release
+    : undefined;
+
+/** A release's one chapter, named by how it ended, or CANARY while it is in flight. A dry run earns no tone. */
+function releaseChapter(r: Release): { label: string; tone: Chapter['tone']; text: string } {
+  const { end } = r;
+  const v = shortVersion(r.version);
+  const passed = r.measured.filter((m) => m.stepped.analysis.phase === 'successful').map((m) => `${m.weight}%`);
+  const [label, tone, text]: [string, Chapter['tone'], string] =
+    end?.kind === 'promoted'
+      ? ['PROMOTED', 'ok', `${v} promoted to all traffic${passed.length ? `, after ${listed(passed)} passed` : ''}`]
+      : end?.kind === 'rolled-back'
+        ? ['ROLLED BACK', 'attn', `${v} rolled back at ${end.weight}%`]
+        : end?.kind === 'stopped'
+          ? ['STOPPED', 'attn', `${v} stopped with the line at ${end.weight}%`]
+          : ['CANARY', 'signal', `${v} on the canary at ${r.weight}%`];
+  return r.dryRun ? { label, tone: 'faint', text: `${text}, in a dry run` } : { label, tone, text };
+}
+
+/** A list in words: "a, b and c". */
+const listed = (words: readonly string[]) =>
+  words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : (words[0] ?? '');
+
+/** The senses that look at no page, so that nothing on one is their finding. */
+const PAGELESS = new Set<string | undefined>(['logs', 'metrics', 'canary']);
+
+/** What Verify found, from its event and the line's next word on it: a close, a return or a hold. */
+function verified(
+  item: ItemState,
+  event: PublicEvent<'verification.finished'>,
+  shots: Map<string, Screenshot>,
+): Verified {
+  const p = event.payload;
+  const after = item.events.slice(item.events.indexOf(event) + 1);
+  const next = after.find(
+    (e) =>
+      e.type === 'work-item.closed' ||
+      e.type === 'work.returned' ||
+      (e.type === 'hold.started' && e.payload.cause === 'verify'),
+  );
+  const marked = !PAGELESS.has(p.sense);
+  const order = (page: PageComparison) => (page.intended ? 0 : page.changed > 0 ? 1 : 2);
+  const pages = p.pages
+    .map((page): PageComparison => {
+      const shot = shots.get(page.screenshot);
+      return {
+        page: page.page,
+        screenshot: shot && !marked ? { ...shot, boxes: [] } : shot,
+        changed: page.changed,
+        intended: page.intended,
+      };
+    })
+    .sort((a, b) => order(a) - order(b));
+  const rest = pages.slice(4);
+  return {
+    outcome: p.outcome,
+    held: next?.type === 'hold.started',
+    sense: p.sense,
+    check: p.check,
+    at: Date.parse(event.ts),
+    version: p.version,
+    against: p.against,
+    words: next && 'reason' in next.payload ? next.payload.reason : event.summary,
+    dryRun: p.dryRun,
+    pages: pages.slice(0, 4),
+    marked,
+    more: { count: rest.length, same: rest.every((page) => page.changed === 0) },
+  };
+}
+
 export function sheet(item: ItemState, events: readonly PublicEvent[], t: number): Sheet {
   const end = item.closedAt ?? t;
-  const marks: { event: PublicEvent | undefined; label: string; tone: Chapter['tone'] }[] = item.events.flatMap(
-    (event) => {
-      const chapter = chapterOf(event, item);
-      return chapter ? [{ event, ...chapter }] : [];
-    },
-  );
+  const own = releases(events, [item], t).filter((r) => r.items.some((i) => i.number === item.number));
+  const byId = new Map(own.map((r) => [r.id, r]));
+  // Each release is one chapter, where its last event on the item is (or its stop, after it).
+  const lastOf = new Map<string, PublicEvent>();
+  for (const event of item.events) {
+    const id = releaseOf(event);
+    if (id) lastOf.set(id, event);
+  }
+  let pass = 1;
+  const marks: {
+    event: PublicEvent | undefined;
+    label: string;
+    tone: Chapter['tone'];
+    text?: string;
+    at?: number;
+    pass: number;
+  }[] = item.events.flatMap((event) => {
+    const id = releaseOf(event);
+    const r = id ? byId.get(id) : undefined;
+    if (id) {
+      if (!r || lastOf.get(id) !== event) return [];
+      const at = Math.max(Date.parse(event.ts), r.end?.kind === 'stopped' ? r.end.at : 0);
+      return [{ event, ...releaseChapter(r), at, pass }];
+    }
+    // A return from Verify, and a reopening, start the work's next pass.
+    if ((event.type === 'work.returned' && event.payload.from === 'verify') || event.type === 'work-item.reopened')
+      pass += 1;
+    const chapter = chapterOf(event, item);
+    return chapter ? [{ event, ...chapter, pass }] : [];
+  });
   // Work still on the line ends at now, or, for a ticket queued for the planner, waiting at Plan. Work waiting on
   // Martin ends at its wait, and a merged fix at its merge, drawn as work queued for a release.
   const waits = item.outcome === 'needs-you' || item.outcome === 'held';
@@ -560,19 +743,20 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
   if (item.closedAt === undefined && !waits && !merged) {
     marks.push(
       item.queued
-        ? { event: undefined, label: 'WAITING · PLAN', tone: 'faint' }
-        : { event: undefined, label: 'NOW', tone: 'signal' },
+        ? { event: undefined, label: 'WAITING · PLAN', tone: 'faint', pass }
+        : { event: undefined, label: 'NOW', tone: 'signal', pass },
     );
   }
-  const times = marks.map((m) => (m.event ? Date.parse(m.event.ts) : t));
-  const positions = spread(times, item.openedAt, end);
+  const times = marks.map((m) => m.at ?? (m.event ? Date.parse(m.event.ts) : t));
+  const span = Math.max(1, end - item.openedAt);
   const chapters = marks.map(
     (m, i): Chapter => ({
       label: m.label,
       at: times[i] ?? t,
       actor: m.event?.actor,
-      text: m.event ? summaryOf(m.event) : item.queued ? 'Waiting for the planner' : 'Still on the line',
-      position: positions[i] ?? 100,
+      text: m.text ?? (m.event ? summaryOf(m.event) : item.queued ? 'Waiting for the planner' : 'Still on the line'),
+      position: Math.min(100, Math.max(0, (((times[i] ?? t) - item.openedAt) / span) * 100)),
+      pass: m.pass,
       site: [...item.captures].reverse().find((c) => c.at <= (times[i] ?? t) && c.side !== 'page'),
       tone: merged && i === marks.length - 1 ? 'faint' : m.tone,
       ...(((!m.event && item.queued) || (merged && i === marks.length - 1)) && { waiting: true }),
@@ -580,7 +764,6 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
   );
 
   const report = item.events.find((event) => event.type === 'signal.received' && event.payload.report);
-  const verification = [...item.events].reverse().find((event) => event.type === 'verification.finished');
   const spec = [...item.events].reverse().find((event) => event.type === 'spec.written');
   const pushed = [...item.events].reverse().find((event) => event.type === 'pull-request.pushed');
   const shots = new Map(
@@ -604,6 +787,13 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
   const latestGates = gates(item);
   const signal = reviewSignal(item, thread);
   const coded = tried.length > 0;
+  // Each verification is of the latest release to carry the work item before it.
+  const checked = new Map<string, Verified>();
+  let latest: string | undefined;
+  for (const event of item.events) {
+    if (event.type === 'release.started') latest = event.payload.release;
+    if (event.type === 'verification.finished' && latest) checked.set(latest, verified(item, event, shots));
+  }
   return {
     card: card(item, events, t),
     report:
@@ -621,18 +811,8 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
     captures: item.captures.filter(
       (c) => c.side === 'broken' || c.side === 'canary' || c.side === 'fixed' || c.side === 'after',
     ),
-    pages:
-      verification?.type === 'verification.finished'
-        ? {
-            against: verification.payload.against,
-            list: verification.payload.pages.map((page) => ({
-              page: page.page,
-              screenshot: shots.get(page.screenshot),
-              changed: page.changed,
-              intended: page.intended,
-            })),
-          }
-        : undefined,
+    shipped: own.reverse().map((release) => ({ release, verification: checked.get(release.id) })),
+    deploy: deployPicture(item),
     spec: specPayload,
     scope: specPayload && scopeOf(item, specPayload),
     // What a merge brings in: every round together, not only the last round's own files.

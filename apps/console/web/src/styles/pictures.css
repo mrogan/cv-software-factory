@@ -1003,6 +1003,10 @@ svg.chart {
 .vis .ticks .x .glyph {
   color: var(--attn);
 }
+.ticks .to,
+.vis .ticks .to .glyph {
+  color: var(--text-muted);
+}
 .ticks .num {
   font: max(9px, 1.9cqw) / 1 var(--font-mono);
   color: var(--text-muted);

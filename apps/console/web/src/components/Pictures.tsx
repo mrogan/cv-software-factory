@@ -1031,11 +1031,11 @@ function SpecPicture({ spec, question }: Extract<PictureData, { type: 'spec' }>)
   );
 }
 
-/** One line of a waiting panel: a tick or a cross, what it says, and its figure. */
-function Tick({ ok, children, num }: { ok: boolean; children: ReactNode; num?: string | undefined }) {
+/** One line of a waiting panel: a tick or a cross, or a hollow ring for what comes after, what it says, and its figure. */
+function Tick({ ok, children, num }: { ok: boolean | undefined; children: ReactNode; num?: string | undefined }) {
   return (
-    <div className={ok ? '' : 'x'}>
-      <Glyph name={ok ? 'check' : 'cross'} />
+    <div className={ok ? '' : ok === undefined ? 'to' : 'x'}>
+      <Glyph name={ok ? 'check' : ok === undefined ? 'ring' : 'cross'} />
       <span>{children}</span>
       <span className="num">{num}</span>
     </div>
@@ -1086,6 +1086,40 @@ function MergePicture(picture: Extract<PictureData, { type: 'merge' }>) {
             <span className="minus">−{picture.removed}</span>
           </span>
           <span>{picture.inScope ? 'in scope · ' : ''}signed by the App</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A merged fix waiting for the deploy pull request that will carry it, in the waiting-on-Martin panel: the merge done,
+ * and hollow rings for what comes after it. The events name no deploy pull request, so none is drawn.
+ */
+function DeployPicture({ pullRequest, title, merged }: Extract<PictureData, { type: 'deploy' }>) {
+  return (
+    <div className="pad">
+      <div className="waits">
+        <div className="cap attn">Merged · waiting for Martin’s deploy</div>
+        {pullRequest && (
+          <div className="head mono">
+            PR #{pullRequest}
+            {title && ` · ${title}`}
+          </div>
+        )}
+        <div className="ticks">
+          {merged && (
+            <Tick ok num={merged.commit.slice(0, 7)}>
+              Merged by {merged.byMartin ? 'Martin' : 'the factory'} at {clock(merged.at)}
+            </Tick>
+          )}
+          <Tick ok={undefined}>The next deploy pull request carries it, with its ticket and issue</Tick>
+          <Tick ok={undefined}>Then a canary against the version before, and Verify</Tick>
+        </div>
+        <div className="foot">
+          <span>
+            While the factory is Supervised, merging the deploy is Martin’s. Everything after it is unattended.
+          </span>
         </div>
       </div>
     </div>
@@ -1255,6 +1289,7 @@ export function Picture({ picture, interactive }: { picture: PictureData; intera
       {picture.type === 'judgement' && <JudgementPicture {...picture} />}
       {picture.type === 'spec' && <SpecPicture {...picture} />}
       {picture.type === 'merge' && <MergePicture {...picture} />}
+      {picture.type === 'deploy' && <DeployPicture {...picture} />}
       {picture.type === 'scope' && <ScopePicture {...picture} />}
       {picture.type === 'tests-pass' && <TestsPassPicture {...picture} />}
       {picture.type === 'spend' && <SpendPicture {...picture} />}
