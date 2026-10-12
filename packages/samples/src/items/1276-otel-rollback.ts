@@ -1,5 +1,8 @@
 /** A dependency update that passed every gate, and that the canary caught and rolled back on its own. */
-import { commitFor, Item, releaseFor, started, stepped } from '../build.ts';
+import { commitFor, Item, releaseFor, STEPS, started, stepped } from '../build.ts';
+
+/** This release's Rollout sent the canary a twentieth of the traffic first, where the analysis caught it. */
+const CANARY_FROM_5 = [{ weight: 5, pauseSeconds: 180, analysis: true }, ...STEPS];
 
 export default new Item('1276', '2026-10-02T08:10:00+01:00')
   .at('0:00', 'work-item.opened', 'dependabot', 'Dependabot proposed @opentelemetry/sdk-node 0.230.1', {
@@ -40,7 +43,13 @@ export default new Item('1276', '2026-10-02T08:10:00+01:00')
     commit: commitFor('1276/merge'),
     by: 'factory',
   })
-  .at('12:30', 'release.started', 'rollouts', 'v0.9.1 signed and admitted; canary at 5%', started('v0.9.1', 'v0.9.0'))
+  .at(
+    '12:30',
+    'release.started',
+    'rollouts',
+    'v0.9.1 signed and admitted; canary at 5%',
+    started('v0.9.1', 'v0.9.0', CANARY_FROM_5),
+  )
   .at(
     '12:40',
     'canary.stepped',

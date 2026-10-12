@@ -9,11 +9,13 @@ import {
   dryRunRelease,
   type Facts,
   observe,
+  planOf,
   recordedFrom,
   releaseEvents,
   releaseNeeds,
   type Series,
   type Start,
+  secondsOf,
   type Target,
 } from '../../src/release/watch.ts';
 import { CANARY, commitOf, digestOf, rollout, run, STABLE } from './fixtures.ts';
@@ -67,6 +69,7 @@ const STABLE_RECORDED = [
       commit: commitOf(STABLE),
       image: { digest: digestOf(STABLE), signed: true, admitted: true },
       watched: false,
+      steps: null,
       dryRun: false,
     },
   },
@@ -113,6 +116,11 @@ describe('a release, from the Rollout and its runs', () => {
         commit: commitOf(CANARY),
         image: { digest: digestOf(CANARY), signed: true, admitted: true },
         watched: true,
+        // As the Rollout has them: each weight with the pause and the analysis after it.
+        steps: [
+          { weight: 25, pauseSeconds: 180, analysis: true },
+          { weight: 50, pauseSeconds: 180, analysis: true },
+        ],
         dryRun: false,
       },
     ]);
@@ -348,9 +356,18 @@ describe('a release, from the Rollout and its runs', () => {
       failed,
       step(2, { name: 'website-68ff668868-4-2.1', created: t(20), completed: t(20.5) }),
     ];
-    const { said } = s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), retry);
+    // Its steps are no part of its name, so they are read again: here the Rollout went to half the traffic at once.
+    const retried = rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 });
+    retried.spec.strategy.canary = { steps: [{ setWeight: 50 }, { pause: { duration: '5m' } }, { analysis: {} }] };
+    const { said } = s.pass(retried, retry);
     expect(said).toEqual({ 1001: ['release.started', 'canary.stepped'] });
-    expect(s.of('1001', 'release.started')).toHaveLength(2);
+    expect(s.of('1001', 'release.started').map((p) => (p as PayloadOf<'release.started'>).steps)).toEqual([
+      [
+        { weight: 25, pauseSeconds: 180, analysis: true },
+        { weight: 50, pauseSeconds: 180, analysis: true },
+      ],
+      [{ weight: 50, pauseSeconds: 300, analysis: true }],
+    ]);
     // Martin aborts the retry: its earlier failure is not this attempt's, so nothing is recorded.
     expect(s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, abort: true }), retry).said).toEqual({});
     // A run that fails in this attempt rolls it back again.
@@ -397,6 +414,8 @@ describe('a release, from the Rollout and its runs', () => {
         commit: commitOf(CANARY),
         image: { digest: digestOf(CANARY), signed: true, admitted: true },
         watched: false,
+        // Nobody saw it step, and the Rollout may have said otherwise then.
+        steps: null,
         dryRun: false,
       },
     ]);
@@ -439,7 +458,15 @@ describe('a dry run’s release', () => {
     expect(due(240)).toEqual(['canary.stepped', 'release.promoted']);
     expect(due(600)).toEqual([]);
     expect(log.map((e) => e.payload)).toEqual([
-      expect.objectContaining({ release: 'dry-run-dddddddddddd', watched: true, dryRun: true }),
+      expect.objectContaining({
+        release: 'dry-run-dddddddddddd',
+        watched: true,
+        steps: [
+          { weight: 25, pauseSeconds: 60, analysis: true },
+          { weight: 50, pauseSeconds: 60, analysis: true },
+        ],
+        dryRun: true,
+      }),
       expect.objectContaining({
         weight: 25,
         analysis: { phase: 'successful', requests: null, measures: [] },
@@ -449,6 +476,59 @@ describe('a dry run’s release', () => {
       expect.objectContaining({ previous: 'a'.repeat(40), dryRun: true }),
     ]);
     expect(log[0]?.payload).not.toHaveProperty('image');
+  });
+});
+
+describe('a canary’s steps, as a release records them', () => {
+  type Steps = Parameters<typeof planOf>[0];
+  const plan = (steps: Steps) => planOf(steps);
+
+  it('are each weight set, with the pauses and the analysis that follow it, before the next', () => {
+    expect(
+      plan([
+        { setWeight: 10 },
+        { setWeight: 20 },
+        { pause: { duration: '1m' } },
+        { pause: { duration: 30 } },
+        { analysis: {} },
+        { pause: { duration: '1h30m' } },
+        { setWeight: 60 },
+      ]),
+    ).toEqual([
+      { weight: 10, pauseSeconds: 0, analysis: false },
+      { weight: 20, pauseSeconds: 5490, analysis: true },
+      { weight: 60, pauseSeconds: 0, analysis: false },
+    ]);
+  });
+
+  it('hold the canary until it is promoted at a pause with no duration', () => {
+    expect(plan([{ setWeight: 25 }, { pause: {} }, { pause: { duration: '1m' } }])).toEqual([
+      { weight: 25, pauseSeconds: null, analysis: false },
+    ]);
+    // Steps of other kinds change no weight, and a Rollout with none of these steps has none.
+    expect(plan([{}, {}])).toEqual([]);
+  });
+
+  it('are not known when a pause cannot be read, a step has none of the traffic, or there are more than an event holds', () => {
+    expect(plan([{ setWeight: 25 }, { pause: { duration: 'a while' } }])).toBeNull();
+    // A step's verdict is at 1% at the least, so a step at none of the traffic would not match it.
+    expect(plan([{ analysis: {} }, { setWeight: 25 }])).toBeNull();
+    expect(plan([{ setWeight: 0 }, { setWeight: 25 }])).toBeNull();
+    // Pauses that add up to more seconds than a number holds exactly.
+    expect(plan([{ setWeight: 25 }, { pause: { duration: 2 ** 52 } }, { pause: { duration: 2 ** 52 } }])).toBeNull();
+    expect(plan(Array.from({ length: 21 }, (_, i) => ({ setWeight: i + 1 })))).toBeNull();
+  });
+
+  it('read durations as Argo Rollouts does: a number or bare digits in seconds, or a Go duration', () => {
+    expect([30, '45', '3m', '1h', '1m30s', '1.5m', '.5m', '500ms', '2000000us', '3000000000ns'].map(secondsOf)).toEqual(
+      [30, 45, 180, 3600, 90, 90, 30, 1, 2, 3],
+    );
+    expect(['', '3 m', 'm', '-1', '1d'].map(secondsOf)).toEqual(Array(5).fill(undefined));
+    expect(secondsOf(-1)).toBeUndefined();
+    // More seconds than a number holds exactly are not read, rather than read as some other length.
+    expect(['9007199254740993', '9007199254740993s', `1${'0'.repeat(400)}h`].map(secondsOf)).toEqual(
+      Array(3).fill(undefined),
+    );
   });
 });
 

@@ -263,6 +263,7 @@ const release = (id = RELEASE, version = 'v0.9.4'): LineEvent => ({
     commit: OTHER,
     image: { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true },
     watched: true,
+    steps: null,
     dryRun: false,
   },
 });

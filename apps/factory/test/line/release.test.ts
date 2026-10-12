@@ -239,6 +239,7 @@ describe('the line’s watch of the app’s release', () => {
         commit: commitOf(STABLE),
         image: { digest: digestOf(STABLE), signed: true, admitted: true },
         watched: false,
+        steps: null,
         dryRun: false,
       },
     ]);
@@ -276,6 +277,11 @@ describe('the line’s watch of the app’s release', () => {
       expect(await stage(workItem)).toBe('release');
     }
     expect(await typesOf(shipped)).toHaveLength(2);
+    // The start records the canary's steps as the Rollout read from the cluster has them.
+    expect((await payloads(carried[0] as string, 'release.started'))[0]?.steps).toEqual([
+      { weight: 25, pauseSeconds: 180, analysis: true },
+      { weight: 50, pauseSeconds: 180, analysis: true },
+    ]);
     const [stepped] = await payloads(carried[0] as string, 'canary.stepped');
     expect(stepped?.figures).toEqual({
       canary: { requests: 224, errorRate: 0.004, p99Ms: 124, journeys: null },
@@ -650,7 +656,7 @@ describe('Verify on the line', () => {
   async function promote(workItem: string, release = 'f00dfeed01', version = commitOf(CANARY), dryRun = false) {
     const payload = { release, version, previous: commitOf(STABLE), commit: version, watched: !dryRun, dryRun };
     await events.append([
-      event(workItem, 'release.started', { ...payload, ...(dryRun ? {} : { image: IMAGE }) }, 'rollouts'),
+      event(workItem, 'release.started', { ...payload, steps: null, ...(dryRun ? {} : { image: IMAGE }) }, 'rollouts'),
       event(workItem, 'release.promoted', payload, 'rollouts'),
     ]);
   }

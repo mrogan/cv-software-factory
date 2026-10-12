@@ -53,6 +53,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
       watched: true,
       dryRun: false,
     }),
+    // Version 3 records the canary's steps, as the line read them from the Rollout. A version 2 release never said.
+    2: (payload) => ({ ...payload, steps: null }),
   },
   // A version 1 step recorded each version's figures and no measures: the steps it recorded had passed.
   'canary.stepped': {
