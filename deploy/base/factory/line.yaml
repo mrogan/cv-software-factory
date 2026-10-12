@@ -110,7 +110,7 @@ spec:
             # the local model is given longer.
             - name: FACTORY_PROFILE
               value: local
-            # The line on Claude, over the senses' tickets: the first six that come onto it by its rule, and no other.
+            # The line on Claude, over the senses' tickets: the first seven that come onto it by its rule, and no other.
             - name: LINE_MODE
               value: live
             - name: LINE_TAKE
