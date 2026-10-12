@@ -82,7 +82,7 @@ export const MEASURES = [
  * counts as infinitely worse.
  */
 export function sawOf({ name, value, limit, message }: Failed, reason: string): string {
-  const own = message !== reason && !/ assessed \w+ due to /.test(message ?? '') && message;
+  const own = ownWords(message, reason);
   if (value === null)
     return (
       own ||
@@ -92,12 +92,16 @@ export function sawOf({ name, value, limit, message }: Failed, reason: string): 
     );
   const points = (x: number) => `${(x * 100).toFixed(2)} points`;
   const against = (words: string) => (limit === null ? '' : `, against ${words}`);
-  if (name === 'latency') return `p99 ${Math.ceil((value - (limit ?? 0)) * 1000)} ms over its limit`;
+  if (name === 'latency') return `p99 ${Math.ceil(Math.round((value - (limit ?? 0)) * 1e6) / 1000)} ms over its limit`;
   if (name === 'errors')
     return `5xx share ${points(value)} above the baseline’s${against(`at most ${points(limit ?? 0)}`)}`;
   if (name === 'enough-requests') return `${value} requests to the canary${against(`at least ${limit}`)}`;
   return `${value}${against(`a limit of ${limit}`)}`;
 }
+
+/** A failed measure's message, when it says more than the rollback's reason or Argo Rollouts' boilerplate. */
+export const ownWords = (message: string | undefined, reason: string) =>
+  message !== reason && !/ assessed \w+ due to /.test(message ?? '') ? message : undefined;
 
 /** How long a release stays in full on the panel after it ends: as long as a station reads "passed". */
 const SHOWN_MS = 15 * 60_000;

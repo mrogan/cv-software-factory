@@ -4,7 +4,7 @@
  */
 import { clock, clockSeconds, duration, isCommit, shortVersion, shortWhen } from '../format.ts';
 import type { CanaryView, Carried, Measured, Release } from '../projection/index.ts';
-import { MEASURES, sawOf } from '../projection/release.ts';
+import { MEASURES, ownWords, sawOf } from '../projection/release.ts';
 import { Glyph, type GlyphName } from './Glyph.tsx';
 
 export type Tone = 'signal' | 'ok' | 'attn' | 'faint';
@@ -207,15 +207,14 @@ function Rollback({ r, onOpen }: { r: Release; onOpen: (item: string) => void })
             </thead>
             <tbody>
               {end.failed.map((f, i) => {
-                const saw = sawOf(f, end.reason);
                 return (
                   // biome-ignore lint/suspicious/noArrayIndexKey: a measure can fail in more than one of the attempt's analyses, and an event's list never changes
                   <tr key={i} className="failed">
                     <td>
                       {label(f.name)}
-                      {f.message && f.message !== end.reason && f.message !== saw && <small>{f.message}</small>}
+                      {f.value !== null && ownWords(f.message, end.reason) && <small>{f.message}</small>}
                     </td>
-                    <td>{saw}</td>
+                    <td>{sawOf(f, end.reason)}</td>
                     <td>
                       <Verdict phase="failed" />
                     </td>

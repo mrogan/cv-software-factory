@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { release as policy } from '../../../../policy/release.ts';
 import { project, upTo } from '../../web/src/projection/index.ts';
 import { type Card, timeline } from '../../web/src/projection/reel.ts';
-import { type Failed, MEASURES, type Release, releases, sawOf } from '../../web/src/projection/release.ts';
+import { type Failed, MEASURES, ownWords, type Release, releases, sawOf } from '../../web/src/projection/release.ts';
 import { END, SAMPLES, work } from './support.ts';
 
 const at = (iso: string) => Date.parse(iso);
@@ -381,6 +381,8 @@ describe('what the analysis saw of a measure that failed', () => {
     expect(sawOf(failed('latency', 0.273, 0), reason)).toBe('p99 273 ms over its limit');
     // Any excess fails, so a fraction of a millisecond is not said as none.
     expect(sawOf(failed('latency', 0.0004, 0), reason)).toBe('p99 1 ms over its limit');
+    // The limit is what the value is held to: the excess over it is what is said.
+    expect(sawOf(failed('latency', 0.273, 0.1), reason)).toBe('p99 173 ms over its limit');
     // A limit the analysis did not record is not said.
     expect(sawOf(failed('errors', 0.024, null), reason)).toBe('5xx share 2.40 points above the baseline’s');
     expect(sawOf(failed('other', 3, null), reason)).toBe('3');
@@ -392,6 +394,9 @@ describe('what the analysis saw of a measure that failed', () => {
     expect(sawOf(failed('latency', null, 0, earlier), reason)).toBe(
       'no figures to compare, which counts as infinitely worse',
     );
+    // Nor are they said beside what the analysis saw.
+    expect(ownWords(earlier, reason)).toBeUndefined();
+    expect(ownWords('Prometheus did not answer', reason)).toBe('Prometheus did not answer');
     expect(sawOf(failed('latency', null, 0, reason), reason)).toBe(
       'no figures to compare, which counts as infinitely worse',
     );
