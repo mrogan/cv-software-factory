@@ -173,6 +173,14 @@ describe('the timeline, from hand-made releases', () => {
     expect(marks(cards, [...all, shipped('v3', ['9'], 6)])).toEqual(['~v1~', '1', 'v2', '2', 'v3']);
   });
 
+  it('gives a card’s release a place of its own when it shipped before an earlier card’s', () => {
+    // #1 started first and shipped v2 after #2 shipped v1.
+    const cards = [card('1', 0), card('2', 1)];
+    expect(marks(cards, [shipped('v1', ['2'], 2), shipped('v2', ['1'], 3)])).toEqual(['v1', '1', 'v2', '2']);
+    // v1 carried both, and v2 carried #1 again.
+    expect(marks(cards, [shipped('v1', ['1', '2'], 2), shipped('v2', ['1'], 3)])).toEqual(['v1', '1', 'v2', '2']);
+  });
+
   it('keeps an attempt’s mark while its retry is in flight', () => {
     const retry = {
       ...shipped('v1', ['1'], 1, 'rolled-back'),

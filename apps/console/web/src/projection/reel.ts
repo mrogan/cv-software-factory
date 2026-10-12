@@ -471,7 +471,8 @@ const dayOf = (at: number) => {
  * takes a card's place without a card, so its version sits between the work items either side of it in time.
  *
  * A release marks the version it left the shop on once it has ended: under the first card whose latest release it
- * is, or, when it carries no work item shown or all it carried went again in a later release, in its own place. A rollback
+ * is, or, when it carries no work item shown, all it carried went again in a later release, or it ended before the
+ * mark of a card before it, in its own place. A rollback
  * and a stop with the line are struck through, since the shop went back to the version before. A dry run shipped
  * nothing, and marks nothing.
  */
@@ -481,11 +482,14 @@ export function timeline(cards: readonly Card[], shipped: readonly Release[]): T
   for (const r of ended) for (const item of r.items) latest.set(item.number, r);
   const under = new Map<number, Release>();
   const marked = new Set<Release>();
+  // A card's mark that ended before an earlier card's would read out of order: it takes a place of its own instead.
+  let last = 0;
   for (const [i, c] of cards.entries()) {
     const r = latest.get(c.number);
-    if (!r || marked.has(r)) continue;
+    if (!r || marked.has(r) || endAt(r) < last) continue;
     under.set(i, r);
     marked.add(r);
+    last = endAt(r);
   }
   // The cards in the order they started, and each release in its own place before the first card that started after
   // it ended or whose own mark ended after it, so the versions read in the order the shop's changed.
