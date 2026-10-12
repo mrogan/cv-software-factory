@@ -24,6 +24,10 @@ spec:
       kind: TraefikService
     - group: traefik.io
       kind: IngressRoute
+    # On the shop's route, so that what the public sends is a visit: it removes the header that keeps the factory's own
+    # requests out of the app's figures.
+    - group: traefik.io
+      kind: Middleware
     - group: ""
       kind: Service
     - group: ""

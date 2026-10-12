@@ -23,6 +23,19 @@ export interface Exchange {
   failure?: 'redirect loop' | 'no answer';
 }
 
+/** Headers a request to the app carries besides the usual, by lower-case name. */
+export type RequestHeaders = Readonly<Record<string, string>>;
+
+/**
+ * The header on the factory's own requests that must not count in what a canary is judged on: the pictures of a
+ * release, and the journeys that compare its versions. The app keeps no record of a request that carries it, in its
+ * request log, request metrics or traces (an error it causes is still logged), so the errors and latency the analysis
+ * reads for each version are the visitors' alone, and the three records still agree. The senses do not send it, so
+ * the objectives still see their requests; nor does the traffic generator, which stands in for the visitors and must
+ * be judged.
+ */
+export const UNMEASURED: RequestHeaders = { 'x-unmeasured': '1' };
+
 /** The headers every exchange records: the few a reviewer of a signal would ask about. */
 const HEADERS = ['content-type', 'cache-control', 'location'] as const;
 
@@ -39,8 +52,11 @@ export async function exchange(
   app: string,
   path: string,
   init: {
-    signal?: AbortSignal /** Headers to keep in the evidence besides the usual. */;
+    signal?: AbortSignal;
+    /** Headers to keep in the evidence besides the usual. */
     record?: readonly string[];
+    /** Headers to send. */
+    headers?: RequestHeaders | undefined;
   } = {},
 ): Promise<Exchange> {
   const recorded = [...new Set([...HEADERS, ...(init.record ?? [])])];
@@ -53,7 +69,11 @@ export async function exchange(
     seen.add(url.href);
     let response: Response;
     try {
-      response = await fetch(url, { redirect: 'manual', signal: init.signal ?? AbortSignal.timeout(15_000) });
+      response = await fetch(url, {
+        redirect: 'manual',
+        signal: init.signal ?? AbortSignal.timeout(15_000),
+        ...(init.headers && { headers: init.headers }),
+      });
     } catch {
       return finish(null, '', null, 'no answer');
     }
@@ -94,8 +114,8 @@ export async function exchange(
 }
 
 /** The version the app says it is running, from its `/version`. */
-export async function versionOf(app: string): Promise<string> {
-  const answer = await exchange(app, '/version');
+export async function versionOf(app: string, headers?: RequestHeaders): Promise<string> {
+  const answer = await exchange(app, '/version', { headers });
   let commit: unknown;
   try {
     commit = (JSON.parse(answer.body) as { commit?: unknown }).commit;

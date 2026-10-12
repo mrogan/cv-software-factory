@@ -14,6 +14,7 @@
  */
 import { request } from 'node:http';
 import type { Logger } from '../log.ts';
+import type { RequestHeaders } from '../senses/http.ts';
 
 /** What the shop answered: its status and the page. */
 export interface Answer {
@@ -158,11 +159,19 @@ export class Traffic {
   }
 }
 
+export interface GetOptions {
+  /** The ingress's address, to connect to in place of the shop's. */
+  ingress?: string | undefined;
+  timeoutMs?: number;
+  /** Sent besides the usual. The traffic generator sends none: it stands in for the visitors, who are judged. */
+  headers?: RequestHeaders | undefined;
+}
+
 /**
  * GETs the shop over HTTP. Given the ingress's address, it connects there and names the shop's host, as a visitor's
  * browser would through DNS: in the cluster the shop's public name is not resolvable, but the ingress is.
  */
-export function httpGet(app: string, ingress?: string, timeoutMs = 10_000): Get {
+export function httpGet(app: string, { ingress, timeoutMs = 10_000, headers }: GetOptions = {}): Get {
   const shop = new URL(app);
   const to = new URL(ingress ?? app);
   return (path) =>
@@ -173,7 +182,7 @@ export function httpGet(app: string, ingress?: string, timeoutMs = 10_000): Get 
           port: to.port || 80,
           path,
           method: 'GET',
-          headers: { host: shop.host, 'user-agent': 'software-factory-traffic' },
+          headers: { 'user-agent': 'software-factory-traffic', ...headers, host: shop.host },
           timeout: timeoutMs,
         },
         (res) => {
