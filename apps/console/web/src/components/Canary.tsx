@@ -46,9 +46,9 @@ function standing(r: Release): [word: string, tone: Tone, dot: string] {
   return r.dryRun ? [`${word}, as the dry run records it`, 'faint', ''] : [word, tone, tone === 'attn' ? 'ring' : ''];
 }
 
-/** A step measured failing: any of its measures, or the analysis as a whole. */
-const failing = (m: Measured) =>
-  m.stepped.analysis.phase === 'failed' || m.stepped.analysis.measures.some((x) => x.phase === 'failed');
+/** A step's verdict: its analysis's phase, or failed when any of its measures failed. */
+const stepPhase = (m: Measured): Phase =>
+  m.stepped.analysis.measures.some((x) => x.phase === 'failed') ? 'failed' : m.stepped.analysis.phase;
 
 /** The steps: a bar that is the canary's share of the traffic, with a stop at each step's weight. */
 function Steps({ r, tone }: { r: Release; tone: Tone }) {
@@ -74,14 +74,11 @@ function Steps({ r, tone }: { r: Release; tone: Tone }) {
               end.kind === 'stopped' ? 'dash' : 'cross',
               `${end.kind === 'stopped' ? 'stopped' : 'rolled back'} here`,
             ];
-          else if (m || (end?.kind === 'promoted' && weight === 100))
-            [cls, t, glyph, how] = r.dryRun
-              ? ['done', 'faint', 'dash', 'recorded']
-              : m && failing(m)
-                ? ['done', 'attn', 'cross', 'failed']
-                : ['done', 'ok', 'check', 'passed'];
-          else if (!end && index === r.step) [cls, how] = ['now', analysis ? 'measuring now' : 'here now'];
-          else if (index < r.step) [cls, how] = ['done', 'passed'];
+          else if (m || (end?.kind === 'promoted' && weight === 100)) {
+            const [word, tone, mark] = VERDICT[r.dryRun ? 'dry' : m ? stepPhase(m) : 'successful'];
+            [cls, t, glyph, how] = ['done', tone, mark, word];
+          } else if (!end && index === r.step) [cls, how] = ['now', analysis ? 'measuring now' : 'here now'];
+          else if (index < r.step) [cls, how] = ['done', analysis ? 'passed' : 'not judged'];
           const held =
             weight === 100
               ? 'all'

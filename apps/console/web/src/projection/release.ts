@@ -90,10 +90,16 @@ function position(r: Building, now: number): Pick<Release, 'step' | 'weight' | '
   let step = 0;
   let from = r.startedAt;
   // A plan may hold a weight twice (a pause, then an analysis): a step measured is the next judged one at its weight.
+  // Only a step that passed moves the canary on: one that could not be judged, or that waits for someone to decide,
+  // holds it there, with no end to wait for.
+  let holding = false;
   for (const m of r.measured) {
     const index = steps.findIndex((s, i) => i >= step && s.analysis && s.weight === m.weight);
-    if (index >= 0) [step, from] = [index + 1, m.at];
+    if (index < 0) continue;
+    holding = m.stepped.analysis.phase !== 'successful';
+    [step, from] = [holding ? index : index + 1, m.at];
   }
+  if (holding) return { step, weight: steps[step]?.weight ?? 100, until: undefined };
   for (let s = steps[step]; s && !s.analysis && s.pauseSeconds !== null; s = steps[step]) {
     if (from + s.pauseSeconds * 1000 > now) break;
     from += s.pauseSeconds * 1000;

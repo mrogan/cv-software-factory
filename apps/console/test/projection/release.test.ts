@@ -146,6 +146,16 @@ describe('a release’s steps', () => {
     expect(r?.items.map((i) => i.number)).toEqual(['1']);
   });
 
+  it('holds at a step the analysis could not judge, or left for someone to decide', () => {
+    for (const phase of ['error', 'inconclusive'] as const) {
+      const one = work('1')
+        .open()
+        .add(1, 'release.started', 'rollouts', started(twoSteps))
+        .add(4, 'canary.stepped', 'rollouts', { ...stepped(25), analysis: { phase, requests: 225, measures: [] } });
+      expect(releases(one.events, [], one.at(9))[0]).toMatchObject({ step: 0, weight: 25, until: undefined });
+    }
+  });
+
   it('stops only the newest release with the line, not one a newer release left behind', () => {
     const one = work('1')
       .open()
