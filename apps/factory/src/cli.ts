@@ -15,6 +15,7 @@ import * as line from './commands/line.ts';
 import * as logs from './commands/logs.ts';
 import * as probes from './commands/probes.ts';
 import * as reviews from './commands/reviews.ts';
+import * as scoreboard from './commands/scoreboard.ts';
 import * as traffic from './commands/traffic.ts';
 import * as triage from './commands/triage.ts';
 
@@ -34,6 +35,7 @@ const GROUPS: Record<string, Group> = {
   logs,
   probes,
   reviews,
+  scoreboard,
   traffic,
   triage,
 };

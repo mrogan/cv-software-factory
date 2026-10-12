@@ -689,6 +689,28 @@ export const PAYLOADS = {
     z.strictObject({ cap: z.enum(['day', 'month']) }),
     z.strictObject({ cap: z.literal('provider'), provider: z.enum(V.MODEL_PROVIDERS) }),
   ]),
+  /**
+   * The scoreboard's figures (spec section 3.2), when one changes: how many of the answer key's entries tickets have
+   * found, how many are verified fixed, and the median time from a found entry's first signal to its verified fix.
+   * Never which ticket found which entry. Without an answer key the scoreboard is off, and says so once.
+   */
+  'score.updated': z.union([
+    z
+      .strictObject({
+        keyed: z.literal(true),
+        /** The answer key's entries. */
+        entries: count,
+        /** Entries a ticket has found, counted on the scoreboard's slow cadence (`policy/scoreboard.ts`). */
+        found: count,
+        /** Entries a ticket that found them is verified fixed, now. */
+        verified: count,
+        /** The median, over verified entries, from a ticket's first signal to its verified close; null before one. */
+        medianMs: count.nullable(),
+      })
+      .refine((s) => s.verified <= s.found && s.found <= s.entries, 'verified ≤ found ≤ entries')
+      .refine((s) => (s.medianMs === null) === (s.verified === 0), 'a median exactly when an entry is verified'),
+    z.strictObject({ keyed: z.literal(false) }),
+  ]),
 } satisfies { [K in EventType]: z.ZodType };
 
 /** The envelope of an event about to be appended: everything but `seq` and `public`, which the store adds. */

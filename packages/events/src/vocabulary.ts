@@ -105,6 +105,7 @@ export const ACTORS = [
   'rollouts',
   'dependabot',
   'factory',
+  'scoreboard',
 ] as const;
 export type Actor = (typeof ACTORS)[number];
 

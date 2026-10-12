@@ -62,9 +62,25 @@ const LINE_STARTED: NewEvent<'line.started'> = {
   artifacts: [],
 };
 
+/**
+ * The scoreboard's figures after the last fix the samples verify: the four verified tickets, each counted as an entry
+ * of an invented answer key, with the median of their times from first signal to verified close.
+ */
+const SCORE_UPDATED: NewEvent<'score.updated'> = {
+  id: uuidFor('line/score'),
+  ts: '2026-10-03T09:37:12.000Z',
+  work_item: null,
+  type: 'score.updated',
+  version: 1,
+  actor: 'scoreboard',
+  summary: 'The scoreboard: 8 of 30 found, 4 verified fixed',
+  payload: { keyed: true, entries: 30, found: 8, verified: 4, medianMs: 1_245_500 },
+  artifacts: [],
+};
+
 /** Every sample event in the order it happened. Events at the same moment keep the order they were written in. */
 export function sampleEvents(): NewEvent[] {
-  const all = [LINE_STARTED, ...ITEMS.flatMap((item) => item.events)];
+  const all = [LINE_STARTED, SCORE_UPDATED, ...ITEMS.flatMap((item) => item.events)];
   return all
     .map((event, order) => ({ event, order }))
     .sort((a, b) => Date.parse(a.event.ts) - Date.parse(b.event.ts) || a.order - b.order)
