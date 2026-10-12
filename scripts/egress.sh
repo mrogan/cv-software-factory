@@ -319,31 +319,54 @@ expect "the scoreboard cannot reach the metadata address" scoreboard:deployment/
 expect "the scoreboard cannot reach GitHub" scoreboard:deployment/scoreboard https://api.github.com blocked
 expect "the scoreboard cannot reach a public address" scoreboard:deployment/scoreboard https://1.1.1.1 blocked
 
-# Who may read the scoreboard's Secrets, or reach them through a pod: start one beside them that would mount them, run
-# a command in the scoreboard's, add a debug container to it, or change what it runs. No service account in the
-# namespaces the factory, the app, the telemetry, Argo Rollouts and Kyverno run in, the scoreboard's own included, but
-# Argo Rollouts' controller, which reads Secrets in every namespace for its analyses' credentials, as a controller of
-# the whole cluster must. Argo CD's controllers, which deploy everything, and the cluster's own, in `kube-system`, may
-# too, as they may every Secret; neither namespace runs anything of ours.
+# Who may read the scoreboard's Secrets, or reach them another way: start a pod or a workload beside them that would
+# mount them, change one that runs there, run a command in the scoreboard's pod or add a debug container to it, or
+# give itself any of these rights (a role or binding there or cluster-wide, `bind` or `escalate`, impersonation). Every
+# service account in the namespaces the factory, the app, the telemetry, Argo Rollouts and Kyverno run in is asked of
+# the API server, the scoreboard's own included.
+#
+# Argo Rollouts' controller runs the app's canaries from a cluster-wide install, whose role reads Secrets everywhere,
+# for its analyses' credentials, and makes and changes ReplicaSets, Jobs and pods' templates wherever a Rollout is. It
+# keeps those rights, and only those: a pod it changed in `scoreboard` would still have to run the factory's own signed
+# image (`scoreboard-images`). Argo CD's controllers, which deploy everything, and the cluster's own, in `kube-system`,
+# may read every Secret, as they must; neither namespace runs anything of ours.
+rights=(
+  "get secrets" "list secrets" "watch secrets"
+  "create pods" "patch pods" "update pods" "create pods/exec" "create pods/attach"
+  "patch pods/ephemeralcontainers" "update pods/ephemeralcontainers"
+)
+for kind in deployments.apps replicasets.apps statefulsets.apps daemonsets.apps jobs.batch cronjobs.batch; do
+  rights+=("create $kind" "patch $kind" "update $kind")
+done
+for kind in roles rolebindings clusterroles clusterrolebindings; do
+  rights+=("create $kind.rbac.authorization.k8s.io" "patch $kind.rbac.authorization.k8s.io"
+    "update $kind.rbac.authorization.k8s.io")
+done
+rights+=("bind roles.rbac.authorization.k8s.io" "escalate roles.rbac.authorization.k8s.io"
+  "bind clusterroles.rbac.authorization.k8s.io" "escalate clusterroles.rbac.authorization.k8s.io"
+  "impersonate serviceaccounts" "impersonate users" "impersonate groups")
+rollouts_needs=" get secrets | list secrets | watch secrets | update pods | create replicasets.apps |
+  patch replicasets.apps | update replicasets.apps | update deployments.apps | create jobs.batch | patch jobs.batch |
+  update jobs.batch "
 echo "The scoreboard's Secrets:"
-readable=0
+asks=()
 for ns in factory runners website scoreboard telemetry argo-rollouts kyverno; do
   for account in $(kubectl --context "$context" -n "$ns" get serviceaccounts -o jsonpath='{.items[*].metadata.name}'); do
-    if [ "$ns/$account" = argo-rollouts/argo-rollouts ]; then continue; fi
-    for right in "get secrets" "list secrets" "watch secrets" "create pods" "create pods/exec" "create pods/attach" \
-      "patch pods/ephemeralcontainers" "update pods/ephemeralcontainers" "create deployments.apps" \
-      "patch deployments.apps" "update deployments.apps" "create replicasets.apps" "create statefulsets.apps" \
-      "create daemonsets.apps" "create jobs.batch" "create cronjobs.batch"; do
-      # `can-i` answers no with exit status 1, and fails otherwise: only its own answer counts.
-      answer=$(kubectl --context "$context" -n scoreboard auth can-i $right --as "system:serviceaccount:$ns:$account" \
-        2>/dev/null) || true
-      if [ "$answer" = no ]; then continue; fi
-      printf '  FAIL  %-62s %s\n' "$ns/$account may $right in scoreboard" "${answer:-no answer}"
-      readable=1
+    for right in "${rights[@]}"; do
+      if [ "$ns/$account" = argo-rollouts/argo-rollouts ] && [[ "$rollouts_needs" == *" $right "* ]]; then continue; fi
+      asks+=("$ns $account $right")
     done
   done
 done
-if [ "$readable" = 1 ]; then failed=1; else echo "  ok    no service account of ours, nor a chart's but Argo Rollouts', may read them"; fi
+# Many questions, so several at once. `can-i` answers no with exit status 1, and fails otherwise: only its own answer
+# counts, and anything but "no" is printed.
+answers=$(printf '%s\n' "${asks[@]}" | xargs -P 16 -L 1 bash -c '
+  answer=$(kubectl --context "$0" -n scoreboard auth can-i "$3" "$4" --as "system:serviceaccount:$1:$2" 2>/dev/null) || true
+  if [ "$answer" != no ]; then printf "  FAIL  %-62s %s\n" "$1/$2 may $3 $4 in scoreboard" "${answer:-no answer}"; fi
+' "$context")
+if [ -n "$answers" ]; then echo "$answers"; failed=1; else
+  printf '  ok    %s\n' "no service account may reach them, and Argo Rollouts' controller only as its canaries need"
+fi
 
 if [ "$failed" = 0 ]; then
   echo "Only the gateway, the GitHub worker and Kyverno's admission controller leave the cluster; the runners, the release,"
