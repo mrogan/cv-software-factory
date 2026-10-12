@@ -49,7 +49,7 @@ describe('validation', () => {
     const started = {
       ...opened,
       type: 'release.started',
-      version: 2,
+      version: 3,
       actor: 'rollouts',
       payload: {
         release: '6d8f9c7b54',
@@ -58,6 +58,10 @@ describe('validation', () => {
         commit: 'a'.repeat(40),
         image: { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true },
         watched: true,
+        steps: [
+          { weight: 25, pauseSeconds: 180, analysis: true },
+          { weight: 50, pauseSeconds: 180, analysis: true },
+        ],
         dryRun: false,
       },
     };
@@ -66,6 +70,7 @@ describe('validation', () => {
     const stepped = {
       ...started,
       type: 'canary.stepped',
+      version: 2,
       payload: {
         release: '6d8f9c7b54',
         version: 'v0.9.4',
@@ -101,9 +106,10 @@ describe('validation', () => {
       previous: 'v0.9.3',
       image: { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true },
       watched: true,
+      steps: [{ weight: 25, pauseSeconds: 60, analysis: true }],
       dryRun: true,
     };
-    const event = { ...opened, type: 'release.started', version: 2, actor: 'factory', payload: dry };
+    const event = { ...opened, type: 'release.started', version: 3, actor: 'factory', payload: dry };
     expect(validate(event)).toEqual({ ok: true });
     expect(validate({ ...event, payload: { ...dry, dryRun: false } })).toEqual({
       ok: false,
@@ -115,6 +121,30 @@ describe('validation', () => {
         payload: { ...dry, image: { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true } },
       }).ok,
     ).toBe(false);
+  });
+
+  it('records a release’s steps as weights held for a while, or none when they are not known', () => {
+    const payload = {
+      release: '6d8f9c7b54',
+      version: 'v0.9.4',
+      previous: 'v0.9.3',
+      image: { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true },
+      watched: true,
+      steps: null,
+      dryRun: false,
+    };
+    const event = { ...opened, type: 'release.started', version: 3, actor: 'rollouts', payload };
+    expect(validate(event)).toEqual({ ok: true });
+    const withSteps = (steps: unknown) => validate({ ...event, payload: { ...payload, steps } }).ok;
+    // A pause with no duration waits for someone to promote the canary. A step is at 1% at the least, as its verdict is.
+    expect(withSteps([{ weight: 1, pauseSeconds: null, analysis: false }])).toBe(true);
+    expect(withSteps([{ weight: 0, pauseSeconds: 0, analysis: false }])).toBe(false);
+    expect(withSteps([{ weight: 101, pauseSeconds: 0, analysis: false }])).toBe(false);
+    expect(withSteps([{ weight: 25, pauseSeconds: -1, analysis: false }])).toBe(false);
+    expect(withSteps([{ weight: 25, pauseSeconds: 60 }])).toBe(false);
+    expect(withSteps(Array.from({ length: 21 }, () => ({ weight: 25, pauseSeconds: 0, analysis: false })))).toBe(false);
+    const { steps: _, ...v2 } = payload;
+    expect(validate({ ...event, payload: v2 }).ok).toBe(false);
   });
 
   it('keeps spend caps on the line', () => {
@@ -318,6 +348,28 @@ describe('public views', () => {
     expect(view).toContain('FAIL test/money.test.ts');
   });
 
+  it('keep a release’s steps, which the console draws the canary by', () => {
+    const steps = [
+      { weight: 25, pauseSeconds: 180, analysis: true },
+      { weight: 50, pauseSeconds: 180, analysis: true },
+    ];
+    const payload = {
+      release: '6d8f9c7b54',
+      version: 'v0.9.4',
+      previous: 'v0.9.3',
+      image: { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true },
+      watched: true,
+      steps,
+      dryRun: false,
+    };
+    const view = publicView('release.started', {
+      summary: 'v0.9.4 signed and admitted; canary started',
+      payload,
+      artifacts: [],
+    });
+    expect(view.payload.steps).toEqual(steps);
+  });
+
   it('change nothing the second time', () => {
     for (const event of [opened, signal, judgement, gate]) {
       const once = viewOf(event);
@@ -496,6 +548,23 @@ describe('upcasting the real catalogue', () => {
     }
   });
 
+  it('reads version 2 of release.started as a release whose steps are not known', () => {
+    const payload = {
+      release: '6d8f9c7b54',
+      version: 'v0.9.4',
+      previous: 'v0.9.3',
+      image: { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true },
+      watched: true,
+      dryRun: false,
+    };
+    const read = upcast({ type: 'release.started', version: 2, payload });
+    expect(read).toEqual({
+      ok: true,
+      event: { type: 'release.started', version: 3, payload: { ...payload, steps: null } },
+    });
+    expect(read.ok && validate(asNew(read.event))).toEqual({ ok: true });
+  });
+
   it('reads version 1 of a release’s events as a watched release that shipped, told apart by its version', () => {
     const digest = `sha256:${'c'.repeat(64)}`;
     const started = { version: 'v0.9.1', previous: 'v0.9.0', digest, signed: true, admitted: true };
@@ -504,13 +573,14 @@ describe('upcasting the real catalogue', () => {
       ok: true,
       event: {
         type: 'release.started',
-        version: 2,
+        version: 3,
         payload: {
           release: 'v0.9.1',
           version: 'v0.9.1',
           previous: 'v0.9.0',
           image: { digest, signed: true, admitted: true },
           watched: true,
+          steps: null,
           dryRun: false,
         },
       },

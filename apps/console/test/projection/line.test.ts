@@ -184,6 +184,7 @@ describe('a station’s figure', () => {
         previous: 'v1.0.0',
         image: { digest: `sha256:${'b'.repeat(64)}`, signed: true, admitted: true },
         watched: true,
+        steps: null,
         dryRun: false,
       })
       .add(2, 'canary.stepped', 'rollouts', {

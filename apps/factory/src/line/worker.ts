@@ -687,7 +687,10 @@ export class Line {
       const taken = await pictures.of(promoted.version, promoted.previous);
       if (!taken.length) return { pages: [], artifacts: [] };
       const look = first && (await pictures.lookOf(first.sense, first.check, first.route));
-      const shown = pagesFor(taken, { route: first?.route ?? '*', ...(look && { path: look.path }) });
+      const shown = pagesFor(taken, {
+        route: first?.route ?? '*',
+        ...(look && { path: look.path, selectors: look.elements.map((e) => e.selector) }),
+      });
       if (first && !shown.pages.some((p) => p.intended)) {
         this.#o.log.info({ release: promoted.release, route: first.route }, 'no page pictured is the ticket’s own');
       }

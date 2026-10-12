@@ -27,7 +27,7 @@ export const VERSIONS = {
   'review.submitted': 3,
   'pull-request.merged': 1,
   // Release and verify
-  'release.started': 2,
+  'release.started': 3,
   'canary.stepped': 2,
   'release.promoted': 2,
   'release.rolled-back': 2,
