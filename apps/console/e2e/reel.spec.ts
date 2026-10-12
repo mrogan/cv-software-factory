@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test';
-import { consoleUrl, END, expect, ready, test } from './support.ts';
+import { consoleUrl, END, expect, ready, test, WIDTHS } from './support.ts';
 
 const renders = (page: Page) =>
   page.evaluate(() => (globalThis as { sfRenders?: { reel: number } }).sfRenders?.reel ?? -1);
@@ -232,3 +232,33 @@ test.describe('playing the history on first view', () => {
     await expect(count).toHaveText('18 of 25', { timeout: 6000 });
   });
 });
+
+/**
+ * The timeline's version labels never touch: where two would, one is thinned to a hairline, and the centre card's
+ * and the shop's version now keep their labels. At every width, at rest on the latest card, a rollback's (#1276) and a release's own (#1306).
+ */
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, the timeline's versions`, () => {
+    test.use({ viewport });
+
+    for (const item of [undefined, '1276', '1306']) {
+      test(`never touch, with ${item ? `#${item}` : 'the latest'} at the centre`, async ({ page }) => {
+        await page.goto(consoleUrl({ item }));
+        await ready(page);
+        const labels = await page.locator('.rail .ver').evaluateAll((marks) =>
+          marks.map((m) => {
+            const { left, right, width } = m.getBoundingClientRect();
+            const [here, now] = [m.classList.contains('here'), m.classList.contains('now')];
+            return { text: m.textContent, left, right, shown: width > 1, here, now };
+          }),
+        );
+        const shown = labels.filter((l) => l.shown).sort((a, b) => a.left - b.left);
+        for (const [a, b] of shown.slice(1).map((b, i) => [shown[i], b] as const))
+          expect(b.left, `${a?.text} touches ${b.text}`).toBeGreaterThan(a?.right ?? 0);
+        for (const here of labels.filter((l) => l.here)) expect(here.shown, `${here.text} at the centre`).toBe(true);
+        // The version the shop is on keeps its label too, wherever the timeline shows more than the centre's.
+        if (width !== 'phone') expect(labels.find((l) => l.now)?.shown, 'the shop’s version now').toBe(true);
+      });
+    }
+  });
+}

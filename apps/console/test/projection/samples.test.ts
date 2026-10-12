@@ -88,7 +88,9 @@ describe('the samples, projected', () => {
   });
 
   it('strike through a version that was rolled back, on the timeline', () => {
-    expect(view.timeline.versions).toContainEqual({ index: 5, version: 'v0.9.1', rolledBack: true });
+    expect(view.timeline.versions).toContainEqual(
+      expect.objectContaining({ card: 5, version: 'v0.9.1', rolledBack: true }),
+    );
     expect(view.timeline.days).toHaveLength(8);
   });
 

@@ -98,7 +98,7 @@ export function project(events: readonly PublicEvent[], t: number): View {
     ) as Record<Stage, StagePanel>,
     canary: canaryView(shipped, t),
     cards,
-    timeline: timeline(cards),
+    timeline: timeline(cards, shipped),
   };
 }
 

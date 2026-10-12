@@ -51,6 +51,8 @@ interface Drag {
 export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProps) {
   renders.reel++;
   const { cards, timeline } = view;
+  /** The version the shop is on: the last mark not struck through. */
+  const shopNow = timeline.versions.findLastIndex((v) => !v.rolledBack);
   const n = cards.length;
   const reel = useRef<HTMLElement>(null);
   const rail = useRef<HTMLDivElement>(null);
@@ -64,7 +66,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   const drag = useRef<Drag | undefined>(undefined);
   const scrubbing = useRef(false);
   // A live console's clock ticks every ten seconds, and each tick brings a new timeline with the same positions.
-  // Keyed on the positions themselves, the drawing changes only when a card is added.
+  // Keyed on the positions themselves, the drawing changes only when a card is added or a release takes a place.
   const positionsKey = timeline.positions.join(' ');
   // biome-ignore lint/correctness/useExhaustiveDependencies: the key stands for the positions
   const positions = useMemo(() => timeline.positions, [positionsKey]);
@@ -117,12 +119,40 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     if (title && outcome) setAnnouncement(`${centre + 1} of ${n}: ${title}. ${OUTCOME[outcome][0]}.`);
   }, [centre, n, title, outcome]);
 
+  /**
+   * Version labels that would touch are thinned to a hairline: the centre card's keeps its label, then the one the
+   * shop is on now, then rollbacks and stops, then those nearest the centre. Measured where the reel rests and when the width changes.
+   */
+  const thin = useCallback(() => {
+    const marks = [...(rail.current?.querySelectorAll<HTMLElement>('.ver') ?? [])];
+    for (const mark of marks) mark.classList.remove('thin');
+    const here = (positions[centre] ?? 0) * 100;
+    const kept: DOMRect[] = [];
+    const rank = (m: HTMLElement) =>
+      (m.classList.contains('here')
+        ? 0
+        : m.classList.contains('now')
+          ? 100
+          : m.classList.contains('burnt')
+            ? 200
+            : 400) + Math.abs(Number.parseFloat(m.style.left) - here);
+    for (const mark of marks.sort((a, b) => rank(a) - rank(b))) {
+      const box = mark.getBoundingClientRect();
+      if (!box.width) continue;
+      if (kept.some((k) => box.left < k.right + 4 && k.left < box.right + 4)) mark.classList.add('thin');
+      else kept.push(box);
+    }
+  }, [centre, positions]);
+  // After every render, which a drag never causes.
+  useLayoutEffect(thin);
+
   // The tallest card sets the reel's height, once fonts have loaded and whenever the width changes.
   useEffect(() => {
     const fit = () => {
       const tallest = Math.max(0, ...elements.current.map((el) => el?.offsetHeight ?? 0));
       if (reel.current) reel.current.style.height = `${tallest + 12}px`;
       layout(position.current);
+      thin();
     };
     fit();
     void document.fonts?.ready.then(fit);
@@ -133,7 +163,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     };
     addEventListener('resize', resize);
     return () => removeEventListener('resize', resize);
-  }, [layout]);
+  }, [layout, thin]);
 
   const settle = useCallback(
     (p: number) => {
@@ -384,12 +414,8 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
         onKeyDown={onKeyDown}
       >
         <span className="track" />
-        {timeline.days.map(({ index, day }) => (
-          <span
-            key={day}
-            className="day"
-            style={{ left: `calc(${(positions[index] ?? 0) * 100}% - 20px)` } as CSSProperties}
-          >
+        {timeline.days.map(({ at, day }) => (
+          <span key={day} className="day" style={{ left: `calc(${at * 100}% - 20px)` } as CSSProperties}>
             {dayLabel(day)}
           </span>
         ))}
@@ -403,11 +429,11 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
             <Glyph name={card.category} />
           </span>
         ))}
-        {timeline.versions.map(({ index, version, rolledBack }) => (
+        {timeline.versions.map(({ at, card, version, rolledBack }, i) => (
           <span
-            key={`${version}-${index}`}
-            className={`ver ${rolledBack ? 'burnt' : ''} ${index === centre ? 'here' : ''}`}
-            style={{ left: `${(positions[index] ?? 0) * 100}%` }}
+            key={`${version}-${at}`}
+            className={`ver ${rolledBack ? 'burnt' : ''} ${card === centre ? 'here' : ''} ${i === shopNow ? 'now' : ''}`}
+            style={{ left: `${at * 100}%` }}
           >
             {shortVersion(version)}
           </span>

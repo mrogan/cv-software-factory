@@ -5,8 +5,8 @@
  * with tickets waiting and with a spend cap, Triage's panel, a ticket's and a quarantined report's sheets, and an
  * empty store for real events. Milestone 5's come from the samples: a card for each wait and hold, Review's panel,
  * and a fix's spec, rounds, review, gates and models, the sheet in Ink too. Milestone 6's come from the samples too:
- * the Canary panel in each state, a reopened card and one waiting for Martin's deploy, a sheet's releases, and the
- * scrubber for work that goes round three times.
+ * the Canary panel in each state, a reopened card and one waiting for Martin's deploy, a sheet's releases, the
+ * scrubber for work that goes round three times, and the timeline's versions, a release with no work item's among them.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -329,6 +329,12 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         await expect(part).toHaveScreenshot(`m06-sheet-release-${state}-${width}.png`);
       });
     }
+
+    test('the timeline, with the versions of releases that carry no work item', async ({ page }) => {
+      await page.goto(consoleUrl({ item: '1306' }));
+      await ready(page);
+      await expect(page.locator('.rail')).toHaveScreenshot(`m06-timeline-${width}.png`);
+    });
 
     test('a sheet’s scrubber, for work that goes round three times', async ({ page }) => {
       const { section } = await sheetParts(page, '1306');

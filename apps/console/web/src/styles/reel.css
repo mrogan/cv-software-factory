@@ -314,6 +314,17 @@
 .rail .ver.burnt {
   text-decoration: line-through;
 }
+/* A label that would touch another, as a hairline: warm for a rollback or a stop. */
+.rail .ver.thin {
+  width: 1px;
+  height: 7px;
+  margin-top: 4px;
+  font-size: 0;
+  background: var(--text-muted);
+}
+.rail .ver.thin.burnt {
+  background: var(--attn);
+}
 .playhead {
   position: absolute;
   top: 22px;
