@@ -117,12 +117,35 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     if (title && outcome) setAnnouncement(`${centre + 1} of ${n}: ${title}. ${OUTCOME[outcome][0]}.`);
   }, [centre, n, title, outcome]);
 
+  /**
+   * Version labels that would touch are thinned to a hairline: the centre card's keeps its label, then rollbacks and
+   * stops, then those nearest the centre. Measured where the reel rests and when the width changes.
+   */
+  const thin = useCallback(() => {
+    const marks = [...(rail.current?.querySelectorAll<HTMLElement>('.ver') ?? [])];
+    for (const mark of marks) mark.classList.remove('thin');
+    const here = (positions[centre] ?? 0) * 100;
+    const kept: DOMRect[] = [];
+    const rank = (m: HTMLElement) =>
+      (m.classList.contains('here') ? 0 : m.classList.contains('burnt') ? 200 : 400) +
+      Math.abs(Number.parseFloat(m.style.left) - here);
+    for (const mark of marks.sort((a, b) => rank(a) - rank(b))) {
+      const box = mark.getBoundingClientRect();
+      if (!box.width) continue;
+      if (kept.some((k) => box.left < k.right + 4 && k.left < box.right + 4)) mark.classList.add('thin');
+      else kept.push(box);
+    }
+  }, [centre, positions]);
+  // After every render, which a drag never causes.
+  useLayoutEffect(thin);
+
   // The tallest card sets the reel's height, once fonts have loaded and whenever the width changes.
   useEffect(() => {
     const fit = () => {
       const tallest = Math.max(0, ...elements.current.map((el) => el?.offsetHeight ?? 0));
       if (reel.current) reel.current.style.height = `${tallest + 12}px`;
       layout(position.current);
+      thin();
     };
     fit();
     void document.fonts?.ready.then(fit);
@@ -133,7 +156,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     };
     addEventListener('resize', resize);
     return () => removeEventListener('resize', resize);
-  }, [layout]);
+  }, [layout, thin]);
 
   const settle = useCallback(
     (p: number) => {
