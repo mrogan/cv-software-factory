@@ -1,5 +1,5 @@
 /** An improvement Martin asked for: specified, approved, built behind a flag and verified in production. */
-import { commitFor, Item, promoted, started, stepped } from '../build.ts';
+import { commitFor, Item } from '../build.ts';
 import { shot } from '../captures.ts';
 
 export default new Item('1271', '2026-10-01T10:05:00+01:00')
@@ -75,24 +75,23 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
     commit: commitFor('1271/merge'),
     by: 'factory',
   })
-  .at('20:30', 'release.started', 'rollouts', 'v0.9.0 signed and admitted; canary at 25%', started('v0.9.0', 'v0.8.5'))
-  .at(
-    '22:00',
-    'canary.stepped',
-    'rollouts',
-    'Canary at 25%: every check passing',
-    stepped('v0.9.0', 25, {
-      errorRate: { canary: 0.002, baseline: 0.0021 },
-      p99Ms: { canary: 130, baseline: 132 },
-      journeys: { canary: [24, 24], baseline: [24, 24] },
-    }),
-  )
-  .at(
-    '24:05',
-    'release.promoted',
-    'rollouts',
-    'v0.9.0 promoted to 100%, and the last-one flag switched on',
-    promoted('v0.9.0', 'v0.8.5'),
+  .released(
+    '20:30',
+    'v0.9.0',
+    'v0.8.5',
+    [
+      {
+        errorRate: { canary: 0.002, baseline: 0.0021 },
+        p99Ms: { canary: 130, baseline: 132 },
+        journeys: { canary: [24, 24], baseline: [24, 24] },
+      },
+      {
+        errorRate: { canary: 0.0021, baseline: 0.002 },
+        p99Ms: { canary: 131, baseline: 132 },
+        journeys: { canary: [24, 24], baseline: [24, 24] },
+      },
+    ],
+    { promotion: 'v0.9.0 promoted to 100%, and the last-one flag switched on' },
   )
   .verify('31:20', 'The acceptance criteria pass in production', {
     check: 'Acceptance criteria, in production',

@@ -13,6 +13,7 @@ import {
   emptyStore,
   expect,
   fixtureUrl,
+  MERGE_WAITING,
   picturesDecodeAsDrawn,
   picturesShown,
   ready,
@@ -200,14 +201,17 @@ test.describe('the line in Ink, sensing and triage', () => {
   });
 });
 
-/** Milestone 5's states, from the samples: a card for each wait and hold, and a merge waiting for a release. */
-const FIXING = {
-  'merge-wait': '1311',
-  'held-scope': '1315',
-  'held-tests-first': '1317',
-  'held-spend': '1319',
-  'held-still-blocking': '1323',
-  merged: '1304',
+/**
+ * Milestone 5's states, from the samples: a card for each wait and hold, and a merge waiting for a release, which is a
+ * dry run's now that every other merge waits for Martin's deploy.
+ */
+const FIXING: Record<string, { item: string; at?: number }> = {
+  'merge-wait': { item: '1311' },
+  'held-scope': { item: '1315' },
+  'held-tests-first': { item: '1317' },
+  'held-spend': { item: '1319' },
+  'held-still-blocking': { item: '1323' },
+  merged: { item: '1310', at: MERGE_WAITING },
 };
 
 /** A fix's sheet, a part at a time: the parts below the fold are the new ones. */
@@ -227,9 +231,9 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
   test.describe(`${width}, fixing`, () => {
     test.use({ viewport });
 
-    for (const [state, item] of Object.entries(FIXING)) {
+    for (const [state, { item, at }] of Object.entries(FIXING)) {
       test(`a card: ${state}`, async ({ page }) => {
-        await page.goto(consoleUrl({ item }));
+        await page.goto(consoleUrl({ item, ...(at && { at }) }));
         await ready(page);
         const card = page.locator('.card[data-place="centre"]');
         await card.scrollIntoViewIfNeeded();

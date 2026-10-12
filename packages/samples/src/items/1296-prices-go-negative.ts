@@ -1,5 +1,5 @@
-/** A defect a visitor injected from the menu: noticed in four minutes, fixed and verified in sixteen. */
-import { commitFor, Item, promoted, started, stepped, traceFor } from '../build.ts';
+/** A defect a visitor injected from the menu: noticed in four minutes, fixed and verified in twenty-one. */
+import { commitFor, Item, traceFor } from '../build.ts';
 import { shot } from '../captures.ts';
 
 export default new Item('1296', '2026-10-03T09:02:00+01:00')
@@ -72,34 +72,34 @@ export default new Item('1296', '2026-10-03T09:02:00+01:00')
     commit: commitFor('1296/merge'),
     by: 'factory',
   })
-  .at('12:40', 'release.started', 'rollouts', 'v0.9.5 signed and admitted; canary at 25%', started('v0.9.5', 'v0.9.4'))
-  .at(
-    '13:30',
-    'canary.stepped',
-    'rollouts',
-    'Canary at 25%: every price above zero on the canary',
-    stepped('v0.9.5', 25, {
+  .released('12:20', 'v0.9.5', 'v0.9.4', [
+    {
+      summary: 'Canary at 25%: every price above zero on the canary',
       errorRate: { canary: 0.0019, baseline: 0.0021 },
       p99Ms: { canary: 129, baseline: 131 },
       journeys: { canary: [24, 24], baseline: [23, 24] },
-    }),
-    [shot('published/home-sundries', 'v0.9.5')],
-  )
-  .at('13:40', 'release.promoted', 'rollouts', 'v0.9.5 promoted to 100%', promoted('v0.9.5', 'v0.9.4'))
-  .verify('16:05', 'Every price above zero on every page; every page matches v0.9.3, before the injection', {
+      artifacts: [shot('published/home-sundries', 'v0.9.5')],
+    },
+    {
+      errorRate: { canary: 0.002, baseline: 0.0021 },
+      p99Ms: { canary: 130, baseline: 132 },
+      journeys: { canary: [24, 24], baseline: [23, 24] },
+    },
+  ])
+  .verify('20:50', 'Every price above zero on every page; every page matches v0.9.3, before the injection', {
     check: 'Every price above zero, on every page',
     against: 'v0.9.3',
     version: 'v0.9.5',
     marked: shot('published/home-fixed', 'v0.9.5'),
   })
-  .at('16:06', 'work-item.closed', 'factory', 'Closed: verified', {
+  .at('20:51', 'work-item.closed', 'factory', 'Closed: verified', {
     outcome: 'verified',
     reason: 'Every price is above zero, and every page matches the version before the injection',
   })
-  .at('16:07', 'work-item.summarised', 'factory', 'Summary written', {
+  .at('20:52', 'work-item.summarised', 'factory', 'Summary written', {
     title: 'Prices go negative',
     description:
-      'Injected from the menu at 09:02. A probe saw £-6.00 four minutes later; the fix was live and verified sixteen minutes after injection.',
+      'Injected from the menu at 09:02. A probe saw £-6.00 four minutes later; the fix was live and verified twenty-one minutes after injection.',
     story:
-      'A visitor chose “Prices go negative” from the Inject a defect menu. The injector sent the change through the normal pipeline, and it went live as v0.9.4. A minute later the home journey saw the stopped clock priced at £-6.00 in this week’s sundries. Triage opened a ticket with the screenshot, the planner wrote a spec, and the coder wrote a failing test before the fix. The fix went out as v0.9.5, and sixteen minutes after the injection every page matched the version before it.',
+      'A visitor chose “Prices go negative” from the Inject a defect menu. The injector sent the change through the normal pipeline, and it went live as v0.9.4. A minute later the home journey saw the stopped clock priced at £-6.00 in this week’s sundries. Triage opened a ticket with the screenshot, the planner wrote a spec, and the coder wrote a failing test before the fix. The fix went out as v0.9.5, and twenty-one minutes after the injection every page matched the version before it.',
   });

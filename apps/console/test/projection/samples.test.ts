@@ -9,13 +9,13 @@ const card = (number: string) => view.cards.find((c) => c.number === number);
 describe('the samples, projected', () => {
   it('show every outcome', () => {
     expect(new Set(view.cards.map((c) => c.outcome))).toEqual(
-      new Set(['verified', 'rolled-back', 'held', 'closed', 'no-ticket', 'needs-you', 'merged', 'in-progress']),
+      new Set(['verified', 'rolled-back', 'held', 'closed', 'no-ticket', 'needs-you', 'waiting', 'in-progress']),
     );
   });
 
   it('show every picture in the design system’s table', () => {
-    expect(new Set(view.cards.map((c) => c.picture.type))).toEqual(
-      new Set([
+    expect([...new Set(view.cards.map((c) => c.picture.type))]).toEqual(
+      expect.arrayContaining([
         ...['wipe', 'metric', 'logs', 'package', 'scan', 'rollback', 'refusal', 'judgement', 'spec', 'http'],
         ...['merge', 'scope', 'tests-pass', 'spend', 'blocking'],
       ]),
@@ -115,6 +115,7 @@ describe('a sheet', () => {
       'GATES',
       'REVIEW',
       'MERGED',
+      'CANARY',
       'CANARY',
       'ROLLED OUT',
       'VERIFIED',

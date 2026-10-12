@@ -1,5 +1,5 @@
 /** A minor update from Dependabot: through every gate and the canary, and no page changed. */
-import { commitFor, Item, promoted, started, stepped } from '../build.ts';
+import { commitFor, Item } from '../build.ts';
 
 export default new Item('1262', '2026-09-29T09:30:00+01:00')
   .at('0:00', 'work-item.opened', 'dependabot', 'Dependabot proposed pino 10.4.0', {
@@ -40,19 +40,18 @@ export default new Item('1262', '2026-09-29T09:30:00+01:00')
     commit: commitFor('1262/merge'),
     by: 'factory',
   })
-  .at('14:30', 'release.started', 'rollouts', 'v0.8.4 signed and admitted; canary at 25%', started('v0.8.4', 'v0.8.3'))
-  .at(
-    '16:30',
-    'canary.stepped',
-    'rollouts',
-    'Canary at 25%: every check passing',
-    stepped('v0.8.4', 25, {
+  .released('14:30', 'v0.8.4', 'v0.8.3', [
+    {
       errorRate: { canary: 0.0021, baseline: 0.0022 },
       p99Ms: { canary: 133, baseline: 136 },
       journeys: { canary: [24, 24], baseline: [24, 24] },
-    }),
-  )
-  .at('19:40', 'release.promoted', 'rollouts', 'v0.8.4 promoted to 100%', promoted('v0.8.4', 'v0.8.3'))
+    },
+    {
+      errorRate: { canary: 0.002, baseline: 0.0023 },
+      p99Ms: { canary: 134, baseline: 135 },
+      journeys: { canary: [24, 24], baseline: [24, 24] },
+    },
+  ])
   .verify('23:10', 'Every page matches v0.8.3, to the pixel', {
     check: 'Every page compared with v0.8.3',
     against: 'v0.8.3',

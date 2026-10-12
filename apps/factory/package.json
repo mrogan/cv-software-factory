@@ -13,6 +13,7 @@
     "./gateway": "./src/gateway/gateway.ts",
     "./gateway/client": "./src/gateway/client.ts",
     "./probes": "./src/probes/index.ts",
+    "./scoreboard": "./src/scoreboard/figures.ts",
     "./senses": "./src/senses/runner.ts",
     "./crawler": "./src/crawler/index.ts"
   },

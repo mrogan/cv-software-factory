@@ -48,21 +48,31 @@ describe('the wait for Martin’s merge', () => {
 });
 
 describe('a merged fix', () => {
+  // Every merge waits for Martin's deploy now, but for a dry run's, which no deploy can carry: #1310's waits at
+  // Release, unheld, for the minute until the dry run releases it.
+  const merged = SAMPLES.find((e) => e.work_item === '1310' && e.type === 'pull-request.merged');
+  const at = Date.parse(merged?.ts ?? '') + 30_000;
+  const then = project(SAMPLES, at);
+
   it('waits at Release for a release, in the quiet tone, with Review passed', () => {
-    expect(card('1304')).toMatchObject({ outcome: 'merged', segments: [...Array(6).fill('passed'), 'queued', 'none'] });
-    expect(view.stations.find((s) => s.stage === 'release')).toMatchObject({
+    expect(then.cards.find((c) => c.number === '1310')).toMatchObject({
+      outcome: 'merged',
+      segments: [...Array(6).fill('passed'), 'queued', 'none'],
+    });
+    expect(then.stations.find((s) => s.stage === 'release')).toMatchObject({
       status: 'idle',
       figure: '1 waiting',
       queued: 1,
     });
-    expect(view.panels.release.rows).toContainEqual(
-      expect.objectContaining({ item: '1304', note: 'Merged · waiting for release', tone: 'faint' }),
+    expect(then.panels.release.rows).toContainEqual(
+      expect.objectContaining({ item: '1310', note: 'Merged · waiting for release', tone: 'faint' }),
     );
   });
 
   it('ends its story at the merge, drawn as work waiting', () => {
-    expect(sheet('1304')?.chapters.at(-1)).toMatchObject({ label: 'MERGED', waiting: true, tone: 'faint' });
-    expect(sheet('1304')?.chapters.map((c) => c.label)).not.toContain('NOW');
+    const story = projectSheet(SAMPLES, '1310', at)?.chapters;
+    expect(story?.at(-1)).toMatchObject({ label: 'MERGED', waiting: true, tone: 'faint' });
+    expect(story?.map((c) => c.label)).not.toContain('NOW');
   });
 
   it('is merged by the merge alone: the line writes no answer to the wait', () => {
