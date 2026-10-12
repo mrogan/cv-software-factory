@@ -1,0 +1,15 @@
+# The scoreboard (`factory scoreboard`): it counts the store's tickets against the answer key and appends its figures,
+# and is the only reader of the key. Alone in its namespace, with no Service, no service account token and no role,
+# it reaches Postgres and DNS and nothing else, and nothing reaches it (network-policy.yaml).
+#
+# Its two Secrets are made by `make up`, never committed: `postgres`, its role's password, and `answer-key`, each
+# entry's id and fingerprint read from the private checkout. With no key it runs, and says the scoreboard is off.
+#
+# Not listed in deploy/base/kustomization.yaml: it runs the `factory` image, so a profile brings it in with the images
+# it pins (deploy/overlays/local/factory-image).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: scoreboard
+resources:
+  - network-policy.yaml
+  - deployment.yaml

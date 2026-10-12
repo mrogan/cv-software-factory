@@ -22,6 +22,11 @@ loki:
   analytics:
     reporting_enabled: false
 
+# The rules' sidecar reads ConfigMaps and Secrets in this namespace, and no other: by default the chart lets it read
+# them in every namespace, the scoreboard's answer key included.
+rbac:
+  namespaced: true
+
 singleBinary:
   replicas: 1
   persistence:

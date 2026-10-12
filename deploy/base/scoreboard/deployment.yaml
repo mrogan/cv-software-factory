@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scoreboard
+  labels: &labels
+    app.kubernetes.io/name: scoreboard
+    app.kubernetes.io/part-of: software-factory
+  annotations:
+    # After Postgres (wave 0) and the migrations (wave 1), which make its role.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # one at a time: two would publish the same figures twice
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scoreboard
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      # It talks to nothing but Postgres: not the Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532 # the key's file is the group's to read, and no one else's
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: scoreboard
+          # Each profile pins the image by digest (kustomize `images:`), so a deploy is always a commit.
+          image: factory
+          # No `--import ./src/telemetry.ts` and no OTEL_* variables: it sends no telemetry, so nothing but its figures
+          # leaves it, and those through the store. Its log goes to `kubectl logs` alone.
+          args:
+            - src/cli.ts
+            - scoreboard
+          env:
+            # The event store, as the scoreboard's own role: it reads the events and appends `score.updated`, nothing
+            # else (packages/store/migrations/0012_scoreboard.sql).
+            - name: PGHOST
+              value: postgres.factory
+            - name: PGDATABASE
+              value: factory
+            - name: PGUSER
+              value: scoreboard_writer
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: password
+            # Read once, when it starts: restart it after the key changes.
+            - name: ANSWER_KEY_FILE
+              value: /var/run/answer-key/key.json
+          resources:
+            requests:
+              cpu: 10m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: answer-key
+              mountPath: /var/run/answer-key
+              readOnly: true
+      volumes:
+        # Optional: a cluster made with no private checkout has no key, and the scoreboard is off.
+        - name: answer-key
+          secret:
+            secretName: answer-key
+            optional: true
+            defaultMode: 288 # 0440: read by its owner and the group only
+            items:
+              - key: key.json
+                path: key.json

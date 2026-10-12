@@ -1,0 +1,28 @@
+# `scoreboard-images`: the scoreboard's namespace, where the answer key is. It admits the factory's own image, which
+# the scoreboard runs, and nothing else: not the factory's other images, not the app's, not Postgres. Like
+# `website-images`, it enforces always: a run on images built on the Mac switches `factory-images` alone, so an image
+# that no pipeline signed never runs beside the key.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namePrefix: scoreboard-
+resources:
+  - ../images
+patches:
+  - target:
+      kind: ImageValidatingPolicy
+    patch: |
+      - op: replace
+        path: /spec/matchConstraints/namespaceSelector/matchExpressions/0/values
+        value: [scoreboard]
+      # Nothing from another registry.
+      - op: replace
+        path: /spec/variables/0/expression
+        value: "[]"
+      # The factory's image, signed by the factory's build.yml.
+      - op: replace
+        path: /spec/variables/1/expression
+        value: "['ghcr.io/mrogan/cv-software-factory/factory']"
+      # None of the app's.
+      - op: replace
+        path: /spec/variables/2/expression
+        value: "[]"

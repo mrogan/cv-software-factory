@@ -70,7 +70,7 @@ spec:
       ports:
         - { protocol: TCP, port: 4318 }
 ---
-# Postgres takes connections from the pods that use the store, and sends nothing.
+# Postgres takes connections from the pods that use the store, the scoreboard's among them, and sends nothing.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -90,6 +90,13 @@ spec:
         - podSelector:
             matchExpressions:
               - { key: app.kubernetes.io/name, operator: In, values: [console, migrate] }
+        # The scoreboard, from its own namespace: the namespace and the label in one peer, so both must match.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: scoreboard
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: scoreboard
       ports:
         - { protocol: TCP, port: 5432 }
 ---

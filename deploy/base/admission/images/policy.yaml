@@ -9,11 +9,11 @@
 # The SBOM that workflow attests is not checked here: the deploy pull requests' checks require it of every pin, and
 # verifying it here would mean parsing the whole SPDX document as pods start (ADR 0010).
 #
-# Two copies of this policy, `factory-images` and `website-images` (../factory, ../website), say where it applies,
-# which of our images run there and what else may. Enforcing, Kyverno fails closed: if it cannot verify an image (GHCR
-# or Sigstore out of reach, or Kyverno itself down), the pod is refused. While a copy only audits, an image it cannot
-# verify is reported and admitted, but Kyverno being down still refuses the pod. A refusal names the policy, the check
-# and the images that failed it.
+# Three copies of this policy, `factory-images`, `website-images` and `scoreboard-images` (../factory, ../website,
+# ../scoreboard), say where it applies, which of our images run there and what else may. Enforcing, Kyverno fails
+# closed: if it cannot verify an image (GHCR or Sigstore out of reach, or Kyverno itself down), the pod is refused.
+# While a copy only audits, an image it cannot verify is reported and admitted, but Kyverno being down still refuses the
+# pod. A refusal names the policy, the check and the images that failed it.
 #
 # Pods are checked as they are made, when a change to one changes its images, and when a debug container is added to
 # one; a change to a pod's labels or finalizers is not, so a pod already running is never held up by an outage of

@@ -23,7 +23,7 @@ const listed = (expression: unknown) => [...String(expression ?? '[]').matchAll(
  * One copy of the image policy: the namespaces it guards, the repositories of ours it admits, by which identity, and
  * the images it names from other registries.
  */
-async function copy(name: 'factory' | 'website') {
+async function copy(name: 'factory' | 'website' | 'scoreboard') {
   const kustomization = parse(await read(`base/admission/${name}/kustomization.yaml`)) as {
     namePrefix: string;
     patches: { patch: string }[];
@@ -116,7 +116,11 @@ describe('admission control', () => {
     const namespaces = parseAllDocuments(await read('base/namespaces.yaml')).map(
       (d) => (d.toJS() as { metadata: { name: string } }).metadata.name,
     );
-    const guarded = [...(await copy('factory')).namespaces, ...(await copy('website')).namespaces];
+    const guarded = [
+      ...(await copy('factory')).namespaces,
+      ...(await copy('website')).namespaces,
+      ...(await copy('scoreboard')).namespaces,
+    ];
     const charts = ['telemetry', 'argo-rollouts'];
     expect(guarded.sort()).toEqual(namespaces.filter((n) => !charts.includes(n)).sort());
   });
@@ -134,6 +138,16 @@ describe('admission control', () => {
     const website = await copy('website');
     expect(website.factory).toEqual(['ghcr.io/mrogan/cv-software-factory/factory-browser']);
     expect(website.website).toEqual(['ghcr.io/mrogan/cv-worlds-worst-website']);
+    // The scoreboard's namespace, beside the answer key: the factory's own image, which the scoreboard runs, alone.
+    const scoreboard = await copy('scoreboard');
+    expect(scoreboard.namespaces).toEqual(['scoreboard']);
+    expect(scoreboard.factory).toEqual(['ghcr.io/mrogan/cv-software-factory/factory']);
+    expect(scoreboard.website).toEqual([]);
+    const deployment = parse(await read('base/scoreboard/deployment.yaml')) as {
+      spec: { template: { spec: { containers: { image: string }[]; initContainers?: unknown[] } } };
+    };
+    expect(deployment.spec.template.spec.containers.map((c) => c.image)).toEqual(['factory']);
+    expect(deployment.spec.template.spec.initContainers).toBeUndefined();
   });
 
   it('admits from another registry only the images the factory runs, each by digest', async () => {
@@ -146,12 +160,14 @@ describe('admission control', () => {
     );
     for (const image of factory.allowed) expect(image).toMatch(/@sha256:[0-9a-f]{64}$/);
     expect((await copy('website')).allowed).toEqual([]);
+    expect((await copy('scoreboard')).allowed).toEqual([]);
+    expect(await thirdParty(['base/scoreboard'], [])).toEqual([]);
   });
 
-  it('refuses in every guarded namespace: nothing in deploy/ switches either copy to Audit', async () => {
+  it('refuses in every guarded namespace: nothing in deploy/ switches a copy to Audit', async () => {
     expect((await policy()).spec.validationActions).toEqual(['Deny']);
     // Only the policy sets its mode. The `try-the-line` skill switches `factory-images` to Audit on the cluster for a
-    // run, and Argo CD puts it back; no manifest here does.
+    // run, and Argo CD puts it back; no manifest here does. Nothing switches `website-images` or `scoreboard-images`.
     const files = (await readdir(DEPLOY, { recursive: true })).filter(
       (f) => /\.ya?ml$/.test(f) && f !== join('base', 'admission', 'images', 'policy.yaml'),
     );
@@ -166,7 +182,11 @@ describe('admission control', () => {
       outcome: string;
       message: string;
     }[];
-    for (const { policy: name, namespaces } of [await copy('factory'), await copy('website')]) {
+    for (const { policy: name, namespaces } of [
+      await copy('factory'),
+      await copy('website'),
+      await copy('scoreboard'),
+    ]) {
       for (const namespace of namespaces) {
         const refusals = kept.filter((r) => r.namespace === namespace);
         expect(refusals.map((r) => r.case).sort()).toEqual(['misplaced', 'other-identity', 'unsigned']);

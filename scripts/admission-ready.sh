@@ -90,7 +90,7 @@ check() { # namespace policy allowed factory-repositories website-repositories i
 
 notready="" # the policies with an image refused in their namespaces
 refusing() { if [[ " $notready " != *" $1 "* ]]; then notready="$notready $1"; fi; }
-for pair in factory:factory-images runners:factory-images website:website-images; do
+for pair in factory:factory-images runners:factory-images website:website-images scoreboard:scoreboard-images; do
   ns=${pair%%:*} policy=${pair#*:} before=$failed failed=0
   # Read first, so a cluster that cannot answer fails the script rather than checking nothing.
   allowed=$(listed "$policy" allowed)
@@ -105,14 +105,23 @@ done
 # Each policy's mode, read on its own, so a cluster that cannot answer fails the script rather than skipping reports.
 factory_actions=$("${kubectl[@]}" get imagevalidatingpolicy factory-images -o jsonpath='{.spec.validationActions}')
 website_actions=$("${kubectl[@]}" get imagevalidatingpolicy website-images -o jsonpath='{.spec.validationActions}')
-mode() { local actions=$factory_actions; [ "$1" = website-images ] && actions=$website_actions; [[ "$actions" == *Audit* ]] && echo audits || echo enforces; }
+scoreboard_actions=$("${kubectl[@]}" get imagevalidatingpolicy scoreboard-images -o jsonpath='{.spec.validationActions}')
+mode() {
+  local actions
+  case "$1" in
+    website-images) actions=$website_actions ;;
+    scoreboard-images) actions=$scoreboard_actions ;;
+    *) actions=$factory_actions ;;
+  esac
+  [[ "$actions" == *Audit* ]] && echo audits || echo enforces
+}
 auditing=""
-for policy in factory-images website-images; do
+for policy in factory-images website-images scoreboard-images; do
   if [ "$(mode "$policy")" = audits ]; then auditing="$auditing$policy"$'\n'; fi
 done
 reports=$("${kubectl[@]}" get policyreports -A -o json | jq -r --arg auditing "$auditing" '
   ($auditing | split("\n")) as $audits |
-  .items[] | select(.metadata.namespace | IN("factory", "runners", "website")) | . as $report | .results[]? |
+  .items[] | select(.metadata.namespace | IN("factory", "runners", "website", "scoreboard")) | . as $report | .results[]? |
   select((.result == "fail" or .result == "error") and (.policy | IN($audits[]))) |
   "  refused  \($report.metadata.namespace)  pod \($report.scope.name): \(.policy): \(.message)"')
 if [ -n "$reports" ]; then
@@ -122,7 +131,7 @@ if [ -n "$reports" ]; then
   done
 fi
 
-for policy in factory-images website-images; do
+for policy in factory-images website-images scoreboard-images; do
   mode=$(mode "$policy")
   if [[ " $notready " == *" $policy "* && "$mode" = audits ]]; then
     echo "$policy audits: not ready, the images above would be refused once it enforces again."

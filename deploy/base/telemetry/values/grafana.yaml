@@ -15,6 +15,11 @@ grafana.ini:
   news:
     news_feed_enabled: false
 
+# The dashboards' sidecar reads ConfigMaps and Secrets in this namespace, and no other: by default the chart lets it
+# read them in every namespace, the scoreboard's answer key included.
+rbac:
+  namespaced: true
+
 sidecar:
   dashboards:
     enabled: true
