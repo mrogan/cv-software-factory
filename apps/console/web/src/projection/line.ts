@@ -14,7 +14,7 @@ export type Beacon = 'needs-you' | 'failed';
 export const RETURNING_MS = 5 * 60_000;
 /** How long a stage reads "passed" after an item leaves it, with nothing else in it. */
 export const PASSING_MS = 15 * 60_000;
-/** How far back returns are kept, to be drawn one at a time. */
+/** How far back returns are kept: drawn one at a time while still true, and rows in their senders' panels. */
 export const RETURNS_MS = 24 * 3_600_000;
 
 type Cap = 'day' | 'month';
@@ -84,6 +84,8 @@ export interface PanelRow {
   item: string;
   title: string;
   note: string;
+  /** States it went through in the stage today before this one, struck through in the row: "sent back". */
+  earlier: string[];
   tone: 'signal' | 'ok' | 'attn' | 'faint';
   at: number;
 }
@@ -259,6 +261,15 @@ export function whileSending(status: Status, sending: boolean): Status {
   return sending && status !== 'failed' && status !== 'blocked' ? 'returning' : status;
 }
 
+/**
+ * The returns to draw: those whose work item has not moved on since, to another stage, a hold or its close. Once it
+ * has, the arc would say something no longer true, and the return is only a row in its sender's panel.
+ */
+export function drawn(returns: readonly Return[], items: readonly ItemState[]): Return[] {
+  const sentBack = new Map(items.map((item) => [item.number, item.sentBack]));
+  return returns.filter((r) => sentBack.get(r.item) === r.at);
+}
+
 /** Work sent back upstream in the last day, newest first. */
 export function returnsAt(events: readonly PublicEvent[], t: number): Return[] {
   return events
@@ -292,13 +303,23 @@ function noteOf(item: ItemState, stage: Stage): string {
   return item.hold ? item.hold.reason : (item.latest[stage]?.summary ?? '');
 }
 
+/** Where a return went, and why, as a row's note: "Sent back to Build · round 2 · 2 blocking". */
+const sentTo = (r: Return) => `Sent back to ${r.to[0]?.toUpperCase()}${r.to.slice(1)} · ${r.detail}`;
+
+/** Returns kept in a row as earlier states: "sent back", or "sent back 2 times". */
+const sentBackWords = (n: number) => (n === 1 ? 'sent back' : `sent back ${n} times`);
+
 /** Rows by work-item number, the newest first. */
 const newestFirst = (a: PanelRow, b: PanelRow) => Number(b.item) - Number(a.item);
 
-/** What a stage panel lists: the items in the stage now, then what left it today. */
+/**
+ * What a stage panel lists: the items in the stage now, then what left it today, one row each. A work item the
+ * stage sent back today keeps its returns in its row as earlier states, or, gone upstream, is a row for its return.
+ */
 export function panel(
   stage: Stage,
   items: readonly ItemState[],
+  returns: readonly Return[],
   events: readonly PublicEvent[],
   line: Header,
   t: number,
@@ -309,6 +330,7 @@ export function panel(
       item: item.number,
       title: item.title,
       note: noteOf(item, stage),
+      earlier: [],
       tone: item.hold || item.failure ? 'attn' : item.queued ? 'faint' : 'signal',
       at: item.lastAt,
     }),
@@ -320,15 +342,39 @@ export function panel(
         item: item.number,
         title: item.title,
         note: stage === item.stage ? (CLOSED_NOTE[item.outcome] ?? 'passed') : `passed on to ${item.stage ?? ''}`,
+        earlier: [],
         tone: stage === 'verify' ? 'ok' : 'faint',
         at,
       }),
     );
+  // The stage's returns today, by work item, each newest first.
+  const sent = new Map<string, Return[]>();
+  for (const r of returns) {
+    if (r.from === stage && r.at >= startOfDay(t)) sent.set(r.item, [...(sent.get(r.item) ?? []), r]);
+  }
+  const back: PanelRow[] = [];
+  for (const [number, [latest, ...before]] of sent) {
+    const row = [...now, ...done].find((r) => r.item === number);
+    const item = items.find((i) => i.number === number);
+    // One that has passed the stage since and gone upstream from a later one is not this stage's to list.
+    const since = item?.visits[stage]?.leftAt;
+    if (row) row.earlier.push(sentBackWords(before.length + 1));
+    else if (latest && item && (since === undefined || since < latest.at)) {
+      back.push({
+        item: number,
+        title: item.title,
+        note: sentTo(latest),
+        earlier: before.length ? [sentBackWords(before.length)] : [],
+        tone: 'faint',
+        at: latest.at,
+      });
+    }
+  }
   const triage = stage === 'triage';
   return {
     stage,
     // What is in the stage, then what left it today, each newest first: the store numbers work items in order.
-    rows: [...now.sort(newestFirst), ...done.sort(newestFirst)],
+    rows: [...now.sort(newestFirst), ...[...done, ...back].sort(newestFirst)],
     senses: triage ? senseCounts(items, events) : undefined,
     caps: triage ? line.caps.filter((spell) => spell.cleared === undefined || spell.cleared >= startOfDay(t)) : [],
     queued: present.filter((item) => item.queued).length,

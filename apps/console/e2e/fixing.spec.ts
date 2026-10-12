@@ -99,6 +99,20 @@ test.describe('fixing', () => {
     await ready(page);
     await expect(page.locator('.ret-pill')).toHaveText('#1325 · round 3 · 1 blocking');
   });
+
+  test('a return the work has moved on from is a row in its sender’s panel, kept in the work item’s one row', async ({
+    page,
+  }) => {
+    await page.goto(consoleUrl());
+    await ready(page);
+    // #1323 went back to Build and has come round to Review again: no arc, and one row with its return struck through.
+    await expect(page.locator('.ret-pill')).not.toContainText('#1323');
+    await page.getByRole('button', { name: /^Review:/ }).click();
+    const rows = page.getByRole('dialog', { name: 'Review' }).getByRole('button', { name: /^Open #1323,/ });
+    await expect(rows).toHaveCount(1);
+    await expect(rows).toHaveAccessibleName(/^Open #1323, .+: earlier sent back, Review asked for changes/);
+    await expect(rows.locator('s')).toHaveText('sent back');
+  });
 });
 
 // WCAG 2.2 AA for every new state, in both themes, on a laptop and a phone, with motion off.

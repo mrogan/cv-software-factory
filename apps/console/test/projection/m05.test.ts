@@ -281,8 +281,18 @@ describe('agents and models', () => {
 });
 
 describe('a round on the line', () => {
-  it('draws the return with the round and its blocking findings, as the line writes it', () => {
-    expect(view.returns.map((r) => r.text)).toContain('#1311 · round 2 · 2 blocking');
+  it('draws only the return whose work has not moved on since', () => {
+    expect(view.returns.map((r) => r.text)).toEqual(['#1325 · round 3 · 1 blocking']);
+  });
+
+  it('keeps each return as a row in Review’s panel, one row per work item', () => {
+    const rows = view.panels.review.rows.map((r) => [r.item, r.earlier, r.note.slice(0, 26)]);
+    expect(rows).toEqual([
+      ['1323', ['sent back'], 'Review asked for changes: '],
+      ['1311', [], 'Needs you · waiting for Ma'],
+      ['1325', [], 'Sent back to Build · round'],
+      ['1319', [], 'Sent back to Build · round'],
+    ]);
   });
 });
 

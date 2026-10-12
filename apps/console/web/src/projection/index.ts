@@ -7,7 +7,17 @@
 import type { PublicEvent, Stage } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
 import { foldItems, type ItemState } from './items.ts';
-import { type Header, header, panel, type Return, returnsAt, type StagePanel, type Station, station } from './line.ts';
+import {
+  drawn,
+  type Header,
+  header,
+  panel,
+  type Return,
+  returnsAt,
+  type StagePanel,
+  type Station,
+  station,
+} from './line.ts';
 import { type Card, card, type Timeline, timeline } from './reel.ts';
 import { type Sheet, sheet } from './sheet.ts';
 
@@ -45,7 +55,7 @@ export interface View {
   sample: boolean;
   header: Header;
   stations: Station[];
-  /** Work sent back upstream, newest first, to be drawn one at a time. */
+  /** Work sent back upstream that has not moved on since, newest first, to be drawn one at a time. */
   returns: Return[];
   panels: Record<Stage, StagePanel>;
   cards: Card[];
@@ -59,15 +69,16 @@ export function project(events: readonly PublicEvent[], t: number): View {
   const seen = upTo(events, t);
   const items = foldItems(seen);
   const line = header(seen);
-  const returns = returnsAt(seen, t);
+  const sent = returnsAt(seen, t);
+  const returns = drawn(sent, items);
   const cards = items.map((item) => card(item, seen, t));
   return {
     t,
     sample: items.some((item) => item.sample),
     header: line,
-    stations: STAGES.map((stage) => station(stage, items, returns, line, t)),
+    stations: STAGES.map((stage) => station(stage, items, sent, line, t)),
     returns,
-    panels: Object.fromEntries(STAGES.map((stage) => [stage, panel(stage, items, seen, line, t)])) as Record<
+    panels: Object.fromEntries(STAGES.map((stage) => [stage, panel(stage, items, sent, seen, line, t)])) as Record<
       Stage,
       StagePanel
     >,
