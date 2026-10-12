@@ -7,7 +7,11 @@ import postgres, { type Sql } from 'postgres';
 import type { TestProject } from 'vitest/node';
 import { migrate } from '../src/migrate.ts';
 
-export const PASSWORDS = { writer: 'writer-test-password', console: 'console-test-password' };
+export const PASSWORDS = {
+  writer: 'writer-test-password',
+  console: 'console-test-password',
+  scoreboard: 'scoreboard-test-password',
+};
 const quiet = { onnotice: () => {}, max: 2 };
 
 export interface Database {
@@ -15,6 +19,7 @@ export interface Database {
   owner: Sql;
   writer: Sql;
   reader: Sql;
+  scoreboard: Sql;
   end(): Promise<void>;
 }
 
@@ -95,13 +100,15 @@ export async function createDatabase(server: string, name: string): Promise<Data
   }
   const writer = as('factory_writer', PASSWORDS.writer);
   const reader = as('console_reader', PASSWORDS.console);
+  const scoreboard = as('scoreboard_writer', PASSWORDS.scoreboard);
   return {
     name: database,
     owner,
     writer,
     reader,
+    scoreboard,
     end: async () => {
-      await Promise.all([owner.end(), writer.end(), reader.end()]);
+      await Promise.all([owner.end(), writer.end(), reader.end(), scoreboard.end()]);
     },
   };
 }

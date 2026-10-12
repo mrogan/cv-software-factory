@@ -14,6 +14,7 @@ import type { ArtifactStore } from '@software-factory/store';
 import type { Browser } from 'playwright';
 import { capture } from '../capture.ts';
 import { SharedBrowser } from '../senses/browser.ts';
+import type { RequestHeaders } from '../senses/http.ts';
 import { templater } from '../senses/routes.ts';
 import type { Observation, Sense } from '../senses/types.ts';
 import { crawl, PAGE_TIMEOUT } from './crawl.ts';
@@ -49,6 +50,8 @@ export interface CrawlerOptions {
   slow?: number;
   /** How long a page may take to open in the browser, in milliseconds (`PAGE_TIMEOUT` in `crawl.ts` by default). */
   pageTimeout?: number;
+  /** Sent with every request the crawl makes, besides the usual. */
+  headers?: RequestHeaders | undefined;
 }
 
 export class Crawler implements Sense {
@@ -62,9 +65,13 @@ export class Crawler implements Sense {
   }
 
   async pass(version: string): Promise<Observation[]> {
-    const { app, log } = this.options;
+    const { app, log, headers } = this.options;
     const browser = await this.browser.ready();
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-GB' });
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      locale: 'en-GB',
+      ...(headers && { extraHTTPHeaders: headers }),
+    });
     try {
       const reached = await crawl({
         app,
@@ -72,12 +79,13 @@ export class Crawler implements Sense {
         record: RECORDED,
         ...(this.options.limit && { limit: this.options.limit }),
         ...(this.options.pageTimeout && { pageTimeout: this.options.pageTimeout }),
+        headers,
       });
       if (reached.capped) log.warn({ resources: reached.resources.length }, 'the crawl stopped at its cap');
       const template = templater([...reached.resources.map((r) => r.path)]);
       const { issues, trouble } = judge({
         crawl: reached,
-        errors: await askForErrors(app),
+        errors: await askForErrors(app, headers),
         secure: new URL(app).protocol === 'https:',
         version,
         template,

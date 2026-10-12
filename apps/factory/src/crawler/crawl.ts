@@ -11,7 +11,7 @@ import { AxeBuilder } from '@axe-core/playwright';
 import type { SymptomClass } from '@software-factory/events';
 import type { BrowserContext, Page } from 'playwright';
 import { aboutTheConnection } from '../senses/browser.ts';
-import { type Exchange, exchange, pathOf } from '../senses/http.ts';
+import { type Exchange, exchange, pathOf, type RequestHeaders } from '../senses/http.ts';
 
 /** How a resource was reached: a link to follow, an image on a page, or a script, stylesheet or icon. */
 export type Kind = 'link' | 'image' | 'asset';
@@ -67,6 +67,8 @@ export interface CrawlOptions {
   record: readonly string[];
   /** How long a page may take to open in the browser, in milliseconds. */
   pageTimeout?: number;
+  /** Sent with each exchange besides the usual, as the context sends them with the pages' requests. */
+  headers?: RequestHeaders | undefined;
 }
 
 /** Axe rules that name a class of defect, and the class. Rules that fit no class are left out, not forced. */
@@ -101,6 +103,7 @@ export async function crawl({
   limit = 150,
   record,
   pageTimeout = PAGE_TIMEOUT,
+  headers,
 }: CrawlOptions): Promise<Crawl> {
   const origin = new URL(app).origin;
   const result: Crawl = { resources: [], pages: [], unbrowsed: [], capped: false };
@@ -130,7 +133,7 @@ export async function crawl({
       break;
     }
     const { kind, from } = queued.get(next) as { kind: Kind; from: string };
-    const answer = await exchange(app, next, { record });
+    const answer = await exchange(app, next, { record, headers });
     result.resources.push({ path: next, kind, from, answer });
     if (kind !== 'link' || answer.status !== 200 || answer.type !== 'text/html') continue;
     // A link that redirects leads to a page with an address of its own, and the page is crawled there, so that what

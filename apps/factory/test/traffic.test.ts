@@ -2,6 +2,7 @@ import { createServer, type IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { pino } from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { UNMEASURED } from '../src/senses/http.ts';
 import { type Answer, discover, type Get, httpGet, linksOn, round, Traffic } from '../src/traffic/traffic.ts';
 
 const page = (...links: string[]) =>
@@ -167,7 +168,7 @@ describe('asking the shop', () => {
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const { port } = server.address() as AddressInfo;
     try {
-      const get = httpGet('http://website.localhost', `http://127.0.0.1:${port}`);
+      const get = httpGet('http://website.localhost', { ingress: `http://127.0.0.1:${port}` });
       expect(await get('/search?q=glove')).toEqual({ status: 200, body: '<p>hello</p>' });
       expect(seen).toEqual([
         expect.objectContaining({
@@ -181,12 +182,32 @@ describe('asking the shop', () => {
     }
   });
 
+  it('sends the headers it is given, and none unless given', async () => {
+    const seen: IncomingHttpHeaders[] = [];
+    const server = createServer((req, res) => {
+      seen.push(req.headers);
+      res.writeHead(200).end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const app = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      await httpGet(app)('/');
+      await httpGet(app, { headers: UNMEASURED })('/');
+      expect(Object.keys(UNMEASURED).filter((name) => name in (seen[0] ?? {}))).toEqual([]);
+      expect(seen[1]).toMatchObject(UNMEASURED);
+    } finally {
+      server.close();
+    }
+  });
+
   it('gives up on a shop that does not answer', async () => {
     const server = createServer(() => {});
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const { port } = server.address() as AddressInfo;
     try {
-      await expect(httpGet(`http://127.0.0.1:${port}`, undefined, 50)('/')).rejects.toThrow('no answer within 50 ms');
+      await expect(httpGet(`http://127.0.0.1:${port}`, { timeoutMs: 50 })('/')).rejects.toThrow(
+        'no answer within 50 ms',
+      );
     } finally {
       server.closeAllConnections();
       server.close();

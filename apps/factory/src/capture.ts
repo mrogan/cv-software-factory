@@ -63,13 +63,13 @@ export interface PageCaptureOptions extends CaptureOptions {
  * Screenshots the whole page from its top, down to `maxHeight`, for comparing one version of a page with another:
  * what has changed below the fold counts too. The boxes are in the page's own coordinates, and an element that is not
  * on the page, or not in the picture, has none: a page that changed may have lost it. The PNG comes back with its
- * reference, to be compared.
+ * reference, to be compared, and with the selector of each box, in the order of the boxes.
  */
 export async function capturePage(
   page: Page,
   store: ArtifactStore,
   options: PageCaptureOptions,
-): Promise<{ png: Uint8Array; screenshot: Screenshot }> {
+): Promise<{ png: Uint8Array; screenshot: Screenshot; selectors: string[] }> {
   const viewport = page.viewportSize();
   if (!viewport) throw new Error('A capture needs a page with a fixed viewport');
   await page.evaluate('window.scrollTo(0, 0)');
@@ -80,6 +80,7 @@ export async function capturePage(
   // viewport itself, and a page sized by the viewport's height would move under the boxes.
   await page.setViewportSize({ width, height });
   const boxes: Screenshot['boxes'] = [];
+  const selectors: string[] = [];
   for (const check of (options.checks ?? []).slice(0, 4)) {
     const box = await page
       .locator(check.selector)
@@ -91,8 +92,10 @@ export async function capturePage(
     const y = Math.max(0, Math.round(box.y));
     const w = Math.round(Math.min(box.x + box.width, width) - x);
     const h = Math.round(Math.min(box.y + box.height, height) - y);
-    if (w > 0 && h > 0)
+    if (w > 0 && h > 0) {
       boxes.push({ x, y, width: w, height: h, kind: check.kind, ...(check.label && { label: check.label }) });
+      selectors.push(check.selector);
+    }
   }
   const png = await page
     .screenshot({ type: 'png', clip: { x: 0, y: 0, width, height }, animations: 'disabled', caret: 'hide' })
@@ -110,6 +113,7 @@ export async function capturePage(
       height,
       boxes,
     },
+    selectors,
   };
 }
 

@@ -8,29 +8,40 @@
  *
  * - Once for each canary and the stable version it replaces. A canary retried after a rollback has them already.
  * - Every page the shop's front door leads to, as the traffic generator finds them, and every page a sense boxed an
- *   element on lately (`looks`), with those elements boxed on both versions: the ticket's own page, for the sheet.
+ *   element on lately (`looks`), with those elements boxed on both versions: the ticket's own page, for the sheet. A
+ *   page may carry the boxes of more than one check; each box keeps its selector, for the line to keep a ticket's own.
  * - Either version moving while a page was taken (a promotion, a rollback) drops that page and ends the pass: its
  *   "before" might be of the after. Pages taken before stand; those missed are tried again, a few times.
  * - Once the canary is promoted, each page with a box is taken again on the stable Service: the page after rollout.
+ * - Between releases, the pictures no release needs any more are deleted, once for each stable version: all but the
+ *   last few releases' (`policy/release.ts`), keeping those a work item waits at Verify for and every image an event
+ *   or a waiting signal names.
  */
 import type { Screenshot } from '@software-factory/events';
-import type { ArtifactStore } from '@software-factory/store';
+import type { ArtifactStore, DiskArtifacts } from '@software-factory/store';
+import { release } from '../../../../policy/release.ts';
 import type { Check } from '../capture.ts';
 import { templater } from '../senses/routes.ts';
 import { compare } from './compare.ts';
-import type { Look, Picture, PictureIndex } from './index.ts';
+import type { Look, Picture, PictureIndex, Shot } from './index.ts';
 
 /** The most pages compared for one canary: the shop has about forty, with its departments and product pages. */
 export const MOST_PAGES = 60;
 /** Passes tried for one canary, or one rollout, before it is given up. */
 export const TRIES = 3;
+/**
+ * How long before it is forgotten an image must have last been stored to be deleted: longer than a sense takes from a
+ * screenshot to its signal in the inbox. From there to its event, triage appends the event before it marks the signal
+ * taken, so one or the other always names it.
+ */
+const STORED_LATELY_MS = 10 * 60_000;
 
-/** What a page looks like, at `app`: its PNG and its reference, with the elements boxed. */
+/** What a page looks like, at `app`: its PNG and its reference, with the elements boxed and each box's selector. */
 export type Shoot = (
   app: string,
   path: string,
   shot: { route: string; version: string; elements: Check[] },
-) => Promise<{ png: Uint8Array; screenshot: Screenshot }>;
+) => Promise<{ png: Uint8Array; screenshot: Screenshot; selectors: string[] }>;
 
 export interface PicturesOptions {
   /** The stable Service and the canary Service, with no path. */
@@ -41,9 +52,11 @@ export interface PicturesOptions {
   /** The paths of the app's pages at an address, from its front door. */
   pages(app: string): Promise<string[]>;
   shoot: Shoot;
-  index: Pick<PictureIndex, 'pictured' | 'record' | 'awaitingRollout' | 'rolledOut' | 'looks'>;
-  /** Where the diffs go: the screenshots are put there by `shoot`. */
-  store: ArtifactStore;
+  index: Pick<PictureIndex, 'pictured' | 'record' | 'awaitingRollout' | 'rolledOut' | 'looks' | 'forget'>;
+  /** Where the diffs go, and the images no release needs are deleted from: the screenshots are put there by `shoot`. */
+  store: ArtifactStore & Pick<DiskArtifacts, 'remove'>;
+  /** How many releases' pictures are kept, besides those Verify waits for: the policy's by default. */
+  keepReleases?: number;
   log: {
     info(fields: object, message: string): void;
     warn(fields: object, message: string): void;
@@ -51,8 +64,8 @@ export interface PicturesOptions {
   now?: () => Date;
 }
 
-/** What a tick did: compared a canary's pages, took a rollout's, or nothing. */
-export type Took = { compared: number } | { rolledOut: number } | null;
+/** What a tick did: compared a canary's pages, took a rollout's, deleted images no release needs, or nothing. */
+export type Took = { compared: number } | { rolledOut: number } | { deleted: number } | null;
 
 export class Pictures {
   readonly #o: PicturesOptions;
@@ -71,9 +84,14 @@ export class Pictures {
     this.#busy = true;
     try {
       const versions = await this.#versions();
-      if (!versions) return null;
+      if (!versions) {
+        // Between releases the canary Service may not answer: what no release needs can still go.
+        const stable = await this.#o.version(this.#o.stable).catch(() => null);
+        return stable ? await this.#forget(stable) : null;
+      }
       const { stable, canary } = versions;
-      return stable === canary ? await this.#rollout(stable) : await this.#compare(stable, canary);
+      if (stable !== canary) return await this.#compare(stable, canary);
+      return (await this.#rollout(stable)) ?? (await this.#forget(stable));
     } catch (error) {
       this.#o.log.warn({ err: describe(error) }, 'the pictures could not be taken');
       return null;
@@ -135,8 +153,8 @@ export class Pictures {
           stable,
           path,
           route: shot.route,
-          before: before.screenshot,
-          after: after.screenshot,
+          before: { ...before.screenshot, selectors: before.selectors },
+          after: { ...after.screenshot, selectors: after.selectors },
           // To a hundredth of a percent, and never to nothing when a pixel differs.
           changed: Math.ceil(comparison.changed * 10_000) / 10_000,
           diff: comparison.diff && {
@@ -183,15 +201,15 @@ export class Pictures {
     }
     this.#tries.set(key, (this.#tries.get(key) ?? 0) + 1);
     const looks = await this.#o.index.looks(this.#now());
-    const taken: Array<[Picture, Screenshot]> = [];
+    const taken: Array<[Picture, Shot]> = [];
     for (const picture of waiting) {
       try {
-        const { screenshot } = await this.#o.shoot(this.#o.stable, picture.path, {
+        const { screenshot, selectors } = await this.#o.shoot(this.#o.stable, picture.path, {
           route: picture.route,
           version,
           elements: elementsOn(picture.path, looks),
         });
-        taken.push([picture, screenshot]);
+        taken.push([picture, { ...screenshot, selectors }]);
       } catch (error) {
         this.#o.log.warn({ path: picture.path, err: describe(error) }, 'a page could not be pictured after rollout');
       }
@@ -201,6 +219,25 @@ export class Pictures {
     for (const [picture, screenshot] of taken) await this.#o.index.rolledOut(picture, screenshot);
     if (taken.length === waiting.length) this.#done.add(key);
     return { rolledOut: taken.length };
+  }
+
+  /**
+   * Between releases, once the pages after the rollout are taken, the pictures no release needs any more are forgotten
+   * and their images deleted: once for each stable version, and once when the worker starts. An image stored again in
+   * the last few minutes stays, as a signal or event may be about to name it (`DiskArtifacts.remove`).
+   */
+  async #forget(version: string): Promise<Took> {
+    const key = `forget at ${version}`;
+    if (!this.#due(key)) return null;
+    this.#tries.set(key, (this.#tries.get(key) ?? 0) + 1);
+    const unusedSince = new Date(this.#now().getTime() - STORED_LATELY_MS);
+    const deleted = await this.#o.index.forget(this.#o.keepReleases ?? release.pictures.keepReleases, version, (hash) =>
+      this.#o.store.remove(hash, unusedSince),
+    );
+    this.#done.add(key);
+    if (!deleted) return null;
+    this.#o.log.info({ version, images: deleted }, 'deleted the pictures no release needs');
+    return { deleted };
   }
 
   #due(key: string): boolean {

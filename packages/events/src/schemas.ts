@@ -70,6 +70,21 @@ export const artifactRef = z.discriminatedUnion('kind', [
 const releaseId = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, 'a release, such as the canary’s pod-template hash');
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'an image digest');
 
+/**
+ * One step of a canary as its Rollout plans it: a weight the canary holds, how long it pauses there, and whether a step
+ * analysis judges it before it goes on. Argo Rollouts lists `setWeight`, `pause` and `analysis` as steps of their own;
+ * a step here is a `setWeight` with the pauses and analysis that follow it, before the next. After the last, the canary
+ * takes all of the traffic.
+ */
+const canaryStep = z.strictObject({
+  /** The share of traffic it sends the canary, in percent, as a `canary.stepped` at that step has it. */
+  weight: z.number().int().min(1).max(100),
+  /** How long it pauses at that weight in all, in seconds. Null when it waits there for someone to promote it. */
+  pauseSeconds: count.nullable(),
+  /** Whether a step analysis judges the canary at that weight, which a `canary.stepped` records when it ends. */
+  analysis: z.boolean(),
+});
+
 /** How far an analysis, or one of its measures, has got, in Argo Rollouts' words. */
 const analysisPhase = z.enum(['pending', 'running', 'successful', 'failed', 'error', 'inconclusive']);
 
@@ -494,6 +509,12 @@ export const PAYLOADS = {
        * watched releases) is recorded as found, by the factory, with no steps: nobody saw them.
        */
       watched: z.boolean(),
+      /**
+       * The canary's steps, as the line read them from the Rollout when it recorded the start, or as a dry run takes
+       * them. Null when they are not known: a release found live, which nobody saw step, and a version 2 release, which
+       * never said.
+       */
+      steps: z.array(canaryStep).max(V.MAX_CANARY_STEPS).nullable(),
       /** A release the dry run answers for: its work items' merges were never made, so nothing shipped. */
       dryRun: z.boolean(),
     })
@@ -667,6 +688,28 @@ export const PAYLOADS = {
   'spend.cleared': z.discriminatedUnion('cap', [
     z.strictObject({ cap: z.enum(['day', 'month']) }),
     z.strictObject({ cap: z.literal('provider'), provider: z.enum(V.MODEL_PROVIDERS) }),
+  ]),
+  /**
+   * The scoreboard's figures (spec section 3.2), when one changes: how many of the answer key's entries tickets have
+   * found, how many are verified fixed, and the median time from a found entry's first signal to its verified fix.
+   * Never which ticket found which entry. Without an answer key the scoreboard is off, and says so once.
+   */
+  'score.updated': z.union([
+    z
+      .strictObject({
+        keyed: z.literal(true),
+        /** The answer key's entries. */
+        entries: count,
+        /** Entries a ticket has found, counted on the scoreboard's slow cadence (`policy/scoreboard.ts`). */
+        found: count,
+        /** Entries a ticket that found them is verified fixed, now. */
+        verified: count,
+        /** The median, over verified entries, from a ticket's first signal to its verified close; null before one. */
+        medianMs: count.nullable(),
+      })
+      .refine((s) => s.verified <= s.found && s.found <= s.entries, 'verified ≤ found ≤ entries')
+      .refine((s) => (s.medianMs === null) === (s.verified === 0), 'a median exactly when an entry is verified'),
+    z.strictObject({ keyed: z.literal(false) }),
   ]),
 } satisfies { [K in EventType]: z.ZodType };
 
