@@ -85,6 +85,60 @@ describe('the Canary panel, from the samples', () => {
   });
 });
 
+describe('the timeline, from the samples', () => {
+  const view = project(SAMPLES, END);
+  const { cards, timeline } = view;
+  const mark = (version: string) => timeline.versions.find((v) => v.version === version);
+  const place = (number: string) => timeline.positions[cards.findIndex((c) => c.number === number)] ?? -1;
+
+  it('marks every version the shop was left on, in order, a rollback and a stop struck through', () => {
+    expect(timeline.versions.map((v) => (v.rolledBack ? `~${v.version}~` : v.version))).toEqual([
+      ...['v0.8.4', 'v0.8.5', 'v0.9.0', '~v0.9.1~', 'v0.9.2', 'v0.9.3', 'v0.9.5', 'v0.9.7', 'v0.9.8'],
+      ...['~v0.9.9~', 'v0.9.10', '~v0.9.11~', 'v0.9.12'],
+    ]);
+    const places = timeline.versions.map((v) => v.at);
+    expect(places).toEqual([...places].sort((a, b) => a - b));
+  });
+
+  it('marks a release with no work item at its time, between the cards either side of it', () => {
+    // v0.9.9 rolled back after v0.9.8 shipped #1304 and before v0.9.10 shipped #1306, though #1306 opened before it.
+    expect(mark('v0.9.9')).toMatchObject({ card: undefined });
+    expect(mark('v0.9.9')?.at).toBeGreaterThan(place('1304'));
+    expect(mark('v0.9.9')?.at).toBeLessThan(place('1306'));
+    // v0.9.11 and v0.9.12 went out on Tuesday morning, before #1314 opened, each in a place of its own.
+    const tuesday = timeline.days.at(-1)?.at ?? 0;
+    for (const version of ['v0.9.11', 'v0.9.12']) {
+      expect(mark(version)?.at).toBeGreaterThanOrEqual(tuesday);
+      expect(mark(version)?.at).toBeLessThan(place('1314'));
+    }
+    expect(mark('v0.9.11')?.at).toBeLessThan(mark('v0.9.12')?.at ?? 0);
+    expect(new Set([...timeline.positions, ...timeline.versions.map((v) => v.at)]).size).toBe(cards.length + 3);
+  });
+
+  it('marks a release under the first card whose latest release it is, whatever came of the card since', () => {
+    // v0.9.8 carried #1304 and #1306; #1306 went again in v0.9.10, and has been sent back to Plan since.
+    expect(mark('v0.9.8')?.card).toBe(cards.findIndex((c) => c.number === '1304'));
+    expect(mark('v0.9.10')?.card).toBe(cards.findIndex((c) => c.number === '1306'));
+  });
+
+  it('marks nothing for a dry run, or for a release still in flight', () => {
+    const dryRun = releases(SAMPLES, [], END).find((r) => r.dryRun);
+    expect(dryRun?.end?.kind).toBe('promoted');
+    expect(timeline.versions.map((v) => v.version)).not.toContain(dryRun?.version);
+    expect(mark('v0.9.13')).toBeUndefined();
+  });
+
+  it('agrees with the line under it: a work item done with is on the last version marked by its place', () => {
+    // An open work item's line says the version the shop is on now.
+    const open = new Set(['in-progress', 'waiting', 'needs-you', 'held']);
+    for (const [i, card] of cards.entries()) {
+      if (open.has(card.outcome)) continue;
+      const kept = timeline.versions.filter((v) => !v.rolledBack && v.at <= (timeline.positions[i] ?? 0)).at(-1);
+      expect([card.number, card.shopVersion]).toEqual([card.number, kept?.version]);
+    }
+  });
+});
+
 describe('a release’s steps', () => {
   const started = (steps: PayloadOf<'release.started'>['steps']): PayloadOf<'release.started'> => ({
     release: 'r1',

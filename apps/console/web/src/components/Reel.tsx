@@ -384,12 +384,8 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
         onKeyDown={onKeyDown}
       >
         <span className="track" />
-        {timeline.days.map(({ index, day }) => (
-          <span
-            key={day}
-            className="day"
-            style={{ left: `calc(${(positions[index] ?? 0) * 100}% - 20px)` } as CSSProperties}
-          >
+        {timeline.days.map(({ at, day }) => (
+          <span key={day} className="day" style={{ left: `calc(${at * 100}% - 20px)` } as CSSProperties}>
             {dayLabel(day)}
           </span>
         ))}
@@ -403,11 +399,11 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
             <Glyph name={card.category} />
           </span>
         ))}
-        {timeline.versions.map(({ index, version, rolledBack }) => (
+        {timeline.versions.map(({ at, card, version, rolledBack }) => (
           <span
-            key={`${version}-${index}`}
-            className={`ver ${rolledBack ? 'burnt' : ''} ${index === centre ? 'here' : ''}`}
-            style={{ left: `${(positions[index] ?? 0) * 100}%` }}
+            key={`${version}-${at}`}
+            className={`ver ${rolledBack ? 'burnt' : ''} ${card === centre ? 'here' : ''}`}
+            style={{ left: `${at * 100}%` }}
           >
             {shortVersion(version)}
           </span>
