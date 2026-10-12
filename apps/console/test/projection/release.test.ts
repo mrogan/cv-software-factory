@@ -120,6 +120,60 @@ describe('a release’s steps', () => {
     expect(releases(one.events, [], one.at(4))[0]).toMatchObject({ step: 1, weight: 50, until: undefined });
   });
 
+  const rolledBack: PayloadOf<'release.rolled-back'> = {
+    release: 'r1',
+    version: 'v1.0.1',
+    restored: 'v1.0.0',
+    weight: 25,
+    reason: 'Metric "errors" assessed Failed',
+    failed: [],
+    dryRun: false,
+  };
+  const twoSteps = [
+    { weight: 25, pauseSeconds: 180, analysis: true },
+    { weight: 50, pauseSeconds: 180, analysis: true },
+  ];
+
+  it('goes again from its first step when it is retried after a rollback', () => {
+    const one = work('1')
+      .open()
+      .add(1, 'release.started', 'rollouts', started(twoSteps))
+      .add(3, 'release.rolled-back', 'rollouts', rolledBack)
+      .add(10, 'release.started', 'rollouts', started(twoSteps))
+      .add(13, 'canary.stepped', 'rollouts', stepped(25));
+    const [r] = releases(one.events, [], one.at(14));
+    expect(r).toMatchObject({ startedAt: one.at(10), end: undefined, weight: 50, step: 1 });
+    expect(r?.items.map((i) => i.number)).toEqual(['1']);
+  });
+
+  it('stops only the newest release with the line, not one a newer release left behind', () => {
+    const one = work('1')
+      .open()
+      .add(1, 'release.started', 'rollouts', started(twoSteps))
+      .add(5, 'release.started', 'rollouts', { ...started(twoSteps), release: 'r2', version: 'v1.0.2' })
+      .add(6, 'line.stopped', 'martin', { reason: 'Stopped' });
+    const [older, newer] = releases(one.events, [], one.at(7));
+    expect(older?.end).toBeUndefined();
+    expect(newer?.end).toMatchObject({ kind: 'stopped', weight: 25 });
+  });
+
+  it('matches a step measured to the judged step at its weight, when the plan holds the weight twice', () => {
+    const one = work('1')
+      .open()
+      .add(
+        1,
+        'release.started',
+        'rollouts',
+        started([
+          { weight: 20, pauseSeconds: 60, analysis: false },
+          { weight: 20, pauseSeconds: 180, analysis: true },
+          { weight: 60, pauseSeconds: 180, analysis: true },
+        ]),
+      )
+      .add(5, 'canary.stepped', 'rollouts', stepped(20));
+    expect(releases(one.events, [], one.at(6))[0]).toMatchObject({ step: 2, weight: 60, until: one.at(8) });
+  });
+
   it('adds all of the traffic after the steps, unless they list it', () => {
     const listed = work('1')
       .open()

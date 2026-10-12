@@ -2,7 +2,7 @@
  * The Canary panel: the release in flight against the version it would replace, for everyone, full width under the
  * line. It is always there; idle, it is one line.
  */
-import { clock, clockSeconds, duration, isCommit, shortVersion } from '../format.ts';
+import { clock, clockSeconds, duration, isCommit, shortVersion, shortWhen } from '../format.ts';
 import type { CanaryView, Carried, Measured, Release } from '../projection/index.ts';
 import { MEASURES } from '../projection/release.ts';
 import { Glyph, type GlyphName } from './Glyph.tsx';
@@ -11,7 +11,7 @@ type Tone = 'signal' | 'ok' | 'attn' | 'faint';
 type Phase = Measured['stepped']['analysis']['phase'];
 
 /** A measure's verdict, from the analysis's own phases: in flight is ink, only a pass is green, a failure is warm. */
-const VERDICT: Record<Phase | 'dry', [word: string, tone: Tone, glyph: GlyphName]> = {
+const VERDICT: Record<Phase | 'dry' | 'none', [word: string, tone: Tone, glyph: GlyphName]> = {
   successful: ['passed', 'ok', 'check'],
   failed: ['failed', 'attn', 'cross'],
   running: ['measuring', 'signal', 'ring'],
@@ -19,9 +19,10 @@ const VERDICT: Record<Phase | 'dry', [word: string, tone: Tone, glyph: GlyphName
   error: ['could not measure', 'faint', 'dash'],
   inconclusive: ['inconclusive · waits for Martin', 'attn', 'ring'],
   dry: ['recorded', 'faint', 'dash'],
+  none: ['not measured', 'faint', 'dash'],
 };
 
-function Verdict({ phase }: { phase: Phase | 'dry' }) {
+function Verdict({ phase }: { phase: keyof typeof VERDICT }) {
   const [word, tone, glyph] = VERDICT[phase];
   return (
     <span className={`v tone-${tone}`}>
@@ -63,7 +64,8 @@ function Steps({ r, tone }: { r: Release; tone: Tone }) {
       )}
       <ol aria-label="The canary’s steps">
         {r.steps.map(({ weight, pauseSeconds: pause, analysis }, index) => {
-          const m = r.measured.findLast((x) => x.weight === weight);
+          // Only a step the analysis judges is measured: a plan may hold its weight twice, a pause and then a judgement.
+          const m = analysis ? r.measured.find((x) => x.weight === weight) : undefined;
           let [cls, t, glyph, how]: [string, Tone, GlyphName | '', string] = ['', 'faint', '', 'to come'];
           if (end && end.kind !== 'promoted' && weight === end.weight)
             [cls, t, glyph, how] = [
@@ -88,7 +90,11 @@ function Steps({ r, tone }: { r: Release; tone: Tone }) {
                 : (pause === null ? 'waits' : pause % 60 ? `${pause} s` : `${pause / 60} min`) +
                   (analysis ? '' : ' · not judged');
           return (
-            <li key={weight} className={`stop ${cls} tone-${t}`} style={{ left: `${weight}%` }}>
+            <li
+              key={`${weight}-${pause}-${analysis}`}
+              className={`stop ${cls} tone-${t}`}
+              style={{ left: `${weight}%` }}
+            >
               <i>{glyph && <Glyph name={glyph} />}</i>
               <b>{weight}%</b>
               <small>{held}</small>
@@ -111,7 +117,8 @@ function Measures({ r, m }: { r: Release; m: Measured }) {
   const { analysis, figures } = m.stepped;
   const failed = r.end?.kind === 'rolled-back' ? r.end.failed.map((f) => f.name) : [];
   const row = (name: string, side: 'canary' | 'baseline') => {
-    if (r.dryRun || !figures) return '—';
+    if (r.dryRun) return '—';
+    if (!figures) return name === 'enough-requests' && side === 'canary' ? count(analysis.requests) : '—';
     const f = figures[side];
     if (name === 'errors') return share(f.errorRate);
     if (name === 'latency') return ms(f.p99Ms);
@@ -136,7 +143,13 @@ function Measures({ r, m }: { r: Release; m: Measured }) {
         {MEASURES.map(([name, label, rule]) => {
           const measure = analysis.measures.find((x) => x.name === name);
           // A measure the rollback failed is failed, whatever the step's own analysis said of it.
-          const phase = r.dryRun ? 'dry' : failed.includes(name) ? 'failed' : (measure?.phase ?? analysis.phase);
+          // A step of an analysis that names no measures (an older event's) passed or failed as a whole; a measure missing
+          // from one that names them was not measured.
+          const phase = r.dryRun
+            ? 'dry'
+            : failed.includes(name)
+              ? 'failed'
+              : (measure?.phase ?? (analysis.measures.length ? 'none' : analysis.phase));
           const [canary, baseline] = [row(name, 'canary'), row(name, 'baseline')];
           return (
             <tr key={name} className={phase === 'failed' ? 'failed' : ''}>
@@ -239,14 +252,28 @@ function note(r: Release): string {
   if (end.kind === 'promoted')
     return `Promoted at ${clockSeconds(end.at)}, ${took} after it started.${r.items.length ? ' Verify now asks the sense that saw each ticket whether it has cleared.' : ''}`;
   if (end.kind === 'stopped')
-    return `Stop the line aborted the canary at ${end.weight}%, at ${clockSeconds(end.at)}. ${r.previous}, the version before, takes all the traffic. The release stays stopped until Martin retries it or a new deploy starts another; starting the line does not resume it.`;
-  return `Rolled back at ${clockSeconds(end.at)}, ${took} in. ${100 - end.weight}% of the traffic never saw it: it stayed on ${r.previous}.`;
+    return `Stop the line aborted the canary at ${end.weight}%, at ${clockSeconds(end.at)}. ${shortVersion(r.previous)}, the version before, takes all the traffic. The release stays stopped until Martin retries it or a new deploy starts another; starting the line does not resume it.`;
+  return `Rolled back at ${clockSeconds(end.at)}, ${took} in. ${100 - end.weight}% of the traffic never saw it: it stayed on ${shortVersion(r.previous)}.`;
 }
 
-export function Canary({ view, onOpen }: { view: CanaryView; onOpen: (item: string) => void }) {
+/** How the last release ended, in the idle line's words: "promoted", "rolled back at 25%". */
+function ended(r: Release, t: number): [word: string, tone: Tone, when: string] {
+  const { end } = r;
+  if (!end) return ['', 'faint', ''];
+  const word =
+    end.kind === 'promoted'
+      ? 'promoted'
+      : `${end.kind === 'stopped' ? 'stopped with the line' : 'rolled back'} at ${end.weight}%`;
+  const today = new Date(end.at).toDateString() === new Date(t).toDateString();
+  const when = today ? `at ${clock(end.at)}` : `on ${shortWhen(end.at)}`;
+  if (r.dryRun) return [`${word} in a dry run`, 'faint', when];
+  return [word, end.kind === 'promoted' ? 'ok' : 'attn', when];
+}
+
+export function Canary({ view, t, onOpen }: { view: CanaryView; t: number; onOpen: (item: string) => void }) {
   if (view.state !== 'shown') {
     const r = view.state === 'idle' ? view.release : undefined;
-    const [word, tone] = r ? standing(r) : [];
+    const [word, tone, when] = r ? ended(r, t) : [];
     return (
       <section className="canary idle" aria-labelledby="canary-title">
         <h2 id="canary-title">Canary</h2>
@@ -257,8 +284,7 @@ export function Canary({ view, onOpen }: { view: CanaryView; onOpen: (item: stri
               No release in flight
             </span>{' '}
             The last, <b className="mono">{shortVersion(r.version)}</b>, was{' '}
-            <span className={`said tone-${tone}`}>{word?.split(' · ')[0]?.toLowerCase()}</span> at {clock(r.end.at)}{' '}
-            carrying{' '}
+            <span className={`said tone-${tone}`}>{word}</span> {when} carrying{' '}
             {r.items.length
               ? r.items.map((item) => <Item key={item.number} item={item} titled={false} onOpen={onOpen} />)
               : 'no work item'}{' '}

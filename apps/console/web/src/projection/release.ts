@@ -89,9 +89,10 @@ function position(r: Building, now: number): Pick<Release, 'step' | 'weight' | '
   const steps = r.steps;
   let step = 0;
   let from = r.startedAt;
+  // A plan may hold a weight twice (a pause, then an analysis): a step measured is the next judged one at its weight.
   for (const m of r.measured) {
-    const index = steps.findIndex((s) => s.weight === m.weight);
-    if (index >= step) [step, from] = [index + 1, m.at];
+    const index = steps.findIndex((s, i) => i >= step && s.analysis && s.weight === m.weight);
+    if (index >= 0) [step, from] = [index + 1, m.at];
   }
   for (let s = steps[step]; s && !s.analysis && s.pauseSeconds !== null; s = steps[step]) {
     if (from + s.pauseSeconds * 1000 > now) break;
@@ -112,8 +113,11 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
   const tickets = new Map<string, string>();
   for (const event of events) {
     const at = Date.parse(event.ts);
+    // Stop the line aborts the canary in flight: the newest release, if it has not ended. An older one that never
+    // recorded an end was left behind by a newer, and the stop says nothing of it.
     if (event.type === 'line.stopped') {
-      for (const r of byId.values()) if (!r.end) r.stoppedAt ??= at;
+      const newest = [...byId.values()].at(-1);
+      if (newest && !newest.end) newest.stoppedAt ??= at;
       continue;
     }
     if (event.type === 'signal.received' && event.work_item) {
@@ -125,11 +129,16 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     if (event.type === 'release.started') {
       const p = event.payload;
       const known = byId.get(p.release);
-      if (known) {
+      // The same start on another work item it carries. One after the release ended is a retry: it goes again, from
+      // its first step, as the newest release, carrying what it carried.
+      if (known && !known.end && known.stoppedAt === undefined) {
         if (event.work_item && !known.items.some((i) => i.number === event.work_item))
           known.items.push(carried(event.work_item));
         continue;
       }
+      const items = known?.items ?? [];
+      if (event.work_item && !items.some((i) => i.number === event.work_item)) items.push(carried(event.work_item));
+      byId.delete(p.release);
       const listed = p.steps?.length ? p.steps : null;
       byId.set(p.release, {
         id: p.release,
@@ -138,7 +147,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
         commit: p.commit,
         image: p.image,
         dryRun: p.dryRun,
-        items: event.work_item ? [carried(event.work_item)] : [],
+        items,
         startedAt: at,
         listed,
         steps: listed ? (listed.at(-1)?.weight === 100 ? listed : [...listed, ALL]) : [],
@@ -158,8 +167,8 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     if (!r || r.end) continue;
     if (event.type === 'canary.stepped') {
       const { weight } = event.payload;
-      if (!r.measured.some((m) => m.weight === weight && m.at === at))
-        r.measured.push({ weight, at, stepped: event.payload });
+      // The line records a step on each work item the release carries, not always in the same pass.
+      if (!r.measured.some((m) => m.weight === weight)) r.measured.push({ weight, at, stepped: event.payload });
     }
     if (event.type === 'release.promoted') r.end = { kind: 'promoted', at, weight: 100 };
     if (event.type === 'release.rolled-back') {

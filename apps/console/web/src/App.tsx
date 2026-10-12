@@ -100,7 +100,7 @@ export function App() {
           <States source={source} view={view} />
           {/* The stations draw at once, idle, and take their states as the events arrive. */}
           <Line view={view} motion={motion} onOpen={setOpen} pending={!source.events.length && !settled} />
-          {settled && <Canary view={view.canary} onOpen={setOpen} />}
+          {settled && <Canary view={view.canary} t={view.t} onOpen={setOpen} />}
           {/* An empty store waits for the server to say what kind it is, so it is described once, rightly. */}
           {n === 0 && settled && (source.store !== undefined || source.connection !== 'live') && (
             <EmptyReel store={source.store} />
