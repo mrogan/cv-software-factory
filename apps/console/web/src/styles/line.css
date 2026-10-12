@@ -255,6 +255,10 @@ button.srow:hover {
 .srow small.tone-ok {
   color: var(--tone);
 }
+/* An earlier state the work item went through in the stage today, kept in its row. */
+.srow small s {
+  color: var(--text-muted);
+}
 .sources {
   margin: 0 0 4px;
 }

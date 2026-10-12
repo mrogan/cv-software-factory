@@ -377,7 +377,6 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
   const title = useRef<HTMLHeadingElement>(null);
   const [place, setPlace] = useState<CSSProperties>({});
   const { rows, senses, caps, queued } = view.panels[stage];
-  const returns = view.returns.filter((r) => r.from === stage);
 
   // Under its station, kept inside the line; on a phone the styles make it a bottom sheet instead.
   useLayoutEffect(() => {
@@ -431,23 +430,9 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
       {stage === 'plan' && queued > 0 && (
         <p className="queue-note">Tickets wait here for the planner, which takes one at a time.</p>
       )}
-      {rows.length === 0 && returns.length === 0 && caps.length === 0 && (
-        <div className="empty">Nothing in {STAGE_NAME[stage]} today.</div>
-      )}
+      {rows.length === 0 && caps.length === 0 && <div className="empty">Nothing in {STAGE_NAME[stage]} today.</div>}
       {caps.map((spell) => (
         <CapRow key={`cap-${spell.cap}-${spell.reached}`} spell={spell} t={view.t} />
-      ))}
-      {returns.map((r) => (
-        <div key={`return-${r.item}-${r.at}`} className="srow">
-          <span className="id">#{r.item}</span>
-          <span>
-            Sent back to {STAGE_NAME[r.to]}
-            <small>
-              {r.detail} · {duration(view.t - r.at)} ago
-            </small>
-          </span>
-          <span className="aside">↩</span>
-        </div>
       ))}
       {rows.map((row) => (
         <button
@@ -455,12 +440,19 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
           type="button"
           className="srow"
           onClick={() => onOpen(row.item)}
-          aria-label={`Open #${row.item}, ${row.title}`}
+          aria-label={`Open #${row.item}, ${row.title}: ${[...row.earlier.map((e) => `earlier ${e}`), row.note].join(', ')}`}
         >
           <span className="id">#{row.item}</span>
           <span>
             {row.title}
-            <small className={`tone-${row.tone}`}>{row.note}</small>
+            <small className={`tone-${row.tone}`}>
+              {row.earlier.map((e) => (
+                <span key={e}>
+                  <s>{e}</s> ·{' '}
+                </span>
+              ))}
+              {row.note}
+            </small>
           </span>
           <span className="aside go">Open ›</span>
         </button>

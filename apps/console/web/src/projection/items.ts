@@ -112,6 +112,8 @@ export interface ItemState {
   seenOn: string | undefined;
   /** The page a visitor's report came from, at its path only. */
   reportPage: string | undefined;
+  /** When it was last sent back, while it has not moved on since: to another stage, a hold or its close. */
+  sentBack: number | undefined;
 }
 
 /** The stage an event moves its item to, if any. */
@@ -227,6 +229,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     queued: false,
     seenOn: undefined,
     reportPage: undefined,
+    sentBack: undefined,
   };
   /** Moves the item into a stage: leaving the one it was in, if this is further along the line. */
   const enter = (stage: Stage, time: number) => {
@@ -256,6 +259,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     if (stale) continue;
     const stage = joining ? null : stageOf(event);
     if (stage) {
+      if (stage !== state.stage) state.sentBack = undefined;
       enter(stage, time);
       state.latest[stage] = event;
       state.queued = false;
@@ -290,6 +294,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.pullRequest = event.payload.number;
         break;
       case 'work.returned':
+        state.sentBack = time;
         // Back to Plan, the work comes round again to a release of its own.
         if (event.payload.to === 'plan') {
           release = undefined;
@@ -302,6 +307,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.queued = true;
         break;
       case 'hold.started':
+        state.sentBack = undefined;
         state.hold = {
           stage: event.payload.stage,
           kind: event.payload.kind,
@@ -345,6 +351,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       case 'work-item.closed':
         state.closedAt = time;
         state.hold = undefined;
+        state.sentBack = undefined;
         state.queued = false;
         state.outcome = CLOSED[event.payload.outcome];
         if (state.stage) state.visits[state.stage] = { ...(state.visits[state.stage] as Visit), leftAt: time };
