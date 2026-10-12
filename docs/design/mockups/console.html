@@ -1368,7 +1368,7 @@ const VERDICT = { passed: ['passed', 'ok', 'check'], failed: ['failed', 'attn', 
 const verdict = (k, bare = false) => { const [w, t, g] = VERDICT[k]; return `<span class="v tone-${t}">${glyph(g)}${bare ? `<span class="sr">${w}</span>` : w}</span>`; };
 // The four measures, with how each is judged, in the words of policy/release.ts.
 const MEASURES = [
-  ['requests', 'Requests', 'enough to judge: at least 200 to the canary', (m, i) => count(m.req[i])],
+  ['requests', 'Requests', 'enough to judge: at least 100 to the canary', (m, i) => count(m.req[i])],
   ['errors', 'Errors', 'share of 5xx answers · fails more than a point above', (m, i) => share(m.err[i])],
   ['latency', 'Latency', 'p99 · fails a quarter and 100 ms above', (m, i) => m.p99[i] + ' ms'],
   ['journeys', 'Journeys', 'fails when a check passes on the baseline and fails here, twice', (m, i) => m.jour ? `${m.jour[i][0]} / ${m.jour[i][1]}` : '—'],
