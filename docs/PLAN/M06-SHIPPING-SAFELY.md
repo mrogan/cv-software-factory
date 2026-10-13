@@ -14,7 +14,7 @@ The milestone is built in three parts, each by its own implementing session, bec
 - **Part B, the line after the merge:** the line carries a work item through Release and Verify, closes or reopens its ticket and issue, and turns a rollback into a signal.
 - **Part C, the score and the show:** the scoreboard, the console's Canary panel and new states, and the runs that show the whole of it.
 
-Each part starts when the one before has met its criteria and its pull requests are merged. Each leaves `COMPONENTS.md` and `AGENTS.md` describing what it built, so the next session starts from this file, those two and the code, and needs nothing from the session before.
+Each part starts when the one before has met its criteria and its pull requests are merged. Each leaves `COMPONENTS/` and `AGENTS.md` describing what it built, so the next session starts from this file, those two and the code, and needs nothing from the session before.
 
 ## How each part is built
 
@@ -147,7 +147,7 @@ On the local cluster, with no line in the loop:
 
 ### 7. Documentation for Part A
 
-`COMPONENTS.md` (supply chain, admission control, progressive delivery, the traffic generator, the guardrails it makes real), `AGENTS.md` (the traffic generator on the host; trying an unmerged image under admission), `TERMS.md` (canary, baseline as the version a canary is compared with, as distinct from the seeded baseline, rollback, and abort as distinct from a rollback), ADR 0010, and spec sections 4.1 and 8.
+`COMPONENTS/` (supply chain, admission control, progressive delivery, the traffic generator, the guardrails it makes real), `AGENTS.md` (the traffic generator on the host; trying an unmerged image under admission), `TERMS.md` (canary, baseline as the version a canary is compared with, as distinct from the seeded baseline, rollback, and abort as distinct from a rollback), ADR 0010, and spec sections 4.1 and 8.
 
 ### Part A is done when
 
@@ -186,7 +186,7 @@ On the local cluster, with no line in the loop:
 
 ### 12. Documentation for Part B
 
-`COMPONENTS.md` (the line through Verify, the release watch, verification by sense), `TERMS.md` (verification, and the line now carrying work to it), spec section 4.1's Release and Verify, and ADR 0011 if verifying by the ticket's own sense needs its reasoning kept.
+`COMPONENTS/` (the line through Verify, the release watch, verification by sense), `TERMS.md` (verification, and the line now carrying work to it), spec section 4.1's Release and Verify, and ADR 0011 if verifying by the ticket's own sense needs its reasoning kept.
 
 ### Part B is done when
 
@@ -219,7 +219,7 @@ On the local cluster, on Claude, at Supervised:
 
 ### 16. Documentation and retrospective
 
-Spec sections 3.2, 4.1 and 5.2; `COMPONENTS.md` (the scoreboard, the console's new panels); `TERMS.md` if anything needs pinning down; this file's results and retrospective; open question 3 with what the runs measured; the issues.
+Spec sections 3.2, 4.1 and 5.2; `COMPONENTS/` (the scoreboard, the console's new panels); `TERMS.md` if anything needs pinning down; this file's results and retrospective; open question 3 with what the runs measured; the issues.
 
 ## Exit criteria
 

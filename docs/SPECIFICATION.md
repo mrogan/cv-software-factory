@@ -21,7 +21,7 @@ It is Martin Rogan's portfolio piece; why it exists and what it must prove are i
 4. Ask before anything expensive to reverse: spending money, creating cloud accounts, making something public.
 5. Every commit, PR, issue and ADR is public and part of the demo. Write for a thoughtful reviewer.
 
-Terms are defined in `TERMS.md`; unresolved questions live in `OPEN-QUESTIONS.md`. The console is built from the design system in `design/system/`; `design/mockups/console.html` sets its direction. `COMPONENTS.md` maps the spec onto concrete parts; where they conflict, this spec wins.
+Terms are defined in `TERMS.md`; unresolved questions live in `OPEN-QUESTIONS.md`. The console is built from the design system in `design/system/`; `design/mockups/console.html` sets its direction. `COMPONENTS/` maps the spec onto concrete parts; where they conflict, this spec wins.
 
 ## 2. Audiences and how they experience it
 

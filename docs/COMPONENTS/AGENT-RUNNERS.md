@@ -1,0 +1,77 @@
+# Agent runners
+
+One disposable sandbox per step, with the repository checked out and its toolchain (ADR 0008). Part of the [factory plane](README.md#factory-plane).
+
+- **v1:** two Kubernetes Jobs per attempt at a step, in `runners` (`apps/factory/src/runners/jobs.ts`).
+- **Later:** gVisor or Firecracker isolation.
+
+```mermaid
+sequenceDiagram
+  participant Line
+  participant Prepare as Prepare pod
+  participant Agent as Agent pod
+  participant Gateway
+  participant Worker as GitHub worker
+  Line->>Prepare: start, with the step's commit
+  Prepare->>Prepare: check out, install, commit any seed
+  Line->>Agent: start, with a job token
+  loop each turn
+    Agent->>Gateway: model call (job token)
+  end
+  Agent->>Line: POST /v1/handback: patch, note, result
+  Line->>Line: fence the patch to the spec's scope
+  Line->>Worker: apply the accepted patch
+```
+
+## The Jobs
+
+- **Named** by the agent, the work item, the agent's round and how many steps the work item has started. `reviewer-1002-1-4` is the reviewer's first round and the work item's fourth step. So a step tried again never meets the Jobs or the token of the attempt before it.
+- **On a volume** that lives until the work item merges or ends. `DELETE /v1/work-items/<id>` on the line ends it.
+- **Fenced:** the restricted Pod Security Standard, no service account token, a read-only root and a deadline.
+- **One image:** both run `factory-runner` (`apps/runner`: Node, git, pnpm through corepack, the Agent SDK).
+
+### The prepare pod
+
+`runner prepare` checks out the commit and installs it, with no lifecycle scripts. It may reach the internet on 443.
+
+- **A step that reads a change** gets its base beside it, as the branch `base`, and the commits between, so `git log base..HEAD` holds every round's.
+- **A seed**, when the step has one, is committed under a neutral message at a fixed time, so its base has the same sha every run. The checkout's files get that time too, so a search lists them alike.
+- **A dry run's commits**, which GitHub never had, are committed on the real commit under them, as the pull request's own.
+
+### The agent pod
+
+`runner agent` reaches only the gateway and the line's handback, and has no DNS: the line writes their addresses into its hosts. It:
+
+1. checks its own fence;
+2. runs the agent on the Agent SDK (Claude Code), with:
+   - the step's turn limit;
+   - no settings from the checkout;
+   - a system prompt that is the same on every run;
+   - for a step that names a skill, that skill alone, from the runner's own plugin (`apps/runner/plugin`, read-only in the image; nothing in the checkout or the volume adds one);
+3. hands back:
+   - a patch of everything changed since the step's commit, committed or not;
+   - its note, its turns and its session;
+   - when the step asks for one, its result.
+
+**The result** is JSON the agent writes to `$WORK/out/result.json`, outside the checkout. Any field the step has it write as a Markdown file of its own beside it is read in, up to 64 KiB, each file measured before it is read. The line reads the result through that agent's schema (`line/agents/`).
+
+**Its only credential** is a job token, made for the step and ended when it is over ([gateway](LLM-GATEWAY.md#agents)).
+
+## The line's side
+
+The line (`factory line serve`):
+
+- starts the Jobs with a service account that may create Jobs and volumes in `runners`, and nothing else;
+- takes handbacks at `POST /v1/handback`, checked with Zod, each token once;
+- fences each patch to the spec's scope (`runners/scope.ts`), and never lets one change `.github/`, `deploy/` or a path the app's CODEOWNERS gives a person at the step's commit, which the line reads through the GitHub worker.
+
+The [GitHub worker](GITHUB-WORKER.md) applies an accepted patch, outside the sandbox (`github/patches.ts`).
+
+## Trying a runner
+
+- **The smoke run.** `POST /v1/smoke` on the line's port-forwarded API runs a coder on an off-by-one seeded in a scratch copy of the app, with the GitHub worker in a dry run.
+- **The bench.** `factory line bench <agent> <fixture>` runs one agent's step on a developer's machine, on a fixture of invented work (`line/bench/fixtures.ts`), against a gateway on the host. It runs the runner's own two steps, with no network fence, and:
+  - fences a coder's patch as the line does, sending one it refuses back;
+  - commits a reviewer's change on the base as the pull request's head;
+  - works in a fixed folder in the developer's own cache, with a home emptied each run and none of the developer's environment but `PATH`, so a second run replays from the cassettes.
+- **Spend.** Each bench run, and each smoke run, caps its spend as a work item of its own.

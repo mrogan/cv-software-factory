@@ -50,7 +50,7 @@ Every change is a pull request, squash-merged into `main` once the required chec
 
 - [Intent](docs/INTENT.md): why this exists, and the bar everything is held to
 - [Specification](docs/SPECIFICATION.md): what is being built
-- [Components](docs/COMPONENTS.md): which part does what
+- [Components](docs/COMPONENTS/README.md): which part does what
 - [Decisions](docs/architecture/adr/): the major ones, and why
 
 [MIT licence](LICENSE)

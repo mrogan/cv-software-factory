@@ -109,7 +109,7 @@ In this repository:
 
 ### 11. Documentation
 
-Update the spec, `COMPONENTS.md`, `TERMS.md` (answer key, fingerprint, seeded baseline) and this repository's README wherever reality differs. Write an ADR for the correct-app-and-patches decision: it shapes the scoreboard, the injector and reset.
+Update the spec, `COMPONENTS/`, `TERMS.md` (answer key, fingerprint, seeded baseline) and this repository's README wherever reality differs. Write an ADR for the correct-app-and-patches decision: it shapes the scoreboard, the injector and reset.
 
 ## Exit criteria
 

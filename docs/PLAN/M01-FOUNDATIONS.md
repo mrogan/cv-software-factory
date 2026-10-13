@@ -61,7 +61,7 @@ Applied by a script in the repo, so they are reproducible and reviewable: rulese
 
 ### 8. Documentation
 
-Update the spec, `COMPONENTS.md` and `docs/AGENTS.md` wherever reality differs. Write an ADR only if a major decision changes.
+Update the spec, `COMPONENTS/` and `docs/AGENTS.md` wherever reality differs. Write an ADR only if a major decision changes.
 
 ## Exit criteria
 

@@ -147,7 +147,7 @@ In the private repository, a script reads an exported event log of tickets and p
 
 - Spec sections 4.1 and 7.2, and ADR 0004, for the narrower use of Jev.
 - `TYPESAFE.md`: what task 3 found, the question set, the evaluation results, and reports triaged from this milestone (it says milestone 9 today; that is when visitor keys arrive).
-- `COMPONENTS.md`: the gateway, the inbox, the senses, alerting, the two images and the network policies. `TERMS.md`: signal, check, inbox and ticket, if the words need pinning down.
+- `COMPONENTS/`: the gateway, the inbox, the senses, alerting, the two images and the network policies. `TERMS.md`: signal, check, inbox and ticket, if the words need pinning down.
 - The backlog: what this milestone leaves open.
 
 ## Exit criteria
@@ -205,7 +205,7 @@ What the milestone taught, and where each lesson now lives.
 **Learned about the app and its telemetry**
 
 - The app's request metrics name the path asked for, not its route, so each product page is its own series and too thin to alert on. The log watcher and the intake name the route from the log instead: an [issue](https://github.com/mrogan/cv-software-factory/issues), for milestone 6.
-- A new trace reaches Tempo a minute or two late, so the agreement check reads windows that ended minutes ago, and signals carry trace IDs at once and spans later: `COMPONENTS.md` and an issue.
+- A new trace reaches Tempo a minute or two late, so the agreement check reads windows that ended minutes ago, and signals carry trace IDs at once and spans later: `COMPONENTS/` and an issue.
 - Two of the five tickets that matched no defect came from how a route is named or which page a fault is filed under, not from what was sensed: issues.
 - The first real report from the widget was read with the record shape the log watcher had guessed, so that backlog item is closed.
 
