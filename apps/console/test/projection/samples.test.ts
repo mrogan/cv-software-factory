@@ -107,6 +107,19 @@ describe('the samples, projected', () => {
 });
 
 describe('a sheet', () => {
+  it('says when a sense saw the ticket’s problem again in a later version, such as another release rolled back', () => {
+    const canary = projectSheet(SAMPLES, '1308', END)?.seenBy?.find((s) => s.sense === 'canary');
+    expect(canary).toMatchObject({
+      opened: true,
+      again: { versions: ['efef168f4eec299dfc27c8fc78477ce28379b38d'], at: Date.parse('2026-10-05T17:43:40Z') },
+    });
+    // The log watcher saw #1306's error again in the release that reopened it.
+    const logs = projectSheet(SAMPLES, '1306', END)?.seenBy?.find((s) => s.sense === 'logs');
+    expect(logs?.again?.versions).toEqual(['v0.9.12']);
+    // A sense seen in one version only says nothing more.
+    expect(projectSheet(SAMPLES, '1302', END)?.seenBy?.every((s) => s.again === undefined)).toBe(true);
+  });
+
   it('steps through the item’s story, from the injection to its verification', () => {
     const sheet = projectSheet(SAMPLES, '1302', END);
     expect(sheet?.chapters.map((c) => c.label)).toEqual([

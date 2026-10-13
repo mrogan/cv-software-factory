@@ -6,7 +6,7 @@ import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-f
 import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
 import { rolledBackSinceMerge } from './fixing.ts';
 import type { ItemState } from './items.ts';
-import { inFlight, type Release } from './release.ts';
+import { inFlight, type Release, SIGNALLED } from './release.ts';
 
 export type Status = 'idle' | 'working' | 'returning' | 'passing' | 'blocked' | 'failed';
 /** A person should look at a station that is still at work: an item in it failed, or waits on them. */
@@ -437,7 +437,7 @@ function ownRow(r: Release): PanelRow {
       ? 'promoted'
       : end.kind === 'stopped'
         ? `stopped with the line at ${end.weight}%`
-        : `rolled back at ${end.weight}%${end.ticket ? ` · opened #${end.ticket.number}` : ''}`;
+        : `rolled back at ${end.weight}%${end.ticket ? ` · ${SIGNALLED[end.ticket.how]} #${end.ticket.number}` : ''}`;
   const tone = !end ? 'signal' : end.kind === 'promoted' ? 'faint' : 'attn';
   return {
     item: r.version,

@@ -358,7 +358,7 @@ export const PAYLOADS = {
    * What a sense found, what a visitor reported, or what the planner noticed outside its ticket. A sense's signal
    * names the symptom class it saw; a report's, or a planner's finding, is for triage to judge, and its words are in
    * `report`, which no public view and no generative agent ever reads. On an open ticket, the first signal from each
-   * sense adds its evidence.
+   * sense in each version of the app adds its evidence.
    */
   'signal.received': z.strictObject({
     sense: z.enum(V.SIGNAL_SOURCES),

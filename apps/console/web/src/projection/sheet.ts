@@ -129,6 +129,11 @@ export interface Sighting {
   opened: boolean;
   /** What it added, in a few words. */
   added: string | undefined;
+  /**
+   * The later versions of the app it saw the problem in, in order, each adding its evidence again, such as another
+   * release rolled back on it, and when it saw the latest. Within a version, the inbox counts it.
+   */
+  again: { versions: string[]; at: number } | undefined;
 }
 
 /** One sense's evidence, the first time it saw the problem. */
@@ -541,9 +546,16 @@ function added(signal: PublicEvent<'signal.received'>): string | undefined {
 /** Every sense, those that saw the ticket's problem first and in the order they did, and the rest as not yet. */
 function seenBy(item: ItemState): Sighting[] {
   const first = new Map<Sense, PublicEvent<'signal.received'> & { payload: { sense: Sense } }>();
+  const later = new Map<Sense, NonNullable<Sighting['again']>>();
   for (const event of item.events) {
-    if (event.type === 'signal.received' && bySense(event) && !first.has(event.payload.sense)) {
-      first.set(event.payload.sense, event);
+    if (event.type !== 'signal.received' || !bySense(event)) continue;
+    const { sense, version } = event.payload;
+    const opened = first.get(sense);
+    if (!opened) {
+      first.set(sense, event);
+    } else if (sense !== 'report' && version !== opened.payload.version) {
+      const versions = later.get(sense)?.versions.filter((v) => v !== version) ?? [];
+      later.set(sense, { versions: [...versions, version], at: Date.parse(event.ts) });
     }
   }
   const opener = [...first.values()][0];
@@ -554,11 +566,19 @@ function seenBy(item: ItemState): Sighting[] {
       at: Date.parse(signal.ts),
       opened: signal === opener,
       added: signal === opener ? undefined : added(signal),
+      again: later.get(signal.payload.sense),
     }),
   );
   // The canary sees only a release doing worse than the version before it, so it is no sense a ticket waits on.
   const unseen = SENSES.filter((sense) => sense !== 'canary' && !first.has(sense)).map(
-    (sense): Sighting => ({ sense, check: undefined, at: undefined, opened: false, added: undefined }),
+    (sense): Sighting => ({
+      sense,
+      check: undefined,
+      at: undefined,
+      opened: false,
+      added: undefined,
+      again: undefined,
+    }),
   );
   return [...seen, ...unseen];
 }

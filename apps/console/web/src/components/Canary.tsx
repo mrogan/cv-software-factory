@@ -4,7 +4,7 @@
  */
 import { clock, clockSeconds, duration, isCommit, shortVersion, shortWhen } from '../format.ts';
 import type { CanaryView, Carried, Measured, Release } from '../projection/index.ts';
-import { MEASURES, ownWords, sawOf } from '../projection/release.ts';
+import { MEASURES, ownWords, SIGNALLED, sawOf } from '../projection/release.ts';
 import { Glyph, type GlyphName } from './Glyph.tsx';
 
 export type Tone = 'signal' | 'ok' | 'attn' | 'faint';
@@ -228,7 +228,7 @@ function Rollback({ r, onOpen }: { r: Release; onOpen: (item: string) => void })
       <p className="words">{end.reason}</p>
       {end.ticket && (
         <p className="canary-note">
-          A rollback is a signal: triage opened <Item item={end.ticket} titled onOpen={onOpen} />.
+          A rollback is a signal: triage {SIGNALLED[end.ticket.how]} <Item item={end.ticket} titled onOpen={onOpen} />.
         </p>
       )}
     </>
