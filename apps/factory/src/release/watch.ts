@@ -5,10 +5,12 @@
  * and what the line read about the new image, as `gateEvents` is for the gates: reading the same state again appends
  * nothing, and a line started again carries on from what it recorded.
  *
- * A release is named by the canary's pod-template hash. Its events go on every work item it carries, each of them
- * getting what it has not had yet; one that carries none has them on the line. Which work items a release carries is
- * decided once, when it starts: those whose fixes merged after the commit the stable version runs, up to the one the
- * new image runs (`line/release.ts`).
+ * A release is named by the canary's pod-template hash and the Rollout's revision (`releaseName`). Argo Rollouts gives
+ * the same pod template the same hash, and counts the revision up on every new rollout, so pinning an image released
+ * before starts a release of its own. Its events go on every work item it carries, each of them getting what it has
+ * not had yet; one that carries none has them on the line. Which work items a release carries is decided once, when
+ * it starts: those whose fixes merged after the commit the stable version runs, up to the one the new image runs
+ * (`line/release.ts`).
  *
  * - **It starts** when the canary's pods are available, so the image was admitted; or it is recorded as refused when
  *   the Rollout says it could not make them. The line records a release only once it knows the version before it.
@@ -19,8 +21,13 @@
  *   terminated step run is no step), so it records nothing: the release stays unfinished, and its work items wait at Release, until he retries it and it goes
  *   on, or a later release carries them. So does an analysis that ends in Error, which says the analysis could not
  *   judge, not that the canary was worse.
- * - **Retried after a rollback**, a release starts again, under the same name, and goes on as before; only a run that
- *   fails after that start rolls it back again.
+ * - **Retried after a rollback**, a release starts again, under the same name (a retry keeps the revision), and goes on
+ *   as before; only a run that fails after that start rolls it back again.
+ *
+ * The stable version is the last release of its hash the line recorded (`namedReleases`): the Rollout's revision is
+ * that of the version it asks for, and a Rollout sent back to its stable version, with no canary, counts its revision
+ * up without releasing anything. A release recorded before releases were named by revision is named by its hash alone, and read
+ * as it was then: it has every run of its hash, and while it is not promoted it is the release in flight.
  *
  * A stable version the line has no record of, with no release in flight, is recorded as found live: started and
  * promoted at once, by the factory, `watched: false`, on every merged work item no release has carried whose fix is
@@ -90,11 +97,19 @@ export function recordedFrom(
   return recorded;
 }
 
+/** The annotation Argo Rollouts keeps its revision in, on the Rollout and on each run it makes. */
+const REVISION = 'rollout.argoproj.io/revision';
+
+/** A release's name: the canary's pod-template hash and the Rollout's revision when it started. */
+export const releaseName = (hash: string, revision: string) => `${hash}-${revision}`;
+
 /** What the Rollout and its runs say, in the watch's terms. */
 export interface Observed {
   /** The version the spec asks for, by its hash: the canary during a release. */
   current: string | undefined;
   stable: string | undefined;
+  /** The Rollout's revision: the current version's. */
+  revision: string | undefined;
   /** The image of the current version, by digest. */
   digest: string | undefined;
   aborted: boolean;
@@ -113,7 +128,8 @@ const DIGEST = /@(sha256:[0-9a-f]{64})$/;
 const ENDED = new Set(['Successful', 'Failed', 'Error', 'Inconclusive']);
 
 export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observed {
-  const { status, spec } = rollout;
+  const { metadata, status, spec } = rollout;
+  const revision = metadata.annotations[REVISION];
   const steps = spec.strategy.canary?.steps ?? [];
   const weights: number[] = [];
   for (const [i, step] of steps.entries()) weights.push(step.setWeight ?? weights[i - 1] ?? 0);
@@ -128,6 +144,7 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
   return {
     current,
     stable: status.stableRS,
+    revision: revision && /^\d{1,12}$/.test(revision) ? revision : undefined,
     digest: spec.template.spec.containers[0]?.image.match(DIGEST)?.[1],
     aborted: status.abort === true,
     admitted: available ? true : failedToCreate ? false : undefined,
@@ -194,24 +211,33 @@ export function planOf(steps: readonly RolloutStep[]): CanaryStep[] | null {
 }
 
 const hashOf = (run: AnalysisRun) => run.metadata.labels['rollouts-pod-template-hash'];
+const revisionOf = (run: AnalysisRun) => run.metadata.annotations[REVISION];
 const isStep = (run: AnalysisRun) => run.metadata.labels['rollout-type'] === 'Step';
+
+/** Whether a run is of a release. One named by its hash alone, from before the revision, has every run of its hash. */
+const isOf = (run: AnalysisRun, release: string) => {
+  const [hash, revision] = release.split('-');
+  return hashOf(run) === hash && (revision === undefined || revisionOf(run) === revision);
+};
+
+/** What is recorded of the release a run is of, under its name, or under its hash alone from before the revision. */
+export const recordOf = (recorded: Recorded, run: AnalysisRun) =>
+  recorded.get(releaseName(hashOf(run) ?? '', revisionOf(run) ?? '')) ?? recorded.get(hashOf(run) ?? '');
 
 /**
  * A release's step runs that have ended, oldest first. A run terminated (by an abort) ends Successful without having
  * judged anything, so it is no step.
  */
 export const stepsOf = (o: Observed, release: string) =>
-  o.runs.filter(
-    (run) => hashOf(run) === release && isStep(run) && ENDED.has(run.status.phase ?? '') && !run.spec.terminate,
-  );
+  o.runs.filter((run) => isOf(run, release) && isStep(run) && ENDED.has(run.status.phase ?? '') && !run.spec.terminate);
 
 /** A release's runs that failed: the only ones that fail a release. */
 export const failuresOf = (o: Observed, release: string) =>
-  o.runs.filter((run) => hashOf(run) === release && run.status.phase === 'Failed');
+  o.runs.filter((run) => isOf(run, release) && run.status.phase === 'Failed');
 
-/** When the release's first run was made: its start, as near as the runs say. */
-export const startOf = (o: Observed, release: string) =>
-  o.runs.find((run) => hashOf(run) === release)?.metadata.creationTimestamp;
+/** When the first run of a run's release was made: the release's start, as near as the runs say. */
+export const startOf = (o: Observed, of: AnalysisRun) =>
+  o.runs.find((run) => hashOf(run) === hashOf(of) && revisionOf(run) === revisionOf(of))?.metadata.creationTimestamp;
 
 /** The weight of the step a run judged, or the step the Rollout was at for a run in the background. */
 const weightOf = (o: Observed, run: AnalysisRun): number => {
@@ -310,12 +336,13 @@ export interface Needs {
 /** One target's drafts for a release in flight, and the runs they need read. */
 function forTarget(
   o: Observed,
+  names: Named,
   name: string,
   record: TargetRecord,
   facts: Facts,
 ): { drafts: Draft[]; steps: AnalysisRun[]; failures: AnalysisRun[] } {
   const drafts: Draft[] = [];
-  const live = o.current === name || o.stable === name;
+  const live = names.current === name || names.stable === name;
   const { started, ended } = record;
   let retried = false;
   if (ended === 'promoted') return { drafts, steps: [], failures: [] };
@@ -362,7 +389,7 @@ function forTarget(
     !retried && (record.attempts <= 1 || Date.parse(run.status.completedAt ?? '') > Date.parse(record.startedAt));
   let failures: AnalysisRun[] = [];
   // The stable version took all of the traffic: if the line missed the moment, a later release may be in flight.
-  if (o.stable === name) {
+  if (names.stable === name) {
     drafts.push({
       type: 'release.promoted',
       actor: 'rollouts',
@@ -376,7 +403,7 @@ function forTarget(
         dryRun: false,
       },
     });
-  } else if (o.aborted && o.current === name && failuresOf(o, name).some(inAttempt)) {
+  } else if (o.aborted && names.current === name && failuresOf(o, name).some(inAttempt)) {
     failures = failuresOf(o, name).filter(inAttempt);
     const last = failures.at(-1) as AnalysisRun;
     const weight = weightOf(o, last);
@@ -409,9 +436,35 @@ function forTarget(
   return { drafts, steps, failures };
 }
 
+/** The releases the Rollout names, as the line names them: the version the spec asks for, and the stable version. */
+export interface Named {
+  current: string | undefined;
+  stable: string | undefined;
+}
+
+/**
+ * The releases the Rollout names. The version the spec asks for is the release of its hash at the Rollout's revision,
+ * recorded or still to be. The stable version is the last release of its hash the line recorded, or, with nothing in
+ * flight and none recorded, the release of its hash at the Rollout's revision, to be found live.
+ */
+export function namedReleases(o: Observed, recorded: Recorded): Named {
+  const ofHash = (hash: string) => [...recorded.keys()].filter((name) => name === hash || name.startsWith(`${hash}-`));
+  const asked = o.current && o.revision ? releaseName(o.current, o.revision) : undefined;
+  const stable = o.stable === undefined ? undefined : ofHash(o.stable).at(-1);
+  if (o.current === o.stable) {
+    const name = asked && recorded.has(asked) ? asked : (stable ?? asked);
+    return { current: name, stable: name };
+  }
+  // One named by its hash alone, from before the revision, is the release in flight until it is promoted.
+  const legacy = o.current === undefined ? undefined : recorded.get(o.current);
+  const inFlight = legacy && ![...legacy.values()].some((record) => record.ended === 'promoted');
+  return { current: asked && recorded.has(asked) ? asked : inFlight ? o.current : asked, stable };
+}
+
 /** What a release's first events would need: the start, if it is to be recorded now, as `releaseEvents` decides. */
-function startOfRelease(o: Observed, recorded: Recorded): Needs['start'] {
-  const { current, stable, digest } = o;
+function startOfRelease(o: Observed, names: Named, recorded: Recorded): Needs['start'] {
+  const { current, stable } = names;
+  const { digest } = o;
   if (!current || !stable || !digest || recorded.has(current)) return undefined;
   const before = recorded.get(stable);
   if (current === stable) {
@@ -426,7 +479,8 @@ function startOfRelease(o: Observed, recorded: Recorded): Needs['start'] {
 
 /** What the line must read before `releaseEvents` can say all it has to. */
 export function releaseNeeds(o: Observed, recorded: Recorded): Needs {
-  const start = startOfRelease(o, recorded);
+  const names = namedReleases(o, recorded);
+  const start = startOfRelease(o, names, recorded);
   const steps: AnalysisRun[] = [];
   const failures: AnalysisRun[] = [];
   const add = (each: ReturnType<typeof forTarget>) => {
@@ -443,17 +497,21 @@ export function releaseNeeds(o: Observed, recorded: Recorded): Needs {
       undefined,
       o.plan,
     );
-    add(forTarget(o, start.release, { started, startedAt: '', attempts: 1, steps: 0, ended: undefined }, empty));
+    const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, ended: undefined };
+    add(forTarget(o, names, start.release, record, empty));
   }
-  for (const name of named(o)) {
-    for (const record of recorded.get(name)?.values() ?? []) add(forTarget(o, name, record, empty));
+  for (const name of releasesIn(names)) {
+    for (const record of recorded.get(name)?.values() ?? []) add(forTarget(o, names, name, record, empty));
   }
   return { ...(start ? { start } : {}), steps, failures };
 }
 
-/** The versions the Rollout names: a release in flight, and the stable version it would replace. */
-export const named = (o: Observed): string[] =>
-  [...new Set([o.current, o.stable])].filter((name): name is string => name !== undefined);
+/** The versions the Rollout names, by hash: a release in flight, and the stable version it would replace. */
+export const podHashes = (o: Observed): string[] =>
+  [...new Set([o.current, o.stable])].filter((hash): hash is string => hash !== undefined);
+
+const releasesIn = (names: Named): string[] =>
+  [...new Set([names.current, names.stable])].filter((name): name is string => name !== undefined);
 
 function startedPayload(
   start: NonNullable<Needs['start']>,
@@ -486,7 +544,8 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
   const add = (target: Target, drafts: Draft[]) => {
     if (drafts.length) out.set(target, [...(out.get(target) ?? []), ...drafts]);
   };
-  const start = startOfRelease(o, recorded);
+  const names = namedReleases(o, recorded);
+  const start = startOfRelease(o, names, recorded);
   if (start && facts.start) {
     const read = facts.start;
     const targets: Target[] = read.carries.length ? read.carries : [null];
@@ -528,13 +587,15 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
             summary: `${short(read.commit)} ${how}; canary started`,
             payload: started,
           },
-          ...forTarget(o, start.release, record, facts).drafts,
+          ...forTarget(o, names, start.release, record, facts).drafts,
         ]);
       }
     }
   }
-  for (const name of named(o)) {
-    for (const [target, record] of recorded.get(name) ?? []) add(target, forTarget(o, name, record, facts).drafts);
+  for (const name of releasesIn(names)) {
+    for (const [target, record] of recorded.get(name) ?? []) {
+      add(target, forTarget(o, names, name, record, facts).drafts);
+    }
   }
   return out;
 }

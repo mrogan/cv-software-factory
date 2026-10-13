@@ -14,7 +14,7 @@ import type { AnalysisRun, Rollout } from '../../src/release/read.ts';
 import { JOURNEY_FALLBACK } from '../../src/release/signals.ts';
 import type { Kube } from '../../src/runners/kube.ts';
 import { quiet } from '../github/fake.ts';
-import { CANARY, commitOf, digestOf, rollout, run, STABLE } from '../release/fixtures.ts';
+import { CANARY, commitOf, digestOf, releaseOf, rollout, run, STABLE } from '../release/fixtures.ts';
 import { FakeGitHub, FakeProbes, FakeSteps } from './fakes.ts';
 
 let database: Database;
@@ -233,7 +233,7 @@ describe('the line’s watch of the app’s release', () => {
     }
     expect(await payloads(first, 'release.started')).toEqual([
       {
-        release: STABLE,
+        release: releaseOf(STABLE),
         version: commitOf(STABLE),
         previous: commitOf(STABLE),
         commit: commitOf(STABLE),
@@ -381,7 +381,7 @@ describe('the line’s watch of the app’s release', () => {
     ];
     await it.tick();
     const [rolledBack] = await payloads(carried, 'release.rolled-back');
-    expect(rolledBack).toMatchObject({ release: CANARY, weight: 25, restored: commitOf(STABLE) });
+    expect(rolledBack).toMatchObject({ release: releaseOf(CANARY), weight: 25, restored: commitOf(STABLE) });
     expect(rolledBack?.failed).toEqual([
       {
         name: 'latency',
@@ -523,7 +523,7 @@ describe('a rollback, as signals to triage', () => {
     const [errors, journeys, latency] = sent.map((row) => row.signal);
     expect(errors?.evidence?.[0]).toMatchObject({
       kind: 'canary',
-      release: CANARY,
+      release: releaseOf(CANARY),
       measure: { name: 'errors', phase: 'failed', value: 0.0119, limit: 0.01 },
       routes: {
         unit: '%',

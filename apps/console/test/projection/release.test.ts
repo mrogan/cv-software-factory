@@ -95,7 +95,7 @@ describe('the Canary panel, from the samples', () => {
   });
 
   it('draws one release for a release that carries two work items', () => {
-    const one = releases(SAMPLES, [], END).filter((r) => r.id === 'tqntrr4wg7');
+    const one = releases(SAMPLES, [], END).filter((r) => r.id === 'tqntrr4wg7-908');
     expect(one).toHaveLength(1);
     expect(one[0]?.items.map((i) => i.number)).toEqual(['1304', '1306']);
     expect(one[0]?.measured.map((m) => m.weight)).toEqual([25, 50]);

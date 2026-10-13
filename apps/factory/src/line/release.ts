@@ -50,9 +50,9 @@ import {
   type Figures,
   measuresOf,
   type Needs,
-  named,
   type Observed,
   observe,
+  podHashes,
   type Recorded,
   recordedFrom,
   releaseEvents,
@@ -132,7 +132,7 @@ export class Releases {
       return;
     }
     const o = observe(read.rollout, read.runs);
-    const recorded = recordedFrom(await this.#recorded(named(o)));
+    const recorded = recordedFrom(await this.#recorded(podHashes(o), true));
     const needs = releaseNeeds(o, recorded);
     const start = needs.start && (await this.#start(needs.start));
     const lastPromoted = needs.start && (await this.#lastPromoted());
@@ -151,7 +151,7 @@ export class Releases {
     for (const run of needs.failures) {
       const hashes = hashesOf(run);
       const at = run.status.completedAt;
-      const from = startOf(o, hashes?.canary ?? '');
+      const from = startOf(o, run);
       if (!hashes || !at || !from) continue;
       for (const measure of measuresOf(run).filter((m) => m.phase === 'failed')) {
         try {
@@ -232,7 +232,7 @@ export class Releases {
     }
     const hashes = hashesOf(run);
     const at = run.status.completedAt;
-    const from = startOf(o, hashes?.canary ?? '');
+    const from = startOf(o, run);
     if (!hashes || !at || !from) return {};
     const routes = await routesWorse(prometheus, measure.name, hashes, new Date(from), new Date(at));
     const series =
@@ -320,12 +320,17 @@ export class Releases {
     });
   }
 
-  /** The release events recorded for these releases, upcast, in order. */
-  async #recorded(names: string[]) {
+  /**
+   * The release events recorded for these releases, upcast, in order; or, `byHash`, for every release of these
+   * versions, whatever its revision.
+   */
+  async #recorded(names: string[], byHash = false) {
     if (!names.length) return [];
-    const rows = await this.#o.sql<(RawEvent & { work_item: string | null; ts: Date })[]>`
+    const { sql } = this.#o;
+    const release = byHash ? sql`split_part(payload->>'release', '-', 1)` : sql`payload->>'release'`;
+    const rows = await sql<(RawEvent & { work_item: string | null; ts: Date })[]>`
       select seq, work_item, ts, type, version, payload from events
-      where type in ${this.#o.sql(RELEASE_TYPES as string[])} and payload->>'release' in ${this.#o.sql(names)}
+      where type in ${sql(RELEASE_TYPES as string[])} and ${release} in ${sql(names)}
       order by seq`;
     return rows.flatMap((row) => {
       const read = upcast({ ...row, seq: Number(row.seq) });

@@ -24,7 +24,11 @@ const condition = z.object({
 
 /** The app's Rollout, as far as the watch reads it. */
 export const rolloutSchema = z.object({
-  metadata: z.object({ name: z.string() }),
+  metadata: z.object({
+    name: z.string(),
+    /** `rollout.argoproj.io/revision`: the version the spec asks for, counted up on each new rollout. */
+    annotations: z.record(z.string(), z.string()).default({}),
+  }),
   spec: z.object({
     template: z.object({
       spec: z.object({ containers: z.array(z.object({ name: z.string(), image: z.string() })).min(1) }),
@@ -85,6 +89,8 @@ export const analysisRunSchema = z.object({
     uid: z.string(),
     creationTimestamp: z.string(),
     labels: z.record(z.string(), z.string()).default({}),
+    /** `rollout.argoproj.io/revision`: the Rollout's revision when it made the run. */
+    annotations: z.record(z.string(), z.string()).default({}),
     ownerReferences: z.array(z.object({ kind: z.string(), name: z.string() })).default([]),
   }),
   spec: z.object({
