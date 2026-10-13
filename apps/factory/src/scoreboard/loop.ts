@@ -6,14 +6,18 @@
 export interface LoopOptions {
   /** Starts listening for appends, calling `wake` on each, and again once it is listening. */
   listen: (wake: () => void) => Promise<{ unlisten: () => Promise<void> }>;
-  /** One pass. It handles its own failures, and never throws. */
   pass: () => Promise<void>;
+  /** Told of a pass that failed. The next wake runs another. */
+  failed: (error: unknown) => void;
   /** How often to wake with nothing appended. */
   everyMs: number;
 }
 
-/** Runs passes until `stopped` resolves, then stops waking and waits for the pass in flight. */
-export async function wakeLoop({ listen, pass, everyMs }: LoopOptions, stopped: Promise<void>): Promise<void> {
+/** Runs passes until `stopped`, called once the loop is listening, resolves; then waits for the pass in flight. */
+export async function wakeLoop(
+  { listen, pass, failed, everyMs }: LoopOptions,
+  stopped: () => Promise<void>,
+): Promise<void> {
   let running: Promise<void> | null = null;
   let again = false;
   const wake = () => {
@@ -24,7 +28,7 @@ export async function wakeLoop({ listen, pass, everyMs }: LoopOptions, stopped: 
     running = (async () => {
       do {
         again = false;
-        await pass();
+        await pass().catch(failed);
       } while (again);
       running = null;
     })();
@@ -32,7 +36,7 @@ export async function wakeLoop({ listen, pass, everyMs }: LoopOptions, stopped: 
 
   const subscription = await listen(wake);
   const timer = setInterval(wake, everyMs);
-  await stopped;
+  await stopped();
   clearInterval(timer);
   await subscription.unlisten();
   await running;

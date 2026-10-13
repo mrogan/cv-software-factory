@@ -20,6 +20,7 @@ async function loop() {
   const listening = { unlisten: vi.fn(async () => {}) };
   const passes: PromiseWithResolvers<void>[] = [];
   const stop = Promise.withResolvers<void>();
+  const failed = vi.fn();
   const done = wakeLoop(
     {
       listen: async (w) => {
@@ -31,9 +32,10 @@ async function loop() {
         passes.push(pass);
         return pass.promise;
       },
+      failed,
       everyMs: MINUTE,
     },
-    stop.promise,
+    () => stop.promise,
   );
   await vi.advanceTimersByTimeAsync(0);
   return {
@@ -45,6 +47,7 @@ async function loop() {
       await vi.advanceTimersByTimeAsync(0);
     },
     listening,
+    failed,
     stop: async () => {
       stop.resolve();
       await vi.advanceTimersByTimeAsync(0);
@@ -65,16 +68,30 @@ describe("the scoreboard's loop", () => {
     expect(l.passes).toHaveLength(2);
   });
 
-  it('runs exactly one more pass after one it was woken during, however often', async () => {
+  it('runs exactly one more pass after one it was woken during, however often and by whatever', async () => {
     const l = await loop();
     l.append();
     l.append();
+    await vi.advanceTimersByTimeAsync(MINUTE);
     l.append();
     expect(l.passes).toHaveLength(1);
     await l.finish();
     expect(l.passes).toHaveLength(2);
     await l.finish();
     expect(l.passes).toHaveLength(2);
+  });
+
+  it('runs the next pass after one that failed', async () => {
+    const l = await loop();
+    l.append();
+    l.append();
+    l.passes[0]?.reject(new Error('the store is away'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(l.failed).toHaveBeenCalledWith(new Error('the store is away'));
+    expect(l.passes).toHaveLength(2);
+    await l.finish();
+    l.append();
+    expect(l.passes).toHaveLength(3);
   });
 
   it('runs a pass every minute with nothing appended', async () => {

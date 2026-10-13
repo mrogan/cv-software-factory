@@ -67,22 +67,26 @@ async function serve(sql: postgres.Sql, key: Awaited<ReturnType<typeof loadKey>>
   const scoreboard = new Scoreboard({ sql, events, key });
 
   log.info({ keyed: key !== null }, key ? 'scoreboard counting' : 'scoreboard off: no answer key');
-  const pass = async () => {
-    try {
-      const result = await scoreboard.pass();
-      if (result.pass === 'published') log.info({ score: result.score }, 'scoreboard published');
-    } catch (error) {
-      log.error({ error: error instanceof Error ? error.message : 'failed' }, 'scoreboard pass failed');
-    }
-  };
-  const stopped = new Promise<void>((resolve) => {
-    for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-      process.once(signal, () => {
-        log.info({ signal }, 'scoreboard stopping');
-        resolve();
-      });
-    }
-  });
-  await wakeLoop({ listen: (wake) => listen(sql, wake, wake), pass, everyMs: EVERY_MS }, stopped);
+  await wakeLoop(
+    {
+      listen: (wake) => listen(sql, wake, wake),
+      pass: async () => {
+        const result = await scoreboard.pass();
+        if (result.pass === 'published') log.info({ score: result.score }, 'scoreboard published');
+      },
+      failed: (error) =>
+        log.error({ error: error instanceof Error ? error.message : 'failed' }, 'scoreboard pass failed'),
+      everyMs: EVERY_MS,
+    },
+    () =>
+      new Promise<void>((resolve) => {
+        for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+          process.once(signal, () => {
+            log.info({ signal }, 'scoreboard stopping');
+            resolve();
+          });
+        }
+      }),
+  );
   return 0;
 }

@@ -166,20 +166,22 @@ describe('the scoreboard', () => {
   it("moves found at the cadence's boundary on the minute's timer, with nothing appended", async () => {
     // Only the timer is faked: the store's driver keeps its own.
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const stop = Promise.withResolvers<void>();
+    let done: Promise<void> | undefined;
     try {
       now = Date.parse('2026-10-11T11:58:00Z');
       await ticket('/a');
       const board = scoreboard();
       const sql = database.scoreboard;
       const passes: string[] = [];
-      const stop = Promise.withResolvers<void>();
-      const done = wakeLoop(
+      done = wakeLoop(
         {
           listen: (wake) => listen(sql, wake, wake),
           pass: async () => void passes.push((await board.pass()).pass),
+          failed: (error) => passes.push(String(error)),
           everyMs: 60_000,
         },
-        stop.promise,
+        () => stop.promise,
       );
       // Woken as it starts listening, then by its own append, which changes nothing.
       await vi.waitFor(() => expect(passes).toEqual(['published', 'unchanged']));
@@ -189,10 +191,9 @@ describe('the scoreboard', () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await vi.waitFor(() => expect(passes).toEqual(['published', 'unchanged', 'published', 'unchanged']));
       expect((await published()).at(-1)).toEqual({ keyed: true, entries: 2, found: 1, verified: 0, medianMs: null });
-
+    } finally {
       stop.resolve();
       await done;
-    } finally {
       vi.useRealTimers();
     }
   });
