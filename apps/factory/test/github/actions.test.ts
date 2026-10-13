@@ -155,6 +155,75 @@ describe('acting in GitHub', () => {
     });
   });
 
+  it('replies on the open threads it began with an answered finding and resolves them, once, and leaves the rest', async () => {
+    const finding = '**Blocking** · criterion 2\n\nNo test shows a lowercase query.';
+    const reply = `Answered in ${SHA}: the factory’s reviewer, review 2, finds this put right.`;
+    const app = { login: 'mrogan-software-factory' };
+    const thread = (
+      id: string,
+      isResolved: boolean,
+      path: string,
+      ...comments: [string, { login: string } | null][]
+    ) => ({
+      id,
+      isResolved,
+      path,
+      originalLine: 4,
+      comments: { nodes: comments.map(([body, author]) => ({ body, author })) },
+    });
+    const { github, sent } = client([
+      {
+        method: 'POST',
+        path: '/graphql',
+        answer: ({ body }) =>
+          String((body as { query: string }).query).includes('reviewThreads')
+            ? {
+                body: {
+                  data: {
+                    repository: {
+                      pullRequest: {
+                        reviewThreads: {
+                          nodes: [
+                            thread('T1', false, 'test/search.test.ts', [finding.replace(/\n/g, '\r\n'), app]),
+                            // Replied to already, by a try that failed before it resolved.
+                            thread('T2', false, 'src/search.ts', [finding, app], [reply, app]),
+                            thread('T3', true, 'test/pages.test.ts', [finding, app]),
+                            thread('T4', false, 'test/search.test.ts', [finding, { login: 'mrogan' }]),
+                            thread('T5', false, 'test/other.test.ts', [finding, app]),
+                            thread('T6', false, 'test/search.test.ts', ['**Blocking** · rule 1\n\nElse.', app]),
+                            // The same words on another line: a finding of its own.
+                            { ...thread('T7', false, 'test/search.test.ts', [finding, app]), originalLine: 9 },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+              }
+            : { body: { data: {} } },
+      },
+    ]);
+    await new LiveActions(github).resolveThreads(REPO, 66, {
+      comments: [
+        { path: 'test/search.test.ts', line: 4, body: finding },
+        { path: 'src/search.ts', line: 4, body: finding },
+        { path: 'test/pages.test.ts', line: 4, body: finding },
+      ],
+      reply,
+    });
+    const asked = calls(sent).map((s) => s.body as { query: string; variables: Record<string, unknown> });
+    expect(asked[0]?.variables).toEqual({ owner: 'mrogan', name: 'cv-worlds-worst-website', number: 66 });
+    expect(
+      asked
+        .slice(1)
+        .map((a) => [a.query.match(/(addPullRequestReviewThreadReply|resolveReviewThread)/)?.[1], a.variables]),
+    ).toEqual([
+      ['addPullRequestReviewThreadReply', { id: 'T1', body: reply }],
+      ['resolveReviewThread', { id: 'T1' }],
+      ['resolveReviewThread', { id: 'T2' }],
+    ]);
+  });
+
   it('reports a check run with its output, and closes an issue with its reason', async () => {
     const { github, sent } = client([
       { method: 'POST', path: `/repos/${REPO}/check-runs`, answer: () => ({ status: 201, body: { id: 5 } }) },
@@ -439,6 +508,24 @@ describe('a dry run', () => {
   });
 });
 
+describe('resolving threads in a dry run', () => {
+  it('records the threads it would have resolved, with what it would have said on them', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const comments = [{ path: 'src/search.ts', line: 1, body: '**Blocking** · criterion 1\n\nNo quote is escaped.' }];
+    await actions.resolveThreads(REPO, 66, { comments, reply: 'Answered.' });
+    const [record] = await Promise.all(
+      (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+    );
+    expect(record).toEqual({
+      action: 'resolveThreads',
+      repo: REPO,
+      at: '2026-10-04T12:00:00.000Z',
+      args: { number: 66, comments, reply: 'Answered.' },
+    });
+  });
+});
+
 describe('reopening an issue in a dry run', () => {
   it('records the issue it would have reopened, with what it would have said on it', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
@@ -586,6 +673,13 @@ describe('the worker over HTTP', () => {
     expect((await call('/v1/actions/comment', { repo: REPO, number: pullRequest.number, body: 'Ready.' })).status).toBe(
       200,
     );
+    const comments = [{ path: 'src/cart.ts', line: 3, body: '**Blocking**\n\nOne short.' }];
+    const resolve = (args: object) =>
+      call('/v1/actions/resolveThreads', { repo: REPO, number: pullRequest.number, ...args });
+    expect((await resolve({ comments, reply: 'Answered.' })).status).toBe(200);
+    // Nothing to resolve, or nothing to say, is refused at the door.
+    expect((await resolve({ comments: [], reply: 'Answered.' })).status).toBe(400);
+    expect((await resolve({ comments, reply: '' })).status).toBe(400);
   });
 
   it('says it is a dry run in every answer', async () => {

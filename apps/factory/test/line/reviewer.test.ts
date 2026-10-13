@@ -2,7 +2,7 @@ import { MAX_FINDINGS } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { type ReviewerInput, reviewer } from '../../src/line/agents/reviewer.ts';
 import { FIXTURE_WORK_ITEM, FIXTURES } from '../../src/line/bench/fixtures.ts';
-import { REVIEW_CHECK, reviewInGitHub, shownLines } from '../../src/line/review.ts';
+import { answeredThreads, REVIEW_CHECK, reviewInGitHub, shownLines } from '../../src/line/review.ts';
 
 const input: ReviewerInput =
   FIXTURES.reviewer['cards-claimed']?.input ??
@@ -40,7 +40,27 @@ describe('the reviewer', () => {
   it('is told, in a later round, what the review before it blocked on', () => {
     const prompt = reviewer.prompt({ ...input, round: 2, blocked: [unmet] });
     expect(prompt).toContain('in its round 2');
-    expect(prompt).toContain(`- src/money.ts:3 (criterion 5): ${unmet.comment}`);
+    expect(prompt).toContain(`1. src/money.ts:3 (criterion 5): ${unmet.comment}`);
+    expect(prompt).toContain(
+      '{"verdict","note","findings":[{"path","line","blocking","rule","criterion","ticket","comment"}],"answered"}',
+    );
+    expect(prompt).toContain('- `answered`: the numbers of the findings the review before blocked on');
+    // A first review has nothing to answer, and is not asked to.
+    expect(reviewer.prompt(input)).not.toContain('`answered`');
+  });
+
+  it('says by number which findings of the review before it are answered, and only those there were', () => {
+    const fits = (result: unknown, blocked = [unmet, { ...unmet, line: 4 }]) =>
+      reviewer.schema({ ...input, round: 2, blocked }).safeParse(result).success;
+    const approved = { verdict: 'approved', note: 'Both put right.', findings: [] };
+    expect(fits({ ...approved, answered: [1, 2] })).toBe(true);
+    expect(fits({ ...approved, answered: [] })).toBe(true);
+    expect(fits(approved)).toBe(true);
+    expect(fits({ verdict: 'changes-requested', note: 'One holds.', findings: [unmet], answered: [2] })).toBe(true);
+    expect(fits({ ...approved, answered: [3] })).toBe(false);
+    expect(fits({ ...approved, answered: [1, 1] })).toBe(false);
+    expect(fits({ ...approved, answered: [0] })).toBe(false);
+    expect(fits({ ...approved, answered: [1] }, [])).toBe(false);
   });
 
   it('hands back a verdict that agrees with its findings, each short, cited and anchored', () => {
@@ -179,5 +199,13 @@ describe('a review in GitHub', () => {
     const at = { commit: 'c'.repeat(40), workItem: '1001', review: 1, last: false };
     const shown = reviewInGitHub({ verdict: 'escalated', note: 'Beyond the ticket.', findings: [beyond] }, DIFF, at);
     expect(shown.comments[0]?.body).toBe(`**Blocking** · the ticket · criterion 5\n\n${beyond.comment}`);
+  });
+
+  it('resolves an answered finding’s thread unless the review gives it again, word for word, on the same line', () => {
+    const moved = { ...unmet, line: unmet.line + 1 };
+    expect(answeredThreads([unmet], [unmet])).toEqual([]);
+    expect(answeredThreads([unmet], [moved])).toEqual([
+      { path: unmet.path, line: unmet.line, body: `**Blocking** · criterion 5\n\n${unmet.comment}` },
+    ]);
   });
 });

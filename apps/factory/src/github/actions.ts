@@ -1,6 +1,6 @@
 /**
- * Everything the factory does in GitHub, as the App: branches, signed commits, pull requests, comment reviews,
- * check runs and issues. Two implementations share the interface:
+ * Everything the factory does in GitHub, as the App: branches, signed commits, pull requests, comment reviews and
+ * their threads, check runs and issues. Two implementations share the interface:
  *
  * - `LiveActions` does it, through the client.
  * - `DryRunActions` does nothing in GitHub. It writes each action it would have taken to the artifact store, as
@@ -19,6 +19,7 @@ import type { Logger } from 'pino';
 import { z } from 'zod';
 import { guardBranch } from './branches.ts';
 import { type GitHub, GitHubError } from './client.ts';
+import { APP_LOGIN } from './current.ts';
 import { carriesSection, type Deploy, DeployRefused, deployTarget, deployTitle, withCarries } from './deploys.ts';
 import { applyTo, filesIn, PatchRefused } from './patches.ts';
 import { CODEOWNERS_PATHS, inScope, protectedFrom } from './paths.ts';
@@ -170,6 +171,12 @@ export interface Actions {
     number: number,
     review: { commit: string; body: string; comments: ReviewComment[] },
   ): Promise<number>;
+  /**
+   * Replies on each open review thread the App began with one of `comments`, found by its path, the line it was made
+   * on and its first comment's body, and resolves it. A thread resolved already, or begun by anyone else, is left as it is, and a reply
+   * the App made already is not made again, so trying again after a failure says nothing twice.
+   */
+  resolveThreads(repo: string, number: number, threads: { comments: ReviewComment[]; reply: string }): Promise<void>;
   createCheckRun(repo: string, report: CheckRunReport): Promise<number>;
   updateCheckRun(repo: string, id: number, report: Partial<CheckRunReport>): Promise<void>;
   openIssue(repo: string, issue: { title: string; body: string; labels?: string[] }): Promise<number>;
@@ -208,6 +215,57 @@ const DEPLOY_PULL = z.object({
 const READY = `mutation($id: ID!) {
   markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } }
 }`;
+
+/**
+ * A pull request's review threads, each with its comments. One page of each: the line posts at most two reviews of
+ * twenty findings before Martin decides, and a thread here holds a finding and a reply or two.
+ */
+const THREADS = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        nodes { id isResolved path originalLine comments(first: 50) { nodes { body author { login } } } }
+      }
+    }
+  }
+}`;
+
+const THREADS_ANSWER = z.object({
+  repository: z.object({
+    pullRequest: z.object({
+      reviewThreads: z.object({
+        nodes: z.array(
+          z.object({
+            id: z.string().min(1),
+            isResolved: z.boolean(),
+            path: z.string(),
+            // The line in the version the comment was made on, which a later push does not move.
+            originalLine: z.number().int().nullable(),
+            comments: z.object({
+              // GitHub gives a deleted account as null.
+              nodes: z.array(z.object({ body: z.string(), author: z.object({ login: z.string() }).nullable() })),
+            }),
+          }),
+        ),
+      }),
+    }),
+  }),
+});
+
+const REPLY = `mutation($id: ID!, $body: String!) {
+  addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $id, body: $body }) { comment { id } }
+}`;
+
+const RESOLVE = `mutation($id: ID!) {
+  resolveReviewThread(input: { threadId: $id }) { thread { isResolved } }
+}`;
+
+/** GraphQL names the App without the `[bot]` REST adds. */
+const byApp = (author: { login: string } | null) =>
+  author?.login.replace(/\[bot\]$/, '') === APP_LOGIN.replace(/\[bot\]$/, '');
+
+/** A comment's body as it is compared: GitHub may keep the line endings it was sent with, or not. */
+const same = (a: string, b: string) => a.replace(/\r\n/g, '\n').trim() === b.replace(/\r\n/g, '\n').trim();
 
 const checkRunBody = (report: Partial<CheckRunReport>) => ({
   name: report.name,
@@ -369,6 +427,25 @@ export class LiveActions implements Actions {
       ID,
     );
     return made.id;
+  }
+
+  async resolveThreads(
+    repo: string,
+    number: number,
+    { comments, reply }: { comments: ReviewComment[]; reply: string },
+  ): Promise<void> {
+    const [owner, name] = repo.split('/');
+    const answer = await this.#github.graphql(repo, THREADS, { owner, name, number }, THREADS_ANSWER);
+    for (const thread of answer.repository.pullRequest.reviewThreads.nodes) {
+      const [first, ...replies] = thread.comments.nodes;
+      if (thread.isResolved || !first || !byApp(first.author)) continue;
+      const made = (c: ReviewComment) => c.path === thread.path && c.line === thread.originalLine;
+      if (!comments.some((c) => made(c) && same(c.body, first.body))) continue;
+      if (!replies.some((r) => byApp(r.author) && same(r.body, reply))) {
+        await this.#github.graphql(repo, REPLY, { id: thread.id, body: reply }, z.unknown());
+      }
+      await this.#github.graphql(repo, RESOLVE, { id: thread.id }, z.unknown());
+    }
   }
 
   async createCheckRun(repo: string, report: CheckRunReport): Promise<number> {
@@ -653,6 +730,14 @@ export class DryRunActions implements Actions {
   ): Promise<number> {
     await this.#record('review', repo, { number, ...review });
     return this.#number();
+  }
+
+  async resolveThreads(
+    repo: string,
+    number: number,
+    threads: { comments: ReviewComment[]; reply: string },
+  ): Promise<void> {
+    await this.#record('resolveThreads', repo, { number, ...threads });
   }
 
   async createCheckRun(repo: string, report: CheckRunReport): Promise<number> {

@@ -114,6 +114,14 @@ const ARGS = {
     body: text(65_535),
     comments: z.array(z.strictObject({ path, line: number, body: text(65_535).min(1) })).max(50),
   }),
+  resolveThreads: z.strictObject({
+    number,
+    comments: z
+      .array(z.strictObject({ path, line: number, body: text(65_535).min(1) }))
+      .min(1)
+      .max(50),
+    reply: text(65_535).min(1),
+  }),
   createCheckRun: checkRun,
   updateCheckRun: z.strictObject({ id: number, ...checkRun.partial().shape }),
   openIssue: z.strictObject({
@@ -157,6 +165,7 @@ const CALLS: { [K in Name]: (actions: Actions, repo: string, args: z.infer<(type
   readyForReview: (x, repo, { pullRequest }) => x.readyForReview(repo, pullRequest),
   updateBranch: (x, repo, { number, expectedHead }) => x.updateBranch(repo, number, expectedHead),
   review: (x, repo, { number, ...review }) => x.review(repo, number, review),
+  resolveThreads: (x, repo, { number, ...threads }) => x.resolveThreads(repo, number, threads),
   createCheckRun: (x, repo, report) => x.createCheckRun(repo, defined(report)),
   updateCheckRun: (x, repo, { id, ...report }) => x.updateCheckRun(repo, id, defined(report)),
   openIssue: (x, repo, issue) => x.openIssue(repo, defined(issue)),
