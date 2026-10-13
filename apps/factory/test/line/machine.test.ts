@@ -566,7 +566,7 @@ describe('after the merge', () => {
       hold: {
         cause: 'deploy',
         reason:
-          'Stop the line aborted the release that carried the fix, v0.9.4: it waits for him to retry it, or for the next deploy pull request to carry it',
+          'Stop the line aborted the release that carried the fix, v0.9.4: it waits for Martin to retry it, or for the next deploy pull request to carry it',
       },
     });
     expect(decide([...done, release(), aborted('martin')], facts).next).toMatchObject({

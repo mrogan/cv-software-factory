@@ -634,7 +634,8 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
 function endedReason(version: string, ended: NonNullable<NonNullable<WorkItemState['release']>['ended']>): string {
   if (ended.how === 'rolled-back')
     return `The release that carried the fix, ${version}, rolled back: it waits for the next deploy pull request to carry it`;
-  return `${whoAborted(ended.by)} the release that carried the fix, ${version}: it waits for him to retry it, or for the next deploy pull request to carry it`;
+  const who = ended.by === 'martin' ? 'him' : 'Martin';
+  return `${whoAborted(ended.by)} the release that carried the fix, ${version}: it waits for ${who} to retry it, or for the next deploy pull request to carry it`;
 }
 
 /**
