@@ -170,12 +170,16 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
   const tickets = new Map<string, { number: string; how: Signalled['how'] }>();
   const signalled = new Set<string>();
   const reopened = new Set<string>();
+  // Whether the history records aborts: one that does has no stop to infer.
+  let recordsAborts = false;
   for (const event of events) {
     const at = Date.parse(event.ts);
     // Stop the line aborts the canary in flight, and the line records the abort. A history from before it did has
     // only the stop: the newest release, if it has not ended, is read as aborted by it, until it records an end of its
-    // own. An older one that never recorded an end was left behind by a newer, and the stop says nothing of it.
+    // own. An older one that never recorded an end was left behind by a newer, and the stop says nothing of it. Once
+    // the history has recorded an abort, a stop is never read as one.
     if (event.type === 'line.stopped') {
+      if (recordsAborts) continue;
       const newest = [...byId.values()].at(-1);
       if (newest && !newest.end) newest.stoppedAt ??= at;
       continue;
@@ -239,6 +243,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
       event.type !== 'release.aborted'
     )
       continue;
+    if (event.type === 'release.aborted') recordsAborts = true;
     const r = byId.get(event.payload.release);
     if (!r || r.end) continue;
     if (event.type === 'canary.stepped') {

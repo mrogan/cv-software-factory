@@ -66,9 +66,9 @@ The same function decides what a release carries, so while a release is in its c
 
 A figure or series Prometheus did not give is left out.
 
-- **Who aborted it.** Martin's abort terminates the runs, which fails none, and is no signal. To Argo Rollouts, Stop the line's abort (`scripts/abort-canaries.sh`) and Martin's by hand are the same patch of the Rollout's status, so the line says which: `stop` when the last `line.started` or `line.stopped` before the abort is a stop recorded within the minute before it (`make stop-the-line` records the stop, then aborts), `martin` otherwise. The milestone 8 console's abort is his.
+- **Who aborted it.** Martin's abort terminates the runs, which fails none, and is no signal. To Argo Rollouts, Stop the line's abort (`scripts/abort-canaries.sh`) and Martin's by hand are the same patch of the Rollout's status, so the line says which: `stop` when the last `line.started` or `line.stopped` before the abort is a stop recorded within the minute before it (`make stop-the-line` records the stop, then aborts), `martin` otherwise. It is decided by time alone, so when the stop cannot be recorded (the store is down, and the make target aborts anyway) the abort reads as Martin's, and an abort he makes by hand within the minute after a stop reads as the stop's. A retry and a second abort between two reads are both recorded, by the abort's later time.
 - **Where it was.** An abort sends the Rollout back to its first step, so the event holds no weight: the console reads the canary's weight then from the release's steps, as it reads one in flight.
-- **A run that ends in error** records nothing: the analysis could not judge, and nobody stopped it. The Rollout aborts itself, the release stays unfinished, and its work items wait at Release until Martin retries it or a later release carries them.
+- **An analysis that ends in error** aborts the Rollout itself, and that abort records nothing: the analysis could not judge, and nobody stopped it. A run that ended in error within the minute before an abort made it; the release stays unfinished, and its work items wait at Release until Martin retries it or a later release carries them.
 
 ### Found live
 

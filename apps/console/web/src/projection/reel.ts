@@ -83,8 +83,8 @@ export type Picture =
       pullRequest: number | undefined;
       title: string | undefined;
       merged: { at: number; commit: string; byMartin: boolean } | undefined;
-      /** The release that carried the merge, if it ended without shipping, and how: "rolled back", say. */
-      ended: { at: number; version: string; how: string } | undefined;
+      /** The release that carried the merge, if it ended without shipping. */
+      ended: Ended | undefined;
     }
   /** A fix waiting for Martin's merge: the pull request, and what says it is safe to merge. */
   | {
@@ -146,6 +146,13 @@ export type Picture =
 type Dependency = NonNullable<PayloadOf<'work-item.opened'>['dependency']>;
 type Findings = NonNullable<PayloadOf<'gate.finished'>['findings']>;
 type Series = NonNullable<PayloadOf<'release.rolled-back'>['failed'][number]['series']>;
+
+/** A release that ended without shipping: rolled back, or aborted, and by whom. */
+export interface Ended {
+  at: number;
+  version: string;
+  aborted: PayloadOf<'release.aborted'>['by'] | undefined;
+}
 
 export interface Versions {
   /** The version it broke or replaced. */

@@ -73,6 +73,7 @@
  */
 import { ALWAYS_HELD, type HoldCause, LIMITS, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
+import { whoAborted } from '../release/watch.ts';
 
 /** The agents the line runs, each in a runner. */
 export type LineAgent = 'planner' | 'coder' | 'reviewer' | 'describer';
@@ -633,8 +634,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
 function endedReason(version: string, ended: NonNullable<NonNullable<WorkItemState['release']>['ended']>): string {
   if (ended.how === 'rolled-back')
     return `The release that carried the fix, ${version}, rolled back: it waits for the next deploy pull request to carry it`;
-  const who = ended.by === 'stop' ? 'Stop the line aborted' : 'Martin aborted';
-  return `${who} the release that carried the fix, ${version}: it waits for him to retry it, or for the next deploy pull request to carry it`;
+  return `${whoAborted(ended.by)} the release that carried the fix, ${version}: it waits for him to retry it, or for the next deploy pull request to carry it`;
 }
 
 /**

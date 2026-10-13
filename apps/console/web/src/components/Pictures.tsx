@@ -8,6 +8,7 @@ import { useArtifactUrl } from '../artifacts.ts';
 import { AGENT_NAME, axis, capital, clock, figure, inWords, money, plural, shortVersion, times } from '../format.ts';
 import type { Picture as PictureData, Source, Tag } from '../projection/index.ts';
 import { QUARANTINE_AT } from '../projection/index.ts';
+import { abortWords } from '../projection/release.ts';
 import { Glyph } from './Glyph.tsx';
 import { LogoMark, logoFor } from './Logos.tsx';
 
@@ -1098,7 +1099,7 @@ function MergePicture(picture: Extract<PictureData, { type: 'merge' }>) {
  * deploy pull request, so none is drawn.
  */
 function DeployPicture({ pullRequest, title, merged, ended }: Extract<PictureData, { type: 'deploy' }>) {
-  const aborted = ended && ended.how !== 'rolled back';
+  const aborted = ended?.aborted && abortWords(ended.aborted);
   return (
     <div className="pad">
       <div className="waits">
@@ -1106,7 +1107,7 @@ function DeployPicture({ pullRequest, title, merged, ended }: Extract<PictureDat
           {!ended
             ? 'Merged · waiting for Martin’s deploy'
             : aborted
-              ? `${capital(ended.how)} · waiting for Martin’s retry or next deploy`
+              ? `${capital(aborted)} · waiting for Martin’s retry or next deploy`
               : 'Rolled back · waiting for Martin’s next deploy'}
         </div>
         {pullRequest && (
@@ -1123,8 +1124,7 @@ function DeployPicture({ pullRequest, title, merged, ended }: Extract<PictureDat
           )}
           {ended && (
             <Tick ok={false} num={shortVersion(ended.version)}>
-              The release that carried it {aborted ? 'was ' : ''}
-              {ended.how} at {clock(ended.at)}
+              The release that carried it {aborted ? `was ${aborted}` : 'rolled back'} at {clock(ended.at)}
             </Tick>
           )}
           <Tick ok={undefined}>

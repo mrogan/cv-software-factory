@@ -363,11 +363,45 @@ describe('a release, from the Rollout and its runs', () => {
     // An analysis that ends in Error is no failure of the canary, and nobody stopped it: its step is recorded as it
     // ended, and the abort it made is not Martin's.
     const error = step(5, { phase: 'Error', created: t(15), completed: t(15) });
-    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true });
+    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(15.01) });
     const judged = s.pass(aborted, [...runs, error], { abortedBy: 'martin' });
     expect(judged.needs).toMatchObject({ failures: [], aborted: false });
     expect(judged.said).toEqual({ 1001: ['canary.stepped'], 1006: ['canary.stepped'] });
     expect(s.pass(aborted, [...runs, error], { abortedBy: 'martin' }).said).toEqual({});
+    // Martin retries it, and later aborts it himself: that abort is his, whatever the earlier run said.
+    const later = [...runs, error, step(2, { name: 'website-68ff668868-4-2.1', created: t(20), completed: t(20.5) })];
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), later);
+    const byHand = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(25) });
+    expect(s.pass(byHand, later, { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.aborted'],
+      1006: ['release.aborted'],
+    });
+  });
+
+  it('records a retry and a second abort that both happened between two reads', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], {
+      start: { ...START, carries: ['1001'] },
+    });
+    const first = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(5) });
+    expect(s.pass(first, [background()], { abortedBy: 'stop' }).said).toEqual({ 1001: ['release.aborted'] });
+    // Read again with the same abort: nothing. With a later one, he retried it and aborted it again meanwhile.
+    expect(s.pass(first, [background()], { abortedBy: 'stop' }).said).toEqual({});
+    const second = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(9) });
+    expect(s.pass(second, [background()], { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.started', 'release.aborted'],
+    });
+    expect(s.of('1001', 'release.aborted').map((p) => (p as PayloadOf<'release.aborted'>).by)).toEqual([
+      'stop',
+      'martin',
+    ]);
+  });
+
+  it('records no abort until the Rollout says when, as a time', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+    const odd = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: 'yesterday' });
+    expect(s.pass(odd, [background()], { abortedBy: 'martin' })).toMatchObject({ said: {}, needs: { aborted: false } });
   });
 
   it('starts a rolled-back release again when Martin retries it, under the same name', () => {

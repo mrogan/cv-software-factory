@@ -329,8 +329,8 @@ function noteOf(item: ItemState, stage: Stage): string {
   if (item.hold?.cause === 'deploy') {
     const ended = endedSinceMerge(item);
     if (!ended) return 'Needs you · waiting for Martin’s deploy';
-    if (ended.how === 'rolled back') return 'Needs you · rolled back, waiting for Martin’s next deploy';
-    return `Needs you · ${ended.how}, waiting for Martin to retry it or deploy again`;
+    if (!ended.aborted) return 'Needs you · rolled back, waiting for Martin’s next deploy';
+    return `Needs you · ${abortWords(ended.aborted)}, waiting for Martin to retry it or deploy again`;
   }
   // Only Martin asks for improvements, so a visitor's suggestion waits for Martin, as does whatever the planner
   // noticed. A report that became a ticket and is held later, at Gates say, shows that hold's own reason.

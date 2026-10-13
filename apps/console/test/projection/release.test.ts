@@ -291,7 +291,7 @@ describe('a release’s steps', () => {
     // The card and the sheet say so too, with the release that rolled back.
     const picture = (t: number) => project(one.events, t).cards.find((c) => c.number === '1')?.picture;
     expect(picture(one.at(2))).toMatchObject({ type: 'deploy', ended: undefined });
-    expect(picture(one.at(7))).toMatchObject({ type: 'deploy', ended: { version: 'v1.0.1', how: 'rolled back' } });
+    expect(picture(one.at(7))).toMatchObject({ type: 'deploy', ended: { version: 'v1.0.1', aborted: undefined } });
     // A new fix, merged after the rollback, waits for a deploy as the first did.
     one
       .add(8, 'pull-request.merged', 'martin', { number: 3, commit: 'c'.repeat(40), by: 'martin' })
@@ -323,7 +323,7 @@ describe('a release’s steps', () => {
     const card = view.cards.find((c) => c.number === '1');
     expect(card?.picture).toMatchObject({
       type: 'deploy',
-      ended: { at: one.at(5), version: 'v1.0.1', how: 'aborted by Martin' },
+      ended: { at: one.at(5), version: 'v1.0.1', aborted: 'martin' },
     });
     expect(card?.versions).toMatchObject({ rolledBack: false, aborted: 'martin', onCanary: false });
   });
@@ -376,6 +376,11 @@ describe('a release’s steps', () => {
       at: one.at(6) + 1000,
       weight: 25,
     });
+    // A history that records aborts reads no stop as one: a release the line recorded no abort for stays unfinished.
+    one
+      .add(9, 'release.started', 'rollouts', { ...started(twoSteps), release: 'r3', version: 'v1.0.3' })
+      .add(10, 'line.stopped', 'martin', { reason: 'Stopped' });
+    expect(releases(one.events, [], one.at(11))[2]?.end).toBeUndefined();
   });
 
   it('matches a step measured to the judged step at its weight, when the plan holds the weight twice', () => {

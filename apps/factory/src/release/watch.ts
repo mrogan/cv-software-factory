@@ -68,6 +68,8 @@ export interface TargetRecord {
   steps: number;
   /** How its latest attempt ended, if it has. */
   ended: 'promoted' | 'rolled-back' | 'aborted' | undefined;
+  /** When Argo Rollouts acted on its latest abort, if it was aborted. */
+  abortedAt?: string;
 }
 
 /** What is recorded of each release, by its name, and on each target. */
@@ -98,7 +100,10 @@ export function recordedFrom(
     if (type === 'canary.stepped') record.steps += 1;
     if (type === 'release.promoted') record.ended = 'promoted';
     if (type === 'release.rolled-back') record.ended = 'rolled-back';
-    if (type === 'release.aborted') record.ended = 'aborted';
+    if (type === 'release.aborted') {
+      record.ended = 'aborted';
+      record.abortedAt = (payload as PayloadOf<'release.aborted'>).abortedAt;
+    }
   }
   return recorded;
 }
@@ -159,8 +164,7 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
     revision: revision && /^\d{1,12}$/.test(revision) ? revision : undefined,
     digest: spec.template.spec.containers[0]?.image.match(DIGEST)?.[1],
     aborted: status.abort === true,
-    abortedAt:
-      status.abort === true && Number.isFinite(Date.parse(status.abortedAt ?? '')) ? status.abortedAt : undefined,
+    abortedAt: status.abort === true ? status.abortedAt : undefined,
     admitted: available ? true : failedToCreate ? false : undefined,
     weights,
     plan: planOf(steps),
@@ -259,9 +263,22 @@ export const stepsOf = (o: Observed, release: string) =>
 export const failuresOf = (o: Observed, release: string) =>
   o.runs.filter((run) => isOf(run, release) && run.status.phase === 'Failed');
 
-/** A release's runs that could not judge it, and aborted it themselves. A terminated run ends Successful, not so. */
-const errorsOf = (o: Observed, release: string) =>
-  o.runs.filter((run) => isOf(run, release) && run.status.phase === 'Error');
+/**
+ * A release's runs that could not judge it, and aborted it themselves: each ended in Error in the minute before Argo
+ * Rollouts acted on the abort. An earlier one, which Martin retried past, did not make this abort. A terminated run ends
+ * Successful, not so.
+ */
+const errorsOf = (o: Observed, release: string) => {
+  const at = Date.parse(o.abortedAt ?? '');
+  return o.runs.filter((run) => {
+    const ended = Date.parse(run.status.completedAt ?? '');
+    return isOf(run, release) && run.status.phase === 'Error' && !(ended < at - 60_000 || ended > at + 1_000);
+  });
+};
+
+/** Who aborted, in the line's words: "Stop the line aborted", or "Martin aborted". */
+export const whoAborted = (by: PayloadOf<'release.aborted'>['by']) =>
+  by === 'stop' ? 'Stop the line aborted' : 'Martin aborted';
 
 /** When the first run of a run's release was made: the release's start, as near as the runs say. */
 export const startOf = (o: Observed, of: AnalysisRun) =>
@@ -379,8 +396,9 @@ function forTarget(
   let retried = false;
   if (ended === 'promoted') return { drafts, steps: [], failures: [], aborted: false };
   if (ended === 'rolled-back' || ended === 'aborted') {
-    // Retried, it goes again; otherwise it is over.
-    if (!live || o.aborted) return { drafts, steps: [], failures: [], aborted: false };
+    // Retried, it goes again; otherwise it is over. Retried and aborted again between two reads, it has a later abort.
+    const abortedAgain = ended === 'aborted' && Date.parse(o.abortedAt ?? '') > Date.parse(record.abortedAt ?? '');
+    if (!live || (o.aborted && !abortedAgain)) return { drafts, steps: [], failures: [], aborted: false };
     drafts.push({
       type: 'release.started',
       actor: 'rollouts',
@@ -473,7 +491,7 @@ function forTarget(
       drafts.push({
         type: 'release.aborted',
         actor: 'martin',
-        summary: `${by === 'stop' ? 'Stop the line aborted' : 'Martin aborted'} the canary of ${short(started.version)}`,
+        summary: `${whoAborted(by)} the canary of ${short(started.version)}`,
         payload: {
           release: name,
           version: started.version,
