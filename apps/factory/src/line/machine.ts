@@ -20,7 +20,9 @@
  * (`LIMITS.suggestions`), before the describer writes the change up, to take each or decline it with a reason, as the
  * factory asks of agents answering a review; the app's `main` merges nothing with a review thread open. A coder that
  * takes any pushes, and the gates and a fresh reviewer run again; the review after that goes on whatever it suggests,
- * so suggestions never send the work round again on their own. One that declines them all changes nothing, and the
+ * so suggestions never send the work round again on their own. That review counts toward `LIMITS.reviews` like any
+ * other: one that blocks after the coder's change for a suggestion holds for Martin if it is the last the line allows,
+ * since the change the reviewer approved is what the suggestion broke. One that declines them all changes nothing, and the
  * approval stands (`suggestions.answered`). Martin's approval sends the change on as it is, with no such round.
  *
  * A coder the work came back to may change nothing, and say why: a gate failed on a defect its change uncovered and

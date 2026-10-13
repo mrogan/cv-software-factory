@@ -120,9 +120,13 @@ describe('the coder', () => {
     expect(prompt).not.toContain('{"unchanged"}');
     expect(prompt).toContain('{"title","note","declined"}');
     expect(prompt).toContain('Every suggestion you leave out is one you took.');
-    // Without its session, it is told everything, and how to decline.
-    expect(coder.prompt(suggested)).toContain('Read AGENTS.md first');
-    expect(coder.prompt(suggested)).toContain('- `declined`: the suggestions you decline');
+    // Without its session, it is told the work, that the fix is in and approved, and how to decline.
+    const fresh = coder.prompt(suggested);
+    expect(fresh).toContain('Read AGENTS.md first');
+    expect(fresh).toContain('The fix is in the checkout, and the reviewer approved it');
+    expect(fresh).toContain('- `declined`: the suggestions you decline');
+    expect(fresh).not.toContain('{"unchanged"}');
+    expect(fresh).not.toContain('Write the test first');
 
     const note = 'pounds pads the pence now, tested at 5, 10, 600 and 705 pence.';
     const fits = (result: unknown, given = suggested) => coder.schema(given).safeParse(result).success;
@@ -135,10 +139,12 @@ describe('the coder', () => {
     // Declining them all, it changes nothing; declining some, it must change something.
     expect(fits({ declined: no(1, 2) })).toBe(true);
     expect(fits({ declined: no(2) })).toBe(false);
+    expect(fits({ unchanged: 'It is approved as it is.' })).toBe(false);
     // With something blocking, declining is no way to change nothing.
     const blocking = { ...suggested, findings: [{ ...unmetFinding }] };
     expect(fits({ declined: no(1, 2) }, blocking)).toBe(false);
     expect(fits({ title, note, declined: no(1) }, blocking)).toBe(true);
+    expect(fits({ unchanged: 'The quote is escaped already.' }, blocking)).toBe(true);
     // With no suggestions, there is nothing to decline.
     expect(fits({ title, note, declined: no(1) }, input)).toBe(false);
   });

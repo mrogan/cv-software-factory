@@ -103,6 +103,11 @@ export function coderResult(suggestions = 0, alone = false) {
       z.strictObject({ declined }),
     ])
     .superRefine((result, ctx) => {
+      // The change is approved: the round is for its suggestions, and declining every one is how it changes nothing.
+      if (alone && 'unchanged' in result) {
+        const message = 'a round for suggestions alone changes nothing by declining every one';
+        ctx.addIssue({ code: 'custom', path: ['unchanged'], message });
+      }
       if (!('declined' in result) || !result.declined) return;
       result.declined.forEach(({ suggestion }, i) => {
         const path = ['declined', i, 'suggestion'];
@@ -179,7 +184,8 @@ function specLines({ spec }: CoderInput): string[] {
   ];
 }
 
-function first(input: CoderInput): string[] {
+/** The ticket, what the senses saw, the spec and Martin's answer: what a step without its session is told first. */
+function briefing(input: CoderInput): string[] {
   const { workItem, ticket, signals, answer } = input;
   return [
     `Fix ticket #${workItem}: ${ticket.title}.`,
@@ -189,6 +195,12 @@ function first(input: CoderInput): string[] {
     'The spec you are held to:',
     ...specLines(input),
     ...(answer ? ['', `Martin answered: ${answer}`] : []),
+  ];
+}
+
+function first(input: CoderInput): string[] {
+  return [
+    ...briefing(input),
     '',
     'Read AGENTS.md first: its rules hold for every change here. Then:',
     '1. Find the cause. Start from the code the criteria name, and its tests.',
@@ -236,6 +248,20 @@ function again(input: CoderInput): string[] {
       : ['Put it right inside the same scope, and run the tests again.', ...(round > 1 ? [UNCHANGED] : [])];
   const why = [...back, ...refused];
   const declining = suggestions?.length ? [DECLINING] : [];
+  // Without its session, a round for suggestions alone is told the work, and that the fix is in and approved.
+  if (!resumed(input) && suggestionsAlone(input)) {
+    return [
+      ...why,
+      '',
+      ...briefing(input),
+      '',
+      'Read AGENTS.md first: its rules hold for every change here. The fix is in the checkout, and the reviewer approved it: change only what a suggestion you take needs.',
+      '',
+      'Then write the result, {"title","note","declined"}:',
+      ...RESULT.slice(1, 3),
+      ...declining,
+    ];
+  }
   // Without its session, the coder needs everything a first step is told.
   if (!resumed(input)) return [...why, '', ...first(input), ...declining];
   // The spec again, since the planner may have written it afresh since the session began.

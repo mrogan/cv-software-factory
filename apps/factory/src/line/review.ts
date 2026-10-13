@@ -107,13 +107,23 @@ export async function answerThreads(
   pullRequest: number,
   threads: ThreadAnswer[],
 ): Promise<void> {
-  if (!threads.length) return;
-  await context
-    .once(name, () => context.act('resolveThreads', { number: pullRequest, threads }))
-    .catch((error: unknown) => {
-      if (!(error instanceof GitHubWorkerError && REFUSED.includes(error.status))) throw error;
-    });
+  const key = (c: ReviewComment) => `${c.path}:${c.line}\n${c.body}`;
+  const once = threads.filter((t, i) => threads.findIndex((u) => key(u) === key(t)) === i);
+  // The worker takes at most fifty threads a call: a finding held again through every review answers one each.
+  for (let i = 0; i < once.length; i += THREADS_A_CALL) {
+    const batch = once.slice(i, i + THREADS_A_CALL);
+    await context
+      .once(i ? `${name} ${i / THREADS_A_CALL + 1}` : name, () =>
+        context.act('resolveThreads', { number: pullRequest, threads: batch }),
+      )
+      .catch((error: unknown) => {
+        if (!(error instanceof GitHubWorkerError && REFUSED.includes(error.status))) throw error;
+      });
+  }
 }
+
+/** The most threads the GitHub worker resolves in one call. */
+const THREADS_A_CALL = 50;
 
 const CONCLUSIONS: Record<ReviewerResult['verdict'], NonNullable<CheckRunReport['conclusion']>> = {
   approved: 'success',
@@ -131,9 +141,10 @@ const TITLES: Record<ReviewerResult['verdict'], (blocking: number) => string> = 
 function after({ verdict, findings }: Review, last: boolean, suggestionsBack: boolean): string {
   const suggests = findings.some((f) => !f.blocking);
   if (verdict === 'approved') {
-    return suggests && suggestionsBack
+    if (!suggests) return 'the change goes on to its description and Martin’s merge';
+    return suggestionsBack
       ? 'its suggestions go back to the coder to take or decline, and then the change goes on to its description and Martin’s merge'
-      : 'the change goes on to its description and Martin’s merge';
+      : 'the change goes on to its description and Martin’s merge, and its suggestions stay for him';
   }
   if (verdict === 'escalated') return 'it is escalated, and Martin decides';
   if (last) return 'this was the last review the line allows, so Martin decides';

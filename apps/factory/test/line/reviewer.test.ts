@@ -1,8 +1,9 @@
 import { MAX_FINDINGS } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
+import type { EffectsContext } from '../../src/line/agents/agent.ts';
 import { type ReviewerInput, reviewer } from '../../src/line/agents/reviewer.ts';
 import { FIXTURE_WORK_ITEM, FIXTURES } from '../../src/line/bench/fixtures.ts';
-import { REVIEW_CHECK, reviewInGitHub, shownLines, threadAnswers } from '../../src/line/review.ts';
+import { answerThreads, REVIEW_CHECK, reviewInGitHub, shownLines, threadAnswers } from '../../src/line/review.ts';
 
 const input: ReviewerInput =
   FIXTURES.reviewer['cards-claimed']?.input ??
@@ -257,6 +258,24 @@ describe('a review in GitHub', () => {
     ]);
   });
 
+  it('answers each thread once, fifty to a call, each call once for the handback', async () => {
+    const names: string[] = [];
+    const sent: number[] = [];
+    const context = {
+      once: (name: string, write: (again: boolean) => Promise<unknown>) => {
+        names.push(name);
+        return write(false);
+      },
+      act: async (_: string, args: { threads: unknown[] }) => {
+        sent.push(args.threads.length);
+      },
+    } as unknown as EffectsContext;
+    const threads = Array.from({ length: 60 }, (_, line) => ({ path: 'a.ts', line, body: 'b', reply: 'r' }));
+    await answerThreads(context, 'answered', 12, [...threads, threads[0] as (typeof threads)[number]]);
+    expect(sent).toEqual([50, 10]);
+    expect(names).toEqual(['answered', 'answered 2']);
+  });
+
   it('says where suggestions go: back to the coder with what blocks, or alone after an approval, once', () => {
     const at = { commit: 'c'.repeat(40), workItem: '1001', review: 1, last: false };
     const blocking = { verdict: 'changes-requested' as const, note: 'One short.', findings: [unmet, taste] };
@@ -267,6 +286,6 @@ describe('a review in GitHub', () => {
     expect(reviewInGitHub(approved, DIFF, { ...at, suggestionsBack: true }).body).toContain(
       'its suggestions go back to the coder to take or decline, and then the change goes on',
     );
-    expect(reviewInGitHub(approved, DIFF, at).body).toContain('the change goes on to its description');
+    expect(reviewInGitHub(approved, DIFF, at).body).toContain('Martin’s merge, and its suggestions stay for him');
   });
 });

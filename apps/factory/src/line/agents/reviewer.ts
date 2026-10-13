@@ -275,17 +275,19 @@ function earlierOf(state: WorkItemState): Pick<ReviewerInput, 'blocked' | 'sugge
   };
 }
 
-/** A finding's place among a review's findings, from 1, or 0 if it is not one of them. */
-const placeOf = (findings: readonly Finding[], finding: Finding | undefined) =>
-  finding
-    ? findings.findIndex(
-        (f) =>
-          f.path === finding.path &&
-          f.line === finding.line &&
-          f.blocking === finding.blocking &&
-          f.comment === finding.comment,
-      ) + 1
-    : 0;
+/**
+ * The place of each finding a later review is given to answer, in the order it is given them (what blocked, then what
+ * was suggested and not declined), among the findings of the review before, from 1: what `holds` records.
+ */
+function earlierPlaces(state: WorkItemState): number[] {
+  const findings = state.reviews.at(-1)?.findings ?? [];
+  const declined = new Set(state.suggestionsAnswered?.declined.map((d) => d.suggestion));
+  const places = findings.map((f, i) => ({ f, place: i + 1 }));
+  const suggestions = places.filter(({ f }) => !f.blocking);
+  return [...places.filter(({ f }) => f.blocking), ...suggestions.filter((_, i) => !declined.has(i + 1))].map(
+    ({ place }) => place,
+  );
+}
 
 /** The branch every factory pull request is opened onto (`coder.ts`), which its change is compared with. */
 const MAIN = 'main';
@@ -315,11 +317,11 @@ export const reviewer = defineAgent<ReviewerInput, ReviewerResult>({
   apply: async (result, _handback, { pullRequest, blocked = [], suggested = [] }, context) => {
     const { workItem, commit, state } = context;
     const earlier = [...blocked, ...suggested];
-    const before = state.reviews.at(-1)?.findings ?? [];
+    const places = earlierPlaces(state);
     // A finding cites the ticket, or says nothing of it. One held again names its place among the findings of the
     // review before, as the events keep them, not its number in the prompt.
     const findings = result.findings.map(({ ticket, holds, ...f }) => {
-      const place = holds === undefined ? 0 : placeOf(before, earlier[holds - 1]);
+      const place = holds === undefined ? undefined : places[holds - 1];
       return { ...f, ...(ticket ? { ticket: true as const } : {}), ...(place ? { holds: place } : {}) };
     });
     const { answered = [], ...rest } = result;
