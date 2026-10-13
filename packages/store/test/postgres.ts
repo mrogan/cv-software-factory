@@ -1,6 +1,6 @@
 /**
- * A real Postgres for the store's tests: TEST_DATABASE_URL if it is set (CI sets it to a service container), or
- * else a throwaway container of the same image the cluster runs, removed when the tests finish.
+ * A real Postgres for the store's tests: TEST_DATABASE_URL if it is set, or else a throwaway container of the same
+ * image the cluster runs, removed when the tests finish. CI names its own copy of that image in TEST_POSTGRES_IMAGE.
  */
 import { execFileSync } from 'node:child_process';
 import postgres, { type Sql } from 'postgres';
@@ -23,8 +23,9 @@ export interface Database {
   end(): Promise<void>;
 }
 
-// The image deploy/base/postgres/statefulset.yaml runs.
+// The image deploy/base/postgres/statefulset.yaml runs (scripts/image-pins.test.ts checks they agree).
 const IMAGE =
+  process.env.TEST_POSTGRES_IMAGE ||
   'public.ecr.aws/docker/library/postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873';
 
 declare module 'vitest' {
