@@ -7,12 +7,16 @@
  * finding is checked against the diff first. One anchored elsewhere is not lost: it goes in the review's body, with
  * where the reviewer put it.
  *
- * A later review that finds an earlier finding answered has its thread resolved: the app's `main` merges nothing with
- * a review thread open. The thread is found by its comment, as this module wrote it, and the line it was made on.
+ * A finding's thread is answered and resolved once the finding is: a blocking finding or a suggestion a later review
+ * finds put right, with the commit it reviewed, and a suggestion the coder declines, with its reason. So is the thread
+ * of every earlier finding it held again (`lineage`). The app's `main` merges nothing with a review thread open. The
+ * thread is found by its comment, as this module wrote it, and the line it was made on.
  */
 import type { PayloadOf } from '@software-factory/events';
-import type { CheckRunReport, ReviewComment } from '../github/actions.ts';
+import type { CheckRunReport, ReviewComment, ThreadAnswer } from '../github/actions.ts';
 import type { Comparison } from '../github/reads.ts';
+import { GitHubWorkerError } from '../github/worker-client.ts';
+import type { EffectsContext } from './agents/agent.ts';
 import type { ReviewerResult } from './agents/reviewer.ts';
 
 /** A review as GitHub is given it: its verdict, its note and its findings, each citing the ticket or not. */
@@ -57,16 +61,58 @@ export interface ReviewInGitHub {
 const mark = (f: Finding) => `**${f.blocking ? 'Blocking' : 'Suggestion'}**${cites(f) ? ` · ${cites(f)}` : ''}`;
 
 /** A finding as its comment on the pull request reads, which is how its thread is found again. */
-const commentOf = (f: Finding): ReviewComment => ({ path: f.path, line: f.line, body: `${mark(f)}\n\n${f.comment}` });
+export const commentOf = (f: Finding): ReviewComment => ({
+  path: f.path,
+  line: f.line,
+  body: `${mark(f)}\n\n${f.comment}`,
+});
 
 /**
- * The comments whose threads a later review resolves: those of the earlier findings it finds answered, less any it
- * gives again word for word on the same line, whose thread would be its own new one.
+ * The threads to answer, each a finding's with what to reply on it, less any a later review gives again word for word
+ * on the same line, whose thread would be its own new one.
  */
-export function answeredThreads(answered: Finding[], held: Finding[]): ReviewComment[] {
+export function threadAnswers(answers: { finding: Finding; reply: string }[], held: Finding[] = []): ThreadAnswer[] {
   const key = (c: ReviewComment) => `${c.path}:${c.line}\n${c.body}`;
   const again = new Set(held.map((f) => key(commentOf(f))));
-  return answered.map(commentOf).filter((c) => !again.has(key(c)));
+  return answers.map(({ finding, reply }) => ({ ...commentOf(finding), reply })).filter((c) => !again.has(key(c)));
+}
+
+/**
+ * A finding of the latest review, and every earlier finding it holds again (`holds`), back to the first: a finding
+ * held again in new words has a thread of its own, and each of them is answered when the last is.
+ */
+export function lineage(reviews: readonly PayloadOf<'review.submitted'>[], finding: Finding): Finding[] {
+  const found = [finding];
+  let held = finding;
+  for (let r = reviews.length - 1; held.holds !== undefined && r > 0; r--) {
+    const before = reviews[r - 1]?.findings[held.holds - 1];
+    if (!before) break;
+    found.push(before);
+    held = before;
+  }
+  return found;
+}
+
+/** What the GitHub worker says of a request that asking again will not help: refused, gone, or not as it was. */
+const REFUSED = [403, 404, 409, 422];
+
+/**
+ * Replies on each thread and resolves it, once for the handback under `name`. It tidies up after a review already
+ * posted or a change already pushed, so GitHub refusing it does not hold the work item, and Martin resolves by hand
+ * what is left. GitHub failing is tried again, with the handback.
+ */
+export async function answerThreads(
+  context: EffectsContext,
+  name: string,
+  pullRequest: number,
+  threads: ThreadAnswer[],
+): Promise<void> {
+  if (!threads.length) return;
+  await context
+    .once(name, () => context.act('resolveThreads', { number: pullRequest, threads }))
+    .catch((error: unknown) => {
+      if (!(error instanceof GitHubWorkerError && REFUSED.includes(error.status))) throw error;
+    });
 }
 
 const CONCLUSIONS: Record<ReviewerResult['verdict'], NonNullable<CheckRunReport['conclusion']>> = {
@@ -82,22 +128,35 @@ const TITLES: Record<ReviewerResult['verdict'], (blocking: number) => string> = 
 };
 
 /** What becomes of a review, as its body ends by saying. */
-function after(verdict: ReviewerResult['verdict'], last: boolean): string {
-  if (verdict === 'approved') return 'the change goes on to its description and Martin’s merge';
+function after({ verdict, findings }: Review, last: boolean, suggestionsBack: boolean): string {
+  const suggests = findings.some((f) => !f.blocking);
+  if (verdict === 'approved') {
+    return suggests && suggestionsBack
+      ? 'its suggestions go back to the coder to take or decline, and then the change goes on to its description and Martin’s merge'
+      : 'the change goes on to its description and Martin’s merge';
+  }
   if (verdict === 'escalated') return 'it is escalated, and Martin decides';
-  return last
-    ? 'this was the last review the line allows, so Martin decides'
+  if (last) return 'this was the last review the line allows, so Martin decides';
+  return suggests
+    ? 'the blocking findings go back to the coder, with the suggestions to take or decline'
     : 'the blocking findings go back to the coder';
 }
 
 /**
  * The review and check run a reviewer's result makes on the commit it reviewed, given the pull request's diff.
- * `review` counts the pull request's reviews, this one included, and `last` says it is the last the line allows.
+ * `review` counts the pull request's reviews, this one included, `last` says it is the last the line allows, and
+ * `suggestionsBack` that an approval's suggestions would send the work back to the coder (`suggestionsGoBack`).
  */
 export function reviewInGitHub(
   review: Review,
   files: Comparison['files'],
-  { commit, workItem, review: number, last }: { commit: string; workItem: string; review: number; last: boolean },
+  {
+    commit,
+    workItem,
+    review: number,
+    last,
+    suggestionsBack = false,
+  }: { commit: string; workItem: string; review: number; last: boolean; suggestionsBack?: boolean },
 ): ReviewInGitHub {
   const shown = shownLines(files);
   const anchored = review.findings.filter((f) => shown.get(f.path)?.has(f.line));
@@ -108,7 +167,7 @@ export function reviewInGitHub(
     review.note,
     ...(elsewhere.length ? ['', 'Not on a line the diff shows:', '', ...elsewhere.map(listed)] : []),
     '',
-    `_The factory’s reviewer, review ${number}. A signal, never a gate: ${after(review.verdict, last)}._`,
+    `_The factory’s reviewer, review ${number}. A signal, never a gate: ${after(review, last, suggestionsBack)}._`,
   ].join('\n');
   return {
     body,

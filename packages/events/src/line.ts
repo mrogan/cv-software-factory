@@ -25,6 +25,11 @@ export const LIMITS = {
    * sends the work back to Plan, with the verification, and the second holds for Martin.
    */
   persists: 2,
+  /**
+   * Rounds the suggestions of an approving review send the coder back for, in a pass, to take or decline them before
+   * the reviewer looks again. The review after that round goes on, whatever it suggests.
+   */
+  suggestions: 1,
 } as const;
 
 /**
@@ -47,15 +52,17 @@ export const inScope = (path: string, scope: readonly string[]) => scope.some((e
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * Why work went back to Build, in a few words, from what its `work.returned` records: "2 blocking", "1 check failed".
- * The line writes them in the event's summary and the console draws them, so both say the same.
+ * Why work went back to Build, in a few words, from what its `work.returned` records: "2 blocking", "1 check failed",
+ * "2 suggestions". The line writes them in the event's summary and the console draws them, so both say the same.
  */
 export function returnWords(returned: {
   from: Stage;
   blocking?: number | undefined;
+  suggestions?: number | undefined;
   failed?: readonly string[] | undefined;
 }): string {
   if (returned.blocking !== undefined) return `${returned.blocking} blocking`;
+  if (returned.suggestions !== undefined) return count(returned.suggestions, 'suggestion');
   // The gates hold a run with no failed check named as failed all the same: one check, unnamed.
   if (returned.failed !== undefined) return `${count(returned.failed.length || 1, 'check')} failed`;
   return `sent back from ${returned.from}`;

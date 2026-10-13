@@ -33,6 +33,7 @@ flowchart LR
   gates -- fail --> build
   gates -- pass --> review[Review]
   review -- blocking findings --> build
+  review -- approved with suggestions, once --> build
   review -- approved, described --> merge{{Merge}}
   merge --> release[Release]
   release -- promoted --> verify[Verify]
@@ -102,7 +103,8 @@ flowchart TD
 - **Each push** records its own files and the pull request's whole change, as GitHub compares its head with main.
 - **Reading GitHub.** Once a minute the line reads its pull requests' check runs and merges through the GitHub worker, and appends `gates.started`, `gate.finished`, `gates.finished` and `pull-request.merged`. It leaves out the factory's own check runs.
 - **Failing gates** send the work back to the coder twice.
-- **A review's blocking findings** go back to the coder's session, and a fresh reviewer is told them in the next round. What still blocks after two reviews holds, as does a review the reviewer escalates.
+- **A review's blocking findings** go back to the coder's session, with its suggestions, and a fresh reviewer is told them in the next round. What still blocks after two reviews holds, as does a review the reviewer escalates.
+- **An approval's suggestions** go back to the coder once in a pass, before the describer writes the change up, so that every review thread is answered before Martin's merge. The coder takes each or declines it with a reason (`suggestions.answered`). If it takes any, the gates and a fresh reviewer run again, and that review goes on whatever it suggests: suggestions alone never send the work round twice. If it declines them all, it changes nothing and the approval stands. Martin's approval of a held review sends the change on with no such round.
 - **An out-of-scope spec.** Every spec tagged `out-of-scope` that the planner wrote under the rule (its criteria name where each comes from), a rewritten one too, holds at Plan for Martin's approval before the coder starts, in every autonomy mode ([approval routing](APPROVAL-ROUTING.md)).
 - **A spec written again** once there is a pull request sends the work back to the coder, held to the new spec, and sets aside the review of the old one, so the change is reviewed again.
 - **The end of a pull request.**

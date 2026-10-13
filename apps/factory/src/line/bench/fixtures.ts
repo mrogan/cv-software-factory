@@ -177,6 +177,32 @@ const PRICE_FIX_MESSAGE = [
 ].join('\n');
 
 /**
+ * What a review of the fix for the wrong price might suggest, approving it: one the coder can take inside the scope,
+ * and one it cannot, since renaming `pounds` changes every page that calls it.
+ */
+const PRICE_SUGGESTIONS = [
+  {
+    path: 'test/money.test.ts',
+    line: 10,
+    blocking: false,
+    comment:
+      'No test gives a price under ten pence, whose one digit needs the most padding. Add [5, "£0.05"] to the table.',
+  },
+  {
+    path: 'src/money.ts',
+    line: 2,
+    blocking: false,
+    comment: 'pounds says little of what it does. formatPounds would say it better.',
+  },
+];
+
+/** The fix for the wrong price, after the coder took the first of `PRICE_SUGGESTIONS`: a price under ten pence. */
+const PRICE_TAKEN = PRICE_FIX.replace('@@ -5,6 +5,9 @@', '@@ -5,6 +5,10 @@').replace(
+  "+    [10, '£0.10'],\n",
+  "+    [10, '£0.10'],\n+    [5, '£0.05'],\n",
+);
+
+/**
  * The coder's fix from the `cards-outside-scope` fixture, as Claude wrote it: inside the scope, so `pounds` is fixed
  * and the cards, which no longer call it, are not; its note says they are.
  */
@@ -505,6 +531,24 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
         protectedPaths: APP_PROTECTED,
       },
     },
+    'price-suggestions': {
+      about:
+        'the fix for the wrong price, approved with two suggestions to take or decline: a test for 5 pence, inside the scope, and renaming `pounds`, which changes pages outside it',
+      commit: APP_MAIN,
+      seed: PRICE_SEED,
+      change: { patch: PRICE_FIX, message: PRICE_FIX_MESSAGE },
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        ticket: PRICE_TICKET,
+        signals: PRICE_SIGNALS,
+        spec: PRICE_SPEC,
+        round: 2,
+        returned: { from: 'review', reason: 'The review approved, with 2 suggestions to take or decline' },
+        findings: [],
+        suggestions: PRICE_SUGGESTIONS,
+        protectedPaths: APP_PROTECTED,
+      },
+    },
     'cards-outside-scope': {
       about:
         'the wrong price, seeded in `pounds` and copied into the product cards, with a criterion on the cards but `src/pages/cards.ts` outside the scope',
@@ -576,6 +620,37 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
               'Nothing opens a page for a price in whole pounds: criterion 4 is shown by nothing. Add a page test, such as /products/thing-4 showing £2.00.',
           },
         ],
+      },
+    },
+    'price-suggestion-taken': {
+      about:
+        "the coder's round on the suggestions of an approving review: it took the test for 5 pence, and declined renaming `pounds` with its reason, so one to approve that says the suggestion is taken",
+      commit: APP_MAIN,
+      seed: PRICE_SEED,
+      change: {
+        patch: PRICE_TAKEN,
+        message: [
+          'fix(money): always show two digits of pence',
+          '',
+          'pounds() printed the pence remainder without padding, so 600 pence showed as £6.0 and 705 pence as £7.5. The remainder is now padded to two digits. Tests in test/money.test.ts (600, 705, 10 and 5 pence) and test/pages-product.test.ts (a whole-pound price on the product page shows £2.00) failed before the fix and pass now.',
+        ].join('\n'),
+      },
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        ticket: PRICE_TICKET,
+        signals: PRICE_SIGNALS,
+        answers: [],
+        spec: PRICE_SPEC,
+        pullRequest: 106,
+        title: 'fix(money): always show two digits of pence',
+        round: 2,
+        blocked: [],
+        suggested: PRICE_SUGGESTIONS.slice(0, 1),
+        declined: PRICE_SUGGESTIONS.slice(1).map((finding) => ({
+          finding,
+          reason:
+            'Renaming pounds would change every page that calls it, and those files are outside the spec’s scope.',
+        })),
       },
     },
     'spec-widens': {

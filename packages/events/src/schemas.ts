@@ -438,6 +438,28 @@ export const PAYLOADS = {
      */
     whole: z.array(z.strictObject({ path: text(200), added: count, removed: count })).max(200),
   }),
+  /**
+   * The coder's answer to the suggestions of the review that sent the work back, which do not block: it took each, or
+   * declined it with a reason. A suggestion is numbered as the coder was given it, among the review's findings that do
+   * not block, in order. One it took is the next review's to find taken.
+   */
+  'suggestions.answered': z
+    .strictObject({
+      pullRequest,
+      /** How many suggestions the coder was given. */
+      suggestions: z.number().int().min(1).max(V.MAX_FINDINGS),
+      /** Those it declined, each with its reason, which the suggestion's thread on the pull request is answered with. */
+      declined: z
+        .array(z.strictObject({ suggestion: z.number().int().min(1).max(V.MAX_FINDINGS), reason: text(300) }))
+        .max(V.MAX_FINDINGS),
+    })
+    .refine(
+      (a) =>
+        a.declined.every(
+          (d, i) => d.suggestion <= a.suggestions && a.declined.findIndex((e) => e.suggestion === d.suggestion) === i,
+        ),
+      'each suggestion declined is one the coder was given, once',
+    ),
 
   'gates.started': z.strictObject({ pullRequest, commit, checks: z.array(text(80)).min(1).max(40) }),
   'gate.finished': z.strictObject({
@@ -481,6 +503,11 @@ export const PAYLOADS = {
             criterion: z.number().int().min(1).max(12).optional(),
             /** The criterion it cites is one the ticket does not ask for: only a criterion goes beyond the ticket. */
             ticket: z.literal(true).optional(),
+            /**
+             * The finding of the review before that this one holds again, in its words or new, by its place among that
+             * review's findings, from 1. Answering this one answers that one's thread too, and so on back.
+             */
+            holds: z.number().int().min(1).max(V.MAX_FINDINGS).optional(),
             comment: text(300),
           })
           .refine((f) => !f.ticket || f.criterion !== undefined, 'a finding cites the ticket for a criterion'),
@@ -601,6 +628,8 @@ export const PAYLOADS = {
       round: z.number().int().positive().optional(),
       /** From review: how many of its findings block. */
       blocking: count.optional(),
+      /** From a review that approved: how many suggestions the coder is to take or decline, in a round of their own. */
+      suggestions: count.optional(),
       /** From the gates: the required checks that failed, which may name none. */
       failed: z.array(text(80)).max(40).optional(),
     })

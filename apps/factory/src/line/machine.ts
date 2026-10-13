@@ -13,8 +13,15 @@
  * is told what the fence printed and what he said.
  *
  * A review that blocks sends the work back to the coder, whose next round resumes its session with the blocking
- * findings, and the gates and a fresh reviewer run again on what it pushes. A review that still blocks after the
- * second holds the work item for Martin, as does one the reviewer escalates.
+ * findings and the suggestions, and the gates and a fresh reviewer run again on what it pushes. A review that still
+ * blocks after the second holds the work item for Martin, as does one the reviewer escalates.
+ *
+ * A review that approves and leaves suggestions sends the work back to the coder once in a pass
+ * (`LIMITS.suggestions`), before the describer writes the change up, to take each or decline it with a reason, as the
+ * factory asks of agents answering a review; the app's `main` merges nothing with a review thread open. A coder that
+ * takes any pushes, and the gates and a fresh reviewer run again; the review after that goes on whatever it suggests,
+ * so suggestions never send the work round again on their own. One that declines them all changes nothing, and the
+ * approval stands (`suggestions.answered`). Martin's approval sends the change on as it is, with no such round.
  *
  * A coder the work came back to may change nothing, and say why: a gate failed on a defect its change uncovered and
  * did not cause, or its change already does what was asked. That is an outcome, not a failed step: the work item
@@ -131,6 +138,7 @@ type Payloads = {
     | 'ticket.opened'
     | 'spec.written'
     | 'pull-request.pushed'
+    | 'suggestions.answered'
     | 'gates.started'
     | 'gates.finished'
     | 'review.submitted'
@@ -168,6 +176,13 @@ export interface WorkItemState {
   gateReturns: number;
   /** The review of the latest push, if it has one. */
   review: PayloadOf<'review.submitted'> | undefined;
+  /** The times an approving review's suggestions sent the work back in this pass, which `LIMITS.suggestions` bounds. */
+  suggestionReturns: number;
+  /**
+   * The coder's answer to the latest review's suggestions, once it has given one: those it declined, each with its
+   * reason, which the next reviewer is told. A suggestion answered is not sent to the coder again.
+   */
+  suggestionsAnswered: PayloadOf<'suggestions.answered'> | undefined;
   /** Whether Martin approved the spec in force, when it carries a risk that always holds it (`ALWAYS_HELD`). */
   specApproved: boolean;
   /** Whether the spec was written again after the latest push, which the coder has not yet been sent back to meet. */
@@ -232,6 +247,8 @@ const initial = (): WorkItemState => ({
   gatesPassed: false,
   gateReturns: 0,
   review: undefined,
+  suggestionReturns: 0,
+  suggestionsAnswered: undefined,
   specApproved: false,
   respecified: false,
   reviews: [],
@@ -291,6 +308,13 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
       case 'review.submitted':
         state.review = event.payload;
         state.reviews.push(event.payload);
+        state.suggestionsAnswered = undefined;
+        break;
+      case 'suggestions.answered':
+        state.suggestionsAnswered = event.payload;
+        // After a push this changes nothing. Alone, the coder declined every suggestion it was sent back for, and
+        // changed nothing: the approval it was sent back from stands.
+        state.rebuild = undefined;
         break;
       case 'work-item.summarised':
         // Triage writes the first summary; the describer's follows an approving review.
@@ -303,6 +327,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
           state.returns.push(state.rebuild);
           state.round += 1;
           if (event.payload.from === 'gates') state.gateReturns += 1;
+          if (event.payload.suggestions !== undefined) state.suggestionReturns += 1;
         }
         if (event.payload.to === 'plan') startAgain(state);
         break;
@@ -409,6 +434,7 @@ function askedOf(hold: PayloadOf<'hold.started'>, fenced: string | undefined): s
 const MOVES_ON = new Set<LineEvent['type']>([
   'spec.written',
   'pull-request.pushed',
+  'suggestions.answered',
   'review.submitted',
   'work-item.summarised',
   'work.returned',
@@ -428,10 +454,10 @@ export type Next =
   /** Run an agent's step in a runner. A coder's later round resumes its own session. */
   | { do: 'step'; agent: LineAgent; round: number }
   /**
-   * Send the work back to an earlier stage, with what sent it as figures: the review's blocking findings, or the
-   * required checks that failed. Martin's answer sends it back with neither.
+   * Send the work back to an earlier stage, with what sent it as figures: the review's blocking findings, an approving
+   * review's suggestions, or the required checks that failed. Martin's answer sends it back with none of them.
    */
-  | { do: 'return'; from: Stage; to: Stage; reason: string; blocking?: number; failed?: string[] }
+  | { do: 'return'; from: Stage; to: Stage; reason: string; blocking?: number; suggestions?: number; failed?: string[] }
   /** Hold the work item for Martin. */
   | { do: 'hold'; hold: PayloadOf<'hold.started'> }
   /** Nothing to do until something outside the line happens: the gates, Martin, or the release in flight. */
@@ -568,7 +594,13 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
       const blocking = s.review.findings.filter((f) => f.blocking).length;
       return { stage: 'build', next: { do: 'return', from: 'review', to: 'build', reason, blocking } };
     }
-    case 'approved':
+    case 'approved': {
+      const suggestions = s.review.findings.filter((f) => !f.blocking).length;
+      // His approval stands in for the reviewer's, and sends the change on as it is.
+      if (suggestions && suggestionsGoBack(s) && s.answer?.resolution !== 'approve') {
+        const reason = `The review approved, with ${suggestions === 1 ? 'a suggestion' : `${suggestions} suggestions`} to take or decline`;
+        return { stage: 'build', next: { do: 'return', from: 'review', to: 'build', reason, suggestions } };
+      }
       if (!s.described) return step('describer');
       return {
         stage: 'held',
@@ -582,8 +614,15 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
           },
         },
       };
+    }
   }
 }
+
+/**
+ * Whether an approving review's suggestions would send the work back to the coder: once in a pass, and only before
+ * the describer has written the change up.
+ */
+export const suggestionsGoBack = (s: WorkItemState) => s.suggestionReturns < LIMITS.suggestions && !s.described;
 
 /**
  * Where a merged change is: waiting for a release to carry it, in one, or verified by the sense that saw the defect.

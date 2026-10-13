@@ -120,13 +120,19 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   // change for a first push, and the nearest the event has for a later one.
   'pull-request.pushed': { 1: (payload) => ({ ...payload, whole: payload.files }) },
   // Version 2 adds the round the return starts and what sent it back as figures; a version 1 return reads as it was.
-  'work.returned': { 1: (payload) => payload },
+  // Version 3 adds the suggestions an approving review sends back; a version 2 return sent none.
+  'work.returned': { 1: (payload) => payload, 2: (payload) => payload },
   // Version 2 adds the line's scope fence to the mechanisms; a version 1 refusal reads as it was.
   'action.refused': { 1: (payload) => payload },
   // Version 1 counted a review's comments; version 2 carries each finding. What a version 1 comment said was never
   // recorded, so a version 1 review reads as one with no findings.
   // Version 3 lets a finding cite the ticket; a version 2 review cited none.
-  'review.submitted': { 1: ({ comments: _, ...payload }) => ({ ...payload, findings: [] }), 2: (payload) => payload },
+  // Version 4 lets a finding name the one of the review before that it holds again; a version 3 review named none.
+  'review.submitted': {
+    1: ({ comments: _, ...payload }) => ({ ...payload, findings: [] }),
+    2: (payload) => payload,
+    3: (payload) => payload,
+  },
 };
 
 export const CATALOGUE: Catalogue = { versions: VERSIONS, upcasters: UPCASTERS };

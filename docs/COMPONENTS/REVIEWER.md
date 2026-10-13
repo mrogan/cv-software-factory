@@ -23,8 +23,10 @@ Read with Zod:
 
 - **a verdict:** approved, changes requested, or escalated to Martin;
 - **a note;**
-- **up to 20 findings,** each anchored to a line, blocking or not, citing a rule's number, a criterion of the spec or the ticket, in at most 300 characters.
-- **in a later review, what is answered:** the numbers of the findings the review before blocked on that the change now puts right. One it still holds is left out, and given again as a finding of this review.
+- **up to 20 findings,** each anchored to a line, blocking or not, citing a rule's number, a criterion of the spec or the ticket, in at most 300 characters. In a later review, a finding that gives one of the review before again, in its words or new, names it (`holds`).
+- **in a later review, what is answered:** the numbers of the findings of the review before that the change now answers: one it blocked on put right, or a suggestion taken. One it still holds is left out, and given again as a finding of this review.
+
+A later review is told what the review before blocked on, then what it suggested, numbered after those, and apart from them the suggestions the coder declined, with its reasons.
 
 ## What the line does with it
 
@@ -32,11 +34,12 @@ The line posts it through the [GitHub worker](GITHUB-WORKER.md) (`line/review.ts
 
 1. the check run `factory review`, which no ruleset requires: a signal, never a gate;
 2. a comment review, with a finding the diff does not show in its body;
-3. in a later review, a reply on the thread of each earlier finding it finds answered, naming the commit reviewed, and the thread resolved. The app's `main` merges nothing with a review thread open, so a finding put right no longer waits for Martin to resolve it by hand. A thread is found by its first comment, the App's, as the review wrote it, on the line it was made on; one the review gives again word for word stays open. GitHub refusing to resolve one does not hold the work item: Martin resolves it by hand.
+3. in a later review, a reply on the thread of each earlier finding it finds answered, naming the commit reviewed (`Answered in`, or `Taken in` for a suggestion), and the thread resolved. So is the thread of every finding before it that it held again, back to the first: a finding given again in new words has a thread of its own. The app's `main` merges nothing with a review thread open, so a finding put right no longer waits for Martin to resolve it by hand. A thread is found by its first comment, the App's, as the review wrote it, on the line it was made on; one the review gives again word for word stays open. GitHub refusing to resolve one does not hold the work item: Martin resolves it by hand.
 
 Each is done in that order, so GitHub failing part way through never runs the reviewer again, and tries only what is left.
 
-- **Blocking findings** go back to the coder's session.
+- **Blocking findings** go back to the coder's session, with the suggestions.
+- **An approval's suggestions** go back to the coder once in a pass, to take or decline, before the describer writes the change up ([the line](ORCHESTRATOR.md#build-gates-and-review)).
 - **After two reviews**, what still blocks holds for Martin, as does an escalation. His answer sends the work round again, his approval stands in for the reviewer's, and rejecting closes it ([holds](ORCHESTRATOR.md#holds-and-martins-answers)).
 
 ## Counting the rules

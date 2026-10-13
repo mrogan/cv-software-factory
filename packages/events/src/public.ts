@@ -83,6 +83,7 @@ export const PUBLIC_VIEWS = {
   'ticket.opened': redacted,
   'spec.written': redacted,
   'pull-request.pushed': redacted,
+  'suggestions.answered': redacted,
   'gates.started': redacted,
   'gate.finished': redacted,
   'gates.finished': redacted,

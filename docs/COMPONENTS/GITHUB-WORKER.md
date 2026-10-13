@@ -25,7 +25,7 @@ Workers ask for actions over HTTP, `POST /v1/actions/<action>`, each body checke
 - branches;
 - signed commits through GraphQL's `createCommitOnBranch`, never `git push`;
 - opening, updating, labelling and readying pull requests, and updating a branch;
-- comment reviews anchored to lines, and resolving their threads (`resolveThreads`): on each open thread the App began with a finding the reviewer now finds answered (matched by path, line and words), a reply naming the commit that answered it, made once, then the thread resolved;
+- comment reviews anchored to lines, and resolving their threads (`resolveThreads`): on each open thread the App began with a finding now answered (matched by path, line and words), the reply it is given, made once, then the thread resolved. The reply names the commit when a later review finds the finding put right or the suggestion taken, and gives the coder's reason when it declines a suggestion;
 - check runs;
 - issues and comments:
   - opening one;

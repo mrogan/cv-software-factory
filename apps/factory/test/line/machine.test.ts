@@ -150,6 +150,62 @@ describe('what the line does next', () => {
     expect(decide([ticket, spec, ...passed(1), review('escalated')], facts)).toMatchObject({ stage: 'held' });
   });
 
+  it('sends an approval’s suggestions back to the coder once in a pass, and goes on after the review that follows', () => {
+    const passed = (attempt: number) => [pushed(attempt), started(), finished('passed')];
+    const suggestion = { path: 'src/search.ts', line: 5, blocking: false, comment: 'Name it for what it does.' };
+    const suggesting = (verdict: 'approved' | 'changes-requested'): LineEvent => ({
+      type: 'review.submitted',
+      payload: {
+        pullRequest: 12,
+        verdict,
+        note: 'Fine.',
+        findings: verdict === 'approved' ? [suggestion] : [finding, suggestion],
+      },
+    });
+    const first = [ticket, spec, ...passed(1), suggesting('approved')];
+    const back = {
+      do: 'return',
+      from: 'review',
+      to: 'build',
+      reason: 'The review approved, with a suggestion to take or decline',
+      suggestions: 1,
+    };
+    expect(decide(first, facts)).toEqual({ stage: 'build', next: back });
+    const sent: LineEvent = { type: 'work.returned', payload: { ...back, from: 'review', to: 'build', round: 2 } };
+    expect(decide([...first, sent], facts).next).toEqual({ do: 'step', agent: 'coder', round: 2 });
+    expect(fold([...first, sent]).suggestionReturns).toBe(1);
+    // It takes the suggestion: the gates and a fresh reviewer run again, and that review goes on, whatever it suggests.
+    const answered = (...declined: number[]): LineEvent => ({
+      type: 'suggestions.answered',
+      payload: { pullRequest: 12, suggestions: 1, declined: declined.map((n) => ({ suggestion: n, reason: 'No.' })) },
+    });
+    const taken = [...first, sent, pushed(2), answered(), started(), finished('passed')];
+    expect(decide(taken, facts).next).toEqual({ do: 'step', agent: 'reviewer', round: 2 });
+    expect(decide([...taken, suggesting('approved')], facts).next).toEqual({
+      do: 'step',
+      agent: 'describer',
+      round: 2,
+    });
+    // One that blocks is the second review, the last the line allows: Martin decides.
+    expect(decide([...taken, suggesting('changes-requested')], facts)).toMatchObject({
+      stage: 'held',
+      next: { hold: { cause: 'review' } },
+    });
+    // It declines it: nothing changes, and the approval stands.
+    const declined = [...first, sent, answered(1)];
+    expect(decide(declined, facts).next).toEqual({ do: 'step', agent: 'describer', round: 2 });
+    expect(fold(declined).suggestionsAnswered?.declined).toEqual([{ suggestion: 1, reason: 'No.' }]);
+    // A review that blocks sends its suggestions with its findings, and an approval after it has its round.
+    const blocked = [ticket, spec, ...passed(1), suggesting('changes-requested')];
+    expect(decide(blocked, facts).next).toMatchObject({ do: 'return', blocking: 1 });
+    const again = [...blocked, returned('review'), ...passed(2), suggesting('approved')];
+    expect(decide(again, facts).next).toMatchObject({ do: 'return', suggestions: 1 });
+    // Once the change is written up, the suggestions stay for Martin.
+    expect(decide([...first.slice(0, -1), review('approved'), summarised, suggesting('approved')], facts).next).toEqual(
+      { do: 'hold', hold: expect.objectContaining({ cause: 'merge' }) },
+    );
+  });
+
   it('sends a patch the scope fence refuses back to the coder once, with its output, and holds at the second', () => {
     const refused = (output = 'scope: src/search.ts, test/\nrefused src/server.ts +1 −1'): LineEvent => ({
       type: 'action.refused',
@@ -806,6 +862,16 @@ describe('Martin’s answer to a hold', () => {
       held('review', 'review'),
     ];
     expect(decide([...escalated, answer('approved')], facts).next).toEqual({
+      do: 'step',
+      agent: 'describer',
+      round: 1,
+    });
+    // His approval sends the change on as it is: the review's suggestions have no round of their own.
+    const suggestion = { path: 'src/search.ts', line: 5, blocking: false, comment: 'Name it for what it does.' };
+    const withSuggestion = escalated.map((e) =>
+      e.type === 'review.submitted' ? { ...e, payload: { ...e.payload, findings: [finding, suggestion] } } : e,
+    );
+    expect(decide([...withSuggestion, answer('approved')], facts).next).toEqual({
       do: 'step',
       agent: 'describer',
       round: 1,

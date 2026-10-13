@@ -130,6 +130,11 @@ export interface ReviewComment {
   body: string;
 }
 
+/** A review thread the App began, found by its first comment, and what to reply on it before it is resolved. */
+export interface ThreadAnswer extends ReviewComment {
+  reply: string;
+}
+
 export interface CheckRunReport {
   name: string;
   headSha: string;
@@ -172,11 +177,12 @@ export interface Actions {
     review: { commit: string; body: string; comments: ReviewComment[] },
   ): Promise<number>;
   /**
-   * Replies on each open review thread the App began with one of `comments`, found by its path, the line it was made
-   * on and its first comment's body, and resolves it. A thread resolved already, or begun by anyone else, is left as it is, and a reply
-   * the App made already is not made again, so trying again after a failure says nothing twice.
+   * Replies on each open review thread the App began with one of `threads`, found by its path, the line it was made
+   * on and its first comment's body, with that one's reply, and resolves it. A thread resolved already, or begun by
+   * anyone else, is left as it is, and a reply the App made already is not made again, so trying again after a
+   * failure says nothing twice.
    */
-  resolveThreads(repo: string, number: number, threads: { comments: ReviewComment[]; reply: string }): Promise<void>;
+  resolveThreads(repo: string, number: number, threads: ThreadAnswer[]): Promise<void>;
   createCheckRun(repo: string, report: CheckRunReport): Promise<number>;
   updateCheckRun(repo: string, id: number, report: Partial<CheckRunReport>): Promise<void>;
   openIssue(repo: string, issue: { title: string; body: string; labels?: string[] }): Promise<number>;
@@ -429,18 +435,15 @@ export class LiveActions implements Actions {
     return made.id;
   }
 
-  async resolveThreads(
-    repo: string,
-    number: number,
-    { comments, reply }: { comments: ReviewComment[]; reply: string },
-  ): Promise<void> {
+  async resolveThreads(repo: string, number: number, threads: ThreadAnswer[]): Promise<void> {
     const [owner, name] = repo.split('/');
     const answer = await this.#github.graphql(repo, THREADS, { owner, name, number }, THREADS_ANSWER);
     for (const thread of answer.repository.pullRequest.reviewThreads.nodes) {
       const [first, ...replies] = thread.comments.nodes;
       if (thread.isResolved || !first || !byApp(first.author)) continue;
       const made = (c: ReviewComment) => c.path === thread.path && c.line === thread.originalLine;
-      if (!comments.some((c) => made(c) && same(c.body, first.body))) continue;
+      const { reply } = threads.find((c) => made(c) && same(c.body, first.body)) ?? {};
+      if (reply === undefined) continue;
       if (!replies.some((r) => byApp(r.author) && same(r.body, reply))) {
         await this.#github.graphql(repo, REPLY, { id: thread.id, body: reply }, z.unknown());
       }
@@ -732,12 +735,8 @@ export class DryRunActions implements Actions {
     return this.#number();
   }
 
-  async resolveThreads(
-    repo: string,
-    number: number,
-    threads: { comments: ReviewComment[]; reply: string },
-  ): Promise<void> {
-    await this.#record('resolveThreads', repo, { number, ...threads });
+  async resolveThreads(repo: string, number: number, threads: ThreadAnswer[]): Promise<void> {
+    await this.#record('resolveThreads', repo, { number, threads });
   }
 
   async createCheckRun(repo: string, report: CheckRunReport): Promise<number> {

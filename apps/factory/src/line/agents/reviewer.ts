@@ -21,9 +21,10 @@
  * It asks for nothing outside the ticket: the shop is bad on purpose, and a coder that fixed other defects in passing
  * would muddle what the fix did. It judges; it does not run the gates again, which have passed by the time it starts.
  * A later review is a fresh reviewer, told what the review before it blocked on, so that it checks those first, and
- * says by number which of them the change now answers. The GitHub worker replies on each of those threads with the
- * commit that answered it and resolves it, since the app's `main` merges nothing with a thread open; one the reviewer
- * still holds stays open.
+ * what it suggested, less the suggestions the coder declined, which it is told apart with the coder's reasons. It
+ * says by number which of them the change now answers: a finding put right, or a suggestion taken. The GitHub worker
+ * replies on each of those threads with the commit that answered it and resolves it, since the app's `main` merges
+ * nothing with a thread open; one the reviewer still holds stays open.
  *
  * Its result goes to GitHub through the GitHub worker (`../review.ts`): the check run first, which is harmless to
  * make twice, then the comment review, which is not, then the answered threads; each is done once for a handback
@@ -31,9 +32,8 @@
  */
 import { MAX_FINDINGS, type PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
-import { GitHubWorkerError } from '../../github/worker-client.ts';
-import { LIMITS } from '../machine.ts';
-import { answeredThreads, cites, type Finding, reviewInGitHub } from '../review.ts';
+import { LIMITS, suggestionsGoBack, type WorkItemState } from '../machine.ts';
+import { answerThreads, cites, type Finding, lineage, reviewInGitHub, threadAnswers } from '../review.ts';
 import { defineAgent, need, words } from './agent.ts';
 import { numbered, type Signal, ticketLines } from './evidence.ts';
 
@@ -53,6 +53,10 @@ export interface ReviewerInput {
   round: number;
   /** What the review before this one blocked on, for a later review. */
   blocked?: Finding[] | undefined;
+  /** What the review before this one suggested, less those the coder declined: the change may have taken them. */
+  suggested?: Finding[] | undefined;
+  /** The suggestions of the review before this one that the coder declined, each with its reason. */
+  declined?: { finding: Finding; reason: string }[] | undefined;
 }
 
 const finding = z.strictObject({
@@ -71,6 +75,11 @@ const finding = z.strictObject({
    * kept.
    */
   ticket: z.boolean().optional(),
+  /**
+   * In a later review, the number of the finding of the review before that this one holds again, in its words or new:
+   * answering this one later answers that one's thread too.
+   */
+  holds: z.number().int().min(1).max(MAX_FINDINGS).optional(),
   /** What is wrong and what would put it right. Each finding reaches the events whole, so it is short. */
   comment: words(300),
 });
@@ -79,9 +88,10 @@ const VERDICTS = ['approved', 'changes-requested', 'escalated'] as const;
 
 /**
  * The result, with criteria numbered up to `criteria`: a finding that cites one the spec does not have is refused.
- * `blocked` counts what the review before blocked on: the findings a later review may say are answered.
+ * `earlier` counts what the review before blocked on and suggested, less what the coder declined: the findings a
+ * later review may say are answered.
  */
-export function reviewerResult(criteria = 12, blocked = 0) {
+export function reviewerResult(criteria = 12, earlier = 0) {
   return z
     .strictObject({
       verdict: z.enum(VERDICTS),
@@ -89,16 +99,17 @@ export function reviewerResult(criteria = 12, blocked = 0) {
       note: words(300),
       findings: z.array(finding).max(MAX_FINDINGS),
       /**
-       * In a later review, the numbers of the findings the review before blocked on that the change now answers. One
-       * it still holds is left out. A first review has none to answer, and may leave it out.
+       * In a later review, the numbers of the findings of the review before that the change now answers: one it blocked
+       * on put right, or a suggestion taken. One it still holds is left out. A first review has none to answer, and may
+       * leave it out.
        */
       answered: z.array(z.number().int().min(1).max(MAX_FINDINGS)).max(MAX_FINDINGS).optional(),
     })
     .superRefine(({ verdict, findings, answered = [] }, ctx) => {
       answered.forEach((n, i) => {
-        if (n > blocked) {
-          const message = blocked
-            ? `the review before blocked on ${blocked} findings, not ${n}`
+        if (n > earlier) {
+          const message = earlier
+            ? `the review before left ${earlier} findings to answer, not ${n}`
             : 'there is no review before this one to answer';
           ctx.addIssue({ code: 'custom', path: ['answered', i], message });
         } else if (answered.indexOf(n) !== i) {
@@ -113,6 +124,15 @@ export function reviewerResult(criteria = 12, blocked = 0) {
         ctx.addIssue({ code: 'custom', path: ['verdict'], message: 'changes requested with nothing blocking' });
       }
       findings.forEach((f, i) => {
+        if (f.holds !== undefined && f.holds > earlier) {
+          const message = earlier
+            ? `the review before left ${earlier} findings to answer, not ${f.holds}`
+            : 'there is no review before this one to hold';
+          ctx.addIssue({ code: 'custom', path: ['findings', i, 'holds'], message });
+        } else if (f.holds !== undefined && answered.includes(f.holds)) {
+          const message = `finding ${f.holds} is answered, so this one cannot hold it`;
+          ctx.addIssue({ code: 'custom', path: ['findings', i, 'holds'], message });
+        }
         if (f.criterion !== undefined && f.criterion > criteria) {
           const message = `the spec has ${criteria} criteria, not ${f.criterion}`;
           ctx.addIssue({ code: 'custom', path: ['findings', i, 'criterion'], message });
@@ -148,8 +168,11 @@ function prompt({
   pullRequest,
   title,
   round,
-  blocked,
+  blocked = [],
+  suggested = [],
+  declined = [],
 }: ReviewerInput): string {
+  const earlier = blocked.length + suggested.length;
   return [
     `Review pull request #${pullRequest}, the factory’s fix for ticket #${workItem}: “${title}”${round > 1 ? `, in its round ${round}` : ''}.`,
     '',
@@ -173,11 +196,25 @@ function prompt({
       (c, i) => `${i + 1}. Given ${c.given}, when ${c.when}, then ${c.expect}.${c.from ? ` (From ${c.from}.)` : ''}`,
     ),
     `Scope, the only files it may change: ${spec.scope.join(', ')}.`,
-    ...(blocked?.length
+    ...(blocked.length
       ? [
           '',
           'The review before this one blocked on these. Check each first: is it put right?',
           ...blocked.map((f, i) => `${i + 1}. ${where(f)}: ${f.comment}`),
+        ]
+      : []),
+    ...(suggested.length
+      ? [
+          '',
+          `${blocked.length ? 'It also suggested' : 'The review before this one approved, and suggested'} these, which do not block. Check each: has the change taken it?`,
+          ...suggested.map((f, i) => `${blocked.length + i + 1}. ${where(f)}: ${f.comment}`),
+        ]
+      : []),
+    ...(declined.length
+      ? [
+          '',
+          'The coder declined these suggestions, and their threads are answered with its reasons. Give one again only if its reason does not hold:',
+          ...declined.map(({ finding, reason }) => `- ${where(finding)}: ${finding.comment} The coder said: ${reason}`),
         ]
       : []),
     '',
@@ -196,19 +233,59 @@ function prompt({
     '- changes-requested: something blocks that the coder can put right inside the scope.',
     '- escalated: something blocks that the coder cannot put right inside the scope, such as a criterion that only a file outside it can meet, or any finding with `"ticket":true`, since the coder cannot put a spec right. Martin decides.',
     '',
-    `Then write the result, {"verdict","note","findings":[{"path","line","blocking","rule","criterion","ticket","comment"}]${blocked?.length ? ',"answered"' : ''}}:`,
+    `Then write the result, {"verdict","note","findings":[{"path","line","blocking","rule","criterion","ticket",${earlier ? '"holds",' : ''}"comment"}]${earlier ? ',"answered"' : ''}}:`,
     '- `note`: the review in one or two short sentences, for the pull request and the console: at most 300 characters, or the result is refused. Leave the detail to the findings.',
     '- `rule` and `criterion`: numbers, each left out when the finding cites none. `ticket`: true only when the criterion the finding cites is one the ticket does not ask for, and left out otherwise.',
-    ...(blocked?.length
+    ...(suggested.length
       ? [
-          '- `answered`: the numbers of the findings the review before blocked on that the change now puts right, such as `[1]`, or `[]` for none. Its threads are resolved on the pull request. Leave out one that still blocks, and give it again as a finding of this review.',
+          '- `answered`: the numbers of those above that the change now answers, a finding it puts right or a suggestion it has taken, such as `[1]`, or `[]` for none. Their threads are resolved on the pull request. Leave out one that still blocks, and give it again as a finding of this review.',
+        ]
+      : blocked.length
+        ? [
+            '- `answered`: the numbers of the findings the review before blocked on that the change now puts right, such as `[1]`, or `[]` for none. Its threads are resolved on the pull request. Leave out one that still blocks, and give it again as a finding of this review.',
+          ]
+        : []),
+    ...(earlier
+      ? [
+          '- `holds`: on a finding of this review that gives one of those above again, in the same words or new, its number; left out otherwise. A finding held again is never in `answered`.',
         ]
       : []),
   ].join('\n');
 }
 
-/** What the GitHub worker says of a request that asking again will not help: refused, gone, or not as it was. */
-const REFUSED = [403, 404, 409, 422];
+/**
+ * What a later review checks first, from the review before it: what it blocked on, and what it suggested, told apart
+ * by whether the coder declined it. A suggestion is numbered among that review's findings that do not block, as the
+ * coder was given them.
+ */
+function earlierOf(state: WorkItemState): Pick<ReviewerInput, 'blocked' | 'suggested' | 'declined'> {
+  const findings = state.reviews.at(-1)?.findings;
+  if (!findings) return {};
+  const suggestions = findings.filter((f) => !f.blocking);
+  const reasons = new Map(state.suggestionsAnswered?.declined.map((d) => [d.suggestion, d.reason]));
+  const suggested = suggestions.filter((_, i) => !reasons.has(i + 1));
+  const declined = suggestions.flatMap((finding, i) => {
+    const reason = reasons.get(i + 1);
+    return reason === undefined ? [] : [{ finding, reason }];
+  });
+  return {
+    blocked: findings.filter((f) => f.blocking),
+    ...(suggested.length ? { suggested } : {}),
+    ...(declined.length ? { declined } : {}),
+  };
+}
+
+/** A finding's place among a review's findings, from 1, or 0 if it is not one of them. */
+const placeOf = (findings: readonly Finding[], finding: Finding | undefined) =>
+  finding
+    ? findings.findIndex(
+        (f) =>
+          f.path === finding.path &&
+          f.line === finding.line &&
+          f.blocking === finding.blocking &&
+          f.comment === finding.comment,
+      ) + 1
+    : 0;
 
 /** The branch every factory pull request is opened onto (`coder.ts`), which its change is compared with. */
 const MAIN = 'main';
@@ -229,40 +306,48 @@ export const reviewer = defineAgent<ReviewerInput, ReviewerResult>({
       pullRequest: pushed.number,
       title: pushed.title,
       round,
-      // A later review checks first what the review before it blocked on.
-      blocked: state.reviews.at(-1)?.findings.filter((f) => f.blocking),
+      ...earlierOf(state),
     };
   },
-  schema: ({ spec, blocked }) => reviewerResult(spec.criteria.length, blocked?.length ?? 0),
+  schema: ({ spec, blocked = [], suggested = [] }) =>
+    reviewerResult(spec.criteria.length, blocked.length + suggested.length),
   prompt,
-  apply: async (result, _handback, { pullRequest, blocked = [] }, context) => {
+  apply: async (result, _handback, { pullRequest, blocked = [], suggested = [] }, context) => {
     const { workItem, commit, state } = context;
-    // A finding cites the ticket, or says nothing of it.
-    const findings = result.findings.map(({ ticket, ...f }) => (ticket ? { ...f, ticket: true as const } : f));
+    const earlier = [...blocked, ...suggested];
+    const before = state.reviews.at(-1)?.findings ?? [];
+    // A finding cites the ticket, or says nothing of it. One held again names its place among the findings of the
+    // review before, as the events keep them, not its number in the prompt.
+    const findings = result.findings.map(({ ticket, holds, ...f }) => {
+      const place = holds === undefined ? 0 : placeOf(before, earlier[holds - 1]);
+      return { ...f, ...(ticket ? { ticket: true as const } : {}), ...(place ? { holds: place } : {}) };
+    });
     const { answered = [], ...rest } = result;
     const review = { ...rest, findings };
     // The files the change touches, as GitHub's diff of the pull request shows them, to anchor the findings to.
     const { files } = await context.read('comparison', { base: MAIN, head: commit });
     const number = state.reviews.length + 1;
-    const shown = reviewInGitHub(review, files, { commit, workItem, review: number, last: number >= LIMITS.reviews });
+    const shown = reviewInGitHub(review, files, {
+      commit,
+      workItem,
+      review: number,
+      last: number >= LIMITS.reviews,
+      suggestionsBack: suggestionsGoBack(state),
+    });
     await context.once('check-run', () => context.act('createCheckRun', shown.check));
     await context.once('review', () =>
       context.act('review', { number: pullRequest, commit, body: shown.body, comments: shown.comments }),
     );
-    const threads = answeredThreads(
-      answered.flatMap((n) => blocked[n - 1] ?? []),
-      findings,
-    );
-    if (threads.length) {
-      const reply = `Answered in ${commit}: the factory’s reviewer, review ${number}, finds this put right.`;
-      await context
-        .once('answered', () => context.act('resolveThreads', { number: pullRequest, comments: threads, reply }))
-        .catch((error: unknown) => {
-          // Resolving tidies up after a review already posted: GitHub refusing it must not hold the work item, and
-          // Martin resolves by hand what is left. GitHub failing is tried again, with the handback.
-          if (!(error instanceof GitHubWorkerError && REFUSED.includes(error.status))) throw error;
-        });
-    }
+    const answers = answered.flatMap((n) => {
+      const finding = earlier[n - 1];
+      if (!finding) return [];
+      const reply = finding.blocking
+        ? `Answered in ${commit}: the factory’s reviewer, review ${number}, finds this put right.`
+        : `Taken in ${commit}: the factory’s reviewer, review ${number}, finds this suggestion taken.`;
+      // Each earlier finding it held again, in other words, has a thread of its own, answered with it.
+      return lineage(state.reviews, finding).map((f) => ({ finding: f, reply }));
+    });
+    await answerThreads(context, 'answered', pullRequest, threadAnswers(answers, findings));
     return [
       {
         type: 'review.submitted',

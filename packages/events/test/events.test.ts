@@ -293,11 +293,28 @@ describe('validation', () => {
     const back = {
       ...opened,
       type: 'work.returned',
-      version: 2,
+      version: 3,
       payload: { from: 'gates', to: 'build', reason: 'A check failed', round: 2, failed: ['test'] },
     };
     expect(validate(back)).toEqual({ ok: true });
     expect(validate({ ...back, payload: { from: 'build', to: 'gates', reason: 'Onwards' } }).ok).toBe(false);
+    const suggested = {
+      from: 'review',
+      to: 'build',
+      reason: 'The review approved, with 2 suggestions',
+      suggestions: 2,
+    };
+    expect(validate({ ...back, payload: { ...suggested, round: 2 } })).toEqual({ ok: true });
+  });
+
+  it('takes the coder’s answer to suggestions, declining only those it was given, each once', () => {
+    const answered = { ...opened, type: 'suggestions.answered', version: 1, actor: 'coder' };
+    const payload = { pullRequest: 12, suggestions: 2, declined: [{ suggestion: 2, reason: 'Outside the scope.' }] };
+    expect(validate({ ...answered, payload })).toEqual({ ok: true });
+    expect(validate({ ...answered, payload: { ...payload, declined: [] } })).toEqual({ ok: true });
+    const declined = (...suggestions: number[]) => suggestions.map((suggestion) => ({ suggestion, reason: 'No.' }));
+    expect(validate({ ...answered, payload: { ...payload, declined: declined(3) } }).ok).toBe(false);
+    expect(validate({ ...answered, payload: { ...payload, declined: declined(1, 1) } }).ok).toBe(false);
   });
 });
 
@@ -477,20 +494,33 @@ describe('upcasting the real catalogue', () => {
   it('reads version 1 of review.submitted as a review with no findings, and version 2 as it was', () => {
     const v1 = { pullRequest: 12, verdict: 'approved', comments: 2, note: 'Fine.' };
     expect(upcast({ type: 'review.submitted', version: 1, payload: v1 })).toMatchObject({
-      event: { version: 3, payload: { pullRequest: 12, verdict: 'approved', note: 'Fine.', findings: [] } },
+      event: { version: 4, payload: { pullRequest: 12, verdict: 'approved', note: 'Fine.', findings: [] } },
     });
     const finding = { path: 'src/money.ts', line: 3, blocking: true, rule: 4, comment: 'Format once, at the edge.' };
     const v2 = { pullRequest: 12, verdict: 'changes-requested', note: 'One blocking finding.', findings: [finding] };
     expect(upcast({ type: 'review.submitted', version: 2, payload: v2 })).toMatchObject({
-      event: { version: 3, payload: v2 },
+      event: { version: 4, payload: v2 },
     });
-    expect(validate({ ...opened, type: 'review.submitted', version: 3, actor: 'reviewer', payload: v2 })).toEqual({
+    expect(validate({ ...opened, type: 'review.submitted', version: 4, actor: 'reviewer', payload: v2 })).toEqual({
       ok: true,
     });
     const long = { ...v2, findings: [{ ...finding, comment: 'x'.repeat(301) }] };
-    expect(validate({ ...opened, type: 'review.submitted', version: 3, actor: 'reviewer', payload: long }).ok).toBe(
+    expect(validate({ ...opened, type: 'review.submitted', version: 4, actor: 'reviewer', payload: long }).ok).toBe(
       false,
     );
+  });
+
+  it('takes a finding that holds one of the review before again at version 4', () => {
+    const finding = { path: 'src/money.ts', line: 3, blocking: true, holds: 2, comment: 'Still one short.' };
+    const v4 = { pullRequest: 12, verdict: 'changes-requested', note: 'One still blocks.', findings: [finding] };
+    const submitted = { ...opened, type: 'review.submitted', actor: 'reviewer', payload: v4 };
+    expect(validate({ ...submitted, version: 4 })).toEqual({ ok: true });
+    expect(validate({ ...submitted, version: 4, payload: { ...v4, findings: [{ ...finding, holds: 0 }] } }).ok).toBe(
+      false,
+    );
+    expect(upcast({ type: 'review.submitted', version: 3, payload: { ...v4, findings: [] } })).toMatchObject({
+      event: { version: 4 },
+    });
   });
 
   it('takes a finding that cites the ticket at version 3', () => {
@@ -503,7 +533,7 @@ describe('upcasting the real catalogue', () => {
       comment: 'No evidence asks this.',
     };
     const v3 = { pullRequest: 12, verdict: 'escalated', note: 'The spec goes beyond its ticket.', findings: [finding] };
-    expect(validate({ ...opened, type: 'review.submitted', version: 3, actor: 'reviewer', payload: v3 })).toEqual({
+    expect(validate({ ...opened, type: 'review.submitted', version: 4, actor: 'reviewer', payload: v3 })).toEqual({
       ok: true,
     });
     expect(validate({ ...opened, type: 'review.submitted', version: 2, actor: 'reviewer', payload: v3 }).ok).toBe(
@@ -665,7 +695,7 @@ describe('upcasting the real catalogue', () => {
   it('reads version 1 of work.returned as it was, with no round', () => {
     const v1 = { from: 'review', to: 'build', reason: 'Review asked for changes' };
     expect(upcast({ type: 'work.returned', version: 1, payload: v1 })).toMatchObject({
-      event: { version: 2, payload: v1 },
+      event: { version: 3, payload: v1 },
     });
   });
 });
@@ -731,8 +761,10 @@ describe('the event-log format', () => {
 });
 
 describe('a return in words', () => {
-  it('says how many findings blocked, or how many checks failed, and only what the return records', () => {
+  it('says how many findings blocked, suggestions went back or checks failed, and only what the return records', () => {
     expect(returnWords({ from: 'review', blocking: 2 })).toBe('2 blocking');
+    expect(returnWords({ from: 'review', suggestions: 1 })).toBe('1 suggestion');
+    expect(returnWords({ from: 'review', suggestions: 3 })).toBe('3 suggestions');
     expect(returnWords({ from: 'gates', failed: ['test'] })).toBe('1 check failed');
     expect(returnWords({ from: 'gates', failed: ['test', 'lint'] })).toBe('2 checks failed');
     // The gates fail a run that names no check all the same.
