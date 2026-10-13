@@ -786,6 +786,38 @@ describe('the line', () => {
     expect(describing).not.toMatch(/ignore|instructions|every.price|Ignore your/);
   });
 
+  it('tells the planner of every version a sense saw the ticket’s problem in, such as each release that rolled back', async () => {
+    const workItem = await ticket();
+    const rollback = (version: string, against: string) =>
+      event(
+        workItem,
+        'signal.received',
+        {
+          sense: 'canary',
+          check: 'errors',
+          route: '/search',
+          version,
+          symptom: 'server-error',
+          evidence: [
+            {
+              kind: 'canary',
+              release: version.slice(0, 10),
+              version,
+              against,
+              measure: { name: 'errors', phase: 'failed', value: 0.04, limit: 0.01 },
+            },
+          ],
+        },
+        'canary',
+      );
+    await events.append([rollback('a'.repeat(40), 'f'.repeat(40)), rollback('b'.repeat(40), 'f'.repeat(40))]);
+    const { pass, steps } = line();
+    await pass();
+    const prompt = String(steps.requests[0]?.prompt);
+    expect(prompt).toContain(`the canary's analysis of version ${'a'.repeat(40)} against ${'f'.repeat(40)}`);
+    expect(prompt).toContain(`the canary's analysis of version ${'b'.repeat(40)} against ${'f'.repeat(40)}`);
+  });
+
   it('fails a planner whose scope names a path the app’s CODEOWNERS gives Martin, as GitHub has it at the commit', async () => {
     const workItem = await ticket();
     const { pass, steps } = line({

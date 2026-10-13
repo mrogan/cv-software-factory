@@ -29,6 +29,17 @@ describe('the pictures of a canary', () => {
     const [stable, canary] = await Promise.all([startShop(), startShop('product-heading')]);
     const recorded: Picture[] = [];
     const looked = [
+      // Another check boxed four elements on the page, so the probe's heading is the fifth.
+      {
+        sense: 'crawler' as const,
+        check: 'links',
+        route: '/products/:slug',
+        path: '/products/oak-stool',
+        elements: ['header', 'header nav', 'header ul', 'header li'].map((selector) => ({
+          selector,
+          kind: 'problem' as const,
+        })),
+      },
       {
         sense: 'probe' as const,
         check: 'product/heading',
@@ -68,11 +79,11 @@ describe('the pictures of a canary', () => {
       const changed = recorded.filter((p) => p.changed > 0).map((p) => p.route);
       expect(new Set(changed)).toEqual(new Set(['/products/:slug']));
       expect(recorded.find((p) => p.path === '/')).toMatchObject({ changed: 0, diff: null });
-      // The page a probe boxed is pictured with its heading boxed, on both versions, the box in the picture.
+      // The page a probe boxed is pictured with every element boxed on both versions, its heading among them.
       const own = recorded.find((p) => p.path === '/products/oak-stool');
-      expect(own?.before.boxes).toHaveLength(1);
-      expect(own?.after.boxes).toHaveLength(1);
-      expect(own?.after.selectors).toEqual(['main h1']);
+      expect(own?.before.boxes).toHaveLength(5);
+      expect(own?.after.boxes).toHaveLength(5);
+      expect(own?.after.selectors?.at(-1)).toBe('main h1');
       expect(own?.diff).not.toBeNull();
       for (const p of recorded) expect(await store.size(p.after.hash)).toBe(p.after.size);
     } finally {

@@ -16,6 +16,11 @@ import type { Picture, Shot } from '../pictures/index.ts';
 
 /** The most pages a verification names (`verification.finished`'s schema). */
 export const MOST_PAGES = 12;
+/**
+ * The most boxes a screenshot on an event has (the screenshot's schema). A page is pictured with every check's boxes,
+ * however many; a ticket's own check boxes at most four (the senses'), so this only keeps the event sound.
+ */
+export const MOST_BOXES = 4;
 
 type Page = PayloadOf<'verification.finished'>['pages'][number];
 
@@ -45,7 +50,10 @@ export function pagesFor(pictures: readonly Picture[], own: Own): { pages: Page[
   // index kept them keeps every box on that page, as it was taken.
   const boxed = (p: Picture, { selectors, ...shot }: Shot): Screenshot => ({
     ...shot,
-    boxes: !byPath || !intended.has(p) ? [] : shot.boxes.filter((_, i) => !selectors || mine.has(selectors[i] ?? '')),
+    boxes:
+      !byPath || !intended.has(p)
+        ? []
+        : shot.boxes.filter((_, i) => !selectors || mine.has(selectors[i] ?? '')).slice(0, MOST_BOXES),
   });
   const chosen = [...pictures]
     .sort(

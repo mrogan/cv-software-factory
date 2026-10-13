@@ -99,9 +99,9 @@ function setup() {
         version,
         width: 40,
         height: 30,
-        boxes: elements.slice(0, 1).map(() => ({ x: 1, y: 1, width: 10, height: 5, kind: 'problem' as const })),
+        boxes: elements.map((_, i) => ({ x: 1, y: 1 + 6 * i, width: 10, height: 5, kind: 'problem' as const })),
       };
-      return { png: bytes, screenshot, selectors: elements.slice(0, 1).map((e) => e.selector) };
+      return { png: bytes, screenshot, selectors: elements.map((e) => e.selector) };
     },
     index,
     store,
@@ -233,6 +233,28 @@ describe('the pictures of a canary', () => {
     });
     expect(await pictures.tick()).toBeNull();
     expect(shots).toHaveLength(7);
+  });
+
+  it('boxes every element the senses boxed on a page, however many, each once', async () => {
+    const { pictures, index } = setup();
+    const element = (selector: string) => ({ selector, kind: 'problem' as const });
+    const on = (check: string, ...selectors: string[]) => ({
+      sense: 'crawler' as const,
+      check,
+      route: '/products/:slug',
+      path: '/products/glove-left',
+      elements: selectors.map(element),
+    });
+    // Two checks have boxed four elements on the page between them, and a third check's is the fifth.
+    index.looked = [
+      on('links', 'nav a', '.cards', 'footer'),
+      on('images', '.cards', 'img.hero'),
+      on('product/price', 'main h1'),
+    ];
+    await pictures.tick();
+    const selectors = ['nav a', '.cards', 'footer', 'img.hero', 'main h1'];
+    expect(index.pictures[0]?.before).toMatchObject({ selectors });
+    expect(index.pictures[0]?.after.boxes).toHaveLength(5);
   });
 
   it('deletes what no release needs between releases, after the rollout’s pages, once for each stable version', async () => {

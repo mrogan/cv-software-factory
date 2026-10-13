@@ -5,9 +5,9 @@
  * The same objectives apply to every route. A route is not given a looser one here: a route that cannot meet them is
  * a finding.
  *
- * A rule only judges a route that has had `minRequests` in the window, because the shop's traffic is thin: until the
- * traffic generator arrives, the probes and the crawler are most of it, and one failure in three requests is not a
- * trend. These numbers are a starting point for a small shop, and Martin's to change.
+ * A rule only judges a route that has had `minRequests` in the window, because the shop's traffic is thin: it is
+ * visitors' and the traffic generator's alone, since the probes and the crawler send theirs unmeasured, and one failure
+ * in three requests is not a trend. These numbers are a starting point for a small shop, and Martin's to change.
  */
 export interface Objectives {
   /** The app, as its own telemetry names it. */

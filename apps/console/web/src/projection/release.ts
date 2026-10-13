@@ -21,8 +21,17 @@ export interface Measured {
 
 export type End =
   | { kind: 'promoted'; at: number; weight: 100 }
-  | { kind: 'rolled-back'; at: number; weight: number; reason: string; failed: Failed[]; ticket: Carried | undefined }
+  | { kind: 'rolled-back'; at: number; weight: number; reason: string; failed: Failed[]; ticket: Signalled | undefined }
   | { kind: 'stopped'; at: number; weight: number };
+
+/**
+ * The ticket a rollback's signal went to, and what it did there: opened it, reopened it after a verified fix, or
+ * joined it while it was still open, as another release that failed on it.
+ */
+export type Signalled = Carried & { how: keyof typeof SIGNALLED };
+
+/** What a rollback's signal did to its ticket, in words: "triage added it to #1308". */
+export const SIGNALLED = { opened: 'opened', reopened: 'reopened', joined: 'added it to' };
 
 export interface Carried {
   number: string;
@@ -148,8 +157,11 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
   const titles = new Map(items.map((item) => [item.number, item.title]));
   const carried = (number: string): Carried => ({ number, title: titles.get(number) ?? '' });
   const byId = new Map<string, Building>();
-  // A rollback is a signal: the ticket it opened names the release in its evidence.
-  const tickets = new Map<string, string>();
+  // A rollback is a signal: the ticket it went to names the release in its evidence. Whether it opened, reopened or
+  // joined that ticket is told by the work item's events before it.
+  const tickets = new Map<string, { number: string; how: Signalled['how'] }>();
+  const signalled = new Set<string>();
+  const reopened = new Set<string>();
   for (const event of events) {
     const at = Date.parse(event.ts);
     // Stop the line aborts the canary in flight: the newest release, if it has not ended. An older one that never
@@ -159,10 +171,18 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
       if (newest && !newest.end) newest.stoppedAt ??= at;
       continue;
     }
+    if (event.type === 'work-item.reopened' && event.work_item) {
+      reopened.add(event.work_item);
+      continue;
+    }
     if (event.type === 'signal.received' && event.work_item) {
+      const number = event.work_item;
+      const how = !signalled.has(number) ? 'opened' : reopened.has(number) ? 'reopened' : 'joined';
       for (const evidence of event.payload.evidence ?? []) {
-        if (evidence.kind === 'canary') tickets.set(evidence.release, event.work_item);
+        if (evidence.kind === 'canary') tickets.set(evidence.release, { number, how });
       }
+      signalled.add(number);
+      reopened.delete(number);
       continue;
     }
     if (event.type === 'release.started') {
@@ -224,7 +244,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     const end = endOf(r);
     const place = position(r, end?.at ?? t);
     const ticket = tickets.get(r.id);
-    if (end?.kind === 'rolled-back' && ticket) end.ticket = carried(ticket);
+    if (end?.kind === 'rolled-back' && ticket) end.ticket = { ...carried(ticket.number), how: ticket.how };
     return { ...release, ...place, weight: end && end.kind !== 'stopped' ? end.weight : place.weight, end };
   });
 }
