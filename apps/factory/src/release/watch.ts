@@ -272,7 +272,7 @@ const errorsOf = (o: Observed, release: string) => {
   const at = Date.parse(o.abortedAt ?? '');
   return o.runs.filter((run) => {
     const ended = Date.parse(run.status.completedAt ?? '');
-    return isOf(run, release) && run.status.phase === 'Error' && !(ended < at - 60_000 || ended > at + 1_000);
+    return isOf(run, release) && run.status.phase === 'Error' && ended >= at - 60_000 && ended <= at + 1_000;
   });
 };
 
@@ -434,9 +434,13 @@ function forTarget(
     });
   }
   // A retried release's earlier failures are its earlier attempts': only a run that failed after it started again
-  // fails this one. A first attempt's are all its own, however late the line saw it start.
-  const inAttempt = (run: AnalysisRun) =>
-    !retried && (record.attempts <= 1 || Date.parse(run.status.completedAt ?? '') > Date.parse(record.startedAt));
+  // fails this one. A first attempt's are all its own, however late the line saw it start. Retried and ended again
+  // between two reads, its attempt is what ended after the abort the line recorded.
+  const inAttempt = (run: AnalysisRun) => {
+    const at = Date.parse(run.status.completedAt ?? '');
+    if (retried) return at > Date.parse(record.abortedAt ?? '');
+    return record.attempts <= 1 || at > Date.parse(record.startedAt);
+  };
   let failures: AnalysisRun[] = [];
   let aborted = false;
   // The stable version took all of the traffic: if the line missed the moment, a later release may be in flight.
