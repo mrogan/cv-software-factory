@@ -5,7 +5,7 @@
  *   verified has exactly that fingerprint: the same defect came back, so that ticket and its work item reopen. A
  *   signal the sense saw before that close is of the version the fix replaced, and is only counted.
  * - One on an open ticket adds its evidence the first time each sense sees it in each version of the app: the ticket
- *   records every version the defect was seen in, so every release that failed on it. Within a version the inbox
+ *   records every version the defect was seen in, such as each release rolled back on it. Within a version the inbox
  *   counts it, with no event, so the event count grows with tickets and releases, not with the minutes a defect stays
  *   unfixed.
  * - Every report becomes events, judged by Jev: a new ticket, a repeat that joins an open one, or a work item

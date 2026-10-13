@@ -8,7 +8,7 @@ An agent: writes a spec for each ticket. Part of the [factory plane](README.md#a
 
 ## Its prompt
 
-- **The ticket's public view**, and each sense's signal by its typed fields (`line/agents/evidence.ts`): one for each version of the app a sense saw the problem in, so every release rolled back on it.
+- **The ticket's public view**, and each sense's signal by its typed fields (`line/agents/evidence.ts`): one for each version of the app a sense saw the problem in, so every version rolled back on it.
 - **Never a report, and no log message,** since an app may log what a visitor typed, quoted or not. A log signal is told by its route, its requests and its lines at each level, and every route is cut at its query.
 - **On a fresh pass after Verify,** each time a released fix's signal persisted, and each time the ticket reopened, so it finds out why the last fix did not hold before it plans another.
 - **Martin's answers** to its earlier questions and rejections, with what he was asked.
