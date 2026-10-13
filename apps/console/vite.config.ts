@@ -4,11 +4,11 @@
  * In development (`pnpm dev`), Vite serves the page with hot reloading on :5173 and passes events, artifacts
  * and the health and version endpoints to the Node server on :5174. The cluster's ingress has :8080.
  */
-import react from '@vitejs/plugin-react';
+import prefresh from '@prefresh/vite';
 import { defineConfig } from 'vite';
 
 /**
- * Development only: Vite injects styles as <style> elements and React's Fast Refresh runs an inline script,
+ * Development only: Vite injects styles as <style> elements and Fast Refresh runs an inline script,
  * which the production policy refuses. The tests run against the production build and its policy.
  */
 const DEVELOPMENT_POLICY = [
@@ -27,7 +27,17 @@ const SERVER = `http://localhost:${process.env.SERVER_PORT ?? 5174}`;
 
 export default defineConfig({
   root: 'web',
-  plugins: [react()],
+  plugins: [await prefresh()],
+  // Preact's JSX, the automatic runtime that web/tsconfig.json checks: Fast Refresh's plugin otherwise assumes `h`.
+  oxc: { jsx: { runtime: 'automatic', importSource: 'preact' } },
+  // The code is written to React's API and runs on Preact's (ADR 0007): a tenth of the size. web/tsconfig.json
+  // points the type checker the same way.
+  resolve: {
+    alias: [
+      { find: /^react$/, replacement: 'preact/compat' },
+      { find: /^react-dom\/client$/, replacement: 'preact/compat/client' },
+    ],
+  },
   // The commit the build was made from, for the footer: the image passes it in; development says so.
   define: { __BUILD__: JSON.stringify(process.env.GIT_COMMIT ?? 'dev') },
   build: {

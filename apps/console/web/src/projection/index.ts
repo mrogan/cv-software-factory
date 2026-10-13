@@ -2,7 +2,7 @@
  * The console as a pure function of events and a time t (ADR 0002). Live is t = now; replay is any other t; the
  * code is the same, because the projection cannot tell where its events came from.
  *
- * Plain TypeScript with no React in it, so Node tests it directly.
+ * Plain TypeScript with no components in it, so Node tests it directly.
  */
 import type { PublicEvent, Stage } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';

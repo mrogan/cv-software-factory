@@ -1,4 +1,3 @@
-import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../../../docs/design/system/station.ts';
 import '../../../../docs/design/system/tokens.css';
@@ -11,11 +10,8 @@ import './styles/pictures.css';
 import './styles/sheet.css';
 import { App } from './App.tsx';
 
+// Development only: Preact's checks on hooks, keys and markup. The build leaves it out.
+if (import.meta.env.DEV) await import('preact/debug');
+
 const root = document.getElementById('root');
-if (root) {
-  createRoot(root).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  );
-}
+if (root) createRoot(root).render(<App />);

@@ -4,8 +4,8 @@ import { consoleUrl, END, expect, ready, test, WIDTHS } from './support.ts';
 const renders = (page: Page) =>
   page.evaluate(() => (globalThis as { sfRenders?: { reel: number } }).sfRenders?.reel ?? -1);
 /**
- * The render count once it has stopped changing. Letting go of the reel removes its dragging class at once, and React
- * renders where it settled a moment later, so a count read straight away can miss a render.
+ * The render count once it has stopped changing. Letting go of the reel removes its dragging class at once, and the
+ * reel renders where it settled a moment later, so a count read straight away can miss a render.
  */
 async function settledRenders(page: Page): Promise<number> {
   let last = Number.NaN;
@@ -52,7 +52,7 @@ test.describe('the reel', () => {
       await expect(page.locator('.reel')).not.toHaveClass(/dragging/);
       counts.push((await settledRenders(page)) - before);
     }
-    // React hears where the drag settled, however many frames it drew on the way.
+    // State hears where the drag settled, however many frames it drew on the way.
     expect(counts[1]).toBe(counts[0]);
     expect(counts[0]).toBeLessThanOrEqual(2);
   });
