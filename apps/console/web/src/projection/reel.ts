@@ -74,12 +74,16 @@ export type Picture =
   /** A visitor's suggestion, parked for Martin: the page it named and Jev's answers, waiting on him. */
   | { type: 'suggestion'; page: Screenshot | undefined; judgement: Judgement }
   | { type: 'spec'; spec: PayloadOf<'spec.written'>; question: string | undefined }
-  /** A merged fix waiting for Martin's deploy: the pull request it waits with, and its merge. */
+  /**
+   * A merged fix waiting for Martin's deploy: the pull request it waits with, its merge, and the release that carried
+   * it and rolled back, when it waits for the next deploy.
+   */
   | {
       type: 'deploy';
       pullRequest: number | undefined;
       title: string | undefined;
       merged: { at: number; commit: string; byMartin: boolean } | undefined;
+      rolledBack: { at: number; version: string } | undefined;
     }
   /** A fix waiting for Martin's merge: the pull request, and what says it is safe to merge. */
   | {

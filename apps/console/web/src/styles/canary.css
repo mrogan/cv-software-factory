@@ -279,9 +279,9 @@ p.words {
   .canary-body {
     grid-template-columns: 1fr;
   }
-  .measures th:nth-child(3),
-  .measures td:nth-child(3),
-  .measures td small {
+  /* The rules' captions go; a measure's own words, such as why it could not measure, stay. */
+  .measures .base,
+  .measures .rule {
     display: none;
   }
   .measures .base-inline {
