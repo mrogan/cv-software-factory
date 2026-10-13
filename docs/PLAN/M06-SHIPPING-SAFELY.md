@@ -81,8 +81,8 @@ Then the orchestrator reviews the stack as a whole, and fixes bottom up, one sub
 ### The scoreboard
 
 - **The scoreboard is the only reader of the answer key.** `factory scoreboard` runs alone in a `scoreboard` namespace. `make up` reads each entry's id and fingerprint, and nothing else, from the private checkout (`PRIVATE_DIR`, by default beside this one) into a Secret there, through stdin and no file, as it does the model keys. No other service account can read that namespace's Secrets, and its pod reaches Postgres and nothing else; nothing can call it. A cluster with no private checkout runs it without a key, and the console says the scoreboard is off.
-- **It matches by fingerprint alone.** A ticket matches an entry with the same symptom class and route (either may be `*`), or the same page with the entry's text in the ticket's. The rule is `workshop/count.ts`'s, and the private repository's tests check the two agree.
-- **It publishes figures, not matches.** It appends `score.updated`, with no work item, whenever a figure changes: found (entries with a matching ticket), verified fixed (entries whose matching ticket was verified), the median time from a matched ticket's first signal to its verification, and false positives (tickets that match no entry). Which ticket matched which entry stays in its own table: a per-ticket verdict in the event store would tell anyone reading it which open tickets are real. The console shows the first three figures; the fourth is published with the results (spec 10.2).
+- **It matches by fingerprint alone.** A ticket matches an entry with the same symptom class on the same route, or the same page with the entry's text in the ticket's. An entry on `*` is matched by a ticket of its class on any route; a ticket on `*` matches only an entry on `*`. The rule is in `policy/scoreboard.ts`, which CODEOWNERS gives to Martin; the private repository imports it, and its tests check it agrees with `workshop/count.ts`.
+- **It publishes figures, not matches.** It appends `score.updated`, with no work item, whenever a figure changes: found (entries with a matching ticket), verified fixed (entries whose matching ticket was verified), the median time from a matched ticket's first signal (or its opening, with none) to its verification, and false positives (tickets that match no entry). Which ticket matched which entry is kept nowhere: the scoreboard works the figures out from the events on each pass and keeps nothing, since a per-ticket verdict anywhere would tell anyone reading it which open tickets are real. Found moves only on a slow cadence, every six hours, so a new ticket's verdict is hidden among those opened beside it; verified and the median move when they change. The console shows the first three figures; the fourth is never published as it changes, and `factory scoreboard --print` prints it for the results (spec 10.2).
 
 ### Events
 
@@ -224,11 +224,11 @@ Spec sections 3.2, 4.1 and 5.2; `COMPONENTS.md` (the scoreboard, the console's n
 ## Exit criteria
 
 - [x] Parts A and B's criteria are met.
-- [ ] A seeded defect is found, fixed, merged, shipped as a signed canary, promoted, verified by its own signal clearing, and closed, with its issue, with no human code and nobody touching it after the deploy merge. The scoreboard counts it. Every step is in the console.
-- [ ] A bad change that passes every gate is rolled back automatically, never reaches all traffic, and opens a ticket.
-- [ ] No image the pipeline did not sign runs in a guarded namespace.
-- [ ] Only the scoreboard can read the answer key, and nothing but its figures leaves it.
-- [ ] Martin has watched a fix and a rollback in the console, on a laptop and a phone, and approved them against the bar in `INTENT.md`.
+- [x] A seeded defect is found, fixed, merged, shipped as a signed canary, promoted, verified by its own signal clearing, and closed, with its issue, with no human code and nobody touching it after the deploy merge. The scoreboard counts it. Every step is in the console.
+- [x] A bad change that passes every gate is rolled back automatically, never reaches all traffic, and opens a ticket.
+- [x] No image the pipeline did not sign runs in a guarded namespace.
+- [x] Only the scoreboard can read the answer key, and nothing but its figures leaves it.
+- [x] Martin has watched a fix and a rollback in the console, on a laptop and a phone, and approved them against the bar in `INTENT.md`.
 
 ## Out of scope
 
@@ -309,6 +309,39 @@ On the local cluster, on 11 October 2026, with the line's models on Claude. Time
   At about 17:24, verification cleared: "No error like the one the log watcher saw came from 8255dac in 30 minutes, over 294 requests". 1035 closed as verified, and the App closed issue #45 as completed.
 - **1035 reopened.** A third drill (the app's #52) has every hundredth visit to `/` log a different error, a new pattern with the same fingerprint. Once 5b5702d was released, triage reopened 1035 at 18:00:24 (`work-item.reopened`, from the logs, on `/`, "new error pattern"), with the signal that reopened it. The App reopened issue #45, with a comment that begins "It came back after its fix was verified". The line took 1035 back into Plan: the planner at 18:01:05 ($0.057) and the coder at 18:01:56 ($0.091). The third fix, the app's #54, removes the counter, with a test of 250 visits; it passed 13 gates and review at 18:05, and held for Martin's merge at 18:06:25. He merged it and its deploy, and its release (7fd45f66f) was in its canary as this was written. 1035 has spent $0.879 over three passes, of its $1 cap.
 
+### Part C
+
+On the local cluster, on 12 October 2026, with the line's models on Claude. Times are UTC and come from the line's events, but for merges and deploy pull requests, whose times are GitHub's. A release is named by the app's commit it ships.
+
+- **Built.** The line records the canary's steps on `release.started` (#219). The scoreboard counts tickets against the answer key (#220) and runs alone in its own namespace, fenced (#224), by the rule in `policy/scoreboard.ts`, which the private repository imports and checks against its own count (its #6). The pictures box only the ticket's own check (#218), and are deleted once no release needs them (#221). The factory's own requests to the app send `x-unmeasured`, and are left out of the canary's figures (#222, and the app's #58). In the console: the states shipping brings, designed and agreed first (#223); a return drawn only until its work moves on, and boxes where they belong (#225); the samples' last week, shipped as the line ships (#231); the Canary panel (#232); the scoreboard beside the app's name (#233); a work item's releases and verification on its sheet (#234); and each release's version on the timeline (#237). #230 fixed how `make egress` asks about pods' subresources. The deploys: #217, #226, #227, #228 and #229; the line's limits for the runs: #238, #239, #241 and #242.
+- **The fences.** Every copy of the policy enforces, `scoreboard-images` included, and Kyverno's refusals in `scoreboard` are kept with the others. `make egress` passes: the scoreboard reaches Postgres and DNS and nothing else, and no service account of ours, or of a chart but Argo Rollouts' controller, may read its Secrets. `scoreboard-fences.test.ts` holds deploy/ to the same, and to nothing reaching it. The answer key reached the cluster as each entry's id and fingerprint, through stdin (`make scoreboard-secrets`), and the scoreboard has published from it since.
+- **A fix all the way: ticket 1018, "Valid input is refused on /contact".** The probes saw it on 7 October at 07:53:35 ("Sending a valid message answered 422"), and triage opened the ticket then. It waited for LINE_TAKE, which #238 raised to 7. The line took it by its own rule at 20:24:44, the oldest open ticket of the highest severity, and nobody chose it.
+
+  | Stage | Ended at | |
+  |---|---|---|
+  | Plan | 20:25:14 | the spec |
+  | Build | 20:26:22 | the app's #61 pushed, under issue #60 |
+  | Gates, round 1 | 20:29:11 | lint, types and tests failed; back to the coder |
+  | Build, round 2 | 20:29:51 | pushed |
+  | Gates, round 2 | 20:32:25 | every required check passed |
+  | Review | 20:32:49 | approved |
+  | Waiting for Martin's merge | 20:33:34 | the summary written |
+  | Martin's merge | 20:37:39 | held at Release for the deploy |
+  | Martin's deploy merge | 20:42:35 | the app's #63 |
+  | `release.started` | 20:45:14 | |
+  | `canary.stepped`, 25% | 20:48:44 | passed |
+  | `canary.stepped`, 50%, and `release.promoted` | 20:52:14 | passed |
+  | `verification.finished`, cleared | 20:52:24 | its probe check passed twice |
+  | `work-item.closed`, verified | 20:52:42 | the App closed issue #60 |
+
+  From taken to waiting for the merge took 8 minutes 50 seconds; from Martin's merge to verified, 15 minutes 3 seconds; from his deploy merge to verified, 10 minutes 7 seconds; and from taken to verified, 27 minutes 58 seconds. From the signal to verified took about five and a half days, nearly all of it waiting for LINE_TAKE. The scoreboard ticked up: verified fixed went to 2.
+- **A bad change, unattended.** The line took ticket 1027, "A wrong result on /search" (issue #65), by its own rule at 21:25:33, with LINE_TAKE at 8 (#239). The planner's first result did not fit its schema (it named a page with a query) and its step ran again, done at 21:26:30. The reviewer asked for changes once, and approved the second round at 21:35:52; the summary was written at 21:36:38. Its fix is the app's #66, which the reviewer's own answered thread kept from merging until Martin resolved it (#240). Then a drill on the app's `main` (#64), the lock from Part A's bad release again. #66 merged at 21:41:54, the drill at 21:58:18, and the deploy that carried both (#67, 6f2896a) at 22:02:39. The release started at 22:05:00 and rolled back at 22:08:00, at the 25% step, with nobody touching it: latency failed twice, against a failure limit of one. 1027 stayed at Release. The rollback's signal, `slow-response` on `*`, repeated ticket 1034, which Part B's rollback had opened and which was still open, so triage counted it there rather than opening another.
+- **The rollback's ticket, fixed.** #241 raised LINE_TAKE to 9 and set LINE_ONLY to 1034, at 22:24:26; the line took 1034 a second later. The planner ran from 22:24:40 to 22:24:59, the coder from 22:25:09 to 22:25:57, the reviewer approved at 22:30:17, and the summary was written at 22:31:04, in one round. Its fix is the app's #69. #242 took LINE_ONLY away again, so the deploy would say what it carries. Martin merged #69 at 22:39:27 and its deploy (#70, 94e8cce) at 22:44:06. Release 94e8cce carried 1027 and 1034: it started at 22:47:15, passed 25% at 22:50:45, and passed 50% and promoted at 22:53:46. 1034 cleared at once, by the canary's latency measure passing at the promoted release's last step, and closed at 22:53:58; 1027 cleared by its probe check at 22:53:56, and closed at 22:54:01. Verified fixed went to 3.
+- **Watched, and approved.** Martin watched both runs in the console, on a laptop and a phone, and approved them against `INTENT.md`: "I very much approve both runs against INTENT.md. I watched every little thing." Of the Canary panel: "worked flawlessly".
+- **The scoreboard** (`factory scoreboard --print`, after the runs). Found 14 of 24; verified fixed 3 of 24; median time from a ticket's first signal to its verified fix 6,648.7 minutes, about four and a half days, since the tickets it counts waited days to be taken; and false positives 20 of 36 tickets. Tickets 1034 and 1035 came from Martin's drills, not seeded defects, and drills are not in the answer key, so the scoreboard counts both as false positives, though both were verified. Spec 10.2 asks for 60% found and 40% verified fixed: found is at 58%, and verified fixed at 13%, with most tickets not yet taken.
+- **The console's budget.** The Canary panel, the sheet's new section and the timeline's marks raised the console's bundle budget from 120 kB of script and 11.5 kB of styles to 128.2 kB and 12.4 kB, in commits of their own in #232, #234 and #237. Whether Preact would win that back is #236.
+- **Open question 3,** how an injected defect is seen within 5 minutes, is answered by these measurements and is gone from `OPEN-QUESTIONS.md`; the injector (milestone 9) is held to the spec's target. The runs measured the part after the deploy merge. The drill's release started 2 minutes 21 seconds after its deploy merged, and its rollback, which is its signal, came 3 minutes after that: 5 minutes 21 seconds from the deploy merge, and 9 minutes 42 seconds from the drill's own merge, with Martin's deploy merge between. Part B's log watcher saw its drill under two minutes after the release started. A defect the canary does not fail is seen only once its release is promoted, about 7 minutes after it starts, when the senses run again on the new version.
+
 ## Retrospective
 
 ### Part A
@@ -348,3 +381,21 @@ Written as Part B's pull requests (#191 to #196, #201, #202, #205 and #206) merg
 - LINE_TAKE is 6, and all six are taken, so the line takes nothing new until it is raised. 1035's third fix (the app's #54) is merged, and its verification comes after this record. `src/greeting.ts`, from the second drill, has been unused in the app since #50.
 
 **Left open:** the reel's render-count test is flaky (#182); egress by host name waits for milestone 10 (#176); a broken Mermaid diagram reaches a pull request's description (#197); and #198, #199, #200, #209, #210 and #211, above.
+
+### Part C
+
+Written as Part C's pull requests (#218 to #225, #230 to #234 and #237, the app's #58 and the private repository's #6) merged, with the deploys and the runs' changes to the line's limits. What Part C taught, and what is left.
+
+**Learned on the cluster**
+
+- The fix took 28 minutes from taken to verified, and the ticket waited five and a half days to be taken. LINE_TAKE, not the line, sets how long a ticket waits, and the median time to a fix measures that wait more than the fix.
+- The scoreboard cannot tell a drill from a defect the factory invented. A drill's ticket matches no entry, so 1034 and 1035, both verified, count as false positives. The results say so; the figure does not.
+- A signal that repeats an open ticket is counted in the inbox and appends nothing to the ticket. The rollback in the second run reached 1034, and nothing on 1034 says so: the console shows the rollback on the line and 1034 unchanged.
+- `main` needs every conversation resolved before a merge, and the reviewer leaves its own answered findings open, so a fix it approved could not merge until Martin resolved the thread by hand (#240).
+- A release that carries a fix and a drill rolls back with both, as the plan said it would; the fix waited at Release and went out with the drill's fix, in one release, and each ticket cleared by its own sense.
+- The planner's first result can miss its schema on a page with a query; running the step again was enough.
+- Argo Rollouts' controller may read every Secret in the cluster, by its chart. It is the one exception `make egress` names for the scoreboard's.
+
+**What's left.** Open: egress by host name waits for milestone 10 (#176); a broken Mermaid diagram reaches a pull request's description (#197); a release of an image promoted before is not recorded (#199); a ticket's own box can be crowded off its page's pictures (#235); trying Preact (#236); and the reviewer's open threads (#240). Filed from Part C's runs: the scoreboard's loop has no test (#244); during a canary the senses' requests count in the baseline's figures only (#245); an aborted release is inferred, where a `release.aborted` event would record it (#246, milestone 8); a signal counted into an open ticket leaves no trace on it (#247); optionally, found moving only when enough tickets opened in its window (#248), and the scoreboard reaching Postgres with no DNS (#249); and the reel's render-count test still flakes (#250).
+
+The console's gaps against its design, found while writing this, are fixed in #251: a fix waiting for the deploy, in Release's panel row, and on its card and sheet once the release that carried it has rolled back; a rollback with no step measured leaving out what the analysis saw against its limit; and a phone dropping a measure's error message. The mockup's failed measures said more than the event carries, so #251 cuts them back to what the console draws; giving both versions' figures, and how long the measure failed, is #252 (milestone 8).
