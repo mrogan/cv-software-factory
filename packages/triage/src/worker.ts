@@ -4,8 +4,10 @@
  * - A sense's signal with a fingerprint no open ticket has opens a work item with its ticket, unless a ticket closed as
  *   verified has exactly that fingerprint: the same defect came back, so that ticket and its work item reopen. A
  *   signal the sense saw before that close is of the version the fix replaced, and is only counted.
- * - One on an open ticket adds its evidence the first time each sense sees it; after that the inbox counts it,
- *   with no event, so the event count grows with tickets, not with the minutes a defect stays unfixed.
+ * - One on an open ticket adds its evidence the first time each sense sees it in each version of the app: the ticket
+ *   records every version the defect was seen in, such as each release rolled back on it. Within a version the inbox
+ *   counts it, with no event, so the event count grows with tickets and releases, not with the minutes a defect stays
+ *   unfixed.
  * - Every report becomes events, judged by Jev: a new ticket, a repeat that joins an open one, or a work item
  *   that says it was quarantined, parked or discarded.
  * - So does every finding the planner leaves, judged the same way and trusted no more, except that it never opens a
@@ -345,8 +347,11 @@ export class Triage {
       await events.append([...senseTicket(signal, taken.id, workItem, now), ...joined]);
       return { outcome: 'opened', workItem, ticketOpened: true };
     }
+    // Seen again in a version this sense has not seen it in, such as another release rolled back on it: the ticket
+    // records it, with its evidence, for the console and for the planner when it takes the ticket.
     const [seen] = await sql`select 1 from events where work_item = ${ticket.workItem}
-                             and type = 'signal.received' and payload->>'sense' = ${signal.sense} limit 1`;
+                             and type = 'signal.received' and payload->>'sense' = ${signal.sense}
+                             and payload->>'version' = ${signal.version} limit 1`;
     if (seen) return { outcome: 'counted', workItem: ticket.workItem, ticketOpened: false };
     await events.append(senseEvidence(signal, taken.id, ticket.workItem, now));
     return { outcome: 'evidence', workItem: ticket.workItem, ticketOpened: false };

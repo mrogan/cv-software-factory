@@ -79,6 +79,30 @@ describe('the pages a verification names', () => {
       for (const a of artifacts) expect(a).not.toHaveProperty('selectors');
     });
 
+    it('keeps the ticket’s own however many other checks boxed the page before it', () => {
+      const crowded = (n: number): Shot => ({
+        ...shot(n),
+        boxes: [100, 200, 300, 400, 500].map((y) => ({ x: 0, y, width: 600, height: 40, kind: 'problem' as const })),
+        selectors: ['nav a', '.cards', 'footer', 'img.hero', 'main h1'],
+      });
+      const p = { ...picture('/products/p01', '/products/:slug', 0, 1), before: crowded(2), after: crowded(3) };
+      const { artifacts } = pagesFor([p], { path: '/products/p01', selectors: ['main h1'], route: '/products/:slug' });
+      expect(depths(artifacts)).toEqual([[500], [500]]);
+    });
+
+    it('keeps no more boxes than an event takes', () => {
+      const many = (n: number): Shot => ({
+        ...shot(n),
+        boxes: [100, 200, 300, 400, 500].map((y) => ({ x: 0, y, width: 600, height: 40, kind: 'problem' as const })),
+      });
+      const p = { ...picture('/products/p01', '/products/:slug', 0, 1), before: many(2), after: many(3) };
+      const { artifacts } = pagesFor([p], { path: '/products/p01', route: '/products/:slug' });
+      expect(depths(artifacts)).toEqual([
+        [100, 200, 300, 400],
+        [100, 200, 300, 400],
+      ]);
+    });
+
     it('keeps none for a ticket whose sense boxes nothing, on any page of its route', () => {
       const { pages: named, artifacts } = pagesFor(pages, { route: '/products/:slug' });
       expect(named.map((p) => p.intended)).toEqual([true, true]);

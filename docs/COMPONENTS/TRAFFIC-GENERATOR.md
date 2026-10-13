@@ -15,4 +15,4 @@ Gives canary analysis enough samples within minutes. Part of the [runtime plane]
 - **Through Traefik,** with the shop's host name, so the canary's split applies to it as to any visitor ([progressive delivery](PROGRESSIVE-DELIVERY.md)).
 - **GET only.** It never sends a report or the contact form.
 - **In proportion.** A round's length shares no factor with 100, so Traefik's weighted round robin deals every page to both versions in proportion.
-- **All the time,** so the objectives have traffic too.
+- **All the time,** so the objectives have traffic too. With the visitors', its requests are the only ones they judge: the senses' are not counted ([probes and crawler](PROBES-AND-CRAWLER.md#not-counted)).

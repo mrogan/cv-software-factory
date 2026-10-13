@@ -178,7 +178,7 @@ export function senseTicket(signal: InboxSignal, signalId: string, workItem: str
   }).events;
 }
 
-/** A sense's signal on an open ticket, the first time this sense has seen it: its evidence joins the ticket. */
+/** A sense's signal on an open ticket, its first in this version of the app: its evidence joins the ticket. */
 export function senseEvidence(signal: InboxSignal, signalId: string, workItem: string, now: Date): NewEvent[] {
   return signalEvent(new Writer(signalId, workItem, now), signal).events;
 }

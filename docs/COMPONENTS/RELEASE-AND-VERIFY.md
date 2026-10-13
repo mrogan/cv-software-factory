@@ -79,6 +79,7 @@ Each measure that failed a release the line recorded and watched start is a sign
 | Latency | `slow-response` | As for errors |
 | Journeys | The first failing check's class | Its route when every failing check shares one; otherwise `*` |
 
+- **On an open ticket.** A rollback whose signal has an open ticket's fingerprint joins that ticket as its evidence, naming the release ([triage](TRIAGE.md#matching-an-open-ticket)); the Canary panel says triage added it to that ticket.
 - **A canary's `*`** means routes the analysis could not narrow to one, and its ticket is titled "&lt;class&gt; in a canary release". Any other sense's `*` is every page.
 - **The journeys' checks.** The journeys Job writes the checks that regressed to its container's termination message (`COMPARISON_FILE`), which the line reads from the Job's pod. When that is lost, the signal is `wrong-result` on `*`.
 - **Not yet readable.** A measure whose routes or pod cannot be read yet, or whose pod's container has no status yet, waits for the next pass.

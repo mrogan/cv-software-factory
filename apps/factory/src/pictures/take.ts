@@ -279,14 +279,17 @@ function routeOf(paths: readonly string[], looks: readonly Look[]): (path: strin
   return (path) => named.get(path) ?? template(path);
 }
 
-/** The elements the senses boxed on a page, at most four, each once. */
+/**
+ * The elements the senses boxed on a page, each once, however many: the line keeps only a ticket's own, so none is cut
+ * here for another's.
+ */
 function elementsOn(path: string, looks: readonly Look[]): Check[] {
   const elements = new Map<string, Check>();
   for (const look of looks) {
     if (look.path !== path) continue;
     for (const element of look.elements) if (!elements.has(element.selector)) elements.set(element.selector, element);
   }
-  return [...elements.values()].slice(0, 4);
+  return [...elements.values()];
 }
 
 const describe = (error: unknown) => (error instanceof Error ? error.message.split('\n')[0] : String(error));

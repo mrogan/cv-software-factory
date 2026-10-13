@@ -847,18 +847,22 @@ function SeenBy({ rows }: { rows: Sighting[] }) {
             <span>
               {row.check ? capital(row.check) : 'None yet'}
               {(row.opened || row.added) && <small>{row.opened ? 'opened the ticket' : row.added}</small>}
+              {row.again && <small>{seenAgain(row.again)}</small>}
             </span>
             <span className="mono">{row.at !== undefined ? clock(row.at) : ''}</span>
           </li>
         ))}
       </ul>
       <p className="help">
-        Each sense adds its evidence the first time it sees the problem. After that the inbox counts it, so nothing here
-        repeats.
+        Each sense adds its evidence the first time it sees the problem in each version. After that the inbox counts it.
       </p>
     </div>
   );
 }
+
+/** A sense's later sightings: "again in 4f9c2e1 at 17:43", or with how many versions: "again in 2 versions, lately …". */
+const seenAgain = ({ versions, at }: NonNullable<Sighting['again']>) =>
+  `again in ${versions.length > 1 ? `${versions.length} versions, lately ` : ''}${shortVersion(versions.at(-1) ?? '')} at ${clock(at)}`;
 
 function Section({ title, help, children }: { title: string; help: string; children: ReactNode }) {
   return (

@@ -13,8 +13,9 @@ import type { Check } from '../capture.ts';
 /**
  * A screenshot as the index keeps it: the reference an event carries, with the selector of the element each of its
  * boxes was drawn round, in the order of the boxes. A page carries the boxes of every sense that boxed something on it,
- * and the selectors are how the line keeps only a ticket's own (`line/pictures.ts`); no event carries them. A picture
- * taken before they were kept has none.
+ * and the selectors are how the line keeps only a ticket's own (`line/pictures.ts`); no event carries them, nor more
+ * boxes than an event's screenshot takes, which a page boxed by many checks has. A picture taken before the selectors
+ * were kept has none.
  */
 export type Shot = Screenshot & { selectors?: string[] };
 

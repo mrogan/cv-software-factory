@@ -6,14 +6,16 @@
  *
  * `run` looks at the app every few minutes, and at once when its version changes, and leaves a signal in the inbox
  * for each check that has failed twice in a row. `once` runs every check one time and prints what each found,
- * writing nothing to the inbox: for developing a probe.
+ * writing nothing to the inbox: for developing a probe. Its requests carry `UNMEASURED`, so on the app's Service they
+ * count in none of the app's figures: the objectives and a canary's analysis judge the visitors' requests and the
+ * traffic generator's alone. Through Traefik, whose public route removes the header, as from the host, they count like
+ * a visitor's.
  *
  * `run` also serves the page reader for triage (`POST /v1/pages` with a path, and `GET /health`) on PORT, 8080 by
  * default; and for the line's Verify, on VERIFY_PORT, 8081 by default, runs a ticket's probe or crawl again
  * (`POST /v1/verify`, `probes/verify.ts`). Given CANARY_URL, the canary Service's address, it pictures every page on
- * the stable version and on the canary while a canary runs, and compares them (`pictures/take.ts`); the pictures'
- * requests carry `UNMEASURED`, so they do not count in the errors and latency the canary is judged on. After each
- * release, it deletes the pictures no release needs any more.
+ * the stable version and on the canary while a canary runs, and compares them (`pictures/take.ts`), with requests
+ * that carry `UNMEASURED` too. After each release, it deletes the pictures no release needs any more.
  *
  * Settings, from the environment: APP_URL, the app's address; ARTIFACTS_DIR, the artifact store's folder (`once`
  * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as the factory's
@@ -79,7 +81,7 @@ export async function run(args: string[]): Promise<number> {
 }
 
 async function once(sense: ReturnType<typeof probes>, app: string): Promise<number> {
-  const version = await versionOf(app);
+  const version = await versionOf(app, UNMEASURED);
   console.log(`${app} is running ${version}\n`);
   let failed = 0;
   for (const observation of await sense.pass(version)) {
@@ -102,7 +104,7 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
   const runner = new SenseRunner({
     sense,
     log,
-    version: () => versionOf(app),
+    version: () => versionOf(app, UNMEASURED),
     send: inbox(sql).send,
     remember: (look, at) => index.remember(look, at),
     every: seconds('PROBE_INTERVAL', 300),
@@ -129,7 +131,7 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
     verifyCheck((only) => observeApp(app, only, { store, log, limit }), request),
   );
   const verifier = verifyServer({ verify: (request) => verifications.ask(request), log });
-  const reader = readerServer({ app, sense, store, version: () => versionOf(app), log });
+  const reader = readerServer({ app, sense, store, version: () => versionOf(app, UNMEASURED), log });
   const port = Number(process.env.PORT ?? 8080);
   await new Promise<void>((resolve) => reader.listen(port, resolve));
   log.info({ port }, 'the page reader is listening');
