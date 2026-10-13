@@ -29,6 +29,8 @@ export interface RolloutState {
   stable: string;
   /** The Rollout's revision: by default the one the current version went out at. */
   revision?: number;
+  /** Whether the status is not yet written for the spec's latest generation. */
+  behind?: boolean;
   stepIndex?: number;
   abort?: boolean;
   /** The canary's weight now; by default the weight of its step, or nought when aborted or done. */
@@ -56,6 +58,7 @@ export function rollout(state: RolloutState): Rollout {
       },
     },
     status: {
+      observedGeneration: state.behind ? '4' : '5',
       currentPodHash: state.current,
       stableRS: state.stable,
       currentStepIndex: state.stepIndex ?? (state.current === state.stable ? STEPS.length : 0),

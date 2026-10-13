@@ -26,6 +26,8 @@ const condition = z.object({
 export const rolloutSchema = z.object({
   metadata: z.object({
     name: z.string(),
+    /** Counted up on each change to the spec; the status says which it has caught up with. */
+    generation: z.number().int().optional(),
     /** `rollout.argoproj.io/revision`: the version the spec asks for, counted up on each new rollout. */
     annotations: z.record(z.string(), z.string()).default({}),
   }),
@@ -55,6 +57,8 @@ export const rolloutSchema = z.object({
     .object({
       /** The version the spec asks for: the canary while a release runs, and the stable version once it is over. */
       currentPodHash: z.string().optional(),
+      /** The spec's generation this status was written for: Argo Rollouts keeps it as text. */
+      observedGeneration: z.union([z.string(), z.number()]).optional(),
       /** The version that takes the traffic between releases. */
       stableRS: z.string().optional(),
       currentStepIndex: z.number().int().optional(),

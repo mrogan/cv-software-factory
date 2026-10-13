@@ -506,6 +506,26 @@ describe('a release of a version released before', () => {
     expect(s.pass(aborted, runs).said).toEqual({});
   });
 
+  it('is found live when the line missed all of it, not taken for an earlier release of its image that rolled back', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+    const failed = step(2, { phase: 'Failed', metrics: { errors: { phase: 'Failed', value: '[0.03]' } } });
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 2, abort: true }), [background(), failed]);
+    // CANARY pinned again, released and promoted while the line was down.
+    const { needs, said } = s.pass(rollout({ current: CANARY, stable: CANARY, revision: 6 }), [background(), failed]);
+    expect(needs.start).toMatchObject({ release: `${CANARY}-6`, found: true });
+    expect(said).toEqual({});
+  });
+
+  it('reads no revision until the status has caught up with the spec', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true }), [background()]);
+    // A new image pinned: the revision is the new version's, while the status still names the aborted canary.
+    const behind = rollout({ current: CANARY, stable: STABLE, revision: 5, stepIndex: 1, weight: 25, behind: true });
+    expect(s.pass(behind, [background()], { start: START }).needs.start).toBeUndefined();
+  });
+
   it('reads a release recorded by its hash alone, before releases were named by revision, as it was then', () => {
     const legacy = (release: string, payload: unknown) => ({ ...(payload as object), release });
     const s = store([
@@ -533,6 +553,20 @@ describe('a release of a version released before', () => {
     // Promoted, its hash pinned again later is a release of its own.
     const back = s.pass(rollout({ current: STABLE, stable: CANARY, revision: 5, stepIndex: 1, weight: 25 }), runs);
     expect(back.needs.start).toMatchObject({ release: `${STABLE}-5`, previous: { release: CANARY } });
+  });
+
+  it('starts a release of its own over one recorded by its hash alone that rolled back', () => {
+    const legacy = (release: string, payload: unknown) => ({ ...(payload as object), release });
+    const failed = step(2, { phase: 'Failed', metrics: { errors: { phase: 'Failed', value: '[0.03]' } } });
+    const s = store(STABLE_RECORDED.map((e) => ({ ...e, payload: legacy(STABLE, e.payload) })));
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 2, abort: true }), [background(), failed]);
+    // As the line recorded it before the revision: renamed to its hash alone.
+    for (const e of s.log) {
+      if ((e.payload as { release: string }).release === releaseOf(CANARY)) e.payload = legacy(CANARY, e.payload);
+    }
+    const again = rollout({ current: CANARY, stable: STABLE, revision: 6, stepIndex: 1, weight: 25 });
+    expect(s.pass(again, [background(), failed]).needs.start).toMatchObject({ release: `${CANARY}-6` });
   });
 });
 

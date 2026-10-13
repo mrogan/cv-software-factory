@@ -24,10 +24,11 @@
  * - **Retried after a rollback**, a release starts again, under the same name (a retry keeps the revision), and goes on
  *   as before; only a run that fails after that start rolls it back again.
  *
- * The stable version is the last release of its hash the line recorded (`namedReleases`): the Rollout's revision is
- * that of the version it asks for, and a Rollout sent back to its stable version, with no canary, counts its revision
- * up without releasing anything. A release recorded before releases were named by revision is named by its hash alone, and read
- * as it was then: it has every run of its hash, and while it is not promoted it is the release in flight.
+ * The stable version is the last release of its hash the line recorded that was promoted, or is still in flight
+ * (`namedReleases`): the Rollout's revision is that of the version it asks for, and a Rollout sent back to its stable
+ * version, with no canary, counts its revision up without releasing anything. The revision is read only once the
+ * Rollout's status has caught up with its spec. A release recorded before releases were named by revision is named by
+ * its hash alone, and read as it was then: it has every run of its hash, and until it ends it is the release in flight.
  *
  * A stable version the line has no record of, with no release in flight, is recorded as found live: started and
  * promoted at once, by the factory, `watched: false`, on every merged work item no release has carried whose fix is
@@ -129,7 +130,13 @@ const ENDED = new Set(['Successful', 'Failed', 'Error', 'Inconclusive']);
 
 export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observed {
   const { metadata, status, spec } = rollout;
-  const revision = metadata.annotations[REVISION];
+  // Argo Rollouts writes the revision before the status that names the new version's hash: until the status has
+  // caught up with the spec, the revision may be the next version's, and is not read.
+  const caughtUp =
+    metadata.generation === undefined ||
+    status.observedGeneration === undefined ||
+    String(status.observedGeneration) === String(metadata.generation);
+  const revision = caughtUp ? metadata.annotations[REVISION] : undefined;
   const steps = spec.strategy.canary?.steps ?? [];
   const weights: number[] = [];
   for (const [i, step] of steps.entries()) weights.push(step.setWeight ?? weights[i - 1] ?? 0);
@@ -220,9 +227,19 @@ const isOf = (run: AnalysisRun, release: string) => {
   return hashOf(run) === hash && (revision === undefined || revisionOf(run) === revision);
 };
 
-/** What is recorded of the release a run is of, under its name, or under its hash alone from before the revision. */
-export const recordOf = (recorded: Recorded, run: AnalysisRun) =>
-  recorded.get(releaseName(hashOf(run) ?? '', revisionOf(run) ?? '')) ?? recorded.get(hashOf(run) ?? '');
+/**
+ * What is recorded of the release a run is of: under its name, or under its hash alone, from before the revision, while
+ * that release was not promoted. A promoted one's hash in a later run is a later release's.
+ */
+export function recordOf(recorded: Recorded, run: AnalysisRun) {
+  const named = recorded.get(releaseName(hashOf(run) ?? '', revisionOf(run) ?? ''));
+  const legacy = recorded.get(hashOf(run) ?? '');
+  return named ?? (legacy && !ended(legacy, 'promoted') ? legacy : undefined);
+}
+
+/** Whether any target recorded a release as ended, or as ended this way. */
+const ended = (targets: Map<Target, TargetRecord>, how?: TargetRecord['ended']) =>
+  [...targets.values()].some((record) => (how ? record.ended === how : record.ended !== undefined));
 
 /**
  * A release's step runs that have ended, oldest first. A run terminated (by an abort) ends Successful without having
@@ -444,20 +461,25 @@ export interface Named {
 
 /**
  * The releases the Rollout names. The version the spec asks for is the release of its hash at the Rollout's revision,
- * recorded or still to be. The stable version is the last release of its hash the line recorded, or, with nothing in
- * flight and none recorded, the release of its hash at the Rollout's revision, to be found live.
+ * recorded or still to be. The stable version is the last release of its hash the line recorded that was promoted, or
+ * is still in flight (its promotion missed): a Rollout goes back only to a version it promoted. With nothing in flight
+ * and none such recorded, it is the release of its hash at the Rollout's revision, to be found live.
  */
 export function namedReleases(o: Observed, recorded: Recorded): Named {
-  const ofHash = (hash: string) => [...recorded.keys()].filter((name) => name === hash || name.startsWith(`${hash}-`));
+  const ofHash = (hash: string) => [...recorded].filter(([name]) => name === hash || name.startsWith(`${hash}-`));
   const asked = o.current && o.revision ? releaseName(o.current, o.revision) : undefined;
-  const stable = o.stable === undefined ? undefined : ofHash(o.stable).at(-1);
+  const releases = o.stable === undefined ? [] : ofHash(o.stable);
+  const promoted = releases.filter(([, targets]) => !ended(targets, 'rolled-back')).at(-1)?.[0];
   if (o.current === o.stable) {
-    const name = asked && recorded.has(asked) ? asked : (stable ?? asked);
+    const name = asked && recorded.has(asked) ? asked : (promoted ?? asked);
     return { current: name, stable: name };
   }
-  // One named by its hash alone, from before the revision, is the release in flight until it is promoted.
+  // With a release in flight, the version it replaces must be known: a rolled-back one, retried and promoted while
+  // the line was not looking, is the last there is.
+  const stable = promoted ?? releases.at(-1)?.[0];
+  // One named by its hash alone, from before the revision, is the release in flight until it ends.
   const legacy = o.current === undefined ? undefined : recorded.get(o.current);
-  const inFlight = legacy && ![...legacy.values()].some((record) => record.ended === 'promoted');
+  const inFlight = legacy !== undefined && !ended(legacy);
   return { current: asked && recorded.has(asked) ? asked : inFlight ? o.current : asked, stable };
 }
 

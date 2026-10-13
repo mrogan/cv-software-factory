@@ -50,6 +50,7 @@ import {
   type Figures,
   measuresOf,
   type Needs,
+  namedReleases,
   type Observed,
   observe,
   podHashes,
@@ -174,9 +175,10 @@ export class Releases {
     // recorded whole, or found live if it has shipped by then.
     const others = [...drafts.keys()].filter((target) => target !== null && target !== only);
     if (only !== null && others.length) {
-      log.info({ release: o.current, only, others }, 'the release carries other work items: left for the whole line');
+      const release = namedReleases(o, recorded).current;
+      log.info({ release, only, others }, 'the release carries other work items: left for the whole line');
     } else {
-      await this.#append(drafts, o);
+      await this.#append(drafts, namedReleases(o, recorded).current);
     }
     await this.#signal(o, recorded, series, { kube, rollout, prometheus });
   }
@@ -350,7 +352,7 @@ export class Releases {
   }
 
   /** Appends every target's drafts at once: a release's events reach all of its work items, or none. */
-  async #append(drafts: Map<Target, Draft[]>, o?: Observed): Promise<void> {
+  async #append(drafts: Map<Target, Draft[]>, release?: string): Promise<void> {
     if (!drafts.size) return;
     // A work item closed while its release ran (Martin closed it at Release) takes no more events: the store refuses
     // them, and would refuse the rest of the release's with them.
@@ -367,7 +369,7 @@ export class Releases {
     await this.#o.events.append(events);
     this.#o.log.info(
       {
-        release: o?.current,
+        release,
         events: [...drafts].map(([target, list]) => ({ target: target ?? 'line', types: list.map((d) => d.type) })),
       },
       'recorded the app’s release',
