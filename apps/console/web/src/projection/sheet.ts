@@ -878,7 +878,9 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
     facts: {
       foundBy: foundBy(item),
       humanLines,
-      reviews: coded ? { done: thread.length, of: LIMITS.reviews } : undefined,
+      // Against the line's limit, which a round sent back after the last review it allows passes by one: for an
+      // approval's suggestions, or by Martin. Every push is reviewed.
+      reviews: coded ? { done: thread.length, of: Math.max(LIMITS.reviews, thread.length) } : undefined,
       ticket: item.ticket && {
         category: item.ticket.category,
         severity: item.ticket.severity,

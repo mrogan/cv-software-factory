@@ -92,6 +92,7 @@ export function attempts(item: ItemState): Attempt[] {
   const list: Attempt[] = [];
   let current: Attempt | undefined;
   let reviews = 0;
+  let suggestionsBack = false;
   const runs = new Map<string, GateRun>();
   const settle = () => {
     if (!current?.gates) return;
@@ -160,6 +161,14 @@ export function attempts(item: ItemState): Attempt[] {
       case 'work.returned': {
         if (!current || event.payload.to !== 'build') break;
         current.returned = { from: event.payload.from, detail: returnWords(event.payload) };
+        suggestionsBack = event.payload.suggestions !== undefined;
+        break;
+      }
+      case 'suggestions.answered': {
+        // A coder that declines every suggestion it was sent back for pushes nothing, and the approval stands: the
+        // return has no attempt after it, so its pill says why. One that took any pushed a new attempt first.
+        if (current?.returned && suggestionsBack && event.payload.declined.length === event.payload.suggestions)
+          current.returned.detail += ', declined';
         break;
       }
     }
