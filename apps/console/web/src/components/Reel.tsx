@@ -61,6 +61,17 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   /** Where the reel is, in cards: a whole number at rest, anything between while moving. */
   const position = useRef(centre);
   const [playing, setPlaying] = useState(false);
+  /**
+   * What playing was last set to, rendered yet or not. Every drag stops the history on its first move, and setting
+   * state to the value it already holds can still render the reel, now and then: `play` skips that update, and the
+   * render it can cause, when playing would not change.
+   */
+  const playingSet = useRef(false);
+  const play = useCallback((on: boolean) => {
+    if (playingSet.current === on) return;
+    playingSet.current = on;
+    setPlaying(on);
+  }, []);
   const [announcement, setAnnouncement] = useState('');
   /** Set while a finger or pointer is moving the reel or the timeline: nothing else moves it then. */
   const drag = useRef<Drag | undefined>(undefined);
@@ -179,19 +190,19 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   const autoplay = useRef<'not yet' | 'waiting' | 'starting' | 'done'>('not yet');
   const stop = useCallback(() => {
     autoplay.current = 'done';
-    setPlaying(false);
-  }, []);
+    play(false);
+  }, [play]);
 
   // Play the history: a card every two and a half seconds, ending at now.
   useEffect(() => {
     if (!playing) return;
     if (!motion || centre >= n - 1) {
-      setPlaying(false);
+      play(false);
       return;
     }
     const timer = setTimeout(() => onCentre(centre + 1), PLAY_EVERY_MS);
     return () => clearTimeout(timer);
-  }, [playing, motion, centre, n, onCentre]);
+  }, [playing, motion, centre, n, onCentre, play]);
 
   // The reel waits where the history starts, and the watch for it coming into sight outlives new work arriving
   // (and development's second mount): only playing, or the viewer taking over, ends it.
@@ -210,14 +221,14 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
         setTimeout(() => {
           if (autoplay.current !== 'starting') return;
           autoplay.current = 'done';
-          setPlaying(true);
+          play(true);
         }, 600);
       },
       { threshold: 0.6 },
     );
     if (reel.current) observer.observe(reel.current);
     return () => observer.disconnect();
-  }, [asked, motion, n, onCentre]);
+  }, [asked, motion, n, onCentre, play]);
 
   // Dragging the cards: a click on the centre card opens it, on a neighbour brings it to the centre.
   const onPointerDown = (event: React.PointerEvent<HTMLElement>) => {
@@ -308,7 +319,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
               else {
                 autoplay.current = 'done';
                 if (centre >= n - 1) onCentre(0);
-                setPlaying(true);
+                play(true);
               }
             }}
             disabled={!motion}

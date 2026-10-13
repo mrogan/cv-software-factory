@@ -54,7 +54,7 @@ test.describe('the reel', () => {
     }
     // React hears where the drag settled, however many frames it drew on the way.
     expect(counts[1]).toBe(counts[0]);
-    expect(counts[0]).toBeLessThanOrEqual(3);
+    expect(counts[0]).toBeLessThanOrEqual(2);
   });
 
   test('holds still under a drag while a live console’s clock ticks', async ({ page }) => {
