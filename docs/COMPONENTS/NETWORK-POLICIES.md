@@ -39,15 +39,17 @@ Everything is denied in and out, then each pod is allowed what it needs.
 
 | Pod | Reaches | Reached by |
 |---|---|---|
-| Every worker but the GitHub worker and the traffic generator | DNS, Postgres and the collector | |
+| Every pod | DNS | |
+| Every worker but the GitHub worker and the traffic generator | Postgres and the collector | |
 | Gateway | The internet | Triage, and the runners' agent pods |
-| GitHub worker | The internet | The line, only |
+| GitHub worker | The collector and the internet | The line, only |
 | Triage | The gateway; the probes' page reader | |
 | Intake | Prometheus and Loki | Alertmanager |
 | Log watcher | Prometheus, Loki and Tempo | |
-| Probes and crawler | The app, the canary's pods included | The probes: the line, on their verify port; triage, on their page reader |
+| Probes | The app, the canary's pods included | The line, on their verify port; triage, on their page reader |
+| Crawler | The app, the canary's pods included | Nothing |
 | Line | The GitHub worker, the Kubernetes API, Prometheus, Loki and the probes' verify port | The runners' agent pods, with their handbacks |
-| Traffic generator | DNS, Traefik and the collector, and nothing else | |
+| Traffic generator | Traefik and the collector, and nothing else but DNS | |
 
 - Only the line may call the probes' verify port, as only triage may call their page reader.
 - The runners' pods are fenced as [their page](AGENT-RUNNERS.md) says.

@@ -5,7 +5,15 @@ Where the gateway, the GitHub worker, triage, the intake, the log watcher, the l
 - **v1:** one Deployment each in `factory` (`deploy/base/factory`), one replica.
 - **Later:** Spaces or S3 for artifacts, a cloud secret store for the key.
 
-Each worker but the GitHub worker, which touches no store, writes to the [event store](EVENT-STORE.md) as the factory's writer, and to the artifacts volume (which the console still mounts read-only).
+What each may write:
+
+| Store | Workers |
+|---|---|
+| The [event store](EVENT-STORE.md), as the factory's writer | The gateway, triage, the intake, the log watcher, the line, the probes and the crawler |
+| The artifacts volume, which the console mounts read-only | Triage, the probes, the crawler, and the GitHub worker for its dry runs |
+| The gateway's cassettes volume | The gateway alone |
+
+The traffic generator writes to neither, and sends only its telemetry. The GitHub worker touches no store.
 
 ## Images
 
@@ -23,4 +31,4 @@ Chromium runs without its own sandbox, which the restricted Pod Security Standar
 
 - **The gateway's cassettes** are on a volume only it mounts, so recordings of real reports stay in the cluster.
 - **The gateway's key.** `make up` creates its Secret from `TYPESAFE_API_KEY` or the Keychain, through stdin and no file. With none, the gateway replays only.
-- **The GitHub worker's key.** `make up` creates its Secret from the Keychain's `factory-github-app-key` the same way. With none, that worker reads and writes nothing.
+- **The GitHub worker's key.** `make up` creates its Secret from the Keychain's `factory-github-app-key` the same way. With none, that worker only reads public repositories, unauthenticated ([without a key](GITHUB-WORKER.md#without-a-key)).

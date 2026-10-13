@@ -125,7 +125,11 @@ A deploy pull request's body ends with what it carries, between markers: each wo
 
 ## Without a key
 
-With no key it reads and writes nothing, and says so.
+With no key it runs read-only, and says so:
+
+- it still serves the line's reads, unauthenticated, which reach public repositories and nothing more;
+- a write fails before it is sent;
+- the deploy, release and current-pull-request watches do not run.
 
 ## Dry run
 
