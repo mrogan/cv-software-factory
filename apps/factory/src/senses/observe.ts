@@ -8,7 +8,7 @@ import type { ArtifactStore } from '@software-factory/store';
 import { Crawler } from '../crawler/index.ts';
 import { type Seen, toRunAgain } from '../gates/journeys.ts';
 import { PROBES, probes } from '../probes/index.ts';
-import { type RequestHeaders, versionOf } from './http.ts';
+import { UNMEASURED, versionOf } from './http.ts';
 import type { Sense } from './types.ts';
 
 export interface ObserveOptions {
@@ -16,8 +16,6 @@ export interface ObserveOptions {
   log: { warn(fields: object, message: string): void };
   /** The most resources a crawl asks for. */
   limit: number;
-  /** Sent with every request to the app, besides the usual. */
-  headers?: RequestHeaders | undefined;
 }
 
 /**
@@ -28,14 +26,14 @@ export interface ObserveOptions {
 export async function observeApp(
   url: string,
   only: readonly Pick<Seen, 'sense' | 'check'>[] | undefined,
-  { store, log, limit, headers }: ObserveOptions,
+  { store, log, limit }: ObserveOptions,
 ): Promise<{ version: string; seen: Seen[]; after: string | null }> {
   const app = url.replace(/\/$/, '');
-  const version = await versionOf(app, headers);
+  const version = await versionOf(app, UNMEASURED);
   const again = only && toRunAgain(only);
   const senses: Array<Sense & { close(): Promise<void> }> = [
-    ...(!again || again.probes.size ? [probes({ app, store, log, headers })] : []),
-    ...(!again || again.crawl ? [new Crawler({ app, store, log, limit, headers })] : []),
+    ...(!again || again.probes.size ? [probes({ app, store, log })] : []),
+    ...(!again || again.crawl ? [new Crawler({ app, store, log, limit })] : []),
   ];
   const skip = again && new Set(PROBES.map((p) => p.id).filter((id) => !again.probes.has(id)));
   const seen: Seen[] = [];
@@ -56,6 +54,6 @@ export async function observeApp(
       await sense.close();
     }
   }
-  const after = await versionOf(app, headers).catch(() => null);
+  const after = await versionOf(app, UNMEASURED).catch(() => null);
   return { version, seen, after };
 }
