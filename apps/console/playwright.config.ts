@@ -14,7 +14,7 @@ export default defineConfig({
   testDir: 'e2e',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
-  // One for each of the CI runner's four cores; the timed test runs alone after the rest (the `speed` project).
+  // One for each of the CI runner's four cores. The timed test (the `speed` project) runs alone, on a runner of its own.
   ...(process.env.CI && { workers: 4 }),
   reporter: process.env.CI ? [['github'], ['html', { open: 'never', outputFolder: 'e2e-report' }]] : 'list',
   outputDir: 'e2e-results',
@@ -33,7 +33,8 @@ export default defineConfig({
       testIgnore: pinned ? /(live|speed)\.spec\.ts/ : /(live|speed|visual)\.spec\.ts/,
     },
     { name: 'live', use: { ...devices['Desktop Chrome'] }, testMatch: /live\.spec\.ts/ },
-    // Timed alone, once everything else has finished, so other tests' browsers don't share its CPU.
+    // Timed alone, so other tests' browsers don't share its CPU: after the rest, or on its own with `--no-deps` as CI
+    // and `make e2e` run it.
     { name: 'speed', testMatch: /speed\.spec\.ts/, dependencies: ['console', 'live'] },
   ],
   webServer: [

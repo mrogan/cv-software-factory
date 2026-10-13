@@ -46,11 +46,14 @@ const STATES = [
 test.describe('stations', () => {
   for (const theme of THEMES) {
     for (const kind of KINDS) {
-      for (const { status, beacon, name } of STATES.map((s) => ({ beacon: undefined, ...s }))) {
-        test(`${kind}, ${name}, ${theme}`, async ({ page }) => {
-          await page.goto(consoleUrl({ theme }));
-          await ready(page);
-          // One station on its own, on the page's background.
+      // One page for all of a kind's states: each is drawn fresh, alone on the page's background, in place of the
+      // last. Soft, so a state that differs doesn't stop the rest being compared, and the report names each one.
+      test(`${kind}, ${theme}`, async ({ page }) => {
+        // A picture that never settles is retried for expect's five seconds: time enough for all eight to be.
+        test.slow();
+        await page.goto(consoleUrl({ theme }));
+        await ready(page);
+        for (const { status, beacon, name } of STATES.map((s) => ({ beacon: undefined, ...s }))) {
           await page.evaluate(
             ([kind, status, beacon]) => {
               const station = document.createElement('sf-station');
@@ -65,9 +68,11 @@ test.describe('stations', () => {
             },
             [kind, status, beacon] as const,
           );
-          await expect(page.locator('.specimen sf-station')).toHaveScreenshot(`${kind}-${name}-${theme}.png`);
-        });
-      }
+          await expect
+            .soft(page.locator('.specimen sf-station'), name)
+            .toHaveScreenshot(`${kind}-${name}-${theme}.png`);
+        }
+      });
     }
   }
 });
