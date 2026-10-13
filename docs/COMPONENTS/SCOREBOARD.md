@@ -31,6 +31,8 @@ flowchart LR
 
 It keeps nothing. On each append, and every minute, it works the figures out from the events by the rule in `policy/scoreboard.ts` (CODEOWNERS; the private repository imports it and checks its own count agrees). It appends `score.updated` when they differ from the last.
 
+One pass runs at a time, and a wake during a pass runs one more after it (`scoreboard/loop.ts`). `loop.test.ts` holds the loop to that, and `scoreboard.test.ts` to found moving at a boundary on the minute's timer alone.
+
 | Figure | Published | Moves |
 |---|---|---|
 | The key's entries | Yes | |
