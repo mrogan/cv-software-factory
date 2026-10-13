@@ -668,9 +668,6 @@ table.models {
   .ship .opt {
     display: none;
   }
-  .ship td small {
-    display: block;
-  }
   .event .actor {
     display: none;
   }

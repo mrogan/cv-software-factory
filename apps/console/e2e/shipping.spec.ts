@@ -36,8 +36,20 @@ test.describe('the Canary panel', () => {
     await expect(canary.locator('.kick')).toHaveText('Rolled back at 25%');
     await expect(canary.getByRole('heading', { level: 2 })).toHaveText('Carries no work item');
     await expect(canary).toContainText('No step was measured: it rolled back 3 min into the 25% step');
+    await expect(canary.getByRole('row', { name: /^Latency / })).toContainText(
+      'no figures to compare, which counts as infinitely worse',
+    );
     await expect(canary).toContainText('75% of the traffic never saw it: it stayed on v0.9.8.');
     await expect(canary.getByRole('button', { name: '#1308 Slow responses in a canary release' })).toBeVisible();
+  });
+
+  test('leaves Release’s panel saying a merge waits for Martin’s deploy', async ({ page }) => {
+    await page.goto(consoleUrl());
+    await shown(page);
+    await page.getByRole('button', { name: /^Release: .*, 50% · 1 waiting\. / }).click();
+    await expect(page.getByRole('dialog', { name: 'Release' })).toContainText(
+      'Needs you · waiting for Martin’s deploy',
+    );
   });
 
   test('infers a stop, marks a dry run, and folds to one line when nothing is in flight', async ({ page }) => {
@@ -51,6 +63,28 @@ test.describe('the Canary panel', () => {
     await page.goto(consoleUrl({ at: CANARY.idle }));
     await shown(page);
     await expect(panel(page)).toContainText('No release in flight The last, v0.9.12, was promoted at 08:06');
+  });
+});
+
+test.describe('the Canary panel on a phone', () => {
+  test.use({ viewport: WIDTHS.phone });
+
+  test('keeps a measure’s own words, and drops the rules’ captions', async ({ page, request }) => {
+    type Measure = { name: string; phase: string; message?: string };
+    type Event = { type: string; payload: { version?: string; analysis?: { measures: Measure[] } } };
+    const events = (await (await request.get('/api/events')).json()) as Event[];
+    // The samples measure every step: the release in flight's step, as if the journeys could not be measured.
+    const step = events.findLast((e) => e.type === 'canary.stepped' && e.payload.version === 'v0.9.13');
+    const journeys = step?.payload.analysis?.measures.find((m) => m.name === 'journeys');
+    if (!journeys) throw new Error('No journeys measured on v0.9.13');
+    Object.assign(journeys, { phase: 'error', message: 'The journeys Job did not finish' });
+    await page.route('**/api/events?after=0', (route) => route.fulfill({ json: events }));
+    await page.goto(consoleUrl());
+    await shown(page);
+    const row = panel(page).getByRole('row', { name: /^Journeys/ });
+    await expect(row).toContainText('could not measure');
+    await expect(row.getByText('The journeys Job did not finish')).toBeVisible();
+    await expect(row.locator('.rule')).toBeHidden();
   });
 });
 

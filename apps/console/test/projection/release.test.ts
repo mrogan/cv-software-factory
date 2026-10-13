@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { release as policy } from '../../../../policy/release.ts';
 import { project, upTo } from '../../web/src/projection/index.ts';
 import { type Card, timeline } from '../../web/src/projection/reel.ts';
-import { MEASURES, type Release, releases } from '../../web/src/projection/release.ts';
+import { type Failed, MEASURES, ownWords, type Release, releases, sawOf } from '../../web/src/projection/release.ts';
 import { END, SAMPLES, work } from './support.ts';
 
 const at = (iso: string) => Date.parse(iso);
@@ -27,6 +27,9 @@ describe('the Canary panel, from the samples', () => {
     expect(canary.release.until).toBe(at('2026-10-06T14:24:00Z'));
     // The station works on the canary while a merge waits for Martin's deploy.
     expect(station).toMatchObject({ status: 'working', beacon: 'needs-you', figure: '50% · 1 waiting' });
+    expect(shown(END).view.panels.release.rows).toContainEqual(
+      expect.objectContaining({ item: '1321', note: 'Needs you · waiting for Martin’s deploy', tone: 'attn' }),
+    );
   });
 
   it('draws a release with no work item, and Release counts it and lists it by its version', () => {
@@ -246,6 +249,33 @@ describe('a release’s steps', () => {
     { weight: 50, pauseSeconds: 180, analysis: true },
   ];
 
+  it('lists a merge waiting for a deploy as Martin’s, and after a rollback as waiting for his next', () => {
+    const deploy = { stage: 'release', kind: 'approval', cause: 'deploy', reason: 'Waits for a deploy' } as const;
+    const one = work('1')
+      .open()
+      .add(1, 'pull-request.merged', 'martin', { number: 2, commit: 'b'.repeat(40), by: 'martin' })
+      .add(1, 'hold.started', 'factory', deploy);
+    const note = (t: number) => project(one.events, t).panels.release.rows.find((r) => r.item === '1')?.note;
+    expect(note(one.at(2))).toBe('Needs you · waiting for Martin’s deploy');
+    one
+      .add(3, 'release.started', 'rollouts', started(twoSteps))
+      .add(6, 'release.rolled-back', 'rollouts', rolledBack)
+      .add(6, 'hold.started', 'factory', deploy);
+    // The release that carries it ends the wait.
+    expect(note(one.at(4))).not.toMatch(/^Needs you/);
+    expect(note(one.at(7))).toBe('Needs you · rolled back, waiting for Martin’s next deploy');
+    // The card and the sheet say so too, with the release that rolled back.
+    const picture = (t: number) => project(one.events, t).cards.find((c) => c.number === '1')?.picture;
+    expect(picture(one.at(2))).toMatchObject({ type: 'deploy', rolledBack: undefined });
+    expect(picture(one.at(7))).toMatchObject({ type: 'deploy', rolledBack: { version: 'v1.0.1' } });
+    // A new fix, merged after the rollback, waits for a deploy as the first did.
+    one
+      .add(8, 'pull-request.merged', 'martin', { number: 3, commit: 'c'.repeat(40), by: 'martin' })
+      .add(8, 'hold.started', 'factory', deploy);
+    expect(note(one.at(9))).toBe('Needs you · waiting for Martin’s deploy');
+    expect(picture(one.at(9))).toMatchObject({ type: 'deploy', rolledBack: undefined });
+  });
+
   it('goes again from its first step when it is retried after a rollback', () => {
     const one = work('1')
       .open()
@@ -336,4 +366,50 @@ it('keeps the measures’ rules in the policy’s terms', () => {
   expect(words.latency).toBe('p99 · fails a quarter and 100 ms above');
   expect(policy.background.failures).toBe(2);
   expect(words.journeys).toContain('twice');
+});
+
+describe('what the analysis saw of a measure that failed', () => {
+  const reason = 'Metric "latency" assessed Failed due to failed (2) > failureLimit (1)';
+  const failed = (name: string, value: number | null, limit: number | null, message?: string): Failed => ({
+    name,
+    phase: 'failed',
+    value,
+    limit,
+    ...(message ? { message } : {}),
+  });
+
+  it('says each figure against its limit, in the analysis’s terms', () => {
+    expect(sawOf(failed('enough-requests', 62, 100), reason)).toBe('62 requests to the canary, against at least 100');
+    expect(sawOf(failed('errors', 0.024, 0.01), reason)).toBe(
+      '5xx share 2.40 points above the baseline’s, against at most 1.00 points',
+    );
+    expect(sawOf(failed('latency', 0.273, 0), reason)).toBe('p99 273 ms over its limit');
+    // Any excess fails, so a fraction of a millisecond is not said as none.
+    expect(sawOf(failed('latency', 0.0004, 0), reason)).toBe('p99 1 ms over its limit');
+    // The limit is what the value is held to: the excess over it is what is said.
+    expect(sawOf(failed('latency', 0.273, 0.1), reason)).toBe('p99 173 ms over its limit');
+    // A limit the analysis did not record is not said.
+    expect(sawOf(failed('errors', 0.024, null), reason)).toBe('5xx share 2.40 points above the baseline’s');
+    expect(sawOf(failed('other', 3, null), reason)).toBe('3');
+  });
+
+  it('says when there was nothing to compare, and lets the journeys say what they saw', () => {
+    // Argo Rollouts' words for an earlier analysis's failure are not the measure's own either.
+    const earlier = 'Metric "latency" assessed Failed due to failed (1) > failureLimit (0)';
+    expect(sawOf(failed('latency', null, 0, earlier), reason)).toBe(
+      'no figures to compare, which counts as infinitely worse',
+    );
+    // Nor are they said beside what the analysis saw.
+    expect(ownWords(earlier, reason)).toBeUndefined();
+    expect(ownWords('Prometheus did not answer', reason)).toBe('Prometheus did not answer');
+    expect(sawOf(failed('latency', null, 0, reason), reason)).toBe(
+      'no figures to compare, which counts as infinitely worse',
+    );
+    expect(sawOf(failed('journeys', null, null, 'checkout failed on the canary twice'), reason)).toBe(
+      'checkout failed on the canary twice',
+    );
+    expect(sawOf(failed('journeys', null, null, reason), reason)).toBe(
+      'a check that passed on the baseline failed here',
+    );
+  });
 });

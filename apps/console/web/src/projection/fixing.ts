@@ -269,6 +269,7 @@ export function deployPicture(item: ItemState): Extract<Picture, { type: 'deploy
   if (item.hold?.cause !== 'deploy') return undefined;
   const merged = ofType(item, 'pull-request.merged').at(-1);
   const pushed = ofType(item, 'pull-request.pushed').at(-1)?.payload;
+  const rolledBack = rolledBackSinceMerge(item);
   return {
     type: 'deploy',
     pullRequest: pushed?.number ?? item.pullRequest,
@@ -278,8 +279,13 @@ export function deployPicture(item: ItemState): Extract<Picture, { type: 'deploy
       commit: merged.payload.commit,
       byMartin: merged.payload.by === 'martin',
     },
+    rolledBack: rolledBack && { at: Date.parse(rolledBack.ts), version: rolledBack.payload.version },
   };
 }
+
+/** The release that carried the last merge and rolled back, while the fix waits for the next deploy. */
+export const rolledBackSinceMerge = (item: ItemState) =>
+  ofType(item, 'release.rolled-back').find((e) => e.ts >= (ofType(item, 'pull-request.merged').at(-1)?.ts ?? ''));
 
 /** The pull request Martin is asked to merge, with its whole change: every round together, as a merge brings it in. */
 function mergePicture(item: ItemState): Picture | undefined {
