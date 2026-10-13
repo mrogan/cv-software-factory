@@ -49,6 +49,8 @@ test.describe('stations', () => {
       // One page for all of a kind's states: each is drawn fresh, alone on the page's background, in place of the
       // last. Soft, so a state that differs doesn't stop the rest being compared, and the report names each one.
       test(`${kind}, ${theme}`, async ({ page }) => {
+        // A picture that never settles is retried for expect's five seconds: time enough for all eight to be.
+        test.slow();
         await page.goto(consoleUrl({ theme }));
         await ready(page);
         for (const { status, beacon, name } of STATES.map((s) => ({ beacon: undefined, ...s }))) {
