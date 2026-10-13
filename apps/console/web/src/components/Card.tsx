@@ -7,6 +7,7 @@ import { memo, type Ref } from 'react';
 import { duration, money, shortVersion, shortWhen } from '../format.ts';
 import type { Card as CardData, Outcome, Versions } from '../projection/index.ts';
 import { segmentsLabel } from '../projection/index.ts';
+import { abortWords } from '../projection/release.ts';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { Picture } from './Pictures.tsx';
 
@@ -67,8 +68,8 @@ export function OutcomeWord({ outcome }: { outcome: Outcome }) {
 }
 
 /**
- * The version pill: what shipped, what it replaced when that was rolled back, what is still on the canary. Before
- * a release, the version a sense saw the problem on, or the page a visitor's report came from.
+ * The version pill: what shipped, what it replaced when that was rolled back or aborted, what is still on the canary.
+ * Before a release, the version a sense saw the problem on, or the page a visitor's report came from.
  */
 export function VersionPill({
   versions,
@@ -91,7 +92,9 @@ export function VersionPill({
   if (rolledBack || aborted) {
     return (
       <span className="ver">
-        <s>{to}</s> → {from}
+        <s>{to}</s>
+        {/* The line-through says it to the eye; this says it to a screen reader. */}
+        <span className="sr"> ({aborted ? abortWords(aborted) : 'rolled back'})</span> → {from}
       </span>
     );
   }

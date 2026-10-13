@@ -486,9 +486,8 @@ const dayOf = (at: number) => {
  *
  * A release marks the version it left the shop on once it has ended: under the first card whose latest release it
  * is, or, when it carries no work item shown, all it carried went again in a later release, or it ended before the
- * mark of a card before it, in its own place. A rollback
- * and a stop with the line are struck through, since the shop went back to the version before. A dry run shipped
- * nothing, and marks nothing.
+ * mark of a card before it, in its own place. A rollback and an abort are struck through, since the shop went back to
+ * the version before. A dry run shipped nothing, and marks nothing.
  */
 export function timeline(cards: readonly Card[], shipped: readonly Release[]): Timeline {
   const ended = shipped.filter((r) => ending(r) && !r.dryRun).sort((a, b) => endAt(a) - endAt(b));

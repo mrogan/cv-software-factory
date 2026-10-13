@@ -6,7 +6,7 @@ import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-f
 import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
 import { endedSinceMerge } from './fixing.ts';
 import type { ItemState } from './items.ts';
-import { abortWords, inFlight, type Release, SIGNALLED } from './release.ts';
+import { abortWait, abortWords, inFlight, type Release, SIGNALLED } from './release.ts';
 
 export type Status = 'idle' | 'working' | 'returning' | 'passing' | 'blocked' | 'failed';
 /** A person should look at a station that is still at work: an item in it failed, or waits on them. */
@@ -330,7 +330,7 @@ function noteOf(item: ItemState, stage: Stage): string {
     const ended = endedSinceMerge(item);
     if (!ended) return 'Needs you · waiting for Martin’s deploy';
     if (!ended.aborted) return 'Needs you · rolled back, waiting for Martin’s next deploy';
-    return `Needs you · ${abortWords(ended.aborted)}, waiting for Martin to retry it or deploy again`;
+    return `Needs you · ${abortWords(ended.aborted)}, ${abortWait(ended.aborted)}`;
   }
   // Only Martin asks for improvements, so a visitor's suggestion waits for Martin, as does whatever the planner
   // noticed. A report that became a ticket and is held later, at Gates say, shows that hold's own reason.

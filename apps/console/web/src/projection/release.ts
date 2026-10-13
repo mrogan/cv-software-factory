@@ -116,6 +116,12 @@ export const ownWords = (message: string | undefined, reason: string) =>
 /** An abort in a few words: "stopped with the line" for Stop the line's, "aborted by Martin" for his own. */
 export const abortWords = (by: AbortedBy) => (by === 'stop' ? 'stopped with the line' : 'aborted by Martin');
 
+/**
+ * What a fix waits for after the release that carried it was aborted, as "waiting for Martin's next deploy" is after
+ * a rollback: Martin's retry or his next deploy, naming him once.
+ */
+export const abortWait = (by: AbortedBy) => `waiting for ${by === 'martin' ? 'his' : 'Martin’s'} retry or next deploy`;
+
 /** How a release ended, in a few words: "promoted", "rolled back", "stopped with the line" or "aborted by Martin". */
 export const endedWords = (end: End) =>
   end.kind === 'aborted' ? abortWords(end.by) : end.kind === 'rolled-back' ? 'rolled back' : 'promoted';

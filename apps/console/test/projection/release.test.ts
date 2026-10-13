@@ -318,7 +318,7 @@ describe('a release’s steps', () => {
       .add(6, 'hold.started', 'factory', deploy);
     const view = project(one.events, one.at(7));
     expect(view.panels.release.rows.find((r) => r.item === '1')?.note).toBe(
-      'Needs you · aborted by Martin, waiting for Martin to retry it or deploy again',
+      'Needs you · aborted by Martin, waiting for his retry or next deploy',
     );
     const card = view.cards.find((c) => c.number === '1');
     expect(card?.picture).toMatchObject({

@@ -196,7 +196,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
   const released = Boolean(card.versions.to || card.versions.from);
   const [from, to] = [card.versions.from, card.versions.to].map((v) => v && shortVersion(v));
   const versions = card.versions.rolledBack
-    ? `${to} · rolled back to ${from}`
+    ? `${to} · rolled back · stayed on ${from}`
     : card.versions.aborted
       ? `${to} · ${abortWords(card.versions.aborted)} · stayed on ${from}`
       : card.versions.onCanary
