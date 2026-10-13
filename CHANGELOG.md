@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.6.0](https://github.com/mrogan/cv-software-factory/compare/v0.5.0...v0.6.0) (2026-10-13)
+
+
+### Features
+
+* **admission:** enforce the factory's image policy ([#185](https://github.com/mrogan/cv-software-factory/issues/185)) ([d9441e8](https://github.com/mrogan/cv-software-factory/commit/d9441e8d1e88ca8e581bb46551c0246ad765f5e2))
+* **admission:** enforce the website's image policy ([#186](https://github.com/mrogan/cv-software-factory/issues/186)) ([bd11ef3](https://github.com/mrogan/cv-software-factory/commit/bd11ef3b8b98df8ef7ee83aa62576f172d24dc10))
+* **console:** draw a release as it ships, in the Canary panel ([#232](https://github.com/mrogan/cv-software-factory/issues/232)) ([fb5ee6d](https://github.com/mrogan/cv-software-factory/commit/fb5ee6d4a66fbd6ee71bbdc1eb2652ee7a0ae42e))
+* **console:** mark each release's version on the timeline, one with no work item at its time ([#237](https://github.com/mrogan/cv-software-factory/issues/237)) ([29f60a0](https://github.com/mrogan/cv-software-factory/commit/29f60a0cdd54c3c2eb27695f43421ef415cb9e7b))
+* **console:** show the scoreboard beside the app's name ([#233](https://github.com/mrogan/cv-software-factory/issues/233)) ([b588c14](https://github.com/mrogan/cv-software-factory/commit/b588c14b648ba4c72fed47f490b3628be8e9ac77))
+* **console:** tell a work item's releases and verification on its sheet ([#234](https://github.com/mrogan/cv-software-factory/issues/234)) ([e8ca520](https://github.com/mrogan/cv-software-factory/commit/e8ca520952136f4edcf4a93e007a0331698c394c))
+* **deploy:** admit only images their pipeline signed, with Kyverno ([#174](https://github.com/mrogan/cv-software-factory/issues/174)) ([97aa373](https://github.com/mrogan/cv-software-factory/commit/97aa3730ad3110f97653c38fb68b8e4f4b99c1ab))
+* **deploy:** install Argo Rollouts, and label the app's telemetry by version ([#170](https://github.com/mrogan/cv-software-factory/issues/170)) ([fb81c57](https://github.com/mrogan/cv-software-factory/commit/fb81c57ae0bf11e6910052b1a3950ff329588747))
+* **deploy:** run the scoreboard in its own namespace, fenced ([#224](https://github.com/mrogan/cv-software-factory/issues/224)) ([fd4e486](https://github.com/mrogan/cv-software-factory/commit/fd4e4863d9638217b42171bd6880792111d27051))
+* **deploy:** run the traffic generator in the cluster ([#172](https://github.com/mrogan/cv-software-factory/issues/172)) ([41bffca](https://github.com/mrogan/cv-software-factory/commit/41bffcade590e825db188fd9614cc8120fdf8fa5))
+* **github:** say what a deploy pull request carries ([#192](https://github.com/mrogan/cv-software-factory/issues/192)) ([94ac7ea](https://github.com/mrogan/cv-software-factory/commit/94ac7ea8f525476008e569801f5f9d97610f943a))
+* **github:** sign every image, and propose only what the pipeline signed ([#169](https://github.com/mrogan/cv-software-factory/issues/169)) ([7ba69d6](https://github.com/mrogan/cv-software-factory/commit/7ba69d6929222714bd83a11738086587c7ed1038))
+* **line:** abort a canary when the line stops, and fence the release ([#175](https://github.com/mrogan/cv-software-factory/issues/175)) ([f150844](https://github.com/mrogan/cv-software-factory/commit/f150844348c54c1b37a788df9b183f9a83b28068))
+* **line:** carry a merged work item to Release and Verify ([#191](https://github.com/mrogan/cv-software-factory/issues/191)) ([6252b0c](https://github.com/mrogan/cv-software-factory/commit/6252b0ca35a4121cf7281ed5affed37616dbd976))
+* **line:** record the canary's steps when a release starts ([#219](https://github.com/mrogan/cv-software-factory/issues/219)) ([425c141](https://github.com/mrogan/cv-software-factory/commit/425c1415180dcda9fa138d0f835c9259b3280aec))
+* **line:** turn a failed canary analysis into a signal ([#201](https://github.com/mrogan/cv-software-factory/issues/201)) ([7b81a2d](https://github.com/mrogan/cv-software-factory/commit/7b81a2d2faf61a007f9e32c34f59b7e3089bbe79))
+* **line:** verify a release by the sense that saw the defect ([#194](https://github.com/mrogan/cv-software-factory/issues/194)) ([2b6b69f](https://github.com/mrogan/cv-software-factory/commit/2b6b69f0e1997c4c5c610206047c1cf5476dd806))
+* **line:** watch the app's release, read-only ([#193](https://github.com/mrogan/cv-software-factory/issues/193)) ([07d5ac2](https://github.com/mrogan/cv-software-factory/commit/07d5ac2c56b2519c34ddb550f23ca8eeddacda27))
+* **pictures:** delete pictures no release needs ([#221](https://github.com/mrogan/cv-software-factory/issues/221)) ([cafd755](https://github.com/mrogan/cv-software-factory/commit/cafd755451217acefa6d1649e50788c331612062))
+* **probes:** compare every page on the stable and the canary ([#196](https://github.com/mrogan/cv-software-factory/issues/196)) ([f800eb3](https://github.com/mrogan/cv-software-factory/commit/f800eb329f2b785f5d1319d5d86298814b16d8eb))
+* **release:** judge the app's canary against its baseline, with traffic to judge by ([#171](https://github.com/mrogan/cv-software-factory/issues/171)) ([5a0d6fc](https://github.com/mrogan/cv-software-factory/commit/5a0d6fcfddb0f2cd9d0b310f736fbc85a5b0c185))
+* **samples:** ship the samples' last week as milestone 6's line does ([#231](https://github.com/mrogan/cv-software-factory/issues/231)) ([63fac48](https://github.com/mrogan/cv-software-factory/commit/63fac483d38be3664ff7f2da0993c5d45e487533))
+* **scoreboard:** count tickets against the answer key ([#220](https://github.com/mrogan/cv-software-factory/issues/220)) ([ea33ca2](https://github.com/mrogan/cv-software-factory/commit/ea33ca2f491c59dc4dff46c2ffa124b80419d154))
+* **triage:** reopen a verified ticket when its signal returns ([#195](https://github.com/mrogan/cv-software-factory/issues/195)) ([04374e5](https://github.com/mrogan/cv-software-factory/commit/04374e52e59142357435378e372f9d16c02f7ce2))
+
+
+### Bug Fixes
+
+* **admission:** verify the signature only, not the SBOM ([#184](https://github.com/mrogan/cv-software-factory/issues/184)) ([8adc43d](https://github.com/mrogan/cv-software-factory/commit/8adc43d77cc7b2bfb22c98722a4058cb5ae7de57))
+* **console:** draw a return only until its work moves on, and boxes where they belong ([#225](https://github.com/mrogan/cv-software-factory/issues/225)) ([ed5c4ce](https://github.com/mrogan/cv-software-factory/commit/ed5c4cec2727ceacdc2cfeeb09835a83a3a6a712))
+* **console:** draw the shipping states as the design has them ([#251](https://github.com/mrogan/cv-software-factory/issues/251)) ([2c18148](https://github.com/mrogan/cv-software-factory/commit/2c181484556a601c0f7f8641dd524fb92584d853))
+* **deploy:** give the GitHub worker a writable /tmp, which TUF needs ([#187](https://github.com/mrogan/cv-software-factory/issues/187)) ([2e2877f](https://github.com/mrogan/cv-software-factory/commit/2e2877fa029a07f9ff45b1ddceb521f58eaca3f7))
+* **egress:** ask about pods' subresources as subresources ([#230](https://github.com/mrogan/cv-software-factory/issues/230)) ([8225dde](https://github.com/mrogan/cv-software-factory/commit/8225ddeb7efd70fe3f007afd667dda385107fea8))
+* **github:** find a signature when GHCR's index carries no annotations ([#181](https://github.com/mrogan/cv-software-factory/issues/181)) ([1e44502](https://github.com/mrogan/cv-software-factory/commit/1e44502d1e7ac099a9baa0e41232bc66aa346f1b))
+* **pictures:** box only the ticket's own check on its pages ([#218](https://github.com/mrogan/cv-software-factory/issues/218)) ([a0b9b30](https://github.com/mrogan/cv-software-factory/commit/a0b9b30cc8378529bbdb710bbafb3b1d29d10143))
+* **release:** keep the factory's own requests out of the canary's figures ([#222](https://github.com/mrogan/cv-software-factory/issues/222)) ([423e33f](https://github.com/mrogan/cv-software-factory/commit/423e33fafd25239b49b3807617e8724b087aeb59))
+* show the fixed picture and the right hold on a verified work item's sheet ([#212](https://github.com/mrogan/cv-software-factory/issues/212)) ([d7e4cf7](https://github.com/mrogan/cv-software-factory/commit/d7e4cf735ab0512b4798a93f47029e18e2e328b7))
+
 ## [0.5.0](https://github.com/mrogan/cv-software-factory/compare/v0.4.0...v0.5.0) (2026-10-10)
 
 
