@@ -540,6 +540,44 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
         round: 1,
       },
     },
+    'price-answered': {
+      about:
+        "the coder's second round of the fix for the wrong price, which answers both findings the first review blocked on, so one to approve that says both are answered",
+      commit: APP_MAIN,
+      seed: PRICE_SEED,
+      change: {
+        patch: PRICE_FIX,
+        message: PRICE_FIX_MESSAGE,
+      },
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        ticket: PRICE_TICKET,
+        signals: PRICE_SIGNALS,
+        answers: [],
+        spec: PRICE_SPEC,
+        pullRequest: 105,
+        title: 'fix(money): always show two digits of pence',
+        round: 2,
+        blocked: [
+          {
+            path: 'test/money.test.ts',
+            line: 7,
+            blocking: true,
+            criterion: 3,
+            comment:
+              'No test gives pounds 10 pence, so criterion 3 is shown by nothing. Add [10, "£0.10"] to the table.',
+          },
+          {
+            path: 'src/money.ts',
+            line: 3,
+            blocking: true,
+            criterion: 4,
+            comment:
+              'Nothing opens a page for a price in whole pounds: criterion 4 is shown by nothing. Add a page test, such as /products/thing-4 showing £2.00.',
+          },
+        ],
+      },
+    },
     'spec-widens': {
       about:
         'the wrong price, with a spec the planner widened: a criterion for thousands separators no evidence asks for, met by the change, so one to escalate',

@@ -535,7 +535,7 @@ describe('the line', () => {
     expect(reviewer).toMatchObject({ agent: 'reviewer', round: 2 });
     expect(reviewer?.resume).toBeUndefined();
     expect(reviewer?.prompt).toContain('The review before this one blocked on these.');
-    expect(reviewer?.prompt).toContain('- src/search.ts:1 (criterion 1): Nothing here escapes a quote');
+    expect(reviewer?.prompt).toContain('1. src/search.ts:1 (criterion 1): Nothing here escapes a quote');
 
     await pass(); // still blocking after two reviews: Martin's
     expect(await stage(workItem)).toBe('held');
@@ -1336,6 +1336,62 @@ describe('the line', () => {
       'spec.written',
       'model.called',
       'pull-request.pushed',
+    ]);
+  });
+
+  it('resolves the threads of the findings a later review finds answered, and leaves open those it still holds', async () => {
+    await ticket();
+    const quote = { path: 'src/search.ts', line: 1, blocking: true, criterion: 1, comment: 'No quote is escaped.' };
+    const test = { path: 'test/search.test.ts', line: 4, blocking: true, rule: 3, comment: 'No test shows a quote.' };
+    const reviews = [
+      { verdict: 'changes-requested', note: 'Two things block.', findings: [quote, test] },
+      // The second says both are answered, but gives the test's again, word for word: that one it still holds.
+      { verdict: 'changes-requested', note: 'The quote is escaped.', findings: [test], answered: [1, 2] },
+    ];
+    const { pass, steps, github } = line({ ...AGENTS, reviewer: () => handback(reviews.shift()) });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the first review asks for changes
+    expect(github.acts.map((a) => a.action)).not.toContain('resolveThreads');
+    await pass(); // the coder's second round
+    github.pass();
+    await pass(); // the second review
+    expect(steps.requests.at(-1)?.prompt).toContain('1. src/search.ts:1 (criterion 1): No quote is escaped.');
+    const resolved = github.acts.filter((a) => a.action === 'resolveThreads');
+    expect(resolved).toEqual([
+      {
+        action: 'resolveThreads',
+        args: {
+          number: 12,
+          comments: [{ path: 'src/search.ts', line: 1, body: '**Blocking** · criterion 1\n\nNo quote is escaped.' }],
+          reply: `Answered in ${github.pulls.get(12)?.head.sha}: the factory’s reviewer, review 2, finds this put right.`,
+        },
+      },
+    ]);
+  });
+
+  it('records the review when GitHub refuses to resolve a thread, and leaves the thread to Martin', async () => {
+    const workItem = await ticket();
+    const quote = { path: 'src/search.ts', line: 1, blocking: true, criterion: 1, comment: 'No quote is escaped.' };
+    const reviews = [
+      { verdict: 'changes-requested', note: 'The quote is not escaped.', findings: [quote] },
+      { verdict: 'approved', note: 'The quote is escaped.', findings: [], answered: [1] },
+    ];
+    const { pass, github } = line({ ...AGENTS, reviewer: () => handback(reviews.shift()) });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the first review asks for changes
+    await pass(); // the coder's second round
+    github.pass();
+    github.refusing.set('resolveThreads', new GitHubWorkerError(403, 'refused', 'Resource not accessible.'));
+    await pass(); // the second review approves, and GitHub refuses the resolving
+    expect(github.refusing.has('resolveThreads')).toBe(false);
+    expect(await failures(workItem)).toEqual({ failures: 0, failure: null });
+    expect((await payloads(workItem, 'review.submitted')).map((p) => p.verdict)).toEqual([
+      'changes-requested',
+      'approved',
     ]);
   });
 

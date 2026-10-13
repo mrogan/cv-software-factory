@@ -6,6 +6,9 @@
  * GitHub refuses a whole review if one comment is anchored to a line the pull request's diff does not show, so each
  * finding is checked against the diff first. One anchored elsewhere is not lost: it goes in the review's body, with
  * where the reviewer put it.
+ *
+ * A later review that finds an earlier finding answered has its thread resolved: the app's `main` merges nothing with
+ * a review thread open. The thread is found by its comment, as this module wrote it, and the line it was made on.
  */
 import type { PayloadOf } from '@software-factory/events';
 import type { CheckRunReport, ReviewComment } from '../github/actions.ts';
@@ -53,6 +56,18 @@ export interface ReviewInGitHub {
 
 const mark = (f: Finding) => `**${f.blocking ? 'Blocking' : 'Suggestion'}**${cites(f) ? ` · ${cites(f)}` : ''}`;
 
+/** A finding as its comment on the pull request reads, which is how its thread is found again. */
+const commentOf = (f: Finding): ReviewComment => ({ path: f.path, line: f.line, body: `${mark(f)}\n\n${f.comment}` });
+
+/**
+ * The comments whose threads a later review resolves: those of the earlier findings it finds answered, less any it
+ * gives again word for word, whose thread would be its own new one.
+ */
+export function answeredThreads(answered: Finding[], held: Finding[]): ReviewComment[] {
+  const again = new Set(held.map((f) => `${f.path}\n${commentOf(f).body}`));
+  return answered.map(commentOf).filter((c) => !again.has(`${c.path}\n${c.body}`));
+}
+
 const CONCLUSIONS: Record<ReviewerResult['verdict'], NonNullable<CheckRunReport['conclusion']>> = {
   approved: 'success',
   'changes-requested': 'failure',
@@ -96,7 +111,7 @@ export function reviewInGitHub(
   ].join('\n');
   return {
     body,
-    comments: anchored.map((f) => ({ path: f.path, line: f.line, body: `${mark(f)}\n\n${f.comment}` })),
+    comments: anchored.map(commentOf),
     check: {
       name: REVIEW_CHECK,
       headSha: commit,

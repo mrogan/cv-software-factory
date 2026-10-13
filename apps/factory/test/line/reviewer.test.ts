@@ -40,7 +40,27 @@ describe('the reviewer', () => {
   it('is told, in a later round, what the review before it blocked on', () => {
     const prompt = reviewer.prompt({ ...input, round: 2, blocked: [unmet] });
     expect(prompt).toContain('in its round 2');
-    expect(prompt).toContain(`- src/money.ts:3 (criterion 5): ${unmet.comment}`);
+    expect(prompt).toContain(`1. src/money.ts:3 (criterion 5): ${unmet.comment}`);
+    expect(prompt).toContain(
+      '{"verdict","note","findings":[{"path","line","blocking","rule","criterion","ticket","comment"}],"answered"}',
+    );
+    expect(prompt).toContain('- `answered`: the numbers of the findings the review before blocked on');
+    // A first review has nothing to answer, and is not asked to.
+    expect(reviewer.prompt(input)).not.toContain('`answered`');
+  });
+
+  it('says by number which findings of the review before it are answered, and only those there were', () => {
+    const fits = (result: unknown, blocked = [unmet, { ...unmet, line: 4 }]) =>
+      reviewer.schema({ ...input, round: 2, blocked }).safeParse(result).success;
+    const approved = { verdict: 'approved', note: 'Both put right.', findings: [] };
+    expect(fits({ ...approved, answered: [1, 2] })).toBe(true);
+    expect(fits({ ...approved, answered: [] })).toBe(true);
+    expect(fits(approved)).toBe(true);
+    expect(fits({ verdict: 'changes-requested', note: 'One holds.', findings: [unmet], answered: [2] })).toBe(true);
+    expect(fits({ ...approved, answered: [3] })).toBe(false);
+    expect(fits({ ...approved, answered: [1, 1] })).toBe(false);
+    expect(fits({ ...approved, answered: [0] })).toBe(false);
+    expect(fits({ ...approved, answered: [1] }, [])).toBe(false);
   });
 
   it('hands back a verdict that agrees with its findings, each short, cited and anchored', () => {
