@@ -19,6 +19,7 @@ import postgres from 'postgres';
 import { log } from '../log.ts';
 import { figures, tickets } from '../scoreboard/figures.ts';
 import { loadKey } from '../scoreboard/key.ts';
+import { wakeLoop } from '../scoreboard/loop.ts';
 import { readScoreEvents, Scoreboard } from '../scoreboard/worker.ts';
 
 export const USAGE = '  factory scoreboard [--print]';
@@ -65,32 +66,16 @@ async function serve(sql: postgres.Sql, key: Awaited<ReturnType<typeof loadKey>>
   const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts('/nonexistent') });
   const scoreboard = new Scoreboard({ sql, events, key });
 
-  // One pass at a time; a wake during a pass runs one more after it.
-  let running: Promise<void> | null = null;
-  let again = false;
-  const wake = () => {
-    if (running) {
-      again = true;
-      return;
-    }
-    running = (async () => {
-      do {
-        again = false;
-        try {
-          const { pass, score } = await scoreboard.pass();
-          if (pass === 'published') log.info({ score }, 'scoreboard published');
-        } catch (error) {
-          log.error({ error: error instanceof Error ? error.message : 'failed' }, 'scoreboard pass failed');
-        }
-      } while (again);
-      running = null;
-    })();
-  };
-
   log.info({ keyed: key !== null }, key ? 'scoreboard counting' : 'scoreboard off: no answer key');
-  const subscription = await listen(sql, wake, wake);
-  const timer = setInterval(wake, EVERY_MS);
-  await new Promise<void>((resolve) => {
+  const pass = async () => {
+    try {
+      const result = await scoreboard.pass();
+      if (result.pass === 'published') log.info({ score: result.score }, 'scoreboard published');
+    } catch (error) {
+      log.error({ error: error instanceof Error ? error.message : 'failed' }, 'scoreboard pass failed');
+    }
+  };
+  const stopped = new Promise<void>((resolve) => {
     for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       process.once(signal, () => {
         log.info({ signal }, 'scoreboard stopping');
@@ -98,8 +83,6 @@ async function serve(sql: postgres.Sql, key: Awaited<ReturnType<typeof loadKey>>
       });
     }
   });
-  clearInterval(timer);
-  await subscription.unlisten();
-  await running;
+  await wakeLoop({ listen: (wake) => listen(sql, wake, wake), pass, everyMs: EVERY_MS }, stopped);
   return 0;
 }
