@@ -11,6 +11,7 @@ import { DiskArtifacts } from '@software-factory/store';
 import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PROBES } from '../../src/probes/index.ts';
+import { readerServer } from '../../src/probes/reader.ts';
 import { Shop } from '../../src/probes/site.ts';
 import { BrowserSense } from '../../src/senses/browser.ts';
 import { UNMEASURED } from '../../src/senses/http.ts';
@@ -47,6 +48,41 @@ describe('the senses', () => {
       await shop.close();
     }
   }, 120_000);
+
+  it('read a page for triage with the header on every request', async () => {
+    const shop = await startShop();
+    const sense = new BrowserSense({
+      name: 'probe',
+      app: shop.url,
+      checks: PROBES,
+      store,
+      log,
+      shared: () => new Shop(shop.url),
+      launch: async () => browser,
+    });
+    const reader = readerServer({
+      app: shop.url,
+      sense,
+      store,
+      version: async () => 'a'.repeat(40),
+      log: { info: () => {}, warn: () => {} },
+    });
+    await new Promise<void>((resolve) => reader.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (reader.address() as { port: number }).port;
+      const answer = await fetch(`http://127.0.0.1:${port}/v1/pages`, {
+        method: 'POST',
+        body: JSON.stringify({ path: '/products' }),
+      });
+      expect(answer.status).toBe(200);
+      const { with: sent, without } = split(shop.requests);
+      expect(sent).toContain('/products');
+      expect(without).toEqual([]);
+    } finally {
+      await new Promise((resolve) => reader.close(resolve));
+      await shop.close();
+    }
+  }, 60_000);
 
   it('lend a page that sends the header when asked, as the pictures do, and none otherwise', async () => {
     const shop = await startShop();

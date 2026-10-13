@@ -34,6 +34,7 @@ Every request the probes, the crawler and the page reader make sends `x-unmeasur
 - **During a canary,** the baseline's figures hold none of their requests, nor anything their checks provoke, as the canary's hold none.
 - **The objectives** judge the visitors' requests and the [traffic generator](TRAFFIC-GENERATOR.md)'s alone. The senses look for what goes wrong on their own requests themselves.
 - **An error** one of their requests causes is still logged, so the [log watcher](LOG-WATCHER.md) sees it, with no trace.
+- **Only on the Service.** The shop's public route removes the header, so a sense run on the host through Traefik (`APP_URL=http://website.localhost:8080`) is counted like a visitor.
 
 ### The sense runner
 
