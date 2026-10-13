@@ -1,7 +1,7 @@
 /**
  * The page reader, for triage: it is given the path of a page of the app, and says what the page looks like and
  * what it says. A screenshot goes in the artifact store; the visible text comes back as passages for Jev to choose
- * from. The text of a page is never logged.
+ * from. The text of a page is never logged, and its requests carry `UNMEASURED`, as the senses' do.
  *
  *     POST /v1/pages   { "path": "/about" }  ->  { "screenshot": <Screenshot>, "passages": ["…"] }
  *     GET  /health
@@ -10,6 +10,7 @@ import { createServer, type Server } from 'node:http';
 import type { ArtifactStore } from '@software-factory/store';
 import { capture } from '../capture.ts';
 import type { BrowserSense } from '../senses/browser.ts';
+import { UNMEASURED } from '../senses/http.ts';
 
 export const MAX_PASSAGES = 40;
 export const MAX_PASSAGE_LENGTH = 200;
@@ -79,7 +80,7 @@ export function readerServer({ app, sense, store, version, log }: ReaderOptions)
           text,
           screenshot: await capture(page, store, { route: path, version: current }),
         };
-      });
+      }, UNMEASURED);
       log.info({ path, status: page.status, ms: Date.now() - started }, 'a page was read');
       return reply(200, { screenshot: page.screenshot, passages: passagesOf(page.text) });
     } catch (error) {

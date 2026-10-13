@@ -1,6 +1,6 @@
 /**
- * The factory's own requests that must not count in a canary's figures carry `UNMEASURED`, every one of them, pages,
- * their images and scripts, and the requests made without the browser alike; the senses' requests carry none. Against
+ * The senses' requests carry `UNMEASURED`, every one of them, pages, their images and scripts, and the requests made
+ * without the browser alike, so none counts in the app's figures; a page a sense lends sends it when asked. Against
  * the small shop made for the tests (shop.ts), which records what it was sent. These tests need Chromium, so they run
  * in the pinned Playwright image.
  */
@@ -33,29 +33,16 @@ const split = (requests: Array<{ url: string; headers: Record<string, unknown> }
   without: requests.filter((r) => r.headers[NAME] === undefined).map((r) => r.url),
 });
 
-describe('the journeys', () => {
-  it('send the header with every request, from the browser and without it', async () => {
-    const shop = await startShop();
-    try {
-      await observeApp(shop.url, undefined, { store, log, limit: 50, headers: UNMEASURED });
-      const { with: sent, without } = split(shop.requests);
-      expect(without).toEqual([]);
-      // The version asked for, the API the probes compare with, and the pages the browser opened.
-      expect(sent).toEqual(expect.arrayContaining(['/version', '/api/products?page=1', '/products']));
-    } finally {
-      await shop.close();
-    }
-  }, 120_000);
-});
-
 describe('the senses', () => {
-  it('send no header', async () => {
+  it('send the header with every request, from the browser and without it', async () => {
     const shop = await startShop();
     try {
       await observeApp(shop.url, undefined, { store, log, limit: 50 });
       const { with: sent, without } = split(shop.requests);
-      expect(sent).toEqual([]);
-      expect(without).toContain('/version');
+      expect(without).toEqual([]);
+      // The version asked for, the API the probes compare with, the pages the browser opened, and the error pages
+      // the crawler asks for.
+      expect(sent).toEqual(expect.arrayContaining(['/version', '/api/products?page=1', '/products', '/%E0%A4%A']));
     } finally {
       await shop.close();
     }

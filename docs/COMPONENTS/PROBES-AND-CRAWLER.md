@@ -27,6 +27,14 @@ Each is made of generic checks, compared with the app's own API where it has one
 
 They look at the stable Service, `website`, so a canary is judged by its analysis, not by the senses ([progressive delivery](PROGRESSIVE-DELIVERY.md)).
 
+### Not counted
+
+Every request the probes, the crawler and the page reader make sends `x-unmeasured`, from the browser and without it. The app keeps no record of them in its metrics, request log or traces ([whose requests are judged](PROGRESSIVE-DELIVERY.md#whose-requests-are-judged)):
+
+- **During a canary,** the baseline's figures hold none of their requests, nor anything their checks provoke, as the canary's hold none.
+- **The objectives** judge the visitors' requests and the [traffic generator](TRAFFIC-GENERATOR.md)'s alone. The senses look for what goes wrong on their own requests themselves.
+- **An error** one of their requests causes is still logged, so the [log watcher](LOG-WATCHER.md) sees it, with no trace.
+
 ### The sense runner
 
 `apps/factory/src/senses` runs the probes:
@@ -66,7 +74,7 @@ flowchart TD
 - **Which pages:** every page of the shop on each Service (the pages the traffic generator finds from the front door, at most sixty, full page to 1600 pixels).
 - **Boxed pages first:** the pages where a sense boxed a finding come first, with those elements boxed on both versions. Each box is indexed with the element it was drawn round.
 - **Compared** pixel by pixel (`pictures/`, pixelmatch).
-- **Not judged:** its requests send `x-unmeasured`, so they are not judged with the canary's visitors ([progressive delivery](PROGRESSIVE-DELIVERY.md#whose-requests-are-judged)).
+- **Not judged:** its requests send `x-unmeasured` too, so they are not judged with the canary's visitors.
 - **Recorded** once both versions are seen unmoved. A promotion or rollback while a page is taken drops it and ends the pass, and a page missed is tried again, three passes in all.
 - **After rollout:** once the canary is promoted, each page with a box is taken again on the stable Service.
 
