@@ -264,11 +264,16 @@ describe('a release’s steps', () => {
     // The release that carries it ends the wait.
     expect(note(one.at(4))).not.toMatch(/^Needs you/);
     expect(note(one.at(7))).toBe('Needs you · rolled back, waiting for Martin’s next deploy');
+    // The card and the sheet say so too, with the release that rolled back.
+    const picture = (t: number) => project(one.events, t).cards.find((c) => c.number === '1')?.picture;
+    expect(picture(one.at(2))).toMatchObject({ type: 'deploy', rolledBack: undefined });
+    expect(picture(one.at(7))).toMatchObject({ type: 'deploy', rolledBack: { version: 'v1.0.1' } });
     // A new fix, merged after the rollback, waits for a deploy as the first did.
     one
       .add(8, 'pull-request.merged', 'martin', { number: 3, commit: 'c'.repeat(40), by: 'martin' })
       .add(8, 'hold.started', 'factory', deploy);
     expect(note(one.at(9))).toBe('Needs you · waiting for Martin’s deploy');
+    expect(picture(one.at(9))).toMatchObject({ type: 'deploy', rolledBack: undefined });
   });
 
   it('goes again from its first step when it is retried after a rollback', () => {

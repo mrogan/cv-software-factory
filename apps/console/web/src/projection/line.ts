@@ -4,6 +4,7 @@
  */
 import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-factory/events';
 import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
+import { rolledBackSinceMerge } from './fixing.ts';
 import type { ItemState } from './items.ts';
 import { inFlight, type Release } from './release.ts';
 
@@ -325,8 +326,7 @@ function noteOf(item: ItemState, stage: Stage): string {
   if (item.hold?.cause === 'merge') return 'Needs you · waiting for Martin’s merge';
   // A merged fix waits for a deploy pull request, again when the release that carried it rolled back.
   if (item.hold?.cause === 'deploy')
-    return item.events.findLast((e) => e.type === 'pull-request.merged' || e.type === 'release.rolled-back')?.type ===
-      'release.rolled-back'
+    return rolledBackSinceMerge(item)
       ? 'Needs you · rolled back, waiting for Martin’s next deploy'
       : 'Needs you · waiting for Martin’s deploy';
   // Only Martin asks for improvements, so a visitor's suggestion waits for Martin, as does whatever the planner

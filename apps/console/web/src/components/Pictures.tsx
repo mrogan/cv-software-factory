@@ -1094,13 +1094,16 @@ function MergePicture(picture: Extract<PictureData, { type: 'merge' }>) {
 
 /**
  * A merged fix waiting for the deploy pull request that will carry it, in the waiting-on-Martin panel: the merge done,
- * and hollow rings for what comes after it. The events name no deploy pull request, so none is drawn.
+ * the release that carried it crossed when it rolled back, and hollow rings for what comes after. The events name no
+ * deploy pull request, so none is drawn.
  */
-function DeployPicture({ pullRequest, title, merged }: Extract<PictureData, { type: 'deploy' }>) {
+function DeployPicture({ pullRequest, title, merged, rolledBack }: Extract<PictureData, { type: 'deploy' }>) {
   return (
     <div className="pad">
       <div className="waits">
-        <div className="cap attn">Merged · waiting for Martin’s deploy</div>
+        <div className="cap attn">
+          {rolledBack ? 'Rolled back · waiting for Martin’s next deploy' : 'Merged · waiting for Martin’s deploy'}
+        </div>
         {pullRequest && (
           <div className="head mono">
             PR #{pullRequest}
@@ -1111,6 +1114,11 @@ function DeployPicture({ pullRequest, title, merged }: Extract<PictureData, { ty
           {merged && (
             <Tick ok num={merged.commit.slice(0, 7)}>
               Merged by {merged.byMartin ? 'Martin' : 'the factory'} at {clock(merged.at)}
+            </Tick>
+          )}
+          {rolledBack && (
+            <Tick ok={false} num={shortVersion(rolledBack.version)}>
+              The release that carried it rolled back at {clock(rolledBack.at)}
             </Tick>
           )}
           <Tick ok={undefined}>The next deploy pull request carries it, with its ticket and issue</Tick>
