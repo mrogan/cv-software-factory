@@ -61,11 +61,12 @@ const commentOf = (f: Finding): ReviewComment => ({ path: f.path, line: f.line, 
 
 /**
  * The comments whose threads a later review resolves: those of the earlier findings it finds answered, less any it
- * gives again word for word, whose thread would be its own new one.
+ * gives again word for word on the same line, whose thread would be its own new one.
  */
 export function answeredThreads(answered: Finding[], held: Finding[]): ReviewComment[] {
-  const again = new Set(held.map((f) => `${f.path}\n${commentOf(f).body}`));
-  return answered.map(commentOf).filter((c) => !again.has(`${c.path}\n${c.body}`));
+  const key = (c: ReviewComment) => `${c.path}:${c.line}\n${c.body}`;
+  const again = new Set(held.map((f) => key(commentOf(f))));
+  return answered.map(commentOf).filter((c) => !again.has(key(c)));
 }
 
 const CONCLUSIONS: Record<ReviewerResult['verdict'], NonNullable<CheckRunReport['conclusion']>> = {

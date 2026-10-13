@@ -2,7 +2,7 @@ import { MAX_FINDINGS } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { type ReviewerInput, reviewer } from '../../src/line/agents/reviewer.ts';
 import { FIXTURE_WORK_ITEM, FIXTURES } from '../../src/line/bench/fixtures.ts';
-import { REVIEW_CHECK, reviewInGitHub, shownLines } from '../../src/line/review.ts';
+import { answeredThreads, REVIEW_CHECK, reviewInGitHub, shownLines } from '../../src/line/review.ts';
 
 const input: ReviewerInput =
   FIXTURES.reviewer['cards-claimed']?.input ??
@@ -199,5 +199,13 @@ describe('a review in GitHub', () => {
     const at = { commit: 'c'.repeat(40), workItem: '1001', review: 1, last: false };
     const shown = reviewInGitHub({ verdict: 'escalated', note: 'Beyond the ticket.', findings: [beyond] }, DIFF, at);
     expect(shown.comments[0]?.body).toBe(`**Blocking** · the ticket · criterion 5\n\n${beyond.comment}`);
+  });
+
+  it('resolves an answered finding’s thread unless the review gives it again, word for word, on the same line', () => {
+    const moved = { ...unmet, line: unmet.line + 1 };
+    expect(answeredThreads([unmet], [unmet])).toEqual([]);
+    expect(answeredThreads([unmet], [moved])).toEqual([
+      { path: unmet.path, line: unmet.line, body: `**Blocking** · criterion 5\n\n${unmet.comment}` },
+    ]);
   });
 });
