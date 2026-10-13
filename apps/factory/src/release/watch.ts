@@ -133,9 +133,7 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
   // Argo Rollouts writes the revision before the status that names the new version's hash: until the status has
   // caught up with the spec, the revision may be the next version's, and is not read.
   const caughtUp =
-    metadata.generation === undefined ||
-    status.observedGeneration === undefined ||
-    String(status.observedGeneration) === String(metadata.generation);
+    metadata.generation === undefined || String(status.observedGeneration) === String(metadata.generation);
   const revision = caughtUp ? metadata.annotations[REVISION] : undefined;
   const steps = spec.strategy.canary?.steps ?? [];
   const weights: number[] = [];
