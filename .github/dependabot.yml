@@ -41,8 +41,7 @@ updates:
         patterns: ['*']
 
   # CI pulls these images from its own copy in GHCR (scripts/ci-images.sh), but every pin names its upstream, which is
-  # what Dependabot reads. One pull request moves the images everywhere they are pinned: scripts/image-pins.test.ts
-  # fails when two pins of one image disagree.
+  # what Dependabot reads. Postgres has one pin, its StatefulSet's, which everything else that runs it reads.
   - package-ecosystem: docker
     directories:
       - /apps/console
@@ -62,8 +61,11 @@ updates:
       prefix: chore
       include: scope
     groups:
-      images:
-        patterns: ['*']
+      # Node is pinned in three Dockerfiles, so one pull request moves it in all of them: scripts/image-pins.test.ts
+      # fails when they disagree. A new major is ignored above.
+      node:
+        patterns: [docker/library/node]
+        group-by: dependency-name
 
   - package-ecosystem: devcontainers
     directory: /

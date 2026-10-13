@@ -3,6 +3,7 @@
  * image the cluster runs, removed when the tests finish. CI names its own copy of that image in TEST_POSTGRES_IMAGE.
  */
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import postgres, { type Sql } from 'postgres';
 import type { TestProject } from 'vitest/node';
 import { migrate } from '../src/migrate.ts';
@@ -23,10 +24,13 @@ export interface Database {
   end(): Promise<void>;
 }
 
-// The image deploy/base/postgres/statefulset.yaml runs (scripts/image-pins.test.ts checks they agree).
-const IMAGE =
-  process.env.TEST_POSTGRES_IMAGE ||
-  'public.ecr.aws/docker/library/postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873';
+// The image the cluster runs: its one pin is its StatefulSet's.
+const STATEFULSET = new URL('../../../deploy/base/postgres/statefulset.yaml', import.meta.url);
+function image() {
+  const pinned = readFileSync(STATEFULSET, 'utf-8').match(/^\s+image: (\S+)$/m)?.[1];
+  if (!pinned) throw new Error(`No Postgres image in ${STATEFULSET.pathname}`);
+  return process.env.TEST_POSTGRES_IMAGE || pinned;
+}
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -55,7 +59,7 @@ export async function startPostgres(): Promise<{ url: string; stop: () => void }
     'POSTGRES_PASSWORD=test',
     '--publish',
     '127.0.0.1::5432',
-    IMAGE,
+    image(),
   );
   const port = docker('port', name, '5432/tcp').split(':').at(-1);
   // pg_isready answers before the server takes connections from outside; a query proves it does.
@@ -64,7 +68,8 @@ export async function startPostgres(): Promise<{ url: string; stop: () => void }
       docker('exec', name, 'psql', '-U', 'factory', '-h', '127.0.0.1', '-c', 'select 1');
       break;
     } catch (error) {
-      if (tries > 60) throw error;
+      // A minute: a slow runner's first initdb takes a while.
+      if (tries > 240) throw error;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }

@@ -134,11 +134,17 @@ eval: node_modules ## Run triage's evaluation set against Jev live, recording it
 	@TYPESAFE_API_KEY="$${TYPESAFE_API_KEY:-$$(security find-generic-password -s typesafe-api-key -w 2>/dev/null)}" \
 		node apps/factory/scripts/eval.ts --runs $(or $(RUNS),1)
 
+# The artifacts copier runs the Postgres image the cluster runs, read from its StatefulSet: the image's one pin.
+define apply-artifacts-copier
+sed "s|image: postgres$$|image: $$($(KUBECTL) -n factory get statefulset postgres -o jsonpath='{.spec.template.spec.containers[0].image}')|" \
+	deploy/k3d/artifacts-copier.yaml | $(KUBECTL) apply -f - >/dev/null
+endef
+
 samples: node_modules ## Load the sample work items into the cluster's store, with their times moved so the last is now
 	@# Screenshots first, into the artifacts volume, through a pod that mounts it for a moment (and not one still
 	@# going from an earlier run).
 	@$(KUBECTL) -n factory delete pod artifacts-copier --ignore-not-found --wait >/dev/null
-	@$(KUBECTL) apply -f deploy/k3d/artifacts-copier.yaml >/dev/null
+	@$(apply-artifacts-copier)
 	@$(KUBECTL) -n factory wait pod/artifacts-copier --for=condition=Ready --timeout=2m >/dev/null
 	@# No macOS metadata files in the archive (COPYFILE_DISABLE); Linux ignores the setting.
 	@COPYFILE_DISABLE=1 tar -C packages/samples/log/artifacts -cf - . | \
@@ -157,7 +163,7 @@ real-store: node_modules ## Replace the cluster's store with an empty one for re
 		node packages/store/src/real-store.ts $(if $(FORCE),--force)
 	@# The samples' screenshots go too, and the console starts again from an empty history.
 	@$(KUBECTL) -n factory delete pod artifacts-copier --ignore-not-found --wait >/dev/null
-	@$(KUBECTL) apply -f deploy/k3d/artifacts-copier.yaml >/dev/null
+	@$(apply-artifacts-copier)
 	@$(KUBECTL) -n factory wait pod/artifacts-copier --for=condition=Ready --timeout=2m >/dev/null
 	@$(KUBECTL) -n factory exec artifacts-copier -- find /var/lib/factory/artifacts -mindepth 1 -delete
 	@$(KUBECTL) -n factory delete pod artifacts-copier --wait=false >/dev/null

@@ -33,6 +33,10 @@ jobs:
           persist-credentials: false
           # The merge commit and its parents: the first is the base, so the diff between them is what would merge.
           fetch-depth: 2
+      # The Postgres the console's browser tests run beside, the cluster's, from CI's copy of it (scripts/ci-images.sh).
+      # First, so that the output is set even when the step below fails.
+      - id: postgres
+        run: echo "image=$(scripts/ci-images.sh postgres)" >> "$GITHUB_OUTPUT"
       - id: which
         env:
           AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -50,11 +54,6 @@ jobs:
           fi
           echo "$kind"
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
-      # The Postgres the console's browser tests run beside, the cluster's, from CI's copy of it (scripts/ci-images.sh).
-      - id: postgres
-        run: |
-          image=$(scripts/ci-images.sh resolve "$(yq '.spec.template.spec.containers[0].image' deploy/base/postgres/statefulset.yaml)")
-          echo "image=$image" >> "$GITHUB_OUTPUT"
 
   check:
     name: lint, types, tests
@@ -66,9 +65,7 @@ jobs:
           persist-credentials: false
       # The store's tests start their own Postgres, the image the cluster runs, from CI's copy of it
       # (scripts/ci-images.sh).
-      - run: |
-          image=$(scripts/ci-images.sh resolve "$(yq '.spec.template.spec.containers[0].image' deploy/base/postgres/statefulset.yaml)")
-          echo "TEST_POSTGRES_IMAGE=$image" >> "$GITHUB_ENV"
+      - run: echo "TEST_POSTGRES_IMAGE=$(scripts/ci-images.sh postgres)" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           install_args: node pnpm kustomize
@@ -250,10 +247,7 @@ jobs:
       # Each base image a Dockerfile pins, from CI's copy of it (scripts/ci-images.sh).
       - if: env.DEPLOY != 'true'
         id: bases
-        run: |
-          for app in console factory runner; do
-            { echo "$app<<EOF"; scripts/ci-images.sh contexts "apps/$app/Dockerfile"; echo EOF; } >> "$GITHUB_OUTPUT"
-          done
+        run: scripts/ci-images.sh contexts console factory runner
       - if: env.DEPLOY != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
