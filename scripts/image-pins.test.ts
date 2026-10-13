@@ -15,27 +15,25 @@ import { describe, expect, it } from 'vitest';
 const PIN = /public\.ecr\.aws\/docker\/library\/([a-z0-9._-]+)(?::([A-Za-z0-9._-]+))?@(sha256:[0-9a-f]{64})/g;
 const POSTGRES = 'deploy/base/postgres/statefulset.yaml';
 
-/** Each image's pins, as where → tag@digest, from every file but prose. */
+/** Each image's pins, each as [file, tag@digest], from every file but prose: one file can pin an image twice. */
 function pins(read = (file: string) => readFileSync(file, 'utf-8')) {
   const files = execFileSync('git', ['grep', '-lE', 'public\\.ecr\\.aws/docker/library/', '--', ':!*.md'], {
     encoding: 'utf-8',
   });
-  const found = new Map<string, Map<string, string>>();
+  const found = new Map<string, [string, string][]>();
   for (const file of files.split('\n').filter(Boolean)) {
     for (const [, name = '', tag, digest] of read(file).matchAll(PIN)) {
       const image = tag
         ? `${name}:${tag.split(/[.-]/)[0]}${tag.includes('-') ? tag.slice(tag.indexOf('-')) : ''}`
         : name;
-      found.set(image, (found.get(image) ?? new Map()).set(file, `${tag ?? ''}@${digest}`));
+      found.set(image, [...(found.get(image) ?? []), [file, `${tag ?? ''}@${digest}`]]);
     }
   }
   return found;
 }
 
 const disagreeing = (found: ReturnType<typeof pins>) =>
-  [...found]
-    .filter(([, where]) => new Set(where.values()).size > 1)
-    .map(([image, where]) => [image, Object.fromEntries(where)]);
+  [...found].filter(([, where]) => new Set(where.map(([, pin]) => pin)).size > 1);
 
 describe("the pins of Docker's official images", () => {
   const found = pins();
@@ -48,9 +46,19 @@ describe("the pins of Docker's official images", () => {
     expect(disagreeing(found)).toEqual([]);
   });
 
+  it('disagree when one file pins an image twice, differently', () => {
+    const DOCKERFILE = 'apps/console/Dockerfile';
+    const twice = (file: string) => {
+      const source = readFileSync(file, 'utf-8');
+      const pinned = source.match(PIN)?.[0] ?? '';
+      return file === DOCKERFILE ? `${source}\nFROM ${pinned.replace(/[0-9a-f]{64}$/, '2'.repeat(64))}\n` : source;
+    };
+    expect(disagreeing(pins(twice)).map(([image]) => image)).toEqual(['node:24-alpine3.24']);
+  });
+
   it('pin Postgres once, in its StatefulSet', () => {
     const postgres = [...found].filter(([image]) => image.startsWith('postgres'));
-    expect(postgres.flatMap(([, where]) => [...where.keys()])).toEqual([POSTGRES]);
+    expect(postgres.flatMap(([, where]) => where.map(([file]) => file))).toEqual([POSTGRES]);
   });
 
   it("follow a Dependabot update of Postgres's one pin everywhere it runs", () => {
