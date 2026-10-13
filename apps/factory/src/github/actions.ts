@@ -223,8 +223,9 @@ const READY = `mutation($id: ID!) {
 }`;
 
 /**
- * A pull request's review threads, each with its comments. One page of each: the line posts at most two reviews of
- * twenty findings before Martin decides, and a thread here holds a finding and a reply or two.
+ * A pull request's review threads, each with its comments. One page of each: the line posts at most three reviews of
+ * twenty findings before Martin decides (two, and one after an approval's suggestions), and a thread here holds a
+ * finding and a reply or two.
  */
 const THREADS = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {

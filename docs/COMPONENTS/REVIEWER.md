@@ -40,7 +40,7 @@ Each is done in that order, so GitHub failing part way through never runs the re
 
 - **Blocking findings** go back to the coder's session, with the suggestions.
 - **An approval's suggestions** go back to the coder once in a pass, to take or decline, before the describer writes the change up ([the line](ORCHESTRATOR.md#build-gates-and-review)). The suggestions of an approval after that, or of one Martin gave, stay for him to resolve, and the review's body says so.
-- **After two reviews**, what still blocks holds for Martin, as does an escalation. His answer sends the work round again, his approval stands in for the reviewer's, and rejecting closes it ([holds](ORCHESTRATOR.md#holds-and-martins-answers)).
+- **After two reviews**, or the round for an approval's suggestions, what still blocks holds for Martin, as does an escalation. His answer sends the work round again, his approval stands in for the reviewer's, and rejecting closes it ([holds](ORCHESTRATOR.md#holds-and-martins-answers)).
 
 ## Counting the rules
 
