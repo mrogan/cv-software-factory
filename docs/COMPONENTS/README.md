@@ -125,3 +125,4 @@ The guardrails are defined in spec section 6. This table shows which component h
 | 8 | Inputs are untrusted | Typed Jev answers in [triage](TRIAGE.md); gates, scope fences and approval routing, not prompts |
 | 9 | Everything is reversible | Argo Rollouts rolls back a canary its analysis fails; `make stop-the-line` stops the agents and aborts a release in flight ([orchestrator](ORCHESTRATOR.md#stopping-the-line)) |
 | 10 | Public means hostile | Factory acts only on its own or Martin-labelled issues; `pull_request` only; GitHub-hosted runners |
+| 11 | No fix widens its ticket | Each criterion of the [planner's](PLANNER.md) spec names the evidence it comes from; a spec tagged `out-of-scope` holds for Martin in every autonomy mode ([approval routing](APPROVAL-ROUTING.md)); the [reviewer](REVIEWER.md) holds the spec and the diff to the ticket, and escalates a criterion the ticket does not ask for |
