@@ -144,7 +144,11 @@ describe('the coder', () => {
     const blocking = { ...suggested, findings: [{ ...unmetFinding }] };
     expect(fits({ declined: no(1, 2) }, blocking)).toBe(false);
     expect(fits({ title, note, declined: no(1) }, blocking)).toBe(true);
-    expect(fits({ unchanged: 'The quote is escaped already.' }, blocking)).toBe(true);
+    // Changing nothing there holds for Martin, and declines every suggestion, so no thread outlives his answer.
+    expect(fits({ unchanged: 'The quote is escaped already.' }, blocking)).toBe(false);
+    expect(fits({ unchanged: 'The quote is escaped already.', declined: no(1, 2) }, blocking)).toBe(true);
+    expect(fits({ unchanged: 'The quote is escaped already.' }, input)).toBe(true);
+    expect(coder.prompt({ ...blocking, session: 's' })).toContain('write {"unchanged","declined"}');
     // With no suggestions, there is nothing to decline.
     expect(fits({ title, note, declined: no(1) }, input)).toBe(false);
   });

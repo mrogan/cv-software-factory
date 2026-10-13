@@ -200,6 +200,15 @@ describe('what the line does next', () => {
     expect(decide(blocked, facts).next).toMatchObject({ do: 'return', blocking: 1 });
     const again = [...blocked, returned('review'), ...passed(2), suggesting('approved')];
     expect(decide(again, facts).next).toMatchObject({ do: 'return', suggestions: 1 });
+    // A coder that changes nothing when findings block declines every suggestion, and holds: his answer works as ever.
+    const unchanged = [...blocked, returned('review'), answered(1), held('review', 'review')];
+    expect(decide(unchanged, facts).next).toEqual({ do: 'wait', for: 'martin' });
+    expect(decide([...unchanged, answer('approved')], facts).next).toEqual({
+      do: 'step',
+      agent: 'describer',
+      round: 2,
+    });
+    expect(decide([...unchanged, answer('answered', 'Escape it')], facts).next).toMatchObject({ do: 'return' });
     // Once the change is written up, the suggestions stay for Martin.
     expect(decide([...first.slice(0, -1), review('approved'), summarised, suggesting('approved')], facts).next).toEqual(
       { do: 'hold', hold: expect.objectContaining({ cause: 'merge' }) },

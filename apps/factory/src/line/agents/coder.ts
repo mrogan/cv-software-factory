@@ -98,6 +98,8 @@ export function coderResult(suggestions = 0, alone = false) {
       z.strictObject({
         /** Why the coder changed nothing, for Martin. */
         unchanged: words(UNCHANGED_MAX),
+        /** Changing nothing, it declines every suggestion it was given, with why. */
+        declined: declined.optional(),
       }),
       /** Every suggestion declined, and nothing changed. */
       z.strictObject({ declined }),
@@ -107,6 +109,11 @@ export function coderResult(suggestions = 0, alone = false) {
       if (alone && 'unchanged' in result) {
         const message = 'a round for suggestions alone changes nothing by declining every one';
         ctx.addIssue({ code: 'custom', path: ['unchanged'], message });
+      }
+      // Changing nothing declines every suggestion, so that each thread is answered whatever Martin decides.
+      if ('unchanged' in result && suggestions && !alone && (result.declined?.length ?? 0) < suggestions) {
+        const message = 'a round that changes nothing declines every suggestion';
+        ctx.addIssue({ code: 'custom', path: ['declined'], message });
       }
       if (!('declined' in result) || !result.declined) return;
       result.declined.forEach(({ suggestion }, i) => {
@@ -120,7 +127,7 @@ export function coderResult(suggestions = 0, alone = false) {
           ctx.addIssue({ code: 'custom', path, message: `suggestion ${suggestion} is declined twice` });
         }
       });
-      if ('title' in result) return;
+      if ('title' in result || 'unchanged' in result) return;
       if (!alone) {
         const message = 'only a round sent back for suggestions alone may change nothing by declining them';
         ctx.addIssue({ code: 'custom', path: ['declined'], message });
@@ -170,6 +177,10 @@ const DECLINING =
 /** When a round sent back for suggestions alone may change nothing, and how it says so. */
 const DECLINE_ALL =
   'If you decline every suggestion, change nothing: leave the checkout as it is and write only {"declined"}, with each of them.';
+
+/** What a round that changes nothing says of its suggestions. */
+const UNCHANGED_DECLINES =
+  'Changing nothing declines every suggestion: write {"unchanged","declined"}, with each of them.';
 
 /** When a later round may change nothing, and how it says so. */
 const UNCHANGED = `Change nothing only if what sent the work back is not your change’s doing (a check fails on a defect your change uncovered and did not cause), or your change already does what is asked. Then leave the checkout as it is and write {"unchanged"} instead: at most ${UNCHANGED_MAX} characters, in plain sentences for Martin, on why. He decides what happens next.`;
@@ -245,7 +256,11 @@ function again(input: CoderInput): string[] {
       ]
     : suggestionsAlone(input)
       ? ['Take what you take inside the same scope, and run the tests again.', DECLINE_ALL]
-      : ['Put it right inside the same scope, and run the tests again.', ...(round > 1 ? [UNCHANGED] : [])];
+      : [
+          'Put it right inside the same scope, and run the tests again.',
+          ...(round > 1 ? [UNCHANGED] : []),
+          ...(round > 1 && suggestions?.length ? [UNCHANGED_DECLINES] : []),
+        ];
   const why = [...back, ...refused];
   const declining = suggestions?.length ? [DECLINING] : [];
   // Without its session, a round for suggestions alone is told the work, and that the fix is in and approved.
@@ -306,7 +321,13 @@ export const coder = defineAgent<CoderInput, CoderResult>({
       if (patch) throw new StepFailed('The coder said it changed nothing, but handed back a change');
       // Its next round, after Martin's answer, resumes the session that found nothing to change.
       await context.keepSession(handback.session);
-      return [holdDraft('coder', unchangedHold(state, result.unchanged))];
+      const hold = holdDraft('coder', unchangedHold(state, result.unchanged));
+      if (!suggestions.length) return [hold];
+      // Its suggestions are answered before the hold, so his approval leaves no thread open.
+      const pullRequest = need(state.pullRequest, 'a pull request').number;
+      const declined = result.declined ?? [];
+      await answerDeclined(context, pullRequest, suggestions, declined);
+      return [answeredDraft(pullRequest, suggestions, declined), hold];
     }
     if (!('title' in result)) {
       if (patch) throw new StepFailed('The coder declined every suggestion, but handed back a change');
