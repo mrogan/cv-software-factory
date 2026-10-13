@@ -73,7 +73,7 @@ flowchart TD
 ### Taking them
 
 - **Which pages:** every page of the shop on each Service (the pages the traffic generator finds from the front door, at most sixty, full page to 1600 pixels).
-- **Boxed pages first:** the pages where a sense boxed a finding come first, with those elements boxed on both versions. Each box is indexed with the element it was drawn round.
+- **Boxed pages first:** the pages where a sense boxed a finding come first, with those elements boxed on both versions: every one, however many checks boxed the page, since the line keeps only a ticket's own ([Verify](RELEASE-AND-VERIFY.md#pictures)). Each box is indexed with the element it was drawn round.
 - **Compared** pixel by pixel (`pictures/`, pixelmatch).
 - **Not judged:** its requests send `x-unmeasured` too, so they are not judged with the canary's visitors.
 - **Recorded** once both versions are seen unmoved. A promotion or rollback while a page is taken drops it and ends the pass, and a page missed is tried again, three passes in all.
