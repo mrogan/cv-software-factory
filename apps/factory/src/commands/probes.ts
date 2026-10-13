@@ -6,8 +6,10 @@
  *
  * `run` looks at the app every few minutes, and at once when its version changes, and leaves a signal in the inbox
  * for each check that has failed twice in a row. `once` runs every check one time and prints what each found,
- * writing nothing to the inbox: for developing a probe. Its requests carry `UNMEASURED`, so they count in none of the
- * app's figures: the objectives and a canary's analysis judge the visitors' requests and the traffic generator's alone.
+ * writing nothing to the inbox: for developing a probe. Its requests carry `UNMEASURED`, so on the app's Service they
+ * count in none of the app's figures: the objectives and a canary's analysis judge the visitors' requests and the
+ * traffic generator's alone. Through Traefik, whose public route removes the header, as from the host, they count like
+ * a visitor's.
  *
  * `run` also serves the page reader for triage (`POST /v1/pages` with a path, and `GET /health`) on PORT, 8080 by
  * default; and for the line's Verify, on VERIFY_PORT, 8081 by default, runs a ticket's probe or crawl again

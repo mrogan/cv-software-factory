@@ -7,8 +7,9 @@
  *
  * `run` crawls every few minutes, and at once when the app's version changes, and leaves a signal in the inbox for
  * each check that has failed twice in a row. `once` crawls one time and prints what it found, writing nothing to the
- * inbox: for developing a check. Its requests carry `UNMEASURED`, so they count in none of the app's figures: the
- * objectives and a canary's analysis judge the visitors' requests and the traffic generator's alone.
+ * inbox: for developing a check. Its requests carry `UNMEASURED`, so on the app's Service they count in none of the
+ * app's figures: the objectives and a canary's analysis judge the visitors' requests and the traffic generator's
+ * alone. Through Traefik, whose public route removes the header, as from the host, they count like a visitor's.
  *
  * Settings, from the environment: APP_URL, the app's address; ARTIFACTS_DIR, the artifact store's folder (`once`
  * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as the factory's
