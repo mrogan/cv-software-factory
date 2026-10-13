@@ -41,7 +41,7 @@ export type {
 export { whileSending } from './line.ts';
 export type { Card, Picture, Segment, Source, Tag, Timeline, Versions } from './reel.ts';
 export { QUARANTINE_AT, segmentsLabel } from './reel.ts';
-export type { CanaryView, Carried, End, Measured, Release, Step } from './release.ts';
+export type { CanaryView, Carried, End, Measured, Release, Signalled, Step } from './release.ts';
 export type {
   After,
   AgentRow,

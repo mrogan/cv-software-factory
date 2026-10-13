@@ -1,9 +1,10 @@
 /**
  * Releases that carry no work item, Martin's own commits, and so are the line's: one that the canary rolled back
- * before any step was measured, with no series to keep, which opened #1308; one stopped with the line; and the next,
- * promoted, which brought #1306's error back.
+ * before any step was measured, with no series to keep, which opened #1308; a build of one commit that rolled back the
+ * same way, whose signal joined #1308; one stopped with the line; and the next, promoted, which brought #1306's error
+ * back.
  */
-import { Item, releaseFor, started, stepped } from '../build.ts';
+import { commitFor, Item, releaseFor, started, stepped } from '../build.ts';
 
 /** How the analysis says a measure failed its release, in Argo Rollouts' words. */
 const FAILED = 'Metric "latency" assessed Failed due to failed (2) > failureLimit (1)';
@@ -21,6 +22,9 @@ export const V099_LATENCY = {
   message: FAILED,
 } as const;
 
+/** The build of one of Martin's commits that rolled back on Monday evening, as v0.9.9 had. */
+export const EVENING = commitFor('martin:monday-evening');
+
 export default new Item(null, '2026-10-05T00:00:00+01:00', 'line/releases')
   // Monday: three minutes into the 25% step, latency fails its second look, and the canary rolls back.
   .at(
@@ -34,6 +38,24 @@ export default new Item(null, '2026-10-05T00:00:00+01:00', 'line/releases')
     release: releaseFor('v0.9.9'),
     version: 'v0.9.9',
     restored: 'v0.9.8',
+    weight: 25,
+    reason: FAILED,
+    failed: [V099_LATENCY],
+    dryRun: false,
+  })
+  // Monday evening: a build of one of Martin's commits fails latency the same way. #1308 is still open, so triage
+  // adds the rollback's signal to it rather than opening another ticket.
+  .at(
+    '18:40:00',
+    'release.started',
+    'rollouts',
+    `${EVENING.slice(0, 7)} signed and admitted; canary started`,
+    started(EVENING, 'v0.9.10'),
+  )
+  .at('18:43:10', 'release.rolled-back', 'rollouts', `Rolled back at 25%: ${FAILED}`, {
+    release: releaseFor(EVENING),
+    version: EVENING,
+    restored: 'v0.9.10',
     weight: 25,
     reason: FAILED,
     failed: [V099_LATENCY],

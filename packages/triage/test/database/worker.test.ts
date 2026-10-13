@@ -94,7 +94,7 @@ const types = (item: string) =>
   );
 
 describe('triage', () => {
-  it('opens a ticket for a new fingerprint, adds each other sense’s evidence once, and counts the rest', async () => {
+  it('opens a ticket for a new fingerprint, adds each sense’s evidence once a version, counts the rest', async () => {
     await sendSignal(writer, found());
     expect(await triage().takeOne()).toBe('opened');
     const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
@@ -111,6 +111,12 @@ describe('triage', () => {
     ]);
     expect((await types(item)).filter((t) => t === 'signal.received')).toHaveLength(2);
     expect(await triage().takeOne()).toBe('idle');
+
+    // A new version of the app with the same defect: each sense that sees it there adds its evidence again, once.
+    await sendSignal(writer, found({ version: 'd03afe9' }));
+    await sendSignal(writer, found({ version: 'd03afe9' }));
+    expect([await triage().takeOne(), await triage().takeOne()]).toEqual(['evidence', 'counted']);
+    expect((await types(item)).filter((t) => t === 'signal.received')).toHaveLength(3);
   });
 
   it('numbers work items from the store, and counts a route’s signal on a ticket for every page', async () => {
@@ -177,8 +183,16 @@ describe('triage', () => {
         /^The canary’s analysis found it on routes it could not narrow to one in version c{40}/,
       );
 
-      // The next release that carries the defect fails the same way: the same ticket.
-      await sendSignal(writer, rollback({ observedAt: '2026-10-04T11:00:00.000Z' }));
+      // The next release that carries the defect fails the same way: the same ticket, which records that release.
+      const next = 'd'.repeat(40);
+      await sendSignal(writer, rollback({ version: next, observedAt: '2026-10-04T11:00:00.000Z' }));
+      expect(await triage().takeOne()).toBe('evidence');
+      const versions = await writer<{ version: string }[]>`
+        select payload->>'version' as version from events where work_item = ${item} and type = 'signal.received'
+        order by seq`;
+      expect(versions.map((v) => v.version)).toEqual(['c'.repeat(40), next]);
+      // The same release's signal again is only counted.
+      await sendSignal(writer, rollback({ version: next, observedAt: '2026-10-04T11:05:00.000Z' }));
       expect(await triage().takeOne()).toBe('counted');
     });
 
@@ -279,8 +293,11 @@ describe('triage', () => {
       expect(inbox).toEqual({ outcome: 'reopened', work_item: item });
 
       // Open again, it dedupes as any open ticket does: the same sense is counted, another's evidence joins once.
-      await sendSignal(writer, again({ route: '/reopen' }));
-      await sendSignal(writer, again({ route: '/reopen', sense: 'probe', check: 'every link leads somewhere' }));
+      await sendSignal(writer, again({ route: '/reopen', version: 'd03afe9' }));
+      await sendSignal(
+        writer,
+        again({ route: '/reopen', version: 'd03afe9', sense: 'probe', check: 'every link leads somewhere' }),
+      );
       expect([await triage().takeOne(), await triage().takeOne()]).toEqual(['counted', 'evidence']);
     });
 

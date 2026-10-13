@@ -6,7 +6,7 @@ import type { Sense, Stage } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { describe, STAGE_NAME, STATE } from '../../../../../docs/design/system/station.ts';
-import { clock, duration } from '../format.ts';
+import { clock, duration, shortVersion } from '../format.ts';
 import {
   type CapSpell,
   type Return,
@@ -334,8 +334,8 @@ function Sources({ senses }: { senses: SenseCount[] }) {
         ))}
       </div>
       <p className="help">
-        A signal counts here when it opened a ticket or added a sense’s evidence to one. A sense seeing an open ticket’s
-        problem again is counted by the inbox, not here.
+        A signal counts here when it opened a ticket or added a sense’s evidence to one, once a version. The rest are
+        counted by the inbox, not here.
       </p>
     </div>
   );
@@ -438,7 +438,9 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
         row.release ? (
           // A release with no work item has no sheet to open: its row is the Canary panel's in one line.
           <div key={`${row.item}-${row.at}`} className="srow">
-            <span className="id">{row.item}</span>
+            <span className="id" title={row.item}>
+              {shortVersion(row.item)}
+            </span>
             <span>
               {row.title}
               <small className={`tone-${row.tone}`}>{row.note}</small>

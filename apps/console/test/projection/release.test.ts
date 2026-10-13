@@ -11,6 +11,8 @@ import { type Failed, MEASURES, ownWords, type Release, releases, sawOf } from '
 import { END, SAMPLES, work } from './support.ts';
 
 const at = (iso: string) => Date.parse(iso);
+/** The build of one of Martin's commits that rolled back on Monday evening, as v0.9.9 had (the samples' `line.ts`). */
+const EVENING = 'efef168f4eec299dfc27c8fc78477ce28379b38d';
 const shown = (t: number) => {
   const view = project(SAMPLES, t);
   return { view, canary: view.canary, station: view.stations.find((s) => s.stage === 'release') };
@@ -53,10 +55,25 @@ describe('the Canary panel, from the samples', () => {
     expect(canary.state === 'shown' && canary.release).toMatchObject({
       version: 'v0.9.9',
       measured: [],
-      end: { kind: 'rolled-back', weight: 25, ticket: { number: '1308', title: 'Slow responses in a canary release' } },
+      end: {
+        kind: 'rolled-back',
+        weight: 25,
+        ticket: { number: '1308', title: 'Slow responses in a canary release', how: 'opened' },
+      },
     });
     expect(view.panels.release.rows).toContainEqual(
       expect.objectContaining({ item: 'v0.9.9', note: 'rolled back at 25% · opened #1308', tone: 'attn' }),
+    );
+  });
+
+  it('links a later rollback whose signal joined that ticket, still open, to it, saying so', () => {
+    const { view, canary } = shown(at('2026-10-05T17:45:00Z'));
+    expect(canary.state === 'shown' && canary.release).toMatchObject({
+      version: EVENING,
+      end: { kind: 'rolled-back', weight: 25, ticket: { number: '1308', how: 'joined' } },
+    });
+    expect(view.panels.release.rows).toContainEqual(
+      expect.objectContaining({ item: EVENING, note: 'rolled back at 25% · added it to #1308', tone: 'attn' }),
     );
   });
 
@@ -98,7 +115,7 @@ describe('the timeline, from the samples', () => {
   it('marks every version the shop was left on, in order, a rollback and a stop struck through', () => {
     expect(timeline.versions.map((v) => (v.rolledBack ? `~${v.version}~` : v.version))).toEqual([
       ...['v0.8.4', 'v0.8.5', 'v0.9.0', '~v0.9.1~', 'v0.9.2', 'v0.9.3', 'v0.9.5', 'v0.9.7', 'v0.9.8'],
-      ...['~v0.9.9~', 'v0.9.10', '~v0.9.11~', 'v0.9.12'],
+      ...['~v0.9.9~', 'v0.9.10', `~${EVENING}~`, '~v0.9.11~', 'v0.9.12'],
     ]);
     const places = timeline.versions.map((v) => v.at);
     expect(places).toEqual([...places].sort((a, b) => a - b));
@@ -117,7 +134,7 @@ describe('the timeline, from the samples', () => {
     }
     expect(mark('v0.9.11')?.at).toBeLessThan(mark('v0.9.12')?.at ?? 0);
     const alone = releases(SAMPLES, [], END).filter((r) => r.end && !r.dryRun && !r.items.length);
-    expect(alone.map((r) => r.version)).toEqual(['v0.9.9', 'v0.9.11', 'v0.9.12']);
+    expect(alone.map((r) => r.version)).toEqual(['v0.9.9', EVENING, 'v0.9.11', 'v0.9.12']);
     expect(new Set([...timeline.positions, ...timeline.versions.map((v) => v.at)]).size).toBe(
       cards.length + alone.length,
     );
