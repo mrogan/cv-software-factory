@@ -33,7 +33,7 @@ flowchart LR
   gates -- fail --> build
   gates -- pass --> review[Review]
   review -- blocking findings --> build
-  review -- approved, described --> merge{{Martin merges}}
+  review -- approved, described --> merge{{Merge}}
   merge --> release[Release]
   release -- promoted --> verify[Verify]
   verify -- cleared --> closed([Closed as verified])

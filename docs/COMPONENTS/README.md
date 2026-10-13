@@ -14,7 +14,10 @@ Each component has a page: its purpose, its v1 choice and, where useful, what it
 | **Private** | The correct app, defect patches, answer key, injector catalogue, environment settings | Never reachable by agents |
 
 ```mermaid
-flowchart LR
+flowchart TB
+  subgraph runtime [Runtime plane]
+    argo[Argo CD] --> app[The app] --> telemetry[Telemetry]
+  end
   subgraph factory [Factory plane]
     senses[Senses] --> triage[Triage] --> line[The line]
     line --> runners[Agent runners] --> gateway[LLM gateway]
@@ -25,16 +28,13 @@ flowchart LR
   subgraph github [GitHub plane]
     repos[Repositories, rulesets and gates]
   end
-  subgraph runtime [Runtime plane]
-    argo[Argo CD] --> app[The app] --> telemetry[Telemetry]
-  end
   subgraph private [Private plane]
     key[Answer key]
   end
-  worker -- pull requests --> repos
-  repos -- "Martin merges, Argo CD pulls" --> argo
   app -- probed --> senses
   telemetry -- read --> senses
+  worker -- pull requests --> repos
+  repos -- "Argo CD pulls main" --> argo
   gateway --> providers((Model providers))
   key -. "ids and fingerprints, at make up" .-> scoreboard
 ```

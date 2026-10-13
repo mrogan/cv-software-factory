@@ -7,8 +7,8 @@ The line after the merge: which release ships a fix, and whether the defect has 
 
 ```mermaid
 flowchart LR
-  merged([Martin merges the fix]) -- "not a dry run's" --> held[Held at Release: deploy]
-  held -- Martin merges the deploy pull request --> started[release.started]
+  merged([The fix merges]) -- "not a dry run's" --> held[Held at Release: deploy]
+  held -- the deploy pull request merges --> started[release.started]
   started --> stepped[canary.stepped, per step]
   stepped --> promoted[release.promoted]
   started -- "an analysis fails" --> rolledback[release.rolled-back]
