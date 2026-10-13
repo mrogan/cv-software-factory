@@ -18,7 +18,7 @@ import {
   secondsOf,
   type Target,
 } from '../../src/release/watch.ts';
-import { CANARY, commitOf, digestOf, rollout, run, STABLE } from './fixtures.ts';
+import { CANARY, commitOf, digestOf, releaseOf, rollout, run, STABLE } from './fixtures.ts';
 
 /**
  * A store of release events, as the line keeps it: each pass appends what `releaseEvents` drafts, and the next pass
@@ -63,7 +63,7 @@ const STABLE_RECORDED = [
     target: null,
     type: 'release.started',
     payload: {
-      release: STABLE,
+      release: releaseOf(STABLE),
       version: commitOf(STABLE),
       previous: commitOf(STABLE),
       commit: commitOf(STABLE),
@@ -77,7 +77,7 @@ const STABLE_RECORDED = [
     target: null,
     type: 'release.promoted',
     payload: {
-      release: STABLE,
+      release: releaseOf(STABLE),
       version: commitOf(STABLE),
       previous: commitOf(STABLE),
       commit: commitOf(STABLE),
@@ -102,7 +102,7 @@ describe('a release, from the Rollout and its runs', () => {
     const up = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
     const first = s.pass(up, [background()]);
     // The image's commit, its signature and what it carries are read only now that the release is to be recorded.
-    expect(first.needs.start).toMatchObject({ release: CANARY, digest: digestOf(CANARY), found: false });
+    expect(first.needs.start).toMatchObject({ release: releaseOf(CANARY), digest: digestOf(CANARY), found: false });
     expect(first.said).toEqual({});
     expect(s.pass(up, [background()], { start: START }).said).toEqual({
       1001: ['release.started'],
@@ -110,7 +110,7 @@ describe('a release, from the Rollout and its runs', () => {
     });
     expect(s.of('1001', 'release.started')).toEqual([
       {
-        release: CANARY,
+        release: releaseOf(CANARY),
         version: commitOf(CANARY),
         previous: commitOf(STABLE),
         commit: commitOf(CANARY),
@@ -174,7 +174,7 @@ describe('a release, from the Rollout and its runs', () => {
     });
     expect(s.of('1006', 'canary.stepped')).toEqual([
       {
-        release: CANARY,
+        release: releaseOf(CANARY),
         version: commitOf(CANARY),
         weight: 25,
         analysis: {
@@ -202,7 +202,7 @@ describe('a release, from the Rollout and its runs', () => {
     expect(s.pass(done, all).said).toEqual({ 1001: ['release.promoted'], 1006: ['release.promoted'] });
     expect(s.of('1001', 'release.promoted')).toEqual([
       {
-        release: CANARY,
+        release: releaseOf(CANARY),
         version: commitOf(CANARY),
         previous: commitOf(STABLE),
         commit: commitOf(CANARY),
@@ -243,7 +243,9 @@ describe('a release, from the Rollout and its runs', () => {
     s.pass(rollout({ current: CANARY, stable: CANARY }), [background(), step(2), step(5)]);
     expect(
       s.log
-        .filter((e) => e.work_item === null && e.payload && (e.payload as { release: string }).release === CANARY)
+        .filter(
+          (e) => e.work_item === null && e.payload && (e.payload as { release: string }).release === releaseOf(CANARY),
+        )
         .map((e) => e.type),
     ).toEqual(['release.started', 'canary.stepped', 'canary.stepped', 'release.promoted']);
   });
@@ -281,7 +283,7 @@ describe('a release, from the Rollout and its runs', () => {
     expect(said).toEqual({ 1001: ['release.rolled-back'], 1006: ['release.rolled-back'] });
     expect(s.of('1001', 'release.rolled-back')).toEqual([
       {
-        release: CANARY,
+        release: releaseOf(CANARY),
         version: commitOf(CANARY),
         restored: commitOf(STABLE),
         weight: 25,
@@ -394,7 +396,7 @@ describe('a release, from the Rollout and its runs', () => {
     const settled = rollout({ current: CANARY, stable: CANARY });
     const runs = [background({ phase: 'Successful' }), step(2), step(5)];
     expect(s.pass(settled, runs).needs.start).toEqual({
-      release: CANARY,
+      release: releaseOf(CANARY),
       digest: digestOf(CANARY),
       found: true,
       previous: undefined,
@@ -407,7 +409,7 @@ describe('a release, from the Rollout and its runs', () => {
     ]);
     expect(s.of('1006', 'release.started')).toEqual([
       {
-        release: CANARY,
+        release: releaseOf(CANARY),
         version: commitOf(CANARY),
         // The line never saw the version it replaced.
         previous: commitOf(CANARY),
@@ -432,6 +434,139 @@ describe('a release, from the Rollout and its runs', () => {
     });
     expect([...drafts.keys()]).toEqual([null]);
     expect(s.of(null, 'release.promoted')).toMatchObject([{ previous: commitOf(STABLE), watched: false }]);
+  });
+});
+
+describe('a release of a version released before', () => {
+  /** CANARY released over STABLE and promoted, on the work items it carries. */
+  function promoted(carries = ['1001']) {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], {
+      start: { ...START, carries },
+    });
+    const runs = [background({ phase: 'Successful', completed: t(8) }), step(2), step(5)];
+    s.pass(rollout({ current: CANARY, stable: CANARY }), runs);
+    return { s, runs };
+  }
+  const BACK: Start = { commit: commitOf(STABLE), signed: true, carries: ['1010'] };
+
+  it('is a release of its own: the same hash at a later revision', () => {
+    const { s, runs } = promoted();
+    // STABLE pinned again: Argo Rollouts gives it its old hash and the next revision.
+    const before = [...runs, step(2, { hash: STABLE, stable: 'aaaaaaaaaa' })];
+    const now = [
+      ...before,
+      run({ hash: STABLE, revision: 5, stable: CANARY, step: 2, created: t(20), completed: t(21) }),
+    ];
+    const canary = rollout({ current: STABLE, stable: CANARY, revision: 5, stepIndex: 3, weight: 25 });
+    const { needs } = s.pass(canary, now);
+    expect(needs.start).toMatchObject({
+      release: `${STABLE}-5`,
+      found: false,
+      previous: { release: releaseOf(CANARY) },
+    });
+    // Its one step is its own: the step of STABLE's first release, still in the cluster, is not.
+    expect(s.pass(canary, now, { start: BACK }).said).toEqual({ 1010: ['release.started', 'canary.stepped'] });
+    expect(s.of('1010', 'release.started')).toMatchObject([
+      { release: `${STABLE}-5`, version: commitOf(STABLE), previous: commitOf(CANARY), watched: true },
+    ]);
+    const back = rollout({ current: STABLE, stable: STABLE, revision: 5 });
+    expect(s.pass(back, now).said).toEqual({ 1010: ['release.promoted'] });
+    expect(s.pass(back, now).said).toEqual({});
+    // The release after it replaces STABLE as this release left it.
+    const next = s.pass(rollout({ current: CANARY, stable: STABLE, revision: 6, stepIndex: 1, weight: 25 }), now);
+    expect(next.needs.start).toMatchObject({ release: `${CANARY}-6`, previous: { release: `${STABLE}-5` } });
+  });
+
+  it('after a rollback, is a release of its own and no retry, and the stable version taking the next revision is none', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+    const failed = step(2, { phase: 'Failed', metrics: { errors: { phase: 'Failed', value: '[0.03]' } } });
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 2, abort: true }), [background(), failed]);
+    expect(s.of('1001', 'release.rolled-back')).toHaveLength(1);
+    // STABLE pinned again: the Rollout goes back to it with no canary, at the next revision. Nothing was released.
+    const back = s.pass(rollout({ current: STABLE, stable: STABLE, revision: 5 }), [background(), failed]);
+    expect(back.needs.start).toBeUndefined();
+    expect(back.said).toEqual({});
+    // CANARY pinned again, at the revision after: a release of its own, whose runs are its own.
+    const runs = [background(), failed, background({ revision: 6, created: t(30) })];
+    const again = rollout({ current: CANARY, stable: STABLE, revision: 6, stepIndex: 1, weight: 25 });
+    expect(
+      s
+        .pass(again, runs, { start: START })
+        .drafts.get('1001')
+        ?.map((d) => [d.type, d.summary]),
+    ).toEqual([['release.started', `${commitOf(CANARY).slice(0, 7)} signed and admitted; canary started`]]);
+    expect(s.of('1001', 'release.started').map((p) => (p as PayloadOf<'release.started'>).release)).toEqual([
+      releaseOf(CANARY),
+      `${CANARY}-6`,
+    ]);
+    // Aborted with none of its own runs failed, it records nothing: the earlier failure was the earlier release's.
+    const aborted = rollout({ current: CANARY, stable: STABLE, revision: 6, stepIndex: 1, abort: true });
+    expect(s.pass(aborted, runs).said).toEqual({});
+  });
+
+  it('is found live when the line missed all of it, not taken for an earlier release of its image that rolled back', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+    const failed = step(2, { phase: 'Failed', metrics: { errors: { phase: 'Failed', value: '[0.03]' } } });
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 2, abort: true }), [background(), failed]);
+    // CANARY pinned again, released and promoted while the line was down.
+    const { needs, said } = s.pass(rollout({ current: CANARY, stable: CANARY, revision: 6 }), [background(), failed]);
+    expect(needs.start).toMatchObject({ release: `${CANARY}-6`, found: true });
+    expect(said).toEqual({});
+  });
+
+  it('reads no revision until the status has caught up with the spec', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true }), [background()]);
+    // A new image pinned: the revision is the new version's, while the status still names the aborted canary.
+    const behind = rollout({ current: CANARY, stable: STABLE, revision: 5, stepIndex: 1, weight: 25, behind: true });
+    expect(s.pass(behind, [background()], { start: START }).needs.start).toBeUndefined();
+  });
+
+  it('reads a release recorded by its hash alone, before releases were named by revision, as it was then', () => {
+    const legacy = (release: string, payload: unknown) => ({ ...(payload as object), release });
+    const s = store([
+      ...STABLE_RECORDED.map((e) => ({ ...e, payload: legacy(STABLE, e.payload) })),
+      {
+        target: '1001',
+        type: 'release.started',
+        payload: legacy(CANARY, {
+          version: commitOf(CANARY),
+          previous: commitOf(STABLE),
+          commit: commitOf(CANARY),
+          image: { digest: digestOf(CANARY), signed: true, admitted: true },
+          watched: true,
+          steps: null,
+          dryRun: false,
+        }),
+      },
+    ]);
+    // In flight when the line began naming releases by revision: it goes on under its old name.
+    const runs = [background(), step(2)];
+    const at25 = rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 });
+    expect(s.pass(at25, runs).said).toEqual({ 1001: ['canary.stepped'] });
+    expect(s.pass(rollout({ current: CANARY, stable: CANARY }), runs).said).toEqual({ 1001: ['release.promoted'] });
+    expect(s.of('1001', 'release.promoted')).toMatchObject([{ release: CANARY }]);
+    // Promoted, its hash pinned again later is a release of its own.
+    const back = s.pass(rollout({ current: STABLE, stable: CANARY, revision: 5, stepIndex: 1, weight: 25 }), runs);
+    expect(back.needs.start).toMatchObject({ release: `${STABLE}-5`, previous: { release: CANARY } });
+  });
+
+  it('starts a release of its own over one recorded by its hash alone that rolled back', () => {
+    const legacy = (release: string, payload: unknown) => ({ ...(payload as object), release });
+    const failed = step(2, { phase: 'Failed', metrics: { errors: { phase: 'Failed', value: '[0.03]' } } });
+    const s = store(STABLE_RECORDED.map((e) => ({ ...e, payload: legacy(STABLE, e.payload) })));
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 2, abort: true }), [background(), failed]);
+    // As the line recorded it before the revision: renamed to its hash alone.
+    for (const e of s.log) {
+      if ((e.payload as { release: string }).release === releaseOf(CANARY)) e.payload = legacy(CANARY, e.payload);
+    }
+    const again = rollout({ current: CANARY, stable: STABLE, revision: 6, stepIndex: 1, weight: 25 });
+    expect(s.pass(again, [background(), failed]).needs.start).toMatchObject({ release: `${CANARY}-6` });
   });
 });
 

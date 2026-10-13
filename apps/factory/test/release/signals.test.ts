@@ -6,13 +6,13 @@ import { validateSignal } from '@software-factory/events/schemas';
 import { describe, expect, it } from 'vitest';
 import { canarySignal, failedMeasures, JOURNEY_FALLBACK } from '../../src/release/signals.ts';
 import { observe, recordedFrom } from '../../src/release/watch.ts';
-import { CANARY, commitOf, digestOf, rollout, run, STABLE } from './fixtures.ts';
+import { CANARY, commitOf, digestOf, releaseOf, rollout, run, STABLE } from './fixtures.ts';
 
 const T0 = '2026-10-11T09:00:00Z';
 const FAILED_AT = '2026-10-11T09:03:00Z';
 
 /** The release, as the line recorded it starting: watched, or found live. */
-const recorded = (release = CANARY, watched = true) =>
+const recorded = (release = releaseOf(CANARY), watched = true) =>
   recordedFrom([
     {
       work_item: '1290',
@@ -20,10 +20,10 @@ const recorded = (release = CANARY, watched = true) =>
       type: 'release.started',
       payload: {
         release,
-        version: commitOf(release),
+        version: commitOf(CANARY),
         previous: commitOf(STABLE),
-        commit: commitOf(release),
-        image: { digest: digestOf(release), signed: true, admitted: true },
+        commit: commitOf(CANARY),
+        image: { digest: digestOf(CANARY), signed: true, admitted: true },
         watched,
         dryRun: false,
       },
@@ -74,10 +74,21 @@ describe('a rollback’s signals', () => {
   it('are only of a release the line watched start: an older run, or a found-live release’s, was before it', () => {
     const older = run({ hash: 'oldrelease1', created: T0, completed: FAILED_AT, phase: 'Failed' });
     expect(failedMeasures(observe(aborted, [older]), recorded())).toEqual([]);
+    // A run of an earlier release of the same version, at an earlier revision, is that release's.
+    const earlier = run({
+      revision: 2,
+      created: T0,
+      completed: FAILED_AT,
+      phase: 'Failed',
+      metrics: { errors: { phase: 'Failed', value: '[0.0119]' } },
+    });
+    expect(failedMeasures(observe(aborted, [earlier]), recorded())).toEqual([]);
+    // A release recorded by its hash alone, before releases were named by revision, has every run of its hash.
+    expect(failedMeasures(observe(aborted, [earlier]), recorded(CANARY))).toHaveLength(1);
     // A release found live was out before the line watched: a run that failed an earlier attempt of it was too.
     const live = rollout({ current: CANARY, stable: CANARY });
-    expect(failedMeasures(observe(live, [failed]), recorded(CANARY, false))).toEqual([]);
-    expect(failedMeasures(observe(live, [failed]), recorded(CANARY, true))).toHaveLength(3);
+    expect(failedMeasures(observe(live, [failed]), recorded(releaseOf(CANARY), false))).toEqual([]);
+    expect(failedMeasures(observe(live, [failed]), recorded(releaseOf(CANARY), true))).toHaveLength(3);
   });
 
   it('name the symptom class each measure stands for, on the one route where the canary did worse, or every route', () => {
@@ -100,7 +111,7 @@ describe('a rollback’s signals', () => {
     expect(one.signal.evidence).toEqual([
       {
         kind: 'canary',
-        release: CANARY,
+        release: releaseOf(CANARY),
         version: commitOf(CANARY),
         against: commitOf(STABLE),
         measure: { name: 'latency', phase: 'failed', value: 0.247, limit: 0 },

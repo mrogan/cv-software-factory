@@ -64,10 +64,14 @@ export const artifactRef = z.discriminatedUnion('kind', [
 ]);
 
 /**
- * A release, as its events name it: in the cluster, the pod-template hash Argo Rollouts gives the canary, which the
- * telemetry and the analysis tell the versions apart by. A dry run's release names itself.
+ * A release, as its events name it: in the cluster, `<hash>-<revision>`, the pod-template hash Argo Rollouts gives the
+ * canary, which the telemetry and the analysis tell the versions apart by, and the Rollout's revision, so a later
+ * release of the same image is a release of its own. One recorded before the revision is its hash alone. A dry run's
+ * release names itself.
  */
-const releaseId = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, 'a release, such as the canary’s pod-template hash');
+const releaseId = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, 'a release, such as the canary’s pod-template hash and revision');
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'an image digest');
 
 /**

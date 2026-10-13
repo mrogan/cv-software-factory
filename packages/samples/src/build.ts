@@ -134,12 +134,18 @@ export const PAGES = [
   ['Contact', '/contact', 'contact'],
 ] as const;
 
-/** The letters Kubernetes makes a pod-template hash of, which names a release. */
+/** The letters Kubernetes makes a pod-template hash of, which names a release with the Rollout's revision. */
 const HASH_LETTERS = 'bcdfghjklmnpqrstvwxz2456789';
 
-/** A release's name, as a canary's pod-template hash looks. */
-export const releaseFor = (version: string) =>
-  [...Buffer.from(hex(`release:${version}`, 20), 'hex')].map((byte) => HASH_LETTERS[byte % 27]).join('');
+/**
+ * A release's name, as the line names one: a canary's pod-template hash, and the Rollout's revision, which counts up
+ * with the version (v0.9.13's is 913).
+ */
+export const releaseFor = (version: string) => {
+  const hash = [...Buffer.from(hex(`release:${version}`, 20), 'hex')].map((byte) => HASH_LETTERS[byte % 27]).join('');
+  const [, minor = 0, patch = 0] = version.match(/(\d+)\.(\d+)$/) ?? [];
+  return `${hash}-${Number(minor) * 100 + Number(patch)}`;
+};
 
 /**
  * The canary's steps, as the app's Rollout has them (its deploy/base/rollout.yaml): a quarter of the traffic for three

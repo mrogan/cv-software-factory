@@ -23,7 +23,7 @@ import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/eve
 import { uuidFrom } from '@software-factory/triage';
 import type { Regression } from '../gates/journeys.ts';
 import type { AnalysisRun, RoutesWorse } from './read.ts';
-import { failuresOf, measuresOf, type Observed, type Recorded, type Series, short } from './watch.ts';
+import { measuresOf, type Observed, type Recorded, recordOf, type Series, short } from './watch.ts';
 
 type Started = PayloadOf<'release.started'>;
 type Measure = PayloadOf<'canary.stepped'>['analysis']['measures'][number];
@@ -50,15 +50,14 @@ export interface FailedMeasure {
 
 /** Every failed measure that sends a signal, in the runs of the releases the line recorded, oldest run first. */
 export function failedMeasures(o: Observed, recorded: Recorded): FailedMeasure[] {
-  return [...recorded].flatMap(([name, targets]) => {
-    const started = [...targets.values()][0]?.started;
+  return o.runs.flatMap((run) => {
+    if (run.status.phase !== 'Failed') return [];
+    const started = [...(recordOf(recorded, run)?.values() ?? [])][0]?.started;
     // A release found live was out before the line watched it: its runs, failed or not, are from before.
     if (!started?.watched) return [];
-    return failuresOf(o, name).flatMap((run) =>
-      measuresOf(run)
-        .filter((measure) => measure.phase === 'failed' && SYMPTOMS[measure.name] !== undefined)
-        .map((measure) => ({ run, measure, started })),
-    );
+    return measuresOf(run)
+      .filter((measure) => measure.phase === 'failed' && SYMPTOMS[measure.name] !== undefined)
+      .map((measure) => ({ run, measure, started }));
   });
 }
 

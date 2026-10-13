@@ -50,9 +50,10 @@ import {
   type Figures,
   measuresOf,
   type Needs,
-  named,
+  namedReleases,
   type Observed,
   observe,
+  podHashes,
   type Recorded,
   recordedFrom,
   releaseEvents,
@@ -132,7 +133,7 @@ export class Releases {
       return;
     }
     const o = observe(read.rollout, read.runs);
-    const recorded = recordedFrom(await this.#recorded(named(o)));
+    const recorded = recordedFrom(await this.#recorded(podHashes(o), true));
     const needs = releaseNeeds(o, recorded);
     const start = needs.start && (await this.#start(needs.start));
     const lastPromoted = needs.start && (await this.#lastPromoted());
@@ -151,7 +152,7 @@ export class Releases {
     for (const run of needs.failures) {
       const hashes = hashesOf(run);
       const at = run.status.completedAt;
-      const from = startOf(o, hashes?.canary ?? '');
+      const from = startOf(o, run);
       if (!hashes || !at || !from) continue;
       for (const measure of measuresOf(run).filter((m) => m.phase === 'failed')) {
         try {
@@ -174,9 +175,10 @@ export class Releases {
     // recorded whole, or found live if it has shipped by then.
     const others = [...drafts.keys()].filter((target) => target !== null && target !== only);
     if (only !== null && others.length) {
-      log.info({ release: o.current, only, others }, 'the release carries other work items: left for the whole line');
+      const release = namedReleases(o, recorded).current;
+      log.info({ release, only, others }, 'the release carries other work items: left for the whole line');
     } else {
-      await this.#append(drafts, o);
+      await this.#append(drafts, namedReleases(o, recorded).current);
     }
     await this.#signal(o, recorded, series, { kube, rollout, prometheus });
   }
@@ -232,7 +234,7 @@ export class Releases {
     }
     const hashes = hashesOf(run);
     const at = run.status.completedAt;
-    const from = startOf(o, hashes?.canary ?? '');
+    const from = startOf(o, run);
     if (!hashes || !at || !from) return {};
     const routes = await routesWorse(prometheus, measure.name, hashes, new Date(from), new Date(at));
     const series =
@@ -320,12 +322,17 @@ export class Releases {
     });
   }
 
-  /** The release events recorded for these releases, upcast, in order. */
-  async #recorded(names: string[]) {
+  /**
+   * The release events recorded for these releases, upcast, in order; or, `byHash`, for every release of these
+   * versions, whatever its revision.
+   */
+  async #recorded(names: string[], byHash = false) {
     if (!names.length) return [];
-    const rows = await this.#o.sql<(RawEvent & { work_item: string | null; ts: Date })[]>`
+    const { sql } = this.#o;
+    const release = byHash ? sql`split_part(payload->>'release', '-', 1)` : sql`payload->>'release'`;
+    const rows = await sql<(RawEvent & { work_item: string | null; ts: Date })[]>`
       select seq, work_item, ts, type, version, payload from events
-      where type in ${this.#o.sql(RELEASE_TYPES as string[])} and payload->>'release' in ${this.#o.sql(names)}
+      where type in ${sql(RELEASE_TYPES as string[])} and ${release} in ${sql(names)}
       order by seq`;
     return rows.flatMap((row) => {
       const read = upcast({ ...row, seq: Number(row.seq) });
@@ -345,7 +352,7 @@ export class Releases {
   }
 
   /** Appends every target's drafts at once: a release's events reach all of its work items, or none. */
-  async #append(drafts: Map<Target, Draft[]>, o?: Observed): Promise<void> {
+  async #append(drafts: Map<Target, Draft[]>, release?: string): Promise<void> {
     if (!drafts.size) return;
     // A work item closed while its release ran (Martin closed it at Release) takes no more events: the store refuses
     // them, and would refuse the rest of the release's with them.
@@ -362,7 +369,7 @@ export class Releases {
     await this.#o.events.append(events);
     this.#o.log.info(
       {
-        release: o?.current,
+        release,
         events: [...drafts].map(([target, list]) => ({ target: target ?? 'line', types: list.map((d) => d.type) })),
       },
       'recorded the app’s release',

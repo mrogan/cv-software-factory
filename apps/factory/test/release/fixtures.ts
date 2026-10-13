@@ -9,6 +9,10 @@ export const STABLE = '7fc778d748';
 export const CANARY = '68ff668868';
 export const digestOf = (hash: string) => `sha256:${hash.padEnd(64, '0')}`;
 export const commitOf = (hash: string) => hash.padEnd(40, 'c');
+/** The Rollout's revision when each version went out: the stable version, then the canary, the rollout after. */
+export const revisionOf = (hash: string) => (hash === STABLE ? 3 : 4);
+/** A release as the line names it: its hash and the Rollout's revision. */
+export const releaseOf = (hash: string, revision = revisionOf(hash)) => `${hash}-${revision}`;
 
 const STEPS = [
   { setWeight: 25 },
@@ -23,6 +27,10 @@ export interface RolloutState {
   /** The version the spec asks for. */
   current: string;
   stable: string;
+  /** The Rollout's revision: by default the one the current version went out at. */
+  revision?: number;
+  /** Whether the status is not yet written for the spec's latest generation. */
+  behind?: boolean;
   stepIndex?: number;
   abort?: boolean;
   /** The canary's weight now; by default the weight of its step, or nought when aborted or done. */
@@ -34,7 +42,12 @@ export function rollout(state: RolloutState): Rollout {
   return rolloutSchema.parse({
     apiVersion: 'argoproj.io/v1alpha1',
     kind: 'Rollout',
-    metadata: { name: 'website', namespace: 'website', generation: 5 },
+    metadata: {
+      name: 'website',
+      namespace: 'website',
+      generation: 5,
+      annotations: { 'rollout.argoproj.io/revision': String(state.revision ?? revisionOf(state.current)) },
+    },
     spec: {
       replicas: 1,
       strategy: { canary: { canaryService: 'website-canary', stableService: 'website', steps: STEPS } },
@@ -45,6 +58,7 @@ export function rollout(state: RolloutState): Rollout {
       },
     },
     status: {
+      observedGeneration: state.behind ? '4' : '5',
       currentPodHash: state.current,
       stableRS: state.stable,
       currentStepIndex: state.stepIndex ?? (state.current === state.stable ? STEPS.length : 0),
@@ -69,6 +83,8 @@ export interface RunState {
   /** Kubernetes's id for it; by default one made from its name. */
   uid?: string;
   hash?: string;
+  /** The Rollout's revision when it made the run: by default the one its version went out at. */
+  revision?: number;
   stable?: string;
   /** A step run's index in the steps, or none for the background run. */
   step?: number;
@@ -103,7 +119,8 @@ export function run(state: RunState): AnalysisRun {
   const isStep = state.step !== undefined;
   const metrics = { ...(isStep ? STEP_METRICS : BACKGROUND_METRICS), ...state.metrics };
   const phase = state.phase ?? 'Successful';
-  const name = state.name ?? `website-${hash}-4${isStep ? `-${state.step}` : ''}`;
+  const revision = state.revision ?? revisionOf(hash);
+  const name = state.name ?? `website-${hash}-${revision}${isStep ? `-${state.step}` : ''}`;
   return analysisRunSchema.parse({
     metadata: {
       name,
@@ -115,6 +132,7 @@ export function run(state: RunState): AnalysisRun {
         'rollouts-pod-template-hash': hash,
         ...(isStep ? { 'step-index': String(state.step) } : {}),
       },
+      annotations: { 'rollout.argoproj.io/revision': String(revision) },
       ownerReferences: [{ apiVersion: 'argoproj.io/v1alpha1', kind: 'Rollout', name: 'website', uid: 'u' }],
     },
     spec: {

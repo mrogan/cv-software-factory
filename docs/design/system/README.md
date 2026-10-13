@@ -339,7 +339,7 @@ The release in flight against the version it would replace, for everyone, full w
 | Rolled back | Rolled back at 25% | `attn`, ringed | when, and how much of the traffic never saw it: "75% of the traffic never saw it: it stayed on v0.9.9" |
 | Stopped with the line | Stopped with the line at 50% | `attn`, ringed | that the version before takes all the traffic, and the release stays stopped until Martin retries it or a new deploy starts another; starting the line does not resume it |
 | A dry run | "Canary · 50%, as the dry run records it", then a dashed "Dry run" pill | `text-muted` throughout | that the dry run answers for it: its merges were never made, so nothing shipped and nothing was measured |
-| Idle | "No release in flight", then "The last, v0.9.13, was promoted at 16:47 carrying #1302 · release 3b7e90c1d4" | `text-faint` dot; the last release's word in its own tone | (one line) |
+| Idle | "No release in flight", then "The last, v0.9.13, was promoted at 16:47 carrying #1302 · release 3b7e90c1d4-913" | `text-faint` dot; the last release's word in its own tone | (one line) |
 | No release yet | "No release yet. Each deploy Martin merges goes out here as a canary, beside the version it would replace." | | (one line) |
 
 Yellow stays the Release station's bird. Moving is ink, a measure that passed and a promotion are green, a failure, a rollback and a stop are warm (principles 1 and 2).
@@ -372,7 +372,7 @@ Yellow stays the Release station's bird. Moving is ink, a measure that passed an
 
 - **Evidence** keeps the problem's evidence and the three captures in a strip, each tagged as on the wipe. Tags inside a small picture never drop below 9px.
 - **Release and Verify** is a section of its own, after Evidence. One block for each release that carried the work item, newest first; the older ones are folded to their head, with "Show this release". A block:
-  - its head: "Release 6c9894bdfd · Sat 12:40" and the state word, as on the panel;
+  - its head: "Release 6c9894bdfd-909 · Sat 12:40" and the state word, as on the panel;
   - one `t-data` line: the version before and the new one, the commit, the digest, signed, admitted, and "with #1301" when it carried other work items;
   - a table, one row per measured step: the step, when it was measured, requests, errors and p99, each the canary's figure over the baseline's in `text-muted`, errors and latency with their verdict's glyph, and the journeys as counts or the verdict; "No step was measured" when there were none. On a phone the measured time and requests go;
   - how it ended: "Promoted at 12:47:28, 7 min after it started", or "Rolled back at 25% at 14:29:56", the share of traffic that never saw it, and the analysis's words on the station face;
