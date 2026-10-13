@@ -62,9 +62,9 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   const position = useRef(centre);
   const [playing, setPlaying] = useState(false);
   /**
-   * What playing was last set to, rendered yet or not. Stopping is asked for on the first move of every drag, and
-   * setting state to the value it holds can still render the reel, now and then: asked only to change it, React
-   * renders nothing mid-drag.
+   * What playing was last set to, rendered yet or not. Every drag stops the history on its first move, and setting
+   * state to the value it already holds can still render the reel, now and then: `play` skips that update, and the
+   * render it can cause, when playing would not change.
    */
   const playingSet = useRef(false);
   const play = useCallback((on: boolean) => {
