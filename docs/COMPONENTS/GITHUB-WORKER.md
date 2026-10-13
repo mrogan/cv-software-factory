@@ -7,10 +7,9 @@ The only pod with the [App](GITHUB-APP.md)'s key, and so the only thing that act
 ```mermaid
 flowchart LR
   line[The line] -- "POST /v1/actions/…<br>POST /v1/reads/…" --> worker[GitHub worker]
-  worker -- installation token --> github[GitHub]
+  worker -- "installation token;<br>its poller watches once a minute" --> github[GitHub]
   worker -- anonymous --> ghcr[GHCR]
   worker -- dry run --> artifacts[(Artifact store)]
-  poller[Its poller] --> worker
 ```
 
 ## Identity

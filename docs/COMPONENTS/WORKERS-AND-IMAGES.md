@@ -5,7 +5,7 @@ Where the gateway, the GitHub worker, triage, the intake, the log watcher, the l
 - **v1:** one Deployment each in `factory` (`deploy/base/factory`), one replica.
 - **Later:** Spaces or S3 for artifacts, a cloud secret store for the key.
 
-Each worker writes to the [event store](EVENT-STORE.md) as the factory's writer, and to the artifacts volume (which the console still mounts read-only).
+Each worker but the GitHub worker, which touches no store, writes to the [event store](EVENT-STORE.md) as the factory's writer, and to the artifacts volume (which the console still mounts read-only).
 
 ## Images
 
