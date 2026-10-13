@@ -5,10 +5,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
-import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { DiskArtifacts, EventWriter, listen, nextWorkItem } from '@software-factory/store';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { KeyEntry } from '../../../../policy/scoreboard.ts';
+import { wakeLoop } from '../../src/scoreboard/loop.ts';
 import { Scoreboard } from '../../src/scoreboard/worker.ts';
 
 const KEY: KeyEntry[] = [
@@ -160,5 +161,40 @@ describe('the scoreboard', () => {
       work_item: null,
       summary: 'The scoreboard: 0 of 2 found, 0 verified fixed',
     });
+  });
+
+  it("moves found at the cadence's boundary on the minute's timer, with nothing appended", async () => {
+    // Only the timer is faked: the store's driver keeps its own.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const stop = Promise.withResolvers<void>();
+    let done: Promise<void> | undefined;
+    try {
+      now = Date.parse('2026-10-11T11:58:00Z');
+      await ticket('/a');
+      const board = scoreboard();
+      const sql = database.scoreboard;
+      const passes: string[] = [];
+      done = wakeLoop(
+        {
+          listen: (wake) => listen(sql, wake, wake),
+          pass: async () => void passes.push((await board.pass()).pass),
+          failed: (error) => passes.push(String(error)),
+          everyMs: 60_000,
+        },
+        () => stop.promise,
+      );
+      // Woken as it starts listening, then by its own append, which changes nothing.
+      await vi.waitFor(() => expect(passes).toEqual(['published', 'unchanged']));
+      expect(await published()).toEqual([{ keyed: true, entries: 2, found: 0, verified: 0, medianMs: null }]);
+
+      now = Date.parse('2026-10-11T12:00:30Z'); // past the boundary, with nothing appended
+      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.waitFor(() => expect(passes).toEqual(['published', 'unchanged', 'published', 'unchanged']));
+      expect((await published()).at(-1)).toEqual({ keyed: true, entries: 2, found: 1, verified: 0, medianMs: null });
+    } finally {
+      stop.resolve();
+      await done;
+      vi.useRealTimers();
+    }
   });
 });

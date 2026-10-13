@@ -1,6 +1,6 @@
 /**
- * The factory's own requests that must not count in a canary's figures carry `UNMEASURED`, every one of them, pages,
- * their images and scripts, and the requests made without the browser alike; the senses' requests carry none. Against
+ * The senses' requests carry `UNMEASURED`, every one of them, pages, their images and scripts, and the requests made
+ * without the browser alike, so none counts in the app's figures; a page a sense lends sends it when asked. Against
  * the small shop made for the tests (shop.ts), which records what it was sent. These tests need Chromium, so they run
  * in the pinned Playwright image.
  */
@@ -11,6 +11,7 @@ import { DiskArtifacts } from '@software-factory/store';
 import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PROBES } from '../../src/probes/index.ts';
+import { readerServer } from '../../src/probes/reader.ts';
 import { Shop } from '../../src/probes/site.ts';
 import { BrowserSense } from '../../src/senses/browser.ts';
 import { UNMEASURED } from '../../src/senses/http.ts';
@@ -33,33 +34,55 @@ const split = (requests: Array<{ url: string; headers: Record<string, unknown> }
   without: requests.filter((r) => r.headers[NAME] === undefined).map((r) => r.url),
 });
 
-describe('the journeys', () => {
-  it('send the header with every request, from the browser and without it', async () => {
-    const shop = await startShop();
-    try {
-      await observeApp(shop.url, undefined, { store, log, limit: 50, headers: UNMEASURED });
-      const { with: sent, without } = split(shop.requests);
-      expect(without).toEqual([]);
-      // The version asked for, the API the probes compare with, and the pages the browser opened.
-      expect(sent).toEqual(expect.arrayContaining(['/version', '/api/products?page=1', '/products']));
-    } finally {
-      await shop.close();
-    }
-  }, 120_000);
-});
-
 describe('the senses', () => {
-  it('send no header', async () => {
+  it('send the header with every request, from the browser and without it', async () => {
     const shop = await startShop();
     try {
       await observeApp(shop.url, undefined, { store, log, limit: 50 });
       const { with: sent, without } = split(shop.requests);
-      expect(sent).toEqual([]);
-      expect(without).toContain('/version');
+      expect(without).toEqual([]);
+      // The version asked for, the API the probes compare with, the pages the browser opened, and the error pages
+      // the crawler asks for.
+      expect(sent).toEqual(expect.arrayContaining(['/version', '/api/products?page=1', '/products', '/%E0%A4%A']));
     } finally {
       await shop.close();
     }
   }, 120_000);
+
+  it('read a page for triage with the header on every request', async () => {
+    const shop = await startShop();
+    const sense = new BrowserSense({
+      name: 'probe',
+      app: shop.url,
+      checks: PROBES,
+      store,
+      log,
+      shared: () => new Shop(shop.url),
+      launch: async () => browser,
+    });
+    const reader = readerServer({
+      app: shop.url,
+      sense,
+      store,
+      version: async () => 'a'.repeat(40),
+      log: { info: () => {}, warn: () => {} },
+    });
+    await new Promise<void>((resolve) => reader.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (reader.address() as { port: number }).port;
+      const answer = await fetch(`http://127.0.0.1:${port}/v1/pages`, {
+        method: 'POST',
+        body: JSON.stringify({ path: '/products' }),
+      });
+      expect(answer.status).toBe(200);
+      const { with: sent, without } = split(shop.requests);
+      expect(sent).toContain('/products');
+      expect(without).toEqual([]);
+    } finally {
+      await new Promise((resolve) => reader.close(resolve));
+      await shop.close();
+    }
+  }, 60_000);
 
   it('lend a page that sends the header when asked, as the pictures do, and none otherwise', async () => {
     const shop = await startShop();

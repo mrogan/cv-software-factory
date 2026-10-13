@@ -67,11 +67,14 @@ The journeys are the [journeys gate](CI-PIPELINE.md#journeys) aimed at the clust
 
 ## Whose requests are judged
 
-Errors and latency are the visitors'.
+Errors and latency are the visitors' and the [traffic generator](TRAFFIC-GENERATOR.md)'s, so the canary and its baseline are judged on the same mix of requests.
 
-- **Left out:** the journeys and the pictures ask both Services directly, and send the header `x-unmeasured` (`UNMEASURED`, `senses/http.ts`). The app keeps no record of those requests in its request log, request metrics or traces, so the three still agree ([log watcher](LOG-WATCHER.md#agreement)). An error one causes is still logged.
+- **Left out:** the factory's own requests send the header `x-unmeasured` (`UNMEASURED`, `senses/http.ts`):
+  - the journeys and the pictures, which ask both Services directly;
+  - the probes, the crawler and the page reader, which watch the stable Service throughout, so whatever their checks provoke weighs on neither version.
+- **No record.** The app keeps no record of those requests in its request log, request metrics or traces, so the three still agree ([log watcher](LOG-WATCHER.md#agreement)). An error one causes is still logged, with no trace.
 - **Only from inside.** The shop's public route removes the header (a Traefik `Middleware` in the app's repository), so only a client in the cluster, asking the Services directly, can be left out.
-- **Kept:** the probes and the crawler send no such header, so the objectives keep their requests, and the [traffic generator](TRAFFIC-GENERATOR.md) never does.
+- **Kept:** the traffic generator never sends it. It stands in for the visitors, and goes in through the split as they do.
 
 ## Rolling back and stopping
 

@@ -7,7 +7,9 @@
  *
  * `run` crawls every few minutes, and at once when the app's version changes, and leaves a signal in the inbox for
  * each check that has failed twice in a row. `once` crawls one time and prints what it found, writing nothing to the
- * inbox: for developing a check.
+ * inbox: for developing a check. Its requests carry `UNMEASURED`, so on the app's Service they count in none of the
+ * app's figures: the objectives and a canary's analysis judge the visitors' requests and the traffic generator's
+ * alone. Through Traefik, whose public route removes the header, as from the host, they count like a visitor's.
  *
  * Settings, from the environment: APP_URL, the app's address; ARTIFACTS_DIR, the artifact store's folder (`once`
  * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as the factory's
@@ -23,7 +25,7 @@ import { Crawler } from '../crawler/index.ts';
 import { log } from '../log.ts';
 import { inbox } from '../outbox.ts';
 import { PictureIndex } from '../pictures/index.ts';
-import { versionOf } from '../senses/http.ts';
+import { UNMEASURED, versionOf } from '../senses/http.ts';
 import { SenseRunner } from '../senses/runner.ts';
 
 export const USAGE = `  factory crawler run
@@ -63,7 +65,7 @@ export async function run(args: string[]): Promise<number> {
 }
 
 async function once(sense: Crawler, app: string): Promise<number> {
-  const version = await versionOf(app);
+  const version = await versionOf(app, UNMEASURED);
   console.log(`${app} is running ${version}\n`);
   const observations = await sense.pass(version);
   const failed = observations.filter((o) => o.finding);
@@ -82,7 +84,7 @@ async function loop(sense: Crawler, app: string): Promise<number> {
   const runner = new SenseRunner({
     sense,
     log,
-    version: () => versionOf(app),
+    version: () => versionOf(app, UNMEASURED),
     send: inbox(sql).send,
     remember: (look, at) => index.remember(look, at),
     every: number('CRAWL_INTERVAL', 300) * 1000,

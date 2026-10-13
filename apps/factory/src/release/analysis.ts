@@ -17,10 +17,11 @@
  * would pass with no visitors at all if one did not. Errors and latency come from the app's telemetry, where canary
  * and baseline are told apart by the pod-template hash Argo Rollouts gives each version, which the collector adds to
  * the app's metrics; the Rollout passes the two hashes as arguments. Each query sums over every route the app named,
- * so it does not depend on how the app names them. The journeys and the pictures of a release ask both versions
- * directly, and send `UNMEASURED` (`senses/http.ts`), which the app's telemetry leaves out, so they are not judged as
- * visitors. The probes and the crawler watch the stable Service and send no such header, since the objectives watch
- * their requests too, so the queries compare shares and percentiles, not counts.
+ * so it does not depend on how the app names them. The factory's own requests send `UNMEASURED` (`senses/http.ts`),
+ * which the app's telemetry leaves out, so they are not judged as visitors: the journeys and the pictures of a
+ * release, which ask both versions directly, and the probes and the crawler, which watch the stable Service
+ * throughout. Each version is judged on its share of the visitors' requests and the traffic generator's, and the
+ * queries compare shares and percentiles, not counts, since the split gives the two versions different numbers.
  *
  * The cluster-scoped templates live in this repository, deployed with the factory's images: nothing in the app's
  * repository can loosen them, and the journeys run on the same `factory-browser` the probes run, at the digest the

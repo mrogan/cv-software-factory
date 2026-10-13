@@ -20,7 +20,6 @@ import { DiskArtifacts } from '@software-factory/store';
 import { compareJourneys, comparisonMessage, type Observe, summary } from '../gates/journeys.ts';
 import { annotate } from '../gates/report.ts';
 import { log } from '../log.ts';
-import { UNMEASURED } from '../senses/http.ts';
 import { observeApp } from '../senses/observe.ts';
 
 export const USAGE = '  factory gate journeys --base <url> --change <url> [--summary <file>]';
@@ -38,8 +37,7 @@ export async function run(args: string[]): Promise<number> {
   const store = new DiskArtifacts(await mkdtemp(join(tmpdir(), 'gate-')));
   const limit = Number(process.env.CRAWL_LIMIT ?? 150);
 
-  const observe: Observe = async (url, only) =>
-    (await observeApp(url, only, { store, log, limit, headers: UNMEASURED })).seen;
+  const observe: Observe = async (url, only) => (await observeApp(url, only, { store, log, limit })).seen;
 
   const comparison = await compareJourneys(observe, values.base, values.change);
   const markdown = summary(comparison);

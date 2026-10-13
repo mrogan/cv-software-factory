@@ -27,12 +27,13 @@ export interface Exchange {
 export type RequestHeaders = Readonly<Record<string, string>>;
 
 /**
- * The header on the factory's own requests that must not count in what a canary is judged on: the pictures of a
- * release, and the journeys that compare its versions. The app keeps no record of a request that carries it, in its
- * request log, request metrics or traces (an error it causes is still logged), so the errors and latency the analysis
- * reads for each version are the visitors' alone, and the three records still agree. The senses do not send it, so
- * the objectives still see their requests; nor does the traffic generator, which stands in for the visitors and must
- * be judged.
+ * The header on the factory's own requests to the app, which must not count in what the app is judged on: the
+ * probes', the crawler's and the page reader's, the pictures of a release, and the journeys that compare its versions.
+ * The app keeps no record of a request that carries it, in its request log, request metrics or traces (an error it
+ * causes is still logged, with no trace), so the errors and latency the objectives and a canary's analysis read are
+ * the visitors' and the traffic generator's alone, the canary and its baseline are judged on the same mix, and the
+ * three records still agree. The traffic generator does not send it: it stands in for the visitors, and must be
+ * judged.
  */
 export const UNMEASURED: RequestHeaders = { 'x-unmeasured': '1' };
 
