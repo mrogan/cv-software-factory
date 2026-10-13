@@ -27,12 +27,14 @@ export default defineConfig({
         },
       },
       {
-        // Needs Chromium, so it runs in the pinned Playwright image (`make e2e`, and CI's browser job), not in `make check`.
+        // Needs Chromium, so it runs in the pinned Playwright image (`make e2e`, and CI's senses browser tests), not in
+        // `make check`.
         extends: true,
         test: {
           name: 'browser',
+          // Each file side by side with the others, with its own Chromium, test servers on free ports and artifact
+          // store in a temporary directory of its own.
           include: ['apps/factory/test/browser/**/*.test.ts'],
-          fileParallelism: false,
         },
       },
     ],
