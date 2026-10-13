@@ -1,8 +1,9 @@
 import { MAX_FINDINGS } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
+import type { EffectsContext } from '../../src/line/agents/agent.ts';
 import { type ReviewerInput, reviewer } from '../../src/line/agents/reviewer.ts';
 import { FIXTURE_WORK_ITEM, FIXTURES } from '../../src/line/bench/fixtures.ts';
-import { answeredThreads, REVIEW_CHECK, reviewInGitHub, shownLines } from '../../src/line/review.ts';
+import { answerThreads, REVIEW_CHECK, reviewInGitHub, shownLines, threadAnswers } from '../../src/line/review.ts';
 
 const input: ReviewerInput =
   FIXTURES.reviewer['cards-claimed']?.input ??
@@ -42,11 +43,38 @@ describe('the reviewer', () => {
     expect(prompt).toContain('in its round 2');
     expect(prompt).toContain(`1. src/money.ts:3 (criterion 5): ${unmet.comment}`);
     expect(prompt).toContain(
-      '{"verdict","note","findings":[{"path","line","blocking","rule","criterion","ticket","comment"}],"answered"}',
+      '{"verdict","note","findings":[{"path","line","blocking","rule","criterion","ticket","holds","comment"}],"answered"}',
     );
     expect(prompt).toContain('- `answered`: the numbers of the findings the review before blocked on');
     // A first review has nothing to answer, and is not asked to.
     expect(reviewer.prompt(input)).not.toContain('`answered`');
+  });
+
+  it('is told what the review before it suggested, numbered after what it blocked on, and what the coder declined', () => {
+    const declined = { ...taste, line: 9, comment: 'Name the test for what it shows.' };
+    const prompt = reviewer.prompt({
+      ...input,
+      round: 2,
+      blocked: [unmet],
+      suggested: [taste],
+      declined: [{ finding: declined, reason: 'Its name says what it shows.' }],
+    });
+    expect(prompt).toContain('It also suggested these, which do not block. Check each: has the change taken it?');
+    expect(prompt).toContain(`2. test/money.test.ts:8 (rule 3): ${taste.comment}`);
+    expect(prompt).toContain(
+      `- test/money.test.ts:9 (rule 3): ${declined.comment} The coder said: Its name says what it shows.`,
+    );
+    expect(prompt).toContain('a finding it puts right or a suggestion it has taken');
+    // After an approval, there was nothing to block on.
+    const after = reviewer.prompt({ ...input, round: 2, blocked: [], suggested: [taste] });
+    expect(after).toContain('The review before this one approved, and suggested these');
+    expect(after).toContain(`1. test/money.test.ts:8 (rule 3): ${taste.comment}`);
+    expect(after).not.toContain('blocked on');
+    expect(after).toContain(',"answered"}');
+    // Declined alone, nothing is left to answer.
+    expect(
+      reviewer.prompt({ ...input, round: 2, blocked: [], declined: [{ finding: taste, reason: 'No.' }] }),
+    ).not.toContain('"answered"');
   });
 
   it('says by number which findings of the review before it are answered, and only those there were', () => {
@@ -61,6 +89,16 @@ describe('the reviewer', () => {
     expect(fits({ ...approved, answered: [1, 1] })).toBe(false);
     expect(fits({ ...approved, answered: [0] })).toBe(false);
     expect(fits({ ...approved, answered: [1] }, [])).toBe(false);
+    // A finding held again names the one it holds, which is then not answered.
+    const holding = { verdict: 'changes-requested', note: 'One holds.', findings: [{ ...unmet, holds: 1 }] };
+    expect(fits(holding)).toBe(true);
+    expect(fits({ ...holding, answered: [1] })).toBe(false);
+    expect(fits({ ...holding, findings: [{ ...unmet, holds: 3 }] })).toBe(false);
+    expect(reviewer.schema(input).safeParse({ ...holding, verdict: 'changes-requested' }).success).toBe(false);
+    // A suggestion taken is answered too, numbered after what blocked.
+    const suggested = reviewer.schema({ ...input, round: 2, blocked: [unmet], suggested: [taste] });
+    expect(suggested.safeParse({ ...approved, answered: [1, 2] }).success).toBe(true);
+    expect(suggested.safeParse({ ...approved, answered: [3] }).success).toBe(false);
   });
 
   it('hands back a verdict that agrees with its findings, each short, cited and anchored', () => {
@@ -167,7 +205,7 @@ describe('a review in GitHub', () => {
     ]);
     expect(shown.body).toContain('The cards still drop a digit.');
     expect(shown.body).toContain('- `test/money.test.ts:8`: **Suggestion** · rule 3: Show it through a page.');
-    expect(shown.body).toContain('review 1. A signal, never a gate: the blocking findings go back to the coder.');
+    expect(shown.body).toContain('review 1. A signal, never a gate: the blocking findings go back to the coder, with');
     expect(shown.check).toEqual({
       name: REVIEW_CHECK,
       headSha: 'c'.repeat(40),
@@ -203,9 +241,51 @@ describe('a review in GitHub', () => {
 
   it('resolves an answered finding’s thread unless the review gives it again, word for word, on the same line', () => {
     const moved = { ...unmet, line: unmet.line + 1 };
-    expect(answeredThreads([unmet], [unmet])).toEqual([]);
-    expect(answeredThreads([unmet], [moved])).toEqual([
-      { path: unmet.path, line: unmet.line, body: `**Blocking** · criterion 5\n\n${unmet.comment}` },
+    const answers = [
+      { finding: unmet, reply: 'Answered.' },
+      { finding: taste, reply: 'Taken.' },
+    ];
+    expect(threadAnswers(answers, [unmet])).toEqual([
+      { path: taste.path, line: taste.line, body: `**Suggestion** · rule 3\n\n${taste.comment}`, reply: 'Taken.' },
     ]);
+    expect(threadAnswers(answers.slice(0, 1), [moved])).toEqual([
+      {
+        path: unmet.path,
+        line: unmet.line,
+        body: `**Blocking** · criterion 5\n\n${unmet.comment}`,
+        reply: 'Answered.',
+      },
+    ]);
+  });
+
+  it('answers each thread once, fifty to a call, each call once for the handback', async () => {
+    const names: string[] = [];
+    const sent: number[] = [];
+    const context = {
+      once: (name: string, write: (again: boolean) => Promise<unknown>) => {
+        names.push(name);
+        return write(false);
+      },
+      act: async (_: string, args: { threads: unknown[] }) => {
+        sent.push(args.threads.length);
+      },
+    } as unknown as EffectsContext;
+    const threads = Array.from({ length: 60 }, (_, line) => ({ path: 'a.ts', line, body: 'b', reply: 'r' }));
+    await answerThreads(context, 'answered', 12, [...threads, threads[0] as (typeof threads)[number]]);
+    expect(sent).toEqual([50, 10]);
+    expect(names).toEqual(['answered', 'answered 2']);
+  });
+
+  it('says where suggestions go: back to the coder with what blocks, or alone after an approval, once', () => {
+    const at = { commit: 'c'.repeat(40), workItem: '1001', review: 1, last: false };
+    const blocking = { verdict: 'changes-requested' as const, note: 'One short.', findings: [unmet, taste] };
+    expect(reviewInGitHub(blocking, DIFF, at).body).toContain(
+      'the blocking findings go back to the coder, with the suggestions to take or decline',
+    );
+    const approved = { verdict: 'approved' as const, note: 'Fine.', findings: [taste] };
+    expect(reviewInGitHub(approved, DIFF, { ...at, suggestionsBack: true }).body).toContain(
+      'its suggestions go back to the coder to take or decline, and then the change goes on',
+    );
+    expect(reviewInGitHub(approved, DIFF, at).body).toContain('Martin’s merge, and its suggestions stay for him');
   });
 });

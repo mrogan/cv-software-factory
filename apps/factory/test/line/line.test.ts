@@ -11,6 +11,7 @@ import { DryRunReads } from '../../src/github/dry-run-reads.ts';
 import type { Reads } from '../../src/github/reads.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
 import { GitHubWorker, GitHubWorkerError } from '../../src/github/worker-client.ts';
+import { commentOf } from '../../src/line/review.ts';
 import { APP_REPOSITORY, Line, type LineOptions, signalId } from '../../src/line/worker.ts';
 import { quiet } from '../github/fake.ts';
 import { type Agent, FakeGitHub, FakeProbes, FakeSteps, MAIN } from './fakes.ts';
@@ -514,7 +515,7 @@ describe('the line', () => {
       findings: [blocking, elsewhere],
     });
 
-    await pass(); // back to the coder, which resumes its session with the blocking finding
+    await pass(); // back to the coder, which resumes its session with the blocking finding and the suggestion
     expect((await payloads(workItem, 'work.returned'))[0]).toMatchObject({
       from: 'review',
       to: 'build',
@@ -527,7 +528,11 @@ describe('the line', () => {
     expect(coder?.prompt).toContain(
       '- src/search.ts:1 (criterion 1): Nothing here escapes a quote: the criterion is not met.',
     );
-    expect(coder?.prompt).not.toContain('Read through the catalogue');
+    expect(coder?.prompt).toContain('1. src/server.ts:40 (rule 1): Read through the catalogue.');
+    // It took the suggestion, declining none.
+    expect(await payloads(workItem, 'suggestions.answered')).toEqual([
+      { pullRequest: 12, suggestions: 1, declined: [] },
+    ]);
 
     github.pass();
     await pass(); // the gates pass on the second round, and a fresh reviewer checks what blocked first
@@ -536,6 +541,7 @@ describe('the line', () => {
     expect(reviewer?.resume).toBeUndefined();
     expect(reviewer?.prompt).toContain('The review before this one blocked on these.');
     expect(reviewer?.prompt).toContain('1. src/search.ts:1 (criterion 1): Nothing here escapes a quote');
+    expect(reviewer?.prompt).toContain('2. src/server.ts:40 (rule 1): Read through the catalogue.');
 
     await pass(); // still blocking after two reviews: Martin's
     expect(await stage(workItem)).toBe('held');
@@ -1396,10 +1402,123 @@ describe('the line', () => {
         action: 'resolveThreads',
         args: {
           number: 12,
-          comments: [{ path: 'src/search.ts', line: 1, body: '**Blocking** · criterion 1\n\nNo quote is escaped.' }],
-          reply: `Answered in ${github.pulls.get(12)?.head.sha}: the factory’s reviewer, review 2, finds this put right.`,
+          threads: [
+            {
+              path: 'src/search.ts',
+              line: 1,
+              body: '**Blocking** · criterion 1\n\nNo quote is escaped.',
+              reply: `Answered in ${github.pulls.get(12)?.head.sha}: the factory’s reviewer, review 2, finds this put right.`,
+            },
+          ],
         },
       },
+    ]);
+  });
+
+  it('sends an approval’s suggestions back to the coder, answers each thread, and goes on to the describer', async () => {
+    const workItem = await ticket();
+    const name = { path: 'src/search.ts', line: 1, blocking: false, comment: 'Name the escape for what it does.' };
+    const test = { path: 'test/search.test.ts', line: 2, blocking: false, rule: 3, comment: 'Test two quotes.' };
+    const reviews = [
+      { verdict: 'approved', note: 'It escapes the quote.', findings: [name, test] },
+      { verdict: 'approved', note: 'Two quotes are tested now.', findings: [], answered: [1] },
+    ];
+    const reason = 'The name is the one the rest of the code uses.';
+    const coded = [handback(CODED, PATCH), handback({ ...CODED, declined: [{ suggestion: 1, reason }] }, PATCH)];
+    const { pass, steps, github } = line({
+      ...AGENTS,
+      coder: () => coded.shift() ?? handback(CODED, PATCH),
+      reviewer: () => handback(reviews.shift()),
+    });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the first review approves, with two suggestions
+    await pass(); // which go back to the coder
+    expect(await summaries(workItem, 'work.returned')).toEqual([`#${workItem} · round 2 · 2 suggestions`]);
+    const coder = steps.requests.at(-1);
+    expect(coder).toMatchObject({ agent: 'coder', round: 2 });
+    expect(coder?.prompt).toContain('2. test/search.test.ts:2 (rule 3): Test two quotes.');
+    expect(coder?.prompt).toContain('If you decline every suggestion, change nothing');
+    // It declines the first, with its reason, and takes the second: the declined one's thread is answered now.
+    expect(github.acts.filter((a) => a.action === 'resolveThreads').map((a) => a.args.threads)).toEqual([
+      [{ ...commentOf(name), reply: `Declined by the factory’s coder: ${reason}` }],
+    ]);
+    expect(await payloads(workItem, 'suggestions.answered')).toEqual([
+      { pullRequest: 12, suggestions: 2, declined: [{ suggestion: 1, reason }] },
+    ]);
+    github.pass();
+    await pass(); // a fresh reviewer, told the one taken and the one declined, finds it taken
+    const reviewer = steps.requests.at(-1);
+    expect(reviewer?.prompt).toContain('1. test/search.test.ts:2 (rule 3): Test two quotes.');
+    expect(reviewer?.prompt).toContain(`The coder said: ${reason}`);
+    expect(github.acts.filter((a) => a.action === 'resolveThreads').map((a) => a.args.threads)).toEqual([
+      [expect.objectContaining({ path: name.path })],
+      [
+        {
+          ...commentOf(test),
+          reply: `Taken in ${github.pulls.get(12)?.head.sha}: the factory’s reviewer, review 2, finds this suggestion taken.`,
+        },
+      ],
+    ]);
+    await pass(); // that approval goes on, with no round of its own
+    expect(steps.requests.at(-1)?.agent).toBe('describer');
+  });
+
+  it('declines every suggestion without a change, and the approval stands', async () => {
+    const workItem = await ticket();
+    const name = { path: 'src/search.ts', line: 1, blocking: false, comment: 'Name the escape for what it does.' };
+    const reviews = [{ verdict: 'approved', note: 'It escapes the quote.', findings: [name] }];
+    const declined = [{ suggestion: 1, reason: 'The name is the one the rest of the code uses.' }];
+    const coded = [handback(CODED, PATCH), handback({ declined })];
+    const { pass, steps, github } = line({
+      ...AGENTS,
+      coder: () => coded.shift() ?? handback(CODED, PATCH),
+      reviewer: () => handback(reviews.shift()),
+    });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the review approves, with a suggestion
+    await pass(); // the coder declines it, and pushes nothing
+    expect(await payloads(workItem, 'suggestions.answered')).toEqual([{ pullRequest: 12, suggestions: 1, declined }]);
+    expect(await payloads(workItem, 'pull-request.pushed')).toHaveLength(1);
+    expect(github.acts.filter((a) => a.action === 'resolveThreads')).toHaveLength(1);
+    await pass();
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'reviewer', 'coder', 'describer']);
+  });
+
+  it('resolves the thread of a finding held again in other words when the later one is answered', async () => {
+    const workItem = await ticket();
+    const first = { path: 'src/search.ts', line: 1, blocking: true, criterion: 1, comment: 'No quote is escaped.' };
+    const again = { ...first, comment: 'A quote still reaches the database as it is.' };
+    const reviews = [
+      { verdict: 'changes-requested', note: 'The quote is not escaped.', findings: [first] },
+      { verdict: 'changes-requested', note: 'Still not.', findings: [{ ...again, holds: 1 }] },
+      { verdict: 'approved', note: 'Escaped.', findings: [], answered: [1] },
+    ];
+    const { pass, github } = line({ ...AGENTS, reviewer: () => handback(reviews.shift()) });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the first review asks for changes
+    await pass(); // the coder's second round
+    github.pass();
+    await pass(); // the second holds the finding again, in other words
+    await pass(); // and the work item holds for Martin
+    expect(await stage(workItem)).toBe('held');
+    expect((await payloads(workItem, 'review.submitted'))[1]?.findings).toEqual([{ ...again, holds: 1 }]);
+    expect(github.acts.filter((a) => a.action === 'resolveThreads')).toEqual([]);
+    await events.append([event(workItem, 'hold.answered', { decision: 'answered', answer: 'Escape it.' }, 'martin')]);
+    await pass(); // back to the coder
+    github.pass();
+    await pass(); // the third review answers the second's finding, and with it the first's
+    const reply = `Answered in ${github.pulls.get(12)?.head.sha}: the factory’s reviewer, review 3, finds this put right.`;
+    expect(github.acts.filter((a) => a.action === 'resolveThreads').map((a) => a.args.threads)).toEqual([
+      [
+        { ...commentOf(again), reply },
+        { ...commentOf(first), reply },
+      ],
     ]);
   });
 

@@ -11,24 +11,41 @@
  * change (the workflows, the deployment, and what the app's CODEOWNERS gives a person at the step's commit), whole,
  * before it reaches GitHub. The refusal is recorded with the fence's output (`action.refused`), and the next step
  * comes back here with it; the checkout is fresh, since nothing of a refused patch is kept. A later round, sent back
- * by the gates or the reviewer, starts from the pull request's head, with the review's blocking findings when it was
- * the reviewer that sent it. Either way the coder resumes its own session when it has one, which holds the spec and
- * what it tried; without one, it is told everything a first step is. This module decides both, from its input alone
- * (`resume`, `prompt`), so the line and the bench agree.
+ * by the gates or the reviewer, starts from the pull request's head, with the review's blocking findings and its
+ * suggestions when it was the reviewer that sent it. Either way the coder resumes its own session when it has one,
+ * which holds the spec and what it tried; without one, it is told everything a first step is. This module decides
+ * both, from its input alone (`resume`, `prompt`), so the line and the bench agree.
+ *
+ * Suggestions do not block, and the coder answers them as the factory asks of any agent answering a review: it takes
+ * each, changing the code for it, or declines it with a reason (`declined`). The GitHub worker answers each declined
+ * suggestion's thread with the reason and resolves it once the change is pushed; one taken is the next reviewer's to
+ * find taken, and its thread is resolved then. An approval that leaves suggestions sends the work back for them alone
+ * (`machine.ts`): a coder that declines them all changes nothing, and says only what it declined.
  *
  * Changing nothing can be the right answer: a gate that fails on a defect the change uncovered and did not cause, a
  * finding the change already meets, or code that already does what the spec asks. The coder then says so, and why,
  * instead of handing back a change (`{"unchanged"}`), and the work item holds for Martin with its reason
  * (`unchangedHold`). A step that hands back no change and says nothing of why has failed.
  */
-import type { PayloadOf, Stage } from '@software-factory/events';
+import { MAX_FINDINGS, type PayloadOf, type Stage } from '@software-factory/events';
 import { z } from 'zod';
 import { filesIn, PatchRefused } from '../../github/patches.ts';
 import { GitHubWorkerError } from '../../github/worker-client.ts';
 import { type Fenced, fence } from '../../runners/scope.ts';
-import { unchangedHold } from '../machine.ts';
-import { cites, type Finding } from '../review.ts';
-import { answerOf, commitTitle, defineAgent, holdDraft, need, StepFailed, StepStale, words } from './agent.ts';
+import type { Draft } from '../gates.ts';
+import { unchangedHold, type WorkItemState } from '../machine.ts';
+import { answerThreads, cites, type Finding, lineage, threadAnswers } from '../review.ts';
+import {
+  answerOf,
+  commitTitle,
+  defineAgent,
+  type EffectsContext,
+  holdDraft,
+  need,
+  StepFailed,
+  StepStale,
+  words,
+} from './agent.ts';
 import { type Signal, seen, ticketLines } from './evidence.ts';
 
 export interface CoderInput {
@@ -47,6 +64,8 @@ export interface CoderInput {
   returned?: { from: Stage; reason: string } | undefined;
   /** The review's blocking findings, when review sent the work back. */
   findings?: Finding[] | undefined;
+  /** The review's suggestions, when review sent the work back and the coder has not yet answered them. */
+  suggestions?: Finding[] | undefined;
   /** The scope fence's output on the coder's last patch, which it refused. */
   fenced?: string | undefined;
   /** Martin's answer to the hold before this step, if he wrote one. */
@@ -56,20 +75,73 @@ export interface CoderInput {
 /** The most a coder may say of why it changed nothing: it is the hold's reason, after the line's own words. */
 export const UNCHANGED_MAX = 200;
 
-export const coderResult = z.union([
-  z.strictObject({
-    /** The pull request's title, and its commit's headline, as a Conventional Commit. */
-    title: commitTitle,
-    /** The commit's body: what was wrong, which test shows it, what changed, and anything noticed and left alone. */
-    note: words(1000),
-  }),
-  z.strictObject({
-    /** Why the coder changed nothing, for Martin. */
-    unchanged: words(UNCHANGED_MAX),
-  }),
-]);
+/** The suggestions the coder declines, each by its number as it was given them, with its reason. */
+const declined = z
+  .array(z.strictObject({ suggestion: z.number().int().min(1).max(MAX_FINDINGS), reason: words(300) }))
+  .max(MAX_FINDINGS);
 
-export type CoderResult = z.infer<typeof coderResult>;
+/**
+ * The result, for a round given `suggestions` suggestions: a declined one must be one of them. A round sent back for
+ * suggestions alone (`alone`) may change nothing by declining every one.
+ */
+export function coderResult(suggestions = 0, alone = false) {
+  return z
+    .union([
+      z.strictObject({
+        /** The pull request's title, and its commit's headline, as a Conventional Commit. */
+        title: commitTitle,
+        /** The commit's body: what was wrong, which test shows it, what changed, and anything noticed and left alone. */
+        note: words(1000),
+        /** The suggestions it declined, with why; every other it took. */
+        declined: declined.optional(),
+      }),
+      z.strictObject({
+        /** Why the coder changed nothing, for Martin. */
+        unchanged: words(UNCHANGED_MAX),
+        /** Changing nothing, it declines every suggestion it was given, with why. */
+        declined: declined.optional(),
+      }),
+      /** Every suggestion declined, and nothing changed. */
+      z.strictObject({ declined }),
+    ])
+    .superRefine((result, ctx) => {
+      // The change is approved: the round is for its suggestions, and declining every one is how it changes nothing.
+      if (alone && 'unchanged' in result) {
+        const message = 'a round for suggestions alone changes nothing by declining every one';
+        ctx.addIssue({ code: 'custom', path: ['unchanged'], message });
+      }
+      // Changing nothing declines every suggestion, so that each thread is answered whatever Martin decides.
+      if ('unchanged' in result && suggestions && !alone && (result.declined?.length ?? 0) < suggestions) {
+        const message = 'a round that changes nothing declines every suggestion';
+        ctx.addIssue({ code: 'custom', path: ['declined'], message });
+      }
+      if (!('declined' in result) || !result.declined) return;
+      result.declined.forEach(({ suggestion }, i) => {
+        const path = ['declined', i, 'suggestion'];
+        if (suggestion > suggestions) {
+          const message = suggestions
+            ? `there are ${suggestions} suggestions, not ${suggestion}`
+            : 'there are no suggestions';
+          ctx.addIssue({ code: 'custom', path, message });
+        } else if (result.declined?.findIndex((d) => d.suggestion === suggestion) !== i) {
+          ctx.addIssue({ code: 'custom', path, message: `suggestion ${suggestion} is declined twice` });
+        }
+      });
+      if ('title' in result || 'unchanged' in result) return;
+      if (!alone) {
+        const message = 'only a round sent back for suggestions alone may change nothing by declining them';
+        ctx.addIssue({ code: 'custom', path: ['declined'], message });
+      } else if (result.declined.length < suggestions) {
+        const message = 'a round that changes nothing declines every suggestion';
+        ctx.addIssue({ code: 'custom', path: ['declined'], message });
+      }
+    });
+}
+
+export type CoderResult = z.infer<ReturnType<typeof coderResult>>;
+
+/** Whether the work came back for an approving review's suggestions alone, with nothing blocking. */
+const suggestionsAlone = ({ findings, suggestions }: CoderInput) => !findings?.length && Boolean(suggestions?.length);
 
 /** Whether a step comes after another of this round's or an earlier one's: the work came back, or the fence refused it. */
 const later = (input: CoderInput) => input.fenced !== undefined || input.round > 1;
@@ -98,6 +170,18 @@ const RESULT = [
   `If the code already does what every criterion asks, so there is nothing to fix, change nothing and write {"unchanged"} instead: at most ${UNCHANGED_MAX} characters, in plain sentences for Martin, on what you found. He decides what happens next.`,
 ];
 
+/** How a round with suggestions answers them. */
+const DECLINING =
+  '- `declined`: the suggestions you decline, each {"suggestion","reason"}: its number above, and why, in at most 300 characters, for the reviewer and the pull request’s thread. Every suggestion you leave out is one you took. Leave it out when you take them all.';
+
+/** When a round sent back for suggestions alone may change nothing, and how it says so. */
+const DECLINE_ALL =
+  'If you decline every suggestion, change nothing: leave the checkout as it is and write only {"declined"}, with each of them.';
+
+/** What a round that changes nothing says of its suggestions. */
+const UNCHANGED_DECLINES =
+  'Changing nothing declines every suggestion: write {"unchanged","declined"}, with each of them.';
+
 /** When a later round may change nothing, and how it says so. */
 const UNCHANGED = `Change nothing only if what sent the work back is not your change’s doing (a check fails on a defect your change uncovered and did not cause), or your change already does what is asked. Then leave the checkout as it is and write {"unchanged"} instead: at most ${UNCHANGED_MAX} characters, in plain sentences for Martin, on why. He decides what happens next.`;
 
@@ -111,7 +195,8 @@ function specLines({ spec }: CoderInput): string[] {
   ];
 }
 
-function first(input: CoderInput): string[] {
+/** The ticket, what the senses saw, the spec and Martin's answer: what a step without its session is told first. */
+function briefing(input: CoderInput): string[] {
   const { workItem, ticket, signals, answer } = input;
   return [
     `Fix ticket #${workItem}: ${ticket.title}.`,
@@ -121,6 +206,12 @@ function first(input: CoderInput): string[] {
     'The spec you are held to:',
     ...specLines(input),
     ...(answer ? ['', `Martin answered: ${answer}`] : []),
+  ];
+}
+
+function first(input: CoderInput): string[] {
+  return [
+    ...briefing(input),
     '',
     'Read AGENTS.md first: its rules hold for every change here. Then:',
     '1. Find the cause. Start from the code the criteria name, and its tests.',
@@ -135,7 +226,7 @@ function first(input: CoderInput): string[] {
 
 /** A later step: why it came back, from review or the gates, from the fence, or both. */
 function again(input: CoderInput): string[] {
-  const { workItem, round, returned, findings, fenced, answer } = input;
+  const { workItem, round, returned, findings, suggestions, fenced, answer } = input;
   const back =
     round > 1
       ? [
@@ -144,6 +235,14 @@ function again(input: CoderInput): string[] {
             ? [
                 'The reviewer’s blocking findings, each at a line of your change, with the rule or criterion it cites:',
                 ...findings.map((f) => `- ${f.path}:${f.line}${cites(f) ? ` (${cites(f)})` : ''}: ${f.comment}`),
+              ]
+            : []),
+          ...(suggestions?.length
+            ? [
+                'The reviewer’s suggestions, which do not block. Take each, changing the code for it inside the scope, or decline it with a reason:',
+                ...suggestions.map(
+                  (f, i) => `${i + 1}. ${f.path}:${f.line}${cites(f) ? ` (${cites(f)})` : ''}: ${f.comment}`,
+                ),
               ]
             : []),
           'The checkout is the pull request’s head, with the change you pushed before in it.',
@@ -155,10 +254,31 @@ function again(input: CoderInput): string[] {
         ...fenced.split('\n').map((line) => `    ${line}`),
         `Nothing of that patch was kept: the checkout is back where ${round > 1 ? 'this round' : 'you'} started. Make the fix again, changing only files the scope allows. A test that will not fit in a test file the scope allows is one to leave out; say so in your note.`,
       ]
-    : ['Put it right inside the same scope, and run the tests again.', ...(round > 1 ? [UNCHANGED] : [])];
+    : suggestionsAlone(input)
+      ? ['Take what you take inside the same scope, and run the tests again.', DECLINE_ALL]
+      : [
+          'Put it right inside the same scope, and run the tests again.',
+          ...(round > 1 ? [UNCHANGED] : []),
+          ...(round > 1 && suggestions?.length ? [UNCHANGED_DECLINES] : []),
+        ];
   const why = [...back, ...refused];
+  const declining = suggestions?.length ? [DECLINING] : [];
+  // Without its session, a round for suggestions alone is told the work, and that the fix is in and approved.
+  if (!resumed(input) && suggestionsAlone(input)) {
+    return [
+      ...why,
+      '',
+      ...briefing(input),
+      '',
+      'Read AGENTS.md first: its rules hold for every change here. The fix is in the checkout, and the reviewer approved it: change only what a suggestion you take needs.',
+      '',
+      'Then write the result, {"title","note","declined"}:',
+      ...RESULT.slice(1, 3),
+      ...declining,
+    ];
+  }
   // Without its session, the coder needs everything a first step is told.
-  if (!resumed(input)) return [...why, '', ...first(input)];
+  if (!resumed(input)) return [...why, '', ...first(input), ...declining];
   // The spec again, since the planner may have written it afresh since the session began.
   return [
     ...why,
@@ -167,7 +287,8 @@ function again(input: CoderInput): string[] {
     ...specLines(input),
     ...(answer ? ['', `Martin answered: ${answer}`] : []),
     '',
-    'Then write the result again, {"title","note"}: the note says what the whole change does, not only this round.',
+    `Then write the result again, {"title","note"${suggestions?.length ? ',"declined"' : ''}}: the note says what the whole change does, not only this round.`,
+    ...declining,
   ];
 }
 
@@ -185,23 +306,37 @@ export const coder = defineAgent<CoderInput, CoderResult>({
     session,
     returned: state.rebuild,
     findings: state.rebuild?.from === 'review' ? state.review?.findings.filter((f) => f.blocking) : undefined,
+    suggestions: suggestionsFor(state),
     fenced: state.fenced,
     answer: answerOf(state),
   }),
   resume: resumed,
-  schema: () => coderResult,
+  schema: (input) => coderResult(input.suggestions?.length ?? 0, suggestionsAlone(input)),
   prompt: (input) => (later(input) ? again(input) : first(input)).join('\n'),
   apply: async (result, handback, input, context) => {
-    const { spec, round } = input;
+    const { spec, round, suggestions = [] } = input;
     const { workItem, issue, state, commit } = context;
     const { patch } = handback;
     if ('unchanged' in result) {
       if (patch) throw new StepFailed('The coder said it changed nothing, but handed back a change');
       // Its next round, after Martin's answer, resumes the session that found nothing to change.
       await context.keepSession(handback.session);
-      return [holdDraft('coder', unchangedHold(state, result.unchanged))];
+      const hold = holdDraft('coder', unchangedHold(state, result.unchanged));
+      if (!suggestions.length) return [hold];
+      // Its suggestions are answered before the hold, so his approval leaves no thread open.
+      const pullRequest = need(state.pullRequest, 'a pull request').number;
+      const declined = result.declined ?? [];
+      await answerDeclined(context, pullRequest, suggestions, declined);
+      return [answeredDraft(pullRequest, suggestions, declined), hold];
     }
-    const { title, note } = result;
+    if (!('title' in result)) {
+      if (patch) throw new StepFailed('The coder declined every suggestion, but handed back a change');
+      const pullRequest = need(state.pullRequest, 'a pull request').number;
+      await context.keepSession(handback.session);
+      await answerDeclined(context, pullRequest, suggestions, result.declined);
+      return [answeredDraft(pullRequest, suggestions, result.declined)];
+    }
+    const { title, note, declined = [] } = result;
     if (!patch) throw new StepFailed('The coder handed back no change, and did not say why');
     const fenced = refusing(() => fenceFor(patch, input));
     if (!fenced.ok) {
@@ -250,6 +385,7 @@ export const coder = defineAgent<CoderInput, CoderResult>({
           ).number,
       ));
     await context.keepSession(handback.session);
+    await answerDeclined(context, number, suggestions, declined);
     const files = refusing(() => changedFiles(patch));
     // What a merge would bring in, every round together: GitHub's comparison of the new head with main.
     const compared = await context.read('comparison', { base: 'main', head });
@@ -269,9 +405,48 @@ export const coder = defineAgent<CoderInput, CoderResult>({
           whole: whole.slice(0, 200),
         },
       },
+      ...(suggestions.length ? [answeredDraft(number, suggestions, declined)] : []),
     ];
   },
 });
+
+/**
+ * The suggestions a round answers: the review's that sent the work back, which do not block, until the coder has
+ * answered them once. One declined is not asked again; one taken is the next review's to find.
+ */
+function suggestionsFor(state: WorkItemState): Finding[] | undefined {
+  if (state.rebuild?.from !== 'review' || state.suggestionsAnswered) return undefined;
+  const suggestions = state.review?.findings.filter((f) => !f.blocking);
+  return suggestions?.length ? suggestions : undefined;
+}
+
+type Declined = PayloadOf<'suggestions.answered'>['declined'];
+
+/** Answers each declined suggestion's thread with the coder's reason, and resolves it. */
+async function answerDeclined(
+  context: EffectsContext,
+  pullRequest: number,
+  suggestions: Finding[],
+  declined: Declined,
+) {
+  const answers = declined.flatMap(({ suggestion, reason }) => {
+    const finding = suggestions[suggestion - 1];
+    const reply = `Declined by the factory’s coder: ${reason}`;
+    return finding ? lineage(context.state.reviews, finding).map((f) => ({ finding: f, reply })) : [];
+  });
+  await answerThreads(context, 'declined', pullRequest, threadAnswers(answers));
+}
+
+/** The coder's answer to its round's suggestions, as the line records it. */
+function answeredDraft(pullRequest: number, suggestions: Finding[], declined: Declined): Draft {
+  const taken = suggestions.length - declined.length;
+  return {
+    type: 'suggestions.answered',
+    actor: 'coder',
+    summary: `The coder took ${taken} of ${suggestions.length} suggestions on PR #${pullRequest}, and declined ${declined.length}`,
+    payload: { pullRequest, suggestions: suggestions.length, declined },
+  };
+}
 
 /** A patch the factory cannot read is the coder's failure. */
 function refusing<T>(read: () => T): T {

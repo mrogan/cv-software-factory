@@ -20,11 +20,12 @@ export const VERSIONS = {
   // Plan and build
   'spec.written': 2,
   'pull-request.pushed': 2,
+  'suggestions.answered': 1,
   // Gates and review
   'gates.started': 1,
   'gate.finished': 1,
   'gates.finished': 1,
-  'review.submitted': 3,
+  'review.submitted': 4,
   'pull-request.merged': 1,
   // Release and verify
   'release.started': 3,
@@ -33,7 +34,7 @@ export const VERSIONS = {
   'release.rolled-back': 2,
   'verification.finished': 3,
   // Anywhere on the line
-  'work.returned': 2,
+  'work.returned': 3,
   'hold.started': 5,
   'hold.answered': 1,
   'action.refused': 2,

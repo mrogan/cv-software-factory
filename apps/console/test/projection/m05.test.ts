@@ -329,6 +329,77 @@ describe('a fix sent back by the gates and then by the reviewer', () => {
   });
 });
 
+describe('a fix sent back for an approval’s suggestions', () => {
+  const FILES = [{ path: 'src/price.ts', added: 2, removed: 1 }];
+  const pushed = (attempt: number) =>
+    ({
+      number: 9,
+      title: 'fix(price): show pence',
+      branch: 'factory/3-price',
+      attempt,
+      testsFirst: attempt === 1,
+      files: FILES,
+      whole: FILES,
+    }) satisfies PayloadOf<'pull-request.pushed'>;
+  const finding = (blocking: boolean) => ({ path: 'src/price.ts', line: 4, blocking, comment: 'Test 5 pence too.' });
+  const reviewed = (verdict: 'approved' | 'changes-requested', blocking: number, suggestions: number) =>
+    ({
+      pullRequest: 9,
+      verdict,
+      note: 'Reviewed.',
+      findings: [
+        ...Array.from({ length: blocking }, () => finding(true)),
+        ...Array.from({ length: suggestions }, () => finding(false)),
+      ],
+    }) satisfies PayloadOf<'review.submitted'>;
+  const back = (round: number, figures: { blocking: number } | { suggestions: number }) =>
+    ({ from: 'review', to: 'build', reason: 'Sent back', round, ...figures }) satisfies PayloadOf<'work.returned'>;
+  const sheetOf = (events: ReturnType<typeof work>) => projectSheet(events.events, '3', events.at(60));
+  const fix = () => work('3').open().add(1, 'pull-request.pushed', 'coder', pushed(1));
+
+  it('counts the review after the suggestions round against the most there may now be', () => {
+    const events = fix()
+      .add(2, 'review.submitted', 'reviewer', reviewed('changes-requested', 1, 0))
+      .add(3, 'work.returned', 'factory', back(2, { blocking: 1 }))
+      .add(4, 'pull-request.pushed', 'coder', pushed(2))
+      .add(5, 'review.submitted', 'reviewer', reviewed('approved', 0, 2))
+      .add(6, 'work.returned', 'factory', back(3, { suggestions: 2 }))
+      .add(7, 'pull-request.pushed', 'coder', pushed(3))
+      .add(8, 'suggestions.answered', 'coder', { pullRequest: 9, suggestions: 2, declined: [] })
+      .add(9, 'review.submitted', 'reviewer', reviewed('approved', 0, 0));
+    expect(sheetOf(events)?.facts.reviews).toEqual({ done: 3, of: 3 });
+    expect(sheetOf(events)?.rounds.map((a) => a.returned?.detail)).toEqual(['1 blocking', '2 suggestions', undefined]);
+  });
+
+  it('keeps the limit when the suggestions round comes first, since a review that blocks after it holds', () => {
+    const events = fix()
+      .add(2, 'review.submitted', 'reviewer', reviewed('approved', 0, 1))
+      .add(3, 'work.returned', 'factory', back(2, { suggestions: 1 }))
+      .add(4, 'pull-request.pushed', 'coder', pushed(2))
+      .add(5, 'review.submitted', 'reviewer', reviewed('changes-requested', 1, 0));
+    expect(sheetOf(events)?.facts.reviews).toEqual({ done: 2, of: 2 });
+  });
+
+  it('says the coder declined them all when no attempt follows the return', () => {
+    const reason = 'Its callers are outside the scope.';
+    const events = fix()
+      .add(2, 'review.submitted', 'reviewer', reviewed('approved', 0, 2))
+      .add(3, 'work.returned', 'factory', back(2, { suggestions: 2 }))
+      .add(4, 'suggestions.answered', 'coder', {
+        pullRequest: 9,
+        suggestions: 2,
+        declined: [
+          { suggestion: 1, reason },
+          { suggestion: 2, reason },
+        ],
+      });
+    expect(sheetOf(events)?.rounds.map((a) => a.returned)).toEqual([
+      { from: 'review', detail: '2 suggestions, declined' },
+    ]);
+    expect(sheetOf(events)?.facts.reviews).toEqual({ done: 1, of: 2 });
+  });
+});
+
 /** A fix the line holds, from its events: the four holds whose pictures once were guessed from the evidence. */
 describe('a hold’s picture, by its cause', () => {
   const SPEC = {

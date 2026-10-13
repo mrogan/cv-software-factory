@@ -155,9 +155,11 @@ describe('acting in GitHub', () => {
     });
   });
 
-  it('replies on the open threads it began with an answered finding and resolves them, once, and leaves the rest', async () => {
+  it('replies on the open threads it began with an answered finding, each with its reply, and resolves them, once, and leaves the rest', async () => {
     const finding = '**Blocking** · criterion 2\n\nNo test shows a lowercase query.';
     const reply = `Answered in ${SHA}: the factory’s reviewer, review 2, finds this put right.`;
+    const suggestion = '**Suggestion**\n\nName the test for what it shows.';
+    const declined = 'Declined by the factory’s coder: the name says what it shows.';
     const app = { login: 'mrogan-software-factory' };
     const thread = (
       id: string,
@@ -191,6 +193,7 @@ describe('acting in GitHub', () => {
                             thread('T4', false, 'test/search.test.ts', [finding, { login: 'mrogan' }]),
                             thread('T5', false, 'test/other.test.ts', [finding, app]),
                             thread('T6', false, 'test/search.test.ts', ['**Blocking** · rule 1\n\nElse.', app]),
+                            thread('T8', false, 'test/search.test.ts', [suggestion, app]),
                             // The same words on another line: a finding of its own.
                             { ...thread('T7', false, 'test/search.test.ts', [finding, app]), originalLine: 9 },
                           ],
@@ -203,14 +206,12 @@ describe('acting in GitHub', () => {
             : { body: { data: {} } },
       },
     ]);
-    await new LiveActions(github).resolveThreads(REPO, 66, {
-      comments: [
-        { path: 'test/search.test.ts', line: 4, body: finding },
-        { path: 'src/search.ts', line: 4, body: finding },
-        { path: 'test/pages.test.ts', line: 4, body: finding },
-      ],
-      reply,
-    });
+    await new LiveActions(github).resolveThreads(REPO, 66, [
+      { path: 'test/search.test.ts', line: 4, body: finding, reply },
+      { path: 'src/search.ts', line: 4, body: finding, reply },
+      { path: 'test/pages.test.ts', line: 4, body: finding, reply },
+      { path: 'test/search.test.ts', line: 4, body: suggestion, reply: declined },
+    ]);
     const asked = calls(sent).map((s) => s.body as { query: string; variables: Record<string, unknown> });
     expect(asked[0]?.variables).toEqual({ owner: 'mrogan', name: 'cv-worlds-worst-website', number: 66 });
     expect(
@@ -221,6 +222,8 @@ describe('acting in GitHub', () => {
       ['addPullRequestReviewThreadReply', { id: 'T1', body: reply }],
       ['resolveReviewThread', { id: 'T1' }],
       ['resolveReviewThread', { id: 'T2' }],
+      ['addPullRequestReviewThreadReply', { id: 'T8', body: declined }],
+      ['resolveReviewThread', { id: 'T8' }],
     ]);
   });
 
@@ -512,8 +515,15 @@ describe('resolving threads in a dry run', () => {
   it('records the threads it would have resolved, with what it would have said on them', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
     const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
-    const comments = [{ path: 'src/search.ts', line: 1, body: '**Blocking** · criterion 1\n\nNo quote is escaped.' }];
-    await actions.resolveThreads(REPO, 66, { comments, reply: 'Answered.' });
+    const threads = [
+      {
+        path: 'src/search.ts',
+        line: 1,
+        body: '**Blocking** · criterion 1\n\nNo quote is escaped.',
+        reply: 'Answered.',
+      },
+    ];
+    await actions.resolveThreads(REPO, 66, threads);
     const [record] = await Promise.all(
       (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
     );
@@ -521,7 +531,7 @@ describe('resolving threads in a dry run', () => {
       action: 'resolveThreads',
       repo: REPO,
       at: '2026-10-04T12:00:00.000Z',
-      args: { number: 66, comments, reply: 'Answered.' },
+      args: { number: 66, threads },
     });
   });
 });
@@ -673,13 +683,13 @@ describe('the worker over HTTP', () => {
     expect((await call('/v1/actions/comment', { repo: REPO, number: pullRequest.number, body: 'Ready.' })).status).toBe(
       200,
     );
-    const comments = [{ path: 'src/cart.ts', line: 3, body: '**Blocking**\n\nOne short.' }];
-    const resolve = (args: object) =>
-      call('/v1/actions/resolveThreads', { repo: REPO, number: pullRequest.number, ...args });
-    expect((await resolve({ comments, reply: 'Answered.' })).status).toBe(200);
+    const thread = { path: 'src/cart.ts', line: 3, body: '**Blocking**\n\nOne short.', reply: 'Answered.' };
+    const resolve = (threads: object[]) =>
+      call('/v1/actions/resolveThreads', { repo: REPO, number: pullRequest.number, threads });
+    expect((await resolve([thread])).status).toBe(200);
     // Nothing to resolve, or nothing to say, is refused at the door.
-    expect((await resolve({ comments: [], reply: 'Answered.' })).status).toBe(400);
-    expect((await resolve({ comments, reply: '' })).status).toBe(400);
+    expect((await resolve([])).status).toBe(400);
+    expect((await resolve([{ ...thread, reply: '' }])).status).toBe(400);
   });
 
   it('says it is a dry run in every answer', async () => {

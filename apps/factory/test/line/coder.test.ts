@@ -8,6 +8,14 @@ const input: CoderInput =
     throw new Error('The coder has no wrong-price fixture.');
   })();
 
+const unmetFinding = {
+  path: 'src/money.ts',
+  line: 3,
+  blocking: true,
+  criterion: 2,
+  comment: 'Seven pence shows as 7.',
+};
+
 const FENCED = 'scope: src/money.ts, test/money.test.ts\nallowed src/money.ts +1 −1\nrefused src/pages/cards.ts +3 −1';
 
 describe('the coder', () => {
@@ -96,6 +104,53 @@ describe('the coder', () => {
     expect(coder.resume?.(fresh)).toBeUndefined();
     expect(coder.prompt(fresh)).toContain('came back from review');
     expect(coder.prompt(fresh)).toContain('Read AGENTS.md first');
+  });
+
+  it('is given the review’s suggestions, to take or decline with a reason, and declines only those it was given', () => {
+    const suggested =
+      FIXTURES.coder['price-suggestions']?.input ??
+      (() => {
+        throw new Error('The coder has no price-suggestions fixture.');
+      })();
+    const prompt = coder.prompt({ ...suggested, session: 's' });
+    expect(prompt).toContain('came back from review, for round 2: The review approved, with 2 suggestions');
+    expect(prompt).toContain('Take each, changing the code for it inside the scope, or decline it with a reason:');
+    expect(prompt).toContain('2. src/money.ts:2: pounds says little of what it does.');
+    expect(prompt).toContain('If you decline every suggestion, change nothing');
+    expect(prompt).not.toContain('{"unchanged"}');
+    expect(prompt).toContain('{"title","note","declined"}');
+    expect(prompt).toContain('Every suggestion you leave out is one you took.');
+    // Without its session, it is told the work, that the fix is in and approved, and how to decline.
+    const fresh = coder.prompt(suggested);
+    expect(fresh).toContain('Read AGENTS.md first');
+    expect(fresh).toContain('The fix is in the checkout, and the reviewer approved it');
+    expect(fresh).toContain('- `declined`: the suggestions you decline');
+    expect(fresh).not.toContain('{"unchanged"}');
+    expect(fresh).not.toContain('Write the test first');
+
+    const note = 'pounds pads the pence now, tested at 5, 10, 600 and 705 pence.';
+    const fits = (result: unknown, given = suggested) => coder.schema(given).safeParse(result).success;
+    const title = 'fix(money): show two digits of pence';
+    const no = (...numbers: number[]) => numbers.map((suggestion) => ({ suggestion, reason: 'Outside the scope.' }));
+    expect(fits({ title, note })).toBe(true);
+    expect(fits({ title, note, declined: no(2) })).toBe(true);
+    expect(fits({ title, note, declined: no(3) })).toBe(false);
+    expect(fits({ title, note, declined: no(2, 2) })).toBe(false);
+    // Declining them all, it changes nothing; declining some, it must change something.
+    expect(fits({ declined: no(1, 2) })).toBe(true);
+    expect(fits({ declined: no(2) })).toBe(false);
+    expect(fits({ unchanged: 'It is approved as it is.' })).toBe(false);
+    // With something blocking, declining is no way to change nothing.
+    const blocking = { ...suggested, findings: [{ ...unmetFinding }] };
+    expect(fits({ declined: no(1, 2) }, blocking)).toBe(false);
+    expect(fits({ title, note, declined: no(1) }, blocking)).toBe(true);
+    // Changing nothing there holds for Martin, and declines every suggestion, so no thread outlives his answer.
+    expect(fits({ unchanged: 'The quote is escaped already.' }, blocking)).toBe(false);
+    expect(fits({ unchanged: 'The quote is escaped already.', declined: no(1, 2) }, blocking)).toBe(true);
+    expect(fits({ unchanged: 'The quote is escaped already.' }, input)).toBe(true);
+    expect(coder.prompt({ ...blocking, session: 's' })).toContain('write {"unchanged","declined"}');
+    // With no suggestions, there is nothing to decline.
+    expect(fits({ title, note, declined: no(1) }, input)).toBe(false);
   });
 
   it('starts a first step afresh, whatever session it has', () => {
