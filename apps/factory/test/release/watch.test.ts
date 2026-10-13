@@ -18,7 +18,7 @@ import {
   secondsOf,
   type Target,
 } from '../../src/release/watch.ts';
-import { CANARY, commitOf, digestOf, releaseOf, rollout, run, STABLE } from './fixtures.ts';
+import { ABORTED_AT, CANARY, commitOf, digestOf, releaseOf, rollout, run, STABLE } from './fixtures.ts';
 
 /**
  * A store of release events, as the line keeps it: each pass appends what `releaseEvents` drafts, and the next pass
@@ -295,41 +295,156 @@ describe('a release, from the Rollout and its runs', () => {
     expect(s.pass(aborted, [failedRun]).said).toEqual({});
   });
 
-  it('records nothing when Martin aborts a release: it stays unfinished until he retries it, and then goes on', () => {
+  it('records Martin’s abort, by whoever made it, and starts the release again when he retries it', () => {
     const s = store(STABLE_RECORDED);
     const runs = [background(), step(2)];
     s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), runs, { start: START });
     // `make stop-the-line` at 50%: the Rollout is aborted, and the runs are terminated, which fails none of them. The
-    // step's run in hand ends Successful, having judged nothing: it is no step.
+    // step's run in hand ends Successful, having judged nothing: it is no step. Argo Rollouts sends the Rollout back
+    // to its first step.
     const terminated = [
       background({ phase: 'Successful', message: 'Run Terminated', terminate: true }),
       step(2),
       step(5, { message: 'Run Terminated', terminate: true }),
     ];
-    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 3, abort: true });
-    expect(s.pass(aborted, terminated).said).toEqual({});
-    expect(s.pass(aborted, terminated).said).toEqual({});
-    // An analysis that could not judge (Error) is no failure of the canary either: its step is recorded as it ended.
-    const error = step(5, { name: 'website-68ff668868-4-5.1', phase: 'Error', created: t(15), completed: t(15) });
-    const judged = s.pass(aborted, [...terminated, error]);
-    expect(judged.needs.failures).toEqual([]);
-    expect(judged.said).toEqual({ 1001: ['canary.stepped'], 1006: ['canary.stepped'] });
-    // He retries it: the release goes on from where it was, and promotes.
+    // Not yet acted on: nothing to say.
+    const patched = rollout({ current: CANARY, stable: STABLE, stepIndex: 3, abort: true });
+    delete patched.status.abortedAt;
+    expect(s.pass(patched, terminated, { abortedBy: 'stop' }).needs.aborted).toBe(false);
+    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true });
+    // The line must say who aborted it before it is recorded.
+    const asked = s.pass(aborted, terminated);
+    expect(asked.needs.aborted).toBe(true);
+    expect(asked.said).toEqual({});
+    const { drafts } = s.pass(aborted, terminated, { abortedBy: 'stop' });
+    expect(drafts.get('1001')?.map((d) => [d.type, d.actor, d.summary])).toEqual([
+      ['release.aborted', 'martin', `Stop the line aborted the canary of ${commitOf(CANARY).slice(0, 7)}`],
+    ]);
+    expect(s.of('1006', 'release.aborted')).toEqual([
+      {
+        release: releaseOf(CANARY),
+        version: commitOf(CANARY),
+        restored: commitOf(STABLE),
+        abortedAt: ABORTED_AT,
+        by: 'stop',
+      },
+    ]);
+    // Still aborted: nothing more, and nothing to ask.
+    const again = s.pass(aborted, terminated, { abortedBy: 'stop' });
+    expect([again.said, again.needs.aborted]).toEqual([{}, false]);
+    // He retries it: the release starts again, and goes on to its promotion.
     const retried = [
+      ...terminated,
       background({ name: 'website-68ff668868-4.1', created: t(20) }),
-      step(2),
-      error,
-      step(5, { name: 'website-68ff668868-4-5.2', created: t(30), completed: t(30.5) }),
+      step(2, { name: 'website-68ff668868-4-2.1', created: t(23), completed: t(23.5) }),
     ];
-    expect(s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 6, weight: 50 }), retried).said).toEqual({
-      1001: ['canary.stepped'],
-      1006: ['canary.stepped'],
+    const going = s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), retried);
+    expect(going.drafts.get('1001')?.map((d) => [d.type, d.summary])).toEqual([
+      ['release.started', `${commitOf(CANARY).slice(0, 7)} started again after its abort`],
+      ['canary.stepped', 'Canary at 25%: the analysis passed'],
+    ]);
+    // Martin aborts the retry by hand.
+    const byHand = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(25) });
+    expect(s.pass(byHand, retried, { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.aborted'],
+      1006: ['release.aborted'],
     });
-    expect(s.pass(rollout({ current: CANARY, stable: CANARY }), retried).said).toEqual({
-      1001: ['release.promoted'],
-      1006: ['release.promoted'],
-    });
+    expect(s.of('1001', 'release.aborted').map((p) => (p as PayloadOf<'release.aborted'>).by)).toEqual([
+      'stop',
+      'martin',
+    ]);
     expect(s.of('1001', 'release.rolled-back')).toEqual([]);
+  });
+
+  it('records nothing when an analysis that could not judge aborts the release: it stays unfinished', () => {
+    const s = store(STABLE_RECORDED);
+    const runs = [background(), step(2)];
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), runs, { start: START });
+    // An analysis that ends in Error is no failure of the canary, and nobody stopped it: its step is recorded as it
+    // ended, and the abort it made is not Martin's.
+    const error = step(5, { phase: 'Error', created: t(15), completed: t(15) });
+    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(15.01) });
+    const judged = s.pass(aborted, [...runs, error], { abortedBy: 'martin' });
+    expect(judged.needs).toMatchObject({ failures: [], aborted: false });
+    expect(judged.said).toEqual({ 1001: ['canary.stepped'], 1006: ['canary.stepped'] });
+    expect(s.pass(aborted, [...runs, error], { abortedBy: 'martin' }).said).toEqual({});
+    // Martin retries it, and later aborts it himself: that abort is his, whatever the earlier run said.
+    const later = [...runs, error, step(2, { name: 'website-68ff668868-4-2.1', created: t(20), completed: t(20.5) })];
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), later);
+    const byHand = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(25) });
+    expect(s.pass(byHand, later, { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.aborted'],
+      1006: ['release.aborted'],
+    });
+  });
+
+  it('records a retry and a second abort that both happened between two reads', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], {
+      start: { ...START, carries: ['1001'] },
+    });
+    const first = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(5) });
+    expect(s.pass(first, [background()], { abortedBy: 'stop' }).said).toEqual({ 1001: ['release.aborted'] });
+    // Read again with the same abort: nothing. With a later one, he retried it and aborted it again meanwhile.
+    expect(s.pass(first, [background()], { abortedBy: 'stop' }).said).toEqual({});
+    const second = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(9) });
+    expect(s.pass(second, [background()], { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.started', 'release.aborted'],
+    });
+    expect(s.of('1001', 'release.aborted').map((p) => (p as PayloadOf<'release.aborted'>).by)).toEqual([
+      'stop',
+      'martin',
+    ]);
+  });
+
+  it('judges a retry that ended between two reads by its own runs, not by the abort before it', () => {
+    const aborted = () => {
+      const s = store(STABLE_RECORDED);
+      s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], {
+        start: { ...START, carries: ['1001'] },
+      });
+      s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(5) }), [background()], {
+        abortedBy: 'stop',
+      });
+      return s;
+    };
+    const again = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(9) });
+    // The retry's step failed, and Argo Rollouts rolled it back: a rollback, whoever the line would say aborted it.
+    const failed = step(2, {
+      name: 'website-68ff668868-4-2.1',
+      created: t(6),
+      completed: t(9),
+      phase: 'Failed',
+      message: 'Metric "errors" assessed Failed',
+      metrics: { errors: { phase: 'Failed', value: '[0.03]' } },
+    });
+    expect(aborted().pass(again, [background(), failed], { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.started', 'canary.stepped', 'release.rolled-back'],
+    });
+    // The retry's analysis could not judge it, and aborted it: nobody did.
+    const error = step(2, { name: 'website-68ff668868-4-2.1', created: t(6), completed: t(9), phase: 'Error' });
+    expect(aborted().pass(again, [background(), error], { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.started', 'canary.stepped'],
+    });
+  });
+
+  it('takes a run that ended in Error with no time it ended for none that made the abort', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], {
+      start: { ...START, carries: ['1001'] },
+    });
+    const untimed = background({ name: 'website-68ff668868-4.1', created: t(1), phase: 'Error' });
+    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(5) });
+    expect(s.pass(aborted, [background(), untimed], { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.aborted'],
+    });
+  });
+
+  it('records no abort until the Rollout says when, as a time', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+    const odd = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: 'yesterday' });
+    expect(s.pass(odd, [background()], { abortedBy: 'martin' })).toMatchObject({ said: {}, needs: { aborted: false } });
   });
 
   it('starts a rolled-back release again when Martin retries it, under the same name', () => {
@@ -370,9 +485,9 @@ describe('a release, from the Rollout and its runs', () => {
       ],
       [{ weight: 50, pauseSeconds: 300, analysis: true }],
     ]);
-    // Martin aborts the retry: its earlier failure is not this attempt's, so nothing is recorded.
+    // Martin aborts the retry: its earlier failure is not this attempt's, so it is his abort, not a rollback.
     expect(s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, abort: true }), retry).said).toEqual({});
-    // A run that fails in this attempt rolls it back again.
+    // A run that fails in this attempt, before the line has said who aborted it, rolls it back again.
     const again = [
       ...retry,
       background({
@@ -501,9 +616,13 @@ describe('a release of a version released before', () => {
       releaseOf(CANARY),
       `${CANARY}-6`,
     ]);
-    // Aborted with none of its own runs failed, it records nothing: the earlier failure was the earlier release's.
+    // Aborted with none of its own runs failed, it is Martin's abort: the earlier failure was the earlier release's.
     const aborted = rollout({ current: CANARY, stable: STABLE, revision: 6, stepIndex: 1, abort: true });
-    expect(s.pass(aborted, runs).said).toEqual({});
+    expect(s.pass(aborted, runs, { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.aborted'],
+      1006: ['release.aborted'],
+    });
+    expect(s.of('1001', 'release.aborted')).toMatchObject([{ release: `${CANARY}-6`, by: 'martin' }]);
   });
 
   it('is found live when the line missed all of it, not taken for an earlier release of its image that rolled back', () => {

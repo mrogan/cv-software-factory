@@ -12,8 +12,11 @@ flowchart LR
   started --> stepped[canary.stepped, per step]
   stepped --> promoted[release.promoted]
   started -- "an analysis fails" --> rolledback[release.rolled-back]
+  started -- "Martin aborts it" --> aborted[release.aborted]
   rolledback -- rollback signals --> triage([Triage])
   rolledback --> held
+  aborted --> held
+  held -- "Martin retries it" --> started
   promoted --> verify[Verify]
   verify -- cleared --> closed([Issue closed, work item verified])
   verify -- persists, first time --> plan([Back to Plan])
@@ -24,6 +27,7 @@ flowchart LR
 
 - **The hold.** Martin's merge clears any hold the change had, and the work item holds at Release (cause `deploy`, for his approval, so Needs you lists it) until a release that carries it starts. He settles it by merging the app's deploy pull request, not by answering, and `release.started` ends the hold by itself.
 - **A rollback.** A release that rolls back holds it again, for the next release that carries it.
+- **An abort.** A release Martin aborts holds it again too, with the hold's reason saying whether Stop the line aborted it or he did. His retry starts the same release again, which ends the hold as any start does; otherwise the next release that carries it does.
 - **A dry run's merge**, which no deploy pull request can carry, is not held: it waits at Release for the dry run's release, and Needs you never lists it ([Dry run](#dry-run)).
 
 ### What a deploy carries
@@ -41,7 +45,7 @@ The same function decides what a release carries, so while a release is in its c
 
 ## The release watch
 
-`RELEASE_ROLLOUT` (`<namespace>/<name>`) turns it on; unset, there is none. Every 30 seconds it reads the app's Rollout and its AnalysisRuns, and it changes nothing:
+`RELEASE_ROLLOUT` (`<namespace>/<name>`) turns it on; unset, there is none. Every 30 seconds it reads the app's Rollout and its AnalysisRuns, and it changes nothing. It goes on while the line is stopped, so the abort Stop the line makes is recorded as it happens; a dry run's releases wait for the line to start.
 
 - A Role in `website` lets the line get, list and watch Rollouts and AnalysisRuns, and list pods, and nothing else there (`deploy/base/analysis/line-reads-release.yaml`). `release-fences.test.ts` holds it to exactly that.
 - A release is named by its canary's pod-template hash and the Rollout's revision, `<hash>-<revision>`. Argo Rollouts gives the same pod template the same hash and counts the revision up on every new rollout, so pinning an image released before (to go back to it) starts a release of its own, with its own runs. A retry keeps the revision, and is the same release. A release recorded before the revision is named by its hash alone, and read as it was then, until it ends: a later rollout of its hash is a release of its own.
@@ -58,11 +62,13 @@ The same function decides what a release carries, so while a release is in its c
 | `canary.stepped` | Each step's analysis ends | The analysis's own measures (each one's phase, value, limit and words), and each version's requests, error rate and p99 from Prometheus (`PROMETHEUS_URL`), by pod-template hash |
 | `release.promoted` | The release becomes the stable version | |
 | `release.rolled-back` | The Rollout is aborted and a run of the release's latest attempt failed | Each failed measure and, for errors and latency, its series from the release's start to the failure |
+| `release.aborted` | The Rollout is aborted, Argo Rollouts has acted on it (`status.abortedAt`), and no run of the release's latest attempt failed or ended in error | When Argo Rollouts acted on it, and who aborted it (`by`): `stop` for Stop the line, `martin` for his own. Actor `martin` |
 
-A figure or series Prometheus did not give is left out. Two things record nothing:
+A figure or series Prometheus did not give is left out.
 
-- **Martin's abort** terminates the runs, which fails none. The release stays unfinished, and its work items wait at Release until he retries it or a later release carries them.
-- **A run that ends in error:** the analysis could not judge.
+- **Who aborted it.** Martin's abort terminates the runs, which fails none, and is no signal. To Argo Rollouts, Stop the line's abort (`scripts/abort-canaries.sh`) and Martin's by hand are the same patch of the Rollout's status, so the line says which: `stop` when the last `line.started` or `line.stopped` before the abort is a stop recorded within the minute before it (`make stop-the-line` records the stop, then aborts), `martin` otherwise. It is decided by time alone, so when the stop cannot be recorded (the store is down, and the make target aborts anyway) the abort reads as Martin's, and an abort he makes by hand within the minute after a stop reads as the stop's. A retry and a second abort between two reads are both recorded, by the abort's later time.
+- **Where it was.** An abort sends the Rollout back to its first step, so the event holds no weight: the console reads the canary's weight then from the release's steps, as it reads one in flight.
+- **An analysis that ends in error** aborts the Rollout itself, and that abort records nothing: the analysis could not judge, and nobody stopped it. A run that ended in error within the minute before an abort made it; the release stays unfinished, and its work items wait at Release until Martin retries it or a later release carries them.
 
 ### Found live
 

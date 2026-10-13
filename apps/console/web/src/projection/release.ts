@@ -9,6 +9,7 @@ import type { ItemState } from './items.ts';
 type Started = PayloadOf<'release.started'>;
 export type Stepped = PayloadOf<'canary.stepped'>;
 export type Failed = PayloadOf<'release.rolled-back'>['failed'][number];
+type AbortedBy = PayloadOf<'release.aborted'>['by'];
 
 /** One step of the canary: a weight it holds, how long it pauses there (null: until someone promotes it), and whether the analysis judges it. */
 export type Step = NonNullable<Started['steps']>[number];
@@ -22,7 +23,7 @@ export interface Measured {
 export type End =
   | { kind: 'promoted'; at: number; weight: 100 }
   | { kind: 'rolled-back'; at: number; weight: number; reason: string; failed: Failed[]; ticket: Signalled | undefined }
-  | { kind: 'stopped'; at: number; weight: number };
+  | { kind: 'aborted'; at: number; weight: number; by: AbortedBy };
 
 /**
  * The ticket a rollback's signal went to, and what it did there: opened it, reopened it after a verified fix, or
@@ -112,6 +113,19 @@ export function sawOf({ name, value, limit, message }: Failed, reason: string): 
 export const ownWords = (message: string | undefined, reason: string) =>
   message !== reason && !/ assessed \w+ due to /.test(message ?? '') ? message : undefined;
 
+/** An abort in a few words: "stopped with the line" for Stop the line's, "aborted by Martin" for his own. */
+export const abortWords = (by: AbortedBy) => (by === 'stop' ? 'stopped with the line' : 'aborted by Martin');
+
+/**
+ * What a fix waits for after the release that carried it was aborted, as "waiting for Martin's next deploy" is after
+ * a rollback: Martin's retry or his next deploy, naming him once.
+ */
+export const abortWait = (by: AbortedBy) => `waiting for ${by === 'martin' ? 'his' : 'Martin’s'} retry or next deploy`;
+
+/** How a release ended, in a few words: "promoted", "rolled back", "stopped with the line" or "aborted by Martin". */
+export const endedWords = (end: End) =>
+  end.kind === 'aborted' ? abortWords(end.by) : end.kind === 'rolled-back' ? 'rolled back' : 'promoted';
+
 /** How long a release stays in full on the panel after it ends: as long as a station reads "passed". */
 const SHOWN_MS = 15 * 60_000;
 
@@ -162,11 +176,16 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
   const tickets = new Map<string, { number: string; how: Signalled['how'] }>();
   const signalled = new Set<string>();
   const reopened = new Set<string>();
+  // Whether the history records aborts: one that does has no stop to infer.
+  let recordsAborts = false;
   for (const event of events) {
     const at = Date.parse(event.ts);
-    // Stop the line aborts the canary in flight: the newest release, if it has not ended. An older one that never
-    // recorded an end was left behind by a newer, and the stop says nothing of it.
+    // Stop the line aborts the canary in flight, and the line records the abort. A history from before it did has
+    // only the stop: the newest release, if it has not ended, is read as aborted by it, until it records an end of its
+    // own. An older one that never recorded an end was left behind by a newer, and the stop says nothing of it. Once
+    // the history has recorded an abort, a stop is never read as one.
     if (event.type === 'line.stopped') {
+      if (recordsAborts) continue;
       const newest = [...byId.values()].at(-1);
       if (newest && !newest.end) newest.stoppedAt ??= at;
       continue;
@@ -223,8 +242,14 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
       });
       continue;
     }
-    if (event.type !== 'canary.stepped' && event.type !== 'release.promoted' && event.type !== 'release.rolled-back')
+    if (
+      event.type !== 'canary.stepped' &&
+      event.type !== 'release.promoted' &&
+      event.type !== 'release.rolled-back' &&
+      event.type !== 'release.aborted'
+    )
       continue;
+    if (event.type === 'release.aborted') recordsAborts = true;
     const r = byId.get(event.payload.release);
     if (!r || r.end) continue;
     if (event.type === 'canary.stepped') {
@@ -237,6 +262,8 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
       const { weight, reason, failed } = event.payload;
       r.end = { kind: 'rolled-back', at, weight, reason, failed, ticket: undefined };
     }
+    // Recorded a pass after Argo Rollouts acted on it: it ended then, at the step it had reached.
+    if (event.type === 'release.aborted') r.end = abortedAt(r, Date.parse(event.payload.abortedAt), event.payload.by);
   }
   return [...byId.values()].map((r): Release => {
     const { listed: _listed, stoppedAt: _stoppedAt, ...release } = r;
@@ -245,7 +272,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     const place = position(r, end?.at ?? t);
     const ticket = tickets.get(r.id);
     if (end?.kind === 'rolled-back' && ticket) end.ticket = { ...carried(ticket.number), how: ticket.how };
-    return { ...release, ...place, weight: end && end.kind !== 'stopped' ? end.weight : place.weight, end };
+    return { ...release, ...place, weight: end ? end.weight : place.weight, end };
   });
 }
 
@@ -253,11 +280,19 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
 const measuredSteps = (r: Building) =>
   [...new Set([...r.measured.map((m) => m.weight), 100])].map((weight) => ({ ...ALL, weight }));
 
-/** How a release ended, if it has: by its own event, or stopped with the line at the step it was at. */
+/** How a release ended, if it has: by its own event, or, in a history from before aborts were recorded, the line's stop. */
 function endOf(r: Building): End | undefined {
   if (r.end || r.stoppedAt === undefined) return r.end;
-  return { kind: 'stopped', at: r.stoppedAt, weight: position(r, r.stoppedAt).weight };
+  return abortedAt(r, r.stoppedAt, 'stop');
 }
+
+/** An abort at a time, at the step the canary had reached: the Rollout no longer says which. */
+const abortedAt = (r: Building, at: number, by: AbortedBy): End => ({
+  kind: 'aborted',
+  at,
+  weight: position(r, at).weight,
+  by,
+});
 
 /** The newest release, in full while it is in flight and for a while after; then one line. */
 export function canaryView(all: readonly Release[], t: number): CanaryView {

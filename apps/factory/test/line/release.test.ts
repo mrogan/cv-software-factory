@@ -197,7 +197,7 @@ const typesOf = async (workItem: string | null) =>
     await database.writer<{ type: string; actor: string }[]>`
       select type, actor from events
       where work_item is not distinct from ${workItem}
-        and type in ('release.started', 'canary.stepped', 'release.promoted', 'release.rolled-back')
+        and type in ('release.started', 'canary.stepped', 'release.promoted', 'release.rolled-back', 'release.aborted')
       order by seq`
   ).map((r) => `${r.type} by ${r.actor}`);
 
@@ -583,21 +583,80 @@ describe('a rollback, as signals to triage', () => {
     expect(journeys?.fingerprint).toBe('/about broken-link');
   });
 
-  it('sends nothing for Martin’s abort, which terminates the runs and fails none', async () => {
+  /** The runs as Martin's abort leaves them: terminated, which fails none. */
+  const terminated = () => [
+    run({
+      created: new Date(now).toISOString(),
+      completed: new Date(now + 60_000).toISOString(),
+      phase: 'Successful',
+      message: 'Run Terminated',
+      terminate: true,
+    }),
+  ];
+
+  it('records Martin’s abort, sends nothing for it, and holds the work it carried for him', async () => {
     const { line: it, kube, carried } = await underWay();
-    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true });
-    kube.runs = [
-      run({
-        created: new Date(now).toISOString(),
-        completed: new Date(now + 60_000).toISOString(),
-        phase: 'Successful',
-        message: 'Run Terminated',
-        terminate: true,
-      }),
-    ];
+    const abortedAt = new Date(now).toISOString();
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt });
+    kube.runs = terminated();
     await it.tick();
     expect(await inbox()).toEqual([]);
-    expect(await typesOf(carried)).toEqual(['release.started by rollouts']);
+    expect(await typesOf(carried)).toEqual(['release.started by rollouts', 'release.aborted by martin']);
+    expect(await payloads(carried, 'release.aborted')).toEqual([
+      { release: releaseOf(CANARY), version: commitOf(CANARY), restored: commitOf(STABLE), abortedAt, by: 'martin' },
+    ]);
+    await it.tick();
+    expect(await stage(carried)).toBe('held');
+    const [hold] = await payloads(carried, 'hold.started');
+    expect(hold).toMatchObject({ cause: 'deploy', reason: expect.stringMatching(/^Martin aborted the release/) });
+  });
+
+  it('records Stop the line’s abort while the line is stopped, and starts the release again when it is retried', async () => {
+    const { line: it, kube, carried } = await underWay();
+    // `make stop-the-line`: the line's stop, then the abort, which Argo Rollouts keeps to the second, cut short.
+    const stop = event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin');
+    await events.append([{ ...stop, ts: new Date(now + 400).toISOString() }]);
+    kube.rollout = rollout({
+      current: CANARY,
+      stable: STABLE,
+      stepIndex: 0,
+      abort: true,
+      abortedAt: new Date(now).toISOString(),
+    });
+    kube.runs = terminated();
+    await it.tick();
+    expect(await typesOf(carried)).toEqual(['release.started by rollouts', 'release.aborted by martin']);
+    expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'stop' }]);
+    now += 60_000;
+    await events.append([event(null, 'line.started', { autonomy: 'guarded' }, 'martin')]);
+    await it.tick();
+    expect(await stage(carried)).toBe('held');
+    // Martin retries it.
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    kube.runs = [...terminated(), run({ name: 'website-68ff668868-4.1', created: new Date(now).toISOString() })];
+    await it.tick();
+    expect(await typesOf(carried)).toEqual([
+      'release.started by rollouts',
+      'release.aborted by martin',
+      'release.started by rollouts',
+    ]);
+    await it.tick();
+    expect(await stage(carried)).toBe('release');
+  });
+
+  it('takes an abort long after the line stopped for Martin’s own', async () => {
+    const { line: it, kube, carried } = await underWay();
+    await events.append([event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin')]);
+    kube.rollout = rollout({
+      current: CANARY,
+      stable: STABLE,
+      stepIndex: 0,
+      abort: true,
+      abortedAt: new Date(now + 10 * 60_000).toISOString(),
+    });
+    kube.runs = terminated();
+    await it.tick();
+    expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'martin' }]);
   });
 
   it('waits to send a failed measure until it can read where the canary did worse', async () => {

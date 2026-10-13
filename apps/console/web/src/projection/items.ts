@@ -89,8 +89,17 @@ export interface ItemState {
   latest: Partial<Record<Stage, PublicEvent>>;
   dependency: PayloadOf<'work-item.opened'>['dependency'];
   pullRequest: number | undefined;
-  /** Versions: the one it broke (an injection) or replaced, the one it shipped, and whether that was rolled back. */
-  versions: { from: string | undefined; to: string | undefined; rolledBack: boolean; live: boolean };
+  /**
+   * Versions: the one it broke (an injection) or replaced, the one it shipped, and whether that was rolled back, or
+   * aborted, and by what.
+   */
+  versions: {
+    from: string | undefined;
+    to: string | undefined;
+    rolledBack: boolean;
+    aborted: PayloadOf<'release.aborted'>['by'] | undefined;
+    live: boolean;
+  };
   /** A release still on its canary, at this share of traffic. */
   canary: { version: string; weight: number } | undefined;
   captures: Capture[];
@@ -144,6 +153,7 @@ export function stageOf(event: PublicEvent): Stage | null {
     case 'canary.stepped':
     case 'release.promoted':
     case 'release.rolled-back':
+    case 'release.aborted':
       return 'release';
     case 'verification.finished':
       return 'verify';
@@ -221,7 +231,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     latest: {},
     dependency: opened.payload.dependency,
     pullRequest: undefined,
-    versions: { from: undefined, to: undefined, rolledBack: false, live: false },
+    versions: { from: undefined, to: undefined, rolledBack: false, aborted: undefined, live: false },
     canary: undefined,
     captures: [],
     evidence: { signal: undefined, verified: undefined },
@@ -257,7 +267,10 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     const joining = state.ticket && (event.type === 'signal.received' || event.type === 'judgement.made');
     // A step or end of a release other than the latest to carry the item says nothing about it.
     const stale =
-      (event.type === 'canary.stepped' || event.type === 'release.promoted' || event.type === 'release.rolled-back') &&
+      (event.type === 'canary.stepped' ||
+        event.type === 'release.promoted' ||
+        event.type === 'release.rolled-back' ||
+        event.type === 'release.aborted') &&
       event.payload.release !== release;
     if (stale) continue;
     const stage = joining ? null : stageOf(event);
@@ -331,6 +344,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.versions.from ??= event.payload.previous;
         state.versions.to = event.payload.version;
         state.versions.rolledBack = false;
+        state.versions.aborted = undefined;
         state.canary = { version: event.payload.version, weight: 0 };
         break;
       case 'canary.stepped':
@@ -343,6 +357,10 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       case 'release.rolled-back':
         state.canary = undefined;
         state.versions.rolledBack = true;
+        break;
+      case 'release.aborted':
+        state.canary = undefined;
+        state.versions.aborted = event.payload.by;
         break;
       case 'verification.finished':
         state.evidence.verified = event.payload.evidence;
@@ -368,7 +386,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.queued = true;
         release = undefined;
         state.canary = undefined;
-        state.versions = { from: undefined, to: undefined, rolledBack: false, live: false };
+        state.versions = { from: undefined, to: undefined, rolledBack: false, aborted: undefined, live: false };
         state.evidence.verified = undefined;
         state.reopened = { ...event.payload, at: time };
         break;

@@ -146,7 +146,9 @@ Every worker checks for `line.stopped` before it takes work. `make stop-the-line
 
 - deletes the Jobs of every step in hand at once, starts none still preparing, and records nothing of them;
 - runs them afresh when the line starts;
-- aborts a release of the app in flight ([progressive delivery](PROGRESSIVE-DELIVERY.md)).
+- aborts a release of the app in flight ([progressive delivery](PROGRESSIVE-DELIVERY.md)), which the release watch records as `release.aborted` by `stop` ([release and verify](RELEASE-AND-VERIFY.md#its-events)).
+
+A stopped line still watches the app's releases: it records whatever they do (a start, a step, a promotion, a rollback, an abort) and sends a rollback's signals to the inbox, where they wait. It moves no work item, and a dry run's releases wait for it to start.
 
 ## The soak check
 

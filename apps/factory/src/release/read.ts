@@ -64,6 +64,8 @@ export const rolloutSchema = z.object({
       currentStepIndex: z.number().int().optional(),
       /** Set by Martin's abort and by a failed analysis alike. */
       abort: z.boolean().optional(),
+      /** When the controller first saw the abort, to the second, cut short; dropped when it is not such a time. */
+      abortedAt: z.iso.datetime({ offset: true }).optional().catch(undefined),
       canary: z
         .object({
           weights: z.object({ canary: z.object({ weight: z.number().int() }) }).optional(),

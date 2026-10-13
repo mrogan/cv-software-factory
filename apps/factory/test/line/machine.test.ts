@@ -348,6 +348,10 @@ const rolledBack = (id = RELEASE): LineEvent => ({
     dryRun: false,
   },
 });
+const aborted = (by: 'stop' | 'martin', id = RELEASE): LineEvent => ({
+  type: 'release.aborted',
+  payload: { release: id, version: 'v0.9.4', restored: 'v0.9.3', abortedAt: '2026-10-10T09:00:00Z', by },
+});
 const verified = (outcome: 'cleared' | 'persists'): LineEvent => ({
   type: 'verification.finished',
   payload: { outcome, sense: 'probe', check: 'search', version: 'v0.9.4', against: 'v0.9.3', pages: [], dryRun: false },
@@ -555,6 +559,25 @@ describe('after the merge', () => {
     expect(decide([...next, promoted('7f5b9c8d6', 'v0.9.5')], facts).stage).toBe('verify');
   });
 
+  it('holds the work item for Martin when its release is aborted, until he retries it', () => {
+    const stopped = [...done, deployHold(done), release(), aborted('stop')];
+    expect(decide(stopped, facts).next).toMatchObject({
+      do: 'hold',
+      hold: {
+        cause: 'deploy',
+        reason:
+          'Stop the line aborted the release that carried the fix, v0.9.4: it waits for Martin to retry it, or for the next deploy pull request to carry it',
+      },
+    });
+    expect(decide([...done, release(), aborted('martin')], facts).next).toMatchObject({
+      hold: { reason: expect.stringMatching(/^Martin aborted the release that carried the fix, v0\.9\.4:/) },
+    });
+    // Retried, the same release starts again, which ends the hold.
+    const retried = [...stopped, deployHold(stopped), release()];
+    expect(decide(retried, facts).next).toEqual({ do: 'wait', for: 'release' });
+    expect(decide([...retried, promoted()], facts).stage).toBe('verify');
+  });
+
   it('pays no heed to a hold for a deploy decided as a release that carries the change started', () => {
     const late = [...done, release(), deployHold(done), promoted()];
     expect(decide(late, facts).next).toMatchObject({ do: 'verify' });
@@ -585,6 +608,7 @@ describe('after the merge', () => {
   it('pays no heed to the end of a release other than the latest to carry it', () => {
     const later = [...done, release(), release('7f5b9c8d6', 'v0.9.5')];
     expect(decide([...later, rolledBack()], facts).next).toEqual({ do: 'wait', for: 'release' });
+    expect(decide([...later, aborted('martin')], facts).next).toEqual({ do: 'wait', for: 'release' });
     expect(decide([...later, promoted()], facts).next).toEqual({ do: 'wait', for: 'release' });
   });
 

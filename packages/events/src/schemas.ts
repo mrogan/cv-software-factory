@@ -593,6 +593,24 @@ export const PAYLOADS = {
     dryRun: z.boolean(),
   }),
   /**
+   * Martin aborted the canary, and Argo Rollouts sent all of the traffic back to the stable version, with no analysis
+   * failed: no rollback, and no signal. It stays aborted until he retries it or a new deploy starts another release.
+   * A dry run's release never ships, so none is aborted.
+   */
+  'release.aborted': z.strictObject({
+    release: releaseId,
+    version: appVersion,
+    restored: appVersion,
+    /**
+     * When Argo Rollouts acted on the abort, to the second, as the Rollout says: the line records it up to a pass
+     * later. The Rollout no longer says the step the canary had reached (an abort sends it back to the first), so the
+     * canary's weight then is read from the release's steps, as the console reads one in flight.
+     */
+    abortedAt: timestamp,
+    /** Stop the line, which aborts every release in flight, or Martin aborting this one alone. */
+    by: z.enum(['stop', 'martin']),
+  }),
+  /**
    * After a release, the sense that saw the defect looked again: whether what it saw has cleared on the new version.
    * Every page is compared with the version before the fix, when there are pictures to compare.
    */

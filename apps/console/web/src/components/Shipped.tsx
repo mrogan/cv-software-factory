@@ -6,6 +6,7 @@
 import { clock, clockSeconds, duration, isCommit, percent, shortVersion, shortWhen } from '../format.ts';
 import type { End, Release, Sheet as SheetData, Shipped, Verified } from '../projection/index.ts';
 import { marksNote, SENSE_NAME } from '../projection/index.ts';
+import { endedWords } from '../projection/release.ts';
 import { figureOf, phaseOf, standing, VERDICT, Verdict } from './Canary.tsx';
 import { Glyph } from './Glyph.tsx';
 import { Picture, Shot } from './Pictures.tsx';
@@ -183,10 +184,7 @@ function Steps({ r }: { r: Release }) {
 }
 
 /** How an attempt ended, in a few words: "stopped with the line at 50%". */
-const endWords = (end: End) =>
-  end.kind === 'promoted'
-    ? 'promoted'
-    : `${end.kind === 'stopped' ? 'stopped with the line' : 'rolled back'} at ${end.weight}%`;
+const endWords = (end: End) => (end.kind === 'promoted' ? 'promoted' : `${endedWords(end)} at ${end.weight}%`);
 
 /** How the release ended, or where it is now, and any earlier attempt a retry replaced. */
 function Ending({ r }: { r: Release }) {
@@ -200,9 +198,11 @@ function Ending({ r }: { r: Release }) {
           ? `On the canary at ${r.weight}% now${r.until ? `; this step ends at ${clockSeconds(r.until)}` : ''}.`
           : end.kind === 'promoted'
             ? `Promoted at ${clockSeconds(end.at)}, ${duration(end.at - r.startedAt)} after it started.`
-            : end.kind === 'stopped'
+            : end.kind === 'aborted' && end.by === 'stop'
               ? `Stopped with the line at ${end.weight}% at ${clockSeconds(end.at)}. ${shortVersion(r.previous)}, the version before, takes all the traffic, and the release stays stopped until Martin retries it or a new deploy starts another.`
-              : `Rolled back at ${end.weight}% at ${clockSeconds(end.at)}. ${100 - end.weight}% of the traffic never saw it.`}
+              : end.kind === 'aborted'
+                ? `Aborted by Martin at ${end.weight}% at ${clockSeconds(end.at)}. ${shortVersion(r.previous)}, the version before, takes all the traffic, and the release stays aborted until he retries it or a new deploy starts another.`
+                : `Rolled back at ${end.weight}% at ${clockSeconds(end.at)}. ${100 - end.weight}% of the traffic never saw it.`}
         {r.dryRun &&
           ' The dry run answers for it: its merge was never made, so nothing shipped and nothing was measured.'}
       </p>

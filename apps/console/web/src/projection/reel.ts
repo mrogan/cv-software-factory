@@ -83,7 +83,8 @@ export type Picture =
       pullRequest: number | undefined;
       title: string | undefined;
       merged: { at: number; commit: string; byMartin: boolean } | undefined;
-      rolledBack: { at: number; version: string } | undefined;
+      /** The release that carried the merge, if it ended without shipping. */
+      ended: Ended | undefined;
     }
   /** A fix waiting for Martin's merge: the pull request, and what says it is safe to merge. */
   | {
@@ -146,12 +147,20 @@ type Dependency = NonNullable<PayloadOf<'work-item.opened'>['dependency']>;
 type Findings = NonNullable<PayloadOf<'gate.finished'>['findings']>;
 type Series = NonNullable<PayloadOf<'release.rolled-back'>['failed'][number]['series']>;
 
+/** A release that ended without shipping: rolled back, or aborted, and by whom. */
+export interface Ended {
+  at: number;
+  version: string;
+  aborted: PayloadOf<'release.aborted'>['by'] | undefined;
+}
+
 export interface Versions {
   /** The version it broke or replaced. */
   from: string | undefined;
   /** The version it shipped, or is shipping. */
   to: string | undefined;
   rolledBack: boolean;
+  aborted: ItemState['versions']['aborted'];
   /** Still on the canary: `to` is not yet live. */
   onCanary: boolean;
 }
@@ -414,7 +423,7 @@ export function shopVersion(events: readonly PublicEvent[], at: number): string 
     if (Date.parse(event.ts) > at) break;
     if ('dryRun' in event.payload && event.payload.dryRun) continue;
     if (event.type === 'release.promoted' || event.type === 'defect.injected') version = event.payload.version;
-    if (event.type === 'release.rolled-back') version = event.payload.restored;
+    if (event.type === 'release.rolled-back' || event.type === 'release.aborted') version = event.payload.restored;
     if (event.type === 'release.started' && !version) version = event.payload.previous;
   }
   return version;
@@ -443,6 +452,7 @@ export function card(item: ItemState, events: readonly PublicEvent[], t: number)
       from: item.versions.from,
       to: item.versions.to,
       rolledBack: item.versions.rolledBack,
+      aborted: item.versions.aborted,
       onCanary: Boolean(item.canary),
     },
     seenOn: item.seenOn,
@@ -476,9 +486,8 @@ const dayOf = (at: number) => {
  *
  * A release marks the version it left the shop on once it has ended: under the first card whose latest release it
  * is, or, when it carries no work item shown, all it carried went again in a later release, or it ended before the
- * mark of a card before it, in its own place. A rollback
- * and a stop with the line are struck through, since the shop went back to the version before. A dry run shipped
- * nothing, and marks nothing.
+ * mark of a card before it, in its own place. A rollback and an abort are struck through, since the shop went back to
+ * the version before. A dry run shipped nothing, and marks nothing.
  */
 export function timeline(cards: readonly Card[], shipped: readonly Release[]): Timeline {
   const ended = shipped.filter((r) => ending(r) && !r.dryRun).sort((a, b) => endAt(a) - endAt(b));

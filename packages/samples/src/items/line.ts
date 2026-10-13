@@ -1,8 +1,8 @@
 /**
  * Releases that carry no work item, Martin's own commits, and so are the line's: one that the canary rolled back
  * before any step was measured, with no series to keep, which opened #1308; a build of one commit that rolled back the
- * same way, whose signal joined #1308; one stopped with the line; and the next, promoted, which brought #1306's error
- * back.
+ * same way, whose signal joined #1308; one stopped with the line, retried, and aborted by Martin; and the next,
+ * promoted, which brought #1306's error back.
  */
 import { commitFor, Item, releaseFor, started, stepped } from '../build.ts';
 
@@ -61,8 +61,8 @@ export default new Item(null, '2026-10-05T00:00:00+01:00', 'line/releases')
     failed: [V099_LATENCY],
     dryRun: false,
   })
-  // Tuesday: Martin stops the line with a canary at 25%. Stopping aborts the canary and writes no release event:
-  // v0.9.11 has no end, and the version before takes all the traffic.
+  // Tuesday: Martin stops the line with the canary at 50%. Stop the line aborts it, the version before takes all the
+  // traffic, and the line records the abort a pass later.
   .at(
     '31:30:00',
     'release.started',
@@ -84,7 +84,11 @@ export default new Item(null, '2026-10-05T00:00:00+01:00', 'line/releases')
   .at('31:35:10', 'line.stopped', 'martin', 'The line stopped: Martin stopped the line', {
     reason: 'Martin stopped the line',
   })
+  .aborted('31:35:40', '31:35:11', 'v0.9.11', 'v0.9.10', 'stop')
   .at('31:50:00', 'line.started', 'martin', 'The line started, guarded', { autonomy: 'guarded' })
+  // He starts the line again and retries the canary, then aborts it himself, at 25%, for the next deploy.
+  .at('31:51:00', 'release.started', 'rollouts', 'v0.9.11 started again after its abort', started('v0.9.11', 'v0.9.10'))
+  .aborted('31:53:30', '31:53:02', 'v0.9.11', 'v0.9.10', 'martin')
   // A new deploy starts another release, which goes all the way.
   .released('32:00:00', 'v0.9.12', 'v0.9.10', [
     {

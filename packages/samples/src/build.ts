@@ -418,6 +418,21 @@ export class Item {
   }
 
   /**
+   * Martin's abort of a release, by Stop the line or by hand: Argo Rollouts acts on it at `acted`, and the line records
+   * it a pass later, at `offset`.
+   */
+  aborted(offset: string, acted: string, version: string, previous: string, by: 'stop' | 'martin'): this {
+    const who = by === 'stop' ? 'Stop the line aborted' : 'Martin aborted';
+    return this.at(offset, 'release.aborted', 'martin', `${who} the canary of ${short(version)}`, {
+      release: releaseFor(version),
+      version,
+      restored: previous,
+      abortedAt: this.time(acted),
+      by,
+    });
+  }
+
+  /**
    * A release that went out step by step and was promoted, as the line records one: its start, then each step of the
    * Rollout once its analysis passed, at the end of the step's pause, with the figures given for it, and the promotion
    * moments after the last. One set of figures for each step.

@@ -2,9 +2,9 @@
  * The Canary panel: the release in flight against the version it would replace, for everyone, full width under the
  * line. It is always there; idle, it is one line.
  */
-import { clock, clockSeconds, duration, isCommit, shortVersion, shortWhen } from '../format.ts';
+import { capital, clock, clockSeconds, duration, isCommit, shortVersion, shortWhen } from '../format.ts';
 import type { CanaryView, Carried, Measured, Release } from '../projection/index.ts';
-import { MEASURES, ownWords, SIGNALLED, sawOf } from '../projection/release.ts';
+import { endedWords, MEASURES, ownWords, SIGNALLED, sawOf } from '../projection/release.ts';
 import { Glyph, type GlyphName } from './Glyph.tsx';
 
 export type Tone = 'signal' | 'ok' | 'attn' | 'faint';
@@ -42,7 +42,7 @@ export function standing(r: Release): [word: string, tone: Tone, dot: string] {
   const [word, tone]: [string, Tone] =
     end.kind === 'promoted'
       ? ['Promoted · all traffic', 'ok']
-      : [`${end.kind === 'stopped' ? 'Stopped with the line' : 'Rolled back'} at ${end.weight}%`, 'attn'];
+      : [`${capital(endedWords(end))} at ${end.weight}%`, 'attn'];
   return r.dryRun ? [`${word}, as the dry run records it`, 'faint', ''] : [word, tone, tone === 'attn' ? 'ring' : ''];
 }
 
@@ -71,8 +71,8 @@ function Steps({ r, tone }: { r: Release; tone: Tone }) {
             [cls, t, glyph, how] = [
               'done cut',
               'attn',
-              end.kind === 'stopped' ? 'dash' : 'cross',
-              `${end.kind === 'stopped' ? 'stopped' : 'rolled back'} here`,
+              end.kind === 'aborted' ? 'dash' : 'cross',
+              `${end.kind === 'aborted' ? (end.by === 'stop' ? 'stopped' : 'aborted') : 'rolled back'} here`,
             ];
           else if (m || (end?.kind === 'promoted' && weight === 100)) {
             const [word, tone, mark] = VERDICT[r.dryRun ? 'dry' : m ? stepPhase(m) : 'successful'];
@@ -261,8 +261,10 @@ function note(r: Release): string {
   const took = duration(end.at - r.startedAt);
   if (end.kind === 'promoted')
     return `Promoted at ${clockSeconds(end.at)}, ${took} after it started.${r.items.length ? ' Verify now asks the sense that saw each ticket whether it has cleared.' : ''}`;
-  if (end.kind === 'stopped')
+  if (end.kind === 'aborted' && end.by === 'stop')
     return `Stop the line aborted the canary at ${end.weight}%, at ${clockSeconds(end.at)}. ${shortVersion(r.previous)}, the version before, takes all the traffic. The release stays stopped until Martin retries it or a new deploy starts another; starting the line does not resume it.`;
+  if (end.kind === 'aborted')
+    return `Martin aborted the canary at ${end.weight}%, at ${clockSeconds(end.at)}. ${shortVersion(r.previous)}, the version before, takes all the traffic. The release stays aborted until he retries it or a new deploy starts another.`;
   return `Rolled back at ${clockSeconds(end.at)}, ${took} in. ${100 - end.weight}% of the traffic never saw it: it stayed on ${shortVersion(r.previous)}.`;
 }
 
@@ -270,10 +272,7 @@ function note(r: Release): string {
 function ended(r: Release, t: number): [word: string, tone: Tone, when: string] {
   const { end } = r;
   if (!end) return ['', 'faint', ''];
-  const word =
-    end.kind === 'promoted'
-      ? 'promoted'
-      : `${end.kind === 'stopped' ? 'stopped with the line' : 'rolled back'} at ${end.weight}%`;
+  const word = end.kind === 'promoted' ? 'promoted' : `${endedWords(end)} at ${end.weight}%`;
   const today = new Date(end.at).toDateString() === new Date(t).toDateString();
   const when = today ? `at ${clock(end.at)}` : `on ${shortWhen(end.at)}`;
   if (r.dryRun) return [`${word} in a dry run`, 'faint', when];

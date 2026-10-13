@@ -23,6 +23,9 @@ const STEPS = [
   { analysis: { templates: [{ templateName: 'website-step', clusterScope: true }] } },
 ];
 
+/** When an aborted Rollout's controller acted on the abort, unless a test says. */
+export const ABORTED_AT = '2026-10-10T23:12:00Z';
+
 export interface RolloutState {
   /** The version the spec asks for. */
   current: string;
@@ -33,6 +36,8 @@ export interface RolloutState {
   behind?: boolean;
   stepIndex?: number;
   abort?: boolean;
+  /** When the controller acted on the abort: by default, once it is aborted, a while ago. */
+  abortedAt?: string;
   /** The canary's weight now; by default the weight of its step, or nought when aborted or done. */
   weight?: number;
   conditions?: { type: string; status: string; reason?: string; message?: string }[];
@@ -62,7 +67,7 @@ export function rollout(state: RolloutState): Rollout {
       currentPodHash: state.current,
       stableRS: state.stable,
       currentStepIndex: state.stepIndex ?? (state.current === state.stable ? STEPS.length : 0),
-      ...(state.abort ? { abort: true } : {}),
+      ...(state.abort ? { abort: true, abortedAt: state.abortedAt ?? ABORTED_AT } : {}),
       canary: {
         weights: {
           canary: { podTemplateHash: state.current, weight: state.weight ?? 0 },

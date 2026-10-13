@@ -32,7 +32,7 @@ Everything it draws is the design system's (`docs/design/system`):
 - **The line.**
 - **The Canary panel**, full width under the line:
   - draws the newest release from its events, one to a `release` id;
-  - shows the steps `release.started` recorded, each step's measures against the baseline, and how it ended (a stop with the line is inferred from `line.stopped` after a release with no end);
+  - shows the steps `release.started` recorded, each step's measures against the baseline, and how it ended: promoted, rolled back, stopped with the line or aborted by Martin (`release.aborted`; a history from before the line recorded aborts has only `line.stopped` after a release with no end, read as Stop the line's);
   - folds to one line 15 minutes after the release ends.
 - **The scoreboard**, from the latest `score.updated` ([scoreboard](SCOREBOARD.md)).
 - **The reel**, whose timeline marks each ended release's version, struck through when it was not promoted.

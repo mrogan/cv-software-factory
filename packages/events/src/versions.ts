@@ -32,6 +32,7 @@ export const VERSIONS = {
   'canary.stepped': 2,
   'release.promoted': 2,
   'release.rolled-back': 2,
+  'release.aborted': 1,
   'verification.finished': 3,
   // Anywhere on the line
   'work.returned': 3,
@@ -69,6 +70,7 @@ export const RELEASE_TYPES: readonly EventType[] = [
   'canary.stepped',
   'release.promoted',
   'release.rolled-back',
+  'release.aborted',
 ];
 
 export const isEventType = (type: string): type is EventType => Object.hasOwn(VERSIONS, type);
