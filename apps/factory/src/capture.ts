@@ -63,7 +63,8 @@ export interface PageCaptureOptions extends CaptureOptions {
  * Screenshots the whole page from its top, down to `maxHeight`, for comparing one version of a page with another:
  * what has changed below the fold counts too. The boxes are in the page's own coordinates, and an element that is not
  * on the page, or not in the picture, has none: a page that changed may have lost it. The PNG comes back with its
- * reference, to be compared, and with the selector of each box, in the order of the boxes.
+ * reference, to be compared, and with the selector of each box, in the order of the boxes. It boxes every element it
+ * is given, which may be more than an event's screenshot takes: the line keeps a ticket's own (`line/pictures.ts`).
  */
 export async function capturePage(
   page: Page,
@@ -81,7 +82,7 @@ export async function capturePage(
   await page.setViewportSize({ width, height });
   const boxes: Screenshot['boxes'] = [];
   const selectors: string[] = [];
-  for (const check of (options.checks ?? []).slice(0, 4)) {
+  for (const check of options.checks ?? []) {
     const box = await page
       .locator(check.selector)
       .first()
