@@ -2,7 +2,7 @@
   "name": "@software-factory/console",
   "version": "0.0.0",
   "private": true,
-  "description": "The factory's web UI: a React single-page app built by Vite, and the Node server that relays the event store to it.",
+  "description": "The factory's web UI: a single-page app written in React and run by Preact, built by Vite, and the Node server that relays the event store to it.",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.ts",
