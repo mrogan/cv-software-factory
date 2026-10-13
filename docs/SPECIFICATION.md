@@ -117,7 +117,7 @@ A first-class factory capability, though not the centre of the visitor demo.
 - **Guarded:** only risk-tagged changes need a human.
 - **Lights-out:** only the automated guardrails apply.
 
-In every mode, no fix widens its ticket, and a change tagged out-of-scope needs a human (guardrail 11).
+In every mode, no fix widens its ticket, and a change tagged out-of-scope needs a human.
 
 Development runs Supervised. Public instances run Guarded, so visitor-triggered work completes unattended.
 
