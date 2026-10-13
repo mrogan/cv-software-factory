@@ -83,7 +83,8 @@ export type Picture =
       pullRequest: number | undefined;
       title: string | undefined;
       merged: { at: number; commit: string; byMartin: boolean } | undefined;
-      rolledBack: { at: number; version: string } | undefined;
+      /** The release that carried the merge, if it ended without shipping, and how: "rolled back", say. */
+      ended: { at: number; version: string; how: string } | undefined;
     }
   /** A fix waiting for Martin's merge: the pull request, and what says it is safe to merge. */
   | {
@@ -152,6 +153,7 @@ export interface Versions {
   /** The version it shipped, or is shipping. */
   to: string | undefined;
   rolledBack: boolean;
+  aborted: ItemState['versions']['aborted'];
   /** Still on the canary: `to` is not yet live. */
   onCanary: boolean;
 }
@@ -414,7 +416,7 @@ export function shopVersion(events: readonly PublicEvent[], at: number): string 
     if (Date.parse(event.ts) > at) break;
     if ('dryRun' in event.payload && event.payload.dryRun) continue;
     if (event.type === 'release.promoted' || event.type === 'defect.injected') version = event.payload.version;
-    if (event.type === 'release.rolled-back') version = event.payload.restored;
+    if (event.type === 'release.rolled-back' || event.type === 'release.aborted') version = event.payload.restored;
     if (event.type === 'release.started' && !version) version = event.payload.previous;
   }
   return version;
@@ -443,6 +445,7 @@ export function card(item: ItemState, events: readonly PublicEvent[], t: number)
       from: item.versions.from,
       to: item.versions.to,
       rolledBack: item.versions.rolledBack,
+      aborted: item.versions.aborted,
       onCanary: Boolean(item.canary),
     },
     seenOn: item.seenOn,

@@ -17,7 +17,7 @@ import { clock, shortVersion } from '../format.ts';
 import { type Attempt, attempts, deployPicture, reviewThread, type ThreadReview } from './fixing.ts';
 import { type Capture, type Hold, type ItemState, summaryOf } from './items.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
-import { type Release, releases } from './release.ts';
+import { endedWords, type Release, releases } from './release.ts';
 
 export interface Chapter {
   label: string;
@@ -653,7 +653,8 @@ const releaseOf = (event: PublicEvent) =>
   event.type === 'release.started' ||
   event.type === 'canary.stepped' ||
   event.type === 'release.promoted' ||
-  event.type === 'release.rolled-back'
+  event.type === 'release.rolled-back' ||
+  event.type === 'release.aborted'
     ? event.payload.release
     : undefined;
 
@@ -667,8 +668,8 @@ function releaseChapter(r: Release): { label: string; tone: Chapter['tone']; tex
       ? ['PROMOTED', 'ok', `${v} promoted to all traffic${passed.length ? `, after ${listed(passed)} passed` : ''}`]
       : end?.kind === 'rolled-back'
         ? ['ROLLED BACK', 'attn', `${v} rolled back at ${end.weight}%`]
-        : end?.kind === 'stopped'
-          ? ['STOPPED', 'attn', `${v} stopped with the line at ${end.weight}%`]
+        : end?.kind === 'aborted'
+          ? [end.by === 'stop' ? 'STOPPED' : 'ABORTED', 'attn', `${v} ${endedWords(end)} at ${end.weight}%`]
           : ['CANARY', 'signal', `${v} on the canary at ${r.weight}%`];
   return r.dryRun ? { label, tone: 'faint', text: `${text}, in a dry run` } : { label, tone, text };
 }
@@ -758,7 +759,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
   const end = item.closedAt ?? t;
   const own = releases(events, [item], t).filter((r) => r.items.some((i) => i.number === item.number));
   const byId = new Map(own.map((r) => [r.id, r]));
-  // Each release is one chapter, where its last event on the item is (or its stop, after it).
+  // Each release is one chapter, where its last event on the item is (or, in an older history, the line's stop after it).
   const lastOf = new Map<string, PublicEvent>();
   for (const event of item.events) {
     const id = releaseOf(event);
@@ -777,7 +778,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
     const r = id ? byId.get(id) : undefined;
     if (id) {
       if (!r || lastOf.get(id) !== event) return [];
-      const at = Math.max(Date.parse(event.ts), r.end?.kind === 'stopped' ? r.end.at : 0);
+      const at = Math.max(Date.parse(event.ts), r.end?.kind === 'aborted' ? r.end.at : 0);
       return [{ event, ...releaseChapter(r), at, pass }];
     }
     // A return from Verify, and a reopening, start the work's next pass.

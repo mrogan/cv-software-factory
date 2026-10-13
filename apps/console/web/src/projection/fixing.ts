@@ -16,6 +16,7 @@ import { inScope, returnWords } from '@software-factory/events';
 import { RULES } from './app.ts';
 import type { Hold, ItemState } from './items.ts';
 import type { Picture } from './reel.ts';
+import { abortWords } from './release.ts';
 
 type Review = PayloadOf<'review.submitted'>;
 type GateRun = PayloadOf<'gate.finished'>;
@@ -278,7 +279,7 @@ export function deployPicture(item: ItemState): Extract<Picture, { type: 'deploy
   if (item.hold?.cause !== 'deploy') return undefined;
   const merged = ofType(item, 'pull-request.merged').at(-1);
   const pushed = ofType(item, 'pull-request.pushed').at(-1)?.payload;
-  const rolledBack = rolledBackSinceMerge(item);
+  const ended = endedSinceMerge(item);
   return {
     type: 'deploy',
     pullRequest: pushed?.number ?? item.pullRequest,
@@ -288,13 +289,25 @@ export function deployPicture(item: ItemState): Extract<Picture, { type: 'deploy
       commit: merged.payload.commit,
       byMartin: merged.payload.by === 'martin',
     },
-    rolledBack: rolledBack && { at: Date.parse(rolledBack.ts), version: rolledBack.payload.version },
+    ended,
   };
 }
 
-/** The release that carried the last merge and rolled back, while the fix waits for the next deploy. */
-export const rolledBackSinceMerge = (item: ItemState) =>
-  ofType(item, 'release.rolled-back').find((e) => e.ts >= (ofType(item, 'pull-request.merged').at(-1)?.ts ?? ''));
+/**
+ * The release that carried the last merge and ended without shipping, while the fix waits for the next deploy or
+ * Martin's retry: when, its version, and how it ended.
+ */
+export function endedSinceMerge(item: ItemState): { at: number; version: string; how: string } | undefined {
+  const merged = ofType(item, 'pull-request.merged').at(-1)?.ts ?? '';
+  const ended = item.events.findLast(
+    (e): e is PublicEvent<'release.rolled-back' | 'release.aborted'> =>
+      (e.type === 'release.rolled-back' || e.type === 'release.aborted') && e.ts >= merged,
+  );
+  if (!ended) return undefined;
+  const how = ended.type === 'release.rolled-back' ? 'rolled back' : abortWords(ended.payload.by);
+  const at = ended.type === 'release.aborted' ? ended.payload.abortedAt : ended.ts;
+  return { at: Date.parse(at), version: ended.payload.version, how };
+}
 
 /** The pull request Martin is asked to merge, with its whole change: every round together, as a merge brings it in. */
 function mergePicture(item: ItemState): Picture | undefined {

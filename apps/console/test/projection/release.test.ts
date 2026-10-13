@@ -77,14 +77,21 @@ describe('the Canary panel, from the samples', () => {
     );
   });
 
-  it('infers a stop from the line stopping while a release had not ended, at the step it had reached', () => {
-    const { canary } = shown(at('2026-10-06T06:40:00Z'));
+  it('draws the abort the line recorded, when Argo Rollouts acted on it, at the step the canary had reached', () => {
+    const { view, canary } = shown(at('2026-10-06T06:40:00Z'));
     expect(canary.state === 'shown' && canary.release).toMatchObject({
       version: 'v0.9.11',
-      end: { kind: 'stopped', at: at('2026-10-06T06:35:10Z'), weight: 50 },
+      end: { kind: 'aborted', by: 'stop', at: at('2026-10-06T06:35:11Z'), weight: 50 },
     });
-    // Starting the line again does not resume it.
-    expect(shown(at('2026-10-06T06:55:00Z')).canary).toMatchObject({ release: { end: { kind: 'stopped' } } });
+    expect(view.panels.release.rows[0]).toMatchObject({ item: 'v0.9.11', note: 'stopped with the line at 50%' });
+    // Starting the line again does not resume it; Martin's retry does, and his own abort ends it again.
+    expect(shown(at('2026-10-06T06:50:30Z')).canary).toMatchObject({ release: { end: { by: 'stop' } } });
+    const retried = shown(at('2026-10-06T06:55:00Z')).canary;
+    expect(retried.state === 'shown' && retried.release).toMatchObject({
+      startedAt: at('2026-10-06T06:51:00Z'),
+      end: { kind: 'aborted', by: 'martin', at: at('2026-10-06T06:53:02Z'), weight: 25 },
+      retried: [{ kind: 'aborted', by: 'stop', weight: 50 }],
+    });
   });
 
   it('draws a dry run as the dry run records it, and never moves the shop’s version for it', () => {
@@ -283,14 +290,42 @@ describe('a release’s steps', () => {
     expect(note(one.at(7))).toBe('Needs you · rolled back, waiting for Martin’s next deploy');
     // The card and the sheet say so too, with the release that rolled back.
     const picture = (t: number) => project(one.events, t).cards.find((c) => c.number === '1')?.picture;
-    expect(picture(one.at(2))).toMatchObject({ type: 'deploy', rolledBack: undefined });
-    expect(picture(one.at(7))).toMatchObject({ type: 'deploy', rolledBack: { version: 'v1.0.1' } });
+    expect(picture(one.at(2))).toMatchObject({ type: 'deploy', ended: undefined });
+    expect(picture(one.at(7))).toMatchObject({ type: 'deploy', ended: { version: 'v1.0.1', how: 'rolled back' } });
     // A new fix, merged after the rollback, waits for a deploy as the first did.
     one
       .add(8, 'pull-request.merged', 'martin', { number: 3, commit: 'c'.repeat(40), by: 'martin' })
       .add(8, 'hold.started', 'factory', deploy);
     expect(note(one.at(9))).toBe('Needs you · waiting for Martin’s deploy');
-    expect(picture(one.at(9))).toMatchObject({ type: 'deploy', rolledBack: undefined });
+    expect(picture(one.at(9))).toMatchObject({ type: 'deploy', ended: undefined });
+  });
+
+  it('lists a merge whose release Martin aborted as waiting for his retry or his next deploy', () => {
+    const deploy = { stage: 'release', kind: 'approval', cause: 'deploy', reason: 'Waits for a deploy' } as const;
+    const one = work('1')
+      .open()
+      .add(1, 'pull-request.merged', 'martin', { number: 2, commit: 'b'.repeat(40), by: 'martin' })
+      .add(3, 'release.started', 'rollouts', started(twoSteps));
+    const abortedAt = new Date(one.at(5)).toISOString();
+    one
+      .add(6, 'release.aborted', 'martin', {
+        release: 'r1',
+        version: 'v1.0.1',
+        restored: 'v1.0.0',
+        abortedAt,
+        by: 'martin',
+      })
+      .add(6, 'hold.started', 'factory', deploy);
+    const view = project(one.events, one.at(7));
+    expect(view.panels.release.rows.find((r) => r.item === '1')?.note).toBe(
+      'Needs you · aborted by Martin, waiting for Martin to retry it or deploy again',
+    );
+    const card = view.cards.find((c) => c.number === '1');
+    expect(card?.picture).toMatchObject({
+      type: 'deploy',
+      ended: { at: one.at(5), version: 'v1.0.1', how: 'aborted by Martin' },
+    });
+    expect(card?.versions).toMatchObject({ rolledBack: false, aborted: 'martin', onCanary: false });
   });
 
   it('goes again from its first step when it is retried after a rollback', () => {
@@ -317,7 +352,7 @@ describe('a release’s steps', () => {
     }
   });
 
-  it('stops only the newest release with the line, not one a newer release left behind', () => {
+  it('reads an older history’s stop as Stop the line’s abort of the newest release, until it records its own end', () => {
     const one = work('1')
       .open()
       .add(1, 'release.started', 'rollouts', started(twoSteps))
@@ -325,7 +360,22 @@ describe('a release’s steps', () => {
       .add(6, 'line.stopped', 'martin', { reason: 'Stopped' });
     const [older, newer] = releases(one.events, [], one.at(7));
     expect(older?.end).toBeUndefined();
-    expect(newer?.end).toMatchObject({ kind: 'stopped', weight: 25 });
+    expect(newer?.end).toEqual({ kind: 'aborted', by: 'stop', at: one.at(6), weight: 25 });
+    // The abort the line records a pass later is the end, when Argo Rollouts acted on it.
+    const abortedAt = new Date(one.at(6) + 1000).toISOString();
+    one.add(7, 'release.aborted', 'martin', {
+      release: 'r2',
+      version: 'v1.0.2',
+      restored: 'v1.0.0',
+      abortedAt,
+      by: 'stop',
+    });
+    expect(releases(one.events, [], one.at(8))[1]?.end).toEqual({
+      kind: 'aborted',
+      by: 'stop',
+      at: one.at(6) + 1000,
+      weight: 25,
+    });
   });
 
   it('matches a step measured to the judged step at its weight, when the plan holds the weight twice', () => {

@@ -31,6 +31,7 @@ import type {
   ThreadReview,
 } from '../projection/index.ts';
 import { scrubbed, TARGET } from '../projection/index.ts';
+import { abortWords } from '../projection/release.ts';
 import { kindName, ONGOING, OutcomeWord, spendWords } from './Card.tsx';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { LogoMark } from './Logos.tsx';
@@ -196,11 +197,13 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
   const [from, to] = [card.versions.from, card.versions.to].map((v) => v && shortVersion(v));
   const versions = card.versions.rolledBack
     ? `${to} · rolled back to ${from}`
-    : card.versions.onCanary
-      ? `broken in ${from} · the fix is ${to}`
-      : to
-        ? `${from ?? '—'} → ${to}`
-        : 'No release';
+    : card.versions.aborted
+      ? `${to} · ${abortWords(card.versions.aborted)} · stayed on ${from}`
+      : card.versions.onCanary
+        ? `broken in ${from} · the fix is ${to}`
+        : to
+          ? `${from ?? '—'} → ${to}`
+          : 'No release';
   const bySense = sheet.senseEvidence.length > 1;
   const total = sheet.agents.reduce((sum, a) => sum + a.cost, 0);
   const evidence = sheet.evidence;

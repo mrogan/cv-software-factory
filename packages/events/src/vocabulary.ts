@@ -154,7 +154,8 @@ export const HOLD_CAUSES = [
   'merge',
   /**
    * The change is merged and waits at Release for a deploy pull request to carry it, which Martin merges. A release
-   * that carries it ends the hold by itself; one that rolls back holds it again, for the next.
+   * that carries it ends the hold by itself; one that rolls back, or that Martin aborts, holds it again, for the next
+   * or for his retry.
    */
   'deploy',
   /** Verification after the release could not settle the ticket by itself, and waits for Martin to say. */

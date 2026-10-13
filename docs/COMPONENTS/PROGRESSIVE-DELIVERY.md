@@ -79,5 +79,5 @@ Errors and latency are the visitors' and the [traffic generator](TRAFFIC-GENERAT
 ## Rolling back and stopping
 
 - **A failed analysis** rolls the release back, and each measure it failed on is a signal from the `canary` sense ([rollback signals](RELEASE-AND-VERIFY.md#rollback-signals)).
-- **`make stop-the-line`** aborts a release in flight (`scripts/abort-canaries.sh`, with Martin's own kubeconfig). It stays aborted until he retries it or the next deploy starts another.
+- **`make stop-the-line`** aborts a release in flight (`scripts/abort-canaries.sh`, with Martin's own kubeconfig), and the line records the abort ([`release.aborted`](RELEASE-AND-VERIFY.md#its-events)). It stays aborted until he retries it or the next deploy starts another.
 - **No right to change a Rollout.** The factory holds none, and a test fails a role that would give it one (`release-fences.test.ts`).

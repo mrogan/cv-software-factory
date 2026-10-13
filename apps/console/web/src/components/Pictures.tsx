@@ -1094,15 +1094,20 @@ function MergePicture(picture: Extract<PictureData, { type: 'merge' }>) {
 
 /**
  * A merged fix waiting for the deploy pull request that will carry it, in the waiting-on-Martin panel: the merge done,
- * the release that carried it crossed when it rolled back, and hollow rings for what comes after. The events name no
+ * the release that carried it crossed when it rolled back or was aborted, and hollow rings for what comes after. The events name no
  * deploy pull request, so none is drawn.
  */
-function DeployPicture({ pullRequest, title, merged, rolledBack }: Extract<PictureData, { type: 'deploy' }>) {
+function DeployPicture({ pullRequest, title, merged, ended }: Extract<PictureData, { type: 'deploy' }>) {
+  const aborted = ended && ended.how !== 'rolled back';
   return (
     <div className="pad">
       <div className="waits">
         <div className="cap attn">
-          {rolledBack ? 'Rolled back · waiting for Martin’s next deploy' : 'Merged · waiting for Martin’s deploy'}
+          {!ended
+            ? 'Merged · waiting for Martin’s deploy'
+            : aborted
+              ? `${capital(ended.how)} · waiting for Martin’s retry or next deploy`
+              : 'Rolled back · waiting for Martin’s next deploy'}
         </div>
         {pullRequest && (
           <div className="head mono">
@@ -1116,12 +1121,17 @@ function DeployPicture({ pullRequest, title, merged, rolledBack }: Extract<Pictu
               Merged by {merged.byMartin ? 'Martin' : 'the factory'} at {clock(merged.at)}
             </Tick>
           )}
-          {rolledBack && (
-            <Tick ok={false} num={shortVersion(rolledBack.version)}>
-              The release that carried it rolled back at {clock(rolledBack.at)}
+          {ended && (
+            <Tick ok={false} num={shortVersion(ended.version)}>
+              The release that carried it {aborted ? 'was ' : ''}
+              {ended.how} at {clock(ended.at)}
             </Tick>
           )}
-          <Tick ok={undefined}>The next deploy pull request carries it, with its ticket and issue</Tick>
+          <Tick ok={undefined}>
+            {aborted
+              ? 'Martin’s retry carries it on, or the next deploy pull request, with its ticket and issue'
+              : 'The next deploy pull request carries it, with its ticket and issue'}
+          </Tick>
           <Tick ok={undefined}>Then a canary against the version before, and Verify</Tick>
         </div>
         <div className="foot">

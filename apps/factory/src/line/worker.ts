@@ -31,7 +31,9 @@
  *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end. It still
  *   watches the app's releases, and records one that carries that work item or none.
  * - When the line stops, it stops every step in hand, wherever it is, and takes nothing new; their work is lost and
- *   nothing of it is recorded, so starting again runs those steps afresh from the last event.
+ *   nothing of it is recorded, so starting again runs those steps afresh from the last event. It still watches the
+ *   app's releases, which only reads and records, so the abort Stop the line makes is recorded as it happens; a dry
+ *   run's releases wait for the line to start again.
  * - A work item's runners' volume is deleted when it merges, as nothing after a merge needs it (a return to Plan
  *   starts afresh from main), so the work items waiting at Release and Verify hold none of the runners' quota; and
  *   when it ends, closed, if it has one still.
@@ -260,6 +262,7 @@ export class Line {
         this.#halt.abort();
         await this.#o.steps.cancel();
       }
+      if (this.#o.takesWork) await this.#watchReleases(true);
       return;
     }
     if (this.#stopped) {
@@ -278,10 +281,7 @@ export class Line {
         this.#o.log.warn({ err: errorOf(error) }, 'could not say what the deploy pull request carries'),
       );
     }
-    if (this.#o.now().getTime() - this.#releaseReadAt >= this.#o.releaseEveryMs) {
-      this.#releaseReadAt = this.#o.now().getTime();
-      await this.#releases.pass();
-    }
+    await this.#watchReleases(false);
     await this.#reopen();
     const taken = await this.#queue.admit();
     if (taken) this.#o.log.info({ workItem: taken }, 'a ticket came onto the line');
@@ -291,6 +291,13 @@ export class Line {
         this.#o.log.error({ workItem: item.workItem, err: errorOf(error) }, 'could not move a work item on'),
       );
     }
+  }
+
+  /** Reads the app's releases when they are due: the Rollout alone while the line is stopped. */
+  async #watchReleases(stopped: boolean): Promise<void> {
+    if (this.#o.now().getTime() - this.#releaseReadAt < this.#o.releaseEveryMs) return;
+    this.#releaseReadAt = this.#o.now().getTime();
+    await this.#releases.pass({ dryRun: !stopped });
   }
 
   /**

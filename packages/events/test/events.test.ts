@@ -84,6 +84,23 @@ describe('validation', () => {
       },
     };
     expect(validate({ ...stepped, work_item: null })).toEqual({ ok: true });
+    // Martin's abort says when Argo Rollouts acted on it, and whether Stop the line made it.
+    const aborted = {
+      ...started,
+      type: 'release.aborted',
+      version: 1,
+      actor: 'martin',
+      payload: {
+        release: '6d8f9c7b54',
+        version: 'v0.9.4',
+        restored: 'v0.9.3',
+        abortedAt: '2026-10-06T06:35:10Z',
+        by: 'stop',
+      },
+    };
+    expect(validate(aborted)).toEqual({ ok: true });
+    expect(validate({ ...aborted, work_item: null })).toEqual({ ok: true });
+    expect(validate({ ...aborted, payload: { ...aborted.payload, by: 'rollouts' } }).ok).toBe(false);
     // A verification is of a work item's ticket: never the line's.
     const verified = {
       ...started,

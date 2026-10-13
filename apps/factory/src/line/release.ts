@@ -8,6 +8,10 @@
  *   release runs and the new image's, as the deploy pull request lists them. For a version found live, each merged
  *   work item no release has carried whose fix is already in it. A commit GitHub never had (a dry run's) is in neither.
  * - for each step, each version's figures from Prometheus; for a rollback, the series of each failed measure.
+ * - for an abort, who made it: Stop the line, which records the line's stop and then aborts every release in flight,
+ *   when the line's last word before the abort is that it stopped, within the minute before; otherwise Martin, by
+ *   hand. Argo Rollouts keeps the abort's time to the second, cut short, so a stop recorded within the second after
+ *   it counts as before it.
  *
  * A figure or series it could not read is left out, and the step or rollback recorded without it.
  *
@@ -21,6 +25,9 @@
  * round. With `only`, the line records a release only when it carries that work item or none (the line's own events
  * keep the record of what the shop runs whole, which the next release is compared with), and answers for the dry
  * run's release of that work item alone.
+ *
+ * The watch goes on while the line is stopped (`worker.ts`): it only reads and records, and Stop the line's own abort
+ * is one of the things it records.
  *
  * It changes nothing in Kubernetes: the line may read the Rollout, its runs and the journeys Jobs' pods, and nothing
  * else there.
@@ -97,7 +104,7 @@ interface Merged {
   number: number;
   commit: string;
   at: string;
-  /** Whether a release has carried it since its latest merge, and not rolled back. */
+  /** Whether a release has carried it since its latest merge, and not rolled back or been aborted. */
   released: boolean;
 }
 
@@ -110,15 +117,18 @@ export class Releases {
     this.#o = options;
   }
 
-  /** One pass: the app's release, then a dry run's. A failure in one leaves the other to go on. */
-  async pass(): Promise<void> {
+  /**
+   * One pass: the app's release, then a dry run's, unless told not to (the line is stopped). A failure in one leaves
+   * the other to go on.
+   */
+  async pass({ dryRun: andDryRun = true }: { dryRun?: boolean } = {}): Promise<void> {
     const { watch, dryRun, log } = this.#o;
     if (watch) {
       await this.#watch(watch).catch((error: unknown) =>
         log.warn({ err: errorOf(error) }, 'could not read the app’s release'),
       );
     }
-    if (dryRun) {
+    if (dryRun && andDryRun) {
       await this.#dryRun().catch((error: unknown) =>
         log.warn({ err: errorOf(error) }, 'could not answer for a dry run’s release'),
       );
@@ -137,6 +147,7 @@ export class Releases {
     const needs = releaseNeeds(o, recorded);
     const start = needs.start && (await this.#start(needs.start));
     const lastPromoted = needs.start && (await this.#lastPromoted());
+    const abortedBy = needs.aborted && o.abortedAt ? await this.#abortedBy(o.abortedAt) : undefined;
     const figures = new Map<string, Figures>();
     for (const run of needs.steps) {
       const hashes = hashesOf(run);
@@ -166,6 +177,7 @@ export class Releases {
     const facts: Facts = {
       ...(start ? { start } : {}),
       ...(lastPromoted ? { lastPromoted } : {}),
+      ...(abortedBy ? { abortedBy } : {}),
       figures,
       series,
     };
@@ -317,7 +329,7 @@ export class Releases {
     return [...byItem.entries()].flatMap(([workItem, { events, merge }]) => {
       const state = fold(events);
       if (!state.merged || !merge) return [];
-      const released = state.release !== undefined && !state.release.rolledBack;
+      const released = state.release !== undefined && !state.release.ended;
       return [{ workItem, ...merge, released }];
     });
   }
@@ -349,6 +361,17 @@ export class Releases {
       where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true
       order by seq desc limit 1`;
     return row?.version;
+  }
+
+  /** Who aborted the Rollout at `at`: Stop the line, if the line had just stopped, or Martin. */
+  async #abortedBy(at: string): Promise<'stop' | 'martin'> {
+    const { sql } = this.#o;
+    const [last] = await sql<{ type: string; ts: Date }[]>`
+      select type, ts from events
+      where type in ('line.started', 'line.stopped') and ts < ${at}::timestamptz + interval '1 second'
+      order by seq desc limit 1`;
+    const just = last && Date.parse(at) - new Date(last.ts).getTime() <= 60_000;
+    return last?.type === 'line.stopped' && just ? 'stop' : 'martin';
   }
 
   /** Appends every target's drafts at once: a release's events reach all of its work items, or none. */
@@ -454,6 +477,7 @@ const FOLDED = [
   'release.started',
   'release.promoted',
   'release.rolled-back',
+  'release.aborted',
 ];
 
 const errorOf = (error: unknown) => ({

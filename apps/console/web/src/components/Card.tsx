@@ -82,13 +82,13 @@ export function VersionPill({
   /** A reopened ticket's version, the one its sense saw it on again, until a release of its own. */
   back?: string | undefined;
 }) {
-  const { rolledBack, onCanary } = versions;
+  const { rolledBack, aborted, onCanary } = versions;
   const [from, to] = [versions.from, versions.to].map((v) => v && shortVersion(v));
   if (!to && !from && back) return <span className="ver">back on {shortVersion(back)}</span>;
   if (!to && !from && page) return <span className="ver">from {page}</span>;
   if (!to && !from && seenOn) return <span className="ver">seen on {shortVersion(seenOn)}</span>;
   if (!to && !from) return <span className="ver muted">no release</span>;
-  if (rolledBack) {
+  if (rolledBack || aborted) {
     return (
       <span className="ver">
         <s>{to}</s> → {from}

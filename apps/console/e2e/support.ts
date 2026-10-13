@@ -61,6 +61,7 @@ export const CANARY = {
   'rolled-back': Date.parse('2026-10-02T07:26:30Z'),
   'rolled-back-no-step': Date.parse('2026-10-05T10:25:00Z'),
   stopped: Date.parse('2026-10-06T06:40:00Z'),
+  aborted: Date.parse('2026-10-06T06:55:00Z'),
   'dry-run': Date.parse('2026-10-05T13:09:40Z'),
   idle: Date.parse('2026-10-06T08:00:00Z'),
   none: Date.parse('2026-09-29T08:00:00Z'),

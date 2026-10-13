@@ -17,12 +17,16 @@
  * - **Each step** is a step AnalysisRun that ended, in the order they were made: the n-th recorded is the n-th run.
  * - **It is promoted** when it is the stable version.
  * - **It rolls back** when the Rollout is aborted and an AnalysisRun of the release has failed. Only a run whose phase
- *   is Failed fails a release. Martin's abort (`make stop-the-line`) terminates the runs, which fails none (and a
- *   terminated step run is no step), so it records nothing: the release stays unfinished, and its work items wait at Release, until he retries it and it goes
- *   on, or a later release carries them. So does an analysis that ends in Error, which says the analysis could not
- *   judge, not that the canary was worse.
- * - **Retried after a rollback**, a release starts again, under the same name (a retry keeps the revision), and goes on
- *   as before; only a run that fails after that start rolls it back again.
+ *   is Failed fails a release.
+ * - **It is aborted** when the Rollout is aborted and no run of the release has failed or ended in Error: Martin
+ *   aborted it, by stopping the line (`make stop-the-line`) or by hand. His abort terminates the runs, which fails none
+ *   (and a terminated step run is no step). To Argo Rollouts both are the same patch of the Rollout's status, so who
+ *   aborted it is the line's to say, from whether the line was stopped then (`Facts.abortedBy`). An analysis that ends
+ *   in Error aborts the Rollout too, but says the analysis could not judge, not that the canary was worse, nor that
+ *   anybody stopped it: it records nothing, and the release stays unfinished until Martin retries it, or a later
+ *   release carries its work items.
+ * - **Retried after a rollback or an abort**, a release starts again, under the same name (a retry keeps the
+ *   revision), and goes on as before; only a run that fails after that start rolls it back again.
  *
  * The stable version is the last release of its hash the line recorded that was promoted, or is still in flight
  * (`namedReleases`): the Rollout's revision is that of the version it asks for, and a Rollout sent back to its stable
@@ -63,7 +67,7 @@ export interface TargetRecord {
   /** Steps recorded, over every attempt. */
   steps: number;
   /** How its latest attempt ended, if it has. */
-  ended: 'promoted' | 'rolled-back' | undefined;
+  ended: 'promoted' | 'rolled-back' | 'aborted' | undefined;
 }
 
 /** What is recorded of each release, by its name, and on each target. */
@@ -94,6 +98,7 @@ export function recordedFrom(
     if (type === 'canary.stepped') record.steps += 1;
     if (type === 'release.promoted') record.ended = 'promoted';
     if (type === 'release.rolled-back') record.ended = 'rolled-back';
+    if (type === 'release.aborted') record.ended = 'aborted';
   }
   return recorded;
 }
@@ -114,6 +119,8 @@ export interface Observed {
   /** The image of the current version, by digest. */
   digest: string | undefined;
   aborted: boolean;
+  /** When Argo Rollouts acted on the abort, to the second; undefined until it has. */
+  abortedAt: string | undefined;
   /** Whether the canary's pods were admitted and are available; undefined until the Rollout says either way. */
   admitted: boolean | undefined;
   /** The weight of each step of the Rollout, by its index: the last weight set at or before it. */
@@ -152,6 +159,8 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
     revision: revision && /^\d{1,12}$/.test(revision) ? revision : undefined,
     digest: spec.template.spec.containers[0]?.image.match(DIGEST)?.[1],
     aborted: status.abort === true,
+    abortedAt:
+      status.abort === true && Number.isFinite(Date.parse(status.abortedAt ?? '')) ? status.abortedAt : undefined,
     admitted: available ? true : failedToCreate ? false : undefined,
     weights,
     plan: planOf(steps),
@@ -250,6 +259,10 @@ export const stepsOf = (o: Observed, release: string) =>
 export const failuresOf = (o: Observed, release: string) =>
   o.runs.filter((run) => isOf(run, release) && run.status.phase === 'Failed');
 
+/** A release's runs that could not judge it, and aborted it themselves. A terminated run ends Successful, not so. */
+const errorsOf = (o: Observed, release: string) =>
+  o.runs.filter((run) => isOf(run, release) && run.status.phase === 'Error');
+
 /** When the first run of a run's release was made: the release's start, as near as the runs say. */
 export const startOf = (o: Observed, of: AnalysisRun) =>
   o.runs.find((run) => hashOf(run) === hashOf(of) && revisionOf(run) === revisionOf(of))?.metadata.creationTimestamp;
@@ -338,6 +351,8 @@ export interface Facts {
   series: ReadonlyMap<string, Series>;
   /** The version promoted last, which a release found live replaces as far as the line knows. */
   lastPromoted?: string;
+  /** Who aborted the Rollout, when it is aborted: Stop the line, if the line was stopped then, or Martin. */
+  abortedBy?: PayloadOf<'release.aborted'>['by'];
 }
 
 /** What the line must read before it can draft: a release to start, and the step and failed runs to draw. */
@@ -346,6 +361,8 @@ export interface Needs {
   start?: { release: string; digest: string; found: boolean; previous: Started | undefined };
   steps: AnalysisRun[];
   failures: AnalysisRun[];
+  /** Whether a release was aborted, so the line must say by whom. */
+  aborted: boolean;
 }
 
 /** One target's drafts for a release in flight, and the runs they need read. */
@@ -355,19 +372,19 @@ function forTarget(
   name: string,
   record: TargetRecord,
   facts: Facts,
-): { drafts: Draft[]; steps: AnalysisRun[]; failures: AnalysisRun[] } {
+): { drafts: Draft[]; steps: AnalysisRun[]; failures: AnalysisRun[]; aborted: boolean } {
   const drafts: Draft[] = [];
   const live = names.current === name || names.stable === name;
   const { started, ended } = record;
   let retried = false;
-  if (ended === 'promoted') return { drafts, steps: [], failures: [] };
-  if (ended === 'rolled-back') {
+  if (ended === 'promoted') return { drafts, steps: [], failures: [], aborted: false };
+  if (ended === 'rolled-back' || ended === 'aborted') {
     // Retried, it goes again; otherwise it is over.
-    if (!live || o.aborted) return { drafts, steps: [], failures: [] };
+    if (!live || o.aborted) return { drafts, steps: [], failures: [], aborted: false };
     drafts.push({
       type: 'release.started',
       actor: 'rollouts',
-      summary: `${short(started.version)} started again after its rollback`,
+      summary: `${short(started.version)} started again after its ${ended === 'aborted' ? 'abort' : 'rollback'}`,
       // The steps as the Rollout has them now: they are no part of the release's name, so they may have changed.
       payload: { ...started, steps: o.plan },
     });
@@ -403,6 +420,7 @@ function forTarget(
   const inAttempt = (run: AnalysisRun) =>
     !retried && (record.attempts <= 1 || Date.parse(run.status.completedAt ?? '') > Date.parse(record.startedAt));
   let failures: AnalysisRun[] = [];
+  let aborted = false;
   // The stable version took all of the traffic: if the line missed the moment, a later release may be in flight.
   if (names.stable === name) {
     drafts.push({
@@ -447,8 +465,26 @@ function forTarget(
         dryRun: false,
       },
     });
+  } else if (o.aborted && o.abortedAt && names.current === name && !errorsOf(o, name).some(inAttempt)) {
+    // Recorded once Argo Rollouts has acted on the abort, and the line has said who made it.
+    aborted = true;
+    const by = facts.abortedBy;
+    if (by) {
+      drafts.push({
+        type: 'release.aborted',
+        actor: 'martin',
+        summary: `${by === 'stop' ? 'Stop the line aborted' : 'Martin aborted'} the canary of ${short(started.version)}`,
+        payload: {
+          release: name,
+          version: started.version,
+          restored: started.previous,
+          abortedAt: o.abortedAt,
+          by,
+        },
+      });
+    }
   }
-  return { drafts, steps, failures };
+  return { drafts, steps, failures, aborted };
 }
 
 /** The releases the Rollout names, as the line names them: the version the spec asks for, and the stable version. */
@@ -467,13 +503,15 @@ export function namedReleases(o: Observed, recorded: Recorded): Named {
   const ofHash = (hash: string) => [...recorded].filter(([name]) => name === hash || name.startsWith(`${hash}-`));
   const asked = o.current && o.revision ? releaseName(o.current, o.revision) : undefined;
   const releases = o.stable === undefined ? [] : ofHash(o.stable);
-  const promoted = releases.filter(([, targets]) => !ended(targets, 'rolled-back')).at(-1)?.[0];
+  const promoted = releases
+    .filter(([, targets]) => !ended(targets, 'rolled-back') && !ended(targets, 'aborted'))
+    .at(-1)?.[0];
   if (o.current === o.stable) {
     const name = asked && recorded.has(asked) ? asked : (promoted ?? asked);
     return { current: name, stable: name };
   }
-  // With a release in flight, the version it replaces must be known: a rolled-back one, retried and promoted while
-  // the line was not looking, is the last there is.
+  // With a release in flight, the version it replaces must be known: a rolled-back or aborted one, retried and
+  // promoted while the line was not looking, is the last there is.
   const stable = promoted ?? releases.at(-1)?.[0];
   // One named by its hash alone, from before the revision, is the release in flight until it ends.
   const legacy = o.current === undefined ? undefined : recorded.get(o.current);
@@ -503,9 +541,11 @@ export function releaseNeeds(o: Observed, recorded: Recorded): Needs {
   const start = startOfRelease(o, names, recorded);
   const steps: AnalysisRun[] = [];
   const failures: AnalysisRun[] = [];
+  let aborted = false;
   const add = (each: ReturnType<typeof forTarget>) => {
     for (const run of each.steps) if (!steps.includes(run)) steps.push(run);
     for (const run of each.failures) if (!failures.includes(run)) failures.push(run);
+    aborted ||= each.aborted;
   };
   const empty: Facts = { figures: new Map(), series: new Map() };
   if (start && !start.found) {
@@ -523,7 +563,7 @@ export function releaseNeeds(o: Observed, recorded: Recorded): Needs {
   for (const name of releasesIn(names)) {
     for (const record of recorded.get(name)?.values() ?? []) add(forTarget(o, names, name, record, empty));
   }
-  return { ...(start ? { start } : {}), steps, failures };
+  return { ...(start ? { start } : {}), steps, failures, aborted };
 }
 
 /** The versions the Rollout names, by hash: a release in flight, and the stable version it would replace. */

@@ -93,6 +93,7 @@ export const PUBLIC_VIEWS = {
   'canary.stepped': redacted,
   'release.promoted': redacted,
   'release.rolled-back': redacted,
+  'release.aborted': redacted,
   'verification.finished': redacted,
   'work.returned': redacted,
   'hold.started': redacted,

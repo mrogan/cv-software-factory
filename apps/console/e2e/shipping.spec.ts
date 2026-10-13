@@ -52,10 +52,14 @@ test.describe('the Canary panel', () => {
     );
   });
 
-  test('infers a stop, marks a dry run, and folds to one line when nothing is in flight', async ({ page }) => {
+  test('draws each abort, marks a dry run, and folds to one line when nothing is in flight', async ({ page }) => {
     await page.goto(consoleUrl({ at: CANARY.stopped }));
     await shown(page);
     await expect(panel(page).locator('.kick')).toHaveText('Stopped with the line at 50%');
+    await page.goto(consoleUrl({ at: CANARY.aborted }));
+    await shown(page);
+    await expect(panel(page).locator('.kick')).toHaveText('Aborted by Martin at 25%');
+    await expect(panel(page)).toContainText('Martin aborted the canary at 25%');
     await page.goto(consoleUrl({ at: CANARY['dry-run'] }));
     await shown(page);
     await expect(panel(page).locator('.kick')).toHaveText('Canary · 50%, as the dry run records itDry run');
