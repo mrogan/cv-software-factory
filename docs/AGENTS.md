@@ -11,7 +11,7 @@ Agents keep these current, in the same PR as the change that affects them.
 | [`TERMS.md`](TERMS.md) | Agreed words. Use them. |
 | [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) | Unsettled decisions. Don't assume an answer; ask. |
 | [`PLAN/`](PLAN/README.md) | Delivery milestones; only the current one is detailed. Follow-ups are [issues](https://github.com/mrogan/cv-software-factory/issues), each on the GitHub milestone of the same number when it has one. |
-| [`COMPONENTS.md`](COMPONENTS.md) | Which part does what, and what it is built with in v1. |
+| [`COMPONENTS/`](COMPONENTS/README.md) | Which part does what, and what it is built with in v1: a page per component. |
 | [`TYPESAFE.md`](TYPESAFE.md) | How the factory uses TypeSafe's Jev for typed judgements. |
 
 ## Reference
@@ -28,4 +28,4 @@ Change these only when Martin asks, or propose the change in a PR.
 
 ## Naming
 
-Upper-case names (`INTENT.md`, `SPECIFICATION.md`, `PLAN/`) are living documents that agents maintain. Lower-case names (`design/`, `architecture/`) are reference material that changes at Martin's direction. `README.md` is upper-case everywhere, by convention.
+Upper-case names (`INTENT.md`, `SPECIFICATION.md`, `PLAN/`, `COMPONENTS/`) are living documents that agents maintain. Lower-case names (`design/`, `architecture/`) are reference material that changes at Martin's direction. `README.md` is upper-case everywhere, by convention.

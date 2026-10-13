@@ -170,7 +170,7 @@ export type HoldCause = (typeof HOLD_CAUSES)[number];
 export const AUTONOMY = ['supervised', 'guarded', 'lights-out'] as const;
 export type Autonomy = (typeof AUTONOMY)[number];
 
-/** Tags that route a change to a human, depending on autonomy (COMPONENTS.md, approval routing). */
+/** Tags that route a change to a human, depending on autonomy (docs/COMPONENTS/APPROVAL-ROUTING.md). */
 export const RISKS = ['test-loosening', 'dependency-change', 'security-headers', 'out-of-scope'] as const;
 export type Risk = (typeof RISKS)[number];
 

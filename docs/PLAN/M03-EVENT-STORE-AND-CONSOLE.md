@@ -135,7 +135,7 @@ Playwright runs every check against the production build, fed from the sample fi
 
 ### 11. Documentation
 
-- Update spec section 5.1 (the envelope), `COMPONENTS.md` (the store's roles, artifacts, the console's build) and `TERMS.md` (sample, event log, projection) wherever reality differs.
+- Update spec section 5.1 (the envelope), `COMPONENTS/` (the store's roles, artifacts, the console's build) and `TERMS.md` (sample, event log, projection) wherever reality differs.
 - Update the design system's README for the station's status rules and the new states.
 - Write an ADR only if a major decision changes.
 

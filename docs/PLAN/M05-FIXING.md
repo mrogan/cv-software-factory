@@ -13,7 +13,7 @@ The milestone is built in two parts, each by its own implementing session, becau
 - **Part A, the factory's hands:** the App and the worker that holds its key, the rulesets, the app's gates, the gateway speaking Anthropic's API, and the runners. Everything an agent needs, proved without an agent's judgement in it.
 - **Part B, the agents:** the planner, the coder, the reviewer and the describer, the stages that join them, the console, and the fix.
 
-Part B starts when Part A's exit criteria are met and its pull requests are merged. Part A leaves `COMPONENTS.md` and `AGENTS.md` describing what it built, so Part B starts from this file, those two and the code, and needs nothing from Part A's session.
+Part B starts when Part A's exit criteria are met and its pull requests are merged. Part A leaves `COMPONENTS/` and `AGENTS.md` describing what it built, so Part B starts from this file, those two and the code, and needs nothing from Part A's session.
 
 ## Decisions
 
@@ -102,7 +102,7 @@ In `apps/factory/src/github`, run by `factory github`:
 - It runs release-please as a library with the App's token, for both repositories: the release pull request, and the release and tag when it merges.
 - `build.yml` builds and pushes images and opens nothing. `release.yml` goes. `scripts/github-settings.ts` stops workflows opening or approving pull requests, in both repositories.
 - The checks that recognise a deploy pull request recognise the App as its author.
-- ADR 0005 and `COMPONENTS.md` say the App opens them.
+- ADR 0005 and `COMPONENTS/` say the App opens them.
 
 ### 3. Code-owner review
 
@@ -147,7 +147,7 @@ The probe that follows the home page's links files a loop under the destination'
 
 ### 8. Documentation for Part A
 
-`COMPONENTS.md` (the GitHub worker, the runners, the gateway's providers, the network policies, the App's pull requests), `AGENTS.md` (running the GitHub worker and a runner on the host), ADRs 0008 and 0009, and spec sections 4.1 and 9.
+`COMPONENTS/` (the GitHub worker, the runners, the gateway's providers, the network policies, the App's pull requests), `AGENTS.md` (running the GitHub worker and a runner on the host), ADRs 0008 and 0009, and spec sections 4.1 and 9.
 
 ### Part A is done when
 
@@ -215,7 +215,7 @@ The line runs on the local cluster, on Claude, over the tickets milestone 4's se
 
 ### 17. Documentation and retrospective
 
-Spec sections 4.1, 7 and 9; `COMPONENTS.md` (the line, the agents and the App's pull requests); `TERMS.md` (runner, handback, patch, if they need pinning down); `TYPESAFE.md` if anything changed for triage; this file's results and retrospective, and the backlog.
+Spec sections 4.1, 7 and 9; `COMPONENTS/` (the line, the agents and the App's pull requests); `TERMS.md` (runner, handback, patch, if they need pinning down); `TYPESAFE.md` if anything changed for triage; this file's results and retrospective, and the backlog.
 
 ## Exit criteria
 
@@ -323,9 +323,9 @@ Written as Part A's pull requests (#62 to #73, and the app's #9 to #11) merged, 
 **Decided**
 
 - Two rulesets on `main`: review, which the admin may bypass to merge, and everything else, which nobody bypasses. ADR 0009. `scripts/github-settings.ts --check` says where the live rulesets differ from it.
-- A runner hands back a patch, which the GitHub worker applies outside the sandbox: ADR 0008. The worker checks every patch itself, not only the line: a path outside the repository, a mode other than a plain file's, and `.github/`, `deploy/` or a code-owned path are refused, whatever the line sent. `COMPONENTS.md`.
-- The gateway lets through only what the Agent SDK sends, and refuses server tools, which would be a way past the fence: `COMPONENTS.md`.
-- An agent pod has no DNS. The line looks up the two addresses it needs and writes them into the pod's hosts: `COMPONENTS.md`.
+- A runner hands back a patch, which the GitHub worker applies outside the sandbox: ADR 0008. The worker checks every patch itself, not only the line: a path outside the repository, a mode other than a plain file's, and `.github/`, `deploy/` or a code-owned path are refused, whatever the line sent. `COMPONENTS/`.
+- The gateway lets through only what the Agent SDK sends, and refuses server tools, which would be a way past the fence: `COMPONENTS/`.
+- An agent pod has no DNS. The line looks up the two addresses it needs and writes them into the pod's hosts: `COMPONENTS/`.
 
 **Learned about GitHub**
 
@@ -364,7 +364,7 @@ The line took 1001 at 23:45 UTC on 6 October and held it nine minutes later. Twe
 
 **Decided**
 
-- A work item's next step is a pure function of its events (`line/machine.ts`), so a stop or a crash resumes from the last event. Each hold names its cause, and `ANSWERS` says what each of Martin's answers does for that cause: `COMPONENTS.md`.
+- A work item's next step is a pure function of its events (`line/machine.ts`), so a stop or a crash resumes from the last event. Each hold names its cause, and `ANSWERS` says what each of Martin's answers does for that cause: `COMPONENTS/`.
 - A handback is kept until its effects are done, and each write in GitHub is recorded as it begins and when it is done, so a retry after GitHub or the store fails never runs the agent again or repeats a write.
 - Agents are defined one way (`defineAgent`), with prompts built from typed fields only, never a visitor's words, and results read through a Zod schema; a result the schema refuses is a failed step, and the next attempt is told why.
 - `LINE_TAKE` takes a set number of tickets by the line's own rule, so a first live run can be one ticket that nobody chose (#106). `LINE_ONLY` names a work item, for a soak.
@@ -393,7 +393,7 @@ The line took 1001 at 23:45 UTC on 6 October and held it nine minutes later. Twe
 - An independent review of the stack found two blockers, a value import that crashed the factory's image and visitors' words reaching the planner through log lines, and about forty smaller defects across seven pull requests. Fixing them bottom up, one sub-agent to a pull request, worked.
 - Sub-agents need guard rails they cannot miss. One committed a folder of working notes that its brief said to leave untracked, and undoing it took a history rewrite. A check in the commit hook would have stopped it.
 - Merging a stack is slower than building it. Strict checks, signed commits and one approver meant each of eight pull requests needed a local rebase and a CI run before it could merge; GitHub's Update branch drops the signatures.
-- A name that can be misread will be. A runner Job's last number counts the work item's steps, and was read as an attempt, which misled the first analysis of a soak; `COMPONENTS.md` says what it counts.
+- A name that can be misread will be. A runner Job's last number counts the work item's steps, and was read as an attempt, which misled the first analysis of a soak; `COMPONENTS/` says what it counts.
 - Spend is recorded in two places when the bench and the cluster share a key, and the gateway's figures are never checked against Anthropic's bill: an issue.
 
 **Still to run**
