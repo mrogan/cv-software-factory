@@ -10,6 +10,7 @@ import {
   type Facts,
   observe,
   planOf,
+  podHashes,
   recordedFrom,
   releaseEvents,
   releaseNeeds,
@@ -22,8 +23,9 @@ import { ABORTED_AT, CANARY, commitOf, digestOf, releaseOf, rollout, run, STABLE
 
 /**
  * A store of release events, as the line keeps it: each pass appends what `releaseEvents` drafts, and the next pass
- * reads it back. Starting the line again is a pass over the same store. A pass is a few seconds after the latest
- * thing its runs say happened, as the line would see it.
+ * reads it back, as the line does: the releases of the hashes the Rollout names, and the name of the last promoted.
+ * Starting the line again is a pass over the same store. A pass is a few seconds after the latest thing its runs say
+ * happened, as the line would see it.
  */
 function store(seed: { target: Target; type: string; payload: unknown }[] = []) {
   const log = seed.map(({ target, type, payload }) => ({ work_item: target, ts: t(-60), type, payload }));
@@ -32,9 +34,15 @@ function store(seed: { target: Target; type: string; payload: unknown }[] = []) 
     /** One pass over the Rollout and its runs; returns what it appended, by target, as `[type, summary]`. */
     pass(r: Rollout, runs: AnalysisRun[], read: Partial<Facts> & { start?: Start } = {}) {
       const o = observe(r, runs);
-      const recorded = recordedFrom(log);
-      const needs = releaseNeeds(o, recorded);
-      const facts: Facts = { figures: new Map(), series: new Map(), ...read };
+      const hashes = podHashes(o);
+      const release = (e: (typeof log)[number]) => (e.payload as { release: string }).release;
+      const recorded = recordedFrom(log.filter((e) => hashes.includes(release(e).split('-')[0] as string)));
+      const promotions = log.filter(
+        (e) => e.type === 'release.promoted' && !(e.payload as { dryRun?: boolean }).dryRun,
+      );
+      const lastRelease = promotions.at(-1) && release(promotions.at(-1) as (typeof log)[number]);
+      const needs = releaseNeeds(o, recorded, lastRelease);
+      const facts: Facts = { figures: new Map(), series: new Map(), ...(lastRelease ? { lastRelease } : {}), ...read };
       const drafts = releaseEvents(o, recorded, facts);
       const times = runs.flatMap((r) => [r.metadata.creationTimestamp, r.status.completedAt ?? '']).map(Date.parse);
       const ts = new Date(Math.max(Date.parse(t(-60)), ...times.filter(Number.isFinite)) + 5_000).toISOString();

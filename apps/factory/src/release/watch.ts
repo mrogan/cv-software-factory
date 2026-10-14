@@ -370,6 +370,8 @@ export interface Facts {
   series: ReadonlyMap<string, Series>;
   /** The version promoted last, which a release found live replaces as far as the line knows. */
   lastPromoted?: string;
+  /** The release the line recorded promoted last, dry runs aside, by its name (`namedReleases`). */
+  lastRelease?: string;
   /** Who aborted the Rollout, when it is aborted: Stop the line, if the line was stopped then, or Martin. */
   abortedBy?: PayloadOf<'release.aborted'>['by'];
 }
@@ -523,17 +525,16 @@ const isOfHash = (name: string, hash: string) => name === hash || name.startsWit
 /**
  * Whether the stable version, at a revision the line has not recorded, was released there rather than sent back to
  * with no canary. A release leaves runs of its hash at its revision, and a Rollout sent back leaves none; Argo
- * Rollouts keeps only the latest runs, so where there are none, the line's record says: sent back to its stable
- * version, the Rollout runs the last release the line recorded as promoted, and released while the line was not
- * looking, it runs an image the line last saw promoted before another. That misreads when the line missed a rollback
- * too.
+ * Rollouts keeps only the latest runs, so where there are none, the line's record says (`lastRelease`, the release it
+ * recorded promoted last, dry runs aside): sent back to its stable version, the Rollout runs that release, and
+ * released while the line was not looking, it runs an image the line last saw promoted before another. That misreads
+ * when the line missed a rollback too.
  */
-function releasedAtRevision(o: Observed, recorded: Recorded): boolean {
+function releasedAtRevision(o: Observed, lastRelease: string | undefined): boolean {
   const { stable, revision } = o;
   if (stable === undefined || revision === undefined) return false;
   if (o.runs.some((run) => hashOf(run) === stable && revisionOf(run) === revision)) return true;
-  const last = [...recorded].filter(([, targets]) => ended(targets, 'promoted')).at(-1)?.[0];
-  return last !== undefined && !isOfHash(last, stable);
+  return lastRelease !== undefined && !isOfHash(lastRelease, stable);
 }
 
 /**
@@ -543,7 +544,7 @@ function releasedAtRevision(o: Observed, recorded: Recorded): boolean {
  * and none such recorded, it is the release of its hash at the Rollout's revision, to be found live; and so it is when
  * that release went out while the line was not looking (`releasedAtRevision`).
  */
-export function namedReleases(o: Observed, recorded: Recorded): Named {
+export function namedReleases(o: Observed, recorded: Recorded, lastRelease?: string): Named {
   const ofHash = (hash: string) => [...recorded].filter(([name]) => isOfHash(name, hash));
   const asked = o.current && o.revision ? releaseName(o.current, o.revision) : undefined;
   const releases = o.stable === undefined ? [] : ofHash(o.stable);
@@ -551,8 +552,8 @@ export function namedReleases(o: Observed, recorded: Recorded): Named {
   const promoted = last?.[0];
   if (o.current === o.stable) {
     // One still in flight is the release whose promotion this is; one promoted may have been released again since.
-    const again = last !== undefined && ended(last[1], 'promoted') && releasedAtRevision(o, recorded);
-    const name = asked && (recorded.has(asked) || !promoted || again) ? asked : (promoted ?? asked);
+    const again = () => last !== undefined && ended(last[1], 'promoted') && releasedAtRevision(o, lastRelease);
+    const name = asked && (recorded.has(asked) || again()) ? asked : (promoted ?? asked);
     return { current: name, stable: name };
   }
   // With a release in flight, the version it replaces must be known: a rolled-back or aborted one, retried and
@@ -581,8 +582,8 @@ function startOfRelease(o: Observed, names: Named, recorded: Recorded): Needs['s
 }
 
 /** What the line must read before `releaseEvents` can say all it has to. */
-export function releaseNeeds(o: Observed, recorded: Recorded): Needs {
-  const names = namedReleases(o, recorded);
+export function releaseNeeds(o: Observed, recorded: Recorded, lastRelease?: string): Needs {
+  const names = namedReleases(o, recorded, lastRelease);
   const start = startOfRelease(o, names, recorded);
   const steps: AnalysisRun[] = [];
   const failures: AnalysisRun[] = [];
@@ -649,7 +650,7 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
   const add = (target: Target, drafts: Draft[]) => {
     if (drafts.length) out.set(target, [...(out.get(target) ?? []), ...drafts]);
   };
-  const names = namedReleases(o, recorded);
+  const names = namedReleases(o, recorded, facts.lastRelease);
   const start = startOfRelease(o, names, recorded);
   if (start && facts.start) {
     const read = facts.start;

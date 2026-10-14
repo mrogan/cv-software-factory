@@ -357,6 +357,29 @@ describe('the line’s watch of the app’s release', () => {
     ]);
   });
 
+  it('finds live an image promoted before and released again while it was down, by the release that shipped last', async () => {
+    const { line: it, github, kube } = line();
+    github.history = HISTORY;
+    github.revisions.set(digestOf(STABLE), commitOf(STABLE));
+    github.revisions.set(digestOf(CANARY), commitOf(CANARY));
+    kube.rollout = rollout({ current: STABLE, stable: STABLE });
+    await it.tick();
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    await it.tick();
+    kube.rollout = rollout({ current: CANARY, stable: CANARY });
+    await it.tick();
+    // STABLE pinned again and promoted while the line was down, and none of its runs kept: the line's last promotion
+    // is CANARY's, which the releases of STABLE's hash alone do not show.
+    kube.rollout = rollout({ current: STABLE, stable: STABLE, revision: 5 });
+    await it.tick();
+    expect((await typesOf(null)).slice(4)).toEqual(['release.started by factory', 'release.promoted by factory']);
+    expect((await payloads(null, 'release.promoted')).at(-1)).toMatchObject({
+      release: `${STABLE}-5`,
+      previous: commitOf(CANARY),
+      watched: false,
+    });
+  });
+
   it('records a rollback with the series that condemned it, and holds the work it carried at Release again', async () => {
     const { line: it, github, kube } = line();
     github.history = HISTORY;
