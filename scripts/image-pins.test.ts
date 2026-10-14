@@ -80,3 +80,63 @@ describe("the pins of Docker's official images", () => {
     expect(rendered).not.toContain(pinned);
   });
 });
+
+/**
+ * Playwright's library and its browsers are one release: the library refuses browsers from another. The library is in
+ * the lockfile; the browsers are in its image, pinned where the browser tests run (check.yml, the Makefile) and under
+ * the probes and the crawler (Dockerfile.browser). Dependabot moves the lockfile and the Dockerfile in separate pull
+ * requests, and none of the other pins, so a bump is made by hand, everywhere at once, and this fails until it is.
+ */
+const PLAYWRIGHT = /mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-noble@(sha256:[0-9a-f]{64})/g;
+
+/** Every Playwright release in use, each as [where, version@digest]; the lockfile's entries have no digest. */
+function playwright(read = (file: string) => readFileSync(file, 'utf-8')) {
+  const files = execFileSync('git', ['grep', '-lE', 'mcr\\.microsoft\\.com/playwright', '--', ':!*.md'], {
+    encoding: 'utf-8',
+  });
+  const images = files
+    .split('\n')
+    .filter(Boolean)
+    .flatMap((file) =>
+      [...read(file).matchAll(PLAYWRIGHT)].map(([, version, digest]): [string, string] => [
+        file,
+        `${version}@${digest}`,
+      ]),
+    );
+  const libraries = [
+    ...read('pnpm-lock.yaml').matchAll(/^ {2}'?((?:@playwright\/test|playwright|playwright-core)@\d+\.\d+\.\d+)'?:$/gm),
+  ].map(([, entry = '']): [string, string] => [`pnpm-lock.yaml ${entry}`, entry.slice(entry.lastIndexOf('@') + 1)]);
+  return { images, libraries };
+}
+
+const releases = ({ images, libraries }: ReturnType<typeof playwright>) =>
+  new Set([...images.map(([, pin]) => pin.split('@')[0]), ...libraries.map(([, version]) => version)]);
+
+describe("Playwright's pins", () => {
+  const found = playwright();
+
+  it('are found', () => {
+    expect(found.images.map(([file]) => file)).toEqual(
+      expect.arrayContaining(['.github/workflows/check.yml', 'Makefile', 'apps/factory/Dockerfile.browser']),
+    );
+    expect(found.libraries.map(([entry]) => entry.split(' ')[1]?.replace(/@[\d.]+$/, ''))).toEqual(
+      expect.arrayContaining(['@playwright/test', 'playwright', 'playwright-core']),
+    );
+  });
+
+  it('name one release, and one image of it', () => {
+    expect(new Set(found.images.map(([, pin]) => pin)).size).toBe(1);
+    expect([...releases(found)]).toHaveLength(1);
+  });
+
+  it('disagree when Dependabot moves the Dockerfile alone', () => {
+    const DOCKERFILE = 'apps/factory/Dockerfile.browser';
+    const moved = (file: string) => {
+      const source = readFileSync(file, 'utf-8');
+      return file === DOCKERFILE
+        ? source.replace(PLAYWRIGHT, `mcr.microsoft.com/playwright:v9.9.9-noble@sha256:${'3'.repeat(64)}`)
+        : source;
+    };
+    expect(releases(playwright(moved)).size).toBe(2);
+  });
+});

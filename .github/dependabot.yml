@@ -21,6 +21,11 @@ updates:
       prefix: chore
       include: scope
     groups:
+      # The library's packages move in one pull request, ahead of the tooling group, which would otherwise take
+      # @playwright/test alone. Its browsers' image is pinned outside npm, so that pull request fails
+      # scripts/image-pins.test.ts until the image is moved by hand to the same release.
+      playwright:
+        patterns: ['playwright', 'playwright-core', '@playwright/test']
       opentelemetry:
         patterns: ['@opentelemetry/*']
       fonts:
