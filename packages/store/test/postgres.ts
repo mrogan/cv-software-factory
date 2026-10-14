@@ -48,19 +48,17 @@ const remove = (...names: string[]) => void docker('rm', '--force', '--volumes',
 
 /** Removes the containers, with their data, of runs that were killed before they could. Other runs' are kept. */
 function sweep() {
-  const containers = docker('ps', '--all', '--filter', `label=${LABEL}`, '--format', `{{.ID}} {{.Label "${LABEL}"}}`);
-  const orphans = containers
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => line.split(' '))
-    .filter(([, pid]) => !alive(Number(pid)))
-    .map(([id]) => id as string);
-  // Tidying up is a courtesy: a container that went in the meantime fails no tests.
-  if (orphans.length) {
-    try {
-      remove(...orphans);
-    } catch {}
-  }
+  // Tidying up is a courtesy: if it fails, no tests do.
+  try {
+    const containers = docker('ps', '--all', '--filter', `label=${LABEL}`, '--format', `{{.ID}} {{.Label "${LABEL}"}}`);
+    const orphans = containers
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => line.split(' '))
+      .filter(([, pid]) => !alive(Number(pid)))
+      .map(([id]) => id as string);
+    if (orphans.length) remove(...orphans);
+  } catch {}
 }
 
 function alive(pid: number) {
