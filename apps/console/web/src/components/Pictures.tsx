@@ -545,9 +545,13 @@ function RollbackPicture({ dependency, weight, restored, series }: Extract<Pictu
           { values: series.baseline, tone: 'muted', label: 'baseline' },
         ]}
         unit={series.unit}
-        // The rollback is the last point of both lines, where their labels are: its own goes over the plot, and the
-        // x axis under it gives its time.
-        marker={{ index: series.at, label: 'rolled back', above: true }}
+        // As the release worker reads it, the rollback is the last point of both lines, where their labels are: its
+        // own goes over the plot. Its time is left to the x axis only where the axis labels that point.
+        marker={{
+          index: series.at,
+          label: minutes.includes(series.at) ? 'rolled back' : `rolled back · ${time(series.at)}`,
+          above: true,
+        }}
         xLabels={minutes.map((i) => [i, time(i)])}
       />
       <div className="unchanged">
