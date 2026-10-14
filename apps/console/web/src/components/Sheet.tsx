@@ -4,7 +4,7 @@
  */
 
 import type { Sense } from '@software-factory/events';
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   AGENT_NAME,
   capital,
@@ -952,6 +952,10 @@ function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) 
   const [tag, tone] = site ? (SIDE_TAG[site.side] ?? ['', 'faint']) : ['', 'faint'];
   const events = chapters.slice(0, at + 1).filter((c) => c.actor);
   const listed = all ? events : events.slice(-5);
+  // The times' column is as wide as the latest event's time, in characters of its own mono, so that it holds every
+  // event's time and stays put as the scrubber moves.
+  const latest = chapters.findLast((c) => c.actor)?.at ?? start;
+  const whenWidth = { '--when': `${sinceStart(latest - start).length}ch` } as CSSProperties;
   const shown = scrubbed(chapters, Math.min(at, last), width);
   const here = shown.findIndex((s) => at >= s.index && at < s.index + s.count);
   return (
@@ -1038,10 +1042,10 @@ function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) 
             );
           })}
         </div>
-        <ol className="events">
+        <ol className="events" style={whenWidth}>
           {listed.map((c, i) => (
             <li key={`${c.label}-${c.at}`} className={`event ${i === listed.length - 1 ? 'now' : ''}`}>
-              <span className="mono">{sinceStart(c.at - start)}</span>
+              <span className="mono when">{sinceStart(c.at - start)}</span>
               <span className="mono actor">{c.actor}</span>
               <span>{c.text}</span>
             </li>

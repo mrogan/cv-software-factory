@@ -278,7 +278,7 @@ html[data-motion="off"] .scrim {
 }
 .event {
   display: grid;
-  grid-template-columns: 62px 70px minmax(0, 1fr);
+  grid-template-columns: max-content 70px minmax(0, 1fr);
   gap: 12px;
   align-items: baseline;
   padding: 8px 12px;
@@ -295,6 +295,11 @@ html[data-motion="off"] .scrim {
 .event .mono {
   font-size: 11px;
   color: var(--text-muted);
+}
+/* As wide as the sheet's longest time (--when, in characters of the mono), so that every event's name lines up. */
+.event .when {
+  width: var(--when);
+  white-space: nowrap;
 }
 
 /* Evidence */
@@ -663,7 +668,11 @@ table.models {
     margin-top: 0;
   }
   .event {
-    grid-template-columns: 56px minmax(0, 1fr);
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+  /* Small enough that a time past a day, T+5d 12:39:59, leaves room for the buttons beside it. */
+  .clock {
+    font-size: 20px;
   }
   .ship .opt {
     display: none;
