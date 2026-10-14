@@ -174,8 +174,11 @@ export interface Sheet {
   facts: {
     foundBy: string;
     humanLines: number;
-    /** The reviews a fix has had, of the most it may before what still blocks waits for Martin. */
-    reviews: { done: number; of: number } | undefined;
+    /**
+     * The reviews the fix has had in the work's latest pass, of the most it may have in a pass before what still
+     * blocks waits for Martin, and which pass that is once there is more than one.
+     */
+    reviews: { done: number; of: number; pass: number | undefined } | undefined;
     /** A ticket's category and severity, and its fingerprint in words. */
     ticket: { category: string; severity: string; fingerprint: string } | undefined;
   };
@@ -755,6 +758,32 @@ function verified(
   };
 }
 
+/**
+ * Whether an event starts the work's next pass, as the line counts them: a return to Plan, from Verify or by Martin
+ * after the merge, and a reopening each start again with a new spec, pull request and reviews.
+ */
+const startsPass = (event: PublicEvent) =>
+  (event.type === 'work.returned' && event.payload.to === 'plan') || event.type === 'work-item.reopened';
+
+/**
+ * The reviews of the latest pass the coder pushed in, the pass of the pull request beside them, against the line's
+ * limit, which bounds each pass's reviews alone. A round sent back after the last review it allows passes it by one:
+ * for an approval's suggestions, or by Martin. Every push is reviewed.
+ */
+function reviewsOfPass(item: ItemState): { done: number; of: number; pass: number | undefined } {
+  const passes = [{ pushed: false, done: 0 }];
+  for (const event of item.events) {
+    if (startsPass(event)) passes.push({ pushed: false, done: 0 });
+    const current = passes[passes.length - 1];
+    if (!current) continue;
+    if (event.type === 'pull-request.pushed' && event.actor === 'coder') current.pushed = true;
+    if (event.type === 'review.submitted') current.done += 1;
+  }
+  const index = passes.findLastIndex((p) => p.pushed);
+  const done = passes[index]?.done ?? 0;
+  return { done, of: Math.max(LIMITS.reviews, done), pass: passes.length > 1 ? index + 1 : undefined };
+}
+
 export function sheet(item: ItemState, events: readonly PublicEvent[], t: number): Sheet {
   const end = item.closedAt ?? t;
   const own = releases(events, [item], t).filter((r) => r.items.some((i) => i.number === item.number));
@@ -781,9 +810,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
       const at = Math.max(Date.parse(event.ts), r.end?.kind === 'aborted' ? r.end.at : 0);
       return [{ event, ...releaseChapter(r), at, pass }];
     }
-    // A return from Verify, and a reopening, start the work's next pass.
-    if ((event.type === 'work.returned' && event.payload.from === 'verify') || event.type === 'work-item.reopened')
-      pass += 1;
+    if (startsPass(event)) pass += 1;
     const chapter = chapterOf(event, item);
     return chapter ? [{ event, ...chapter, pass }] : [];
   });
@@ -879,9 +906,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
     facts: {
       foundBy: foundBy(item),
       humanLines,
-      // Against the line's limit, which a round sent back after the last review it allows passes by one: for an
-      // approval's suggestions, or by Martin. Every push is reviewed.
-      reviews: coded ? { done: thread.length, of: Math.max(LIMITS.reviews, thread.length) } : undefined,
+      reviews: coded ? reviewsOfPass(item) : undefined,
       ticket: item.ticket && {
         category: item.ticket.category,
         severity: item.ticket.severity,

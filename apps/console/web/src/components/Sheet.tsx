@@ -374,7 +374,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
               {sheet.rounds.length > 0 && (
                 <Section
                   title="Rounds"
-                  help={`Each attempt the coder pushed, what the gates and the reviewer made of it, and why it went back. ${capital(inWords(sheet.facts.reviews?.of ?? 2, 'review'))} at most: after the last, anything still blocking waits for Martin.`}
+                  help={`Each attempt the coder pushed, what the gates and the reviewer made of it, and why it went back. ${capital(inWords(sheet.facts.reviews?.of ?? 2, 'review'))} at most in a pass: after the last, anything still blocking waits for Martin.`}
                 >
                   <Rounds rounds={sheet.rounds} after={sheet.after} />
                 </Section>
@@ -433,6 +433,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                 {sheet.facts.reviews && (
                   <Fact name="Reviews">
                     {sheet.facts.reviews.done} of {sheet.facts.reviews.of}
+                    {sheet.facts.reviews.pass && ` · pass ${sheet.facts.reviews.pass}`}
                   </Fact>
                 )}
                 <Fact name="Started">{when(card.startedAt)}</Fact>

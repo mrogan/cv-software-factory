@@ -130,6 +130,16 @@ describe('the scrubber', () => {
     }
   });
 
+  it('counts the reviews of the pull request’s pass against the line’s limit for a pass, and names the pass (#280)', () => {
+    // One review in each of two passes, and reopened since: the second pass's pull request has had one of its two.
+    expect(sheet('1306')?.review).toHaveLength(2);
+    expect(sheet('1306')?.facts.reviews).toEqual({ done: 1, of: 2, pass: 2 });
+    // Back at Plan, before the second pass's push, the first pass's pull request is still the one beside them.
+    expect(sheet('1306', returned)?.facts.reviews).toEqual({ done: 1, of: 2, pass: 1 });
+    // Before it went back, there was one pass, and no pass to name.
+    expect(sheet('1306', returned - 1)?.facts.reviews).toEqual({ done: 1, of: 2, pass: undefined });
+  });
+
   it('draws the first pass and the chosen one in full, and folds the others to one chapter each', () => {
     const chapters = sheet('1306')?.chapters ?? [];
     const shown = scrubbed(chapters, chapters.length - 1, 874);
