@@ -761,12 +761,17 @@ function RoundRow({ attempt: a }: { attempt: Attempt }) {
         <>
           <span />
           <div className="ret-row">
-            <svg className="arc" viewBox="0 0 300 54" preserveAspectRatio="none" aria-hidden="true">
-              <path className="ret-arc" d={`M${from} 0 C${from} 34 50 18 50 52`} />
-            </svg>
-            <svg className="head" viewBox="0 0 12 10" aria-hidden="true">
-              <path d="M1.5 1.5 6 8.5 10.5 1.5" />
-            </svg>
+            {/* The arc joins two rows; a return the coder declined in full has no row after it to reach. */}
+            {!a.returned.declined && (
+              <>
+                <svg className="arc" viewBox="0 0 300 54" preserveAspectRatio="none" aria-hidden="true">
+                  <path className="ret-arc" d={`M${from} 0 C${from} 34 50 18 50 52`} />
+                </svg>
+                <svg className="head" viewBox="0 0 12 10" aria-hidden="true">
+                  <path d="M1.5 1.5 6 8.5 10.5 1.5" />
+                </svg>
+              </>
+            )}
             <span className="ret-pill">
               <Glyph name="back" />
               {capital(a.returned.from)} → Build · {a.returned.detail}

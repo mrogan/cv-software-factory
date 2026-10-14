@@ -44,6 +44,22 @@ describe('the samples', () => {
     expect(of('work.returned').length).toBeGreaterThan(0);
   });
 
+  it('answer every review’s suggestions before the describer, as the line does: one taken, and a round declined in full', () => {
+    const answered = of('suggestions.answered').map((event) => event.payload);
+    expect(answered.some((a) => a.declined.length === 0)).toBe(true);
+    expect(answered.some((a) => a.declined.length === a.suggestions)).toBe(true);
+    expect(of('work.returned').some((event) => event.payload.suggestions !== undefined)).toBe(true);
+    // An approval that leaves suggestions sends the work back once before the describer writes the change up.
+    for (const summary of of('work-item.summarised').filter((event) => event.actor === 'describer')) {
+      const before = published.filter(
+        (event) => event.work_item === summary.work_item && event.seq < summary.seq && event.type !== 'model.called',
+      );
+      const last = before.findLast((event) => event.type === 'review.submitted');
+      const suggestions = last?.type === 'review.submitted' && last.payload.findings.some((f) => !f.blocking);
+      if (suggestions) expect(before.at(-1)?.type, summary.work_item ?? '').toBe('suggestions.answered');
+    }
+  });
+
   it('end with a work item still on the line', () => {
     const last = published.at(-1);
     const closed = new Set(of('work-item.closed').map((event) => event.work_item));

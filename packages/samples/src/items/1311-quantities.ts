@@ -1,6 +1,7 @@
 /**
  * A fix through two rounds of review, waiting for Martin's merge: the reviewer's blocking findings, each citing the
- * app's rules, went back to the coder, whose second attempt the reviewer approved, and the describer wrote it up.
+ * app's rules, went back to the coder with its suggestion, and the coder took all three. The reviewer approved its
+ * second attempt, and the describer wrote it up.
  */
 import { Item } from '../build.ts';
 
@@ -100,21 +101,18 @@ export default new Item('1311', '2026-10-05T16:01:00+01:00')
       { path: 'test/basket.test.ts', added: 27, removed: 0 },
     ],
   })
+  .at('22:31', 'suggestions.answered', 'coder', 'The coder took 1 of 1 suggestions on PR #1312, and declined 0', {
+    pullRequest: 1312,
+    suggestions: 1,
+    declined: [],
+  })
   .gates('22:40', { pullRequest: 1312, attempt: 2, testsFirst: { failing: 3, of: 3 } })
   .calls('reviewer', '25:20', '27:10', { calls: 2, input: 60_000, output: 3_000, cached: 0.5 })
   .at('27:20', 'review.submitted', 'reviewer', 'Review of PR #1312: Approved', {
     pullRequest: 1312,
     verdict: 'approved',
-    note: 'Both blocking findings are answered: the test sets twelve through the shop over HTTP, and the page takes its catalogue.',
-    findings: [
-      {
-        path: 'src/pages/basket.ts',
-        line: 29,
-        blocking: false,
-        rule: 1,
-        comment: 'The “not enough in stock” sentence is still built in two places.',
-      },
-    ],
+    note: 'All three are answered: the test sets twelve through the shop over HTTP, the page takes its catalogue, and the stock sentence is built once.',
+    findings: [],
   })
   .calls('describer', '27:30', '29:50', { calls: 2, input: 24_000, output: 1_300, cached: 0.2 })
   .at('30:00', 'work-item.summarised', 'describer', 'Summary written', {
@@ -122,7 +120,7 @@ export default new Item('1311', '2026-10-05T16:01:00+01:00')
     description:
       'The basket takes any quantity, and a test sets twelve through the shop. It passed its gates and review in two rounds, and waits for Martin to merge it.',
     story:
-      'The basket journey found that the shop refused a quantity of twelve: it took one digit only. The planner asked for any quantity up to the stock there is. The coder’s first attempt passed every gate, but the reviewer sent it back twice over: its test reached inside the basket page, and the page opened its own catalogue. The second attempt sets the quantity through the shop over HTTP, and the reviewer approved it, with one suggestion.',
+      'The basket journey found that the shop refused a quantity of twelve: it took one digit only. The planner asked for any quantity up to the stock there is. The coder’s first attempt passed every gate, but the reviewer sent it back twice over: its test reached inside the basket page, and the page opened its own catalogue. The second attempt sets the quantity through the shop over HTTP, and takes the reviewer’s suggestion too, building the “not enough in stock” sentence once. The reviewer approved it.',
   })
   .at('30:01', 'hold.started', 'factory', 'Waiting for Martin to merge', {
     stage: 'review',
