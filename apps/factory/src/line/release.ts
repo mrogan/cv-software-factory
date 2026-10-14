@@ -358,13 +358,16 @@ export class Releases {
     });
   }
 
-  /** The app's last release that shipped, by its name, and the version it made stable. */
-  async #lastPromoted(): Promise<{ release: string; version: string } | undefined> {
-    const [row] = await this.#o.sql<{ release: string; version: string }[]>`
+  /**
+   * The app's last release that shipped, by its name, and the version it made stable. A promotion of version 1, from
+   * before releases were named, has no name, and says nothing of which image shipped last.
+   */
+  async #lastPromoted(): Promise<{ release: string | undefined; version: string } | undefined> {
+    const [row] = await this.#o.sql<{ release: string | null; version: string }[]>`
       select payload->>'release' as release, payload->>'version' as version from events
       where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true
       order by seq desc limit 1`;
-    return row;
+    return row && { release: row.release ?? undefined, version: row.version };
   }
 
   /** Who aborted the Rollout at `at`: Stop the line, if the line had just stopped, or Martin. */
