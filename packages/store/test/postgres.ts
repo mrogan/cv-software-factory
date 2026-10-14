@@ -1,6 +1,7 @@
 /**
  * A real Postgres for the store's tests: TEST_DATABASE_URL if it is set, or else a throwaway container of the same
- * image the cluster runs, removed when the tests finish. CI names its own copy of that image in TEST_POSTGRES_IMAGE.
+ * image the cluster runs, removed with its data when the tests finish. CI names its own copy of that image in
+ * TEST_POSTGRES_IMAGE.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -38,14 +39,48 @@ declare module 'vitest' {
   }
 }
 
+// Each container is labelled with the process that started it, so a later run can find one whose process died
+// before it could remove it.
+const LABEL = 'software-factory-test.pid';
+const docker = (...args: string[]) => execFileSync('docker', args, { encoding: 'utf-8', stdio: 'pipe' }).trim();
+// The image keeps its data in an anonymous volume, which `rm` leaves behind unless asked: gigabytes after a full run.
+const remove = (...names: string[]) => void docker('rm', '--force', '--volumes', ...names);
+
+/** Removes the containers, with their data, of runs that were killed before they could. Other runs' are kept. */
+function sweep() {
+  const containers = docker('ps', '--all', '--filter', `label=${LABEL}`, '--format', `{{.ID}} {{.Label "${LABEL}"}}`);
+  const orphans = containers
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => line.split(' '))
+    .filter(([, pid]) => !alive(Number(pid)))
+    .map(([id]) => id as string);
+  // Tidying up is a courtesy: a container that went in the meantime fails no tests.
+  if (orphans.length) {
+    try {
+      remove(...orphans);
+    } catch {}
+  }
+}
+
+function alive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM: it is there, and someone else's.
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
 /** A throwaway Postgres in Docker, ready for connections, and how to remove it. */
 export async function startPostgres(): Promise<{ url: string; stop: () => void }> {
-  const docker = (...args: string[]) => execFileSync('docker', args, { encoding: 'utf-8', stdio: 'pipe' }).trim();
   try {
     docker('info', '--format', '{{.ServerVersion}}');
   } catch {
     throw new Error('These tests need Postgres: set TEST_DATABASE_URL, or start Docker so they can run their own.');
   }
+  sweep();
   const name = `software-factory-test-${process.pid}-${Date.now()}`;
   docker(
     'run',
@@ -53,6 +88,8 @@ export async function startPostgres(): Promise<{ url: string; stop: () => void }
     '--rm',
     '--name',
     name,
+    '--label',
+    `${LABEL}=${process.pid}`,
     '--env',
     'POSTGRES_USER=factory',
     '--env',
@@ -73,7 +110,7 @@ export async function startPostgres(): Promise<{ url: string; stop: () => void }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
-  return { url: `postgres://factory:test@127.0.0.1:${port}/postgres`, stop: () => void docker('rm', '--force', name) };
+  return { url: `postgres://factory:test@127.0.0.1:${port}/postgres`, stop: () => remove(name) };
 }
 
 export default async function setup(project: TestProject) {
