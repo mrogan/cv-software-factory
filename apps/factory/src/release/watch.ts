@@ -66,6 +66,8 @@ export interface TargetRecord {
   attempts: number;
   /** Steps recorded, over every attempt. */
   steps: number;
+  /** Steps recorded before its latest start: the rest are its latest attempt's. */
+  stepsBefore: number;
   /** How its latest attempt ended, if it has. */
   ended: 'promoted' | 'rolled-back' | 'aborted' | undefined;
   /** When Argo Rollouts acted on its latest abort, if it was aborted. */
@@ -92,6 +94,7 @@ export function recordedFrom(
         startedAt: ts,
         attempts: (record?.attempts ?? 0) + 1,
         steps: record?.steps ?? 0,
+        stepsBefore: record?.steps ?? 0,
         ended: undefined,
       });
       continue;
@@ -132,7 +135,6 @@ export interface Observed {
   weights: number[];
   /** The canary's steps, as `release.started` records them; null when the Rollout's cannot be read. */
   plan: CanaryStep[] | null;
-  stepIndex: number;
   /** Every run of the Rollout, oldest first. */
   runs: AnalysisRun[];
 }
@@ -168,7 +170,6 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
     admitted: available ? true : failedToCreate ? false : undefined,
     weights,
     plan: planOf(steps),
-    stepIndex,
     runs: [...runs].sort(
       (a, b) =>
         a.metadata.creationTimestamp.localeCompare(b.metadata.creationTimestamp) ||
@@ -284,11 +285,35 @@ export const whoAborted = (by: PayloadOf<'release.aborted'>['by']) =>
 export const startOf = (o: Observed, of: AnalysisRun) =>
   o.runs.find((run) => hashOf(run) === hashOf(of) && revisionOf(run) === revisionOf(of))?.metadata.creationTimestamp;
 
-/** The weight of the step a run judged, or the step the Rollout was at for a run in the background. */
-const weightOf = (o: Observed, run: AnalysisRun): number => {
-  const index = Number(run.metadata.labels['step-index'] ?? o.stepIndex);
-  return Math.max(1, Math.min(100, o.weights[Math.min(index, o.weights.length - 1)] ?? 1));
-};
+/** A weight from the Rollout's steps, by a step's index, as an event takes it. */
+const weightAt = (o: Observed, index: number) =>
+  Math.max(1, Math.min(100, o.weights[Math.min(index, o.weights.length - 1)] ?? 1));
+
+/** The weight of the step a step run judged. */
+const weightOf = (o: Observed, run: AnalysisRun): number => weightAt(o, Number(run.metadata.labels['step-index']));
+
+/**
+ * The weight the canary had reached when a run in the background failed it. The Rollout no longer says: Argo Rollouts
+ * sends an aborted canary back to its first step in the same write that records the abort. The canary holds a step
+ * the analysis judges until its run passes, then goes on to the next, so it was at the step after the last that passed
+ * in this attempt, or at its first: in the steps as the attempt's start recorded them, the n-th step run judging the
+ * n-th step the analysis judges. With no steps recorded, the Rollout's own stand in, by the step runs' indexes.
+ */
+function reachedWeight(o: Observed, plan: CanaryStep[] | null, attempt: readonly AnalysisRun[]): number {
+  const passed = (run: AnalysisRun) => run.status.phase === 'Successful';
+  if (!plan?.length) {
+    const last = attempt.findLast(passed);
+    return weightAt(o, last ? Number(last.metadata.labels['step-index']) + 1 : 0);
+  }
+  const judged = plan.flatMap((step, i) => (step.analysis ? [i] : []));
+  let at = 0;
+  for (const [n, run] of attempt.entries()) {
+    const index = judged[n];
+    if (index === undefined) break;
+    at = passed(run) ? index + 1 : index;
+  }
+  return (plan[Math.min(at, plan.length - 1)] as CanaryStep).weight;
+}
 
 const PHASES: Record<string, Measure['phase']> = {
   Pending: 'pending',
@@ -461,7 +486,9 @@ function forTarget(
   } else if (o.aborted && names.current === name && failuresOf(o, name).some(inAttempt)) {
     failures = failuresOf(o, name).filter(inAttempt);
     const last = failures.at(-1) as AnalysisRun;
-    const weight = weightOf(o, last);
+    // A retry in this pass goes by the steps it starts with; its earlier attempts' step runs were recorded before.
+    const attempt = stepsOf(o, name).slice(retried ? record.steps : record.stepsBefore);
+    const weight = isStep(last) ? weightOf(o, last) : reachedWeight(o, retried ? o.plan : started.steps, attempt);
     const failed: Failed[] = failures
       .flatMap((run) =>
         measuresOf(run)
@@ -579,7 +606,7 @@ export function releaseNeeds(o: Observed, recorded: Recorded): Needs {
       undefined,
       o.plan,
     );
-    const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, ended: undefined };
+    const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, stepsBefore: 0, ended: undefined };
     add(forTarget(o, names, start.release, record, empty));
   }
   for (const name of releasesIn(names)) {
@@ -660,7 +687,7 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
       const admitted = o.admitted === true;
       const started = startedPayload(start, read, admitted, facts.lastPromoted, o.plan);
       const how = `${read.signed ? 'signed' : 'not signed'} and ${admitted ? 'admitted' : 'refused admission'}`;
-      const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, ended: undefined };
+      const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, stepsBefore: 0, ended: undefined };
       for (const target of targets) {
         add(target, [
           {
