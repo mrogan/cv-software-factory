@@ -122,6 +122,23 @@ test.describe('the reel', () => {
     await expect(page.getByRole('dialog', { name: 'Discount codes refuse lower case' })).toBeVisible();
   });
 
+  test('writes the shop’s version under the timeline by a commit’s first seven characters', async ({
+    page,
+    request,
+  }) => {
+    // The samples name their releases by version; the cluster's are commits. The shop is on v0.9.12 at the end.
+    const commit = 'b5702d4e1f9a3c6087d2e5b1a4c7f0e3d6b9a2c5';
+    const events = (await (await request.get('/api/events')).text()).replaceAll('v0.9.12', commit);
+    await page.route('**/api/events?after=0', (route) =>
+      route.fulfill({ body: events, contentType: 'application/json' }),
+    );
+    await page.goto(consoleUrl());
+    await ready(page);
+    const shop = page.locator('.at-line b.mono');
+    await expect(shop).toHaveText('b5702d4');
+    await expect(shop).toHaveAttribute('title', commit);
+  });
+
   test('moves the wipe with its handle’s arrow keys', async ({ page }) => {
     await page.goto(consoleUrl({ item: '1296' }));
     await ready(page);
@@ -181,6 +198,18 @@ test.describe('the line', () => {
     await expect(panel).toBeVisible();
     await panel.getByRole('button', { name: /Open #1300/ }).click();
     await expect(page.getByRole('dialog', { name: 'Sort products by price' })).toBeVisible();
+  });
+
+  test('lists a release with no work item by its commit’s first seven characters', async ({ page }) => {
+    // Monday evening: a build of one of Martin's commits has just rolled back.
+    await page.goto(consoleUrl({ at: Date.parse('2026-10-05T17:50:00Z') }));
+    await ready(page);
+    await page.getByRole('button', { name: /^Release:/ }).click();
+    const id = page.getByRole('dialog', { name: 'Release' }).locator('.srow .id[title]').first();
+    await expect(id).toHaveText('efef168');
+    await expect(id).toHaveAttribute('title', 'efef168f4eec299dfc27c8fc78477ce28379b38d');
+    // It fits its column, clear of the row's words.
+    expect(await id.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   });
 
   test('closes the stage panel with Escape, back to its station', async ({ page }) => {

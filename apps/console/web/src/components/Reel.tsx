@@ -457,7 +457,10 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
             <b>{when(current.startedAt)}</b> · #{current.number} {current.title}
           </span>
           <span>
-            The shop at <b className="mono">{current.shopVersion ?? 'its first version'}</b>
+            The shop at{' '}
+            <b className="mono" title={current.shopVersion}>
+              {current.shopVersion ? shortVersion(current.shopVersion) : 'its first version'}
+            </b>
             {current.outcome === 'in-progress' && current.versions.onCanary && (
               <span className="attn-text"> · broken now; the fix is on the canary</span>
             )}
