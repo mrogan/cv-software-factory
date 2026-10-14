@@ -130,7 +130,7 @@ interface CardProps {
   card: CardData;
   index: number;
   count: number;
-  ref?: Ref<HTMLElement>;
+  ref: Ref<HTMLElement>;
 }
 
 export const Card = memo(function Card({ card, index, count, ref }: CardProps) {
