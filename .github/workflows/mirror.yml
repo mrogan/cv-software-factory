@@ -1,9 +1,9 @@
 # Copies Docker's official images that the repository pins into its GHCR, where CI pulls them (scripts/ci-images.sh):
-# hosted runners share addresses, and both Docker Hub and Amazon's copy limit anonymous pulls by address.
+# hosted runners share addresses, and Docker Hub limits anonymous pulls by address.
 #
 # Every day, so that a new version is copied before Dependabot, which waits three days, proposes it; after each merge,
 # for any pin it brings; and by hand. Only from main, so no branch can publish a package. A pin it has not copied yet
-# still works: CI pulls the same digest from Amazon's copy of Docker Hub, with a warning.
+# still works: CI pulls it from Docker Hub, with a warning.
 name: mirror
 
 on:

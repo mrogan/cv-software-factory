@@ -47,7 +47,7 @@ updates:
 
   # CI pulls these images from its own copy in GHCR (scripts/ci-images.sh), but every pin names its upstream, which is
   # what Dependabot reads. Docker's official images are named on Docker Hub, as `node` and `postgres`: Amazon's copy
-  # refuses Dependabot partway through listing Node's thousands of tags. Postgres has one pin, its StatefulSet's, which
+  # of it (public.ecr.aws) refuses Dependabot partway through listing Node's thousands of tags. Postgres has one pin, its StatefulSet's, which
   # everything else that runs it reads.
   - package-ecosystem: docker
     directories:
