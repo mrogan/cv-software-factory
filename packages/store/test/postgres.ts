@@ -39,9 +39,10 @@ declare module 'vitest' {
   }
 }
 
-// Each container is labelled with the process that started it, so a later run can find one whose process died
-// before it could remove it.
-const LABEL = 'software-factory-test.pid';
+// Each container is labelled with the process that started it, and when that process started, so a later run can
+// find one whose process died before it could remove it, even once the process's id has gone to another.
+const PID = 'software-factory-test.pid';
+const STARTED = 'software-factory-test.started';
 const docker = (...args: string[]) => execFileSync('docker', args, { encoding: 'utf-8', stdio: 'pipe' }).trim();
 // The image keeps its data in an anonymous volume, which `rm` leaves behind unless asked: gigabytes after a full run.
 const remove = (...names: string[]) => void docker('rm', '--force', '--volumes', ...names);
@@ -50,24 +51,27 @@ const remove = (...names: string[]) => void docker('rm', '--force', '--volumes',
 function sweep() {
   // Tidying up is a courtesy: if it fails, no tests do.
   try {
-    const containers = docker('ps', '--all', '--filter', `label=${LABEL}`, '--format', `{{.ID}} {{.Label "${LABEL}"}}`);
-    const orphans = containers
+    const format = `{{.ID}}\t{{.Label "${PID}"}}\t{{.Label "${STARTED}"}}`;
+    const orphans = docker('ps', '--all', '--filter', `label=${PID}`, '--format', format)
       .split('\n')
       .filter(Boolean)
-      .map((line) => line.split(' '))
-      .filter(([, pid]) => !alive(Number(pid)))
+      .map((line) => line.split('\t'))
+      .filter(([, pid, at]) => started(Number(pid)) !== at)
       .map(([id]) => id as string);
     if (orphans.length) remove(...orphans);
   } catch {}
 }
 
-function alive(pid: number) {
+/** When a process started, as `ps` puts it, or nothing if it isn't running. Any user's process counts. */
+function started(pid: number) {
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // EPERM: it is there, and someone else's.
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
+    return execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' },
+    }).trim();
+  } catch {
+    return '';
   }
 }
 
@@ -87,7 +91,9 @@ export async function startPostgres(): Promise<{ url: string; stop: () => void }
     '--name',
     name,
     '--label',
-    `${LABEL}=${process.pid}`,
+    `${PID}=${process.pid}`,
+    '--label',
+    `${STARTED}=${started(process.pid)}`,
     '--env',
     'POSTGRES_USER=factory',
     '--env',
