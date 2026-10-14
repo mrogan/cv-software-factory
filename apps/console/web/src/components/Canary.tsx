@@ -84,7 +84,7 @@ function Steps({ r, tone }: { r: Release; tone: Tone }) {
               ? 'all'
               : !r.planned
                 ? ''
-                : (pause === null ? 'waits' : pause % 60 ? `${pause} s` : `${pause / 60} min`) +
+                : (pause === null ? 'waits' : pause % 60 ? `${pause}s` : `${pause / 60}min`) +
                   (analysis ? '' : ' · not judged');
           return (
             <li
