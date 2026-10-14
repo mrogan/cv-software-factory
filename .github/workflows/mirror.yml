@@ -1,0 +1,35 @@
+# Copies Docker's official images that the repository pins into its GHCR, where CI pulls them (scripts/ci-images.sh):
+# hosted runners share addresses, and both Docker Hub and Amazon's copy limit anonymous pulls by address.
+#
+# Every day, so that a new version is copied before Dependabot, which waits three days, proposes it; after each merge,
+# for any pin it brings; and by hand. Only from main, so no branch can publish a package. A pin it has not copied yet
+# still works: CI pulls it from Amazon's copy, with a warning.
+name: mirror
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  mirror:
+    name: copy images to GHCR
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - env:
+          TOKEN: ${{ github.token }}
+        run: |
+          skopeo login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<< "$TOKEN"
+          scripts/ci-images.sh sync

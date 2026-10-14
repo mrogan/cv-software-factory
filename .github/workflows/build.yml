@@ -108,12 +108,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
+      # Each base image a Dockerfile pins, from CI's copy of it (scripts/ci-images.sh): the same digest, so the same image.
+      - id: bases
+        run: scripts/ci-images.sh contexts console
       - id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/console/Dockerfile
           platforms: linux/amd64,linux/arm64
+          build-contexts: ${{ steps.bases.outputs.console }}
           push: true
           tags: ${{ env.IMAGE }}:${{ github.sha }}
           build-args: GIT_COMMIT=${{ github.sha }}
@@ -150,12 +154,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
+      # Each base image a Dockerfile pins, from CI's copy of it (scripts/ci-images.sh): the same digest, so the same image.
+      - id: bases
+        run: scripts/ci-images.sh contexts factory runner
       - id: factory
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/factory/Dockerfile
           platforms: linux/amd64,linux/arm64
+          build-contexts: ${{ steps.bases.outputs.factory }}
           push: true
           tags: ${{ env.FACTORY_IMAGE }}:${{ github.sha }}
           labels: |
@@ -187,6 +195,7 @@ jobs:
           context: .
           file: apps/runner/Dockerfile
           platforms: linux/amd64,linux/arm64
+          build-contexts: ${{ steps.bases.outputs.runner }}
           push: true
           tags: ${{ env.RUNNER_IMAGE }}:${{ github.sha }}
           labels: |

@@ -11,3 +11,20 @@ resources:
   - console
   - website
   - rollouts
+
+# Postgres has one pin, its StatefulSet's, so that Dependabot's update of it is the whole update: the factory's admission
+# policy admits the image it names, wherever else the policy is built from.
+replacements:
+  - source:
+      kind: StatefulSet
+      name: postgres
+      fieldPath: spec.template.spec.containers.[name=postgres].image
+    targets:
+      - select:
+          kind: ImageValidatingPolicy
+          name: factory-images
+        fieldPaths:
+          - spec.variables.[name=allowed].expression
+        options:
+          delimiter: "'"
+          index: 1

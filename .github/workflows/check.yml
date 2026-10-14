@@ -26,13 +26,17 @@ jobs:
     timeout-minutes: 3
     outputs:
       kind: ${{ steps.which.outputs.kind }}
+      postgres: ${{ steps.postgres.outputs.image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: github.event_name == 'pull_request'
         with:
           persist-credentials: false
           # The merge commit and its parents: the first is the base, so the diff between them is what would merge.
           fetch-depth: 2
+      # The Postgres the console's browser tests run beside, the cluster's, from CI's copy of it (scripts/ci-images.sh).
+      # First, so that the output is set even when the step below fails.
+      - id: postgres
+        run: echo "image=$(scripts/ci-images.sh postgres)" >> "$GITHUB_OUTPUT"
       - id: which
         env:
           AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -55,22 +59,13 @@ jobs:
     name: lint, types, tests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # The store's tests run against a real Postgres: the image the cluster runs. Docker's official images come from
-    # Amazon's copy, by the same digests: hosted runners share addresses, and Docker Hub limits pulls by address.
-    services:
-      postgres:
-        image: public.ecr.aws/docker/library/postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
-        env:
-          POSTGRES_USER: factory
-          POSTGRES_PASSWORD: test
-        ports: ['5432:5432']
-        options: --health-cmd "pg_isready -U factory" --health-interval 2s --health-retries 30
-    env:
-      TEST_DATABASE_URL: postgres://factory:test@localhost:5432/postgres
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The store's tests start their own Postgres, the image the cluster runs, from CI's copy of it
+      # (scripts/ci-images.sh).
+      - run: echo "TEST_POSTGRES_IMAGE=$(scripts/ci-images.sh postgres)" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           install_args: node pnpm kustomize
@@ -106,7 +101,7 @@ jobs:
       options: --ipc=host
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        image: ${{ needs.kind.outputs.postgres }}
         env:
           POSTGRES_USER: factory
           POSTGRES_PASSWORD: test
@@ -249,11 +244,16 @@ jobs:
           done
       - if: env.DEPLOY != 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Each base image a Dockerfile pins, from CI's copy of it (scripts/ci-images.sh).
+      - if: env.DEPLOY != 'true'
+        id: bases
+        run: scripts/ci-images.sh contexts console factory runner
       - if: env.DEPLOY != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/console/Dockerfile
+          build-contexts: ${{ steps.bases.outputs.console }}
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -262,6 +262,7 @@ jobs:
         with:
           context: .
           file: apps/factory/Dockerfile
+          build-contexts: ${{ steps.bases.outputs.factory }}
           push: false
           cache-from: type=gha,scope=factory
           cache-to: type=gha,mode=max,scope=factory
@@ -278,6 +279,7 @@ jobs:
         with:
           context: .
           file: apps/runner/Dockerfile
+          build-contexts: ${{ steps.bases.outputs.runner }}
           push: false
           cache-from: type=gha,scope=factory-runner
           cache-to: type=gha,mode=max,scope=factory-runner

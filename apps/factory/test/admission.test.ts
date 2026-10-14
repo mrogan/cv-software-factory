@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +21,23 @@ interface Op {
 const listed = (expression: unknown) => [...String(expression ?? '[]').matchAll(/'([^']+)'/g)].map((m) => m[1]);
 
 /**
+ * The third-party images a copy of the policy admits, as kustomize renders it: deploy/base/kustomization.yaml copies
+ * Postgres's one pin, its StatefulSet's, into the factory's.
+ */
+let rendered: {
+  kind: string;
+  metadata: { name: string };
+  spec: { variables: { name: string; expression: string }[] };
+}[];
+function admitted(policy: string) {
+  rendered ??= parseAllDocuments(
+    execFileSync('kustomize', ['build', join(DEPLOY, 'base')], { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 }),
+  ).map((doc) => doc.toJS());
+  const found = rendered.find((r) => r.kind === 'ImageValidatingPolicy' && r.metadata.name === policy);
+  return listed(found?.spec.variables.find((v) => v.name === 'allowed')?.expression);
+}
+
+/**
  * One copy of the image policy: the namespaces it guards, the repositories of ours it admits, by which identity, and
  * the images it names from other registries.
  */
@@ -33,7 +51,7 @@ async function copy(name: 'factory' | 'website' | 'scoreboard') {
   return {
     policy: `${kustomization.namePrefix}images`,
     namespaces: value('/spec/matchConstraints/namespaceSelector/matchExpressions/0/values') as string[],
-    allowed: listed(value('/spec/variables/0/expression')),
+    allowed: admitted(`${kustomization.namePrefix}images`),
     factory: listed(value('/spec/variables/1/expression')),
     website: listed(value('/spec/variables/2/expression')),
   };
