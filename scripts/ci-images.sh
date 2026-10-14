@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # CI's copy of Docker's official images, in this repository's GHCR.
 #
-# Hosted runners share their addresses, and both Docker Hub and Amazon's copy (public.ecr.aws) limit anonymous pulls
-# by address, so CI's pulls of the images the repository pins fail now and then. Every pin names Amazon's copy, as the
-# cluster pulls it and Dependabot reads it. CI pulls the same digest from this repository's GHCR instead, when it is
-# there, and from Amazon's copy when it is not yet. Only mirror.yml writes to GHCR.
+# Hosted runners share their addresses, and Docker Hub limits anonymous pulls by address, so CI's pulls of the images
+# the repository pins fail now and then. Every pin names Docker Hub, as `node:<tag>@<digest>`, which the cluster pulls
+# and Dependabot reads. CI pulls the same digest from this repository's GHCR instead, when it is there, and from Docker
+# Hub when it is not yet. Only mirror.yml writes to GHCR, copying from Docker Hub once a day: a handful of requests.
 #
 #   ci-images.sh resolve <ref>      the copy of <ref>, by digest, if it can be pulled with no credentials; else <ref>
 #   ci-images.sh postgres           the same, for the Postgres the cluster runs: its one pin is its StatefulSet's
@@ -13,22 +13,23 @@
 #   ci-images.sh sync               copy into GHCR every pinned digest, each pinned tag's current one, and the newest tag
 #                                   of each pin's line; skopeo must be logged in to ghcr.io (mirror.yml)
 #
-# A copy is public.ecr.aws/docker/library/<name>@<digest> at ghcr.io/<repository>/mirror/docker/library/<name>@<digest>,
-# byte for byte. Its one tag, digest-<hex>, never moves, and nothing reads it.
+# A copy is <name>@<digest> at ghcr.io/<repository>/mirror/docker/library/<name>@<digest>, byte for byte. Its one
+# tag, digest-<hex>, never moves, and nothing reads it.
 set -uo pipefail
 
-UPSTREAM=public.ecr.aws/docker/library/
+# Docker Hub's official images, by their whole name.
+UPSTREAM=docker.io/library/
 # GHCR's names are lowercase.
 MIRROR=ghcr.io/$(tr '[:upper:]' '[:lower:]' <<< "${GITHUB_REPOSITORY:-mrogan/cv-software-factory}")/mirror/docker/library/
-# A pinned reference: a name, an optional tag, and a digest.
-PIN='public\.ecr\.aws/docker/library/[a-z0-9._-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}'
+# A pin, as a Dockerfile's FROM or a manifest's image names it: a name with no registry (Docker Hub's official images),
+# an optional tag, and a digest. The pin is its last word.
+PIN='(^FROM|image:) +[a-z0-9._-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}'
 
-# The copy of an upstream reference, by digest.
-mirror_of() {
-  local name=${1%@*}
-  name=${name#"$UPSTREAM"}
-  echo "$MIRROR${name%%:*}@${1##*@}"
-}
+# The pins in grep's matches.
+pins() { awk '{print $NF}'; }
+
+# The copy of a pin, by digest.
+mirror_of() { local name=${1%@*} && echo "$MIRROR${name%%:*}@${1##*@}"; }
 
 # Whether an image can be pulled with no credentials, as CI's jobs pull it.
 pullable() { skopeo inspect --raw --no-creds "docker://$1" > /dev/null 2>&1; }
@@ -39,14 +40,15 @@ resolve() {
   if pullable "$copy"; then
     echo "$copy"
   else
-    echo "::warning::$ref is not in GHCR yet, so it comes from Amazon's copy (mirror.yml copies it daily)" >&2
+    echo "::warning::$ref is not in GHCR yet, so it comes from Docker Hub (mirror.yml copies it daily)" >&2
     echo "$ref"
   fi
 }
 
 postgres() {
   local pin
-  pin=$(grep -oE "$PIN" deploy/base/postgres/statefulset.yaml) || { echo "::error::No Postgres pin found" >&2 && return 1; }
+  pin=$(grep -oE "$PIN" deploy/base/postgres/statefulset.yaml | pins)
+  [ -n "$pin" ] || { echo "::error::No Postgres pin found" >&2 && return 1; }
   resolve "$pin"
 }
 
@@ -55,7 +57,7 @@ contexts() {
   for app in "$@"; do
     {
       echo "$app<<EOF"
-      for ref in $(grep -oE "^FROM $PIN" "apps/$app/Dockerfile" | cut -d' ' -f2 | sort -u); do
+      for ref in $(grep -oE "$PIN" "apps/$app/Dockerfile" | pins | sort -u); do
         copy=$(resolve "$ref")
         [ "$copy" = "$ref" ] || echo "$ref=docker-image://$copy"
       done
@@ -77,28 +79,27 @@ newest() {
   { grep -E "$pattern" <<< "$tags" || true; } | sort -V | tail -n 1
 }
 
-# The digest a tag names upstream now.
+# The digest a tag names on Docker Hub now.
 current() { skopeo inspect --raw --no-creds "docker://$UPSTREAM$1" | sha256sum | sed 's/^/sha256:/; s/ .*//'; }
 
 sync() {
   local failed=() wanted=() pins ref name tag latest digest copy
-  pins=$(git grep -hoE "$PIN" | sort -u)
-  [ -n "$pins" ] || { echo "::error::No pin of $UPSTREAM found" && return 1; }
+  pins=$(git grep -hoE "$PIN" -- ':!*.md' | pins | sort -u)
+  [ -n "$pins" ] || { echo "::error::No pin of Docker's official images found" && return 1; }
   # What to copy, as name@digest: every pin, and the current digest of each pinned tag and of its line's newest tag.
   for ref in $pins; do
-    name=${ref#"$UPSTREAM"}
-    name=${name%@*}
+    name=${ref%@*}
     wanted+=("${name%%:*}@${ref##*@}")
     [[ "$name" == *:* ]] || continue
     tag=${name#*:}
     name=${name%%:*}
-    latest=$(newest "$name" "$tag") || failed+=("$name: could not list its tags upstream")
+    latest=$(newest "$name" "$tag") || failed+=("$name: could not list its tags on Docker Hub")
     for tag in "$tag" "$latest"; do
       [ -n "$tag" ] || continue
       if digest=$(current "$name:$tag"); then
         wanted+=("$name@$digest")
       else
-        failed+=("$name:$tag: could not read its digest upstream")
+        failed+=("$name:$tag: could not read its digest on Docker Hub")
       fi
     done
   done
@@ -114,7 +115,7 @@ sync() {
       "docker://$UPSTREAM$ref" "docker://${copy%@*}:digest-${ref##*:}"; then
       failed+=("$copy: the copy failed")
     elif ! pullable "$copy"; then
-      # A private package would send every build back to Amazon's copy, with only a warning.
+      # A private package would send every build back to Docker Hub, with only a warning.
       failed+=("$copy: copied, but it cannot be pulled with no credentials: make ${copy%@*} public in its settings")
     fi
   done

@@ -46,7 +46,9 @@ updates:
         patterns: ['*']
 
   # CI pulls these images from its own copy in GHCR (scripts/ci-images.sh), but every pin names its upstream, which is
-  # what Dependabot reads. Postgres has one pin, its StatefulSet's, which everything else that runs it reads.
+  # what Dependabot reads. Docker's official images are named on Docker Hub, as `node` and `postgres`: Amazon's copy
+  # of it (public.ecr.aws) refuses Dependabot partway through listing Node's thousands of tags. Postgres has one pin, its StatefulSet's, which
+  # everything else that runs it reads.
   - package-ecosystem: docker
     directories:
       - /apps/console
@@ -58,7 +60,7 @@ updates:
       interval: weekly
     ignore:
       # The build image's Node matches mise.toml's; a new major is a deliberate change, not a weekly bump.
-      - dependency-name: docker/library/node
+      - dependency-name: node
         update-types: [version-update:semver-major]
     cooldown:
       default-days: 3
@@ -69,7 +71,7 @@ updates:
       # Node is pinned in three Dockerfiles, so one pull request moves it in all of them: scripts/image-pins.test.ts
       # fails when they disagree. A new major is ignored above.
       node:
-        patterns: [docker/library/node]
+        patterns: [node]
         group-by: dependency-name
 
   - package-ecosystem: devcontainers

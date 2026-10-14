@@ -10,19 +10,20 @@ import { describe, expect, it } from 'vitest';
  * has one pin, its StatefulSet's, which everything else that runs it reads, so that Dependabot's update of it is the
  * whole update. Pins of one image share a name, a major version and a tag suffix (node 24's alpine3.24 and
  * trixie-slim are two images, and so are Postgres 18 and 19 side by side during an upgrade). Prose is left out.
- * scripts/ci-images.sh copies the same pins into CI's GHCR.
+ * Each is named on Docker Hub, with no registry, as a Dockerfile's FROM or a manifest's image: scripts/ci-images.sh
+ * finds them the same way, to copy them into CI's GHCR.
  */
-const PIN = /public\.ecr\.aws\/docker\/library\/([a-z0-9._-]+)(?::([A-Za-z0-9._-]+))?@(sha256:[0-9a-f]{64})/g;
+const PIN = /(?:^FROM|image:) +(([a-z0-9._-]+)(?::([A-Za-z0-9._-]+))?@(sha256:[0-9a-f]{64}))/gm;
 const POSTGRES = 'deploy/base/postgres/statefulset.yaml';
 
 /** Each image's pins, each as [file, tag@digest], from every file but prose: one file can pin an image twice. */
 function pins(read = (file: string) => readFileSync(file, 'utf-8')) {
-  const files = execFileSync('git', ['grep', '-lE', 'public\\.ecr\\.aws/docker/library/', '--', ':!*.md'], {
+  const files = execFileSync('git', ['grep', '-lE', PIN.source.replaceAll('(?:', '('), '--', ':!*.md'], {
     encoding: 'utf-8',
   });
   const found = new Map<string, [string, string][]>();
   for (const file of files.split('\n').filter(Boolean)) {
-    for (const [, name = '', tag, digest] of read(file).matchAll(PIN)) {
+    for (const [, , name = '', tag, digest] of read(file).matchAll(PIN)) {
       const image = tag
         ? `${name}:${tag.split(/[.-]/)[0]}${tag.includes('-') ? tag.slice(tag.indexOf('-')) : ''}`
         : name;
@@ -31,6 +32,9 @@ function pins(read = (file: string) => readFileSync(file, 'utf-8')) {
   }
   return found;
 }
+
+/** The first pin in a file, as written. */
+const pinned = (source: string) => [...source.matchAll(PIN)][0]?.[1] ?? '';
 
 const disagreeing = (found: ReturnType<typeof pins>) =>
   [...found].filter(([, where]) => new Set(where.map(([, pin]) => pin)).size > 1);
@@ -50,8 +54,9 @@ describe("the pins of Docker's official images", () => {
     const DOCKERFILE = 'apps/console/Dockerfile';
     const twice = (file: string) => {
       const source = readFileSync(file, 'utf-8');
-      const pinned = source.match(PIN)?.[0] ?? '';
-      return file === DOCKERFILE ? `${source}\nFROM ${pinned.replace(/[0-9a-f]{64}$/, '2'.repeat(64))}\n` : source;
+      return file === DOCKERFILE
+        ? `${source}\nFROM ${pinned(source).replace(/[0-9a-f]{64}$/, '2'.repeat(64))}\n`
+        : source;
     };
     expect(disagreeing(pins(twice)).map(([image]) => image)).toEqual(['node:24-alpine3.24']);
   });
@@ -62,9 +67,9 @@ describe("the pins of Docker's official images", () => {
   });
 
   it("follow a Dependabot update of Postgres's one pin everywhere it runs", () => {
-    const pinned = readFileSync(POSTGRES, 'utf-8').match(PIN)?.[0] ?? '';
-    const moved = `public.ecr.aws/docker/library/postgres:18.7-alpine3.24@sha256:${'1'.repeat(64)}`;
-    const bump = (file: string) => readFileSync(file, 'utf-8').replace(pinned, moved);
+    const pin = pinned(readFileSync(POSTGRES, 'utf-8'));
+    const moved = `postgres:18.7-alpine3.24@sha256:${'1'.repeat(64)}`;
+    const bump = (file: string) => readFileSync(file, 'utf-8').replace(pin, moved);
 
     expect(disagreeing(pins((file) => (file === POSTGRES ? bump(file) : readFileSync(file, 'utf-8'))))).toEqual([]);
 
@@ -77,7 +82,7 @@ describe("the pins of Docker's official images", () => {
       maxBuffer: 64 * 1024 * 1024,
     });
     expect(rendered).toContain(`'${moved}'`);
-    expect(rendered).not.toContain(pinned);
+    expect(rendered).not.toContain(pin);
   });
 });
 
