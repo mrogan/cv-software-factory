@@ -129,6 +129,8 @@ test.describe('the reel', () => {
     // The samples name their releases by version; the cluster's are commits. The shop is on v0.9.12 at the end.
     const commit = 'b5702d4e1f9a3c6087d2e5b1a4c7f0e3d6b9a2c5';
     const events = (await (await request.get('/api/events')).text()).replaceAll('v0.9.12', commit);
+    // The stream is held, so nothing it sends can bring v0.9.12 back.
+    await page.route('**/api/events/stream*', () => {});
     await page.route('**/api/events?after=0', (route) =>
       route.fulfill({ body: events, contentType: 'application/json' }),
     );
@@ -205,9 +207,10 @@ test.describe('the line', () => {
     await page.goto(consoleUrl({ at: Date.parse('2026-10-05T17:50:00Z') }));
     await ready(page);
     await page.getByRole('button', { name: /^Release:/ }).click();
-    const id = page.getByRole('dialog', { name: 'Release' }).locator('.srow .id[title]').first();
+    const id = page
+      .getByRole('dialog', { name: 'Release' })
+      .locator('.srow .id[title="efef168f4eec299dfc27c8fc78477ce28379b38d"]');
     await expect(id).toHaveText('efef168');
-    await expect(id).toHaveAttribute('title', 'efef168f4eec299dfc27c8fc78477ce28379b38d');
     // It fits its column, clear of the row's words.
     expect(await id.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   });
