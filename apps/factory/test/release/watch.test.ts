@@ -320,37 +320,39 @@ describe('a release, from the Rollout and its runs', () => {
       return s.of('1001', 'release.rolled-back').map((p) => (p as PayloadOf<'release.rolled-back'>).weight);
     };
     expect(weightOf([failedInBackground(t(2))])).toEqual([25]);
-    // A step the analysis could not settle holds the canary at its weight.
-    expect(weightOf([failedInBackground(t(5)), step(2, { phase: 'Inconclusive' })])).toEqual([25]);
+    // A step the analysis could not settle holds the canary at its weight, until Martin resumes it: then the next
+    // step's run, which the abort terminated, says it went on.
+    const inconclusive = step(2, { phase: 'Inconclusive' });
+    expect(weightOf([failedInBackground(t(5)), inconclusive])).toEqual([25]);
+    const terminated = step(5, { phase: 'Successful', message: 'Run Terminated', terminate: true });
+    expect(weightOf([failedInBackground(t(7)), inconclusive, terminated])).toEqual([50]);
   });
 
-  it('rolls back from the background by the Rollout’s steps when the release recorded none', () => {
+  it('rolls back from the background at a weight the analysis judges twice, between the two', () => {
     const s = store(STABLE_RECORDED);
-    // A pause it cannot read: the release records no steps.
-    const unread = (r: Rollout) => {
+    const twice = (r: Rollout) => {
       r.spec.strategy.canary = {
         steps: [
           { setWeight: 25 },
-          { pause: { duration: 'soon' } },
+          { pause: { duration: '3m' } },
+          { analysis: {} },
           { analysis: {} },
           { setWeight: 50 },
-          { pause: { duration: '3m' } },
           { analysis: {} },
         ],
       };
       return r;
     };
-    s.pass(unread(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 })), [background()], {
+    s.pass(twice(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 })), [background()], {
       start: START,
     });
-    expect(s.of('1001', 'release.started').map((p) => (p as PayloadOf<'release.started'>).steps)).toEqual([null]);
-    s.pass(unread(rollout({ current: CANARY, stable: STABLE, stepIndex: 4, weight: 50 })), [background(), step(2)]);
-    s.pass(unread(rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true })), [
+    s.pass(twice(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 })), [background(), step(2)]);
+    s.pass(twice(rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true })), [
       failedInBackground(t(5)),
       step(2),
     ]);
     expect(s.of('1001', 'release.rolled-back').map((p) => (p as PayloadOf<'release.rolled-back'>).weight)).toEqual([
-      50,
+      25,
     ]);
   });
 
@@ -563,7 +565,7 @@ describe('a release, from the Rollout and its runs', () => {
     expect(
       (s.of('1001', 'release.rolled-back')[1] as PayloadOf<'release.rolled-back'>).failed.map((m) => m.name),
     ).toEqual(['latency']);
-    // The first at its failed step's weight; the retry's, from the background, at the weight of the steps it started with.
+    // The first at its failed step's weight; the retry's, from the background, at the weight of its own steps.
     expect(s.of('1001', 'release.rolled-back').map((p) => (p as PayloadOf<'release.rolled-back'>).weight)).toEqual([
       25, 50,
     ]);
