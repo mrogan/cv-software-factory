@@ -1099,7 +1099,7 @@ const ITEMS = [
   { id: '1312', cat: 'functional', kind: 'Ticket from the logs', end: 'live', reopened: 'Sat 15:58 · logs, a new error pattern on / from v0.9.11', title: 'Server errors on /',
     desc: 'Verified at the second pass, then the same fingerprint came back from a later release. The ticket, its issue and the work item are open again.',
     lead: 'The log watcher saw GET / log an error while still answering 200. The first fix shipped as v0.9.8, and Verify found the same lines coming from it, so the work went back to Plan. The second fix shipped as v0.9.9 and Verify cleared it: no such error from v0.9.9 in 30 minutes, over 294 requests. At 15:58 the log watcher saw a new error pattern on / from v0.9.11, the same fingerprint, so the ticket reopened, with its issue, and the planner is at work on a third pass.',
-    ver: ['v0.9.7', 'v0.9.9'], live: 'v0.9.11', shop: 'v0.9.7', pr: '1318', day: 'Sat 3 Oct', time: '11:05', dur: '5h 41min so far', found: 'Logs · error pattern on /', prog: 'oon     ',
+    ver: ['v0.9.7', 'v0.9.9'], live: 'v0.9.11', shop: 'v0.9.7', pr: '1318', day: 'Sat 3 Oct', time: '11:05', dur: '5h\u00a041min so far', found: 'Logs · error pattern on /', prog: 'oon     ',
     vis: { type: 'logsPair' },
     logs: { title: 'Log lines from GET /: cleared on v0.9.9, then back on v0.9.11', foot: 'A new pattern with the same fingerprint, so the same ticket: one defect, one ticket.',
       sides: [['verified · v0.9.9 · 13:17', '<span class="ok">no error like the ticket’s from v0.9.9</span>\n<span class="dim">in 30 minutes, over 294 requests</span>'],
@@ -1125,7 +1125,7 @@ const ITEMS = [
   { id: '1308', cat: 'performance', kind: 'Ticket from the canary', end: 'planner', title: 'Slow responses in a canary release',
     desc: 'A release with no work item rolled back at 25%: its p99 latency was far above the version before. The rollback is a signal, and this is its ticket.',
     lead: 'v0.9.10 carried none of the factory’s work: it was Martin’s own commit. Its canary rolled back three minutes into the 25% step, before any step was measured, because latency failed twice against the version before. The line sent triage the failed measure, with the routes where the canary did worse, and triage opened this ticket. It waits for the planner.',
-    ver: null, seen: 'v0.9.10', live: 'v0.9.9', shop: 'v0.9.9', pr: null, day: 'Sat 3 Oct', time: '14:30', dur: '2h 16min so far', found: 'The canary · latency', prog: 'ooq     ',
+    ver: null, seen: 'v0.9.10', live: 'v0.9.9', shop: 'v0.9.9', pr: null, day: 'Sat 3 Oct', time: '14:30', dur: '2h\u00a016min so far', found: 'The canary · latency', prog: 'ooq     ',
     vis: { type: 'canaryTicket' },
     ch: [['SIGNAL', 'T+00:00', 'canary', 'Release v0.9.10 rolled back at 25%: latency failed twice', 0, null], ['TICKET', 'T+00:40', 'triage', 'Ticket #1308: performance, severity degraded', 50, null],
       ['WAITING', 'T+00:41', 'line', 'Waiting for the planner', 100, null]],
@@ -1134,7 +1134,7 @@ const ITEMS = [
   { id: '1310', cat: 'functional', kind: 'Ticket from the logs', end: 'planner', title: 'Errors logged on every search',
     desc: 'Its fix shipped in v0.9.11, and the log watcher still sees the same error from it. Verify sent the work back to Plan.',
     lead: 'The log watcher saw every search log an error, though each still answered. The fix merged and went out in v0.9.11, beside Martin’s revert of v0.9.10. Thirty minutes after the promotion the same lines were still coming from v0.9.11, so Verify sent the work item back to Plan, with the verification as evidence. A second time, it would hold for Martin.',
-    ver: ['v0.9.9', 'v0.9.11'], live: 'v0.9.11', shop: 'v0.9.9', pr: '1311', day: 'Sat 3 Oct', time: '14:52', dur: '1h 54min so far', found: 'Logs · error pattern on /search', prog: 'ooq     ',
+    ver: ['v0.9.9', 'v0.9.11'], live: 'v0.9.11', shop: 'v0.9.9', pr: '1311', day: 'Sat 3 Oct', time: '14:52', dur: '1h\u00a054min so far', found: 'Logs · error pattern on /search', prog: 'ooq     ',
     vis: { type: 'logsPair' },
     logs: { title: 'Log lines from GET /search, at signal and after release', foot: 'The same lines from the fixed version: the signal persists.',
       sides: [['signal · v0.9.9 · 14:52', '<span class="dim">14:52:10</span> <span class="x">error</span>  GET /search  200  index not ready, retried\n<span class="dim">14:52:13</span> <span class="x">error</span>  GET /search  200  index not ready, retried'],
@@ -1150,7 +1150,7 @@ const ITEMS = [
   { id: '1314', cat: 'functional', kind: 'Ticket from the probes', end: 'deploy', title: 'The contact form loses your message',
     desc: 'The fix is merged. It waits for a deploy pull request to carry it, and merging that is Martin’s while the factory is Supervised.',
     lead: 'The contact journey found that a message was cleared when sending it failed, so the visitor had to type it again. The fix passed every gate and review, and Martin merged it at 15:58. It now waits at Release for the next deploy pull request, which lists it with its ticket and issue; Martin merges that, and everything after it is unattended.',
-    ver: null, seen: 'v0.9.9', live: 'v0.9.12', shop: 'v0.9.11', pr: '1316', day: 'Sat 3 Oct', time: '15:21', dur: '1h 25min so far', found: 'Probe · contact journey', prog: 'oooooow ',
+    ver: null, seen: 'v0.9.9', live: 'v0.9.12', shop: 'v0.9.11', pr: '1316', day: 'Sat 3 Oct', time: '15:21', dur: '1h\u00a025min so far', found: 'Probe · contact journey', prog: 'oooooow ',
     // The card shows what Martin is asked to decide; the sheet's Evidence still shows what was wrong.
     problem: { type: 'page', tag: ['SEEN · v0.9.9', 'attn'], page: () => PAGES.contact({ mark: ['', 'Your message is gone'], error: 'We could not send your letter. Please try again.' }) },
     vis: { type: 'deploy' }, merged: ['1316', '15:58', '4be1a2c', 'fix: keep the contact form’s message when sending fails'],
@@ -1373,7 +1373,7 @@ const MEASURES = [
   ['latency', 'Latency', 'p99 · fails a quarter and 100 ms above', (m, i) => m.p99[i] + ' ms'],
   ['journeys', 'Journeys', 'fails when a check passes on the baseline and fails here, twice', (m, i) => m.jour ? `${m.jour[i][0]} / ${m.jour[i][1]}` : '—'],
 ];
-const minutes = (from, to) => { const t = (c) => c.split(':').reduce((a, n) => a * 60 + +n, 0); const d = t(to) - t(from); return `${Math.floor(d / 60)} min${d % 60 ? ` ${d % 60} s` : ''}`; };
+const minutes = (from, to) => { const t = (c) => c.split(':').reduce((a, n) => a * 60 + +n, 0); const d = t(to) - t(from); return `${Math.floor(d / 60)}min${d % 60 ? `\u00a0${d % 60}s` : ''}`; };
 
 // How a release stands: [word, tone, dot class].
 function standing(r) {
@@ -1395,7 +1395,7 @@ function stepsTrack(r) {
     else if (r.end?.kind === 'promoted' && w === 100) [cls, t, g] = r.dry ? ['done', 'faint', 'dash'] : ['done', 'ok', 'check'];
     else if (r.end && r.end.kind !== 'promoted' && w === r.end.weight) [cls, t, g] = ['done cut', 'attn', r.end.kind === 'stopped' ? 'dash' : 'cross'];
     else if (!r.end && w === r.now) cls = 'now';
-    const held = (w === 100 ? 'all the traffic' : pause === null ? 'waits for someone' : pause === undefined ? '' : pause / 60 + ' min') + (analysis ? '' : ' · not judged');
+    const held = (w === 100 ? 'all the traffic' : pause === null ? 'waits for someone' : pause === undefined ? '' : pause / 60 + 'min') + (analysis ? '' : ' · not judged');
     const how = cls.includes('cut') ? (r.end.kind === 'stopped' ? 'stopped here' : 'rolled back here') : m ? VERDICT[g === 'cross' ? 'failed' : r.dry ? 'dry' : 'passed'][0] : cls === 'now' ? 'measuring now' : cls ? 'passed' : 'to come';
     return `<span class="stop ${cls} tone-${t}" style="left: ${w}%" role="listitem" aria-label="${w}%${held && w !== 100 ? ', ' + held : ''}, ${how}"><i>${g ? glyph(g) : ''}</i><b>${w}%</b><small>${w === 100 ? 'all' : pause === null ? 'waits' + (analysis ? '' : ' · not judged') : held}</small></span>`;
   }).join('');
@@ -1482,7 +1482,7 @@ function renderScore() {
     el.innerHTML = `<div class="score-off" role="group" aria-label="Scoreboard"><b>Scoreboard off</b><span>This copy of the factory has no answer key, so it counts nothing.</span></div>`;
     return;
   }
-  const [found, fixed, median] = k === 'first' ? [3, 0, null] : [14, 11, '1h 52min'];
+  const [found, fixed, median] = k === 'first' ? [3, 0, null] : [14, 11, '1h\u00a052min'];
   el.innerHTML = `${k === 'sample' ? '<span class="remark">Sample</span>' : ''}<div class="score" role="group" aria-label="Scoreboard: seeded and injected defects">
     <div><b>${found}</b><span>found</span></div>
     <div><b class="${fixed ? 'ok' : ''}">${fixed}</b><span>verified fixed</span></div>

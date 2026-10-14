@@ -194,7 +194,7 @@ test.describe('the scoreboard', () => {
     await expect(score.locator('div')).toHaveText([
       /^\d+found$/,
       /^\d+verified fixed$/,
-      /^\d[\d a-z\u00a0]*median to verified$/,
+      /^\d+(s|min|h|d)(\u00a0\d+(min|h))?median to verified$/,
     ]);
   });
 
