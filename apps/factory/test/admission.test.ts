@@ -88,8 +88,9 @@ async function thirdParty(dirs: string[], files: string[]) {
   }
   const images = new Set<string>();
   for (const file of files) for (const doc of parseAllDocuments(await read(file))) named(doc.toJS(), images);
-  // A bare name (`factory`) is ours, pinned by the profile's kustomize `images:`.
-  return [...images].filter((i) => i.includes('/') && !i.startsWith('ghcr.io/mrogan/')).sort();
+  // A bare name with no digest (`factory`) is ours, pinned by the profile's kustomize `images:`; one with a digest
+  // (`postgres:<tag>@<digest>`) is Docker Hub's.
+  return [...images].filter((i) => (i.includes('/') || i.includes('@')) && !i.startsWith('ghcr.io/mrogan/')).sort();
 }
 
 /** Which of the policy's checks refuses each kept case. */

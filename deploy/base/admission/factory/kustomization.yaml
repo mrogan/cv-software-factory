@@ -15,7 +15,7 @@ patches:
         value: [factory, runners]
       # The one image here that is not ours, and why. Nothing else from another registry runs in these namespaces.
       #
-      # - Postgres, the event store (deploy/base/postgres), from the official image on AWS's mirror of Docker Hub:
+      # - Postgres, the event store (deploy/base/postgres), from Docker's official image on Docker Hub:
       #   Docker's own build, which no pipeline of ours could sign. `make samples` and `make real-store` run it too, as
       #   the artifacts copier (deploy/k3d/artifacts-copier.yaml), for its shell and tar. Its one pin is the
       #   StatefulSet's, which deploy/base/kustomization.yaml copies in here.

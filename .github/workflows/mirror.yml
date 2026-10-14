@@ -3,7 +3,7 @@
 #
 # Every day, so that a new version is copied before Dependabot, which waits three days, proposes it; after each merge,
 # for any pin it brings; and by hand. Only from main, so no branch can publish a package. A pin it has not copied yet
-# still works: CI pulls it from Amazon's copy, with a warning.
+# still works: CI pulls the same digest from Amazon's copy of Docker Hub, with a warning.
 name: mirror
 
 on:
