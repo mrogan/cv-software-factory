@@ -92,6 +92,39 @@ test.describe('the Canary panel on a phone', () => {
   });
 });
 
+test.describe('a rollback’s chart', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('keeps each label clear of the others where both lines end at the rollback', async ({ page, request }) => {
+    type Series = { canary: (number | null)[]; baseline: (number | null)[]; at: number };
+    type Event = { work_item: string | null; type: string; payload: { failed?: { series?: Series }[] } };
+    const events = (await (await request.get('/api/events')).json()) as Event[];
+    // As the release worker reads one: both lines end where the canary failed, the baseline's near nothing.
+    const rolledBack = events.find((e) => e.work_item === '1276' && e.type === 'release.rolled-back');
+    const measure = rolledBack?.payload.failed?.find((m) => m.series);
+    if (!measure?.series) throw new Error('No series on #1276’s rollback');
+    measure.series = { ...measure.series, canary: [0, 2, 6, 12, 18], baseline: [0, 0, 1, 0, 0], at: 4 };
+    await page.route('**/api/events?after=0', (route) => route.fulfill({ json: events }));
+    await page.goto(consoleUrl({ item: '1276' }));
+    const chart = page.locator('.card[data-place="centre"] svg.chart');
+    await chart.scrollIntoViewIfNeeded();
+    await page.evaluate(() => document.fonts.ready);
+    const boxes = await chart
+      .locator('text')
+      .evaluateAll((texts) =>
+        texts.map((text) => ({ text: text.textContent, box: text.getBoundingClientRect().toJSON() as DOMRect })),
+      );
+    const overlap = (a: DOMRect, b: DOMRect) =>
+      a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const clashes = boxes.flatMap((a, i) =>
+      boxes.slice(i + 1).flatMap((b) => (overlap(a.box, b.box) ? [`${a.text} over ${b.text}`] : [])),
+    );
+    expect(clashes).toEqual([]);
+    // Over the plot, the marker's label leaves its time to the x axis under it.
+    await expect(chart.locator('text.axis', { hasText: 'rolled back' })).toHaveText('rolled back');
+  });
+});
+
 test.describe('a sheet’s releases', () => {
   test.use({ viewport: WIDTHS.desktop });
 
