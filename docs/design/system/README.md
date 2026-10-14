@@ -148,7 +148,7 @@ The figure in each caption counts the items in the stage (`2 PRs`), gives a cana
 
 ### In the app
 
-`station.ts` is a dependency-free custom element, used from the console's React code as it is (ADR 0007): one constructed stylesheet shared by every station, and a drawing of classes and presentation attributes. The console's policy refuses styles written into markup, but allows those set through the CSSOM: a constructed stylesheet, or an element's `style` property. Each kind in each state, in both themes, has a visual-regression snapshot (96 images), and axe checks the line.
+`station.ts` is a dependency-free custom element, used from the console's JSX as it is (ADR 0007): one constructed stylesheet shared by every station, and a drawing of classes and presentation attributes. The console's policy refuses styles written into markup, but allows those set through the CSSOM: a constructed stylesheet, or an element's `style` property. Each kind in each state, in both themes, has a visual-regression snapshot (96 images), and axe checks the line.
 
 ## The reel and the sheet
 

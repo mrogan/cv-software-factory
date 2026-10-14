@@ -35,12 +35,13 @@ export function useMotion(): [boolean, (on: boolean) => void] {
  */
 export function useTime(latest: number | undefined, live: boolean): number {
   const pinned = Date.parse(params().get('t') ?? '');
+  const ticking = Number.isNaN(pinned) && live;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!Number.isNaN(pinned) || !live) return;
+    if (!ticking) return;
     const timer = setInterval(() => setNow(Date.now()), 10_000);
     return () => clearInterval(timer);
-  }, [pinned, live]);
+  }, [ticking]);
   if (!Number.isNaN(pinned)) return pinned;
   if (!live) return latest ?? now;
   return Math.max(now, latest ?? 0);

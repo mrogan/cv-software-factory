@@ -1,7 +1,7 @@
 /**
  * The console: events in, the page out. Everything below is drawn from `project(events, t)`.
  */
-import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OriginContext } from './artifacts.ts';
 import { Canary } from './components/Canary.tsx';
 import { Footer } from './components/Footer.tsx';
@@ -30,8 +30,9 @@ export function App() {
   const [motion, setMotion] = useMotion();
   const n = view.cards.length;
   // The reel draws just after the line, not with it: it is most of the page's work, and the line is what a visitor
-  // reads first.
-  const reel = useDeferredValue(n > 0, false);
+  // reads first. An effect runs after the frame that drew the line, so the reel comes in the next.
+  const [reel, setReel] = useState(false);
+  useEffect(() => setReel(n > 0), [n]);
   // The store has answered at least once: an empty one is empty, not loading.
   const settled = source.connection === 'live' || source.connection === 'recorded' || source.events.length > 0;
 

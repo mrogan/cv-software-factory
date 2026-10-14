@@ -170,7 +170,7 @@ export function startAt(before: Screenshot, after: Screenshot): number {
 
 /**
  * Before and after, with a wipe between them. The handle moves with the pointer or the arrow keys; the position is
- * kept on the element, not in React, so dragging it draws frames without rendering anything.
+ * kept on the element, not in state, so dragging it draws frames without rendering anything.
  */
 function Wipe({ before, after, tags, interactive }: Extract<PictureData, { type: 'wipe' }> & { interactive: boolean }) {
   const wipe = useRef<HTMLDivElement>(null);
@@ -186,7 +186,7 @@ function Wipe({ before, after, tags, interactive }: Extract<PictureData, { type:
   useLayoutEffect(() => {
     wipe.current?.style.setProperty('--at', `${at.current}%`);
   }, []);
-  const fromPointer = (event: PointerEvent) => {
+  const fromPointer = (event: PointerEvent<HTMLElement>) => {
     const box = wipe.current?.getBoundingClientRect();
     if (box) set(((event.clientX - box.left) / box.width) * 100);
   };
@@ -221,7 +221,7 @@ function Wipe({ before, after, tags, interactive }: Extract<PictureData, { type:
         onPointerUp={() => {
           dragging.current = false;
         }}
-        onKeyDown={(event: KeyboardEvent) => {
+        onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
           const step = { ArrowLeft: -5, ArrowRight: 5, Home: -100, End: 100 }[event.key];
           if (step === undefined) return;
           event.preventDefault();

@@ -3,7 +3,13 @@
   "compilerOptions": {
     "lib": ["es2024", "dom", "dom.iterable"],
     "types": ["vite/client"],
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    // The code is written to React's API and runs on Preact's, as vite.config.ts aliases it: checked against Preact's.
+    "paths": {
+      "react": ["../node_modules/preact/compat/src/index.d.ts"],
+      "react-dom/client": ["../node_modules/preact/compat/client.d.ts"]
+    }
   },
   "include": ["src", "../../../docs/design/system/station.ts"]
 }

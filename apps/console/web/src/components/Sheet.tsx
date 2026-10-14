@@ -173,7 +173,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
   };
 
   // Escape closes; Tab stays inside while the sheet is open.
-  const onKeyDown = (event: React.KeyboardEvent) => {
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {
       event.stopPropagation();
       close();

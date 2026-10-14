@@ -2,7 +2,7 @@
 
 The UI for visitors and admin (spec 5). Part of the [factory plane](README.md#factory-plane).
 
-- **v1:** a React 19 single-page app built by Vite 8 (ADR 0007) in its own image stage.
+- **v1:** a single-page app written to React's API and run by Preact, built by Vite 8 (ADR 0007) in its own image stage.
 
 ## The server
 

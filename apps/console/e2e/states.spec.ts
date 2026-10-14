@@ -17,6 +17,47 @@ test('while connecting, the stations wait, idle, and the header says so', async 
   await noFindings(page);
 });
 
+test('the stations take their states as the events arrive, and keep still when motion is switched off', async ({
+  page,
+}) => {
+  // The stations are custom elements: JSX hands them their state as properties, which they reflect as attributes.
+  const stations = () =>
+    page
+      .locator('sf-station')
+      .evaluateAll((elements) =>
+        elements.map((element) => ['kind', 'status', 'beacon', 'motion'].map((name) => element.getAttribute(name))),
+      );
+  let arrive = () => {};
+  const arrived = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  await page.route('**/api/events?after=0', async (route) => {
+    await arrived;
+    await route.continue();
+  });
+  await page.goto(consoleUrl({ motion: true }));
+  await expect(page.getByRole('button', { name: 'Sense: reading the factory’s events' })).toBeDisabled();
+  const kinds = ['sense', 'triage', 'plan', 'build', 'gates', 'review', 'release', 'verify'];
+  expect(await stations()).toEqual(kinds.map((kind) => [kind, 'idle', null, null]));
+
+  arrive();
+  const drawn = [
+    ['sense', 'idle', null],
+    ['triage', 'idle', null],
+    ['plan', 'blocked', null],
+    ['build', 'working', 'needs-you'],
+    ['gates', 'blocked', null],
+    ['review', 'blocked', null],
+    ['release', 'working', 'needs-you'],
+    ['verify', 'idle', null],
+  ];
+  await expect.poll(stations).toEqual(drawn.map((station) => [...station, null]));
+  await page.getByRole('group', { name: 'Motion' }).getByRole('button', { name: 'STILL' }).click();
+  await expect.poll(stations).toEqual(drawn.map((station) => [...station, 'off']));
+  await page.getByRole('group', { name: 'Motion' }).getByRole('button', { name: 'MOTION' }).click();
+  await expect.poll(stations).toEqual(drawn.map((station) => [...station, null]));
+});
+
 test('when the factory can’t be reached, the console says so and keeps trying', async ({ page }) => {
   let tries = 0;
   await page.route('**/api/events?after=0', (route) => {

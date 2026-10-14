@@ -1,8 +1,8 @@
 /**
  * The reel: every work item as a card, oldest on the left and now on the right, and the timeline beneath.
  *
- * Per-frame work stays out of React (ADR 0007). Dragging, flicking and scrubbing the timeline move a position held
- * in a ref and write each card's transform directly; React hears only where the reel settles. A test counts renders
+ * Per-frame work stays out of rendering (ADR 0007). Dragging, flicking and scrubbing the timeline move a position
+ * held in a ref and write each card's transform directly; state hears only where the reel settles. A test counts renders
  * during a drag and fails if they grow with the number of frames.
  */
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -82,7 +82,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   // biome-ignore lint/correctness/useExhaustiveDependencies: the key stands for the positions
   const positions = useMemo(() => timeline.positions, [positionsKey]);
 
-  /** Writes every card's place for a position. No React: this runs on every frame of a drag. */
+  /** Writes every card's place for a position. No rendering: this runs on every frame of a drag. */
   const layout = useCallback(
     (p: number, animate = false) => {
       const box = reel.current;
@@ -119,7 +119,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     return n - 1;
   };
 
-  // React decides where the reel rests; this draws it there, sliding unless motion is off. Mid-gesture it waits:
+  // State decides where the reel rests; this draws it there, sliding unless motion is off. Mid-gesture it waits:
   // letting go settles the reel from wherever the gesture left it.
   useLayoutEffect(() => {
     if (!drag.current && !scrubbing.current) layout(centre, true);
@@ -280,12 +280,12 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   };
 
   // Scrubbing the timeline.
-  const fromRail = (event: React.PointerEvent) => {
+  const fromRail = (event: React.PointerEvent<HTMLElement>) => {
     const box = rail.current?.getBoundingClientRect();
     if (box) layout(positionFromRail(Math.max(0, Math.min(1, (event.clientX - box.left) / box.width))));
   };
 
-  const onKeyDown = (event: React.KeyboardEvent) => {
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     const step = { ArrowLeft: -1, ArrowRight: 1, PageUp: -3, PageDown: 3 }[event.key];
     const to = step !== undefined ? centre + step : event.key === 'Home' ? 0 : event.key === 'End' ? n - 1 : undefined;
     if (to !== undefined) {
