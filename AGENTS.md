@@ -79,7 +79,7 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
 
   Scale the cluster's copy of a worker to nothing first (`kubectl -n factory scale deployment/triage --replicas=0`), and back to one after, so two do not take the same signals. Add `PAGES_URL=http://localhost:8090` to triage to have it read the pages reports name.
 - Node 24 runs TypeScript directly: erasable syntax only, `.ts` extensions in imports, no build step. The console's browser code is the exception: Vite builds it.
-- In the console, anything that runs every frame (a drag, a wipe, the reel settling) writes to the DOM through refs, and React state changes only when the movement ends. A test counts renders during a drag.
+- In the console, anything that runs every frame (a drag, a wipe, the reel settling) writes to the DOM through refs, and component state changes only when the movement ends. A test counts renders during a drag.
 - Visual snapshots are taken in the pinned Playwright image, never on the host: `make e2e` refreshes them with `UPDATE=1`.
 - Commits and pull request titles are Conventional Commits (`scripts/commit-msg.ts` checks both). Pull requests are squash-merged; nothing is pushed to `main`.
 - `deploy/` is GitOps: Argo CD deploys what is on `main`, so a change there reaches the cluster only when it merges. A deploy change that needs a new image (a migration, a new setting) waits for the pull request that pins that image.
