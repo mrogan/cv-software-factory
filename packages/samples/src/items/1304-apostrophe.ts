@@ -90,7 +90,7 @@ export default new Item('1304', '2026-10-04T21:40:00+01:00')
   .at('1:59:20', 'work-item.summarised', 'describer', 'Summary written', {
     title: 'The contact form fails on an apostrophe',
     description:
-      'A message with an apostrophe in it made the contact form fail. Fixed overnight on the local model, at no cost, in one round.',
+      'A message with an apostrophe in it made the contact form fail. Fixed overnight on the local model, at no cost.',
     story:
       'The contact journey found that a message with an apostrophe in it made the shop answer 500: the form built the message into its query. The overnight run took the ticket on the local model. The coder wrote a test that sends “I’d like a ladder” through the shop, then passed the message as a value. Every check passed, and the reviewer approved, suggesting the test check the thank-you text the visitor reads. The coder declined: the test reads it already.',
   })

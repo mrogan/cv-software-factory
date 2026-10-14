@@ -44,7 +44,7 @@ describe('the samples', () => {
     expect(of('work.returned').length).toBeGreaterThan(0);
   });
 
-  it('answer every review’s suggestions before the describer, as the line does: one taken, and a round declined in full', () => {
+  it('answer an approval’s suggestions before the describer writes it up, as the line does: one taken, one declined in full', () => {
     const answered = of('suggestions.answered').map((event) => event.payload);
     expect(answered.some((a) => a.declined.length === 0)).toBe(true);
     expect(answered.some((a) => a.declined.length === a.suggestions)).toBe(true);

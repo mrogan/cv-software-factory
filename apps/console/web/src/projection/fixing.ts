@@ -174,6 +174,7 @@ export function attempts(item: ItemState): Attempt[] {
           current.returned.detail += ', declined';
           current.returned.declined = true;
         }
+        suggestionsBack = false;
         break;
       }
     }

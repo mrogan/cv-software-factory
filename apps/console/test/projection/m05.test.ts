@@ -32,6 +32,14 @@ describe('the wait for Martin’s merge', () => {
     });
   });
 
+  it('counts the suggestions of the approval it waits on, even one the coder declined', () => {
+    const hold = SAMPLES.find(
+      (e) => e.work_item === '1304' && e.type === 'hold.started' && e.payload.cause === 'merge',
+    );
+    const waiting = project(SAMPLES, Date.parse(hold?.ts ?? '')).cards.find((c) => c.number === '1304');
+    expect(waiting?.picture).toMatchObject({ type: 'merge', review: { suggestions: 1, number: 1 } });
+  });
+
   it('keeps the problem’s own evidence in the sheet', () => {
     expect(sheet('1311')?.evidence.type).toBe('http');
   });
