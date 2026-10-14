@@ -49,14 +49,16 @@ describe('the samples', () => {
     expect(answered.some((a) => a.declined.length === 0)).toBe(true);
     expect(answered.some((a) => a.declined.length === a.suggestions)).toBe(true);
     expect(of('work.returned').some((event) => event.payload.suggestions !== undefined)).toBe(true);
-    // An approval that leaves suggestions sends the work back once before the describer writes the change up.
+    // Each review that leaves suggestions has them answered before the describer writes the change up: a blocking
+    // review's with its findings, an approval's in a round of their own. (The review after a suggestions round goes on
+    // whatever it suggests; no sample has one that does.)
     for (const summary of of('work-item.summarised').filter((event) => event.actor === 'describer')) {
-      const before = published.filter(
-        (event) => event.work_item === summary.work_item && event.seq < summary.seq && event.type !== 'model.called',
-      );
-      const last = before.findLast((event) => event.type === 'review.submitted');
-      const suggestions = last?.type === 'review.submitted' && last.payload.findings.some((f) => !f.blocking);
-      if (suggestions) expect(before.at(-1)?.type, summary.work_item ?? '').toBe('suggestions.answered');
+      const before = published.filter((event) => event.work_item === summary.work_item && event.seq < summary.seq);
+      before.forEach((review, i) => {
+        if (review.type !== 'review.submitted' || review.payload.findings.every((f) => f.blocking)) return;
+        const answer = before.slice(i + 1).find((event) => event.type === 'suggestions.answered');
+        expect(answer, `${summary.work_item} review at ${review.ts}`).toBeDefined();
+      });
     }
   });
 
