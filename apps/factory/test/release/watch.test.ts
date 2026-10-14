@@ -636,6 +636,33 @@ describe('a release of a version released before', () => {
     expect(said).toEqual({});
   });
 
+  it('is found live when the line missed all of it over a later image, not taken for its earlier promotion', () => {
+    const { s, runs } = promoted();
+    // STABLE pinned again, released over CANARY and promoted while the line was down: its runs are at the revision.
+    const now = [
+      ...runs,
+      run({ hash: STABLE, revision: 5, stable: CANARY, step: 2, created: t(20), completed: t(21) }),
+      run({ hash: STABLE, revision: 5, stable: CANARY, step: 5, created: t(24), completed: t(25) }),
+    ];
+    const back = rollout({ current: STABLE, stable: STABLE, revision: 5 });
+    expect(s.pass(back, now).needs.start).toMatchObject({ release: `${STABLE}-5`, found: true });
+    expect(s.pass(back, now, { start: BACK, lastPromoted: commitOf(CANARY) }).said).toEqual({
+      1010: ['release.started', 'release.promoted'],
+    });
+    expect(s.of('1010', 'release.promoted')).toMatchObject([
+      { release: `${STABLE}-5`, version: commitOf(STABLE), previous: commitOf(CANARY), watched: false },
+    ]);
+    expect(s.pass(back, now).said).toEqual({});
+  });
+
+  it('is found live by the line’s record when Argo Rollouts kept none of its runs', () => {
+    const { s, runs } = promoted();
+    // As above, with STABLE's runs at the revision gone: the last promotion the line recorded is CANARY's.
+    const back = rollout({ current: STABLE, stable: STABLE, revision: 5 });
+    expect(s.pass(back, runs).needs.start).toMatchObject({ release: `${STABLE}-5`, found: true });
+    expect(s.pass(back, runs, { start: BACK }).said).toEqual({ 1010: ['release.started', 'release.promoted'] });
+  });
+
   it('reads no revision until the status has caught up with the spec', () => {
     const s = store(STABLE_RECORDED);
     s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });

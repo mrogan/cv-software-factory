@@ -30,9 +30,11 @@
  *
  * The stable version is the last release of its hash the line recorded that was promoted, or is still in flight
  * (`namedReleases`): the Rollout's revision is that of the version it asks for, and a Rollout sent back to its stable
- * version, with no canary, counts its revision up without releasing anything. The revision is read only once the
- * Rollout's status has caught up with its spec. A release recorded before releases were named by revision is named by
- * its hash alone, and read as it was then: it has every run of its hash, and until it ends it is the release in flight.
+ * version, with no canary, counts its revision up without releasing anything. An image released again while the line
+ * was not looking is a release of its own, found live: its runs at the revision say so, or, where Argo Rollouts kept
+ * none, the line's record, whose last promotion is then of another image. The revision is read only once the Rollout's
+ * status has caught up with its spec. A release recorded before releases were named by revision is named by its hash
+ * alone, and read as it was then: it has every run of its hash, and until it ends it is the release in flight.
  *
  * A stable version the line has no record of, with no release in flight, is recorded as found live: started and
  * promoted at once, by the factory, `watched: false`, on every merged work item no release has carried whose fix is
@@ -515,21 +517,42 @@ export interface Named {
   stable: string | undefined;
 }
 
+/** Whether a release's name is of a hash: at a revision, or by the hash alone, from before the revision. */
+const isOfHash = (name: string, hash: string) => name === hash || name.startsWith(`${hash}-`);
+
+/**
+ * Whether the stable version, at a revision the line has not recorded, was released there rather than sent back to
+ * with no canary. A release leaves runs of its hash at its revision, and a Rollout sent back leaves none; Argo
+ * Rollouts keeps only the latest runs, so where there are none, the line's record says: sent back to its stable
+ * version, the Rollout runs the last release the line recorded as promoted, and released while the line was not
+ * looking, it runs an image the line last saw promoted before another. That misreads when the line missed a rollback
+ * too.
+ */
+function releasedAtRevision(o: Observed, recorded: Recorded): boolean {
+  const { stable, revision } = o;
+  if (stable === undefined || revision === undefined) return false;
+  if (o.runs.some((run) => hashOf(run) === stable && revisionOf(run) === revision)) return true;
+  const last = [...recorded].filter(([, targets]) => ended(targets, 'promoted')).at(-1)?.[0];
+  return last !== undefined && !isOfHash(last, stable);
+}
+
 /**
  * The releases the Rollout names. The version the spec asks for is the release of its hash at the Rollout's revision,
  * recorded or still to be. The stable version is the last release of its hash the line recorded that was promoted, or
  * is still in flight (its promotion missed): a Rollout goes back only to a version it promoted. With nothing in flight
- * and none such recorded, it is the release of its hash at the Rollout's revision, to be found live.
+ * and none such recorded, it is the release of its hash at the Rollout's revision, to be found live; and so it is when
+ * that release went out while the line was not looking (`releasedAtRevision`).
  */
 export function namedReleases(o: Observed, recorded: Recorded): Named {
-  const ofHash = (hash: string) => [...recorded].filter(([name]) => name === hash || name.startsWith(`${hash}-`));
+  const ofHash = (hash: string) => [...recorded].filter(([name]) => isOfHash(name, hash));
   const asked = o.current && o.revision ? releaseName(o.current, o.revision) : undefined;
   const releases = o.stable === undefined ? [] : ofHash(o.stable);
-  const promoted = releases
-    .filter(([, targets]) => !ended(targets, 'rolled-back') && !ended(targets, 'aborted'))
-    .at(-1)?.[0];
+  const last = releases.filter(([, targets]) => !ended(targets, 'rolled-back') && !ended(targets, 'aborted')).at(-1);
+  const promoted = last?.[0];
   if (o.current === o.stable) {
-    const name = asked && recorded.has(asked) ? asked : (promoted ?? asked);
+    // One still in flight is the release whose promotion this is; one promoted may have been released again since.
+    const again = last !== undefined && ended(last[1], 'promoted') && releasedAtRevision(o, recorded);
+    const name = asked && (recorded.has(asked) || !promoted || again) ? asked : (promoted ?? asked);
     return { current: name, stable: name };
   }
   // With a release in flight, the version it replaces must be known: a rolled-back or aborted one, retried and
