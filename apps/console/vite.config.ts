@@ -30,7 +30,7 @@ export default defineConfig({
   plugins: [await prefresh()],
   // Preact's JSX, the automatic runtime that web/tsconfig.json checks: Fast Refresh's plugin otherwise assumes `h`.
   oxc: { jsx: { runtime: 'automatic', importSource: 'preact' } },
-  // The code is written to React's API and runs on Preact's (ADR 0007): a tenth of the size. web/tsconfig.json
+  // The code is written to React's API and runs on Preact's (ADR 0007), in half the JavaScript. web/tsconfig.json
   // points the type checker the same way.
   resolve: {
     alias: [
