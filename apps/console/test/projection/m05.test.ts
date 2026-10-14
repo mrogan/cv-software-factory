@@ -175,6 +175,32 @@ describe('a fix held for a human', () => {
     });
   });
 
+  it('still blocking: counts the reviews of its pass, which the line bounds alone, by their numbers in the thread', () => {
+    const finding = { path: 'src/money.ts', line: 3, blocking: true, rule: 3, comment: 'Test through the shop.' };
+    const review: PayloadOf<'review.submitted'> = {
+      pullRequest: 7,
+      verdict: 'changes-requested',
+      note: 'Not yet.',
+      findings: [finding],
+    };
+    const events = work('3002')
+      .open()
+      .add(1, 'review.submitted', 'reviewer', review)
+      .add(2, 'work.returned', 'factory', { from: 'verify', to: 'plan', reason: 'It persists' })
+      .add(3, 'review.submitted', 'reviewer', { ...review, pullRequest: 8 })
+      .add(3.1, 'hold.started', 'factory', {
+        stage: 'review',
+        kind: 'held',
+        cause: 'review',
+        reason: 'Not yet.',
+      }).events;
+    expect(project(events, Date.parse(events.at(-1)?.ts ?? '')).cards[0]?.picture).toMatchObject({
+      type: 'blocking',
+      reviews: 1,
+      findings: [{ where: 'src/money.ts:3', reviews: [2] }],
+    });
+  });
+
   it('beyond its ticket: the blocking finding that cites the ticket, as a held review shows its own', () => {
     const finding = { path: 'src/money.ts', line: 3, blocking: true, criterion: 2, ticket: true as const };
     const events = work('3001')

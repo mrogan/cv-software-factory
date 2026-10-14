@@ -433,7 +433,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                 {sheet.facts.reviews && (
                   <Fact name="Reviews">
                     {sheet.facts.reviews.done} of {sheet.facts.reviews.of}
-                    {sheet.facts.reviews.pass && ` · pass ${sheet.facts.reviews.pass}`}
+                    {sheet.facts.reviews.pass !== undefined && ` · pass ${sheet.facts.reviews.pass}`}
                   </Fact>
                 )}
                 <Fact name="Started">{when(card.startedAt)}</Fact>

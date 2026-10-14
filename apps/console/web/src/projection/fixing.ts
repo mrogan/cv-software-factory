@@ -386,10 +386,26 @@ function spendPicture(item: ItemState, hold: Hold): Picture | undefined {
   };
 }
 
-/** The last review's findings still blocking, each with the reviews that blocked the same thing. */
+/**
+ * Whether an event starts the work's next pass, as the line counts them: a return to Plan, from Verify or by Martin
+ * after the merge, and a reopening each start again with a new spec, pull request and reviews.
+ */
+export const startsPass = (event: PublicEvent) =>
+  (event.type === 'work.returned' && event.payload.to === 'plan') || event.type === 'work-item.reopened';
+
+/**
+ * The last review's findings still blocking, each with the reviews of its pass that blocked the same thing: the line
+ * bounds each pass's reviews alone. Each review keeps its number in the whole thread.
+ */
 function blockingPicture(item: ItemState): Picture | undefined {
-  const reviews = ofType(item, 'review.submitted');
-  const latest = reviews.at(-1)?.payload;
+  const start = item.events.findLastIndex(startsPass);
+  let number = 0;
+  const pass = item.events.flatMap((event, i) => {
+    if (event.type !== 'review.submitted') return [];
+    number += 1;
+    return i > start ? [{ number, payload: event.payload }] : [];
+  });
+  const latest = pass.at(-1)?.payload;
   // An escalation holds at Review too, with no findings to show, and its reason says why; unless it went beyond the
   // ticket, which its blocking findings show.
   const shows = latest?.verdict === 'changes-requested' || latest?.findings.some((f) => f.ticket);
@@ -397,7 +413,7 @@ function blockingPicture(item: ItemState): Picture | undefined {
   if (!open.length) return undefined;
   return {
     type: 'blocking',
-    reviews: reviews.length,
+    reviews: pass.length,
     findings: open.map((f) => ({
       where: `${f.path}:${f.line}`,
       cites: f.ticket
@@ -408,11 +424,11 @@ function blockingPicture(item: ItemState): Picture | undefined {
             ? `criterion ${f.criterion}`
             : undefined,
       comment: f.comment,
-      reviews: reviews.flatMap((r, i) =>
+      reviews: pass.flatMap((r) =>
         r.payload.findings.some(
           (g) => g.blocking && g.path === f.path && g.rule === f.rule && g.criterion === f.criterion,
         )
-          ? [i + 1]
+          ? [r.number]
           : [],
       ),
     })),

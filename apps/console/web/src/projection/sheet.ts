@@ -14,7 +14,7 @@ import type {
 } from '@software-factory/events';
 import { inScope, LIMITS, SENSES } from '@software-factory/events';
 import { clock, shortVersion } from '../format.ts';
-import { type Attempt, attempts, deployPicture, reviewThread, type ThreadReview } from './fixing.ts';
+import { type Attempt, attempts, deployPicture, reviewThread, startsPass, type ThreadReview } from './fixing.ts';
 import { type Capture, type Hold, type ItemState, summaryOf } from './items.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
 import { endedWords, type Release, releases } from './release.ts';
@@ -27,8 +27,8 @@ export interface Chapter {
   /** Where along the scrubber by time, from 0 to 100: the scrubber spreads them out (`scrubbed`). */
   position: number;
   /**
-   * The pass through the line it belongs to: a persisting verification sends the work round again, and a reopening
-   * starts it again.
+   * The pass through the line it belongs to: a return to Plan (a persisting verification, or Martin's after the
+   * merge) sends the work round again, and a reopening starts it again (`startsPass`).
    */
   pass: number;
   /** The site's screenshot as it stood at this point, if the factory had captured one. */
@@ -759,27 +759,26 @@ function verified(
 }
 
 /**
- * Whether an event starts the work's next pass, as the line counts them: a return to Plan, from Verify or by Martin
- * after the merge, and a reopening each start again with a new spec, pull request and reviews.
- */
-const startsPass = (event: PublicEvent) =>
-  (event.type === 'work.returned' && event.payload.to === 'plan') || event.type === 'work-item.reopened';
-
-/**
  * The reviews of the latest pass the coder pushed in, the pass of the pull request beside them, against the line's
  * limit, which bounds each pass's reviews alone. A round sent back after the last review it allows passes it by one:
  * for an approval's suggestions, or by Martin. Every push is reviewed.
  */
 function reviewsOfPass(item: ItemState): { done: number; of: number; pass: number | undefined } {
-  const passes = [{ pushed: false, done: 0 }];
+  let current = { pushed: false, done: 0 };
+  const passes = [current];
   for (const event of item.events) {
-    if (startsPass(event)) passes.push({ pushed: false, done: 0 });
-    const current = passes[passes.length - 1];
-    if (!current) continue;
+    if (startsPass(event)) {
+      current = { pushed: false, done: 0 };
+      passes.push(current);
+    }
     if (event.type === 'pull-request.pushed' && event.actor === 'coder') current.pushed = true;
     if (event.type === 'review.submitted') current.done += 1;
   }
-  const index = passes.findLastIndex((p) => p.pushed);
+  // The sheet shows it only once the coder has pushed, so there is a pass that pushed.
+  const index = Math.max(
+    0,
+    passes.findLastIndex((p) => p.pushed),
+  );
   const done = passes[index]?.done ?? 0;
   return { done, of: Math.max(LIMITS.reviews, done), pass: passes.length > 1 ? index + 1 : undefined };
 }
