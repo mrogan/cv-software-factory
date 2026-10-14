@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { axis, figure, isCommit, shortVersion } from '../web/src/format.ts';
+import { axis, duration, figure, isCommit, shortVersion } from '../web/src/format.ts';
 
 describe('a chart’s axis', () => {
   it.each([
@@ -35,5 +35,20 @@ describe('a version', () => {
   it('writes a release as it is', () => {
     expect(shortVersion('v0.9.3')).toBe('v0.9.3');
     expect(isCommit('v0.9.3')).toBe(false);
+  });
+});
+
+describe('a duration', () => {
+  it('writes each part as one value, the parts held together', () => {
+    const [s, min, h, d] = [1000, 60_000, 3_600_000, 86_400_000];
+    expect([200, 40 * s, 31 * min, h + 4 * min, 2 * h, d + 19 * h, 9 * d + 5 * h].map(duration)).toEqual([
+      '1s',
+      '40s',
+      '31min',
+      '1h\u00a04min',
+      '2h',
+      '1d\u00a019h',
+      '9d',
+    ]);
   });
 });

@@ -23,16 +23,19 @@ export const dayLabel = (at: number) => day.format(at);
 /** Thu 1 Oct, 16:20 */
 export const when = (at: number) => `${day.format(at)}, ${time.format(at)}`;
 
-/** 31 min, 1 h 4 min, 1 d 19 h, 9 d, or 1 s for something very quick. */
+/**
+ * 31min, 1h 4min, 1d 19h, 9d, or 1s for something very quick. No space between a figure and its unit, so that in mono
+ * a duration reads as one value, and a no-break space between its parts, so that it never wraps in the middle.
+ */
 export function duration(ms: number): string {
   const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${Math.max(1, seconds)} s`;
+  if (seconds < 60) return `${Math.max(1, seconds)}s`;
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 60) return `${minutes}min`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return minutes % 60 ? `${hours} h ${minutes % 60} min` : `${hours} h`;
+  if (hours < 24) return minutes % 60 ? `${hours}h\u00a0${minutes % 60}min` : `${hours}h`;
   const days = Math.floor(hours / 24);
-  return hours % 24 && days < 7 ? `${days} d ${hours % 24} h` : `${days} d`;
+  return hours % 24 && days < 7 ? `${days}d\u00a0${hours % 24}h` : `${days}d`;
 }
 
 /** The time since an item opened, as the sheet's scrubber shows it: T+04:20, or T+1:02:30 past an hour. */

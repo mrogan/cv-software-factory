@@ -19,8 +19,8 @@ test.describe('the Canary panel', () => {
     await expect(canary.locator('.kick')).toHaveText('Canary · 50% of traffic');
     await expect(canary.getByRole('heading', { level: 2 })).toHaveText('The contact form loses your message');
     await expect(canary.getByRole('list', { name: 'The canary’s steps' }).getByRole('listitem')).toHaveText([
-      /^25%3 min, passed$/,
-      /^50%3 min, measuring now$/,
+      /^25%3min, passed$/,
+      /^50%3min, measuring now$/,
       /^100%all, to come$/,
     ]);
     await expect(canary.locator('table.measures caption')).toContainText('At the 25% step');
@@ -35,7 +35,7 @@ test.describe('the Canary panel', () => {
     const canary = panel(page);
     await expect(canary.locator('.kick')).toHaveText('Rolled back at 25%');
     await expect(canary.getByRole('heading', { level: 2 })).toHaveText('Carries no work item');
-    await expect(canary).toContainText('No step was measured: it rolled back 3 min into the 25% step');
+    await expect(canary).toContainText('No step was measured: it rolled back 3min into the 25% step');
     await expect(canary.getByRole('row', { name: /^Latency / })).toContainText(
       'no figures to compare, which counts as infinitely worse',
     );
@@ -194,7 +194,7 @@ test.describe('the scoreboard', () => {
     await expect(score.locator('div')).toHaveText([
       /^\d+found$/,
       /^\d+verified fixed$/,
-      /^\d[\d a-z]*median to verified$/,
+      /^\d+(s|min|h|d)(\u00a0\d+(min|h))?median to verified$/,
     ]);
   });
 

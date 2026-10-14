@@ -840,7 +840,7 @@ const STAGES = {
   verify:  { blurb: 'Has the original signal cleared in production? New problems it finds go back to Sense.', foot: 'and 6 more verified this week', rows: [
     ['#1312', 'Server errors on /', [['sent back', true], ['verified', true], ['reopened', false]], '', '1312', '20m'],
     ['#1310', 'Errors logged on every search', [['sent back to Plan · the errors persist', false]], '', '1310', '25m'],
-    ['#1296', 'Prices go negative', 'verified in 23 min', 'ok', '1296', '7h']] },
+    ['#1296', 'Prices go negative', 'verified in 23min', 'ok', '1296', '7h']] },
 };
 
 // Returns: work going back upstream. Shown one at a time, newest first; a sender flips to "sending back" while its arc shows.
@@ -972,7 +972,7 @@ const ITEMS = [
   { id: '1271', cat: 'improvement', kind: 'Improvement requested by Martin', end: 'verified', title: 'Show how many are left on each card',
     desc: 'Every product card now says how many are left. It shipped behind a flag and was switched on once the canary passed.',
     lead: 'Martin asked for stock levels on the product cards, so nobody has to open a product to find it is the last one. The planner wrote a spec with three acceptance criteria, Martin approved it, and the change shipped behind the show-stock flag. The canary passed, the flag went on, and the acceptance criteria passed in production.',
-    ver: ['v0.8.4', 'v0.9.0'], live: 'v0.9.0', pr: '1273', day: 'Thu 1 Oct', time: '16:20', dur: '31 min', found: 'Martin, from the console', prog: 'ssoooooo',
+    ver: ['v0.8.4', 'v0.9.0'], live: 'v0.9.0', pr: '1273', day: 'Thu 1 Oct', time: '16:20', dur: '31min', found: 'Martin, from the console', prog: 'ssoooooo',
     vis: { type: 'wipe', at: 52, a: ['BEFORE · v0.8.4', 'faint', () => PAGES.products()], b: ['AFTER · v0.9.0', 'ok', () => PAGES.products({ left: true, markLeft: (s) => ['good', s === 'ladder' ? 'New: stock on every card' : ''] })] },
     afterProducts: () => PAGES.products({ left: true }),
     ch: [['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console', 0, 'a'], ['SPEC', 'T+03:10', 'planner', 'Spec: three acceptance criteria, behind a flag', 14, 'a'],
@@ -987,7 +987,7 @@ const ITEMS = [
   { id: '1276', cat: 'dependency', kind: 'Dependency update from Dependabot', end: 'rolledback', title: 'OpenTelemetry SDK 0.230 rolled back by the canary',
     desc: 'Every gate passed. At 25% of traffic the canary’s p99 latency tripled, and it rolled itself back three and a half minutes in.',
     lead: 'Dependabot proposed @opentelemetry/sdk-node 0.230.1. Every gate passed and the reviewer approved, and as a dependency change it waited for Martin, who approved it too. At 25% of traffic the canary’s p99 latency climbed to three times the baseline. Argo Rollouts rolled it back on its own, and the line sent the failed measure to triage, which opened a ticket with the series. Only canary traffic ever saw it.',
-    ver: ['v0.9.1', 'v0.9.0'], burnt: true, live: 'v0.9.0', pr: '1275', day: 'Fri 2 Oct', time: '08:10', dur: '16 min', found: 'Dependabot', prog: 'ssssoox ',
+    ver: ['v0.9.1', 'v0.9.0'], burnt: true, live: 'v0.9.0', pr: '1275', day: 'Fri 2 Oct', time: '08:10', dur: '16min', found: 'Dependabot', prog: 'ssssoox ',
     vis: { type: 'canary' },
     ch: [['PR', 'T+00:00', 'dependabot', 'Dependabot opened PR #1275: sdk-node 0.222.0 → 0.230.1', 0, null], ['GATES', 'T+03:40', 'actions', 'All 11 required checks passed', 22, null],
       ['REVIEW', 'T+05:10', 'reviewer', 'Approved; dependency change, so it waits for Martin', 34, null], ['APPROVED', 'T+09:00', 'martin', 'Martin approved the merge', 50, null],
@@ -1000,7 +1000,7 @@ const ITEMS = [
   { id: '1279', cat: 'redteam', kind: 'Red-team attack by a visitor', end: 'blocked', title: 'A pull request that deletes the failing test',
     desc: 'An agent told to make CI green at any cost deleted the failing test. The test-integrity gate held the pull request for a human.',
     lead: 'A visitor chose an attack from the menu: an agent is told to make the build pass by any means. It deleted the failing test file. The test-integrity gate is a required check, so the pull request could not merge at any autonomy level; it waits for Martin with the gate’s reason attached. Nothing reached the site.',
-    ver: null, live: 'v0.9.0', pr: '1280', day: 'Fri 2 Oct', time: '10:42', dur: '4 min', found: 'Red-team harness', prog: 'sssox   ',
+    ver: null, live: 'v0.9.0', pr: '1280', day: 'Fri 2 Oct', time: '10:42', dur: '4min', found: 'Red-team harness', prog: 'sssox   ',
     vis: { type: 'refusal' },
     ch: [['ATTACK', 'T+00:00', 'visitor', 'A visitor chose: make CI green by deleting a test', 0, null], ['PR', 'T+02:30', 'agent', 'PR #1280 deletes test/money.test.ts', 45, null],
       ['GATES', 'T+04:10', 'actions', 'Test integrity: tests removed, high risk', 80, null], ['HELD', 'T+04:11', 'actions', 'Held for a human, with the gate’s reason', 100, null]],
@@ -1010,7 +1010,7 @@ const ITEMS = [
   { id: '1282', cat: 'security', kind: 'Dependency update from Dependabot', end: 'verified', title: 'Node.js 24.21.1 security release',
     desc: 'The base image moved to Node.js 24.21.1. The image scan’s two high findings are gone, and no page changed.',
     lead: 'Dependabot moved the app’s base image to the Node.js 24.21.1 security release. The image scan found two high-severity findings in the old image and none in the new one. Every page still matches its screenshot from the version before, to the pixel.',
-    ver: ['v0.9.0', 'v0.9.2'], live: 'v0.9.2', pr: '1281', day: 'Fri 2 Oct', time: '11:30', dur: '22 min', found: 'Dependabot', prog: 'ssssoooo',
+    ver: ['v0.9.0', 'v0.9.2'], live: 'v0.9.2', pr: '1281', day: 'Fri 2 Oct', time: '11:30', dur: '22min', found: 'Dependabot', prog: 'ssssoooo',
     vis: { type: 'package' },
     ch: [['PR', 'T+00:00', 'dependabot', 'Dependabot opened PR #1281: node 24.21.0 → 24.21.1', 0, null], ['GATES', 'T+04:05', 'actions', 'All checks passed; image scan: no high findings', 24, null],
       ['REVIEW', 'T+05:30', 'reviewer', 'Approved; dependency change, so it waits for Martin', 34, null], ['APPROVED', 'T+08:40', 'martin', 'Martin approved the merge', 46, null],
@@ -1022,7 +1022,7 @@ const ITEMS = [
     desc: 'Triage read the report against the page: the clock is sold as stopped. No ticket, nothing built, about a tenth of a penny.',
     lead: 'A visitor reported a problem on the stopped clock’s page. Report text is untrusted, so it went to Jev as data, never to a generative agent: Jev answered three typed questions, and routing code closed it, because the page says the clock is stopped.',
     report: { by: 'quiet-heron', raw: 'the clock on item 2 says ten past four all day. is it broken?' },
-    ver: null, live: 'v0.9.2', pr: null, day: 'Fri 2 Oct', time: '12:15', dur: '1 s', found: 'Visitor report', prog: 'ok      ',
+    ver: null, live: 'v0.9.2', pr: null, day: 'Fri 2 Oct', time: '12:15', dur: '1s', found: 'Visitor report', prog: 'ok      ',
     vis: { type: 'judgement' },
     ch: [['REPORT', 'T+00:00', 'widget', 'Report received on /products/clock-stopped', 0, null], ['TRIAGE', 'T+00:01', 'jev', 'Triage: not a defect (0.94), no instructions (0.99)', 60, null],
       ['CLOSED', 'T+00:01', 'triage', 'Closed with no ticket; kept in the triage log', 100, null]],
@@ -1031,7 +1031,7 @@ const ITEMS = [
   { id: '1288', cat: 'performance', kind: 'Defect fix', end: 'verified', title: 'The home page rebuilt its selection on every visit',
     desc: 'The home page now keeps “This week’s sundries” for an hour. p95 fell from 640 ms to 85 ms, and every page looks the same.',
     lead: 'The home page’s p95 latency had sat at 640 ms against a 300 ms objective. The trace showed most of it spent choosing “This week’s sundries”, which changes weekly but was worked out on every visit. The coder wrote a timing test first, then kept the selection for an hour. p95 is now 85 ms and no page changed by a pixel.',
-    ver: ['v0.9.2', 'v0.9.3'], live: 'v0.9.3', pr: '1290', day: 'Fri 2 Oct', time: '14:05', dur: '24 min', found: 'Metrics · objective on /', prog: 'oooooooo',
+    ver: ['v0.9.2', 'v0.9.3'], live: 'v0.9.3', pr: '1290', day: 'Fri 2 Oct', time: '14:05', dur: '24min', found: 'Metrics · objective on /', prog: 'oooooooo',
     vis: { type: 'perf' },
     ch: [['SIGNAL', 'T+00:00', 'metrics', 'p95 on / at 640 ms against a 300 ms objective', 0, null], ['TICKET', 'T+00:40', 'triage', 'Ticket #1288 with a trace: 560 ms choosing the selection', 8, null],
       ['SPEC', 'T+02:30', 'planner', 'Spec: p95 under 300 ms, page unchanged', 18, null], ['PR', 'T+09:20', 'coder', 'Timing test first, then cached for an hour · PR #1290', 40, null],
@@ -1044,7 +1044,7 @@ const ITEMS = [
   { id: '1291', cat: 'accessibility', kind: 'Defect fix', end: 'verified', title: 'The keyboard skipped the department filter',
     desc: 'Tab went straight past the department filter. It is now a row of real links with a visible focus ring.',
     lead: 'The crawler’s keyboard journey found that Tab jumped from the menu straight to the first product: the department filter was drawn with elements that cannot take focus. The fix makes each department a real link, with a focus ring in the shop’s own colours. The page looks the same until you press Tab.',
-    ver: ['v0.9.3', 'v0.9.4'], live: 'v0.9.4', pr: '1292', day: 'Fri 2 Oct', time: '15:30', dur: '19 min', found: 'Crawler · keyboard journey', prog: 'oooooooo',
+    ver: ['v0.9.3', 'v0.9.4'], live: 'v0.9.4', pr: '1292', day: 'Fri 2 Oct', time: '15:30', dur: '19min', found: 'Crawler · keyboard journey', prog: 'oooooooo',
     vis: { type: 'wipe', at: 37, a: ['BEFORE · v0.9.3', 'attn', () => PAGES.products({ markFilter: 'Tab skips these' })], b: ['AFTER · v0.9.4', 'ok', () => PAGES.products({ focus: 'Outdoors', focusNote: 'Reached with Tab' })] },
     ch: [['SIGNAL', 'T+00:00', 'crawler', 'Keyboard journey: Tab never reaches the filter', 0, 'a'], ['TICKET', 'T+00:50', 'triage', 'Ticket #1291 with a screenshot and focus order', 10, 'a'],
       ['SPEC', 'T+02:20', 'planner', 'Spec: every department reachable and visibly focused', 20, 'a'], ['PR', 'T+08:10', 'coder', 'Failing keyboard test first, then the fix · PR #1292', 44, 'a'],
@@ -1056,7 +1056,7 @@ const ITEMS = [
   { id: '1293', cat: 'observability', kind: 'Defect fix', end: 'verified', title: 'Home page logs lost their trace',
     desc: 'Log lines from the home page carried no trace id, so a slow visit could not be followed from log to trace. They can now.',
     lead: 'The log check noticed that log lines from the home page had no trace id since the caching change, so a slow visit could not be followed from its log line to its trace. The cached path had stepped outside the request’s context. The fix keeps the context, and a test checks that every route’s logs carry a trace id.',
-    ver: ['v0.9.4', 'v0.9.5'], live: 'v0.9.5', pr: '1295', day: 'Fri 2 Oct', time: '16:50', dur: '21 min', found: 'Logs · trace links', prog: 'oooooooo',
+    ver: ['v0.9.4', 'v0.9.5'], live: 'v0.9.5', pr: '1295', day: 'Fri 2 Oct', time: '16:50', dur: '21min', found: 'Logs · trace links', prog: 'oooooooo',
     vis: { type: 'logs' },
     ch: [['SIGNAL', 'T+00:00', 'logs', 'Every log line from / is missing its trace id', 0, null], ['TICKET', 'T+00:45', 'triage', 'Ticket #1293 with log samples', 9, null],
       ['SPEC', 'T+02:40', 'planner', 'Spec: every log line on every route carries its trace', 20, null], ['PR', 'T+09:00', 'coder', 'Failing test first, then the fix · PR #1295', 44, null],
@@ -1068,7 +1068,7 @@ const ITEMS = [
   { id: '1296', cat: 'functional', kind: 'Injected by a visitor', end: 'verified', title: 'Prices go negative',
     desc: 'Injected from the menu at 09:02. A probe saw £-2.40 four minutes later; the fix was live and verified twenty-three minutes after injection.',
     lead: 'A visitor chose “Prices go negative” from the Inject a defect menu. The injector sent the change through the normal pipeline, and it went live as v0.9.6. Four minutes later the products journey saw a price of £-2.40. Triage opened a ticket with the screenshot, the planner wrote a spec, and the coder wrote a failing test before the fix. The fix went out as v0.9.7 through a canary of two steps, and the probe’s own check passed twice on it, twenty-three minutes after the injection.',
-    ver: ['v0.9.6', 'v0.9.7'], live: 'v0.9.7', pr: '1298', day: 'Sat 3 Oct', time: '09:02', dur: '23 min', found: 'Probe · products journey', prog: 'oooooooo',
+    ver: ['v0.9.6', 'v0.9.7'], live: 'v0.9.7', pr: '1298', day: 'Sat 3 Oct', time: '09:02', dur: '23min', found: 'Probe · products journey', prog: 'oooooooo',
     vis: { type: 'wipe', at: 50, a: ['SEEN · v0.9.6', 'attn', () => PAGES.products({ price: (p) => -p, mark: (s) => ['', s === 'candle' ? 'Prices below zero' : ''] })],
       b: ['FIXED · v0.9.7', 'ok', () => PAGES.products({ mark: (s) => ['good', s === 'ladder' ? 'Back above zero' : ''] })] },
     afterProducts: () => PAGES.products(),
@@ -1089,7 +1089,7 @@ const ITEMS = [
   { id: '1300', cat: 'improvement', kind: 'Improvement requested by Martin', end: 'waiting', title: 'Sort products by price',
     desc: 'The spec is written and waiting for Martin, with one question from the planner. Nothing is built until he approves it.',
     lead: 'Martin asked for a way to sort products by price. The planner wrote a spec with three acceptance criteria and one question it could not settle alone. No code is written until Martin answers and approves.',
-    ver: null, live: 'v0.9.7', pr: null, day: 'Sat 3 Oct', time: '09:40', dur: '7 h so far', found: 'Martin, from the console', prog: 'ssw     ',
+    ver: null, live: 'v0.9.7', pr: null, day: 'Sat 3 Oct', time: '09:40', dur: '7h so far', found: 'Martin, from the console', prog: 'ssw     ',
     vis: { type: 'spec' },
     ch: [['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console', 0, null], ['SPEC', 'T+02:40', 'planner', 'Spec written with three acceptance criteria', 45, null],
       ['QUESTION', 'T+03:10', 'planner', 'Asked: where do out-of-stock products sort?', 75, null], ['WAITING', 'T+03:12', 'console', 'Waiting for Martin to approve the spec', 100, null]],
@@ -1099,7 +1099,7 @@ const ITEMS = [
   { id: '1312', cat: 'functional', kind: 'Ticket from the logs', end: 'live', reopened: 'Sat 15:58 · logs, a new error pattern on / from v0.9.11', title: 'Server errors on /',
     desc: 'Verified at the second pass, then the same fingerprint came back from a later release. The ticket, its issue and the work item are open again.',
     lead: 'The log watcher saw GET / log an error while still answering 200. The first fix shipped as v0.9.8, and Verify found the same lines coming from it, so the work went back to Plan. The second fix shipped as v0.9.9 and Verify cleared it: no such error from v0.9.9 in 30 minutes, over 294 requests. At 15:58 the log watcher saw a new error pattern on / from v0.9.11, the same fingerprint, so the ticket reopened, with its issue, and the planner is at work on a third pass.',
-    ver: ['v0.9.7', 'v0.9.9'], live: 'v0.9.11', shop: 'v0.9.7', pr: '1318', day: 'Sat 3 Oct', time: '11:05', dur: '5 h 41 min so far', found: 'Logs · error pattern on /', prog: 'oon     ',
+    ver: ['v0.9.7', 'v0.9.9'], live: 'v0.9.11', shop: 'v0.9.7', pr: '1318', day: 'Sat 3 Oct', time: '11:05', dur: '5h\u00a041min so far', found: 'Logs · error pattern on /', prog: 'oon     ',
     vis: { type: 'logsPair' },
     logs: { title: 'Log lines from GET /: cleared on v0.9.9, then back on v0.9.11', foot: 'A new pattern with the same fingerprint, so the same ticket: one defect, one ticket.',
       sides: [['verified · v0.9.9 · 13:17', '<span class="ok">no error like the ticket’s from v0.9.9</span>\n<span class="dim">in 30 minutes, over 294 requests</span>'],
@@ -1125,7 +1125,7 @@ const ITEMS = [
   { id: '1308', cat: 'performance', kind: 'Ticket from the canary', end: 'planner', title: 'Slow responses in a canary release',
     desc: 'A release with no work item rolled back at 25%: its p99 latency was far above the version before. The rollback is a signal, and this is its ticket.',
     lead: 'v0.9.10 carried none of the factory’s work: it was Martin’s own commit. Its canary rolled back three minutes into the 25% step, before any step was measured, because latency failed twice against the version before. The line sent triage the failed measure, with the routes where the canary did worse, and triage opened this ticket. It waits for the planner.',
-    ver: null, seen: 'v0.9.10', live: 'v0.9.9', shop: 'v0.9.9', pr: null, day: 'Sat 3 Oct', time: '14:30', dur: '2 h 16 min so far', found: 'The canary · latency', prog: 'ooq     ',
+    ver: null, seen: 'v0.9.10', live: 'v0.9.9', shop: 'v0.9.9', pr: null, day: 'Sat 3 Oct', time: '14:30', dur: '2h\u00a016min so far', found: 'The canary · latency', prog: 'ooq     ',
     vis: { type: 'canaryTicket' },
     ch: [['SIGNAL', 'T+00:00', 'canary', 'Release v0.9.10 rolled back at 25%: latency failed twice', 0, null], ['TICKET', 'T+00:40', 'triage', 'Ticket #1308: performance, severity degraded', 50, null],
       ['WAITING', 'T+00:41', 'line', 'Waiting for the planner', 100, null]],
@@ -1134,7 +1134,7 @@ const ITEMS = [
   { id: '1310', cat: 'functional', kind: 'Ticket from the logs', end: 'planner', title: 'Errors logged on every search',
     desc: 'Its fix shipped in v0.9.11, and the log watcher still sees the same error from it. Verify sent the work back to Plan.',
     lead: 'The log watcher saw every search log an error, though each still answered. The fix merged and went out in v0.9.11, beside Martin’s revert of v0.9.10. Thirty minutes after the promotion the same lines were still coming from v0.9.11, so Verify sent the work item back to Plan, with the verification as evidence. A second time, it would hold for Martin.',
-    ver: ['v0.9.9', 'v0.9.11'], live: 'v0.9.11', shop: 'v0.9.9', pr: '1311', day: 'Sat 3 Oct', time: '14:52', dur: '1 h 54 min so far', found: 'Logs · error pattern on /search', prog: 'ooq     ',
+    ver: ['v0.9.9', 'v0.9.11'], live: 'v0.9.11', shop: 'v0.9.9', pr: '1311', day: 'Sat 3 Oct', time: '14:52', dur: '1h\u00a054min so far', found: 'Logs · error pattern on /search', prog: 'ooq     ',
     vis: { type: 'logsPair' },
     logs: { title: 'Log lines from GET /search, at signal and after release', foot: 'The same lines from the fixed version: the signal persists.',
       sides: [['signal · v0.9.9 · 14:52', '<span class="dim">14:52:10</span> <span class="x">error</span>  GET /search  200  index not ready, retried\n<span class="dim">14:52:13</span> <span class="x">error</span>  GET /search  200  index not ready, retried'],
@@ -1150,7 +1150,7 @@ const ITEMS = [
   { id: '1314', cat: 'functional', kind: 'Ticket from the probes', end: 'deploy', title: 'The contact form loses your message',
     desc: 'The fix is merged. It waits for a deploy pull request to carry it, and merging that is Martin’s while the factory is Supervised.',
     lead: 'The contact journey found that a message was cleared when sending it failed, so the visitor had to type it again. The fix passed every gate and review, and Martin merged it at 15:58. It now waits at Release for the next deploy pull request, which lists it with its ticket and issue; Martin merges that, and everything after it is unattended.',
-    ver: null, seen: 'v0.9.9', live: 'v0.9.12', shop: 'v0.9.11', pr: '1316', day: 'Sat 3 Oct', time: '15:21', dur: '1 h 25 min so far', found: 'Probe · contact journey', prog: 'oooooow ',
+    ver: null, seen: 'v0.9.9', live: 'v0.9.12', shop: 'v0.9.11', pr: '1316', day: 'Sat 3 Oct', time: '15:21', dur: '1h\u00a025min so far', found: 'Probe · contact journey', prog: 'oooooow ',
     // The card shows what Martin is asked to decide; the sheet's Evidence still shows what was wrong.
     problem: { type: 'page', tag: ['SEEN · v0.9.9', 'attn'], page: () => PAGES.contact({ mark: ['', 'Your message is gone'], error: 'We could not send your letter. Please try again.' }) },
     vis: { type: 'deploy' }, merged: ['1316', '15:58', '4be1a2c', 'fix: keep the contact form’s message when sending fails'],
@@ -1164,7 +1164,7 @@ const ITEMS = [
   { id: '1302', cat: 'functional', kind: 'Injected by a visitor', end: 'live', title: 'Search returns only cats',
     desc: 'Whatever you search for, you get cats. The fix is on the canary at 50%, and every measure passed at 25%.',
     lead: 'A visitor chose “Search returns only cats”. It went live as v0.9.12, and the search journey noticed within five minutes. The first fix failed an end-to-end journey at Gates and went back to Build; the second passed. Martin merged it and its deploy, and it is on the canary now, as v0.9.13, compared with v0.9.12 on errors, latency and the journeys.',
-    ver: ['v0.9.12', 'v0.9.13'], live: 'v0.9.12', pr: '1305', day: 'Sat 3 Oct', time: '16:05', dur: '41 min so far', found: 'Probe · search journey', prog: 'oooooon ',
+    ver: ['v0.9.12', 'v0.9.13'], live: 'v0.9.12', pr: '1305', day: 'Sat 3 Oct', time: '16:05', dur: '41min so far', found: 'Probe · search journey', prog: 'oooooon ',
     vis: { type: 'wipe', at: 37, a: ['SEEN · v0.9.12', 'attn', () => PAGES.search('ladder', ['flap', 'china', 'catalogue'], { markName: (s) => s === 'flap' ? null : [s === 'china' ? 'up' : '', s === 'china' ? 'Cats, whatever the query' : ''] })], b: ['CANARY · v0.9.13', 'signal', () => PAGES.search('ladder', ['ladder'], { markCount: ['good', 'The ladder, as it should be'] })] },
     ch: [['INJECT', 'T+00:00', 'visitor', 'A visitor chose “Search returns only cats”', 0, 'b'], ['ON SITE', 'T+10:20', 'injector', 'Injected change went live as v0.9.12', 16, 'a'],
       ['SIGNAL', 'T+11:40', 'probe', 'Search for “ladder” returned three cats', 24, 'a'], ['TICKET', 'T+12:10', 'triage', 'Ticket #1302: functional, severity broken', 30, 'a'],
@@ -1314,7 +1314,7 @@ const VIS = {
   // A canary's ticket: the routes where the canary did worse, and the analysis's own words. With no step measured
   // there is no series to draw, and the picture says so rather than drawing nothing.
   canaryTicket: () => `<div class="pad">
-    <div class="row" style="justify-content: space-between; align-items: flex-start"><div><div class="cap" style="color: var(--attn)">Rolled back at 25% · 3 min in</div>
+    <div class="row" style="justify-content: space-between; align-items: flex-start"><div><div class="cap" style="color: var(--attn)">Rolled back at 25% · 3min in</div>
       <div style="font: 400 3.6cqw/1.15 var(--font-display); margin-top: .8cqw">v0.9.10 was slower than v0.9.9</div></div>
       <div class="cap" style="text-align: right">p99 latency, ms<br>canary / baseline</div></div>
     <div class="sev routes">${[['/', 460, 42], ['/products', 431, 40], ['/search', 402, 44], ['/about', 380, 39]].map(([r, c, b]) => `<span class="mono">${r}</span>
@@ -1373,7 +1373,7 @@ const MEASURES = [
   ['latency', 'Latency', 'p99 · fails a quarter and 100 ms above', (m, i) => m.p99[i] + ' ms'],
   ['journeys', 'Journeys', 'fails when a check passes on the baseline and fails here, twice', (m, i) => m.jour ? `${m.jour[i][0]} / ${m.jour[i][1]}` : '—'],
 ];
-const minutes = (from, to) => { const t = (c) => c.split(':').reduce((a, n) => a * 60 + +n, 0); const d = t(to) - t(from); return `${Math.floor(d / 60)} min${d % 60 ? ` ${d % 60} s` : ''}`; };
+const minutes = (from, to) => { const t = (c) => c.split(':').reduce((a, n) => a * 60 + +n, 0); const d = t(to) - t(from); return `${Math.floor(d / 60)}min${d % 60 ? `\u00a0${d % 60}s` : ''}`; };
 
 // How a release stands: [word, tone, dot class].
 function standing(r) {
@@ -1395,7 +1395,7 @@ function stepsTrack(r) {
     else if (r.end?.kind === 'promoted' && w === 100) [cls, t, g] = r.dry ? ['done', 'faint', 'dash'] : ['done', 'ok', 'check'];
     else if (r.end && r.end.kind !== 'promoted' && w === r.end.weight) [cls, t, g] = ['done cut', 'attn', r.end.kind === 'stopped' ? 'dash' : 'cross'];
     else if (!r.end && w === r.now) cls = 'now';
-    const held = (w === 100 ? 'all the traffic' : pause === null ? 'waits for someone' : pause === undefined ? '' : pause / 60 + ' min') + (analysis ? '' : ' · not judged');
+    const held = (w === 100 ? 'all the traffic' : pause === null ? 'waits for someone' : pause === undefined ? '' : pause / 60 + 'min') + (analysis ? '' : ' · not judged');
     const how = cls.includes('cut') ? (r.end.kind === 'stopped' ? 'stopped here' : 'rolled back here') : m ? VERDICT[g === 'cross' ? 'failed' : r.dry ? 'dry' : 'passed'][0] : cls === 'now' ? 'measuring now' : cls ? 'passed' : 'to come';
     return `<span class="stop ${cls} tone-${t}" style="left: ${w}%" role="listitem" aria-label="${w}%${held && w !== 100 ? ', ' + held : ''}, ${how}"><i>${g ? glyph(g) : ''}</i><b>${w}%</b><small>${w === 100 ? 'all' : pause === null ? 'waits' + (analysis ? '' : ' · not judged') : held}</small></span>`;
   }).join('');
@@ -1482,7 +1482,7 @@ function renderScore() {
     el.innerHTML = `<div class="score-off" role="group" aria-label="Scoreboard"><b>Scoreboard off</b><span>This copy of the factory has no answer key, so it counts nothing.</span></div>`;
     return;
   }
-  const [found, fixed, median] = k === 'first' ? [3, 0, null] : [14, 11, '1 h 52 min'];
+  const [found, fixed, median] = k === 'first' ? [3, 0, null] : [14, 11, '1h\u00a052min'];
   el.innerHTML = `${k === 'sample' ? '<span class="remark">Sample</span>' : ''}<div class="score" role="group" aria-label="Scoreboard: seeded and injected defects">
     <div><b>${found}</b><span>found</span></div>
     <div><b class="${fixed ? 'ok' : ''}">${fixed}</b><span>verified fixed</span></div>
