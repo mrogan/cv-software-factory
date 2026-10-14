@@ -163,6 +163,10 @@ html[data-motion="off"] .scrim {
   justify-content: space-between;
   gap: 12px;
 }
+/* A time in a capitalised label keeps its lower-case d, as the clock writes it. */
+.site-head .as-written {
+  text-transform: none;
+}
 .site .vis {
   margin-top: 8px;
 }
@@ -185,7 +189,7 @@ html[data-motion="off"] .scrim {
 .clock {
   font: 400 24px / 1 var(--font-mono);
   font-variant-numeric: tabular-nums;
-  min-width: 104px;
+  min-width: var(--clock);
 }
 .scrub {
   position: relative;
@@ -296,7 +300,7 @@ html[data-motion="off"] .scrim {
   font-size: 11px;
   color: var(--text-muted);
 }
-/* As wide as the sheet's longest time (--when, in characters of the mono), so that every event's name lines up. */
+/* As wide as the longest event time (--when, in characters of the mono), so that every event's name lines up. */
 .event .when {
   width: var(--when);
   white-space: nowrap;

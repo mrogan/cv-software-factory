@@ -952,18 +952,20 @@ function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) 
   const [tag, tone] = site ? (SIDE_TAG[site.side] ?? ['', 'faint']) : ['', 'faint'];
   const events = chapters.slice(0, at + 1).filter((c) => c.actor);
   const listed = all ? events : events.slice(-5);
-  // The times' column is as wide as the latest event's time, in characters of its own mono, so that it holds every
-  // event's time and stays put as the scrubber moves.
-  const latest = chapters.findLast((c) => c.actor)?.at ?? start;
-  const whenWidth = { '--when': `${sinceStart(latest - start).length}ch` } as CSSProperties;
+  // The clock and the events' times are as wide as the longest time they will show, in characters of their own mono,
+  // so that the buttons beside the clock and the events' names stay put as the scrubber moves.
+  const widest = (list: Chapter[]) => `${Math.max(0, ...list.map((c) => sinceStart(c.at - start).length))}ch`;
+  const widths = { '--clock': widest(chapters), '--when': widest(chapters.filter((c) => c.actor)) } as CSSProperties;
   const shown = scrubbed(chapters, Math.min(at, last), width);
   const here = shown.findIndex((s) => at >= s.index && at < s.index + s.count);
   return (
-    <div className={`replay ${site ? '' : 'solo'}`}>
+    <div className={`replay ${site ? '' : 'solo'}`} style={widths}>
       {site && (
         <div className="site">
           <div className="site-head">
-            <span className="label">The site at {sinceStart(chapter.at - start)}</span>
+            <span className="label">
+              The site at <span className="as-written">{sinceStart(chapter.at - start)}</span>
+            </span>
             <span className={`label tone-${tone} toned`}>
               {tag} · {shortVersion(site.shot.version)}
             </span>
@@ -1042,7 +1044,7 @@ function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) 
             );
           })}
         </div>
-        <ol className="events" style={whenWidth}>
+        <ol className="events">
           {listed.map((c, i) => (
             <li key={`${c.label}-${c.at}`} className={`event ${i === listed.length - 1 ? 'now' : ''}`}>
               <span className="mono when">{sinceStart(c.at - start)}</span>
