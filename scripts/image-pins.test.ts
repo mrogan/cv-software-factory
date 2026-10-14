@@ -89,7 +89,7 @@ describe("the pins of Docker's official images", () => {
  */
 const PLAYWRIGHT = /mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-noble@(sha256:[0-9a-f]{64})/g;
 
-/** Every Playwright release in use, each as [where, version@digest]: the lockfile's have no digest. */
+/** Every Playwright release in use, each as [where, version@digest]; the lockfile's entries have no digest. */
 function playwright(read = (file: string) => readFileSync(file, 'utf-8')) {
   const files = execFileSync('git', ['grep', '-lE', 'mcr\\.microsoft\\.com/playwright', '--', ':!*.md'], {
     encoding: 'utf-8',
