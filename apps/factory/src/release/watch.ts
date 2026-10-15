@@ -30,9 +30,11 @@
  *
  * The stable version is the last release of its hash the line recorded that was promoted, or is still in flight
  * (`namedReleases`): the Rollout's revision is that of the version it asks for, and a Rollout sent back to its stable
- * version, with no canary, counts its revision up without releasing anything. The revision is read only once the
- * Rollout's status has caught up with its spec. A release recorded before releases were named by revision is named by
- * its hash alone, and read as it was then: it has every run of its hash, and until it ends it is the release in flight.
+ * version, with no canary, counts its revision up without releasing anything. An image released again while the line
+ * was not looking is a release of its own, found live: its runs at the revision say so, or, where Argo Rollouts kept
+ * none, the line's record, whose last promotion is then of another image. The revision is read only once the Rollout's
+ * status has caught up with its spec. A release recorded before releases were named by revision is named by its hash
+ * alone, and read as it was then: it has every run of its hash, and until it ends it is the release in flight.
  *
  * A stable version the line has no record of, with no release in flight, is recorded as found live: started and
  * promoted at once, by the factory, `watched: false`, on every merged work item no release has carried whose fix is
@@ -66,6 +68,8 @@ export interface TargetRecord {
   attempts: number;
   /** Steps recorded, over every attempt. */
   steps: number;
+  /** Steps recorded before its latest start: the rest are its latest attempt's. */
+  stepsBefore: number;
   /** How its latest attempt ended, if it has. */
   ended: 'promoted' | 'rolled-back' | 'aborted' | undefined;
   /** When Argo Rollouts acted on its latest abort, if it was aborted. */
@@ -92,6 +96,7 @@ export function recordedFrom(
         startedAt: ts,
         attempts: (record?.attempts ?? 0) + 1,
         steps: record?.steps ?? 0,
+        stepsBefore: record?.steps ?? 0,
         ended: undefined,
       });
       continue;
@@ -284,11 +289,31 @@ export const whoAborted = (by: PayloadOf<'release.aborted'>['by']) =>
 export const startOf = (o: Observed, of: AnalysisRun) =>
   o.runs.find((run) => hashOf(run) === hashOf(of) && revisionOf(run) === revisionOf(of))?.metadata.creationTimestamp;
 
+/** A weight from the Rollout's steps, by a step's index, as an event takes it. */
+const weightAt = (o: Observed, index: number) =>
+  Math.max(1, Math.min(100, o.weights[Math.min(index, o.weights.length - 1)] ?? 1));
+
+const indexOf = (o: Observed, run: AnalysisRun) => Number(run.metadata.labels['step-index'] ?? o.stepIndex);
+
 /** The weight of the step a run judged, or the step the Rollout was at for a run in the background. */
-const weightOf = (o: Observed, run: AnalysisRun): number => {
-  const index = Number(run.metadata.labels['step-index'] ?? o.stepIndex);
-  return Math.max(1, Math.min(100, o.weights[Math.min(index, o.weights.length - 1)] ?? 1));
-};
+const weightOf = (o: Observed, run: AnalysisRun): number => weightAt(o, indexOf(o, run));
+
+/**
+ * The weight the canary had reached when a run in the background failed it, given the step runs of this attempt that
+ * ended. The Rollout no longer says: Argo Rollouts sends an aborted canary back to its first step in the same write
+ * that records the abort. The step runs do. The canary holds a step the analysis judges until its run passes, then goes
+ * on to the next: it was at the step after the last run that passed, or at the last run's step if that one did not
+ * pass, or, before any, at the first. A step run made after the last, which the abort terminated or found running,
+ * says the canary went on to its step, as when Martin resumed it past an inconclusive one. The weights are the
+ * Rollout's, by step index, as each step's are.
+ */
+function reachedWeight(o: Observed, release: string, attempt: readonly AnalysisRun[]): number {
+  const last = attempt.at(-1);
+  if (!last) return weightAt(o, 0);
+  const later = o.runs.slice(o.runs.indexOf(last) + 1).filter((run) => isOf(run, release) && isStep(run));
+  const passed = last.status.phase === 'Successful' ? 1 : 0;
+  return weightAt(o, Math.max(indexOf(o, last) + passed, ...later.map((run) => indexOf(o, run))));
+}
 
 const PHASES: Record<string, Measure['phase']> = {
   Pending: 'pending',
@@ -368,6 +393,8 @@ export interface Facts {
   series: ReadonlyMap<string, Series>;
   /** The version promoted last, which a release found live replaces as far as the line knows. */
   lastPromoted?: string;
+  /** The release the line recorded promoted last, dry runs aside, by its name (`namedReleases`). */
+  lastRelease?: string;
   /** Who aborted the Rollout, when it is aborted: Stop the line, if the line was stopped then, or Martin. */
   abortedBy?: PayloadOf<'release.aborted'>['by'];
 }
@@ -408,7 +435,8 @@ function forTarget(
     });
     retried = true;
   }
-  const steps = stepsOf(o, name).slice(record.steps);
+  const ran = stepsOf(o, name);
+  const steps = ran.slice(record.steps);
   for (const run of steps) {
     const measures = measuresOf(run);
     const requests = measures.find((m) => m.name === 'enough-requests')?.value;
@@ -461,7 +489,9 @@ function forTarget(
   } else if (o.aborted && names.current === name && failuresOf(o, name).some(inAttempt)) {
     failures = failuresOf(o, name).filter(inAttempt);
     const last = failures.at(-1) as AnalysisRun;
-    const weight = weightOf(o, last);
+    // A retry in this pass has recorded none of its steps yet; its earlier attempts' were recorded before it.
+    const attempt = ran.slice(retried ? record.steps : record.stepsBefore);
+    const weight = isStep(last) ? weightOf(o, last) : reachedWeight(o, name, attempt);
     const failed: Failed[] = failures
       .flatMap((run) =>
         measuresOf(run)
@@ -515,21 +545,41 @@ export interface Named {
   stable: string | undefined;
 }
 
+/** Whether a release's name is of a hash: at a revision, or by the hash alone, from before the revision. */
+const isOfHash = (name: string, hash: string) => name === hash || name.startsWith(`${hash}-`);
+
+/**
+ * Whether the stable version, at a revision the line has not recorded, was released there rather than sent back to
+ * with no canary. A release leaves runs of its hash at its revision, and a Rollout sent back leaves none; Argo
+ * Rollouts keeps only the latest runs, so where there are none, the line's record says (`lastRelease`, the release it
+ * recorded promoted last, dry runs aside): sent back to its stable version, the Rollout runs that release, and
+ * released while the line was not looking, it runs an image the line last saw promoted before another. That misreads
+ * when the line missed a rollback too.
+ */
+function releasedAtRevision(o: Observed, lastRelease: string | undefined): boolean {
+  const { stable, revision } = o;
+  if (stable === undefined || revision === undefined) return false;
+  if (o.runs.some((run) => hashOf(run) === stable && revisionOf(run) === revision)) return true;
+  return lastRelease !== undefined && !isOfHash(lastRelease, stable);
+}
+
 /**
  * The releases the Rollout names. The version the spec asks for is the release of its hash at the Rollout's revision,
  * recorded or still to be. The stable version is the last release of its hash the line recorded that was promoted, or
  * is still in flight (its promotion missed): a Rollout goes back only to a version it promoted. With nothing in flight
- * and none such recorded, it is the release of its hash at the Rollout's revision, to be found live.
+ * and none such recorded, it is the release of its hash at the Rollout's revision, to be found live; and so it is when
+ * that release went out while the line was not looking (`releasedAtRevision`).
  */
-export function namedReleases(o: Observed, recorded: Recorded): Named {
-  const ofHash = (hash: string) => [...recorded].filter(([name]) => name === hash || name.startsWith(`${hash}-`));
+export function namedReleases(o: Observed, recorded: Recorded, lastRelease?: string): Named {
+  const ofHash = (hash: string) => [...recorded].filter(([name]) => isOfHash(name, hash));
   const asked = o.current && o.revision ? releaseName(o.current, o.revision) : undefined;
   const releases = o.stable === undefined ? [] : ofHash(o.stable);
-  const promoted = releases
-    .filter(([, targets]) => !ended(targets, 'rolled-back') && !ended(targets, 'aborted'))
-    .at(-1)?.[0];
+  const last = releases.filter(([, targets]) => !ended(targets, 'rolled-back') && !ended(targets, 'aborted')).at(-1);
+  const promoted = last?.[0];
   if (o.current === o.stable) {
-    const name = asked && recorded.has(asked) ? asked : (promoted ?? asked);
+    // One still in flight is the release whose promotion this is; one promoted may have been released again since.
+    const again = () => last !== undefined && ended(last[1], 'promoted') && releasedAtRevision(o, lastRelease);
+    const name = asked && (recorded.has(asked) || again()) ? asked : (promoted ?? asked);
     return { current: name, stable: name };
   }
   // With a release in flight, the version it replaces must be known: a rolled-back or aborted one, retried and
@@ -558,8 +608,8 @@ function startOfRelease(o: Observed, names: Named, recorded: Recorded): Needs['s
 }
 
 /** What the line must read before `releaseEvents` can say all it has to. */
-export function releaseNeeds(o: Observed, recorded: Recorded): Needs {
-  const names = namedReleases(o, recorded);
+export function releaseNeeds(o: Observed, recorded: Recorded, lastRelease?: string): Needs {
+  const names = namedReleases(o, recorded, lastRelease);
   const start = startOfRelease(o, names, recorded);
   const steps: AnalysisRun[] = [];
   const failures: AnalysisRun[] = [];
@@ -579,7 +629,7 @@ export function releaseNeeds(o: Observed, recorded: Recorded): Needs {
       undefined,
       o.plan,
     );
-    const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, ended: undefined };
+    const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, stepsBefore: 0, ended: undefined };
     add(forTarget(o, names, start.release, record, empty));
   }
   for (const name of releasesIn(names)) {
@@ -626,7 +676,7 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
   const add = (target: Target, drafts: Draft[]) => {
     if (drafts.length) out.set(target, [...(out.get(target) ?? []), ...drafts]);
   };
-  const names = namedReleases(o, recorded);
+  const names = namedReleases(o, recorded, facts.lastRelease);
   const start = startOfRelease(o, names, recorded);
   if (start && facts.start) {
     const read = facts.start;
@@ -660,7 +710,7 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
       const admitted = o.admitted === true;
       const started = startedPayload(start, read, admitted, facts.lastPromoted, o.plan);
       const how = `${read.signed ? 'signed' : 'not signed'} and ${admitted ? 'admitted' : 'refused admission'}`;
-      const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, ended: undefined };
+      const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, stepsBefore: 0, ended: undefined };
       for (const target of targets) {
         add(target, [
           {

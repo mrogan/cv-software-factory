@@ -272,12 +272,15 @@ function LineChart(props: {
   series: Series[];
   unit: string;
   xLabels: [index: number, text: string][];
-  marker?: { index: number; label: string; low?: boolean } | undefined;
+  /** A moment to mark, labelled inside the plot or, `above` it, clear of the lines and their end labels. */
+  marker?: { index: number; label: string; above?: boolean } | undefined;
   objective?: number | undefined;
   label: string;
 }) {
   const { series, unit, xLabels, marker, objective, label } = props;
-  const [w, h, l, r, t, b] = [600, 210, 40, 104, 14, 24];
+  // A label above the plot takes a line of its own over it, and the plot keeps its height.
+  const lift = marker?.above ? 12 : 0;
+  const [w, h, l, r, t, b] = [600, 210 + lift, 40, 104, 14 + lift, 24];
   const n = Math.max(...series.map((s) => s.values.length));
   const top = Math.max(objective ?? 0, ...series.flatMap((s) => s.values.filter((v): v is number => v !== null)));
   const { max: yMax, ticks } = axis(top);
@@ -304,9 +307,15 @@ function LineChart(props: {
       {marker && (
         <g>
           <line className="marker" x1={x(marker.index)} x2={x(marker.index)} y1={t - 6} y2={h - b} />
-          <text className="axis" x={x(marker.index) + 6} y={marker.low ? h - b - 8 : t + 2}>
-            {marker.label}
-          </text>
+          {marker.above ? (
+            <text className="axis" x={x(marker.index)} y={t - 10} textAnchor="middle">
+              {marker.label}
+            </text>
+          ) : (
+            <text className="axis" x={x(marker.index) + 6} y={t + 2}>
+              {marker.label}
+            </text>
+          )}
         </g>
       )}
       {series.map((s) => {
@@ -536,7 +545,13 @@ function RollbackPicture({ dependency, weight, restored, series }: Extract<Pictu
           { values: series.baseline, tone: 'muted', label: 'baseline' },
         ]}
         unit={series.unit}
-        marker={{ index: series.at, label: `rolled back · ${time(series.at)}`, low: true }}
+        // As the release worker reads it, the rollback is the last point of both lines, where their labels are: its
+        // own goes over the plot. Its time is left to the x axis only where the axis labels that point.
+        marker={{
+          index: series.at,
+          label: minutes.includes(series.at) ? 'rolled back' : `rolled back · ${time(series.at)}`,
+          above: true,
+        }}
         xLabels={minutes.map((i) => [i, time(i)])}
       />
       <div className="unchanged">
