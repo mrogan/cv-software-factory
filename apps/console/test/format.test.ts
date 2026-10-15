@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { axis, duration, figure, isCommit, shortVersion } from '../web/src/format.ts';
+import { axis, duration, figure, isCommit, shortVersion, sinceStart } from '../web/src/format.ts';
 
 describe('a chart’s axis', () => {
   it.each([
@@ -49,6 +49,28 @@ describe('a duration', () => {
       '2h',
       '1d\u00a019h',
       '9d',
+    ]);
+  });
+});
+
+describe('the time since an item opened', () => {
+  it('counts minutes, then hours, then days, each day as a duration writes it', () => {
+    const [s, min, h, d] = [1000, 60_000, 3_600_000, 86_400_000];
+    const times = [
+      0,
+      4 * min + 20 * s,
+      h + 2 * min + 30 * s,
+      23 * h + 59 * min + 59 * s,
+      5 * d + 12 * h + 39 * min + 59 * s,
+      5 * d + 2 * h,
+    ];
+    expect(times.map(sinceStart)).toEqual([
+      'T+00:00',
+      'T+04:20',
+      'T+1:02:30',
+      'T+23:59:59',
+      'T+5d\u00a012:39:59',
+      'T+5d\u00a002:00:00',
     ]);
   });
 });
