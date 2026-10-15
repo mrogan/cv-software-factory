@@ -377,8 +377,8 @@ interface PanelProps {
  * The station's own "working" dot, on a row it is at work on, so the work in hand stands out from what waits. It is
  * named "working" for a screen reader, since a release's row has no accessible name of its own to say it in.
  */
-function WorkingDot({ tone }: { tone: PanelRow['tone'] }) {
-  return tone === 'signal' ? <span className="dot tone-signal" role="img" aria-label="working" /> : null;
+function WorkingDot({ working }: { working: boolean }) {
+  return working ? <span className="dot tone-signal" role="img" aria-label="working" /> : null;
 }
 
 function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelProps) {
@@ -386,6 +386,10 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
   const title = useRef<HTMLHeadingElement>(null);
   const [place, setPlace] = useState<CSSProperties>({});
   const { rows, senses, caps, queued } = view.panels[stage];
+  // A row is marked as at work only while its station says it is: stopped, capped or held, the station is not.
+  const status = view.stations.find((s) => s.stage === stage)?.status;
+  const lit = status === 'working' || status === 'returning';
+  const working = (row: PanelRow) => lit && row.tone === 'signal';
 
   // Under its station, kept inside the line; on a phone the styles make it a bottom sheet instead.
   useLayoutEffect(() => {
@@ -452,8 +456,8 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
             </span>
             <span>
               {row.title}
-              <small className={`tone-${row.tone}`}>
-                <WorkingDot tone={row.tone} />
+              <small className={working(row) ? 'working' : `tone-${row.tone}`}>
+                <WorkingDot working={working(row)} />
                 {row.note}
               </small>
             </span>
@@ -466,20 +470,20 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
             onClick={() => onOpen(row.item)}
             aria-label={`Open #${row.item}, ${row.title}: ${[
               ...row.earlier.map((e) => `earlier ${e}`),
-              ...(row.tone === 'signal' ? ['working'] : []),
+              ...(working(row) ? ['working'] : []),
               row.note,
             ].join(', ')}`}
           >
             <span className="id">#{row.item}</span>
             <span>
               {row.title}
-              <small className={`tone-${row.tone}`}>
+              <small className={working(row) ? 'working' : `tone-${row.tone}`}>
                 {row.earlier.map((e) => (
                   <span key={e}>
                     <s>{e}</s> ·{' '}
                   </span>
                 ))}
-                <WorkingDot tone={row.tone} />
+                <WorkingDot working={working(row)} />
                 {row.note}
               </small>
             </span>

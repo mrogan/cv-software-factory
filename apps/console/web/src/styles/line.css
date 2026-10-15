@@ -260,7 +260,7 @@ button.srow:hover {
   color: var(--tone);
 }
 /* What the station is at work on: its note in ink, after the station's own "working" dot. */
-.srow small.tone-signal {
+.srow small.working {
   color: var(--text);
 }
 .srow small .dot {
