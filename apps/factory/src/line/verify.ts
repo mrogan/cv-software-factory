@@ -11,10 +11,10 @@
  *   version served enough requests. Any such record, and it persists. The signal kept the lines, not the pattern, so
  *   the pattern is rebuilt from them as the watcher builds it (`logs/patterns.ts`).
  * - The log watcher's agreement check (a `missing-log` or `wrong-metric` ticket): the check itself, over the route's
- *   requests in the metrics, the log and the traces since the promotion (`logs/agreement.ts`). The records agree on
- *   every one of the route's paths, and it has cleared; the one the ticket named is the odd one out again on any, and
- *   it persists. A log silent for every route (`*`) persists while it is silent, and clears once it counts the
- *   requests again for every route.
+ *   requests in the metrics, the log and the traces, for a window after the promotion (`logs/agreement.ts`). The
+ *   records agree on every one of the route's paths, and it has cleared; the one the ticket named is the odd one out
+ *   again on any, and it persists. A log silent for every route (`*`) persists while it is silent, and clears once it
+ *   counts the requests again for every route.
  * - The canary: the release that carries the fix, or a later one that carries it too, was promoted with the measure
  *   that failed passing at its last step. A promoted release passed every step, so this clears at once, saying so; a
  *   release found live, which no analysis judged, holds for Martin.
@@ -36,7 +36,7 @@ import { CANARY_ANY_ROUTE } from '@software-factory/triage';
 import { z } from 'zod';
 import { objectives as OBJECTIVES, type Objectives } from '../../../../policy/objectives.ts';
 import { release as RELEASE, type Release } from '../../../../policy/release.ts';
-import { quoted, requests, type Scope } from '../alerts/queries.ts';
+import { quoted, requests, type Scope, templatePattern } from '../alerts/queries.ts';
 import type { Loki } from '../clients/loki.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
 import type { Tempo } from '../clients/tempo.ts';
@@ -60,7 +60,7 @@ import { sameError } from '../logs/patterns.ts';
 import { errorLogs, TIMING } from '../logs/watcher.ts';
 import type { VerifyAnswer, VerifyRequest } from '../probes/verify.ts';
 import { short } from '../release/watch.ts';
-import { requestLogs } from '../routes.ts';
+import { requestLogs, routeTemplates } from '../routes.ts';
 
 /** The ticket's first signal, as Verify reads it: never a report's words, which it has no use for. */
 export interface FirstSignal {
@@ -368,25 +368,26 @@ const NO_TRACES: Pick<Tempo, 'serverSpans'> = { serverSpans: async () => ({ span
 
 /**
  * Whether a path's counts belong to a route: the route the log gave the path, or the path itself. A path the log did
- * not place, as a missing log places none, is matched against the route's template segment by segment, as
- * `/products/:slug` matches `/products/glove-left`; one the log placed under another route is that route's.
+ * not place, in the window or in the last day (`known`), as a missing log places none, is matched against the route's
+ * template, as `/products/:slug` matches `/products/glove-left`; one the log placed under another route, or as a route
+ * of its own (`/products/new`), is that route's.
  */
-export function onRoute({ path, route: placed }: Pick<RouteCounts, 'path' | 'route'>, route: string): boolean {
+export function onRoute(
+  { path, route: placed }: Pick<RouteCounts, 'path' | 'route'>,
+  route: string,
+  known: ReadonlyMap<string, string> = new Map(),
+): boolean {
   if (placed === route || path === route) return true;
-  if (placed !== path) return false;
-  const want = route.split('/');
-  const got = path.split('/');
-  return (
-    want.length === got.length &&
-    want.every((segment, i) => segment === got[i] || (segment.startsWith(':') && Boolean(got[i])))
-  );
+  if (placed !== path || known.has(path)) return false;
+  return new RegExp(`^${templatePattern(route)}$`).test(path);
 }
 
 /**
- * The log watcher's agreement check, again, over the new version's requests since the promotion: the watcher's
- * windows, the last ending long enough ago for the traces to have reached Tempo, as many as fill the policy's window
- * and none before the promotion. Each window is counted on its own, so that Tempo is asked no more at once than the
- * watcher asks it, and the windows are judged together.
+ * The log watcher's agreement check, again, over the new version's requests in the last of the policy's window: the
+ * watcher's windows, as many as fill it, the last ending long enough ago for the traces to have reached Tempo, and
+ * none before the promotion. Each window is counted on its own, one after another, so that Tempo is asked no more at
+ * once than the watcher asks it, and the windows are judged together. A path is judged, and its route, only with the
+ * policy's `minRequests`: persisting takes as much as clearing does.
  */
 async function byAgreement(signal: FirstSignal, disagreement: Disagreement, target: Target, c: Context): Promise<Look> {
   if (!c.prometheus) return { kind: 'wait', why: 'the line has no way to Prometheus (PROMETHEUS_URL)' };
@@ -397,24 +398,25 @@ async function byAgreement(signal: FirstSignal, disagreement: Disagreement, targ
   }
   const { windowMinutes, minRequests } = c.policy.logs;
   const { agreementWindowMs: windowMs, agreementLagMs: lagMs } = TIMING;
-  const windows = Math.max(1, Math.round((windowMinutes * 60_000) / windowMs));
+  const windows = Math.max(1, Math.ceil((windowMinutes * 60_000) / windowMs));
   const due = target.at.getTime() + windows * windowMs + lagMs;
   if (c.now.getTime() < due) return { kind: 'wait', why: `the window ends at ${new Date(due).toISOString()}` };
   const end = new Date(c.now.getTime() - lagMs);
   const start = new Date(end.getTime() - windows * windowMs);
   const backends = { prometheus: c.prometheus, loki: c.loki, tempo: c.tempo ?? NO_TRACES };
-  const each = await Promise.all(
-    Array.from({ length: windows }, async (_, i) => {
-      const from = new Date(start.getTime() + i * windowMs);
-      const to = new Date(from.getTime() + windowMs);
-      return (await count(c.objectives, backends, from, to, undefined, target.version)).routes;
-    }),
-  );
-  const all = each.reduce<RouteCounts[]>((before, window) => combine(before, window), []);
+  // The routes the log gave paths in the last day: a page of a route of its own is never counted as the ticket's.
+  const known = await routeTemplates(c.loki, c.objectives, end).catch(() => new Map<string, string>());
+  let all: RouteCounts[] = [];
+  for (let i = 0; i < windows; i += 1) {
+    const from = new Date(start.getTime() + i * windowMs);
+    const to = new Date(from.getTime() + windowMs);
+    all = combine(all, (await count(c.objectives, backends, from, to, known, target.version)).routes);
+  }
+  const tolerance = { ...TOLERANCE, minRequests };
 
   if (signal.route === '*') {
-    // As the watcher judges a silent log: over the windows together, or any one of them.
-    if (logSilent(all) || each.some((window) => logSilent(window))) {
+    // As the watcher judges a silent log, over the windows together: a gap of a few minutes is not the log silent.
+    if (logSilent(all, tolerance)) {
       return finished(signal, target, 'persists', signalForSilentLog(all, end)?.evidence?.[0]);
     }
     const served = total(all);
@@ -430,13 +432,13 @@ async function byAgreement(signal: FirstSignal, disagreement: Disagreement, targ
     };
   }
 
-  const paths = all.filter((entry) => onRoute(entry, signal.route));
+  const paths = all.filter((entry) => onRoute(entry, signal.route, known));
   const sum = total(paths);
   // Any of the route's paths, as the watcher judges them, or the route as a whole.
   const busiest = [...paths].sort((a, b) => b.metrics - a.metrics);
   const worst =
-    busiest.find((entry) => judge(entry) === disagreement) ??
-    (busiest[0] && judge(sum) === disagreement
+    busiest.find((entry) => judge(entry, tolerance) === disagreement) ??
+    (busiest[0] && judge(sum, tolerance) === disagreement
       ? { path: busiest[0].path, route: signal.route, version: busiest[0].version, ...sum }
       : undefined);
   if (worst) {

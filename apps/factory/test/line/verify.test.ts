@@ -304,8 +304,9 @@ function records(paths: Record<string, PathCounts>, { complete = true } = {}) {
   const loki = {
     instant: async (query: string): Promise<Sample[]> => {
       asked.push(query);
+      // The last day's log places only the paths given a route.
       return entries
-        .filter(([, c]) => c.logs > 0)
+        .filter(([, c]) => c.logs > 0 && (c.route !== undefined || !query.includes('[24h]')))
         .map(([path, c]) => ({ labels: { path, route: c.route ?? path }, value: c.logs }));
     },
   } as unknown as Loki;
@@ -353,8 +354,9 @@ describe('Verify by the log watcher’s agreement check', () => {
     expect(windows.at(-1)?.end).toEqual(new Date(later.getTime() - 4 * 60_000));
     for (const { start } of windows) expect(start.getTime()).toBeGreaterThanOrEqual(PROMOTED);
     // Each record counts the new version's requests alone.
-    expect(asked).toHaveLength(18);
-    for (const query of asked) expect(query).toMatch(new RegExp(`service_version="${VERSION}"|version ${VERSION}`));
+    const counted = asked.filter((query) => !query.includes('[24h]'));
+    expect(counted).toHaveLength(18);
+    for (const query of counted) expect(query).toMatch(new RegExp(`service_version="${VERSION}"|version ${VERSION}`));
   });
 
   it('persists while one of the route’s paths leaves no record, though the log never placed it on the route', async () => {
@@ -369,6 +371,18 @@ describe('Verify by the log watcher’s agreement check', () => {
         outcome: 'persists',
         evidence: { kind: 'logs', route: '/products/glove-right', version: VERSION, requests: 60, lines: [] },
       },
+    });
+    // Nor is a page the log gave a route of its own in the last day, though the template would fit it.
+    const sibling = records({ '/products/glove-left': logged, '/products/new': { metrics: 10, logs: 0, traces: 10 } });
+    const day = {
+      ...sibling.loki,
+      instant: async (query: string) =>
+        query.includes('[24h]')
+          ? [{ labels: { path: '/products/new', route: '/products/new' }, value: 9 }]
+          : sibling.loki.instant(query, later),
+    };
+    expect(await look(missingLog, target, options({ ...sibling, loki: day as unknown as Loki }))).toMatchObject({
+      verification: { outcome: 'cleared' },
     });
     // Another route's unlogged requests are not the ticket's.
     const elsewhere = records({ '/products/glove-left': logged, '/about': { metrics: 10, logs: 0, traces: 10 } });
@@ -433,6 +447,9 @@ describe('Verify by the log watcher’s agreement check', () => {
       why: 'the route had 6 requests on the new version, fewer than 20',
     });
     expect(await look(silentLog, target, options(thin))).toMatchObject({ kind: 'wait' });
+    // Persisting takes as many requests as clearing does.
+    const thinlyUnlogged = records({ '/products/glove-left': { metrics: 1, logs: 0, traces: 1 } });
+    expect(await look(missingLog, target, options(thinlyUnlogged))).toMatchObject({ kind: 'wait' });
     // More log records than requests: not a missing log, and not a log that agrees either.
     const over = records({ '/products/glove-left': { ...logged, logs: 30 } });
     expect(await look(missingLog, target, options(over))).toMatchObject({ kind: 'wait' });
