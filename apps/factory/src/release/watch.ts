@@ -68,6 +68,8 @@ export interface TargetRecord {
   attempts: number;
   /** Steps recorded, over every attempt. */
   steps: number;
+  /** Steps recorded before its latest start: the rest are its latest attempt's. */
+  stepsBefore: number;
   /** How its latest attempt ended, if it has. */
   ended: 'promoted' | 'rolled-back' | 'aborted' | undefined;
   /** When Argo Rollouts acted on its latest abort, if it was aborted. */
@@ -94,6 +96,7 @@ export function recordedFrom(
         startedAt: ts,
         attempts: (record?.attempts ?? 0) + 1,
         steps: record?.steps ?? 0,
+        stepsBefore: record?.steps ?? 0,
         ended: undefined,
       });
       continue;
@@ -286,11 +289,31 @@ export const whoAborted = (by: PayloadOf<'release.aborted'>['by']) =>
 export const startOf = (o: Observed, of: AnalysisRun) =>
   o.runs.find((run) => hashOf(run) === hashOf(of) && revisionOf(run) === revisionOf(of))?.metadata.creationTimestamp;
 
+/** A weight from the Rollout's steps, by a step's index, as an event takes it. */
+const weightAt = (o: Observed, index: number) =>
+  Math.max(1, Math.min(100, o.weights[Math.min(index, o.weights.length - 1)] ?? 1));
+
+const indexOf = (o: Observed, run: AnalysisRun) => Number(run.metadata.labels['step-index'] ?? o.stepIndex);
+
 /** The weight of the step a run judged, or the step the Rollout was at for a run in the background. */
-const weightOf = (o: Observed, run: AnalysisRun): number => {
-  const index = Number(run.metadata.labels['step-index'] ?? o.stepIndex);
-  return Math.max(1, Math.min(100, o.weights[Math.min(index, o.weights.length - 1)] ?? 1));
-};
+const weightOf = (o: Observed, run: AnalysisRun): number => weightAt(o, indexOf(o, run));
+
+/**
+ * The weight the canary had reached when a run in the background failed it, given the step runs of this attempt that
+ * ended. The Rollout no longer says: Argo Rollouts sends an aborted canary back to its first step in the same write
+ * that records the abort. The step runs do. The canary holds a step the analysis judges until its run passes, then goes
+ * on to the next: it was at the step after the last run that passed, or at the last run's step if that one did not
+ * pass, or, before any, at the first. A step run made after the last, which the abort terminated or found running,
+ * says the canary went on to its step, as when Martin resumed it past an inconclusive one. The weights are the
+ * Rollout's, by step index, as each step's are.
+ */
+function reachedWeight(o: Observed, release: string, attempt: readonly AnalysisRun[]): number {
+  const last = attempt.at(-1);
+  if (!last) return weightAt(o, 0);
+  const later = o.runs.slice(o.runs.indexOf(last) + 1).filter((run) => isOf(run, release) && isStep(run));
+  const passed = last.status.phase === 'Successful' ? 1 : 0;
+  return weightAt(o, Math.max(indexOf(o, last) + passed, ...later.map((run) => indexOf(o, run))));
+}
 
 const PHASES: Record<string, Measure['phase']> = {
   Pending: 'pending',
@@ -412,7 +435,8 @@ function forTarget(
     });
     retried = true;
   }
-  const steps = stepsOf(o, name).slice(record.steps);
+  const ran = stepsOf(o, name);
+  const steps = ran.slice(record.steps);
   for (const run of steps) {
     const measures = measuresOf(run);
     const requests = measures.find((m) => m.name === 'enough-requests')?.value;
@@ -465,7 +489,9 @@ function forTarget(
   } else if (o.aborted && names.current === name && failuresOf(o, name).some(inAttempt)) {
     failures = failuresOf(o, name).filter(inAttempt);
     const last = failures.at(-1) as AnalysisRun;
-    const weight = weightOf(o, last);
+    // A retry in this pass has recorded none of its steps yet; its earlier attempts' were recorded before it.
+    const attempt = ran.slice(retried ? record.steps : record.stepsBefore);
+    const weight = isStep(last) ? weightOf(o, last) : reachedWeight(o, name, attempt);
     const failed: Failed[] = failures
       .flatMap((run) =>
         measuresOf(run)
@@ -603,7 +629,7 @@ export function releaseNeeds(o: Observed, recorded: Recorded, lastRelease?: stri
       undefined,
       o.plan,
     );
-    const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, ended: undefined };
+    const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, stepsBefore: 0, ended: undefined };
     add(forTarget(o, names, start.release, record, empty));
   }
   for (const name of releasesIn(names)) {
@@ -684,7 +710,7 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
       const admitted = o.admitted === true;
       const started = startedPayload(start, read, admitted, facts.lastPromoted, o.plan);
       const how = `${read.signed ? 'signed' : 'not signed'} and ${admitted ? 'admitted' : 'refused admission'}`;
-      const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, ended: undefined };
+      const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, stepsBefore: 0, ended: undefined };
       for (const target of targets) {
         add(target, [
           {
