@@ -93,12 +93,17 @@ export const MEASURES = [
  * What the analysis saw of a measure that failed a release, against its limit, in the analysis's own terms
  * (`apps/factory/src/release/analysis.ts`): the requests the split sent the canary, against the fewest it needs; the
  * canary's share of 5xx answers above the baseline's, against the most it may be; how far its p99 went past the most
- * it may be, rounded up, as any excess fails. A limit the analysis did not record is not said. A measure with no value
- * says it in its own words, unless those are the rollback's or Argo Rollouts' ("Metric … assessed Failed due to …"):
- * the journeys report no number, and errors and latency with none had no figures to compare, which the analysis
- * counts as infinitely worse.
+ * it may be, to the millisecond but never as none, since any excess fails. A limit the analysis did not record is not
+ * said. A measure with no value says it in its own words, unless those are the rollback's or Argo Rollouts' ("Metric …
+ * assessed Failed due to …"): the journeys report no number, and errors and latency with none had no figures to
+ * compare, which the analysis counts as infinitely worse.
+ *
+ * Errors and latency say each version's own figure first, where the rollback's series has both at the moment the
+ * analysis failed (`versionsAt`): "p99 415 ms against 39 ms: 276 ms over its limit". Each figure is rounded on its
+ * own, so the last digit of the excess can differ by one from the sum a reader makes of the two beside it.
  */
-export function sawOf({ name, value, limit, message }: Failed, reason: string): string {
+export function sawOf(failed: Failed, reason: string): string {
+  const { name, value, limit, message } = failed;
   const own = ownWords(message, reason);
   if (value === null)
     return (
@@ -109,11 +114,40 @@ export function sawOf({ name, value, limit, message }: Failed, reason: string): 
     );
   const points = (x: number) => `${(x * 100).toFixed(2)} points`;
   const against = (words: string) => (limit === null ? '' : `, against ${words}`);
-  if (name === 'latency') return `p99 ${Math.ceil(Math.round((value - (limit ?? 0)) * 1e6) / 1000)} ms over its limit`;
-  if (name === 'errors')
-    return `5xx share ${points(value)} above the baseline’s${against(`at most ${points(limit ?? 0)}`)}`;
+  const both = versionsAt(failed);
+  if (name === 'latency') {
+    // In µs first, so a float such as 1.0005 s is not read as 1000.4999… ms.
+    const over = `${Math.max(1, Math.round(Math.round((value - (limit ?? 0)) * 1e6) / 1000))} ms over its limit`;
+    return both ? `p99 ${Math.round(both.canary)} ms against ${Math.round(both.baseline)} ms: ${over}` : `p99 ${over}`;
+  }
+  if (name === 'errors') {
+    if (!both) return `5xx share ${points(value)} above the baseline’s${against(`at most ${points(limit ?? 0)}`)}`;
+    const allowed = limit === null ? '' : `, at most ${points(limit)} allowed`;
+    return `5xx share ${both.canary.toFixed(2)}% against ${both.baseline.toFixed(2)}%: ${points(value)} above${allowed}`;
+  }
   if (name === 'enough-requests') return `${value} requests to the canary${against(`at least ${limit}`)}`;
   return `${value}${against(`a limit of ${limit}`)}`;
+}
+
+/**
+ * The unit each measure's series is drawn in, as the line draws it (`apps/factory/src/release/read.ts`'s `DRAWN`). A
+ * test holds them together.
+ */
+export const SERIES_UNITS: Record<string, string> = { errors: '%', latency: 'ms' };
+
+/**
+ * Each version's own figure when the analysis failed a measure: the canary's and the baseline's values at the series'
+ * `at`, in its unit (a share of 5xx answers in percent, a p99 in ms). The line draws the series from the same query
+ * the analysis runs for each version, over the same window, up to the run's end. Argo Rollouts ends a run in the
+ * same pass as the look that fails it, so the figures there are the ones that look compared, to within a moment of
+ * the window. Undefined for a measure with no series, one in a unit not its
+ * own, or where either version has no value.
+ */
+export function versionsAt({ name, series }: Failed): { canary: number; baseline: number } | undefined {
+  if (!series || series.unit !== SERIES_UNITS[name]) return undefined;
+  const canary = series.canary[series.at];
+  const baseline = series.baseline[series.at];
+  return typeof canary === 'number' && typeof baseline === 'number' ? { canary, baseline } : undefined;
 }
 
 /** A failed measure's message, when it says more than the rollback's reason or Argo Rollouts' boilerplate. */

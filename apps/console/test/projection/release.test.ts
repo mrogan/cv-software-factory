@@ -5,9 +5,19 @@
 import type { PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { release as policy } from '../../../../policy/release.ts';
+import { DRAWN } from '../../../factory/src/release/read.ts';
 import { project, projectSheet, upTo } from '../../web/src/projection/index.ts';
 import { type Card, timeline } from '../../web/src/projection/reel.ts';
-import { type Failed, MEASURES, ownWords, type Release, releases, sawOf } from '../../web/src/projection/release.ts';
+import {
+  type Failed,
+  MEASURES,
+  ownWords,
+  type Release,
+  releases,
+  SERIES_UNITS,
+  sawOf,
+  versionsAt,
+} from '../../web/src/projection/release.ts';
 import { END, SAMPLES, work } from './support.ts';
 
 const at = (iso: string) => Date.parse(iso);
@@ -500,6 +510,10 @@ it('keeps the measures’ rules in the policy’s terms', () => {
   expect(words.journeys).toContain('twice');
 });
 
+it('reads each series in the unit the line draws it in', () => {
+  expect(SERIES_UNITS).toEqual(Object.fromEntries(Object.entries(DRAWN).map(([name, d]) => [name, d.unit])));
+});
+
 describe('what the analysis saw of a measure that failed', () => {
   const reason = 'Metric "latency" assessed Failed due to failed (2) > failureLimit (1)';
   const failed = (name: string, value: number | null, limit: number | null, message?: string): Failed => ({
@@ -518,11 +532,60 @@ describe('what the analysis saw of a measure that failed', () => {
     expect(sawOf(failed('latency', 0.273, 0), reason)).toBe('p99 273 ms over its limit');
     // Any excess fails, so a fraction of a millisecond is not said as none.
     expect(sawOf(failed('latency', 0.0004, 0), reason)).toBe('p99 1 ms over its limit');
+    // Otherwise to the nearest millisecond, as the figures beside it are, and not misread by a float's last digits.
+    expect(sawOf(failed('latency', 0.2731, 0), reason)).toBe('p99 273 ms over its limit');
+    expect(sawOf(failed('latency', 1.0005, 0), reason)).toBe('p99 1001 ms over its limit');
     // The limit is what the value is held to: the excess over it is what is said.
     expect(sawOf(failed('latency', 0.273, 0.1), reason)).toBe('p99 173 ms over its limit');
     // A limit the analysis did not record is not said.
     expect(sawOf(failed('errors', 0.024, null), reason)).toBe('5xx share 2.40 points above the baseline’s');
     expect(sawOf(failed('other', 3, null), reason)).toBe('3');
+  });
+
+  describe('with the series the line drew', () => {
+    const series = (unit: string, canary: (number | null)[], baseline: (number | null)[], at = canary.length - 1) => ({
+      label: unit === 'ms' ? 'p99 latency' : 'share of 5xx answers',
+      unit,
+      stepSeconds: 15,
+      canary,
+      baseline,
+      at,
+    });
+    const withSeries = (f: Failed, s: ReturnType<typeof series>): Failed => ({ ...f, series: s });
+
+    it('says both versions’ figures at the failure, before how far over its limit it was', () => {
+      // A real rollback's latency measure, as the line recorded it: the canary's p99 less the baseline's and its margin.
+      const latency = withSeries(failed('latency', 0.27624068397288937, 0), series('ms', [40.1, 415.2], [38.5, 38.96]));
+      expect(versionsAt(latency)).toEqual({ canary: 415.2, baseline: 38.96 });
+      // Rounded as the figures are, the excess agrees with them: 415 less 39 and its 100 ms margin.
+      expect(sawOf(latency, reason)).toBe('p99 415 ms against 39 ms: 276 ms over its limit');
+      const errors = withSeries(failed('errors', 0.024, 0.01), series('%', [0.5, 3.4], [0.9, 1]));
+      expect(sawOf(errors, reason)).toBe(
+        '5xx share 3.40% against 1.00%: 2.40 points above, at most 1.00 points allowed',
+      );
+      expect(sawOf({ ...errors, limit: null }, reason)).toBe('5xx share 3.40% against 1.00%: 2.40 points above');
+    });
+
+    it('reads the figures where the analysis failed, not where the lines end', () => {
+      const latency = withSeries(
+        failed('latency', 0.173, 0),
+        series('ms', [140, 412, 409, null], [138, 139, 137, 139], 1),
+      );
+      expect(sawOf(latency, reason)).toBe('p99 412 ms against 139 ms: 173 ms over its limit');
+    });
+
+    it('keeps today’s wording where a version has no figure, or the series is not the measure’s', () => {
+      const gap = withSeries(failed('latency', 0.173, 0), series('ms', [140, null], [138, 139]));
+      expect(versionsAt(gap)).toBeUndefined();
+      expect(sawOf(gap, reason)).toBe('p99 173 ms over its limit');
+      const other = withSeries(failed('latency', 0.173, 0), series('%', [1, 2], [1, 1]));
+      expect(sawOf(other, reason)).toBe('p99 173 ms over its limit');
+      const errors = withSeries(failed('errors', 0.024, 0.01), series('%', [0.5, 3.4], [0.9, null]));
+      expect(sawOf(errors, reason)).toBe('5xx share 2.40 points above the baseline’s, against at most 1.00 points');
+      // A measure with no value had nothing to compare, whatever its series.
+      const none = withSeries(failed('latency', null, 0), series('ms', [140, 412], [138, 139]));
+      expect(sawOf(none, reason)).toBe('no figures to compare, which counts as infinitely worse');
+    });
   });
 
   it('says when there was nothing to compare, and lets the journeys say what they saw', () => {

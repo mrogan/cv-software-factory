@@ -259,6 +259,14 @@ button.srow:hover {
 .srow small.tone-ok {
   color: var(--tone);
 }
+/* What the station is at work on: its note in ink, after the station's own "working" dot. */
+.srow small.working {
+  color: var(--text);
+}
+.srow small .dot {
+  margin-right: 6px;
+  vertical-align: 1px;
+}
 /* An earlier state the work item went through in the stage today, kept in its row. */
 .srow small s {
   color: var(--text-muted);

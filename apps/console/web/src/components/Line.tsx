@@ -9,6 +9,7 @@ import { describe, STAGE_NAME, STATE } from '../../../../../docs/design/system/s
 import { clock, duration, shortVersion } from '../format.ts';
 import {
   type CapSpell,
+  type PanelRow,
   type Return,
   type SenseCount,
   type Station,
@@ -372,6 +373,14 @@ interface PanelProps {
   onOpen: (item: string) => void;
 }
 
+/**
+ * The station's own "working" dot, on a row it is at work on, so the work in hand stands out from what waits. It is
+ * named "working" for a screen reader, since a release's row has no accessible name of its own to say it in.
+ */
+function WorkingDot({ working }: { working: PanelRow['working'] }) {
+  return working ? <span className="dot tone-signal" role="img" aria-label="working" /> : null;
+}
+
 function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
@@ -443,7 +452,10 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
             </span>
             <span>
               {row.title}
-              <small className={`tone-${row.tone}`}>{row.note}</small>
+              <small className={row.working ? 'working' : `tone-${row.tone}`}>
+                <WorkingDot working={row.working} />
+                {row.note}
+              </small>
             </span>
           </div>
         ) : (
@@ -452,17 +464,22 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
             type="button"
             className="srow"
             onClick={() => onOpen(row.item)}
-            aria-label={`Open #${row.item}, ${row.title}: ${[...row.earlier.map((e) => `earlier ${e}`), row.note].join(', ')}`}
+            aria-label={`Open #${row.item}, ${row.title}: ${[
+              ...row.earlier.map((e) => `earlier ${e}`),
+              ...(row.working ? ['working'] : []),
+              row.note,
+            ].join(', ')}`}
           >
             <span className="id">#{row.item}</span>
             <span>
               {row.title}
-              <small className={`tone-${row.tone}`}>
+              <small className={row.working ? 'working' : `tone-${row.tone}`}>
                 {row.earlier.map((e) => (
                   <span key={e}>
                     <s>{e}</s> ·{' '}
                   </span>
                 ))}
+                <WorkingDot working={row.working} />
                 {row.note}
               </small>
             </span>

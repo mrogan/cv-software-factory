@@ -42,7 +42,7 @@ describe('the line, with tickets waiting for the planner', () => {
     expect(row).toMatchObject({ note: 'Needs you · parked for Martin', tone: 'attn' });
   });
 
-  it('lists each stage panel’s items newest first, by work-item number', () => {
+  it('lists what waits in Plan’s panel, and what left Sense’s, newest first by work-item number', () => {
     const plan = view.panels.plan.rows.map((r) => r.item);
     expect(plan).toEqual(['1010', '1006', '1005', '1004', '1003', '1002', '1001', '1000']);
     const sense = view.panels.sense.rows.map((r) => r.item);
