@@ -251,6 +251,10 @@ function ErrorEnd({ r }: { r: Release }) {
     <>
       {m?.weight === end.weight && m.stepped.analysis.phase === 'error' ? (
         <Measures r={r} m={m} />
+      ) : !end.errored.length ? (
+        <p className="canary-note first">
+          The analysis ended in Error before any measure did: its words below are all it said.
+        </p>
       ) : (
         <table className="measures">
           <thead>
@@ -261,9 +265,9 @@ function ErrorEnd({ r }: { r: Release }) {
             </tr>
           </thead>
           <tbody>
-            {end.errored.map((e, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: a measure can err in more than one of the attempt's analyses, and an event's list never changes
-              <tr key={i}>
+            {end.errored.map((e) => (
+              // The line names each measure once.
+              <tr key={e.name}>
                 <td>{label(e.name)}</td>
                 <td>{ownWords(e.message, end.reason) ?? '—'}</td>
                 <td>

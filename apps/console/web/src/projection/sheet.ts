@@ -669,14 +669,15 @@ const CHAPTERS: Record<StoppedBy, string> = { stop: 'STOPPED', martin: 'ABORTED'
 function releaseChapter(r: Release): { label: string; tone: Chapter['tone']; text: string } {
   const { end } = r;
   const v = shortVersion(r.version);
+  const by = stoppedBy(end);
   const passed = r.measured.filter((m) => m.stepped.analysis.phase === 'successful').map((m) => `${m.weight}%`);
   const [label, tone, text]: [string, Chapter['tone'], string] =
     end?.kind === 'promoted'
       ? ['PROMOTED', 'ok', `${v} promoted to all traffic${passed.length ? `, after ${listed(passed)} passed` : ''}`]
       : end?.kind === 'rolled-back'
         ? ['ROLLED BACK', 'attn', `${v} rolled back at ${end.weight}%`]
-        : end?.kind === 'aborted' || end?.kind === 'errored'
-          ? [CHAPTERS[stoppedBy(end) ?? 'error'], 'attn', `${v} ${endedWords(end)} at ${end.weight}%`]
+        : end && by
+          ? [CHAPTERS[by], 'attn', `${v} ${endedWords(end)} at ${end.weight}%`]
           : ['CANARY', 'signal', `${v} on the canary at ${r.weight}%`];
   return r.dryRun ? { label, tone: 'faint', text: `${text}, in a dry run` } : { label, tone, text };
 }

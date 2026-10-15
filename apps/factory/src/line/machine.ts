@@ -53,8 +53,8 @@
  * A merged change waits at Release, held for Martin (`deploy`), until a release that carries it starts: the deploy
  * pull request that carries it is his to merge, and the release's start ends the hold by itself. A release that rolls
  * back holds it again, for the next; so does one whose analysis erred, or that Martin aborted, until he retries it,
- * which starts it again, or a later release carries the change. A dry run's merge, which no deploy can carry, is not held: it waits at Release
- * for the dry run's release. One that promotes moves it to Verify, where the sense that saw the defect looks again
+ * which starts it again, or a later release carries the change. A dry run's merge, which no deploy can carry, is not
+ * held: it waits at Release for the dry run's release. One that promotes moves it to Verify, where the sense that saw the defect looks again
  * (`verify.ts`). A signal that has cleared closes the work item as verified. One that persists sends the work back to
  * Plan, with the verification for the planner: a fresh pass, with a new spec, a new pull request, its own gates,
  * review, merge and release. A second that persists holds for Martin, as does a ticket only a visitor's report saw,

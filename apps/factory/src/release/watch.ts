@@ -536,7 +536,11 @@ function forTarget(
     const errors = errorsOf(o, name).filter(inAttempt);
     const last = errors.at(-1) as AnalysisRun;
     const weight = endedAt(o, name, last, attempt());
-    const errored = errors.flatMap((run) => measuresOf(run).filter((m) => m.phase === 'error')).slice(0, 8);
+    // One measure that erred in more than one run of the attempt is said once, in the latest run's words.
+    const byName = new Map(
+      errors.flatMap((run) => measuresOf(run).filter((m) => m.phase === 'error')).map((m) => [m.name, m]),
+    );
+    const errored = [...byName.values()].slice(0, 8);
     const reason = words(last.status.message, 200) ?? 'The analysis could not judge the canary';
     drafts.push({
       type: 'release.errored',

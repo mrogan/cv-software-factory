@@ -493,6 +493,24 @@ describe('a release, from the Rollout and its runs', () => {
     });
   });
 
+  it('names a measure that erred in more than one run of the attempt once, in the latest run’s words', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), [background(), step(2)], {
+      start: { ...START, carries: ['1001'] },
+    });
+    const inBackground = background({ phase: 'Error', completed: t(10), metrics: { latency: { phase: 'Error' } } });
+    const atStep = step(5, {
+      phase: 'Error',
+      created: t(9),
+      completed: t(9.5),
+      metrics: { latency: { phase: 'Error', message: 'connection refused' } },
+    });
+    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(10) });
+    s.pass(aborted, [inBackground, step(2), atStep]);
+    const [ended] = s.of('1001', 'release.errored') as PayloadOf<'release.errored'>[];
+    expect(ended?.errored.map((m) => [m.name, m.message])).toEqual([['latency', 'connection refused']]);
+  });
+
   it('records an Error in the background at the weight the canary had reached', () => {
     const s = store(STABLE_RECORDED);
     s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), [background(), step(2)], {
