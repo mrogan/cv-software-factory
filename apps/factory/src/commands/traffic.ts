@@ -1,10 +1,10 @@
 /**
- * `factory traffic`: the traffic generator (`traffic/traffic.ts`), which walks the shop's public pages and its search
+ * `factory traffic`: the traffic generator (`traffic/traffic.ts`), which walks the app's public pages and its search
  * at the rate policy/release.ts sets, until it is stopped.
  *
  *     factory traffic [--walk]
  *
- * `--walk` prints the round it would walk, and sends nothing more. Settings, from the environment: APP_URL, the shop's
+ * `--walk` prints the round it would walk, and sends nothing more. Settings, from the environment: APP_URL, the app's
  * public address, such as http://website.localhost:8080; and INGRESS_URL, the ingress to connect to instead, sending
  * APP_URL's host, where that name does not resolve (in the cluster, http://traefik.kube-system). Run with the preload,
  * it sends its own traces, metrics and logs to the collector.
@@ -18,7 +18,7 @@ export async function run(args: string[]): Promise<number> {
   const { values } = parseArgs({ args, options: { walk: { type: 'boolean', default: false } } });
   const { APP_URL, INGRESS_URL } = process.env;
   if (!APP_URL) {
-    console.error('Set APP_URL to the shop’s public address, such as http://website.localhost:8080.');
+    console.error('Set APP_URL to the app’s public address, such as http://website.localhost:8080.');
     return 2;
   }
   // The instrumentation goes in before the modules it patches are imported.

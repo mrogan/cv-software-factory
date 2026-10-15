@@ -1,6 +1,6 @@
 # The journeys' fence. The analysis Job runs in `website`, beside the app it compares, and may reach the app's pods (the
 # stable and the canary, behind their Services' port 80) and DNS, and nothing else: not the factory, the telemetry, the
-# Kubernetes API or the internet. Chromium follows whatever a page links to; this keeps it in the shop.
+# Kubernetes API or the internet. Chromium follows whatever a page links to; this keeps it in the app.
 #
 # It selects the journeys' pods only. The app's own pods have their fence (deploy/base/website/network-policy.yaml),
 # which lets these in.

@@ -93,7 +93,7 @@ It has controls, which must reach what they reach:
 - the gateway reaches TypeSafe;
 - the GitHub worker reaches GitHub and GHCR;
 - Kyverno's admission controller reaches GHCR and Sigstore;
-- the traffic generator reaches the shop only through Traefik;
+- the traffic generator reaches the app only through Traefik;
 - the line reaches Loki and the probes' verify port, but not Tempo or their page reader;
 - the probes reach the canary;
 - Traefik, the probes and the crawler still reach the app.

@@ -28,7 +28,7 @@ The app runs as a Rollout in its own repository's `deploy/`, which CODEOWNERS gi
 An analysis runs after each pause, and one in the background from the start.
 
 - **Services.** The stable version keeps the Service `website`, which the senses watch. The canary's is `website-canary`.
-- **The split.** Traefik splits the shop's traffic between them through a `TraefikService`, whose weights Argo Rollouts sets with its built-in Traefik router, so no plugin is fetched.
+- **The split.** Traefik splits the app's traffic between them through a `TraefikService`, whose weights Argo Rollouts sets with its built-in Traefik router, so no plugin is fetched.
 
 ## The judgement is the factory's
 
@@ -73,7 +73,7 @@ Errors and latency are the visitors' and the [traffic generator](TRAFFIC-GENERAT
   - the journeys and the pictures, which ask both Services directly;
   - the probes, the crawler and the page reader, which watch the stable Service throughout, so whatever their checks provoke weighs on neither version.
 - **No record.** The app keeps no record of those requests in its request log, request metrics or traces, so the three still agree ([log watcher](LOG-WATCHER.md#agreement)). An error one causes is still logged, with no trace.
-- **Only from inside.** The shop's public route removes the header (a Traefik `Middleware` in the app's repository), so only a client in the cluster, asking the Services directly, can be left out.
+- **Only from inside.** The app's public route removes the header (a Traefik `Middleware` in the app's repository), so only a client in the cluster, asking the Services directly, can be left out.
 - **Kept:** the traffic generator never sends it. It stands in for the visitors, and goes in through the split as they do.
 
 ## Rolling back and stopping

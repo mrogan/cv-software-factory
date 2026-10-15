@@ -279,7 +279,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                 <p className="notice sample-note">
                   <span className="label">Sample</span>
                   Written by hand to show what the console will show. Nothing here happened; the screenshots are of the
-                  real shop, with this sample’s change made in a copy that went nowhere.
+                  real app, with this sample’s change made in a copy that went nowhere.
                 </p>
               )}
               {sheet.report &&

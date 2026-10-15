@@ -32,7 +32,7 @@ const BLURB: Record<Stage, string> = {
 
 /** Where Triage takes work from: the senses, each with what it watches. */
 const SENSES: Record<Sense, [name: string, watches: string]> = {
-  probe: ['Probes', 'a shopper’s journeys'],
+  probe: ['Probes', 'a visitor’s journeys'],
   crawler: ['Crawler', 'every page and file'],
   metrics: ['Metrics', 'the app’s objectives'],
   logs: ['Logs', 'new error patterns'],

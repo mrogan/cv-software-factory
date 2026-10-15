@@ -1,13 +1,13 @@
 /**
  * Pictures of a release, taken while both its versions run. During a canary the stable Service and the canary Service
- * answer `/version` with different commits; then the probes worker screenshots every page of the shop on each, and
+ * answer `/version` with different commits; then the probes worker screenshots every page of the app on each, and
  * compares each pair pixel by pixel (`compare.ts`). After full rollout the old version is gone, so the pictures cannot
  * wait for Verify, which reads them from the index (`index.ts`) as "every page against the version before".
  *
  * It is an extra pass beside the senses, not a change to what they watch: they look at the stable Service alone.
  *
  * - Once for each canary and the stable version it replaces. A canary retried after a rollback has them already.
- * - Every page the shop's front door leads to, as the traffic generator finds them, and every page a sense boxed an
+ * - Every page the app's front door leads to, as the traffic generator finds them, and every page a sense boxed an
  *   element on lately (`looks`), with those elements boxed on both versions: the ticket's own page, for the sheet. A
  *   page may carry the boxes of more than one check; each box keeps its selector, for the line to keep a ticket's own.
  * - Either version moving while a page was taken (a promotion, a rollback) drops that page and ends the pass: its
@@ -25,7 +25,7 @@ import { templater } from '../senses/routes.ts';
 import { compare } from './compare.ts';
 import type { Look, Picture, PictureIndex, Shot } from './index.ts';
 
-/** The most pages compared for one canary: the shop has about forty, with its departments and product pages. */
+/** The most pages compared for one canary: the app has about forty, with its departments and product pages. */
 export const MOST_PAGES = 60;
 /** Passes tried for one canary, or one rollout, before it is given up. */
 export const TRIES = 3;
@@ -122,7 +122,7 @@ export class Pictures {
     const { log, store, index } = this.#o;
     const looks = await index.looks(this.#now());
     const found = await this.#o.pages(this.#o.stable);
-    // The pages a sense boxed come first, so a long shop never leaves them out, and a short canary takes them first.
+    // The pages a sense boxed come first, so the rest never crowd them out, and a short canary takes them first.
     const paths = [...new Set([...looks.map((l) => l.path), ...found])].slice(0, MOST_PAGES);
     if (!paths.length) {
       // The front door did not answer: no page is known, which is not the same as every page pictured.

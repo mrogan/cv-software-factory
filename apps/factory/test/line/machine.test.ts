@@ -397,7 +397,7 @@ describe('after the merge', () => {
           stage: 'release',
           kind: 'approval',
           cause: 'deploy',
-          reason: 'The fix in pull request #12 is merged, and waits for a deploy pull request to carry it to the shop',
+          reason: 'The fix in pull request #12 is merged, and waits for a deploy pull request to carry it to the app',
         },
       },
     });

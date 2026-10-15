@@ -84,7 +84,7 @@ export async function exchange(
       await response.body?.cancel();
       redirects.push({ status: response.status, location: location.slice(0, 300) });
       url = new URL(location, url);
-      // A shopper who is sent to another site has left the app: that is as far as the app's own answer goes.
+      // A visitor who is sent to another site has left the app: that is as far as the app's own answer goes.
       if (url.origin !== new URL(app).origin) return finish(response, '', null);
       if (seen.has(url.href) || redirects.length > MAX_REDIRECTS) return finish(response, '', null, 'redirect loop');
       continue;

@@ -1,5 +1,5 @@
 /**
- * `factory probes`: the journeys a shopper takes, run against the app.
+ * `factory probes`: the journeys a visitor takes, run against the app.
  *
  *     factory probes run
  *     factory probes once

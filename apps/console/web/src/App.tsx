@@ -92,7 +92,7 @@ export function App() {
           <section className="intro" aria-labelledby="app-name">
             <div>
               <h1 id="app-name">The World’s Worst Website</h1>
-              <p className="sub">a deliberately broken shop, looked after by agents</p>
+              <p className="sub">a deliberately broken app, looked after by agents</p>
             </div>
             <span className="status phone-status">
               <LineStatus line={view.header} connection={source.connection} />

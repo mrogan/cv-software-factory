@@ -1,10 +1,10 @@
 /**
- * The traffic generator: a steady walk through the shop's public pages and its search, so that a canary has enough
+ * The traffic generator: a steady walk through the app's public pages and its search, so that a canary has enough
  * requests to be judged, and the objectives have traffic too. It goes in through the front door, the ingress, so the
  * canary's traffic split applies to it as to any visitor.
  *
  * It only ever GETs: it never sends a report or the contact form, so nothing it does becomes a signal but what the
- * shop's own telemetry says about the requests.
+ * app's own telemetry says about the requests.
  *
  * The walk is the same every round, in the same order, and its length shares no factor with 100. The ingress shares
  * requests between the stable version and the canary by weighted round robin, in a percentage of each hundred: a round
@@ -16,21 +16,21 @@ import { request } from 'node:http';
 import type { Logger } from '../log.ts';
 import type { RequestHeaders } from '../senses/http.ts';
 
-/** What the shop answered: its status and the page. */
+/** What the app answered: its status and the page. */
 export interface Answer {
   status: number;
   body: string;
 }
 
-/** Asks the shop for a path and its query, by GET. */
+/** Asks the app for a path and its query, by GET. */
 export type Get = (path: string) => Promise<Answer>;
 
-/** The most pages the walk finds: the shop has about forty, with its product list's pages and departments. */
+/** The most pages the walk finds: the app has about forty, with its product list's pages and departments. */
 const MOST_PAGES = 200;
 
 /** Same-origin links on a page, as paths with their queries. Assets and fragments are not pages to walk. */
 export function linksOn(body: string): string[] {
-  const base = 'http://shop';
+  const base = 'http://app';
   const paths: string[] = [];
   for (const [, href] of body.matchAll(/<a\s[^>]*?href="([^"]*)"/g)) {
     if (!href) continue;
@@ -46,7 +46,7 @@ export function linksOn(body: string): string[] {
 }
 
 /**
- * The shop's pages, as a visitor finds them from the front door: every page its links lead to, breadth first, then a
+ * The app's pages, as a visitor finds them from the front door: every page its links lead to, breadth first, then a
  * search for the first word of each product's address. A page that answers badly is still a page: it is walked, but
  * its links are not followed. A front door that answers badly leads nowhere, and finds nothing.
  */
@@ -124,11 +124,11 @@ export class Traffic {
 
   async #rediscover(): Promise<void> {
     const pages = await discover(this.#options.get).catch(() => []);
-    // A shop that could not be walked, in the middle of a release, say, keeps the walk it had: the front door, at least.
-    if (!pages.length) return void this.#options.log.warn('could not find the shop’s pages; walking the ones it had');
+    // An app that could not be walked, in the middle of a release, say, keeps the walk it had: the front door, at least.
+    if (!pages.length) return void this.#options.log.warn('could not find the app’s pages; walking the ones it had');
     const walk = round(pages);
     if (walk.join() !== this.#walk.join()) {
-      this.#options.log.info({ pages: pages.length, round: walk.length }, 'walking the shop’s pages');
+      this.#options.log.info({ pages: pages.length, round: walk.length }, 'walking the app’s pages');
       this.#walk = walk;
       this.#next = 0;
     }
@@ -160,7 +160,7 @@ export class Traffic {
 }
 
 export interface GetOptions {
-  /** The ingress's address, to connect to in place of the shop's. */
+  /** The ingress's address, to connect to in place of the app's. */
   ingress?: string | undefined;
   timeoutMs?: number;
   /** Sent besides the usual. The traffic generator sends none: it stands in for the visitors, who are judged. */
@@ -168,11 +168,11 @@ export interface GetOptions {
 }
 
 /**
- * GETs the shop over HTTP. Given the ingress's address, it connects there and names the shop's host, as a visitor's
- * browser would through DNS: in the cluster the shop's public name is not resolvable, but the ingress is.
+ * GETs the app over HTTP. Given the ingress's address, it connects there and names the app's host, as a visitor's
+ * browser would through DNS: in the cluster the app's public name is not resolvable, but the ingress is.
  */
 export function httpGet(app: string, { ingress, timeoutMs = 10_000, headers }: GetOptions = {}): Get {
-  const shop = new URL(app);
+  const { host } = new URL(app);
   const to = new URL(ingress ?? app);
   return (path) =>
     new Promise((resolve, reject) => {
@@ -182,7 +182,7 @@ export function httpGet(app: string, { ingress, timeoutMs = 10_000, headers }: G
           port: to.port || 80,
           path,
           method: 'GET',
-          headers: { 'user-agent': 'software-factory-traffic', ...headers, host: shop.host },
+          headers: { 'user-agent': 'software-factory-traffic', ...headers, host },
           timeout: timeoutMs,
         },
         (res) => {

@@ -30,7 +30,7 @@ function shop(asked: string[] = []): Get {
 }
 
 describe('the walk', () => {
-  it('follows the shop’s own links only: not another site, an asset or a place on the page', () => {
+  it('follows the app’s own links only: not another site, an asset or a place on the page', () => {
     expect(linksOn(page('/a', 'b?c=1&amp;d=2', 'https://elsewhere.example/x', '/assets/site.css', '#main'))).toEqual([
       '/a',
       '/b?c=1&d=2',
@@ -80,7 +80,7 @@ describe('the walk', () => {
       return requests.filter((_, i) => i % period === period - 1);
     };
     const pages = Array.from({ length: 40 }, (_, i) => `/page/${i}`);
-    // Forty pages, as the shop has: walked as they are, a quarter would send the canary only every fourth page.
+    // Forty pages, as the app has: walked as they are, a quarter would send the canary only every fourth page.
     expect(new Set(toCanary(pages, 4)).size).toBe(10);
     const walk = round(pages);
     for (const period of [4, 2]) {
@@ -118,7 +118,7 @@ describe('the traffic', () => {
     expect(asked).toEqual(Array.from({ length: 50 }, (_, i) => traffic.walk[i % traffic.walk.length]));
   });
 
-  it('keeps the walk it had when the shop cannot be walked again', async () => {
+  it('keeps the walk it had when the app cannot be walked again', async () => {
     vi.useFakeTimers();
     const get = shop();
     let down = false;
@@ -158,8 +158,8 @@ describe('the traffic', () => {
   });
 });
 
-describe('asking the shop', () => {
-  it('connects to the ingress and names the shop, by GET', async () => {
+describe('asking the app', () => {
+  it('connects to the ingress and names the app’s host, by GET', async () => {
     const seen: { method: string | undefined; url: string | undefined; headers: IncomingHttpHeaders }[] = [];
     const server = createServer((req, res) => {
       seen.push({ method: req.method, url: req.url, headers: req.headers });
@@ -200,7 +200,7 @@ describe('asking the shop', () => {
     }
   });
 
-  it('gives up on a shop that does not answer', async () => {
+  it('gives up on an app that does not answer', async () => {
     const server = createServer(() => {});
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const { port } = server.address() as AddressInfo;

@@ -16,7 +16,7 @@
  *
  * A work item that closed as verified and reopened (triage reopens it when its signal comes back) is taken back into
  * Plan for a fresh pass (`revive`), whatever else is on the line and whatever the limit: it is one the line took
- * already, and its defect is back in the shop. It is taken back once for each reopening, from wherever its row was
+ * already, and its defect is back in the app. It is taken back once for each reopening, from wherever its row was
  * (ended, or not yet ended when it reopened), and until then the line hands it to nobody.
  */
 import { lastEnd } from '@software-factory/store';

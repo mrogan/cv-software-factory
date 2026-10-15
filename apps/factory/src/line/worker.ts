@@ -15,7 +15,7 @@
  *   is in Plan or waiting for Build (`queue.ts`). Each work item is leased while it is acted on.
  * - It reads its pull requests' gates and merges through the GitHub worker about once a minute (`gates.ts`).
  * - About as often, it tells the app's deploy pull request which work items it carries: those whose fixes merged
- *   between the commit the shop runs and the one the pull request runs, as a release starting records them. It says
+ *   between the commit the app runs and the one the pull request runs, as a release starting records them. It says
  *   so only when the list, or the pull request, has changed since it last did. Not with `only`: a soak of one work
  *   item says nothing of the others.
  * - About every thirty seconds, it reads the app's Rollout and its AnalysisRuns, and records each release on the work
@@ -977,7 +977,7 @@ export class Line {
 
   /**
    * Tells the app's open deploy pull request which work items it carries (`carried`): each whose latest fix merged
-   * after the commit the shop runs (the last promoted release's, else the one pinned now), up to the one the pull
+   * after the commit the app runs (the last promoted release's, else the one pinned now), up to the one the pull
    * request runs. A dry run's merge commit, which GitHub never had, is in no range. The worker leaves a body that says
    * the same as it is; the line does not ask again until the list or the pull request changes.
    */

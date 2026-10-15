@@ -23,7 +23,7 @@
  * In a dry run (`LINE_MODE=dry-run`), a work item whose merge the dry run made, which never shipped, is released by the
  * dry run's word instead: started a while after its merge, stepped, and promoted, each marked `dryRun`, so a soak goes
  * round. With `only`, the line records a release only when it carries that work item or none (the line's own events
- * keep the record of what the shop runs whole, which the next release is compared with), and answers for the dry
+ * keep the record of what the app runs whole, which the next release is compared with), and answers for the dry
  * run's release of that work item alone.
  *
  * The watch goes on while the line is stopped (`worker.ts`): it only reads and records, and Stop the line's own abort
@@ -417,12 +417,12 @@ export interface Carried {
 }
 
 /**
- * The merged work items a version of the app at `head` carries over the one the shop runs, in the order they merged:
+ * The merged work items a version of the app at `head` carries over the one running now, in the order they merged:
  * each whose latest merge is in the range, and that is not closed, or was reopened since. One sent back after a merge
  * is carried only by a version with its latest fix, and one reopened only by a merge since it reopened. The deploy
  * pull request lists these, and a release starting records them.
  *
- * The range starts at the commit of the last release that shipped and was promoted, which is what the shop runs: not
+ * The range starts at the commit of the last release that shipped and was promoted, which is what the app runs: not
  * the one pinned on main, which after a rollback is the version that rolled back. Before any release is recorded, it
  * starts at `fallback`. Undefined when there is no start, or GitHub has never had one of the commits (a dry run's).
  */

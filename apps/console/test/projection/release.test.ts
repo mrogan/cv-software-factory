@@ -120,11 +120,11 @@ describe('the Canary panel, from the samples', () => {
     ]);
   });
 
-  it('draws a dry run as the dry run records it, and never moves the shop’s version for it', () => {
+  it('draws a dry run as the dry run records it, and never moves the app’s version for it', () => {
     const { canary } = shown(at('2026-10-05T13:09:40Z'));
     expect(canary.state === 'shown' && canary.release).toMatchObject({ dryRun: true, image: undefined, weight: 50 });
     const after = project(SAMPLES, at('2026-10-05T13:30:00Z'));
-    expect(after.cards.find((c) => c.number === '1310')?.shopVersion).toBe('v0.9.10');
+    expect(after.cards.find((c) => c.number === '1310')?.appVersion).toBe('v0.9.10');
   });
 
   it('draws one release for a release that carries two work items', () => {
@@ -187,12 +187,12 @@ describe('the timeline, from the samples', () => {
   });
 
   it('agrees with the line under it: a work item done with is on the last version marked by its place', () => {
-    // An open work item's line says the version the shop is on now.
+    // An open work item's line says the version the app is on now.
     const open = new Set(['in-progress', 'waiting', 'needs-you', 'held']);
     for (const [i, card] of cards.entries()) {
       if (open.has(card.outcome)) continue;
       const kept = timeline.versions.filter((v) => !v.rolledBack && v.at <= (timeline.positions[i] ?? 0)).at(-1);
-      expect([card.number, card.shopVersion]).toEqual([card.number, kept?.version]);
+      expect([card.number, card.appVersion]).toEqual([card.number, kept?.version]);
     }
   });
 });
@@ -243,7 +243,7 @@ describe('the timeline, from hand-made releases', () => {
     expect(marks([card('1', 0)], [retry as Release])).toEqual(['1', '~v1~']);
   });
 
-  it('keeps the versions in the order the shop’s changed, where a card shipped after one that started later', () => {
+  it('keeps the versions in the order the app’s changed, where a card shipped after one that started later', () => {
     // #1 started first and shipped last; #2 started before the release with no work item, and has not shipped.
     const cards = [card('1', 0), card('2', 1)];
     expect(marks(cards, [shipped('v1', [], 2), shipped('v2', ['1'], 3)])).toEqual(['v1', '1', 'v2', '2']);
