@@ -91,6 +91,7 @@ export interface PanelRow {
   note: string;
   /** States it went through in the stage today before this one, struck through in the row: "sent back". */
   earlier: string[];
+  /** `signal` for what the station is at work on now, which its row marks as the station marks itself. */
   tone: 'signal' | 'ok' | 'attn' | 'faint';
   at: number;
 }
@@ -349,6 +350,15 @@ const sentBackWords = (n: number) => (n === 1 ? 'sent back' : `sent back ${n} ti
 const newestFirst = (a: PanelRow, b: PanelRow) => Number(b.item) - Number(a.item);
 
 /**
+ * What is in a stage, by what the station is doing with it: at work on it, held or failed in it, waiting for it. No
+ * row in the stage is `ok`, which only a leaver of Verify is; it has a place so that every tone does.
+ */
+const IN_STAGE: Record<PanelRow['tone'], number> = { signal: 0, attn: 1, ok: 2, faint: 3 };
+
+/** What the station is working on first, then what is held or failed, then what waits; each newest first. */
+const inHandFirst = (a: PanelRow, b: PanelRow) => IN_STAGE[a.tone] - IN_STAGE[b.tone] || newestFirst(a, b);
+
+/**
  * What a stage panel lists: the items in the stage now, then what left it today, one row each. A work item the
  * stage sent back today keeps its returns in its row as earlier states, or, gone upstream, is a row for its return.
  */
@@ -416,10 +426,12 @@ export function panel(
     .map(ownRow);
   return {
     stage,
-    // What is in the stage, then what left it today, each newest first: the store numbers work items in order.
+    // What is in the stage, the work in hand first, then what left it today, each newest first: the store numbers
+    // work items in order. The line takes the oldest ticket, so by number alone the one in hand would sit below
+    // every newer one waiting behind it.
     rows: [
       ...own.filter((row) => row.tone === 'signal'),
-      ...now.sort(newestFirst),
+      ...now.sort(inHandFirst),
       ...[...done, ...back].sort(newestFirst),
       ...own.filter((row) => row.tone !== 'signal'),
     ],
