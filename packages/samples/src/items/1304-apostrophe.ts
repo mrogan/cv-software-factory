@@ -1,6 +1,8 @@
 /**
- * A fix made overnight on the local model, at no cost, and merged by Martin in the morning. It waits at Release for
- * his deploy, and the release that carries it carries #1306's first fix too: one release, on both work items.
+ * A fix made overnight on the local model, at no cost, and merged by Martin in the morning. The reviewer approved it
+ * with a suggestion, which went back to the coder for a round of its own; the coder declined it, saying why, so the
+ * approval stood. It waits at Release for his deploy, and the release that carries it carries #1306's first fix too:
+ * one release, on both work items.
  */
 import { commitFor, Item } from '../build.ts';
 import { V098 } from './1306-basket-errors.ts';
@@ -65,15 +67,34 @@ export default new Item('1304', '2026-10-04T21:40:00+01:00')
       },
     ],
   })
-  .calls('describer', '1:42:00', '1:49:10', { calls: 2, input: 40_000, output: 3_000, cached: 0.2 }, LOCAL)
-  .at('1:49:20', 'work-item.summarised', 'describer', 'Summary written', {
+  .at('1:41:41', 'work.returned', 'reviewer', '#1304 · round 2 · 1 suggestion', {
+    from: 'review',
+    to: 'build',
+    reason: 'The review approved, with a suggestion to take or decline',
+    round: 2,
+    suggestions: 1,
+  })
+  .calls('coder', '1:42:00', '1:51:30', { calls: 4, input: 120_000, output: 1_200, cached: 0.9 }, LOCAL)
+  .at('1:51:40', 'suggestions.answered', 'coder', 'The coder took 0 of 1 suggestions on PR #1305, and declined 1', {
+    pullRequest: 1305,
+    suggestions: 1,
+    declined: [
+      {
+        suggestion: 1,
+        reason:
+          'The test checks the thank-you text already: on line 12 it reads “Thanks, we’ll be in touch” from the page the shop answers with.',
+      },
+    ],
+  })
+  .calls('describer', '1:52:00', '1:59:10', { calls: 2, input: 40_000, output: 3_000, cached: 0.2 }, LOCAL)
+  .at('1:59:20', 'work-item.summarised', 'describer', 'Summary written', {
     title: 'The contact form fails on an apostrophe',
     description:
-      'A message with an apostrophe in it made the contact form fail. Fixed overnight on the local model, at no cost, in one round.',
+      'A message with an apostrophe in it made the contact form fail. Fixed overnight on the local model, at no cost.',
     story:
-      'The contact journey found that a message with an apostrophe in it made the shop answer 500: the form built the message into its query. The overnight run took the ticket on the local model. The coder wrote a test that sends “I’d like a ladder” through the shop, then passed the message as a value. Every check passed, and the reviewer approved with one suggestion.',
+      'The contact journey found that a message with an apostrophe in it made the shop answer 500: the form built the message into its query. The overnight run took the ticket on the local model. The coder wrote a test that sends “I’d like a ladder” through the shop, then passed the message as a value. Every check passed, and the reviewer approved, suggesting the test check the thank-you text the visitor reads. The coder declined: the test reads it already.',
   })
-  .at('1:49:21', 'hold.started', 'factory', 'Waiting for Martin to merge', {
+  .at('1:59:21', 'hold.started', 'factory', 'Waiting for Martin to merge', {
     stage: 'review',
     kind: 'approval',
     cause: 'merge',

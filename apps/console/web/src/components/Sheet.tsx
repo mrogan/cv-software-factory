@@ -4,7 +4,7 @@
  */
 
 import type { Sense } from '@software-factory/events';
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   AGENT_NAME,
   capital,
@@ -374,7 +374,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
               {sheet.rounds.length > 0 && (
                 <Section
                   title="Rounds"
-                  help={`Each attempt the coder pushed, what the gates and the reviewer made of it, and why it went back. ${capital(inWords(sheet.facts.reviews?.of ?? 2, 'review'))} at most: after the last, anything still blocking waits for Martin.`}
+                  help={`Each attempt the coder pushed, what the gates and the reviewer made of it, and why it went back. ${capital(inWords(sheet.facts.reviews?.of ?? 2, 'review'))} at most in a pass: after the last, anything still blocking waits for Martin.`}
                 >
                   <Rounds rounds={sheet.rounds} after={sheet.after} />
                 </Section>
@@ -433,6 +433,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                 {sheet.facts.reviews && (
                   <Fact name="Reviews">
                     {sheet.facts.reviews.done} of {sheet.facts.reviews.of}
+                    {sheet.facts.reviews.pass !== undefined && ` · pass ${sheet.facts.reviews.pass}`}
                   </Fact>
                 )}
                 <Fact name="Started">{when(card.startedAt)}</Fact>
@@ -761,12 +762,17 @@ function RoundRow({ attempt: a }: { attempt: Attempt }) {
         <>
           <span />
           <div className="ret-row">
-            <svg className="arc" viewBox="0 0 300 54" preserveAspectRatio="none" aria-hidden="true">
-              <path className="ret-arc" d={`M${from} 0 C${from} 34 50 18 50 52`} />
-            </svg>
-            <svg className="head" viewBox="0 0 12 10" aria-hidden="true">
-              <path d="M1.5 1.5 6 8.5 10.5 1.5" />
-            </svg>
+            {/* The arc joins two rows; a return the coder declined in full has no row after it to reach. */}
+            {!a.returned.declined && (
+              <>
+                <svg className="arc" viewBox="0 0 300 54" preserveAspectRatio="none" aria-hidden="true">
+                  <path className="ret-arc" d={`M${from} 0 C${from} 34 50 18 50 52`} />
+                </svg>
+                <svg className="head" viewBox="0 0 12 10" aria-hidden="true">
+                  <path d="M1.5 1.5 6 8.5 10.5 1.5" />
+                </svg>
+              </>
+            )}
             <span className="ret-pill">
               <Glyph name="back" />
               {capital(a.returned.from)} → Build · {a.returned.detail}
@@ -952,14 +958,20 @@ function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) 
   const [tag, tone] = site ? (SIDE_TAG[site.side] ?? ['', 'faint']) : ['', 'faint'];
   const events = chapters.slice(0, at + 1).filter((c) => c.actor);
   const listed = all ? events : events.slice(-5);
+  // The clock and the events' times are as wide as the longest time they will show, in characters of their own mono,
+  // so that the buttons beside the clock and the events' names stay put as the scrubber moves.
+  const widest = (list: Chapter[]) => `${Math.max(0, ...list.map((c) => sinceStart(c.at - start).length))}ch`;
+  const widths = { '--clock': widest(chapters), '--when': widest(chapters.filter((c) => c.actor)) } as CSSProperties;
   const shown = scrubbed(chapters, Math.min(at, last), width);
   const here = shown.findIndex((s) => at >= s.index && at < s.index + s.count);
   return (
-    <div className={`replay ${site ? '' : 'solo'}`}>
+    <div className={`replay ${site ? '' : 'solo'}`} style={widths}>
       {site && (
         <div className="site">
           <div className="site-head">
-            <span className="label">The site at {sinceStart(chapter.at - start)}</span>
+            <span className="label">
+              The site at <span className="as-written">{sinceStart(chapter.at - start)}</span>
+            </span>
             <span className={`label tone-${tone} toned`}>
               {tag} · {shortVersion(site.shot.version)}
             </span>
@@ -1041,7 +1053,7 @@ function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) 
         <ol className="events">
           {listed.map((c, i) => (
             <li key={`${c.label}-${c.at}`} className={`event ${i === listed.length - 1 ? 'now' : ''}`}>
-              <span className="mono">{sinceStart(c.at - start)}</span>
+              <span className="mono when">{sinceStart(c.at - start)}</span>
               <span className="mono actor">{c.actor}</span>
               <span>{c.text}</span>
             </li>

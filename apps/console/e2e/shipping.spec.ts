@@ -92,6 +92,49 @@ test.describe('the Canary panel on a phone', () => {
   });
 });
 
+test.describe('a rollback’s chart', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  // At 20 seconds a step, the x axis labels each minute: a rollback at 1:00 leaves its time to the axis, one at 1:20
+  // keeps it.
+  for (const [at, label] of [
+    [3, 'rolled back'],
+    [4, 'rolled back · 1:20'],
+  ] as const) {
+    test(`keeps each label clear of the others where both lines end at the rollback, "${label}"`, async ({
+      page,
+      request,
+    }) => {
+      type Series = { canary: (number | null)[]; baseline: (number | null)[]; at: number };
+      type Event = { work_item: string | null; type: string; payload: { failed?: { series?: Series }[] } };
+      const events = (await (await request.get('/api/events')).json()) as Event[];
+      // As the release worker reads one: both lines end where the canary failed, the baseline's near nothing.
+      const rolledBack = events.find((e) => e.work_item === '1276' && e.type === 'release.rolled-back');
+      const measure = rolledBack?.payload.failed?.find((m) => m.series);
+      if (!measure?.series) throw new Error('No series on #1276’s rollback');
+      const canary = [0, 2, 6, 12, 18].slice(0, at + 1);
+      measure.series = { ...measure.series, canary, baseline: canary.map(() => 0), at };
+      await page.route('**/api/events?after=0', (route) => route.fulfill({ json: events }));
+      await page.goto(consoleUrl({ item: '1276' }));
+      const chart = page.locator('.card[data-place="centre"] svg.chart');
+      await chart.scrollIntoViewIfNeeded();
+      await page.evaluate(() => document.fonts.ready);
+      const boxes = await chart
+        .locator('text')
+        .evaluateAll((texts) =>
+          texts.map((text) => ({ text: text.textContent, box: text.getBoundingClientRect().toJSON() as DOMRect })),
+        );
+      const overlap = (a: DOMRect, b: DOMRect) =>
+        a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const clashes = boxes.flatMap((a, i) =>
+        boxes.slice(i + 1).flatMap((b) => (overlap(a.box, b.box) ? [`${a.text} over ${b.text}`] : [])),
+      );
+      expect(clashes).toEqual([]);
+      await expect(chart.locator('text.axis', { hasText: 'rolled back' })).toHaveText(label);
+    });
+  }
+});
+
 test.describe('a sheet’s releases', () => {
   test.use({ viewport: WIDTHS.desktop });
 
@@ -174,6 +217,32 @@ for (const [width, viewport] of Object.entries({ laptop: WIDTHS.laptop, phone: W
     });
   }
 }
+
+test.describe('a sheet’s events on a phone', () => {
+  test.use({ viewport: WIDTHS.phone });
+
+  test('fits each event’s time in its column, however long the item has been open', async ({ page }) => {
+    // #1306 has been open for most of a day, so its latest times are the widest the samples hold.
+    await page.goto(consoleUrl({ item: '1306', sheet: true }));
+    const events = page.getByRole('dialog').locator('.replay .event');
+    await events.first().waitFor();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: /^All events \(\d+\)$/ })
+      .click();
+    const overlaps = await events.evaluateAll((rows) =>
+      rows.flatMap((row) => {
+        const [when, ...rest] = [...row.children].filter((child) => getComputedStyle(child).display !== 'none');
+        const name = rest.at(-1);
+        if (!when || !name) return [];
+        const fits = when.scrollWidth <= when.clientWidth;
+        const clear = when.getBoundingClientRect().right <= name.getBoundingClientRect().left;
+        return fits && clear ? [] : [when.textContent];
+      }),
+    );
+    expect(overlaps).toEqual([]);
+  });
+});
 
 test.describe('the scoreboard', () => {
   test.use({ viewport: WIDTHS.desktop });

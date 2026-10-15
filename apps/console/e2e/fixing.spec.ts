@@ -25,7 +25,10 @@ test.describe('fixing', () => {
     await ready(page);
     await expect(centre(page).locator('.out')).toHaveText('Needs you');
     await expect(centre(page).locator('.waits .cap')).toHaveText('PR #1312 · waiting for Martin’s merge');
-    await expect(centre(page).locator('.ticks')).toContainText('The reviewer approved, one suggestion');
+    // Its suggestion went back with the first review's blocking findings, and was taken: the approval leaves none.
+    await expect(centre(page).locator('.ticks span', { hasText: 'The reviewer approved' })).toHaveText(
+      'The reviewer approved',
+    );
     await page.getByRole('button', { name: /^Review: needs you, 2 waiting/ }).click();
     await expect(page.getByRole('dialog', { name: 'Review' })).toContainText('Needs you · waiting for Martin’s merge');
   });
@@ -82,6 +85,24 @@ test.describe('fixing', () => {
     await expect(fact(sheet, 'Reviews')).toHaveText('1 of 2');
     await expect(sheet.locator('.round-h').first()).toContainText('Review 1');
     await expect(sheet.locator('.round-h').first()).toContainText('attempt 2');
+  });
+
+  test('a fix that went round twice counts the reviews of its pull request’s pass, and names the pass', async ({
+    page,
+  }) => {
+    await page.goto(consoleUrl({ item: '1306', sheet: true }));
+    await expect(fact(page.getByRole('dialog'), 'Reviews')).toHaveText('1 of 2 · pass 2');
+  });
+
+  test('an approval’s suggestion the coder declined ends its round with the return, and no attempt after', async ({
+    page,
+  }) => {
+    await page.goto(consoleUrl({ item: '1304', sheet: true }));
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.locator('.ret-pill')).toHaveText('Review → Build · 1 suggestion, declined');
+    // The arc joins two rows, and no row follows a return the coder declined in full.
+    await expect(sheet.locator('.ret-row .arc')).toHaveCount(0);
+    await expect(fact(sheet, 'Reviews')).toHaveText('1 of 2');
   });
 
   test('a local model’s row has no company’s logo, and costs $0', async ({ page }) => {

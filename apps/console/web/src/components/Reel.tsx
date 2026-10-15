@@ -6,7 +6,7 @@
  * during a drag and fails if they grow with the number of frames.
  */
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { dayLabel, shortVersion, when } from '../format.ts';
+import { dayLabel, isCommit, shortVersion, when } from '../format.ts';
 import type { View } from '../projection/index.ts';
 import { renders } from '../renders.ts';
 import { Card, OUTCOME } from './Card.tsx';
@@ -457,7 +457,13 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
             <b>{when(current.startedAt)}</b> · #{current.number} {current.title}
           </span>
           <span>
-            The shop at <b className="mono">{current.shopVersion ?? 'its first version'}</b>
+            The shop at{' '}
+            <b
+              className="mono"
+              title={current.shopVersion && isCommit(current.shopVersion) ? current.shopVersion : undefined}
+            >
+              {current.shopVersion ? shortVersion(current.shopVersion) : 'its first version'}
+            </b>
             {current.outcome === 'in-progress' && current.versions.onCanary && (
               <span className="attn-text"> · broken now; the fix is on the canary</span>
             )}

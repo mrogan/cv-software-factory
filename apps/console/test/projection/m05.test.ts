@@ -22,13 +22,22 @@ describe('the wait for Martin’s merge', () => {
       title: 'fix(basket): take quantities of any length',
       checks: { passed: 12, total: 12 },
       testsFirst: { failedOnBase: true, figure: '3 of 3' },
-      review: { suggestions: 1, number: 2 },
+      // The first review's suggestion went back with its blocking findings, and the coder took it.
+      review: { suggestions: 0, number: 2 },
       // The whole change a merge brings in, both rounds together; the second round's own files were fewer.
       files: 2,
       added: 30,
       removed: 5,
       inScope: true,
     });
+  });
+
+  it('counts the suggestions of the approval it waits on, even one the coder declined', () => {
+    const hold = SAMPLES.find(
+      (e) => e.work_item === '1304' && e.type === 'hold.started' && e.payload.cause === 'merge',
+    );
+    const waiting = project(SAMPLES, Date.parse(hold?.ts ?? '')).cards.find((c) => c.number === '1304');
+    expect(waiting?.picture).toMatchObject({ type: 'merge', review: { suggestions: 1, number: 1 } });
   });
 
   it('keeps the problem’s own evidence in the sheet', () => {
@@ -166,6 +175,32 @@ describe('a fix held for a human', () => {
     });
   });
 
+  it('still blocking: counts the reviews of its pass, which the line bounds alone, by their numbers in the thread', () => {
+    const finding = { path: 'src/money.ts', line: 3, blocking: true, rule: 3, comment: 'Test through the shop.' };
+    const review: PayloadOf<'review.submitted'> = {
+      pullRequest: 7,
+      verdict: 'changes-requested',
+      note: 'Not yet.',
+      findings: [finding],
+    };
+    const events = work('3002')
+      .open()
+      .add(1, 'review.submitted', 'reviewer', review)
+      .add(2, 'work.returned', 'factory', { from: 'verify', to: 'plan', reason: 'It persists' })
+      .add(3, 'review.submitted', 'reviewer', { ...review, pullRequest: 8 })
+      .add(3.1, 'hold.started', 'factory', {
+        stage: 'review',
+        kind: 'held',
+        cause: 'review',
+        reason: 'Not yet.',
+      }).events;
+    expect(project(events, Date.parse(events.at(-1)?.ts ?? '')).cards[0]?.picture).toMatchObject({
+      type: 'blocking',
+      reviews: 1,
+      findings: [{ where: 'src/money.ts:3', reviews: [2] }],
+    });
+  });
+
   it('beyond its ticket: the blocking finding that cites the ticket, as a held review shows its own', () => {
     const finding = { path: 'src/money.ts', line: 3, blocking: true, criterion: 2, ticket: true as const };
     const events = work('3001')
@@ -241,6 +276,14 @@ describe('the sheet of a fix', () => {
     expect(rounds[1]?.review).toMatchObject({ number: 2, verdict: 'approved' });
     expect(rounds[1]?.returned).toBeUndefined();
     expect(sheet('1311')?.facts.reviews).toEqual({ done: 2, of: 2 });
+  });
+
+  it('ends a round whose suggestions the coder declined in full with its return, and no attempt after it', () => {
+    const rounds = sheet('1304')?.rounds ?? [];
+    expect(rounds.map((a) => a.attempt)).toEqual([1]);
+    expect(rounds[0]?.review).toEqual({ number: 1, verdict: 'approved', blocking: 0, suggestions: 1 });
+    expect(rounds[0]?.returned).toEqual({ from: 'review', detail: '1 suggestion, declined', declined: true });
+    expect(sheet('1304')?.facts.reviews).toEqual({ done: 1, of: 2 });
   });
 
   it('prints each finding’s rule in full, and a criterion in the spec’s words', () => {
@@ -394,7 +437,7 @@ describe('a fix sent back for an approval’s suggestions', () => {
         ],
       });
     expect(sheetOf(events)?.rounds.map((a) => a.returned)).toEqual([
-      { from: 'review', detail: '2 suggestions, declined' },
+      { from: 'review', detail: '2 suggestions, declined', declined: true },
     ]);
     expect(sheetOf(events)?.facts.reviews).toEqual({ done: 1, of: 2 });
   });
