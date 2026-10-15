@@ -280,3 +280,68 @@ describe('a return', () => {
     expect(project(item.events, item.at(11)).panels.gates.rows).toEqual([]);
   });
 });
+
+describe('a stage panel', () => {
+  const ticket = (number: string, minute: number) =>
+    work(number)
+      .open()
+      .add(minute, 'ticket.opened', 'triage', {
+        title: `Ticket ${number}`,
+        category: 'functional',
+        severity: 'broken',
+        fingerprint: { route: '/products', class: 'wrong-result' },
+        traces: [],
+      });
+  const planned = (number: string, minute: number) =>
+    ticket(number, 0).add(minute, 'model.called', 'planner', {
+      agent: 'planner',
+      provider: 'anthropic',
+      model: 'claude-opus-5-5',
+      settings: {},
+      tokens: { input: 1000, output: 200, cacheRead: 0, cacheWrite: 0 },
+      costUsd: 0.01,
+      durationMs: 4000,
+      calls: 1,
+    });
+
+  it('lists what the station is working on first, then what is held, then what waits, each newest first', () => {
+    const events = [
+      // The line takes the oldest ticket, so the one in hand is older than those waiting behind it.
+      ...planned('1', 5).events,
+      ...planned('5', 4).events,
+      ...planned('2', 2).add(3, 'hold.started', 'factory', {
+        stage: 'plan',
+        kind: 'held',
+        cause: 'spec',
+        reason: 'The spec has no criteria',
+      }).events,
+      ...ticket('3', 1).events,
+      ...ticket('4', 1).events,
+    ];
+    const { rows } = project(events, work('1').at(6)).panels.plan;
+    expect(rows.map((r) => [r.item, r.tone, r.working])).toEqual([
+      ['5', 'signal', true],
+      ['1', 'signal', true],
+      ['2', 'attn', undefined],
+      ['4', 'faint', undefined],
+      ['3', 'faint', undefined],
+    ]);
+    expect(rows[3]?.note).toBe('Waiting for the planner');
+  });
+
+  it('marks nothing as working under Stop the line, when the station says it is blocked', () => {
+    const item = planned('1', 5);
+    const stop = {
+      ...(item.events[0] as PublicEvent),
+      id: 'stop',
+      ts: new Date(item.at(5.5)).toISOString(),
+      work_item: null,
+      type: 'line.stopped',
+      payload: { reason: 'Martin stopped the line' },
+    } as PublicEvent;
+    const view = project([...item.events, stop], item.at(6));
+    expect(view.stations.find((s) => s.stage === 'plan')?.status).toBe('blocked');
+    // Still the work in hand, and first, but not marked as at work.
+    expect(view.panels.plan.rows.map((r) => [r.item, r.tone, r.working])).toEqual([['1', 'signal', undefined]]);
+  });
+});

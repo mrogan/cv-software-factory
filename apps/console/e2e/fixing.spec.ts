@@ -134,6 +134,16 @@ test.describe('fixing', () => {
     await expect(rows).toHaveAccessibleName(/^Open #1323, .+: earlier sent back, Review asked for changes/);
     await expect(rows.locator('s')).toHaveText('sent back');
   });
+
+  test('a station’s panel lists the work in hand first, and says it is working', async ({ page }) => {
+    // The planner has taken #1314, the oldest ticket waiting, and #1315 has just opened behind it.
+    await page.goto(consoleUrl({ at: Date.parse('2026-10-06T08:12:30Z') }));
+    await ready(page);
+    await page.getByRole('button', { name: /^Plan:/ }).click();
+    const rows = page.getByRole('dialog', { name: 'Plan' }).getByRole('button', { name: /^Open #/ });
+    await expect(rows.first()).toHaveAccessibleName(/^Open #1314, .+: working, Spec written/);
+    await expect(rows.filter({ hasText: '#1315' })).toHaveAccessibleName(/^Open #1315, .+: Waiting for the planner$/);
+  });
 });
 
 // WCAG 2.2 AA for every new state, in both themes, on a laptop and a phone, with motion off.
