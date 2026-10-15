@@ -1430,7 +1430,7 @@ function canaryScenario(k) {
     line: { ...live, carries: [] },
     promoted: { ...live, measured: [m25, m50], end: { kind: 'promoted', at: '16:47:30' } },
     rolledback: { ...live, measured: [m25, { ...m50, err: [0.0392, 0.0139], v: { ...ok4, errors: 'failed' } }],
-      end: { kind: 'rolledback', at: '16:47:30', weight: 50, ticket: null, words: 'Metric "errors" assessed Failed due to failed (2) > failureLimit (1)', failed: [['errors', 'Errors', '5xx share 2.53 points above the baseline’s, against at most 1.00 points']] } },
+      end: { kind: 'rolledback', at: '16:47:30', weight: 50, ticket: null, words: 'Metric "errors" assessed Failed due to failed (2) > failureLimit (1)', failed: [['errors', 'Errors', '5xx share 3.71% against 1.18%: 2.53 points above, at most 1.00 points allowed']] } },
     early: RELEASES.r1308,
     stopped: { ...live, end: { kind: 'stopped', at: '16:45:12', weight: 50 } },
     dry: { ...live, dry: true, digest: null },
