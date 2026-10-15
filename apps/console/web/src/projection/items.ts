@@ -13,6 +13,7 @@ import type {
   Stage,
 } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
+import type { StoppedBy } from './release.ts';
 
 /**
  * How a work item stands. Besides the line's own: `waiting`, a ticket queued for the planner, with nothing being
@@ -91,13 +92,13 @@ export interface ItemState {
   pullRequest: number | undefined;
   /**
    * Versions: the one it broke (an injection) or replaced, the one it shipped, and whether that was rolled back, or
-   * aborted, and by what.
+   * stopped, and by what.
    */
   versions: {
     from: string | undefined;
     to: string | undefined;
     rolledBack: boolean;
-    aborted: PayloadOf<'release.aborted'>['by'] | undefined;
+    stopped: StoppedBy | undefined;
     live: boolean;
   };
   /** A release still on its canary, at this share of traffic. */
@@ -153,6 +154,7 @@ export function stageOf(event: PublicEvent): Stage | null {
     case 'canary.stepped':
     case 'release.promoted':
     case 'release.rolled-back':
+    case 'release.errored':
     case 'release.aborted':
       return 'release';
     case 'verification.finished':
@@ -231,7 +233,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     latest: {},
     dependency: opened.payload.dependency,
     pullRequest: undefined,
-    versions: { from: undefined, to: undefined, rolledBack: false, aborted: undefined, live: false },
+    versions: { from: undefined, to: undefined, rolledBack: false, stopped: undefined, live: false },
     canary: undefined,
     captures: [],
     evidence: { signal: undefined, verified: undefined },
@@ -270,6 +272,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       (event.type === 'canary.stepped' ||
         event.type === 'release.promoted' ||
         event.type === 'release.rolled-back' ||
+        event.type === 'release.errored' ||
         event.type === 'release.aborted') &&
       event.payload.release !== release;
     if (stale) continue;
@@ -344,7 +347,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.versions.from ??= event.payload.previous;
         state.versions.to = event.payload.version;
         state.versions.rolledBack = false;
-        state.versions.aborted = undefined;
+        state.versions.stopped = undefined;
         state.canary = { version: event.payload.version, weight: 0 };
         break;
       case 'canary.stepped':
@@ -358,9 +361,13 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.canary = undefined;
         state.versions.rolledBack = true;
         break;
+      case 'release.errored':
+        state.canary = undefined;
+        state.versions.stopped = 'error';
+        break;
       case 'release.aborted':
         state.canary = undefined;
-        state.versions.aborted = event.payload.by;
+        state.versions.stopped = event.payload.by;
         break;
       case 'verification.finished':
         state.evidence.verified = event.payload.evidence;
@@ -386,7 +393,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.queued = true;
         release = undefined;
         state.canary = undefined;
-        state.versions = { from: undefined, to: undefined, rolledBack: false, aborted: undefined, live: false };
+        state.versions = { from: undefined, to: undefined, rolledBack: false, stopped: undefined, live: false };
         state.evidence.verified = undefined;
         state.reopened = { ...event.payload, at: time };
         break;

@@ -1,8 +1,9 @@
 /**
  * Releases that carry no work item, Martin's own commits, and so are the line's: one that the canary rolled back
  * before any step was measured, with no series to keep, which opened #1308; a build of one commit that rolled back the
- * same way, whose signal joined #1308; one stopped with the line, retried, and aborted by Martin; and the next,
- * promoted, which brought #1306's error back.
+ * same way, whose signal joined #1308; a build of another that the analysis could not judge, with Prometheus out of
+ * reach; one stopped with the line, retried, and aborted by Martin; and the next, promoted, which brought #1306's
+ * error back.
  */
 import { commitFor, Item, releaseFor, started, stepped } from '../build.ts';
 
@@ -24,6 +25,24 @@ export const V099_LATENCY = {
 
 /** The build of one of Martin's commits that rolled back on Monday evening, as v0.9.9 had. */
 export const EVENING = commitFor('martin:monday-evening');
+
+/** The build of another of Martin's commits, out on Monday night, that the analysis could not judge. */
+export const NIGHT = commitFor('martin:monday-night');
+
+/** Why the analysis could not judge it, in Argo Rollouts' words: Prometheus did not answer, five times running. */
+const ERRORED = 'Metric "errors" assessed Error due to consecutiveErrors (5) > consecutiveErrorLimit (4)';
+/** Each measure's own words: what Prometheus's address said. */
+const UNREACHABLE =
+  'Post "http://prometheus-server.telemetry/api/v1/query": dial tcp 10.43.12.7:80: connect: connection refused';
+
+/** The measures the analysis could not take at 25%, each in its own words. */
+const NIGHT_ERRORS = (['enough-requests', 'errors', 'latency'] as const).map((name) => ({
+  name,
+  phase: 'error' as const,
+  value: null,
+  limit: name === 'enough-requests' ? 100 : name === 'errors' ? 0.01 : 0,
+  message: UNREACHABLE,
+}));
 
 export default new Item(null, '2026-10-05T00:00:00+01:00', 'line/releases')
   // Monday: three minutes into the 25% step, latency fails its second look, and the canary rolls back.
@@ -60,6 +79,36 @@ export default new Item(null, '2026-10-05T00:00:00+01:00', 'line/releases')
     reason: FAILED,
     failed: [V099_LATENCY],
     dryRun: false,
+  })
+  // Monday night: a build of another of Martin's commits reaches its 25% step while Prometheus is out of reach. The
+  // analysis cannot take its measures, ends in Error, and Argo Rollouts stops the canary: nothing failed, so it is no
+  // rollback and no signal, and the version before takes all the traffic.
+  .at(
+    '21:10:00',
+    'release.started',
+    'rollouts',
+    `${NIGHT.slice(0, 7)} signed and admitted; canary started`,
+    started(NIGHT, 'v0.9.10'),
+  )
+  .at('21:13:10', 'canary.stepped', 'rollouts', 'Canary at 25%: the analysis could not judge it', {
+    release: releaseFor(NIGHT),
+    version: NIGHT,
+    weight: 25,
+    analysis: {
+      phase: 'error',
+      requests: null,
+      measures: [...NIGHT_ERRORS, { name: 'journeys', phase: 'successful', value: null, limit: null }],
+    },
+    dryRun: false,
+  })
+  .at('21:13:40', 'release.errored', 'rollouts', `Analysis error at 25%: ${ERRORED}`, {
+    release: releaseFor(NIGHT),
+    version: NIGHT,
+    restored: 'v0.9.10',
+    weight: 25,
+    reason: ERRORED,
+    errored: NIGHT_ERRORS,
+    abortedAt: '2026-10-05T20:13:11Z',
   })
   // Tuesday: Martin stops the line with the canary at 50%. Stop the line aborts it, the version before takes all the
   // traffic, and the line records the abort a pass later.

@@ -101,6 +101,25 @@ describe('validation', () => {
     expect(validate(aborted)).toEqual({ ok: true });
     expect(validate({ ...aborted, work_item: null })).toEqual({ ok: true });
     expect(validate({ ...aborted, payload: { ...aborted.payload, by: 'rollouts' } }).ok).toBe(false);
+    // An analysis that could not judge the canary ends the release in its own words, with the measures it could not take.
+    const errored = {
+      ...started,
+      type: 'release.errored',
+      version: 1,
+      actor: 'rollouts',
+      payload: {
+        release: '6d8f9c7b54',
+        version: 'v0.9.4',
+        restored: 'v0.9.3',
+        weight: 25,
+        reason: 'Metric "errors" assessed Error due to consecutiveErrors (5) > consecutiveErrorLimit (4)',
+        errored: [{ name: 'errors', phase: 'error', value: null, limit: 0.01, message: 'connection refused' }],
+        abortedAt: '2026-10-06T06:35:10Z',
+      },
+    };
+    expect(validate(errored)).toEqual({ ok: true });
+    expect(validate({ ...errored, work_item: null })).toEqual({ ok: true });
+    expect(validate({ ...errored, payload: { ...errored.payload, weight: 0 } }).ok).toBe(false);
     // A verification is of a work item's ticket: never the line's.
     const verified = {
       ...started,

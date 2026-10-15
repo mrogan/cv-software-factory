@@ -48,12 +48,12 @@
  *     merged → [waits for a deploy] → release started → promoted → verify → cleared → closed, verified
  *                       ▲                    │                       │
  *                       └─ rolled back, ─────┘                       └─ persists → back to Plan, once; then held
- *                          or aborted
+ *                          erred or aborted
  *
  * A merged change waits at Release, held for Martin (`deploy`), until a release that carries it starts: the deploy
  * pull request that carries it is his to merge, and the release's start ends the hold by itself. A release that rolls
- * back holds it again, for the next; so does one Martin aborts, until he retries it, which starts it again, or a later
- * release carries the change. A dry run's merge, which no deploy can carry, is not held: it waits at Release
+ * back holds it again, for the next; so does one whose analysis erred, or that Martin aborted, until he retries it,
+ * which starts it again, or a later release carries the change. A dry run's merge, which no deploy can carry, is not held: it waits at Release
  * for the dry run's release. One that promotes moves it to Verify, where the sense that saw the defect looks again
  * (`verify.ts`). A signal that has cleared closes the work item as verified. One that persists sends the work back to
  * Plan, with the verification for the planner: a fresh pass, with a new spec, a new pull request, its own gates,
@@ -157,6 +157,7 @@ type Payloads = {
     | 'release.promoted'
     | 'release.rolled-back'
     | 'release.aborted'
+    | 'release.errored'
     | 'verification.finished'
     | 'work-item.closed'
     | 'work-item.reopened']: PayloadOf<K>;
@@ -217,13 +218,17 @@ export interface WorkItemState {
   merged: boolean;
   /**
    * The latest release that carried the change since its merge: how it started, its promotion once it has one, and
-   * whether it rolled back or was aborted.
+   * whether it rolled back, erred or was aborted.
    */
   release:
     | {
         started: PayloadOf<'release.started'>;
         promoted: PayloadOf<'release.promoted'> | undefined;
-        ended: { how: 'rolled-back' } | { how: 'aborted'; by: PayloadOf<'release.aborted'>['by'] } | undefined;
+        ended:
+          | { how: 'rolled-back' }
+          | { how: 'errored' }
+          | { how: 'aborted'; by: PayloadOf<'release.aborted'>['by'] }
+          | undefined;
       }
     | undefined;
   /** The latest verification of that release, once it is promoted. */
@@ -401,6 +406,11 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
           state.release = { ...state.release, ended: { how: 'aborted', by: event.payload.by } };
         }
         break;
+      case 'release.errored':
+        if (state.release?.started.release === event.payload.release) {
+          state.release = { ...state.release, ended: { how: 'errored' } };
+        }
+        break;
       case 'verification.finished':
         state.verification = event.payload;
         if (event.payload.outcome === 'persists') state.persisted.push(event.payload);
@@ -455,6 +465,7 @@ const MOVES_ON = new Set<LineEvent['type']>([
   'release.promoted',
   'release.rolled-back',
   'release.aborted',
+  'release.errored',
   'verification.finished',
   'work-item.reopened',
 ]);
@@ -634,6 +645,8 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
 function endedReason(version: string, ended: NonNullable<NonNullable<WorkItemState['release']>['ended']>): string {
   if (ended.how === 'rolled-back')
     return `The release that carried the fix, ${version}, rolled back: it waits for the next deploy pull request to carry it`;
+  if (ended.how === 'errored')
+    return `The release that carried the fix, ${version}, stopped when its analysis could not judge it: it waits for Martin to retry it, or for the next deploy pull request to carry it`;
   const who = ended.by === 'martin' ? 'him' : 'Martin';
   return `${whoAborted(ended.by)} the release that carried the fix, ${version}: it waits for ${who} to retry it, or for the next deploy pull request to carry it`;
 }

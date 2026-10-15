@@ -14,7 +14,7 @@ import type {
 import { isSense, STAGES } from '@software-factory/events';
 import { waitPicture } from './fixing.ts';
 import { type Capture, type ItemState, type Outcome, summaryOf } from './items.ts';
-import type { Release } from './release.ts';
+import type { Release, StoppedBy } from './release.ts';
 
 export type Segment = 'passed' | 'skipped' | 'now' | 'queued' | 'stopped' | 'waiting' | 'closed' | 'none';
 
@@ -147,11 +147,11 @@ type Dependency = NonNullable<PayloadOf<'work-item.opened'>['dependency']>;
 type Findings = NonNullable<PayloadOf<'gate.finished'>['findings']>;
 type Series = NonNullable<PayloadOf<'release.rolled-back'>['failed'][number]['series']>;
 
-/** A release that ended without shipping: rolled back, or aborted, and by whom. */
+/** A release that ended without shipping: rolled back, or stopped, and by what. */
 export interface Ended {
   at: number;
   version: string;
-  aborted: PayloadOf<'release.aborted'>['by'] | undefined;
+  stopped: StoppedBy | undefined;
 }
 
 export interface Versions {
@@ -160,7 +160,7 @@ export interface Versions {
   /** The version it shipped, or is shipping. */
   to: string | undefined;
   rolledBack: boolean;
-  aborted: ItemState['versions']['aborted'];
+  stopped: ItemState['versions']['stopped'];
   /** Still on the canary: `to` is not yet live. */
   onCanary: boolean;
 }
@@ -423,7 +423,8 @@ export function shopVersion(events: readonly PublicEvent[], at: number): string 
     if (Date.parse(event.ts) > at) break;
     if ('dryRun' in event.payload && event.payload.dryRun) continue;
     if (event.type === 'release.promoted' || event.type === 'defect.injected') version = event.payload.version;
-    if (event.type === 'release.rolled-back' || event.type === 'release.aborted') version = event.payload.restored;
+    if (event.type === 'release.rolled-back' || event.type === 'release.errored' || event.type === 'release.aborted')
+      version = event.payload.restored;
     if (event.type === 'release.started' && !version) version = event.payload.previous;
   }
   return version;
@@ -452,7 +453,7 @@ export function card(item: ItemState, events: readonly PublicEvent[], t: number)
       from: item.versions.from,
       to: item.versions.to,
       rolledBack: item.versions.rolledBack,
-      aborted: item.versions.aborted,
+      stopped: item.versions.stopped,
       onCanary: Boolean(item.canary),
     },
     seenOn: item.seenOn,

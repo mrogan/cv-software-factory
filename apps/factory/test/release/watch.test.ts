@@ -425,26 +425,89 @@ describe('a release, from the Rollout and its runs', () => {
     expect(s.of('1001', 'release.rolled-back')).toEqual([]);
   });
 
-  it('records nothing when an analysis that could not judge aborts the release: it stays unfinished', () => {
+  it('records an analysis that could not judge the canary as an end of its own, with no signal, and retries it', () => {
     const s = store(STABLE_RECORDED);
     const runs = [background(), step(2)];
     s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), runs, { start: START });
     // An analysis that ends in Error is no failure of the canary, and nobody stopped it: its step is recorded as it
-    // ended, and the abort it made is not Martin's.
-    const error = step(5, { phase: 'Error', created: t(15), completed: t(15) });
+    // ended, and the abort it made is the Error's, not Martin's.
+    const error = step(5, {
+      phase: 'Error',
+      created: t(15),
+      completed: t(15),
+      message: 'Metric "errors" assessed Error due to consecutiveErrors (5) > consecutiveErrorLimit (4)',
+      metrics: { errors: { phase: 'Error', message: 'Post "http://prometheus-server.telemetry": connection refused' } },
+    });
+    // Not yet acted on: nothing to end.
+    const patched = rollout({ current: CANARY, stable: STABLE, stepIndex: 3, abort: true });
+    delete patched.status.abortedAt;
+    expect(s.pass(patched, [...runs, error]).said).toEqual({ 1001: ['canary.stepped'], 1006: ['canary.stepped'] });
     const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(15.01) });
-    const judged = s.pass(aborted, [...runs, error], { abortedBy: 'martin' });
+    // The line need not ask who aborted it: nobody did.
+    const judged = s.pass(aborted, [...runs, error]);
     expect(judged.needs).toMatchObject({ failures: [], aborted: false });
-    expect(judged.said).toEqual({ 1001: ['canary.stepped'], 1006: ['canary.stepped'] });
-    expect(s.pass(aborted, [...runs, error], { abortedBy: 'martin' }).said).toEqual({});
-    // Martin retries it, and later aborts it himself: that abort is his, whatever the earlier run said.
+    expect(judged.drafts.get('1001')?.map((d) => [d.type, d.actor, d.summary])).toEqual([
+      [
+        'release.errored',
+        'rollouts',
+        'Analysis error at 50%: Metric "errors" assessed Error due to consecutiveErrors (5) > consecutiveErrorLimit (4)',
+      ],
+    ]);
+    expect(s.of('1006', 'release.errored')).toEqual([
+      {
+        release: releaseOf(CANARY),
+        version: commitOf(CANARY),
+        restored: commitOf(STABLE),
+        weight: 50,
+        reason: 'Metric "errors" assessed Error due to consecutiveErrors (5) > consecutiveErrorLimit (4)',
+        errored: [
+          {
+            name: 'errors',
+            phase: 'error',
+            value: null,
+            limit: 0.01,
+            message: 'Post "http://prometheus-server.telemetry": connection refused',
+          },
+        ],
+        abortedAt: t(15.01),
+      },
+    ]);
+    expect(s.of('1001', 'release.aborted')).toEqual([]);
+    expect(s.of('1001', 'release.rolled-back')).toEqual([]);
+    // Still aborted: nothing more.
+    expect(s.pass(aborted, [...runs, error]).said).toEqual({});
+    // Martin retries it: it starts again, and later he aborts it himself; that abort is his, whatever the earlier
+    // run said.
     const later = [...runs, error, step(2, { name: 'website-68ff668868-4-2.1', created: t(20), completed: t(20.5) })];
-    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), later);
+    expect(
+      s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), later).drafts.get('1001'),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ summary: `${commitOf(CANARY).slice(0, 7)} started again after its analysis error` }),
+      ]),
+    );
     const byHand = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(25) });
     expect(s.pass(byHand, later, { abortedBy: 'martin' }).said).toEqual({
       1001: ['release.aborted'],
       1006: ['release.aborted'],
     });
+  });
+
+  it('records an Error in the background at the weight the canary had reached', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), [background(), step(2)], {
+      start: { ...START, carries: ['1001'] },
+    });
+    const error = background({ phase: 'Error', completed: t(10), metrics: { latency: { phase: 'Error' } } });
+    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(10) });
+    expect(s.pass(aborted, [error, step(2)]).said).toEqual({ 1001: ['release.errored'] });
+    const [ended] = s.of('1001', 'release.errored') as PayloadOf<'release.errored'>[];
+    // Past the 25% step it passed, so at 50%; in the analysis's place, as Argo Rollouts gave no words.
+    expect([ended?.weight, ended?.reason, ended?.errored.map((m) => m.name)]).toEqual([
+      50,
+      'The analysis could not judge the canary',
+      ['latency'],
+    ]);
   });
 
   it('records a retry and a second abort that both happened between two reads', () => {
@@ -493,7 +556,7 @@ describe('a release, from the Rollout and its runs', () => {
     // The retry's analysis could not judge it, and aborted it: nobody did.
     const error = step(2, { name: 'website-68ff668868-4-2.1', created: t(6), completed: t(9), phase: 'Error' });
     expect(aborted().pass(again, [background(), error], { abortedBy: 'martin' }).said).toEqual({
-      1001: ['release.started', 'canary.stepped'],
+      1001: ['release.started', 'canary.stepped', 'release.errored'],
     });
   });
 

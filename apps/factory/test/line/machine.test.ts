@@ -352,6 +352,18 @@ const aborted = (by: 'stop' | 'martin', id = RELEASE): LineEvent => ({
   type: 'release.aborted',
   payload: { release: id, version: 'v0.9.4', restored: 'v0.9.3', abortedAt: '2026-10-10T09:00:00Z', by },
 });
+const errored = (id = RELEASE): LineEvent => ({
+  type: 'release.errored',
+  payload: {
+    release: id,
+    version: 'v0.9.4',
+    restored: 'v0.9.3',
+    weight: 25,
+    reason: 'Metric "errors" assessed Error',
+    errored: [{ name: 'errors', phase: 'error', value: null, limit: 0.01 }],
+    abortedAt: '2026-10-10T09:00:00Z',
+  },
+});
 const verified = (outcome: 'cleared' | 'persists'): LineEvent => ({
   type: 'verification.finished',
   payload: { outcome, sense: 'probe', check: 'search', version: 'v0.9.4', against: 'v0.9.3', pages: [], dryRun: false },
@@ -578,6 +590,20 @@ describe('after the merge', () => {
     expect(decide([...retried, promoted()], facts).stage).toBe('verify');
   });
 
+  it('holds the work item for Martin when its release’s analysis errs, until he retries it', () => {
+    const stopped = [...done, deployHold(done), release(), errored()];
+    expect(decide(stopped, facts).next).toMatchObject({
+      do: 'hold',
+      hold: {
+        cause: 'deploy',
+        reason:
+          'The release that carried the fix, v0.9.4, stopped when its analysis could not judge it: it waits for Martin to retry it, or for the next deploy pull request to carry it',
+      },
+    });
+    const retried = [...stopped, deployHold(stopped), release()];
+    expect(decide(retried, facts).next).toEqual({ do: 'wait', for: 'release' });
+  });
+
   it('pays no heed to a hold for a deploy decided as a release that carries the change started', () => {
     const late = [...done, release(), deployHold(done), promoted()];
     expect(decide(late, facts).next).toMatchObject({ do: 'verify' });
@@ -609,6 +635,7 @@ describe('after the merge', () => {
     const later = [...done, release(), release('7f5b9c8d6', 'v0.9.5')];
     expect(decide([...later, rolledBack()], facts).next).toEqual({ do: 'wait', for: 'release' });
     expect(decide([...later, aborted('martin')], facts).next).toEqual({ do: 'wait', for: 'release' });
+    expect(decide([...later, errored()], facts).next).toEqual({ do: 'wait', for: 'release' });
     expect(decide([...later, promoted()], facts).next).toEqual({ do: 'wait', for: 'release' });
   });
 

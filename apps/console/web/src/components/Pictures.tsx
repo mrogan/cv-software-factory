@@ -8,7 +8,7 @@ import { useArtifactUrl } from '../artifacts.ts';
 import { AGENT_NAME, axis, capital, clock, figure, inWords, money, plural, shortVersion, times } from '../format.ts';
 import type { Picture as PictureData, Source, Tag } from '../projection/index.ts';
 import { QUARANTINE_AT } from '../projection/index.ts';
-import { abortWait, abortWords } from '../projection/release.ts';
+import { stopWait, stopWords } from '../projection/release.ts';
 import { Glyph } from './Glyph.tsx';
 import { LogoMark, logoFor } from './Logos.tsx';
 
@@ -1110,20 +1110,20 @@ function MergePicture(picture: Extract<PictureData, { type: 'merge' }>) {
 
 /**
  * A merged fix waiting for the deploy pull request that will carry it, in the waiting-on-Martin panel: the merge done,
- * the release that carried it crossed when it rolled back or was aborted, and hollow rings for what comes after. The
+ * the release that carried it crossed when it rolled back or was stopped, and hollow rings for what comes after. The
  * events name no deploy pull request, so none is drawn.
  */
 function DeployPicture({ pullRequest, title, merged, ended }: Extract<PictureData, { type: 'deploy' }>) {
-  const by = ended?.aborted;
-  const aborted = by && abortWords(by);
+  const by = ended?.stopped;
+  const stopped = by && stopWords(by);
   return (
     <div className="pad">
       <div className="waits">
         <div className="cap attn">
           {!ended
             ? 'Merged · waiting for Martin’s deploy'
-            : aborted
-              ? `${capital(aborted)} · ${abortWait(by)}`
+            : stopped
+              ? `${capital(stopped)} · ${stopWait(by)}`
               : 'Rolled back · waiting for Martin’s next deploy'}
         </div>
         {pullRequest && (
@@ -1140,11 +1140,11 @@ function DeployPicture({ pullRequest, title, merged, ended }: Extract<PictureDat
           )}
           {ended && (
             <Tick ok={false} num={shortVersion(ended.version)}>
-              The release that carried it {aborted ? `was ${aborted}` : 'rolled back'} at {clock(ended.at)}
+              The release that carried it {stopped ? `was ${stopped}` : 'rolled back'} at {clock(ended.at)}
             </Tick>
           )}
           <Tick ok={undefined}>
-            {aborted
+            {stopped
               ? 'Martin’s retry carries it on, or the next deploy pull request, with its ticket and issue'
               : 'The next deploy pull request carries it, with its ticket and issue'}
           </Tick>

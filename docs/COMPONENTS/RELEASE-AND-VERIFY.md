@@ -12,9 +12,11 @@ flowchart LR
   started --> stepped[canary.stepped, per step]
   stepped --> promoted[release.promoted]
   started -- "an analysis fails" --> rolledback[release.rolled-back]
+  started -- "an analysis cannot judge it" --> errored[release.errored]
   started -- "Martin aborts it" --> aborted[release.aborted]
   rolledback -- rollback signals --> triage([Triage])
   rolledback --> held
+  errored --> held
   aborted --> held
   held -- "Martin retries it" --> started
   promoted --> verify[Verify]
@@ -27,6 +29,7 @@ flowchart LR
 
 - **The hold.** Martin's merge clears any hold the change had, and the work item holds at Release (cause `deploy`, for his approval, so Needs you lists it) until a release that carries it starts. He settles it by merging the app's deploy pull request, not by answering, and `release.started` ends the hold by itself.
 - **A rollback.** A release that rolls back holds it again, for the next release that carries it.
+- **An analysis error.** A release whose analysis could not judge it holds it again too, as an abort does: Martin's retry starts the same release again, or the next release that carries it ends the hold.
 - **An abort.** A release Martin aborts holds it again too, with the hold's reason saying whether Stop the line aborted it or he did. His retry starts the same release again, which ends the hold as any start does; otherwise the next release that carries it does.
 - **A dry run's merge**, which no deploy pull request can carry, is not held: it waits at Release for the dry run's release, and Needs you never lists it ([Dry run](#dry-run)).
 
@@ -62,14 +65,15 @@ The same function decides what a release carries, so while a release is in its c
 | `canary.stepped` | Each step's analysis ends | The analysis's own measures (each one's phase, value, limit and words), and each version's requests, error rate and p99 from Prometheus (`PROMETHEUS_URL`), by pod-template hash |
 | `release.promoted` | The release becomes the stable version | |
 | `release.rolled-back` | The Rollout is aborted and a run of the release's latest attempt failed | Each failed measure and, for errors and latency, its series from the release's start to the failure |
-| `release.aborted` | The Rollout is aborted, Argo Rollouts has acted on it (`status.abortedAt`), and no run of the release's latest attempt failed or ended in error | When Argo Rollouts acted on it, and who aborted it (`by`): `stop` for Stop the line, `martin` for his own. Actor `martin` |
+| `release.errored` | The Rollout is aborted, Argo Rollouts has acted on it (`status.abortedAt`), no run of the release's latest attempt failed, and one ended in Error in the minute before | The weight the canary had reached, the analysis's words, each measure it could not take, and when Argo Rollouts acted on it. Actor `rollouts` |
+| `release.aborted` | The Rollout is aborted, Argo Rollouts has acted on it (`status.abortedAt`), and no run of the release's latest attempt failed or ended in Error | When Argo Rollouts acted on it, and who aborted it (`by`): `stop` for Stop the line, `martin` for his own. Actor `martin` |
 
 A figure or series Prometheus did not give is left out.
 
 - **Who aborted it.** Martin's abort terminates the runs, which fails none, and is no signal. To Argo Rollouts, Stop the line's abort (`scripts/abort-canaries.sh`) and Martin's by hand are the same patch of the Rollout's status, so the line says which: `stop` when the last `line.started` or `line.stopped` before the abort is a stop recorded within the minute before it (`make stop-the-line` records the stop, then aborts), `martin` otherwise. It is decided by time alone, so when the stop cannot be recorded (the store is down, and the make target aborts anyway) the abort reads as Martin's, and an abort he makes by hand within the minute after a stop reads as the stop's. A retry and a second abort between two reads are both recorded, by the abort's later time.
 - **Where it was.** An abort sends the Rollout back to its first step, so the event holds no weight: the console reads the canary's weight then from the release's steps, as it reads one in flight.
 - **Where it rolled back.** `release.rolled-back` holds the weight of the step that failed: a step run's own, by its step index. The background analysis's run has no step, and the abort has already sent the Rollout back to its first, so its weight is read from the step runs of the release's latest attempt: the step after the last whose analysis passed, or the step of one that did not pass, or the first before any; or further, the step of a run made after that one, which the abort terminated. Weights are the Rollout's, by step index, as each step's are.
-- **An analysis that ends in error** aborts the Rollout itself, and that abort records nothing: the analysis could not judge, and nobody stopped it. A run that ended in error within the minute before an abort made it; the release stays unfinished, and its work items wait at Release until Martin retries it or a later release carries them.
+- **An analysis that ends in Error** aborts the Rollout itself: the analysis could not judge (Prometheus did not answer, say), and nobody stopped it. A run of the latest attempt that ended in Error within the minute before the abort made it, and the line records `release.errored`, at the weight a rollback would have, with no signal: nothing failed. The release stays stopped until Martin retries it or a later release carries its work items. An abort he makes by hand within that minute, before Argo Rollouts acted on the Error, reads as the Error's: the Rollout keeps only one time for both, so the release is held for him either way, and his retry carries it on the same way.
 
 ### Found live
 

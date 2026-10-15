@@ -9,7 +9,13 @@ import type { ItemState } from './items.ts';
 type Started = PayloadOf<'release.started'>;
 export type Stepped = PayloadOf<'canary.stepped'>;
 export type Failed = PayloadOf<'release.rolled-back'>['failed'][number];
+export type Errored = PayloadOf<'release.errored'>['errored'][number];
 type AbortedBy = PayloadOf<'release.aborted'>['by'];
+/**
+ * What stopped a release that neither promoted nor rolled back: Stop the line, Martin, or an analysis that could not
+ * judge it.
+ */
+export type StoppedBy = AbortedBy | 'error';
 
 /** One step of the canary: a weight it holds, how long it pauses there (null: until someone promotes it), and whether the analysis judges it. */
 export type Step = NonNullable<Started['steps']>[number];
@@ -23,6 +29,7 @@ export interface Measured {
 export type End =
   | { kind: 'promoted'; at: number; weight: 100 }
   | { kind: 'rolled-back'; at: number; weight: number; reason: string; failed: Failed[]; ticket: Signalled | undefined }
+  | { kind: 'errored'; at: number; weight: number; reason: string; errored: Errored[] }
   | { kind: 'aborted'; at: number; weight: number; by: AbortedBy };
 
 /**
@@ -113,18 +120,31 @@ export function sawOf({ name, value, limit, message }: Failed, reason: string): 
 export const ownWords = (message: string | undefined, reason: string) =>
   message !== reason && !/ assessed \w+ due to /.test(message ?? '') ? message : undefined;
 
-/** An abort in a few words: "stopped with the line" for Stop the line's, "aborted by Martin" for his own. */
-export const abortWords = (by: AbortedBy) => (by === 'stop' ? 'stopped with the line' : 'aborted by Martin');
+/**
+ * A stop in a few words: "stopped with the line" for Stop the line's abort, "aborted by Martin" for his own, "stopped
+ * by an analysis error" for an analysis that could not judge it.
+ */
+export const stopWords = (by: StoppedBy) =>
+  by === 'stop' ? 'stopped with the line' : by === 'martin' ? 'aborted by Martin' : 'stopped by an analysis error';
 
 /**
- * What a fix waits for after the release that carried it was aborted, as "waiting for Martin's next deploy" is after
+ * What a fix waits for after the release that carried it was stopped, as "waiting for Martin's next deploy" is after
  * a rollback: Martin's retry or his next deploy, naming him once.
  */
-export const abortWait = (by: AbortedBy) => `waiting for ${by === 'martin' ? 'his' : 'Martin’s'} retry or next deploy`;
+export const stopWait = (by: StoppedBy) => `waiting for ${by === 'martin' ? 'his' : 'Martin’s'} retry or next deploy`;
 
-/** How a release ended, in a few words: "promoted", "rolled back", "stopped with the line" or "aborted by Martin". */
-export const endedWords = (end: End) =>
-  end.kind === 'aborted' ? abortWords(end.by) : end.kind === 'rolled-back' ? 'rolled back' : 'promoted';
+/** What stopped a release that ended short of its promotion and rollback, if something did. */
+export const stoppedBy = (end: End | undefined): StoppedBy | undefined =>
+  end?.kind === 'aborted' ? end.by : end?.kind === 'errored' ? 'error' : undefined;
+
+/**
+ * How a release ended, in a few words: "promoted", "rolled back", "stopped with the line", "aborted by Martin" or
+ * "stopped by an analysis error".
+ */
+export const endedWords = (end: End) => {
+  const by = stoppedBy(end);
+  return by ? stopWords(by) : end.kind === 'rolled-back' ? 'rolled back' : 'promoted';
+};
 
 /** How long a release stays in full on the panel after it ends: as long as a station reads "passed". */
 const SHOWN_MS = 15 * 60_000;
@@ -246,10 +266,12 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
       event.type !== 'canary.stepped' &&
       event.type !== 'release.promoted' &&
       event.type !== 'release.rolled-back' &&
+      event.type !== 'release.errored' &&
       event.type !== 'release.aborted'
     )
       continue;
-    if (event.type === 'release.aborted') recordsAborts = true;
+    // A line that records an analysis's Error records aborts too.
+    if (event.type === 'release.aborted' || event.type === 'release.errored') recordsAborts = true;
     const r = byId.get(event.payload.release);
     if (!r || r.end) continue;
     if (event.type === 'canary.stepped') {
@@ -261,6 +283,11 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     if (event.type === 'release.rolled-back') {
       const { weight, reason, failed } = event.payload;
       r.end = { kind: 'rolled-back', at, weight, reason, failed, ticket: undefined };
+    }
+    // Recorded a pass after Argo Rollouts acted on the abort the Error made: it ended then.
+    if (event.type === 'release.errored') {
+      const { weight, reason, errored, abortedAt } = event.payload;
+      r.end = { kind: 'errored', at: Date.parse(abortedAt), weight, reason, errored };
     }
     // Recorded a pass after Argo Rollouts acted on it: it ended then, at the step it had reached.
     if (event.type === 'release.aborted') r.end = abortedAt(r, Date.parse(event.payload.abortedAt), event.payload.by);

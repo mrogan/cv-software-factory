@@ -104,7 +104,7 @@ interface Merged {
   number: number;
   commit: string;
   at: string;
-  /** Whether a release has carried it since its latest merge, and not rolled back or been aborted. */
+  /** Whether a release has carried it since its latest merge, and not rolled back, erred or been aborted. */
   released: boolean;
 }
 
@@ -485,6 +485,7 @@ const FOLDED = [
   'release.promoted',
   'release.rolled-back',
   'release.aborted',
+  'release.errored',
 ];
 
 const errorOf = (error: unknown) => ({
