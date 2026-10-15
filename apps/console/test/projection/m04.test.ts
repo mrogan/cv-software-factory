@@ -186,7 +186,7 @@ describe('a ticket’s sheet', () => {
         agent: 'triage',
         provider: 'typesafe',
         model: 'jev-1.13.0',
-        details: ['triage/v1 · 4 questions', 'passage/v1 · 1 question'],
+        details: ['triage/v2 · 4 questions', 'passage/v1 · 1 question'],
         calls: 2,
       }),
     ]);

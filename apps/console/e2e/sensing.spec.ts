@@ -102,7 +102,7 @@ test.describe('sensing and triage', () => {
     await page.goto(fixtureUrl({ item: '1010', sheet: true }));
     const models = page.getByRole('dialog', { name: 'Wrong words on /about' }).locator('table.models');
     await expect(models).toContainText('Jev 1.13.0 · TypeSafe');
-    await expect(models).toContainText('triage/v1 · 4 questions');
+    await expect(models).toContainText('triage/v2 · 4 questions');
     await expect(models).toContainText('passage/v1 · 1 question');
   });
 });

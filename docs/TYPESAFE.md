@@ -88,7 +88,7 @@ Measured on 3 October 2026 through the gateway, with `apps/factory/scripts/jev-s
 
 Jev reads only visitors' reports. A sense knows what it saw, so its signal's category and severity come from a table in `policy/triage.ts`, and a repeat is recognised by its fingerprint.
 
-The question sets are `packages/triage/src/questions.ts`. Each report is one request to `triage/v1`. The state is the page it was sent from, without its query, and its text, with email addresses and long numbers removed:
+The question sets are `packages/triage/src/questions.ts`. Each report is one request to `triage/v2`. The state is the page it was sent from, without its query, and its text, with email addresses and long numbers removed:
 
 ```json
 { "page": "/products/brass-doorstop", "report": "The price says -£12.99. Do you pay me to take it?" }

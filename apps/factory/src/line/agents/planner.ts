@@ -126,7 +126,7 @@ export const plannerResult = (protectedPaths: readonly string[] = NEVER) =>
     z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths), findings }),
     /** The ticket cannot be made testable, is not a defect in the app, or needs a fix the line may not make. */
     z.strictObject({ verdict: z.literal('reject'), reason: words(300), findings }),
-    /** Something about what the shop should do that only Martin can say. */
+    /** Something about what the app should do that only Martin can say. */
     z.strictObject({ verdict: z.literal('question'), question: words(300), findings }),
   ]);
 
@@ -215,13 +215,13 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
       'Find the cause in the repository: start from the route, and read the code that serves it and its tests. Stop as soon as you can name the code at fault and say why it does what the evidence shows: that diagnosis is all the plan needs, and most plans need a dozen tool calls or fewer.',
       'Do not reproduce the defect: start no server, send no requests, write no scripts, and run no tests. The coder’s first step is a failing test that reproduces it, and your criteria say what that test shows. You plan; the coder fixes. Change nothing: no change of yours leaves this checkout.',
       '',
-      'A fix does what the ticket’s evidence asks, and no more. The shop is full of other defects: anything else you notice that is wrong with the app, or that it could do better, goes in `findings`, never in the spec. Triage judges each one as it judges a visitor’s report; it opens no ticket on your word alone. Leave `findings` empty when you noticed nothing else.',
+      'A fix does what the ticket’s evidence asks, and no more. The app is full of other defects: anything else you notice that is wrong with it, or that it could do better, goes in `findings`, never in the spec. Triage judges each one as it judges a visitor’s report; it opens no ticket on your word alone. Leave `findings` empty when you noticed nothing else.',
       '',
       'Then write the result, one of three, each with its `findings`:',
       '1. {"verdict":"spec","spec":{"outcome","criteria":[{"given","when","expect","from"}],"scope":[],"risks":[],"rollout"},"findings":[{"page","route","text"}]}, the spec the coder will be held to:',
       ...SPEC_TEMPLATE.map((line) => `   ${line}`),
       `2. {"verdict":"reject","reason"} when you cannot make it testable: the cause is not in this repository, or you cannot find the defect the evidence shows, or no test could tell the fix from the defect. Reject it too when the fix needs a path no scope may name: ${protectedPaths.join(', ')}. The reason is one or two short sentences for Martin, at most 300 characters, naming the file or what is missing.`,
-      '3. {"verdict":"question","question"} when the fix turns on what the shop should do, which only Martin can say: one question he can answer in a line, at most 300 characters.',
+      '3. {"verdict":"question","question"} when the fix turns on what the app should do, which only Martin can say: one question he can answer in a line, at most 300 characters.',
       `\`findings\`: at most ${MAX_PLANNER_FINDINGS}, each with \`page\`, a page of the app that shows it, as the path a visitor opens (\`/\` when it shows on none); \`route\`, the route that serves that page, as the app’s code names it, such as \`/products/:slug\`; and \`text\`, what is wrong or could be better, in a sentence or two of at most 300 characters.`,
     ].join('\n'),
   apply: async (planned, _handback, _input, context) => {
