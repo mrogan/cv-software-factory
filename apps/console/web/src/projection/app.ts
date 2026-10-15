@@ -13,7 +13,7 @@
 export const RULES: Record<number, { title: string; text: string }> = {
   1: {
     title: 'Deep modules',
-    text: 'A module hides a decision behind a small interface. Pages and the API read the app through the catalogue, never the database.',
+    text: 'A module hides a decision behind a small interface. Pages and the API read the app’s data through the catalogue, never the database.',
   },
   2: {
     title: 'Collaborators come in',
