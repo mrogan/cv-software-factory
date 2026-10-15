@@ -70,7 +70,9 @@ export interface Release {
     /**
      * The log watcher's pattern: persists on any error record of it from the new version since the promotion; cleared
      * when there is none for `windowMinutes` after the promotion, in which the new version logged at least
-     * `minRequests` requests (to the ticket's route, when it has one).
+     * `minRequests` requests (to the ticket's route, when it has one). The watcher's agreement check (a missing log,
+     * wrong metrics): the metrics, the log and the traces agree on the route for the last `windowMinutes`, all after
+     * the promotion, with at least `minRequests` requests in them.
      */
     logs: { windowMinutes: number; minRequests: number };
     /** How long the line waits to look again when a sense could not tell. */

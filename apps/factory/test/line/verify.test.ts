@@ -3,6 +3,7 @@
  * what cannot tell yet, which is never a clear.
  */
 import { describe, expect, it } from 'vitest';
+import type { Sample } from '../../src/clients/http.ts';
 import { Loki } from '../../src/clients/loki.ts';
 import { Prometheus } from '../../src/clients/prometheus.ts';
 import {
@@ -11,6 +12,7 @@ import {
   judgeObjective,
   type LookOptions,
   look,
+  onRoute,
   reopeningComment,
   type Target,
   whatCleared,
@@ -275,6 +277,183 @@ describe('Verify by the log watcher', () => {
       await look(logs, target, options({ loki: soon.client, now: new Date(PROMOTED + 5 * 60_000) })),
     ).toMatchObject({ kind: 'wait' });
     expect(await look(logs, target, options())).toMatchObject({ kind: 'wait' });
+  });
+});
+
+/** One path's requests in each of the watcher's windows, as each record counts them. No `traces`: Tempo has none. */
+interface PathCounts {
+  metrics: number;
+  logs: number;
+  traces?: number;
+  /** The route the log gives the path; a path the log has no record of has none. */
+  route?: string;
+}
+
+/** Prometheus, Loki and Tempo counting the same requests in every window, and the windows they were asked about. */
+function records(paths: Record<string, PathCounts>, { complete = true } = {}) {
+  const windows: { start: Date; end: Date }[] = [];
+  const asked: string[] = [];
+  const entries = Object.entries(paths);
+  const prometheus = {
+    instant: async (query: string): Promise<Sample[]> => {
+      asked.push(query);
+      return entries.map(([path, c]) => ({ labels: { http_route: path, service_version: VERSION }, value: c.metrics }));
+    },
+    range: async () => undefined,
+  } as unknown as Prometheus;
+  const loki = {
+    instant: async (query: string): Promise<Sample[]> => {
+      asked.push(query);
+      return entries
+        .filter(([, c]) => c.logs > 0)
+        .map(([path, c]) => ({ labels: { path, route: c.route ?? path }, value: c.logs }));
+    },
+  } as unknown as Loki;
+  const tempo = {
+    serverSpans: async (_service: string, start: Date, end: Date, _limit?: number, version?: string) => {
+      windows.push({ start, end });
+      asked.push(`version ${version}`);
+      const spans = entries.flatMap(([path, c]) =>
+        Array.from({ length: c.traces ?? 0 }, (_, i) => ({ traceId: `${path}-${i}`, route: path })),
+      );
+      return { spans, complete };
+    },
+  };
+  return { prometheus, loki, tempo, windows, asked };
+}
+
+const missingLog: FirstSignal = {
+  sense: 'logs',
+  check: 'requests in the log',
+  route: '/products/:slug',
+  symptom: 'missing-log',
+  evidence: [{ kind: 'logs', route: '/products/:slug', version: BEFORE, requests: 40, lines: [] }],
+};
+const wrongMetric: FirstSignal = { ...missingLog, check: 'metrics against logs and traces', symptom: 'wrong-metric' };
+const silentLog: FirstSignal = { ...missingLog, route: '*' };
+
+describe('Verify by the log watcher’s agreement check', () => {
+  const logged = { metrics: 10, logs: 10, traces: 10, route: '/products/:slug' };
+
+  it('clears a missing log when every path of the route is logged as the metrics and traces count it', async () => {
+    const { windows, asked, ...clients } = records({
+      '/products/glove-left': logged,
+      '/products/glove-right': logged,
+    });
+    const found = await look(missingLog, target, options(clients));
+    expect(found).toMatchObject({
+      kind: 'finished',
+      verification: { outcome: 'cleared', sense: 'logs', check: 'requests in the log', version: VERSION },
+    });
+    expect(found.kind === 'finished' && whatCleared(found.verification)).toBe(
+      'The log of bbbbbbb recorded the requests counted elsewhere, for 30 minutes',
+    );
+    // The watcher's windows, the last ending four minutes ago, none of them before the promotion.
+    expect(windows).toHaveLength(6);
+    expect(windows.at(-1)?.end).toEqual(new Date(later.getTime() - 4 * 60_000));
+    for (const { start } of windows) expect(start.getTime()).toBeGreaterThanOrEqual(PROMOTED);
+    // Each record counts the new version's requests alone.
+    expect(asked).toHaveLength(18);
+    for (const query of asked) expect(query).toMatch(new RegExp(`service_version="${VERSION}"|version ${VERSION}`));
+  });
+
+  it('persists while one of the route’s paths leaves no record, though the log never placed it on the route', async () => {
+    const clients = records({
+      '/products/glove-left': logged,
+      '/products/glove-right': { metrics: 10, logs: 0, traces: 10 },
+    });
+    const found = await look(missingLog, target, options(clients));
+    expect(found).toMatchObject({
+      kind: 'finished',
+      verification: {
+        outcome: 'persists',
+        evidence: { kind: 'logs', route: '/products/glove-right', version: VERSION, requests: 60, lines: [] },
+      },
+    });
+    // Another route's unlogged requests are not the ticket's.
+    const elsewhere = records({ '/products/glove-left': logged, '/about': { metrics: 10, logs: 0, traces: 10 } });
+    expect(await look(missingLog, target, options(elsewhere))).toMatchObject({
+      verification: { outcome: 'cleared' },
+    });
+  });
+
+  it('judges a missing log on the metrics and the log alone without Tempo, as the watcher does', async () => {
+    const { tempo: _, ...cleared } = records({ '/products/glove-left': logged });
+    expect(await look(missingLog, target, options(cleared))).toMatchObject({ verification: { outcome: 'cleared' } });
+    const { tempo: __, ...missing } = records({ '/products/glove-left': { metrics: 10, logs: 1 } });
+    expect(await look(missingLog, target, options(missing))).toMatchObject({ verification: { outcome: 'persists' } });
+  });
+
+  it('judges wrong metrics against the log and the traces, and cannot without the traces', async () => {
+    const agreeing = records({ '/products/glove-left': logged });
+    const cleared = await look(wrongMetric, target, options(agreeing));
+    expect(cleared).toMatchObject({ verification: { outcome: 'cleared', check: 'metrics against logs and traces' } });
+    expect(cleared.kind === 'finished' && whatCleared(cleared.verification)).toBe(
+      'The metrics of bbbbbbb counted the requests its log and traces did, for 30 minutes',
+    );
+    const wrong = records({ '/products/glove-left': { ...logged, metrics: 30 } });
+    expect(await look(wrongMetric, target, options(wrong))).toMatchObject({ verification: { outcome: 'persists' } });
+    const { tempo: _, ...noTempo } = agreeing;
+    expect(await look(wrongMetric, target, options(noTempo))).toEqual({
+      kind: 'wait',
+      why: 'the line has no way to Tempo (TEMPO_URL), which says whether the metrics are wrong',
+    });
+    const late = records({ '/products/glove-left': logged }, { complete: false });
+    expect(await look(wrongMetric, target, options(late))).toEqual({
+      kind: 'wait',
+      why: 'Tempo did not have every trace of the window',
+    });
+  });
+
+  it('persists on a log silent for every route, and clears once it counts every route’s requests again', async () => {
+    const silent = records({
+      '/products/glove-left': { metrics: 10, logs: 0, traces: 10 },
+      '/about': { metrics: 10, logs: 0, traces: 10 },
+    });
+    expect(await look(silentLog, target, options(silent))).toMatchObject({
+      verification: { outcome: 'persists', evidence: { kind: 'logs', requests: 60, lines: [] } },
+    });
+    const back = records({ '/products/glove-left': logged, '/about': { ...logged, route: '/about' } });
+    expect(await look(silentLog, target, options(back))).toMatchObject({ verification: { outcome: 'cleared' } });
+  });
+
+  it('cannot tell too soon after the promotion, on too few requests, or on records that disagree otherwise', async () => {
+    const clients = records({ '/products/glove-left': logged });
+    // Six windows of five minutes, and the last must have ended four minutes ago.
+    expect(await look(missingLog, target, options({ ...clients, now: new Date(PROMOTED + 33 * 60_000) }))).toEqual({
+      kind: 'wait',
+      why: 'the window ends at 2026-10-11T09:34:00.000Z',
+    });
+    expect(
+      await look(missingLog, target, options({ ...clients, now: new Date(PROMOTED + 34 * 60_000) })),
+    ).toMatchObject({ kind: 'finished' });
+    const thin = records({ '/products/glove-left': { metrics: 1, logs: 1, traces: 1 } });
+    expect(await look(missingLog, target, options(thin))).toEqual({
+      kind: 'wait',
+      why: 'the route had 6 requests on the new version, fewer than 20',
+    });
+    expect(await look(silentLog, target, options(thin))).toMatchObject({ kind: 'wait' });
+    // More log records than requests: not a missing log, and not a log that agrees either.
+    const over = records({ '/products/glove-left': { ...logged, logs: 30 } });
+    expect(await look(missingLog, target, options(over))).toMatchObject({ kind: 'wait' });
+    expect(await look(missingLog, target, options({ prometheus: clients.prometheus }))).toEqual({
+      kind: 'wait',
+      why: 'the line has no way to Loki (LOKI_URL)',
+    });
+  });
+});
+
+describe('a path on a route', () => {
+  it.each([
+    [{ path: '/products/glove-left', route: '/products/:slug' }, true],
+    // A path the log did not place matches the route's template.
+    [{ path: '/products/glove-left', route: '/products/glove-left' }, true],
+    [{ path: '/products/glove-left/reviews', route: '/products/glove-left/reviews' }, false],
+    [{ path: '/products', route: '/products' }, false],
+    // One the log placed under another route is that route's.
+    [{ path: '/products/new', route: '/products/new-arrivals' }, false],
+  ])('%o', (entry, expected) => {
+    expect(onRoute(entry, '/products/:slug')).toBe(expected);
   });
 });
 
