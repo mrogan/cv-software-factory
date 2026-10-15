@@ -71,7 +71,7 @@ jobs:
       # The store's tests start their own Postgres, the image the cluster runs, from CI's copy of it
       # (scripts/ci-images.sh).
       - run: echo "TEST_POSTGRES_IMAGE=$(scripts/ci-images.sh postgres)" >> "$GITHUB_ENV"
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
           install_args: node pnpm kustomize
       - run: pnpm install --frozen-lockfile
