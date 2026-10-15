@@ -4,9 +4,10 @@
  * all three widths. Milestone 4's states come from its test data: a card for each new picture and outcome, the line
  * with tickets waiting and with a spend cap, Triage's panel, a ticket's and a quarantined report's sheets, and an
  * empty store for real events. Milestone 5's come from the samples: a card for each wait and hold, Review's panel,
- * and a fix's spec, rounds, review, gates and models, the sheet in Ink too. Milestone 6's come from the samples too:
- * the Canary panel in each state, a reopened card and one waiting for Martin's deploy, a sheet's releases, the
- * scrubber for work that goes round three times, and the timeline's versions, a release with no work item's among them.
+ * Plan's with a ticket in hand, and a fix's spec, rounds, review, gates and models, the sheet in Ink too. Milestone 6's
+ * come from the samples too: the Canary panel in each state, a reopened card and one waiting for Martin's deploy, a
+ * sheet's releases, the scrubber for work that goes round three times, and the timeline's versions, a release with no
+ * work item's among them.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -258,6 +259,19 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       await ready(page);
       await page.getByRole('button', { name: /^Review:/ }).click();
       await expect(page.getByRole('dialog', { name: 'Review' })).toHaveScreenshot(`m05-review-panel-${width}.png`);
+    });
+
+    test('Plan’s panel, with a ticket in hand, one held and newer ones waiting', async ({ page }) => {
+      // In the samples, the planner has taken #1314 and #1315 has just opened behind it.
+      await page.goto(consoleUrl({ at: Date.parse('2026-10-06T08:12:30Z') }));
+      await ready(page);
+      await page.getByRole('button', { name: /^Plan:/ }).click();
+      // The screenshot scrolls the panel into view, which would move a row under the pointer left on the station and
+      // show it hovered: scroll first, then rest the pointer on the panel's heading.
+      const dialog = page.getByRole('dialog', { name: 'Plan' });
+      await dialog.scrollIntoViewIfNeeded();
+      await dialog.getByRole('heading', { name: 'Plan' }).hover();
+      await expect(dialog).toHaveScreenshot(`m05-plan-panel-${width}.png`);
     });
 
     test('a fix’s sheet: the spec, its rounds and its review', async ({ page }) => {

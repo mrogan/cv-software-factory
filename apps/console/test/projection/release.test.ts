@@ -5,14 +5,26 @@
 import type { PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { release as policy } from '../../../../policy/release.ts';
-import { project, upTo } from '../../web/src/projection/index.ts';
+import { DRAWN } from '../../../factory/src/release/read.ts';
+import { project, projectSheet, upTo } from '../../web/src/projection/index.ts';
 import { type Card, timeline } from '../../web/src/projection/reel.ts';
-import { type Failed, MEASURES, ownWords, type Release, releases, sawOf } from '../../web/src/projection/release.ts';
+import {
+  type Failed,
+  MEASURES,
+  ownWords,
+  type Release,
+  releases,
+  SERIES_UNITS,
+  sawOf,
+  versionsAt,
+} from '../../web/src/projection/release.ts';
 import { END, SAMPLES, work } from './support.ts';
 
 const at = (iso: string) => Date.parse(iso);
 /** The build of one of Martin's commits that rolled back on Monday evening, as v0.9.9 had (the samples' `line.ts`). */
 const EVENING = 'efef168f4eec299dfc27c8fc78477ce28379b38d';
+/** The build of another that the analysis could not judge on Monday night. */
+const NIGHT = 'b72355f99c4273a86f6f29cc9a0fa089c97a7a0f';
 const shown = (t: number) => {
   const view = project(SAMPLES, t);
   return { view, canary: view.canary, station: view.stations.find((s) => s.stage === 'release') };
@@ -94,6 +106,20 @@ describe('the Canary panel, from the samples', () => {
     });
   });
 
+  it('draws an analysis that could not judge the canary as its own end, at the step it could not judge', () => {
+    const { canary } = shown(at('2026-10-05T20:15:00Z'));
+    if (canary.state !== 'shown') throw new Error('No release shown');
+    expect(canary.release).toMatchObject({
+      version: NIGHT,
+      end: { kind: 'errored', at: at('2026-10-05T20:13:11Z'), weight: 25 },
+    });
+    expect(canary.release.end?.kind === 'errored' && canary.release.end.errored.map((m) => m.name)).toEqual([
+      'enough-requests',
+      'errors',
+      'latency',
+    ]);
+  });
+
   it('draws a dry run as the dry run records it, and never moves the app’s version for it', () => {
     const { canary } = shown(at('2026-10-05T13:09:40Z'));
     expect(canary.state === 'shown' && canary.release).toMatchObject({ dryRun: true, image: undefined, weight: 50 });
@@ -119,10 +145,10 @@ describe('the timeline, from the samples', () => {
   const mark = (version: string) => timeline.versions.find((v) => v.version === version);
   const place = (number: string) => timeline.positions[cards.findIndex((c) => c.number === number)] ?? -1;
 
-  it('marks every version the app was left on, in order, a rollback and a stop struck through', () => {
+  it('marks every version the app was left on, in order, a rollback, an analysis error and a stop struck through', () => {
     expect(timeline.versions.map((v) => (v.rolledBack ? `~${v.version}~` : v.version))).toEqual([
       ...['v0.8.4', 'v0.8.5', 'v0.9.0', '~v0.9.1~', 'v0.9.2', 'v0.9.3', 'v0.9.5', 'v0.9.7', 'v0.9.8'],
-      ...['~v0.9.9~', 'v0.9.10', `~${EVENING}~`, '~v0.9.11~', 'v0.9.12'],
+      ...['~v0.9.9~', 'v0.9.10', `~${EVENING}~`, `~${NIGHT}~`, '~v0.9.11~', 'v0.9.12'],
     ]);
     const places = timeline.versions.map((v) => v.at);
     expect(places).toEqual([...places].sort((a, b) => a - b));
@@ -141,7 +167,7 @@ describe('the timeline, from the samples', () => {
     }
     expect(mark('v0.9.11')?.at).toBeLessThan(mark('v0.9.12')?.at ?? 0);
     const alone = releases(SAMPLES, [], END).filter((r) => r.end && !r.dryRun && !r.items.length);
-    expect(alone.map((r) => r.version)).toEqual(['v0.9.9', EVENING, 'v0.9.11', 'v0.9.12']);
+    expect(alone.map((r) => r.version)).toEqual(['v0.9.9', EVENING, NIGHT, 'v0.9.11', 'v0.9.12']);
     expect(new Set([...timeline.positions, ...timeline.versions.map((v) => v.at)]).size).toBe(
       cards.length + alone.length,
     );
@@ -291,7 +317,7 @@ describe('a release’s steps', () => {
     // The card and the sheet say so too, with the release that rolled back.
     const picture = (t: number) => project(one.events, t).cards.find((c) => c.number === '1')?.picture;
     expect(picture(one.at(2))).toMatchObject({ type: 'deploy', ended: undefined });
-    expect(picture(one.at(7))).toMatchObject({ type: 'deploy', ended: { version: 'v1.0.1', aborted: undefined } });
+    expect(picture(one.at(7))).toMatchObject({ type: 'deploy', ended: { version: 'v1.0.1', stopped: undefined } });
     // A new fix, merged after the rollback, waits for a deploy as the first did.
     one
       .add(8, 'pull-request.merged', 'martin', { number: 3, commit: 'c'.repeat(40), by: 'martin' })
@@ -323,9 +349,53 @@ describe('a release’s steps', () => {
     const card = view.cards.find((c) => c.number === '1');
     expect(card?.picture).toMatchObject({
       type: 'deploy',
-      ended: { at: one.at(5), version: 'v1.0.1', aborted: 'martin' },
+      ended: { at: one.at(5), version: 'v1.0.1', stopped: 'martin' },
     });
-    expect(card?.versions).toMatchObject({ rolledBack: false, aborted: 'martin', onCanary: false });
+    expect(card?.versions).toMatchObject({ rolledBack: false, stopped: 'martin', onCanary: false });
+  });
+
+  it('draws a release an analysis error stopped, and lists its merge as waiting for Martin’s retry or next deploy', () => {
+    const deploy = { stage: 'release', kind: 'approval', cause: 'deploy', reason: 'Waits for a deploy' } as const;
+    const errored = { ...stepped(25), analysis: { phase: 'error' as const, requests: null, measures: [] } };
+    const one = work('1')
+      .open()
+      .add(1, 'pull-request.merged', 'martin', { number: 2, commit: 'b'.repeat(40), by: 'martin' })
+      .add(3, 'release.started', 'rollouts', started(twoSteps))
+      .add(6, 'canary.stepped', 'rollouts', errored);
+    const abortedAt = new Date(one.at(6)).toISOString();
+    one
+      .add(7, 'release.errored', 'rollouts', {
+        release: 'r1',
+        version: 'v1.0.1',
+        restored: 'v1.0.0',
+        weight: 25,
+        reason: 'Metric "errors" assessed Error due to consecutiveErrors (5) > consecutiveErrorLimit (4)',
+        errored: [{ name: 'errors', phase: 'error', value: null, limit: 0.01, message: 'connection refused' }],
+        abortedAt,
+      })
+      .add(7, 'hold.started', 'factory', deploy);
+    const view = project(one.events, one.at(8));
+    // It ended when Argo Rollouts acted on the Error, at the step it could not judge.
+    expect(releases(one.events, [], one.at(8))[0]?.end).toMatchObject({ kind: 'errored', at: one.at(6), weight: 25 });
+    expect(view.panels.release.rows.find((r) => r.item === '1')?.note).toBe(
+      'Needs you · stopped by an analysis error, waiting for Martin’s retry or next deploy',
+    );
+    const card = view.cards.find((c) => c.number === '1');
+    expect(card?.picture).toMatchObject({
+      type: 'deploy',
+      ended: { at: one.at(6), version: 'v1.0.1', stopped: 'error' },
+    });
+    expect(card?.versions).toMatchObject({ rolledBack: false, stopped: 'error', onCanary: false });
+    // The sheet names its chapter for the Error.
+    expect(projectSheet(one.events, '1', one.at(8))?.chapters.find((c) => c.label === 'ERROR')).toMatchObject({
+      tone: 'attn',
+      text: 'v1.0.1 stopped by an analysis error at 25%',
+    });
+    // Retried, it goes again from its first step, and the attempt it replaced is the Error's.
+    one.add(10, 'release.started', 'rollouts', started(twoSteps));
+    const [r] = releases(one.events, [], one.at(11));
+    expect(r).toMatchObject({ startedAt: one.at(10), end: undefined });
+    expect(r?.retried).toEqual([expect.objectContaining({ kind: 'errored', weight: 25 })]);
   });
 
   it('goes again from its first step when it is retried after a rollback', () => {
@@ -440,6 +510,10 @@ it('keeps the measures’ rules in the policy’s terms', () => {
   expect(words.journeys).toContain('twice');
 });
 
+it('reads each series in the unit the line draws it in', () => {
+  expect(SERIES_UNITS).toEqual(Object.fromEntries(Object.entries(DRAWN).map(([name, d]) => [name, d.unit])));
+});
+
 describe('what the analysis saw of a measure that failed', () => {
   const reason = 'Metric "latency" assessed Failed due to failed (2) > failureLimit (1)';
   const failed = (name: string, value: number | null, limit: number | null, message?: string): Failed => ({
@@ -458,11 +532,60 @@ describe('what the analysis saw of a measure that failed', () => {
     expect(sawOf(failed('latency', 0.273, 0), reason)).toBe('p99 273 ms over its limit');
     // Any excess fails, so a fraction of a millisecond is not said as none.
     expect(sawOf(failed('latency', 0.0004, 0), reason)).toBe('p99 1 ms over its limit');
+    // Otherwise to the nearest millisecond, as the figures beside it are, and not misread by a float's last digits.
+    expect(sawOf(failed('latency', 0.2731, 0), reason)).toBe('p99 273 ms over its limit');
+    expect(sawOf(failed('latency', 1.0005, 0), reason)).toBe('p99 1001 ms over its limit');
     // The limit is what the value is held to: the excess over it is what is said.
     expect(sawOf(failed('latency', 0.273, 0.1), reason)).toBe('p99 173 ms over its limit');
     // A limit the analysis did not record is not said.
     expect(sawOf(failed('errors', 0.024, null), reason)).toBe('5xx share 2.40 points above the baseline’s');
     expect(sawOf(failed('other', 3, null), reason)).toBe('3');
+  });
+
+  describe('with the series the line drew', () => {
+    const series = (unit: string, canary: (number | null)[], baseline: (number | null)[], at = canary.length - 1) => ({
+      label: unit === 'ms' ? 'p99 latency' : 'share of 5xx answers',
+      unit,
+      stepSeconds: 15,
+      canary,
+      baseline,
+      at,
+    });
+    const withSeries = (f: Failed, s: ReturnType<typeof series>): Failed => ({ ...f, series: s });
+
+    it('says both versions’ figures at the failure, before how far over its limit it was', () => {
+      // A real rollback's latency measure, as the line recorded it: the canary's p99 less the baseline's and its margin.
+      const latency = withSeries(failed('latency', 0.27624068397288937, 0), series('ms', [40.1, 415.2], [38.5, 38.96]));
+      expect(versionsAt(latency)).toEqual({ canary: 415.2, baseline: 38.96 });
+      // Rounded as the figures are, the excess agrees with them: 415 less 39 and its 100 ms margin.
+      expect(sawOf(latency, reason)).toBe('p99 415 ms against 39 ms: 276 ms over its limit');
+      const errors = withSeries(failed('errors', 0.024, 0.01), series('%', [0.5, 3.4], [0.9, 1]));
+      expect(sawOf(errors, reason)).toBe(
+        '5xx share 3.40% against 1.00%: 2.40 points above, at most 1.00 points allowed',
+      );
+      expect(sawOf({ ...errors, limit: null }, reason)).toBe('5xx share 3.40% against 1.00%: 2.40 points above');
+    });
+
+    it('reads the figures where the analysis failed, not where the lines end', () => {
+      const latency = withSeries(
+        failed('latency', 0.173, 0),
+        series('ms', [140, 412, 409, null], [138, 139, 137, 139], 1),
+      );
+      expect(sawOf(latency, reason)).toBe('p99 412 ms against 139 ms: 173 ms over its limit');
+    });
+
+    it('keeps today’s wording where a version has no figure, or the series is not the measure’s', () => {
+      const gap = withSeries(failed('latency', 0.173, 0), series('ms', [140, null], [138, 139]));
+      expect(versionsAt(gap)).toBeUndefined();
+      expect(sawOf(gap, reason)).toBe('p99 173 ms over its limit');
+      const other = withSeries(failed('latency', 0.173, 0), series('%', [1, 2], [1, 1]));
+      expect(sawOf(other, reason)).toBe('p99 173 ms over its limit');
+      const errors = withSeries(failed('errors', 0.024, 0.01), series('%', [0.5, 3.4], [0.9, null]));
+      expect(sawOf(errors, reason)).toBe('5xx share 2.40 points above the baseline’s, against at most 1.00 points');
+      // A measure with no value had nothing to compare, whatever its series.
+      const none = withSeries(failed('latency', null, 0), series('ms', [140, 412], [138, 139]));
+      expect(sawOf(none, reason)).toBe('no figures to compare, which counts as infinitely worse');
+    });
   });
 
   it('says when there was nothing to compare, and lets the journeys say what they saw', () => {

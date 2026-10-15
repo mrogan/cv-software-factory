@@ -94,6 +94,7 @@ export const PUBLIC_VIEWS = {
   'release.promoted': redacted,
   'release.rolled-back': redacted,
   'release.aborted': redacted,
+  'release.errored': redacted,
   'verification.finished': redacted,
   'work.returned': redacted,
   'hold.started': redacted,

@@ -9,7 +9,13 @@ import type { ItemState } from './items.ts';
 type Started = PayloadOf<'release.started'>;
 export type Stepped = PayloadOf<'canary.stepped'>;
 export type Failed = PayloadOf<'release.rolled-back'>['failed'][number];
+export type Errored = PayloadOf<'release.errored'>['errored'][number];
 type AbortedBy = PayloadOf<'release.aborted'>['by'];
+/**
+ * What stopped a release that neither promoted nor rolled back: Stop the line, Martin, or an analysis that could not
+ * judge it.
+ */
+export type StoppedBy = AbortedBy | 'error';
 
 /** One step of the canary: a weight it holds, how long it pauses there (null: until someone promotes it), and whether the analysis judges it. */
 export type Step = NonNullable<Started['steps']>[number];
@@ -23,6 +29,7 @@ export interface Measured {
 export type End =
   | { kind: 'promoted'; at: number; weight: 100 }
   | { kind: 'rolled-back'; at: number; weight: number; reason: string; failed: Failed[]; ticket: Signalled | undefined }
+  | { kind: 'errored'; at: number; weight: number; reason: string; errored: Errored[] }
   | { kind: 'aborted'; at: number; weight: number; by: AbortedBy };
 
 /**
@@ -86,12 +93,17 @@ export const MEASURES = [
  * What the analysis saw of a measure that failed a release, against its limit, in the analysis's own terms
  * (`apps/factory/src/release/analysis.ts`): the requests the split sent the canary, against the fewest it needs; the
  * canary's share of 5xx answers above the baseline's, against the most it may be; how far its p99 went past the most
- * it may be, rounded up, as any excess fails. A limit the analysis did not record is not said. A measure with no value
- * says it in its own words, unless those are the rollback's or Argo Rollouts' ("Metric … assessed Failed due to …"):
- * the journeys report no number, and errors and latency with none had no figures to compare, which the analysis
- * counts as infinitely worse.
+ * it may be, to the millisecond but never as none, since any excess fails. A limit the analysis did not record is not
+ * said. A measure with no value says it in its own words, unless those are the rollback's or Argo Rollouts' ("Metric …
+ * assessed Failed due to …"): the journeys report no number, and errors and latency with none had no figures to
+ * compare, which the analysis counts as infinitely worse.
+ *
+ * Errors and latency say each version's own figure first, where the rollback's series has both at the moment the
+ * analysis failed (`versionsAt`): "p99 415 ms against 39 ms: 276 ms over its limit". Each figure is rounded on its
+ * own, so the last digit of the excess can differ by one from the sum a reader makes of the two beside it.
  */
-export function sawOf({ name, value, limit, message }: Failed, reason: string): string {
+export function sawOf(failed: Failed, reason: string): string {
+  const { name, value, limit, message } = failed;
   const own = ownWords(message, reason);
   if (value === null)
     return (
@@ -102,29 +114,71 @@ export function sawOf({ name, value, limit, message }: Failed, reason: string): 
     );
   const points = (x: number) => `${(x * 100).toFixed(2)} points`;
   const against = (words: string) => (limit === null ? '' : `, against ${words}`);
-  if (name === 'latency') return `p99 ${Math.ceil(Math.round((value - (limit ?? 0)) * 1e6) / 1000)} ms over its limit`;
-  if (name === 'errors')
-    return `5xx share ${points(value)} above the baseline’s${against(`at most ${points(limit ?? 0)}`)}`;
+  const both = versionsAt(failed);
+  if (name === 'latency') {
+    // In µs first, so a float such as 1.0005 s is not read as 1000.4999… ms.
+    const over = `${Math.max(1, Math.round(Math.round((value - (limit ?? 0)) * 1e6) / 1000))} ms over its limit`;
+    return both ? `p99 ${Math.round(both.canary)} ms against ${Math.round(both.baseline)} ms: ${over}` : `p99 ${over}`;
+  }
+  if (name === 'errors') {
+    if (!both) return `5xx share ${points(value)} above the baseline’s${against(`at most ${points(limit ?? 0)}`)}`;
+    const allowed = limit === null ? '' : `, at most ${points(limit)} allowed`;
+    return `5xx share ${both.canary.toFixed(2)}% against ${both.baseline.toFixed(2)}%: ${points(value)} above${allowed}`;
+  }
   if (name === 'enough-requests') return `${value} requests to the canary${against(`at least ${limit}`)}`;
   return `${value}${against(`a limit of ${limit}`)}`;
+}
+
+/**
+ * The unit each measure's series is drawn in, as the line draws it (`apps/factory/src/release/read.ts`'s `DRAWN`). A
+ * test holds them together.
+ */
+export const SERIES_UNITS: Record<string, string> = { errors: '%', latency: 'ms' };
+
+/**
+ * Each version's own figure when the analysis failed a measure: the canary's and the baseline's values at the series'
+ * `at`, in its unit (a share of 5xx answers in percent, a p99 in ms). The line draws the series from the same query
+ * the analysis runs for each version, over the same window, up to the run's end. Argo Rollouts ends a run in the
+ * same pass as the look that fails it, so the figures there are the ones that look compared, to within a moment of
+ * the window. Undefined for a measure with no series, one in a unit not its
+ * own, or where either version has no value.
+ */
+export function versionsAt({ name, series }: Failed): { canary: number; baseline: number } | undefined {
+  if (!series || series.unit !== SERIES_UNITS[name]) return undefined;
+  const canary = series.canary[series.at];
+  const baseline = series.baseline[series.at];
+  return typeof canary === 'number' && typeof baseline === 'number' ? { canary, baseline } : undefined;
 }
 
 /** A failed measure's message, when it says more than the rollback's reason or Argo Rollouts' boilerplate. */
 export const ownWords = (message: string | undefined, reason: string) =>
   message !== reason && !/ assessed \w+ due to /.test(message ?? '') ? message : undefined;
 
-/** An abort in a few words: "stopped with the line" for Stop the line's, "aborted by Martin" for his own. */
-export const abortWords = (by: AbortedBy) => (by === 'stop' ? 'stopped with the line' : 'aborted by Martin');
+/**
+ * A stop in a few words: "stopped with the line" for Stop the line's abort, "aborted by Martin" for his own, "stopped
+ * by an analysis error" for an analysis that could not judge it.
+ */
+export const stopWords = (by: StoppedBy) =>
+  by === 'stop' ? 'stopped with the line' : by === 'martin' ? 'aborted by Martin' : 'stopped by an analysis error';
 
 /**
- * What a fix waits for after the release that carried it was aborted, as "waiting for Martin's next deploy" is after
+ * What a fix waits for after the release that carried it was stopped, as "waiting for Martin's next deploy" is after
  * a rollback: Martin's retry or his next deploy, naming him once.
  */
-export const abortWait = (by: AbortedBy) => `waiting for ${by === 'martin' ? 'his' : 'Martin’s'} retry or next deploy`;
+export const stopWait = (by: StoppedBy) => `waiting for ${by === 'martin' ? 'his' : 'Martin’s'} retry or next deploy`;
 
-/** How a release ended, in a few words: "promoted", "rolled back", "stopped with the line" or "aborted by Martin". */
-export const endedWords = (end: End) =>
-  end.kind === 'aborted' ? abortWords(end.by) : end.kind === 'rolled-back' ? 'rolled back' : 'promoted';
+/** What stopped a release that ended short of its promotion and rollback, if something did. */
+export const stoppedBy = (end: End | undefined): StoppedBy | undefined =>
+  end?.kind === 'aborted' ? end.by : end?.kind === 'errored' ? 'error' : undefined;
+
+/**
+ * How a release ended, in a few words: "promoted", "rolled back", "stopped with the line", "aborted by Martin" or
+ * "stopped by an analysis error".
+ */
+export const endedWords = (end: End) => {
+  const by = stoppedBy(end);
+  return by ? stopWords(by) : end.kind === 'rolled-back' ? 'rolled back' : 'promoted';
+};
 
 /** How long a release stays in full on the panel after it ends: as long as a station reads "passed". */
 const SHOWN_MS = 15 * 60_000;
@@ -246,10 +300,12 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
       event.type !== 'canary.stepped' &&
       event.type !== 'release.promoted' &&
       event.type !== 'release.rolled-back' &&
+      event.type !== 'release.errored' &&
       event.type !== 'release.aborted'
     )
       continue;
-    if (event.type === 'release.aborted') recordsAborts = true;
+    // A line that records an analysis's Error records aborts too.
+    if (event.type === 'release.aborted' || event.type === 'release.errored') recordsAborts = true;
     const r = byId.get(event.payload.release);
     if (!r || r.end) continue;
     if (event.type === 'canary.stepped') {
@@ -261,6 +317,11 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     if (event.type === 'release.rolled-back') {
       const { weight, reason, failed } = event.payload;
       r.end = { kind: 'rolled-back', at, weight, reason, failed, ticket: undefined };
+    }
+    // Recorded a pass after Argo Rollouts acted on the abort the Error made: it ended then.
+    if (event.type === 'release.errored') {
+      const { weight, reason, errored, abortedAt } = event.payload;
+      r.end = { kind: 'errored', at: Date.parse(abortedAt), weight, reason, errored };
     }
     // Recorded a pass after Argo Rollouts acted on it: it ended then, at the step it had reached.
     if (event.type === 'release.aborted') r.end = abortedAt(r, Date.parse(event.payload.abortedAt), event.payload.by);

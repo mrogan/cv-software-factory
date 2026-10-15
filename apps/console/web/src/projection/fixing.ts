@@ -300,18 +300,20 @@ export function deployPicture(item: ItemState): Extract<Picture, { type: 'deploy
 
 /**
  * The release that carried the last merge and ended without shipping, while the fix waits for the next deploy or
- * Martin's retry: when, its version, and who aborted it, if it was aborted rather than rolled back.
+ * Martin's retry: when, its version, and what stopped it, if it was stopped rather than rolled back.
  */
 export function endedSinceMerge(item: ItemState): Ended | undefined {
   const merged = ofType(item, 'pull-request.merged').at(-1)?.ts ?? '';
   const ended = item.events.findLast(
-    (e): e is PublicEvent<'release.rolled-back' | 'release.aborted'> =>
-      (e.type === 'release.rolled-back' || e.type === 'release.aborted') && e.ts >= merged,
+    (e): e is PublicEvent<'release.rolled-back' | 'release.errored' | 'release.aborted'> =>
+      (e.type === 'release.rolled-back' || e.type === 'release.errored' || e.type === 'release.aborted') &&
+      e.ts >= merged,
   );
   if (!ended) return undefined;
-  const aborted = ended.type === 'release.aborted' ? ended.payload.by : undefined;
-  const at = ended.type === 'release.aborted' ? ended.payload.abortedAt : ended.ts;
-  return { at: Date.parse(at), version: ended.payload.version, aborted };
+  if (ended.type === 'release.rolled-back')
+    return { at: Date.parse(ended.ts), version: ended.payload.version, stopped: undefined };
+  const stopped = ended.type === 'release.aborted' ? ended.payload.by : 'error';
+  return { at: Date.parse(ended.payload.abortedAt), version: ended.payload.version, stopped };
 }
 
 /** The pull request Martin is asked to merge, with its whole change: every round together, as a merge brings it in. */

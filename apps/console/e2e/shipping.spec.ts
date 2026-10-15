@@ -43,6 +43,32 @@ test.describe('the Canary panel', () => {
     await expect(canary.getByRole('button', { name: '#1308 Slow responses in a canary release' })).toBeVisible();
   });
 
+  test('says both versions’ figures for a failed measure the line drew', async ({ page, request }) => {
+    type Event = { ts: string; type: string; payload: { failed?: Record<string, unknown>[] } };
+    const events = (await (await request.get('/api/events')).json()) as Event[];
+    // As the line records a rollback with Prometheus to read: the analysis's figure, and each version's series to it.
+    const rolledBack = events.find((e) => e.type === 'release.rolled-back' && e.ts.startsWith('2026-10-05T10:23'));
+    const [measure] = rolledBack?.payload.failed ?? [];
+    if (!measure) throw new Error('No failed measure on Monday’s rollback');
+    Object.assign(measure, {
+      value: 0.27624,
+      series: {
+        label: 'p99 latency',
+        unit: 'ms',
+        stepSeconds: 15,
+        canary: [40.1, 415.2],
+        baseline: [38.5, 38.96],
+        at: 1,
+      },
+    });
+    await page.route('**/api/events?after=0', (route) => route.fulfill({ json: events }));
+    await page.goto(consoleUrl({ at: CANARY['rolled-back-no-step'] }));
+    await shown(page);
+    await expect(panel(page).getByRole('row', { name: /^Latency / })).toContainText(
+      'p99 415 ms against 39 ms: 276 ms over its limit',
+    );
+  });
+
   test('leaves Release’s panel saying a merge waits for Martin’s deploy', async ({ page }) => {
     await page.goto(consoleUrl());
     await shown(page);
@@ -52,7 +78,9 @@ test.describe('the Canary panel', () => {
     );
   });
 
-  test('draws each abort, marks a dry run, and folds to one line when nothing is in flight', async ({ page }) => {
+  test('draws each abort and an analysis error, marks a dry run, and folds to one line when nothing is in flight', async ({
+    page,
+  }) => {
     await page.goto(consoleUrl({ at: CANARY.stopped }));
     await shown(page);
     await expect(panel(page).locator('.kick')).toHaveText('Stopped with the line at 50%');
@@ -60,6 +88,10 @@ test.describe('the Canary panel', () => {
     await shown(page);
     await expect(panel(page).locator('.kick')).toHaveText('Aborted by Martin at 25%');
     await expect(panel(page)).toContainText('Martin aborted the canary at 25%');
+    await page.goto(consoleUrl({ at: CANARY.errored }));
+    await shown(page);
+    await expect(panel(page).locator('.kick')).toHaveText('Stopped by an analysis error at 25%');
+    await expect(panel(page)).toContainText('The analysis could not judge the canary at 25%');
     await page.goto(consoleUrl({ at: CANARY['dry-run'] }));
     await shown(page);
     await expect(panel(page).locator('.kick')).toHaveText('Canary · 50%, as the dry run records itDry run');

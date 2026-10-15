@@ -6,7 +6,7 @@ import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-f
 import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
 import { endedSinceMerge } from './fixing.ts';
 import type { ItemState } from './items.ts';
-import { abortWait, abortWords, inFlight, type Release, SIGNALLED } from './release.ts';
+import { endedWords, inFlight, type Release, SIGNALLED, stopWait, stopWords } from './release.ts';
 
 export type Status = 'idle' | 'working' | 'returning' | 'passing' | 'blocked' | 'failed';
 /** A person should look at a station that is still at work: an item in it failed, or waits on them. */
@@ -91,7 +91,13 @@ export interface PanelRow {
   note: string;
   /** States it went through in the stage today before this one, struck through in the row: "sent back". */
   earlier: string[];
+  /** `signal` for what the station is at work on now. */
   tone: 'signal' | 'ok' | 'attn' | 'faint';
+  /**
+   * At work on it while the station says it is working: the row is marked as the station marks itself. Stopped,
+   * capped or held, the station says "blocked", and its rows are not marked.
+   */
+  working?: true;
   at: number;
 }
 
@@ -325,12 +331,12 @@ function noteOf(item: ItemState, stage: Stage): string {
   if (item.queued) return item.stage === 'release' ? 'Merged · waiting for release' : 'Waiting for the planner';
   if (item.hold?.cause === 'merge') return 'Needs you · waiting for Martin’s merge';
   // A merged fix waits for a deploy pull request, again when the release that carried it rolled back; after an
-  // abort, for Martin's retry too.
+  // abort or an analysis error, for Martin's retry too.
   if (item.hold?.cause === 'deploy') {
     const ended = endedSinceMerge(item);
     if (!ended) return 'Needs you · waiting for Martin’s deploy';
-    if (!ended.aborted) return 'Needs you · rolled back, waiting for Martin’s next deploy';
-    return `Needs you · ${abortWords(ended.aborted)}, ${abortWait(ended.aborted)}`;
+    if (!ended.stopped) return 'Needs you · rolled back, waiting for Martin’s next deploy';
+    return `Needs you · ${stopWords(ended.stopped)}, ${stopWait(ended.stopped)}`;
   }
   // Only Martin asks for improvements, so a visitor's suggestion waits for Martin, as does whatever the planner
   // noticed. A report that became a ticket and is held later, at Gates say, shows that hold's own reason.
@@ -347,6 +353,15 @@ const sentBackWords = (n: number) => (n === 1 ? 'sent back' : `sent back ${n} ti
 
 /** Rows by work-item number, the newest first. */
 const newestFirst = (a: PanelRow, b: PanelRow) => Number(b.item) - Number(a.item);
+
+/**
+ * What is in a stage, by what the station is doing with it: at work on it, held or failed in it, waiting for it. No
+ * row in the stage is `ok`, which only a leaver of Verify is; it has a place so that every tone does.
+ */
+const IN_STAGE: Record<PanelRow['tone'], number> = { signal: 0, attn: 1, ok: 2, faint: 3 };
+
+/** What the station is working on first, then what is held or failed, then what waits; each newest first. */
+const inHandFirst = (a: PanelRow, b: PanelRow) => IN_STAGE[a.tone] - IN_STAGE[b.tone] || newestFirst(a, b);
 
 /**
  * What a stage panel lists: the items in the stage now, then what left it today, one row each. A work item the
@@ -414,15 +429,20 @@ export function panel(
     .filter((r) => !r.items.length && (r === flight || (r.end && r.end.at >= startOfDay(t))))
     .reverse()
     .map(ownRow);
+  const { status } = station(stage, items, returns, line, t, shipped);
+  const lit = status === 'working' || status === 'returning';
+  const mark = (row: PanelRow): PanelRow => (lit && row.tone === 'signal' ? { ...row, working: true } : row);
   return {
     stage,
-    // What is in the stage, then what left it today, each newest first: the store numbers work items in order.
+    // What is in the stage, the work in hand first, then what left it today, each newest first: the store numbers
+    // work items in order. The line takes the oldest ticket, so by number alone the one in hand would sit below
+    // every newer one waiting behind it.
     rows: [
       ...own.filter((row) => row.tone === 'signal'),
-      ...now.sort(newestFirst),
+      ...now.sort(inHandFirst),
       ...[...done, ...back].sort(newestFirst),
       ...own.filter((row) => row.tone !== 'signal'),
-    ],
+    ].map(mark),
     senses: triage ? senseCounts(items, events) : undefined,
     caps: triage ? line.caps.filter((spell) => spell.cleared === undefined || spell.cleared >= startOfDay(t)) : [],
     queued: present.filter((item) => item.queued).length,
@@ -438,8 +458,8 @@ function ownRow(r: Release): PanelRow {
       : 'canary starting'
     : end.kind === 'promoted'
       ? 'promoted'
-      : end.kind === 'aborted'
-        ? `${abortWords(end.by)} at ${end.weight}%`
+      : end.kind !== 'rolled-back'
+        ? `${endedWords(end)} at ${end.weight}%`
         : `rolled back at ${end.weight}%${end.ticket ? ` · ${SIGNALLED[end.ticket.how]} #${end.ticket.number}` : ''}`;
   const tone = !end ? 'signal' : end.kind === 'promoted' ? 'faint' : 'attn';
   return {
