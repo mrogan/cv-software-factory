@@ -1,9 +1,9 @@
 /**
  * The app's releases, as events. The line reads the Rollout and its AnalysisRuns about every thirty seconds
  * (`read.ts`) and appends what they say that it has not recorded: a release starting, each step's analysis, and its
- * promotion or how else it ended. `releaseEvents` is the decision, a pure function of the Rollout, its runs, what is recorded,
- * and what the line read about the new image, as `gateEvents` is for the gates: reading the same state again appends
- * nothing, and a line started again carries on from what it recorded.
+ * promotion or how else it ended. `releaseEvents` is the decision, a pure function of the Rollout, its runs, what is
+ * recorded, and what the line read about the new image, as `gateEvents` is for the gates: reading the same state again
+ * appends nothing, and a line started again carries on from what it recorded.
  *
  * A release is named by the canary's pod-template hash and the Rollout's revision (`releaseName`). Argo Rollouts gives
  * the same pod template the same hash, and counts the revision up on every new rollout, so pinning an image released
@@ -302,7 +302,10 @@ const indexOf = (o: Observed, run: AnalysisRun) => Number(run.metadata.labels['s
 /** The weight of the step a run judged, or the step the Rollout was at for a run in the background. */
 const weightOf = (o: Observed, run: AnalysisRun): number => weightAt(o, indexOf(o, run));
 
-/** The weight the canary had reached when a run ended the release: its step's, or for one in the background, as far as the steps went. */
+/**
+ * The weight the canary had reached when a run ended the release: its step's, or for one in the background, as far as
+ * the steps went.
+ */
 const endedAt = (o: Observed, release: string, last: AnalysisRun, attempt: readonly AnalysisRun[]): number =>
   isStep(last) ? weightOf(o, last) : reachedWeight(o, release, attempt);
 

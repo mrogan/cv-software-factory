@@ -135,7 +135,7 @@ describe('the timeline, from the samples', () => {
   const mark = (version: string) => timeline.versions.find((v) => v.version === version);
   const place = (number: string) => timeline.positions[cards.findIndex((c) => c.number === number)] ?? -1;
 
-  it('marks every version the shop was left on, in order, a rollback, an analysis error and a stop struck through', () => {
+  it('marks every version the app was left on, in order, a rollback, an analysis error and a stop struck through', () => {
     expect(timeline.versions.map((v) => (v.rolledBack ? `~${v.version}~` : v.version))).toEqual([
       ...['v0.8.4', 'v0.8.5', 'v0.9.0', '~v0.9.1~', 'v0.9.2', 'v0.9.3', 'v0.9.5', 'v0.9.7', 'v0.9.8'],
       ...['~v0.9.9~', 'v0.9.10', `~${EVENING}~`, `~${NIGHT}~`, '~v0.9.11~', 'v0.9.12'],
