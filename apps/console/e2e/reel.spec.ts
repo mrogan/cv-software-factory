@@ -122,11 +122,11 @@ test.describe('the reel', () => {
     await expect(page.getByRole('dialog', { name: 'Discount codes refuse lower case' })).toBeVisible();
   });
 
-  test('writes the shop’s version under the timeline by a commit’s first seven characters', async ({
+  test('writes the app’s version under the timeline by a commit’s first seven characters', async ({
     page,
     request,
   }) => {
-    // The samples name their releases by version; the cluster's are commits. The shop is on v0.9.12 at the end.
+    // The samples name their releases by version; the cluster's are commits. The app is on v0.9.12 at the end.
     const commit = 'b5702d4e1f9a3c6087d2e5b1a4c7f0e3d6b9a2c5';
     const events = (await (await request.get('/api/events')).text()).replaceAll('v0.9.12', commit);
     // The stream is held, so nothing it sends can bring v0.9.12 back.
@@ -136,9 +136,9 @@ test.describe('the reel', () => {
     );
     await page.goto(consoleUrl());
     await ready(page);
-    const shop = page.locator('.at-line b.mono');
-    await expect(shop).toHaveText('b5702d4');
-    await expect(shop).toHaveAttribute('title', commit);
+    const version = page.locator('.at-line b.mono');
+    await expect(version).toHaveText('b5702d4');
+    await expect(version).toHaveAttribute('title', commit);
   });
 
   test('moves the wipe with its handle’s arrow keys', async ({ page }) => {
@@ -267,7 +267,7 @@ test.describe('playing the history on first view', () => {
 
 /**
  * The timeline's version labels never touch: where two would, one is thinned to a hairline, and the centre card's
- * and the shop's version now keep their labels. At every width, at rest on the latest card, a rollback's (#1276) and a release's own (#1306).
+ * and the app's version now keep their labels. At every width, at rest on the latest card, a rollback's (#1276) and a release's own (#1306).
  */
 for (const [width, viewport] of Object.entries(WIDTHS)) {
   test.describe(`${width}, the timeline's versions`, () => {
@@ -288,8 +288,8 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         for (const [a, b] of shown.slice(1).map((b, i) => [shown[i], b] as const))
           expect(b.left, `${a?.text} touches ${b.text}`).toBeGreaterThan(a?.right ?? 0);
         for (const here of labels.filter((l) => l.here)) expect(here.shown, `${here.text} at the centre`).toBe(true);
-        // The version the shop is on keeps its label too, wherever the timeline shows more than the centre's.
-        if (width !== 'phone') expect(labels.find((l) => l.now)?.shown, 'the shop’s version now').toBe(true);
+        // The version the app is on keeps its label too, wherever the timeline shows more than the centre's.
+        if (width !== 'phone') expect(labels.find((l) => l.now)?.shown, 'the app’s version now').toBe(true);
       });
     }
   });

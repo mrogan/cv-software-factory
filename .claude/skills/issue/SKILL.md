@@ -52,7 +52,7 @@ When in doubt, leave it out and say so to Martin.
 ## Where it goes
 
 - **`mrogan/cv-software-factory`**, by default: the factory, the console, the docs, delivery.
-- **`mrogan/cv-worlds-worst-website`** only for the app's repository itself (its CI, its README, its deploy), never for a defect in the shop. Issues there may be read by the factory, which acts only on its own issues and those Martin labels for it.
+- **`mrogan/cv-worlds-worst-website`** only for the app's repository itself (its CI, its README, its deploy), never for a defect in the app. Issues there may be read by the factory, which acts only on its own issues and those Martin labels for it.
 
 ## Labels
 

@@ -51,8 +51,8 @@ interface Drag {
 export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProps) {
   renders.reel++;
   const { cards, timeline } = view;
-  /** The version the shop is on: the last mark not struck through. */
-  const shopNow = timeline.versions.findLastIndex((v) => !v.rolledBack);
+  /** The version the app is on: the last mark not struck through. */
+  const appNow = timeline.versions.findLastIndex((v) => !v.rolledBack);
   const n = cards.length;
   const reel = useRef<HTMLElement>(null);
   const rail = useRef<HTMLDivElement>(null);
@@ -132,7 +132,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
 
   /**
    * Version labels that would touch are thinned to a hairline: the centre card's keeps its label, then the one the
-   * shop is on now, then rollbacks and stops, then those nearest the centre. Measured where the reel rests and when the width changes.
+   * app is on now, then rollbacks and stops, then those nearest the centre. Measured where the reel rests and when the width changes.
    */
   const thin = useCallback(() => {
     const marks = [...(rail.current?.querySelectorAll<HTMLElement>('.ver') ?? [])];
@@ -303,10 +303,10 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     <section className="history" aria-labelledby="history-title">
       <div className="history-head">
         <div>
-          <h2 id="history-title">The shop, change by change</h2>
+          <h2 id="history-title">The app, change by change</h2>
           <p>
-            Every work item, oldest on the left. Drag the cards or the timeline to watch the shop change; open one to
-            see how it was done.
+            Every work item, oldest on the left. Drag the cards or the timeline to watch the app change; open one to see
+            how it was done.
           </p>
         </div>
         <div className="transport">
@@ -443,7 +443,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
         {timeline.versions.map(({ at, card, version, rolledBack }, i) => (
           <span
             key={`${version}-${at}`}
-            className={`ver ${rolledBack ? 'burnt' : ''} ${card === centre ? 'here' : ''} ${i === shopNow ? 'now' : ''}`}
+            className={`ver ${rolledBack ? 'burnt' : ''} ${card === centre ? 'here' : ''} ${i === appNow ? 'now' : ''}`}
             style={{ left: `${at * 100}%` }}
           >
             {shortVersion(version)}
@@ -457,12 +457,12 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
             <b>{when(current.startedAt)}</b> · #{current.number} {current.title}
           </span>
           <span>
-            The shop at{' '}
+            The app at{' '}
             <b
               className="mono"
-              title={current.shopVersion && isCommit(current.shopVersion) ? current.shopVersion : undefined}
+              title={current.appVersion && isCommit(current.appVersion) ? current.appVersion : undefined}
             >
-              {current.shopVersion ? shortVersion(current.shopVersion) : 'its first version'}
+              {current.appVersion ? shortVersion(current.appVersion) : 'its first version'}
             </b>
             {current.outcome === 'in-progress' && current.versions.onCanary && (
               <span className="attn-text"> · broken now; the fix is on the canary</span>

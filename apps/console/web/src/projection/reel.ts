@@ -191,8 +191,8 @@ export interface Card {
   durationMs: number;
   spend: number;
   segments: Segment[];
-  /** The version the shop was on once this item was done with it, or now if it is not. */
-  shopVersion: string | undefined;
+  /** The version the app was on once this item was done with it, or now if it is not. */
+  appVersion: string | undefined;
   /** While a verified ticket is open again: when, and what the sense saw, on which version. */
   reopened: ItemState['reopened'];
 }
@@ -203,8 +203,8 @@ export interface Timeline {
   /** Where each day starts along the timeline, and the day's start. */
   days: { at: number; day: number }[];
   /**
-   * The version each release left the shop on, where it sits along the timeline: under the work item it carried, or,
-   * for a release with no work item, a place of its own at its time. Struck through when the shop went back.
+   * The version each release left the app on, where it sits along the timeline: under the work item it carried, or,
+   * for a release with no work item, a place of its own at its time. Struck through when the app went back.
    */
   versions: { at: number; card: number | undefined; version: string; rolledBack: boolean }[];
 }
@@ -414,10 +414,10 @@ function wipeOf(item: ItemState): Picture | undefined {
 }
 
 /**
- * The version the shop was on at a time: the last one promoted, injected or restored by then. A dry run's release
- * shipped nothing, so it never moves the shop.
+ * The version the app was on at a time: the last one promoted, injected or restored by then. A dry run's release
+ * shipped nothing, so it never moves the app.
  */
-export function shopVersion(events: readonly PublicEvent[], at: number): string | undefined {
+export function appVersion(events: readonly PublicEvent[], at: number): string | undefined {
   let version: string | undefined;
   for (const event of events) {
     if (Date.parse(event.ts) > at) break;
@@ -464,7 +464,7 @@ export function card(item: ItemState, events: readonly PublicEvent[], t: number)
     durationMs: Math.max(0, end - item.openedAt),
     spend: item.spend,
     segments: segments(item),
-    shopVersion: shopVersion(events, end),
+    appVersion: appVersion(events, end),
     reopened: item.reopened,
   };
 }
@@ -484,9 +484,9 @@ const dayOf = (at: number) => {
  * The timeline: a card's width between work items, half one more between days, and a release marked under no card
  * takes a card's place without a card, so its version sits between the work items either side of it in time.
  *
- * A release marks the version it left the shop on once it has ended: under the first card whose latest release it
+ * A release marks the version it left the app on once it has ended: under the first card whose latest release it
  * is, or, when it carries no work item shown, all it carried went again in a later release, or it ended before the
- * mark of a card before it, in its own place. A rollback and an abort are struck through, since the shop went back to
+ * mark of a card before it, in its own place. A rollback and an abort are struck through, since the app went back to
  * the version before. A dry run shipped nothing, and marks nothing.
  */
 export function timeline(cards: readonly Card[], shipped: readonly Release[]): Timeline {
@@ -505,7 +505,7 @@ export function timeline(cards: readonly Card[], shipped: readonly Release[]): T
     last = endAt(r);
   }
   // The cards in the order they started, and each release in its own place before the first card that started after
-  // it ended or whose own mark ended after it, so the versions read in the order the shop's changed.
+  // it ended or whose own mark ended after it, so the versions read in the order the app's changed.
   type Entry = { at: number } & ({ card: number } | { release: Release });
   const entries: Entry[] = cards.map((c, card) => ({ card, at: c.startedAt }));
   const changed = cards.map((c, i) => Math.max(c.startedAt, endAt(under.get(i))));

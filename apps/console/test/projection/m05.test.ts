@@ -292,7 +292,7 @@ describe('the sheet of a fix', () => {
     expect(first?.findings[0]?.rule).toEqual({
       number: 3,
       title: 'Test at the seams',
-      text: expect.stringContaining('Tests go through the shop over HTTP'),
+      text: expect.stringContaining('Tests go through the app over HTTP'),
     });
     const [criterion] = sheet('1319')?.review[0]?.findings ?? [];
     expect(criterion?.criterion).toEqual({

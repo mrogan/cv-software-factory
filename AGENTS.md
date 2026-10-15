@@ -75,7 +75,7 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   APP_URL=http://website.localhost:8080 node apps/factory/src/cli.ts traffic
   ```
 
-  Beside the cluster's own generator, it would double the shop's traffic and the requests a canary is judged on, so scale that one to nothing first (`kubectl -n factory scale deployment/traffic --replicas=0`), and back to one after.
+  Beside the cluster's own generator, it would double the app's traffic and the requests a canary is judged on, so scale that one to nothing first (`kubectl -n factory scale deployment/traffic --replicas=0`), and back to one after.
 
   Scale the cluster's copy of a worker to nothing first (`kubectl -n factory scale deployment/triage --replicas=0`), and back to one after, so two do not take the same signals. Add `PAGES_URL=http://localhost:8090` to triage to have it read the pages reports name.
 - Node 24 runs TypeScript directly: erasable syntax only, `.ts` extensions in imports, no build step. The console's browser code is the exception: Vite builds it.

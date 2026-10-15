@@ -21,7 +21,7 @@ alertmanager:
   config:
     route:
       receiver: intake
-      # Alerts of one route and objective arrive together; a quiet shop has few.
+      # Alerts of one route and objective arrive together; a quiet app has few.
       group_by: [route, objective]
       group_wait: 10s
       group_interval: 1m

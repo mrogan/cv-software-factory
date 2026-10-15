@@ -1,4 +1,4 @@
-# The probes: a shopper's journeys against the app, every few minutes and at once on a new version. They also serve the page
+# The probes: a visitor's journeys against the app, every few minutes and at once on a new version. They also serve the page
 # reader that triage uses. Chromium runs without its own sandbox, which the restricted Pod Security Standard would refuse
 # it; the pod's fences (network policy, non-root, no capabilities) hold instead.
 apiVersion: apps/v1
@@ -67,7 +67,7 @@ spec:
                 secretKeyRef:
                   name: postgres-writer
                   key: password
-            # The app's stable Service: what the shop is between releases. A canary is judged by its analysis, not here.
+            # The app's stable Service: all of the app between releases. A canary is judged by its analysis, not here.
             - name: APP_URL
               value: http://website.website
             # The canary's Service: while a release runs as a canary, every page is pictured on both and compared.

@@ -22,7 +22,7 @@ export interface Release {
   app: {
     /** The `job` of its request metrics. */
     metricsJob: string;
-    /** The stable version's Service: the baseline, and all of the shop between releases. */
+    /** The stable version's Service: the baseline, and all of the app between releases. */
     stable: string;
     /** The canary's Service: the new version while a release is in flight. */
     canary: string;
@@ -47,7 +47,7 @@ export interface Release {
    * release at its `failures`th failed look: one look of many can be one slow request.
    */
   background: { intervalMinutes: number; journeysIntervalMinutes: number; failures: number };
-  /** The traffic generator (`factory traffic`): how many of the shop's pages it asks for each second. */
+  /** The traffic generator (`factory traffic`): how many of the app's pages it asks for each second. */
   traffic: { requestsPerSecond: number };
   /**
    * How Verify asks the sense that saw a ticket's defect whether it has cleared on the version a release promoted.

@@ -1722,10 +1722,10 @@ describe('the deploy pull request', () => {
     expect(described(github)).toHaveLength(2);
   });
 
-  it('is told what it carries over the version the shop runs, not the one pinned, which may have rolled back', async () => {
+  it('is told what it carries over the version the app runs, not the one pinned, which may have rolled back', async () => {
     const history = ['0', '1', '2', '3', '4', '5', '6'].map(sha);
     const [held, after, closed] = [await ticket(), await ticket('broken', '/cart'), await ticket('broken', '/basket')];
-    // The shop runs 1. A release of 3, carrying the first fix, rolled back; main still pins it.
+    // The app runs 1. A release of 3, carrying the first fix, rolled back; main still pins it.
     await events.append([
       event(null, 'release.promoted', {
         release: '6d8f9c7b54',

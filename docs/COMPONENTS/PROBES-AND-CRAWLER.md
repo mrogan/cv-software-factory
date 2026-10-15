@@ -15,7 +15,7 @@ Synthetic journeys and site checks, with screenshots for the event store, the ch
 
 ## The probes
 
-`apps/factory/src/probes`. The journeys a shopper takes:
+`apps/factory/src/probes`. The journeys a visitor takes:
 
 - browse;
 - open a product;
@@ -34,7 +34,7 @@ Every request the probes, the crawler and the page reader make sends `x-unmeasur
 - **During a canary,** the baseline's figures hold none of their requests, nor anything their checks provoke, as the canary's hold none.
 - **The objectives** judge the visitors' requests and the [traffic generator](TRAFFIC-GENERATOR.md)'s alone. The senses look for what goes wrong on their own requests themselves.
 - **An error** one of their requests causes is still logged, so the [log watcher](LOG-WATCHER.md) sees it, with no trace.
-- **Only on the Service.** The shop's public route removes the header, so a sense run on the host through Traefik (`APP_URL=http://website.localhost:8080`) is counted like a visitor.
+- **Only on the Service.** The app's public route removes the header, so a sense run on the host through Traefik (`APP_URL=http://website.localhost:8080`) is counted like a visitor.
 
 ### The sense runner
 
@@ -59,7 +59,7 @@ For the line's [Verify](RELEASE-AND-VERIFY.md#verify): `POST /v1/verify` with a 
 
 ## Pictures
 
-With `CANARY_URL` set to the canary's Service, the probes worker watches both Services' `/version`. While they differ, it pictures the shop on each.
+With `CANARY_URL` set to the canary's Service, the probes worker watches both Services' `/version`. While they differ, it pictures the app on each.
 
 ```mermaid
 flowchart TD
@@ -72,7 +72,7 @@ flowchart TD
 
 ### Taking them
 
-- **Which pages:** every page of the shop on each Service (the pages the traffic generator finds from the front door, at most sixty, full page to 1600 pixels).
+- **Which pages:** every page of the app on each Service (the pages the traffic generator finds from the front door, at most sixty, full page to 1600 pixels).
 - **Boxed pages first:** the pages where a sense boxed a finding come first, with those elements boxed on both versions: every one, however many checks boxed the page, since the line keeps only a ticket's own ([Verify](RELEASE-AND-VERIFY.md#pictures)). Each box is indexed with the element it was drawn round.
 - **Compared** pixel by pixel (`pictures/`, pixelmatch).
 - **Not judged:** its requests send `x-unmeasured` too, so they are not judged with the canary's visitors.

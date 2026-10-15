@@ -656,7 +656,7 @@ function afterMerge(s: WorkItemState): Decision {
   if (!release || release.ended) {
     const reason = release?.ended
       ? endedReason(release.started.version, release.ended)
-      : `The fix${s.pullRequest ? ` in pull request #${s.pullRequest.number}` : ''} is merged, and waits for a deploy pull request to carry it to the shop`;
+      : `The fix${s.pullRequest ? ` in pull request #${s.pullRequest.number}` : ''} is merged, and waits for a deploy pull request to carry it to the app`;
     return {
       stage: 'held',
       next: { do: 'hold', hold: { stage: 'release', kind: 'approval', cause: 'deploy', reason } },

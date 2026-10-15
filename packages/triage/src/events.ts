@@ -363,20 +363,20 @@ export function findingEvents(
         return summarise(writer, {
           title: `A defect the planner noticed on ${page}`,
           description: `Jev judged it ${category} and ${severity}. The planner’s word alone opens no ticket, so it waits for a sense to see it, or for Martin.`,
-          story: `While planning ${ticket}, the planner noticed something else wrong on ${page}. A fix does only what its ticket asks, so it left this for triage. Jev judged it a ${category} problem, ${severity} for a visitor. A visitor can read the shop’s public code and try to persuade an agent that a line of it holds a bug, so the planner is trusted no more than a visitor: no ticket opens until a sense sees the defect or Martin opens one.`,
+          story: `While planning ${ticket}, the planner noticed something else wrong on ${page}. A fix does only what its ticket asks, so it left this for triage. Jev judged it a ${category} problem, ${severity} for a visitor. A visitor can read the app’s public code and try to persuade an agent that a line of it holds a bug, so the planner is trusted no more than a visitor: no ticket opens until a sense sees the defect or Martin opens one.`,
         });
       }
       writer.add('hold.started', 'triage', 'Waiting for Martin: the planner suggested a change', {
         stage: 'triage',
         kind: 'approval',
         cause: 'suggestion',
-        reason: 'The planner noticed something the shop could do better, and only Martin asks for improvements.',
+        reason: 'The planner noticed something the app could do better, and only Martin asks for improvements.',
       });
       return summarise(writer, {
         title: 'The planner’s suggestion',
         description:
           'Jev read it as a request for something new, not a fault. Triage parked it for Martin, who alone asks for improvements.',
-        story: `While planning ${ticket}, the planner noticed something on ${page} the shop could do better. A fix does only what its ticket asks, so it left this for triage. Jev judged it a suggestion, and only Martin can ask for an improvement, so routing code parked it for him.`,
+        story: `While planning ${ticket}, the planner noticed something on ${page} the app could do better. A fix does only what its ticket asks, so it left this for triage. Jev judged it a suggestion, and only Martin can ask for an improvement, so routing code parked it for him.`,
       });
     case 'discard':
       writer.add('work-item.closed', 'triage', 'Closed with no ticket: not a defect', {

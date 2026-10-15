@@ -1,5 +1,5 @@
-# The traffic generator: a steady walk through the shop's public pages and its search, at the rate policy/release.ts
-# sets, so a canary always has enough requests to judge. It goes in through Traefik, the shop's front door, so the
+# The traffic generator: a steady walk through the app's public pages and its search, at the rate policy/release.ts
+# sets, so a canary always has enough requests to judge. It goes in through Traefik, the app's front door, so the
 # canary's traffic split applies to it as to any visitor. It only GETs: it never sends a report or the contact form.
 apiVersion: apps/v1
 kind: Deployment
@@ -16,7 +16,7 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate # one at a time: two would double the shop's traffic, and change what a canary is judged on
+    type: Recreate # one at a time: two would double the app's traffic, and change what a canary is judged on
   selector:
     matchLabels:
       app.kubernetes.io/name: traffic
@@ -49,7 +49,7 @@ spec:
               value: "service.namespace=software-factory"
             - name: OTEL_METRIC_EXPORT_INTERVAL
               value: "15000"
-            # The shop's public address, reached through the ingress that serves it.
+            # The app's public address, reached through the ingress that serves it.
             - name: APP_URL
               value: http://website.localhost
             - name: INGRESS_URL

@@ -44,7 +44,7 @@ export function States({ source, view }: { source: Source; view: View }) {
       {view.sample && (
         <p className="notice">
           <span className="label">Samples</span>
-          Every work item below was written by hand to show how the console works. The screenshots are of the real shop,
+          Every work item below was written by hand to show how the console works. The screenshots are of the real app,
           with each sample’s change made in a copy that went nowhere. The factory’s own work replaces them.
         </p>
       )}
@@ -114,15 +114,15 @@ export function EmptyReel({ store }: { store: StoreKind | undefined }) {
       <section className="history" aria-labelledby="history-title">
         <div className="history-head">
           <div>
-            <h2 id="history-title">The shop, change by change</h2>
+            <h2 id="history-title">The app, change by change</h2>
           </div>
         </div>
         <div className="empty-reel">
           <span className="label">Watching, nothing yet</span>
           <p>
             This store holds the factory’s own work, and nothing has needed a ticket yet. The probes and the crawler
-            check the shop every few minutes, and the moment the app changes. A check that fails twice in a row becomes
-            a signal, and triage turns it into a card here.
+            check the app every few minutes, and the moment it changes. A check that fails twice in a row becomes a
+            signal, and triage turns it into a card here.
           </p>
           <p>
             A check that passes writes nothing, so an empty reel means the senses have found nothing wrong yet. The
@@ -140,7 +140,7 @@ export function EmptyReel({ store }: { store: StoreKind | undefined }) {
     <section className="history" aria-labelledby="history-title">
       <div className="history-head">
         <div>
-          <h2 id="history-title">The shop, change by change</h2>
+          <h2 id="history-title">The app, change by change</h2>
         </div>
       </div>
       <div className="empty-reel">

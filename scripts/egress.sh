@@ -15,7 +15,7 @@
 # address, Postgres, the console or the host, nor a name. A pod labelled like a prepare pod reaches GitHub and the npm
 # registry, and none of the cluster.
 #
-# Then the release (milestone 6): the traffic generator reaches the shop only through Traefik, its front door; a pod
+# Then the release (milestone 6): the traffic generator reaches the app only through Traefik, its front door; a pod
 # made like the canary's analysis Job reaches the app's stable and canary Services and nothing else; a pod labelled
 # like the Argo Rollouts controller reaches the Kubernetes API and Prometheus and not the internet; and in Kyverno's
 # namespace, a pod labelled like the admission controller reaches GHCR and Sigstore's trust root, while one without
@@ -35,7 +35,7 @@
 # admission control lets it in: the workers' pod the factory image the gateway runs, the runners' pods and the ones in
 # Kyverno's and Argo Rollouts' namespaces the runner image the line pins (Node is on its PATH), and the analysis Job's
 # and the app's the `factory-browser` image the analysis pins. Each tries an address with Node's `fetch`, or, to name
-# the shop's host to Traefik, with `http.get`.
+# the app's host to Traefik, with `http.get`.
 #
 # A check that must be blocked passes only when the connection is refused, reset, unreachable or never answered, as a
 # policy blocks it: any other failure, such as a name that does not resolve, proves nothing about the fence.
