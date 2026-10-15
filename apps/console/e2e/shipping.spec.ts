@@ -218,6 +218,32 @@ for (const [width, viewport] of Object.entries({ laptop: WIDTHS.laptop, phone: W
   }
 }
 
+test.describe('a sheet’s events on a phone', () => {
+  test.use({ viewport: WIDTHS.phone });
+
+  test('fits each event’s time in its column, however long the item has been open', async ({ page }) => {
+    // #1306 has been open for most of a day, so its latest times are the widest the samples hold.
+    await page.goto(consoleUrl({ item: '1306', sheet: true }));
+    const events = page.getByRole('dialog').locator('.replay .event');
+    await events.first().waitFor();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: /^All events \(\d+\)$/ })
+      .click();
+    const overlaps = await events.evaluateAll((rows) =>
+      rows.flatMap((row) => {
+        const [when, ...rest] = [...row.children].filter((child) => getComputedStyle(child).display !== 'none');
+        const name = rest.at(-1);
+        if (!when || !name) return [];
+        const fits = when.scrollWidth <= when.clientWidth;
+        const clear = when.getBoundingClientRect().right <= name.getBoundingClientRect().left;
+        return fits && clear ? [] : [when.textContent];
+      }),
+    );
+    expect(overlaps).toEqual([]);
+  });
+});
+
 test.describe('the scoreboard', () => {
   test.use({ viewport: WIDTHS.desktop });
 

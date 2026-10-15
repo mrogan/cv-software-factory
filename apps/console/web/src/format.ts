@@ -38,11 +38,20 @@ export function duration(ms: number): string {
   return hours % 24 && days < 7 ? `${days}d\u00a0${hours % 24}h` : `${days}d`;
 }
 
-/** The time since an item opened, as the sheet's scrubber shows it: T+04:20, or T+1:02:30 past an hour. */
+/**
+ * The time since an item opened, as the sheet's scrubber shows it: T+04:20, T+1:02:30 past an hour, and T+5d 12:39:59
+ * past a day, its days written as a duration writes them, with a no-break space so that it never wraps.
+ */
 export function sinceStart(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));
-  const [h, m, s] = [Math.floor(total / 3600), Math.floor((total % 3600) / 60), total % 60];
+  const [d, h, m, s] = [
+    Math.floor(total / 86_400),
+    Math.floor((total % 86_400) / 3600),
+    Math.floor((total % 3600) / 60),
+    total % 60,
+  ];
   const two = (n: number) => String(n).padStart(2, '0');
+  if (d) return `T+${d}d\u00a0${two(h)}:${two(m)}:${two(s)}`;
   return h ? `T+${h}:${two(m)}:${two(s)}` : `T+${two(m)}:${two(s)}`;
 }
 
