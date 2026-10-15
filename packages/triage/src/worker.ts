@@ -331,8 +331,21 @@ export class Triage {
     const [done] = await sql<{ work_item: string; type: string }[]>`
       select work_item, type from events where id = ${idsFor(taken.id)()}`;
     if (done) {
-      const [burst] = await sql`select 1 from events where work_item = ${done.work_item} and type = 'hold.started'
-                                and payload->>'cause' = 'burst' limit 1`;
+      const [burst] = await sql<{ closed: boolean }[]>`
+        select exists (select 1 from events c where c.work_item = ${done.work_item} and c.type = 'work-item.closed')
+               as closed
+        from events where work_item = ${done.work_item} and type = 'hold.started' and payload->>'cause' = 'burst'
+        limit 1`;
+      if (burst?.closed) {
+        // Martin answered the burst before the inbox heard it held this signal, so settling it passed the signal by:
+        // the signal is let through now, as the burst was, unless he rejected it.
+        const rejected = await sql`select 1 from events where work_item = ${done.work_item}
+                                   and type = 'work-item.closed' and payload->>'outcome' = 'discarded' limit 1`;
+        if (rejected.length) return { outcome: 'held', workItem: done.work_item, ticketOpened: false };
+        const made = await this.#sense(signal, `burst:${taken.id}`, await openTickets(sql));
+        if (made.events.length) await events.append(made.events);
+        return { outcome: made.outcome, workItem: made.workItem, ticketOpened: made.ticket !== undefined };
+      }
       const outcome = burst
         ? 'held'
         : judged(signal)

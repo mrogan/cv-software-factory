@@ -7,7 +7,7 @@ import type { Sql } from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { INBOX } from '../../../../policy/triage.ts';
 import { type Database, freshDatabase } from '../../../store/test/database.ts';
-import { BURST, burstEvents, idsFor, senseTicket } from '../../src/events.ts';
+import { BURST, burstEvents, idsFor, senseEvidence, senseTicket } from '../../src/events.ts';
 import { type Answer, type Judge, JudgeWaiting } from '../../src/judge.ts';
 import { Triage, type TriageOptions } from '../../src/worker.ts';
 
@@ -950,6 +950,21 @@ describe('triage', () => {
       expect(await ticketsOf('/burst/%')).toEqual([]);
       await sendSignal(writer, page(1));
       expect(await triage().takeOne()).toBe('opened');
+    });
+
+    it('lets a held signal through after a crash, if Martin approved its burst before the inbox heard it', async () => {
+      for (let n = 1; n <= BURST.tickets + 1; n++) await sendSignal(writer, page(n));
+      await takeAll();
+      const item = await heldIn();
+      // Its evidence reached the burst, and the worker stopped before the inbox recorded it.
+      const signal = page(50);
+      const id = await sendSignal(writer, signal);
+      await events.append(senseEvidence(signal, id, item, new Date(at)));
+      await answer(item, 'approved');
+      expect(await triage().settleOne()).toBe(true);
+      expect(await ticketsOf('/burst/50')).toEqual([]);
+      expect(await triage().takeOne()).toBe('opened');
+      expect(await ticketsOf('/burst/50')).toHaveLength(1);
     });
 
     it('records a held signal whose events were appended before a crash, appending nothing again', async () => {
