@@ -252,10 +252,21 @@ export class Triage {
         let tickets = await openTickets(sql);
         const made: NewEvent[] = [];
         const opened: string[] = [];
+        // What this approval appends, which the store does not have until it does: each work item it closes (a
+        // finding two of its tickets would both take), and each sense's evidence in a version on each ticket.
+        const closes = new Set<string>();
+        const seen = new Set<string>();
         for (const { id, signal } of held) {
           // Seeded apart from the signal's own events, which the burst holds.
           const next = await this.#sense(signal, `burst:${id}`, tickets);
-          made.push(...next.events);
+          const evidence = `${next.workItem} ${signal.sense} ${signal.version}`;
+          if (next.outcome === 'evidence' && seen.has(evidence)) continue;
+          seen.add(evidence);
+          for (const event of next.events) {
+            if (event.type === 'work-item.closed' && closes.has(event.work_item ?? '')) continue;
+            if (event.type === 'work-item.closed') closes.add(event.work_item ?? '');
+            made.push(event);
+          }
           if (next.ticket) {
             tickets = [next.ticket, ...tickets];
             opened.push(next.workItem);
@@ -460,7 +471,10 @@ export class Triage {
     const now = this.#o.now();
     const { signal } = taken;
     const fingerprint = fingerprintOf(signal);
-    const waiting = (await heldBursts(sql)).find((burst) => burst.sense === taken.sense);
+    // A burst that could not be settled as Martin answered is left, as a finding is; it takes no more problems.
+    const waiting = (await heldBursts(sql)).find(
+      (burst) => burst.sense === taken.sense && (this.#settleFailures.get(burst.workItem) ?? 0) < INBOX.attempts,
+    );
     if (waiting) {
       const [seen] = await sql`select 1 from inbox where work_item = ${waiting.workItem} and outcome = 'held'
                                and fingerprint = ${fingerprint} limit 1`;
@@ -479,17 +493,17 @@ export class Triage {
                             and ${taken.received_at}::timestamptz + make_interval(mins => ${BURST.minutes})
         and (outcome = 'opened' or (triaged_at is null and attempts < ${INBOX.attempts}))`;
     const opened = near.filter((row) => row.opened).length;
-    const ahead = new Set(
-      near
-        .filter((row) => !row.opened)
-        .filter(({ route, symptom }) =>
-          tickets.every(
-            (open) =>
-              !sameFingerprint(open.fingerprint, { route, class: symptom }, { open: open.sense, found: signal.sense }),
-          ),
-        )
-        .map((row) => row.fingerprint),
-    ).size;
+    // A waiting signal that an open ticket has, or that a verified ticket has exactly, would open no ticket.
+    const fresh = new Map<string, { route: string; class: SymptomClass }>();
+    for (const { opened, fingerprint: key, route, symptom } of near) {
+      const found = { route, class: symptom };
+      const open = tickets.some((ticket) =>
+        sameFingerprint(ticket.fingerprint, found, { open: ticket.sense, found: signal.sense }),
+      );
+      if (!opened && !open) fresh.set(key, found);
+    }
+    let ahead = 0;
+    for (const found of fresh.values()) if (!(await verifiedTicket(sql, found, signal.sense))) ahead++;
     const found = 1 + opened + ahead;
     if (found <= BURST.tickets) return undefined;
     const workItem = await nextWorkItem(sql);

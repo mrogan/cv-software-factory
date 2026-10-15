@@ -16,7 +16,7 @@ flowchart TD
   match -- "a ticket closed as verified" --> reopen[Reopens it]
   match -- none --> burst{"A burst from its sense?"}
   burst -- no --> open[Opens a ticket]
-  burst -- yes --> held["Holds for Martin (burst),<br>with no ticket"]
+  burst -- yes --> burstHold["Holds for Martin (burst),<br>with no ticket"]
   jev -- a report --> route["Routing as plain code"]
   jev -- a finding --> held["Holds for Martin (finding),<br>or joins an open ticket's evidence"]
 ```

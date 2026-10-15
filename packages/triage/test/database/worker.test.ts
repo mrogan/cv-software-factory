@@ -881,6 +881,19 @@ describe('triage', () => {
       expect(await triage().takeOne()).toBe('opened');
     });
 
+    it('never counts a waiting signal that would reopen a verified ticket', async () => {
+      for (let n = 1; n <= BURST.tickets; n++) {
+        await sendSignal(writer, page(n));
+        expect(await triage().takeOne()).toBe('opened');
+        await events.append(closed((await ticketsOf(`/burst/${n}`))[0] ?? '', 'verified'));
+      }
+      await database.owner`update inbox set received_at = received_at - interval '1 hour'`;
+      await sendSignal(writer, page(BURST.tickets + 1));
+      const again = { version: 'd03afe9', observedAt: '2026-10-04T10:00:00.000Z' };
+      for (let n = 1; n <= BURST.tickets; n++) await sendSignal(writer, page(n, again));
+      expect(await takeAll()).toEqual(['opened', ...Array(BURST.tickets).fill('reopened')]);
+    });
+
     it('waits while Martin only answers, and opens a ticket for each problem when he approves', async () => {
       const many = BURST.tickets + 1;
       for (let n = 1; n <= many; n++) await sendSignal(writer, page(n));
@@ -910,6 +923,21 @@ describe('triage', () => {
         order by seq`;
       expect(signals.map((row) => row.sense)).toEqual(['probe', 'crawler']);
       expect(await triage().settleOne()).toBe(false);
+    });
+
+    it('lets a problem through onto a ticket the same approval opened, as evidence once', async () => {
+      await sendSignal(writer, found({ route: '*' }));
+      for (let n = 1; n <= BURST.tickets; n++) await sendSignal(writer, page(n));
+      await takeAll();
+      const item = await heldIn();
+      await answer(item, 'approved');
+      expect(await triage().settleOne()).toBe(true);
+      const [every = '', ...others] = await ticketsOf('%');
+      expect(others).toEqual([]);
+      expect((await types(every)).filter((type) => type === 'signal.received')).toHaveLength(1);
+      expect(await payloadOf(item, 'work-item.closed')).toMatchObject({
+        reason: `Martin let it through: ticket #${every}`,
+      });
     });
 
     it('closes with no ticket when he rejects it, and a problem still there is found again', async () => {
