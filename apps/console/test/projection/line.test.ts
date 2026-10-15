@@ -319,13 +319,29 @@ describe('a stage panel', () => {
       ...ticket('4', 1).events,
     ];
     const { rows } = project(events, work('1').at(6)).panels.plan;
-    expect(rows.map((r) => [r.item, r.tone])).toEqual([
-      ['5', 'signal'],
-      ['1', 'signal'],
-      ['2', 'attn'],
-      ['4', 'faint'],
-      ['3', 'faint'],
+    expect(rows.map((r) => [r.item, r.tone, r.working])).toEqual([
+      ['5', 'signal', true],
+      ['1', 'signal', true],
+      ['2', 'attn', undefined],
+      ['4', 'faint', undefined],
+      ['3', 'faint', undefined],
     ]);
     expect(rows[3]?.note).toBe('Waiting for the planner');
+  });
+
+  it('marks nothing as working under Stop the line, when the station says it is blocked', () => {
+    const item = planned('1', 5);
+    const stop = {
+      ...(item.events[0] as PublicEvent),
+      id: 'stop',
+      ts: new Date(item.at(5.5)).toISOString(),
+      work_item: null,
+      type: 'line.stopped',
+      payload: { reason: 'Martin stopped the line' },
+    } as PublicEvent;
+    const view = project([...item.events, stop], item.at(6));
+    expect(view.stations.find((s) => s.stage === 'plan')?.status).toBe('blocked');
+    // Still the work in hand, and first, but not marked as at work.
+    expect(view.panels.plan.rows.map((r) => [r.item, r.tone, r.working])).toEqual([['1', 'signal', undefined]]);
   });
 });

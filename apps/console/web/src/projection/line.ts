@@ -91,8 +91,13 @@ export interface PanelRow {
   note: string;
   /** States it went through in the stage today before this one, struck through in the row: "sent back". */
   earlier: string[];
-  /** `signal` for what the station is at work on now, which its row marks as the station marks itself. */
+  /** `signal` for what the station is at work on now. */
   tone: 'signal' | 'ok' | 'attn' | 'faint';
+  /**
+   * At work on it while the station says it is working: the row is marked as the station marks itself. Stopped,
+   * capped or held, the station says "blocked", and its rows are not marked.
+   */
+  working?: true;
   at: number;
 }
 
@@ -424,6 +429,9 @@ export function panel(
     .filter((r) => !r.items.length && (r === flight || (r.end && r.end.at >= startOfDay(t))))
     .reverse()
     .map(ownRow);
+  const { status } = station(stage, items, returns, line, t, shipped);
+  const lit = status === 'working' || status === 'returning';
+  const mark = (row: PanelRow): PanelRow => (lit && row.tone === 'signal' ? { ...row, working: true } : row);
   return {
     stage,
     // What is in the stage, the work in hand first, then what left it today, each newest first: the store numbers
@@ -434,7 +442,7 @@ export function panel(
       ...now.sort(inHandFirst),
       ...[...done, ...back].sort(newestFirst),
       ...own.filter((row) => row.tone !== 'signal'),
-    ],
+    ].map(mark),
     senses: triage ? senseCounts(items, events) : undefined,
     caps: triage ? line.caps.filter((spell) => spell.cleared === undefined || spell.cleared >= startOfDay(t)) : [],
     queued: present.filter((item) => item.queued).length,
