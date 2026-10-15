@@ -198,7 +198,8 @@ const typesOf = async (workItem: string | null) =>
     await database.writer<{ type: string; actor: string }[]>`
       select type, actor from events
       where work_item is not distinct from ${workItem}
-        and type in ('release.started', 'canary.stepped', 'release.promoted', 'release.rolled-back', 'release.aborted')
+        and type in ('release.started', 'canary.stepped', 'release.promoted', 'release.rolled-back', 'release.aborted',
+          'release.errored')
       order by seq`
   ).map((r) => `${r.type} by ${r.actor}`);
 
@@ -657,6 +658,31 @@ describe('a rollback, as signals to triage', () => {
     expect(await stage(carried)).toBe('held');
     const [hold] = await payloads(carried, 'hold.started');
     expect(hold).toMatchObject({ cause: 'deploy', reason: expect.stringMatching(/^Martin aborted the release/) });
+  });
+
+  it('records an analysis that could not judge the canary, sends nothing for it, and holds the work for Martin', async () => {
+    const { line: it, kube, carried } = await underWay();
+    const abortedAt = new Date(now + 60_000).toISOString();
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt });
+    kube.runs = [
+      run({
+        created: new Date(now).toISOString(),
+        completed: new Date(now + 60_000).toISOString(),
+        phase: 'Error',
+        message: 'Metric "latency" assessed Error due to consecutiveErrors (5) > consecutiveErrorLimit (4)',
+        metrics: { latency: { phase: 'Error', message: 'connection refused' } },
+      }),
+    ];
+    await it.tick();
+    expect(await inbox()).toEqual([]);
+    expect(await typesOf(carried)).toEqual(['release.started by rollouts', 'release.errored by rollouts']);
+    expect(await payloads(carried, 'release.errored')).toMatchObject([
+      { weight: 25, errored: [{ name: 'latency', phase: 'error', message: 'connection refused' }], abortedAt },
+    ]);
+    await it.tick();
+    expect(await stage(carried)).toBe('held');
+    const [hold] = await payloads(carried, 'hold.started');
+    expect(hold).toMatchObject({ cause: 'deploy', reason: expect.stringMatching(/could not judge it/) });
   });
 
   it('records Stop the line’s abort while the line is stopped, and starts the release again when it is retried', async () => {

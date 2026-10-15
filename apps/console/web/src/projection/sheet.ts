@@ -17,7 +17,7 @@ import { clock, shortVersion } from '../format.ts';
 import { type Attempt, attempts, deployPicture, reviewThread, startsPass, type ThreadReview } from './fixing.ts';
 import { type Capture, type Hold, type ItemState, summaryOf } from './items.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
-import { endedWords, type Release, releases } from './release.ts';
+import { endedWords, type Release, releases, type StoppedBy, stoppedBy } from './release.ts';
 
 export interface Chapter {
   label: string;
@@ -657,22 +657,27 @@ const releaseOf = (event: PublicEvent) =>
   event.type === 'canary.stepped' ||
   event.type === 'release.promoted' ||
   event.type === 'release.rolled-back' ||
+  event.type === 'release.errored' ||
   event.type === 'release.aborted'
     ? event.payload.release
     : undefined;
+
+/** A stopped release's chapter, by what stopped it. */
+const CHAPTERS: Record<StoppedBy, string> = { stop: 'STOPPED', martin: 'ABORTED', error: 'ERROR' };
 
 /** A release's one chapter, named by how it ended, or CANARY while it is in flight. A dry run earns no tone. */
 function releaseChapter(r: Release): { label: string; tone: Chapter['tone']; text: string } {
   const { end } = r;
   const v = shortVersion(r.version);
+  const by = stoppedBy(end);
   const passed = r.measured.filter((m) => m.stepped.analysis.phase === 'successful').map((m) => `${m.weight}%`);
   const [label, tone, text]: [string, Chapter['tone'], string] =
     end?.kind === 'promoted'
       ? ['PROMOTED', 'ok', `${v} promoted to all traffic${passed.length ? `, after ${listed(passed)} passed` : ''}`]
       : end?.kind === 'rolled-back'
         ? ['ROLLED BACK', 'attn', `${v} rolled back at ${end.weight}%`]
-        : end?.kind === 'aborted'
-          ? [end.by === 'stop' ? 'STOPPED' : 'ABORTED', 'attn', `${v} ${endedWords(end)} at ${end.weight}%`]
+        : end && by
+          ? [CHAPTERS[by], 'attn', `${v} ${endedWords(end)} at ${end.weight}%`]
           : ['CANARY', 'signal', `${v} on the canary at ${r.weight}%`];
   return r.dryRun ? { label, tone: 'faint', text: `${text}, in a dry run` } : { label, tone, text };
 }
@@ -806,7 +811,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
     const r = id ? byId.get(id) : undefined;
     if (id) {
       if (!r || lastOf.get(id) !== event) return [];
-      const at = Math.max(Date.parse(event.ts), r.end?.kind === 'aborted' ? r.end.at : 0);
+      const at = Math.max(Date.parse(event.ts), r.end && stoppedBy(r.end) ? r.end.at : 0);
       return [{ event, ...releaseChapter(r), at, pass }];
     }
     if (startsPass(event)) pass += 1;

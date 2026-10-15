@@ -611,6 +611,25 @@ export const PAYLOADS = {
     by: z.enum(['stop', 'martin']),
   }),
   /**
+   * An analysis of the canary ended in Error: it could not judge the canary, and Argo Rollouts aborted the Rollout and
+   * sent all of the traffic back to the stable version. Nothing failed, so it is no rollback and no signal, and nobody
+   * stopped it, so it is no abort. It stays stopped until Martin retries it or a new deploy starts another release. A
+   * dry run's release runs no analysis, so none errs.
+   */
+  'release.errored': z.strictObject({
+    release: releaseId,
+    version: appVersion,
+    restored: appVersion,
+    /** The canary's weight when the analysis could not judge it: the share of the traffic that ever saw it. */
+    weight: z.number().int().min(1).max(100),
+    /** Why, in the analysis's words. */
+    reason: text(200),
+    /** Each measure that could not be taken, in the analysis's words. */
+    errored: z.array(measure).max(8),
+    /** When Argo Rollouts acted on the abort the Error made, to the second, as the Rollout says. */
+    abortedAt: timestamp,
+  }),
+  /**
    * After a release, the sense that saw the defect looked again: whether what it saw has cleared on the new version.
    * Every page is compared with the version before the fix, when there are pictures to compare.
    */

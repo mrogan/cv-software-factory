@@ -4,7 +4,7 @@
  */
 import { capital, clock, clockSeconds, duration, isCommit, shortVersion, shortWhen } from '../format.ts';
 import type { CanaryView, Carried, Measured, Release } from '../projection/index.ts';
-import { endedWords, MEASURES, ownWords, SIGNALLED, sawOf } from '../projection/release.ts';
+import { endedWords, MEASURES, ownWords, SIGNALLED, sawOf, stoppedBy } from '../projection/release.ts';
 import { Glyph, type GlyphName } from './Glyph.tsx';
 
 export type Tone = 'signal' | 'ok' | 'attn' | 'faint';
@@ -46,6 +46,9 @@ export function standing(r: Release): [word: string, tone: Tone, dot: string] {
   return r.dryRun ? [`${word}, as the dry run records it`, 'faint', ''] : [word, tone, tone === 'attn' ? 'ring' : ''];
 }
 
+/** What a release's end did at the step it reached, as the step says it: "rolled back here". */
+const CUT = { 'rolled-back': 'rolled back', stop: 'stopped', martin: 'aborted', error: 'could not be judged' } as const;
+
 /** A step's verdict: its analysis's phase, or failed when any of its measures failed. */
 const stepPhase = (m: Measured): Phase =>
   m.stepped.analysis.measures.some((x) => x.phase === 'failed') ? 'failed' : m.stepped.analysis.phase;
@@ -71,8 +74,8 @@ function Steps({ r, tone }: { r: Release; tone: Tone }) {
             [cls, t, glyph, how] = [
               'done cut',
               'attn',
-              end.kind === 'aborted' ? 'dash' : 'cross',
-              `${end.kind === 'aborted' ? (end.by === 'stop' ? 'stopped' : 'aborted') : 'rolled back'} here`,
+              end.kind === 'rolled-back' ? 'cross' : 'dash',
+              `${CUT[stoppedBy(end) ?? 'rolled-back']} here`,
             ];
           else if (m || (end?.kind === 'promoted' && weight === 100)) {
             const [word, tone, mark] = VERDICT[r.dryRun ? 'dry' : m ? stepPhase(m) : 'successful'];
@@ -235,6 +238,51 @@ function Rollback({ r, onOpen }: { r: Release; onOpen: (item: string) => void })
   );
 }
 
+/**
+ * An analysis that could not judge the canary: the step it could not judge, or, when the background analysis erred
+ * between steps, the measures it could not take; then the analysis's words.
+ */
+function ErrorEnd({ r }: { r: Release }) {
+  const { end } = r;
+  if (end?.kind !== 'errored') return null;
+  const m = r.measured.at(-1);
+  const label = (name: string) => MEASURES.find(([n]) => n === name)?.[1] ?? name;
+  return (
+    <>
+      {m?.weight === end.weight && m.stepped.analysis.phase === 'error' ? (
+        <Measures r={r} m={m} />
+      ) : !end.errored.length ? (
+        <p className="canary-note first">
+          The analysis ended in Error before any measure did: its words below are all it said.
+        </p>
+      ) : (
+        <table className="measures">
+          <thead>
+            <tr>
+              <th className="label">Not measured</th>
+              <th className="label">The analysis’s words</th>
+              <th className="label">Verdict</th>
+            </tr>
+          </thead>
+          <tbody>
+            {end.errored.map((e) => (
+              // The line names each measure once.
+              <tr key={e.name}>
+                <td>{label(e.name)}</td>
+                <td>{ownWords(e.message, end.reason) ?? '—'}</td>
+                <td>
+                  <Verdict phase="error" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="words">{end.reason}</p>
+    </>
+  );
+}
+
 function Item({ item, titled, onOpen }: { item: Carried; titled: boolean; onOpen: (item: string) => void }) {
   return (
     <button type="button" className="linkish" onClick={() => onOpen(item.number)}>
@@ -265,6 +313,8 @@ function note(r: Release): string {
     return `Stop the line aborted the canary at ${end.weight}%, at ${clockSeconds(end.at)}. ${shortVersion(r.previous)}, the version before, takes all the traffic. The release stays stopped until Martin retries it or a new deploy starts another; starting the line does not resume it.`;
   if (end.kind === 'aborted')
     return `Martin aborted the canary at ${end.weight}%, at ${clockSeconds(end.at)}. ${shortVersion(r.previous)}, the version before, takes all the traffic. The release stays aborted until he retries it or a new deploy starts another.`;
+  if (end.kind === 'errored')
+    return `The analysis could not judge the canary at ${end.weight}%, and Argo Rollouts stopped it at ${clockSeconds(end.at)}. ${shortVersion(r.previous)}, the version before, takes all the traffic. Nothing failed, so it is no signal; the release stays stopped until Martin retries it or a new deploy starts another.`;
   return `Rolled back at ${clockSeconds(end.at)}, ${took} in. ${100 - end.weight}% of the traffic never saw it: it stayed on ${shortVersion(r.previous)}.`;
 }
 
@@ -314,7 +364,14 @@ export function Canary({ view, t, onOpen }: { view: CanaryView; t: number; onOpe
     ? items[0].title + (items.length > 1 ? ` and ${items.length - 1} more` : '')
     : 'Carries no work item';
   const m = r.measured.at(-1);
-  const right = r.end?.kind === 'rolled-back' ? <Rollback r={r} onOpen={onOpen} /> : m && <Measures r={r} m={m} />;
+  const right =
+    r.end?.kind === 'rolled-back' ? (
+      <Rollback r={r} onOpen={onOpen} />
+    ) : r.end?.kind === 'errored' ? (
+      <ErrorEnd r={r} />
+    ) : (
+      m && <Measures r={r} m={m} />
+    );
   return (
     <section className="canary" aria-labelledby="canary-title">
       <div className="canary-head">

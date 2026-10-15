@@ -6,7 +6,7 @@ import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-f
 import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
 import { endedSinceMerge } from './fixing.ts';
 import type { ItemState } from './items.ts';
-import { abortWait, abortWords, inFlight, type Release, SIGNALLED } from './release.ts';
+import { endedWords, inFlight, type Release, SIGNALLED, stopWait, stopWords } from './release.ts';
 
 export type Status = 'idle' | 'working' | 'returning' | 'passing' | 'blocked' | 'failed';
 /** A person should look at a station that is still at work: an item in it failed, or waits on them. */
@@ -331,12 +331,12 @@ function noteOf(item: ItemState, stage: Stage): string {
   if (item.queued) return item.stage === 'release' ? 'Merged · waiting for release' : 'Waiting for the planner';
   if (item.hold?.cause === 'merge') return 'Needs you · waiting for Martin’s merge';
   // A merged fix waits for a deploy pull request, again when the release that carried it rolled back; after an
-  // abort, for Martin's retry too.
+  // abort or an analysis error, for Martin's retry too.
   if (item.hold?.cause === 'deploy') {
     const ended = endedSinceMerge(item);
     if (!ended) return 'Needs you · waiting for Martin’s deploy';
-    if (!ended.aborted) return 'Needs you · rolled back, waiting for Martin’s next deploy';
-    return `Needs you · ${abortWords(ended.aborted)}, ${abortWait(ended.aborted)}`;
+    if (!ended.stopped) return 'Needs you · rolled back, waiting for Martin’s next deploy';
+    return `Needs you · ${stopWords(ended.stopped)}, ${stopWait(ended.stopped)}`;
   }
   // Only Martin asks for improvements, so a visitor's suggestion waits for Martin, as does whatever the planner
   // noticed. A report that became a ticket and is held later, at Gates say, shows that hold's own reason.
@@ -458,8 +458,8 @@ function ownRow(r: Release): PanelRow {
       : 'canary starting'
     : end.kind === 'promoted'
       ? 'promoted'
-      : end.kind === 'aborted'
-        ? `${abortWords(end.by)} at ${end.weight}%`
+      : end.kind !== 'rolled-back'
+        ? `${endedWords(end)} at ${end.weight}%`
         : `rolled back at ${end.weight}%${end.ticket ? ` · ${SIGNALLED[end.ticket.how]} #${end.ticket.number}` : ''}`;
   const tone = !end ? 'signal' : end.kind === 'promoted' ? 'faint' : 'attn';
   return {

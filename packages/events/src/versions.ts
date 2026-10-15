@@ -33,6 +33,7 @@ export const VERSIONS = {
   'release.promoted': 2,
   'release.rolled-back': 2,
   'release.aborted': 1,
+  'release.errored': 1,
   'verification.finished': 3,
   // Anywhere on the line
   'work.returned': 3,
@@ -71,6 +72,7 @@ export const RELEASE_TYPES: readonly EventType[] = [
   'release.promoted',
   'release.rolled-back',
   'release.aborted',
+  'release.errored',
 ];
 
 export const isEventType = (type: string): type is EventType => Object.hasOwn(VERSIONS, type);

@@ -101,6 +101,7 @@ describe('the samples', () => {
     expect(of('work-item.reopened').length).toBeGreaterThan(0);
     expect(of('line.stopped').length).toBeGreaterThan(0);
     expect(of('release.aborted').map((event) => event.payload.by)).toEqual(['stop', 'martin']);
+    expect(of('release.errored').map((event) => event.payload.weight)).toEqual([25]);
   });
 
   it('mark a dry run’s release and its verification, and nothing else', () => {

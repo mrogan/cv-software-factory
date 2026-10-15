@@ -7,7 +7,7 @@ import { memo, type Ref } from 'react';
 import { duration, money, shortVersion, shortWhen } from '../format.ts';
 import type { Card as CardData, Outcome, Versions } from '../projection/index.ts';
 import { segmentsLabel } from '../projection/index.ts';
-import { abortWords } from '../projection/release.ts';
+import { stopWords } from '../projection/release.ts';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { Picture } from './Pictures.tsx';
 
@@ -68,7 +68,7 @@ export function OutcomeWord({ outcome }: { outcome: Outcome }) {
 }
 
 /**
- * The version pill: what shipped, what it replaced when that was rolled back or aborted, what is still on the canary.
+ * The version pill: what shipped, what it replaced when that was rolled back or stopped, what is still on the canary.
  * Before a release, the version a sense saw the problem on, or the page a visitor's report came from.
  */
 export function VersionPill({
@@ -83,18 +83,18 @@ export function VersionPill({
   /** A reopened ticket's version, the one its sense saw it on again, until a release of its own. */
   back?: string | undefined;
 }) {
-  const { rolledBack, aborted, onCanary } = versions;
+  const { rolledBack, stopped, onCanary } = versions;
   const [from, to] = [versions.from, versions.to].map((v) => v && shortVersion(v));
   if (!to && !from && back) return <span className="ver">back on {shortVersion(back)}</span>;
   if (!to && !from && page) return <span className="ver">from {page}</span>;
   if (!to && !from && seenOn) return <span className="ver">seen on {shortVersion(seenOn)}</span>;
   if (!to && !from) return <span className="ver muted">no release</span>;
-  if (rolledBack || aborted) {
+  if (rolledBack || stopped) {
     return (
       <span className="ver">
         <s>{to}</s>
         {/* The line-through says it to the eye; this says it to a screen reader. */}
-        <span className="sr"> ({aborted ? abortWords(aborted) : 'rolled back'})</span> → {from}
+        <span className="sr"> ({stopped ? stopWords(stopped) : 'rolled back'})</span> → {from}
       </span>
     );
   }
