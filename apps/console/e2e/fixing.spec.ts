@@ -87,6 +87,13 @@ test.describe('fixing', () => {
     await expect(sheet.locator('.round-h').first()).toContainText('attempt 2');
   });
 
+  test('a fix that went round twice counts the reviews of its pull request’s pass, and names the pass', async ({
+    page,
+  }) => {
+    await page.goto(consoleUrl({ item: '1306', sheet: true }));
+    await expect(fact(page.getByRole('dialog'), 'Reviews')).toHaveText('1 of 2 · pass 2');
+  });
+
   test('an approval’s suggestion the coder declined ends its round with the return, and no attempt after', async ({
     page,
   }) => {
