@@ -150,6 +150,11 @@ describe('a log silent for every route', () => {
       false,
     ],
     ['nothing anywhere', [entry('/a', 0, 0, 0), entry('/b', 0, 0)], false],
+    [
+      'a route spread thin over many pages still counts',
+      [...['1', '2', '3'].map((n) => entry(`/p/${n}`, 3, 0, 3, '/p/:slug')), entry('/', 40, 0, 40)],
+      true,
+    ],
   ] as const)('%s: %s', (_what, entries, expected) => {
     expect(logSilent([...entries])).toBe(expected);
   });
@@ -269,7 +274,25 @@ describe('placing a path whose window the log is silent for', () => {
     expect(sent[0]?.evidence?.map((e) => ('route' in e ? e.route : ''))).toEqual(['/products/:slug', '/about']);
   });
 
-  it('asks the last day’s log once an hour, and keeps the names it knew when the log has none or fails', async () => {
+  it('signals the log once, not each route, at the edges of a gap', async () => {
+    const sent: InboxSignal[] = [];
+    // The log holds the first window, then nothing for two, then everything again.
+    const windows = [[logged('/about', '/about', 15), logged('/products/glove-left', '/products/:slug', 30)], [], []];
+    const { backends } = records({
+      metrics,
+      window: () => windows.shift() ?? [logged('/about', '/about', 15)],
+      day: () => day,
+      sent,
+    });
+    const watcher = new Watcher(backends, { errors: new Date(0), reports: new Date(0) });
+    for (const minutes of [44, 49, 54]) await watcher.checkAgreement(at(minutes));
+    expect(sent.map((s) => [s.route, s.symptom])).toEqual([['*', 'missing-log']]);
+    // The window after the gap is judged with the last silent one: the gap still, already told.
+    await watcher.checkAgreement(at(59));
+    expect(sent).toHaveLength(1);
+  });
+
+  it('asks the last day’s log once an hour, and keeps the names it knew when the log has fewer or fails', async () => {
     const sent: InboxSignal[] = [];
     let lookup: () => Sample[] = () => day;
     const { backends, days } = records({
@@ -279,17 +302,21 @@ describe('placing a path whose window the log is silent for', () => {
       sent,
     });
     const watcher = new Watcher(backends, { errors: new Date(0), reports: new Date(0) });
-    for (const minutes of [4, 9, 14]) await watcher.checkAgreement(new Date(Date.UTC(2026, 9, 13, 19, minutes)));
+    const hour = (h: number, m: number) => new Date(Date.UTC(2026, 9, 13, h, m));
+    for (const minutes of [4, 9, 14]) await watcher.checkAgreement(hour(19, minutes));
     expect(days).toHaveLength(1);
 
-    // An hour on, the lookup fails, and then finds nothing: the paths it named still have their routes.
+    // An hour on, the lookup fails, and is not asked again within the hour; then it finds only part of the day.
     lookup = () => {
       throw new Error('Loki is full');
     };
-    await watcher.checkAgreement(new Date(Date.UTC(2026, 9, 13, 20, 9)));
-    lookup = () => [];
-    await watcher.checkAgreement(new Date(Date.UTC(2026, 9, 13, 20, 14)));
+    await watcher.checkAgreement(hour(20, 9));
+    await watcher.checkAgreement(hour(20, 14));
+    expect(days).toHaveLength(2);
+    lookup = () => [logged('/about', '/about', 15)];
+    await watcher.checkAgreement(hour(21, 9));
     expect(days).toHaveLength(3);
-    expect(new Set(sent.map((s) => s.route))).toEqual(new Set(['/products/:slug']));
+    // The paths it named before still have their routes.
+    expect(sent.map((s) => s.route)).toEqual(['/products/:slug', '/products/:slug', '/products/:slug']);
   });
 });

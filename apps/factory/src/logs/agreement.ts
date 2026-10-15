@@ -163,12 +163,27 @@ export async function count(
  * Whether the log is silent for every route at once, rather than for some: more than one route's requests are
  * missing from it, and across every route, judged or not, it holds no more records than an edge of the window
  * explains. That is one finding about the log, not one per route: Loki stopped storing the app's records, or the app
- * stopped writing them. A route left out of an otherwise full log is not this, and is judged on its own.
+ * stopped writing them. A route left out of an otherwise full log is not this, and is judged on its own. Routes are
+ * judged here with their paths' counts together, so that a route spread thin over many pages still counts.
  */
 export function logSilent(entries: RouteCounts[], tolerance: Tolerance = TOLERANCE): boolean {
-  const unlogged = new Set(entries.filter((entry) => judge(entry, tolerance) === 'missing-log').map((e) => e.route));
+  const byRoute = new Map<string, Counts>();
+  for (const { route, metrics, logs, traces } of entries) {
+    const before = byRoute.get(route);
+    if (!before) {
+      byRoute.set(route, { metrics, logs, ...(traces === undefined ? {} : { traces }) });
+      continue;
+    }
+    // As in `combine`: the route's traces are known only when every path's are.
+    byRoute.set(route, {
+      metrics: before.metrics + metrics,
+      logs: before.logs + logs,
+      ...(before.traces !== undefined && traces !== undefined ? { traces: before.traces + traces } : {}),
+    });
+  }
+  const unlogged = [...byRoute.values()].filter((counts) => judge(counts, tolerance) === 'missing-log').length;
   const logged = entries.reduce((sum, entry) => sum + entry.logs, 0);
-  return unlogged.size >= 2 && agree(logged, 0, tolerance);
+  return unlogged >= 2 && agree(logged, 0, tolerance);
 }
 
 /** At most this many routes are shown in a silent log's evidence, the busiest first. */

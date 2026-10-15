@@ -186,8 +186,10 @@ export class Watcher {
     if (!before) return 0;
 
     const both = combine(before.routes, routes);
-    // A log silent for every route is one finding about the log, not one for each route that had requests.
-    if (logSilent(both)) {
+    // A log silent for every route is one finding about the log, not one for each route that had requests. A pair
+    // with one window silent is the edge of the same gap: over both, every route would seem to have lost some of its
+    // records, and each would be a finding of its own.
+    if (logSilent(both) || logSilent(before.routes) || logSilent(routes)) {
       const sent = (await this.tell('* missing-log', end, async () => signalForSilentLog(both, end))) ? 1 : 0;
       log.info({ routes: routes.length, signals: sent }, 'agreement checked: the log is silent for every route');
       return sent;
@@ -219,19 +221,17 @@ export class Watcher {
   }
 
   /**
-   * Asks the last day's log for the route of each path, at most once an hour. A lookup that failed, or found
-   * nothing, leaves the names known before, and is asked again with the next window.
+   * Asks the last day's log for the route of each path, at most once an hour, and adds what it says to the names
+   * known before. A lookup that failed, or found nothing, leaves them as they were until the next hour: a log silent
+   * for a day has nothing more to say, and the query is a heavy one.
    */
   private async refreshRouteNames(end: Date): Promise<void> {
     if (end.getTime() - this.routeNamesAt < ROUTES_REFRESH_MS) return;
+    this.routeNamesAt = end.getTime();
     const { loki, objectives, log } = this.backends;
     try {
       const fresh = await routeTemplates(loki, objectives, end);
-      if (fresh.size === 0) return;
-      // The day's names replace the ones before, so that paths no longer asked for are forgotten.
-      this.routeNames.clear();
-      for (const [path, route] of fresh) this.routeNames.set(path, route);
-      this.routeNamesAt = end.getTime();
+      for (const [path, route] of fresh) if (route !== path) this.routeNames.set(path, route);
     } catch (error) {
       log.warn({ err: error }, 'the routes of the last day’s paths could not be looked up; the names known are kept');
     }
