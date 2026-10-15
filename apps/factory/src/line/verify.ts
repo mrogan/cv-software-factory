@@ -405,7 +405,8 @@ async function byAgreement(signal: FirstSignal, disagreement: Disagreement, targ
   const start = new Date(end.getTime() - windows * windowMs);
   const backends = { prometheus: c.prometheus, loki: c.loki, tempo: c.tempo ?? NO_TRACES };
   // The routes the log gave paths in the last day: a page of a route of its own is never counted as the ticket's.
-  const known = await routeTemplates(c.loki, c.objectives, end).catch(() => new Map<string, string>());
+  // Asked once a look; Loki not answering is a look that cannot tell, never one that counts a path on a guess.
+  const known = await routeTemplates(c.loki, c.objectives, end);
   let all: RouteCounts[] = [];
   for (let i = 0; i < windows; i += 1) {
     const from = new Date(start.getTime() + i * windowMs);
