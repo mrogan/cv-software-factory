@@ -4,8 +4,9 @@
 #
 #     docker build --file apps/factory/Dockerfile.browser .
 #
-# The Playwright package in the lockfile and the browsers in the image must be the same release, as in
-# Makefile's PLAYWRIGHT and the pull request checks: bump them together (scripts/image-pins.test.ts fails until they agree).
+# The Playwright package in the lockfile and the browsers in the image must be the same release. This is the image's
+# one pin: the Makefile and the pull request checks run their browser tests in it too. Dependabot moves it and the
+# package in one pull request, and scripts/image-pins.test.ts fails while they disagree.
 #
 # It runs as an unprivileged user, never root. Chromium cannot use its own sandbox without privileges that the
 # restricted Pod Security Standard refuses, so Playwright starts it with the sandbox off (its default), and the pod's

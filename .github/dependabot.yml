@@ -2,12 +2,39 @@
 # The cooldown waits a few days after a release before proposing it: most malicious releases are pulled within hours.
 version: 2
 
+# Playwright's library (npm) and its browsers' image (docker, apps/factory/Dockerfile.browser) are one release, so they
+# move in one pull request. An ecosystem entry in a multi-ecosystem group updates only the group's patterns, so each
+# ecosystem has a second entry, for everything else, which ignores Playwright. Dependabot cannot tell when Microsoft's
+# registry published an image, so the image skips the cooldown while the library waits it out: for three days after a
+# release the pull request names two releases, and scripts/image-pins.test.ts fails it. Daily, so it is brought up to
+# date soon after.
+multi-ecosystem-groups:
+  playwright:
+    schedule:
+      interval: daily
+    commit-message:
+      prefix: chore
+      include: scope
+
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
+    multi-ecosystem-group: playwright
+    patterns: ['playwright', 'playwright-core', '@playwright/test']
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
     ignore:
+      # In the playwright group, above.
+      - dependency-name: playwright
+      - dependency-name: playwright-core
+      - dependency-name: '@playwright/test'
       # Node's own types follow the Node version in mise.toml, which moves by hand.
       - dependency-name: '@types/node'
         update-types: [version-update:semver-major]
@@ -21,11 +48,6 @@ updates:
       prefix: chore
       include: scope
     groups:
-      # The library's packages move in one pull request, ahead of the tooling group, which would otherwise take
-      # @playwright/test alone. Its browsers' image is pinned outside npm, so that pull request fails
-      # scripts/image-pins.test.ts until the image is moved by hand to the same release.
-      playwright:
-        patterns: ['playwright', 'playwright-core', '@playwright/test']
       opentelemetry:
         patterns: ['@opentelemetry/*']
       fonts:
@@ -47,8 +69,15 @@ updates:
 
   # CI pulls these images from its own copy in GHCR (scripts/ci-images.sh), but every pin names its upstream, which is
   # what Dependabot reads. Docker's official images are named on Docker Hub, as `node` and `postgres`: Amazon's copy
-  # of it (public.ecr.aws) refuses Dependabot partway through listing Node's thousands of tags. Postgres has one pin, its StatefulSet's, which
-  # everything else that runs it reads.
+  # of it (public.ecr.aws) refuses Dependabot partway through listing Node's thousands of tags. Postgres has one pin, its
+  # StatefulSet's, which everything else that runs it reads.
+  - package-ecosystem: docker
+    directory: /apps/factory
+    schedule:
+      interval: weekly
+    multi-ecosystem-group: playwright
+    patterns: [playwright]
+
   - package-ecosystem: docker
     directories:
       - /apps/console
@@ -62,6 +91,8 @@ updates:
       # The build image's Node matches mise.toml's; a new major is a deliberate change, not a weekly bump.
       - dependency-name: node
         update-types: [version-update:semver-major]
+      # In the playwright group, above.
+      - dependency-name: playwright
     cooldown:
       default-days: 3
     commit-message:
