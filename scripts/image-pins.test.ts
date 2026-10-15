@@ -88,9 +88,10 @@ describe("the pins of Docker's official images", () => {
 
 /**
  * Playwright's library and its browsers are one release: the library refuses browsers from another. The library is in
- * the lockfile; the browsers are in its image, pinned where the browser tests run (check.yml, the Makefile) and under
- * the probes and the crawler (Dockerfile.browser). Dependabot moves the lockfile and the Dockerfile in separate pull
- * requests, and none of the other pins, so a bump is made by hand, everywhere at once, and this fails until it is.
+ * the lockfile; the browsers are in its image, pinned once, under the probes and the crawler (Dockerfile.browser), and
+ * read from there where the browser tests run (check.yml, the Makefile). Dependabot moves the lockfile and the
+ * Dockerfile in one pull request, but the image skips its cooldown and the library waits it out, so for a few days
+ * after a release that pull request names two releases, and this fails it.
  */
 const PLAYWRIGHT = /mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-noble@(sha256:[0-9a-f]{64})/g;
 
@@ -120,10 +121,8 @@ const releases = ({ images, libraries }: ReturnType<typeof playwright>) =>
 describe("Playwright's pins", () => {
   const found = playwright();
 
-  it('are found', () => {
-    expect(found.images.map(([file]) => file)).toEqual(
-      expect.arrayContaining(['.github/workflows/check.yml', 'Makefile', 'apps/factory/Dockerfile.browser']),
-    );
+  it('pin the image once, in Dockerfile.browser, and the library in the lockfile', () => {
+    expect(found.images.map(([file]) => file)).toEqual(['apps/factory/Dockerfile.browser']);
     expect(found.libraries.map(([entry]) => entry.split(' ')[1]?.replace(/@[\d.]+$/, ''))).toEqual(
       expect.arrayContaining(['@playwright/test', 'playwright', 'playwright-core']),
     );
@@ -134,7 +133,7 @@ describe("Playwright's pins", () => {
     expect([...releases(found)]).toHaveLength(1);
   });
 
-  it('disagree when Dependabot moves the Dockerfile alone', () => {
+  it('disagree when the image moves to a release the library has not', () => {
     const DOCKERFILE = 'apps/factory/Dockerfile.browser';
     const moved = (file: string) => {
       const source = readFileSync(file, 'utf-8');

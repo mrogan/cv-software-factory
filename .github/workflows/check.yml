@@ -27,6 +27,7 @@ jobs:
     outputs:
       kind: ${{ steps.which.outputs.kind }}
       postgres: ${{ steps.postgres.outputs.image }}
+      playwright: ${{ steps.playwright.outputs.image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,6 +38,10 @@ jobs:
       # First, so that the output is set even when the step below fails.
       - id: postgres
         run: echo "image=$(scripts/ci-images.sh postgres)" >> "$GITHUB_OUTPUT"
+      # The Playwright image the browser tests run in. Its one pin is Dockerfile.browser's, which Dependabot moves with
+      # the library.
+      - id: playwright
+        run: echo "image=$(grep -oE 'mcr\.microsoft\.com/playwright:\S+' apps/factory/Dockerfile.browser)" >> "$GITHUB_OUTPUT"
       - id: which
         env:
           AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -97,7 +102,7 @@ jobs:
           - part: speed
             tests: --project speed --no-deps
     container:
-      image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+      image: ${{ needs.kind.outputs.playwright }}
       options: --ipc=host
     services:
       postgres:
@@ -136,7 +141,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     container:
-      image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+      image: ${{ needs.kind.outputs.playwright }}
       options: --ipc=host
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
