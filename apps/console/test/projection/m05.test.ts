@@ -22,13 +22,22 @@ describe('the wait for Martin’s merge', () => {
       title: 'fix(basket): take quantities of any length',
       checks: { passed: 12, total: 12 },
       testsFirst: { failedOnBase: true, figure: '3 of 3' },
-      review: { suggestions: 1, number: 2 },
+      // The first review's suggestion went back with its blocking findings, and the coder took it.
+      review: { suggestions: 0, number: 2 },
       // The whole change a merge brings in, both rounds together; the second round's own files were fewer.
       files: 2,
       added: 30,
       removed: 5,
       inScope: true,
     });
+  });
+
+  it('counts the suggestions of the approval it waits on, even one the coder declined', () => {
+    const hold = SAMPLES.find(
+      (e) => e.work_item === '1304' && e.type === 'hold.started' && e.payload.cause === 'merge',
+    );
+    const waiting = project(SAMPLES, Date.parse(hold?.ts ?? '')).cards.find((c) => c.number === '1304');
+    expect(waiting?.picture).toMatchObject({ type: 'merge', review: { suggestions: 1, number: 1 } });
   });
 
   it('keeps the problem’s own evidence in the sheet', () => {
@@ -243,6 +252,14 @@ describe('the sheet of a fix', () => {
     expect(sheet('1311')?.facts.reviews).toEqual({ done: 2, of: 2 });
   });
 
+  it('ends a round whose suggestions the coder declined in full with its return, and no attempt after it', () => {
+    const rounds = sheet('1304')?.rounds ?? [];
+    expect(rounds.map((a) => a.attempt)).toEqual([1]);
+    expect(rounds[0]?.review).toEqual({ number: 1, verdict: 'approved', blocking: 0, suggestions: 1 });
+    expect(rounds[0]?.returned).toEqual({ from: 'review', detail: '1 suggestion, declined', declined: true });
+    expect(sheet('1304')?.facts.reviews).toEqual({ done: 1, of: 2 });
+  });
+
   it('prints each finding’s rule in full, and a criterion in the spec’s words', () => {
     const [first] = sheet('1311')?.review ?? [];
     expect(first).toMatchObject({ number: 1, attempt: 1, verdict: 'changes-requested' });
@@ -394,7 +411,7 @@ describe('a fix sent back for an approval’s suggestions', () => {
         ],
       });
     expect(sheetOf(events)?.rounds.map((a) => a.returned)).toEqual([
-      { from: 'review', detail: '2 suggestions, declined' },
+      { from: 'review', detail: '2 suggestions, declined', declined: true },
     ]);
     expect(sheetOf(events)?.facts.reviews).toEqual({ done: 1, of: 2 });
   });

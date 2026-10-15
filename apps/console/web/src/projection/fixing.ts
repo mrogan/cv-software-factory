@@ -32,8 +32,11 @@ export interface Attempt {
   removed: number;
   gates: AttemptGates | undefined;
   review: AttemptReview | undefined;
-  /** Why it went back to Build, when it did: the stage that sent it, and why in a few words. */
-  returned: { from: Stage; detail: string } | undefined;
+  /**
+   * Why it went back to Build, when it did: the stage that sent it, and why in a few words. Declined, the coder
+   * declined every suggestion it was sent back for and pushed nothing, so no attempt follows the return.
+   */
+  returned: { from: Stage; detail: string; declined?: true } | undefined;
 }
 
 export interface AttemptGates {
@@ -167,8 +170,11 @@ export function attempts(item: ItemState): Attempt[] {
       case 'suggestions.answered': {
         // A coder that declines every suggestion it was sent back for pushes nothing, and the approval stands: the
         // return has no attempt after it, so its pill says why. One that took any pushed a new attempt first.
-        if (current?.returned && suggestionsBack && event.payload.declined.length === event.payload.suggestions)
+        if (current?.returned && suggestionsBack && event.payload.declined.length === event.payload.suggestions) {
           current.returned.detail += ', declined';
+          current.returned.declined = true;
+        }
+        suggestionsBack = false;
         break;
       }
     }

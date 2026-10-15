@@ -44,6 +44,24 @@ describe('the samples', () => {
     expect(of('work.returned').length).toBeGreaterThan(0);
   });
 
+  it('answer an approval’s suggestions before the describer writes it up, as the line does: one taken, one declined in full', () => {
+    const answered = of('suggestions.answered').map((event) => event.payload);
+    expect(answered.some((a) => a.declined.length === 0)).toBe(true);
+    expect(answered.some((a) => a.declined.length === a.suggestions)).toBe(true);
+    expect(of('work.returned').some((event) => event.payload.suggestions !== undefined)).toBe(true);
+    // Each review that leaves suggestions has them answered before the describer writes the change up: a blocking
+    // review's with its findings, an approval's in a round of their own. (The review after a suggestions round goes on
+    // whatever it suggests; no sample has one that does.)
+    for (const summary of of('work-item.summarised').filter((event) => event.actor === 'describer')) {
+      const before = published.filter((event) => event.work_item === summary.work_item && event.seq < summary.seq);
+      before.forEach((review, i) => {
+        if (review.type !== 'review.submitted' || review.payload.findings.every((f) => f.blocking)) return;
+        const answer = before.slice(i + 1).find((event) => event.type === 'suggestions.answered');
+        expect(answer, `${summary.work_item} review at ${review.ts}`).toBeDefined();
+      });
+    }
+  });
+
   it('end with a work item still on the line', () => {
     const last = published.at(-1);
     const closed = new Set(of('work-item.closed').map((event) => event.work_item));

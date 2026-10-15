@@ -278,6 +278,11 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       const local = await sheetParts(page, '1304');
       await expect(local.side('Agents and models')).toHaveScreenshot(`m05-sheet-models-local-${width}.png`);
     });
+
+    test('a fix’s sheet: an approval’s suggestion sent back, and declined', async ({ page }) => {
+      const { section } = await sheetParts(page, '1304');
+      await expect(section('Rounds')).toHaveScreenshot(`m05-sheet-rounds-declined-${width}.png`);
+    });
   });
 }
 
