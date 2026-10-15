@@ -144,9 +144,12 @@ export class Releases {
     }
     const o = observe(read.rollout, read.runs);
     const recorded = recordedFrom(await this.#recorded(podHashes(o), true));
-    const needs = releaseNeeds(o, recorded);
+    // The record holds only the releases of the hashes the Rollout names; which shipped last is asked of the store.
+    const last = await this.#lastPromoted();
+    const lastRelease = last?.release;
+    const needs = releaseNeeds(o, recorded, lastRelease);
     const start = needs.start && (await this.#start(needs.start));
-    const lastPromoted = needs.start && (await this.#lastPromoted());
+    const lastPromoted = needs.start && last?.version;
     const abortedBy = needs.aborted && o.abortedAt ? await this.#abortedBy(o.abortedAt) : undefined;
     const figures = new Map<string, Figures>();
     for (const run of needs.steps) {
@@ -177,6 +180,7 @@ export class Releases {
     const facts: Facts = {
       ...(start ? { start } : {}),
       ...(lastPromoted ? { lastPromoted } : {}),
+      ...(lastRelease ? { lastRelease } : {}),
       ...(abortedBy ? { abortedBy } : {}),
       figures,
       series,
@@ -187,10 +191,10 @@ export class Releases {
     // recorded whole, or found live if it has shipped by then.
     const others = [...drafts.keys()].filter((target) => target !== null && target !== only);
     if (only !== null && others.length) {
-      const release = namedReleases(o, recorded).current;
+      const release = namedReleases(o, recorded, lastRelease).current;
       log.info({ release, only, others }, 'the release carries other work items: left for the whole line');
     } else {
-      await this.#append(drafts, namedReleases(o, recorded).current);
+      await this.#append(drafts, namedReleases(o, recorded, lastRelease).current);
     }
     await this.#signal(o, recorded, series, { kube, rollout, prometheus });
   }
@@ -299,7 +303,7 @@ export class Releases {
       if (record?.ended === 'promoted' || (item.released && !record)) continue;
       // The version it would have replaced: the last that shipped, or before any, main as it is.
       previous ??=
-        (await this.#lastPromoted()) ?? (await this.#o.github.read('head', this.#o.repo, { branch: 'main' }));
+        (await this.#lastPromoted())?.version ?? (await this.#o.github.read('head', this.#o.repo, { branch: 'main' }));
       const due = dryRunEvents(item, previous, record, now(), dryRunEveryMs);
       if (due.length) drafts.set(item.workItem, due);
     }
@@ -354,13 +358,16 @@ export class Releases {
     });
   }
 
-  /** The version the app's last release that shipped made stable. */
-  async #lastPromoted(): Promise<string | undefined> {
-    const [row] = await this.#o.sql<{ version: string }[]>`
-      select payload->>'version' as version from events
+  /**
+   * The app's last release that shipped, by its name, and the version it made stable. A promotion of version 1, from
+   * before releases were named, has no name, and says nothing of which image shipped last.
+   */
+  async #lastPromoted(): Promise<{ release: string | undefined; version: string } | undefined> {
+    const [row] = await this.#o.sql<{ release: string | null; version: string }[]>`
+      select payload->>'release' as release, payload->>'version' as version from events
       where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true
       order by seq desc limit 1`;
-    return row?.version;
+    return row && { release: row.release ?? undefined, version: row.version };
   }
 
   /** Who aborted the Rollout at `at`: Stop the line, if the line had just stopped, or Martin. */

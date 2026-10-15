@@ -10,6 +10,7 @@ import {
   type Facts,
   observe,
   planOf,
+  podHashes,
   recordedFrom,
   releaseEvents,
   releaseNeeds,
@@ -22,8 +23,9 @@ import { ABORTED_AT, CANARY, commitOf, digestOf, releaseOf, rollout, run, STABLE
 
 /**
  * A store of release events, as the line keeps it: each pass appends what `releaseEvents` drafts, and the next pass
- * reads it back. Starting the line again is a pass over the same store. A pass is a few seconds after the latest
- * thing its runs say happened, as the line would see it.
+ * reads it back, as the line does: the releases of the hashes the Rollout names, and the name of the last promoted.
+ * Starting the line again is a pass over the same store. A pass is a few seconds after the latest thing its runs say
+ * happened, as the line would see it.
  */
 function store(seed: { target: Target; type: string; payload: unknown }[] = []) {
   const log = seed.map(({ target, type, payload }) => ({ work_item: target, ts: t(-60), type, payload }));
@@ -32,9 +34,15 @@ function store(seed: { target: Target; type: string; payload: unknown }[] = []) 
     /** One pass over the Rollout and its runs; returns what it appended, by target, as `[type, summary]`. */
     pass(r: Rollout, runs: AnalysisRun[], read: Partial<Facts> & { start?: Start } = {}) {
       const o = observe(r, runs);
-      const recorded = recordedFrom(log);
-      const needs = releaseNeeds(o, recorded);
-      const facts: Facts = { figures: new Map(), series: new Map(), ...read };
+      const hashes = podHashes(o);
+      const release = (e: (typeof log)[number]) => (e.payload as { release: string }).release;
+      const recorded = recordedFrom(log.filter((e) => hashes.includes(release(e).split('-')[0] as string)));
+      const promotions = log.filter(
+        (e) => e.type === 'release.promoted' && !(e.payload as { dryRun?: boolean }).dryRun,
+      );
+      const lastRelease = promotions.at(-1) && release(promotions.at(-1) as (typeof log)[number]);
+      const needs = releaseNeeds(o, recorded, lastRelease);
+      const facts: Facts = { figures: new Map(), series: new Map(), ...(lastRelease ? { lastRelease } : {}), ...read };
       const drafts = releaseEvents(o, recorded, facts);
       const times = runs.flatMap((r) => [r.metadata.creationTimestamp, r.status.completedAt ?? '']).map(Date.parse);
       const ts = new Date(Math.max(Date.parse(t(-60)), ...times.filter(Number.isFinite)) + 5_000).toISOString();
@@ -699,6 +707,33 @@ describe('a release of a version released before', () => {
     const { needs, said } = s.pass(rollout({ current: CANARY, stable: CANARY, revision: 6 }), [background(), failed]);
     expect(needs.start).toMatchObject({ release: `${CANARY}-6`, found: true });
     expect(said).toEqual({});
+  });
+
+  it('is found live when the line missed all of it over a later image, not taken for its earlier promotion', () => {
+    const { s, runs } = promoted();
+    // STABLE pinned again, released over CANARY and promoted while the line was down: its runs are at the revision.
+    const now = [
+      ...runs,
+      run({ hash: STABLE, revision: 5, stable: CANARY, step: 2, created: t(20), completed: t(21) }),
+      run({ hash: STABLE, revision: 5, stable: CANARY, step: 5, created: t(24), completed: t(25) }),
+    ];
+    const back = rollout({ current: STABLE, stable: STABLE, revision: 5 });
+    expect(s.pass(back, now).needs.start).toMatchObject({ release: `${STABLE}-5`, found: true });
+    expect(s.pass(back, now, { start: BACK, lastPromoted: commitOf(CANARY) }).said).toEqual({
+      1010: ['release.started', 'release.promoted'],
+    });
+    expect(s.of('1010', 'release.promoted')).toMatchObject([
+      { release: `${STABLE}-5`, version: commitOf(STABLE), previous: commitOf(CANARY), watched: false },
+    ]);
+    expect(s.pass(back, now).said).toEqual({});
+  });
+
+  it('is found live by the line’s record when Argo Rollouts kept none of its runs', () => {
+    const { s, runs } = promoted();
+    // As above, with STABLE's runs at the revision gone: the last promotion the line recorded is CANARY's.
+    const back = rollout({ current: STABLE, stable: STABLE, revision: 5 });
+    expect(s.pass(back, runs).needs.start).toMatchObject({ release: `${STABLE}-5`, found: true });
+    expect(s.pass(back, runs, { start: BACK }).said).toEqual({ 1010: ['release.started', 'release.promoted'] });
   });
 
   it('reads no revision until the status has caught up with the spec', () => {

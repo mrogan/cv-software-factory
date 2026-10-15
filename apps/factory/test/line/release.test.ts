@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type InboxSignal, type NewEvent, type PayloadOf, type Screenshot, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
+import pino from 'pino';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { z } from 'zod';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
@@ -355,6 +356,53 @@ describe('the line’s watch of the app’s release', () => {
       'release.started by rollouts',
       'release.promoted by rollouts',
     ]);
+  });
+
+  it('finds live an image promoted before and released again while it was down, by the release that shipped last', async () => {
+    const { line: it, github, kube } = line();
+    github.history = HISTORY;
+    github.revisions.set(digestOf(STABLE), commitOf(STABLE));
+    github.revisions.set(digestOf(CANARY), commitOf(CANARY));
+    kube.rollout = rollout({ current: STABLE, stable: STABLE });
+    await it.tick();
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    await it.tick();
+    kube.rollout = rollout({ current: CANARY, stable: CANARY });
+    await it.tick();
+    // STABLE pinned again and promoted while the line was down, and none of its runs kept: the line's last promotion
+    // is CANARY's, which the releases of STABLE's hash alone do not show.
+    kube.rollout = rollout({ current: STABLE, stable: STABLE, revision: 5 });
+    await it.tick();
+    expect((await typesOf(null)).slice(4)).toEqual(['release.started by factory', 'release.promoted by factory']);
+    expect((await payloads(null, 'release.promoted')).at(-1)).toMatchObject({
+      release: `${STABLE}-5`,
+      previous: commitOf(CANARY),
+      watched: false,
+    });
+  });
+
+  it('takes the stable version at a later revision for none when the last promotion is from before releases were named', async () => {
+    const warnings: string[] = [];
+    const log = pino({ level: 'warn' }, { write: (line: string) => warnings.push(line) });
+    const { line: it, github, kube } = line({ log });
+    github.history = HISTORY;
+    github.revisions.set(digestOf(STABLE), commitOf(STABLE));
+    kube.rollout = rollout({ current: STABLE, stable: STABLE });
+    await it.tick();
+    // A promotion of version 1 named no release, so it says nothing of which image shipped last.
+    const payload = { version: commitOf(CANARY), previous: commitOf(STABLE) };
+    await database.writer`
+      insert into events (id, ts, type, version, actor, summary, payload, artifacts, public, sample)
+      values (${crypto.randomUUID()}, now(), 'release.promoted', 1, 'rollouts', 'Promoted',
+              ${database.writer.json(payload)}, '[]', '{}', false)`;
+    kube.rollout = rollout({ current: STABLE, stable: STABLE, revision: 5 });
+    await it.tick();
+    expect(await typesOf(null)).toEqual([
+      'release.started by factory',
+      'release.promoted by factory',
+      'release.promoted by rollouts',
+    ]);
+    expect(warnings).toEqual([]);
   });
 
   it('records a rollback with the series that condemned it, and holds the work it carried at Release again', async () => {
