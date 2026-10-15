@@ -8,6 +8,10 @@
  *   records every version the defect was seen in, such as each release rolled back on it. Within a version the inbox
  *   counts it, with no event, so the event count grows with tickets and releases, not with the minutes a defect stays
  *   unfixed.
+ * - A sense's signal that would open a ticket when that sense has found more new problems than a handful at once
+ *   (`BURST`) is held instead, with the others, as one burst: a work item with no ticket, which waits for Martin.
+ *   Each new problem the sense finds while it waits joins it. Martin approving it opens their tickets, as the sense's
+ *   would have been; his rejection closes it (`settleOne`). A signal on an open ticket never counts toward a burst.
  * - Every report becomes events, judged by Jev: a new ticket, a repeat that joins an open one, or a work item
  *   that says it was quarantined, parked or discarded.
  * - So does every finding the planner leaves, judged the same way and trusted no more, except that it never opens a
@@ -19,12 +23,15 @@
  * One worker decides at a time (it holds an advisory lock), so two signals with the same new fingerprint cannot
  * open two tickets. It takes nothing while the line is stopped, and no report while the gateway waits on a spend cap.
  */
-import type { InboxSignal, PayloadOf, SignalSource, SymptomClass } from '@software-factory/events';
-import { type EventWriter, lastEnd, nextWorkItem } from '@software-factory/store';
+import type { InboxSignal, NewEvent, PayloadOf, SignalSource, SymptomClass } from '@software-factory/events';
+import { type EventWriter, fingerprintOf, lastEnd, nextWorkItem } from '@software-factory/store';
 import type { Sql } from 'postgres';
-import { INBOX } from '../../../policy/triage.ts';
+import { INBOX, SYMPTOMS } from '../../../policy/triage.ts';
 import {
   approvedFinding,
+  BURST,
+  burstEvents,
+  closedBurst,
   closedFinding,
   findingEvents,
   idsFor,
@@ -33,6 +40,7 @@ import {
   senseEvidence,
   senseReopened,
   senseTicket,
+  ticketTitle,
 } from './events.ts';
 import { type Judge, JudgeWaiting } from './judge.ts';
 import type { Candidate } from './questions.ts';
@@ -41,7 +49,7 @@ import { routeFinding, routeReport } from './routing.ts';
 import { privatePath } from './scrub.ts';
 
 /** What triage made of a signal, as the inbox records it. */
-export type Outcome = 'opened' | 'evidence' | 'counted' | 'report' | 'finding' | 'reopened';
+export type Outcome = 'opened' | 'evidence' | 'counted' | 'report' | 'finding' | 'reopened' | 'held';
 
 export interface Logger {
   info(fields: object, message: string): void;
@@ -74,6 +82,14 @@ type Ticket = { workItem: string } & Pick<PayloadOf<'ticket.opened'>, 'title' | 
   };
 
 export type Took = Outcome | 'idle' | 'stopped' | 'waiting' | 'failed';
+
+/** What a sense's signal makes: the events to append, and the ticket it opens, if it opens one. */
+interface Made {
+  outcome: Outcome;
+  workItem: string;
+  events: NewEvent[];
+  ticket?: Ticket;
+}
 
 export class Triage {
   readonly #o: Required<Omit<TriageOptions, 'onTriaged'>> & Pick<TriageOptions, 'onTriaged'>;
@@ -177,6 +193,7 @@ export class Triage {
     const { sql, events, log } = this.#o;
     const now = this.#o.now();
     if (await lineStopped(sql)) return false;
+    if (await this.#settleBurst()) return true;
     const failures = this.#settleFailures;
     const answered = (await parkedFindings(sql)).find(
       (parked) => parked.decision !== null && (failures.get(parked.workItem) ?? 0) < INBOX.attempts,
@@ -209,6 +226,52 @@ export class Triage {
     }
     failures.delete(workItem);
     log.info({ workItem, decision }, 'settled a defect the planner noticed, as Martin answered');
+    return true;
+  }
+
+  /**
+   * Does what Martin answered to a burst, if he has approved or rejected one still held. Approving makes of each signal
+   * held in it what it would have made without the burst, in the order the sense sent them: a ticket, as a rule, or
+   * evidence on a ticket opened since; and closes the burst, naming the tickets. Rejecting closes it, with none.
+   */
+  async #settleBurst(): Promise<boolean> {
+    const { sql, events, log } = this.#o;
+    const now = this.#o.now();
+    const failures = this.#settleFailures;
+    const answered = (await heldBursts(sql)).find(
+      (burst) => burst.decision !== null && (failures.get(burst.workItem) ?? 0) < INBOX.attempts,
+    );
+    if (!answered) return false;
+    const { workItem, decision } = answered;
+    try {
+      if (decision === 'rejected') {
+        await events.append(closedBurst(workItem, { rejected: true }, now));
+      } else {
+        const held = await sql<{ id: string; signal: InboxSignal }[]>`
+          select id, signal from inbox where work_item = ${workItem} and outcome = 'held' order by received_at, id`;
+        let tickets = await openTickets(sql);
+        const made: NewEvent[] = [];
+        const opened: string[] = [];
+        for (const { id, signal } of held) {
+          // Seeded apart from the signal's own events, which the burst holds.
+          const next = await this.#sense(signal, `burst:${id}`, tickets);
+          made.push(...next.events);
+          if (next.ticket) {
+            tickets = [next.ticket, ...tickets];
+            opened.push(next.workItem);
+          }
+        }
+        await events.append([...made, ...closedBurst(workItem, { opened }, now)]);
+      }
+    } catch (error) {
+      const tries = (failures.get(workItem) ?? 0) + 1;
+      failures.set(workItem, tries);
+      const reason = error instanceof Error ? error.message : String(error);
+      log.warn({ workItem, decision, reason, last: tries >= INBOX.attempts }, 'could not settle a burst');
+      return false;
+    }
+    failures.delete(workItem);
+    log.info({ workItem, decision }, 'settled a burst, as Martin answered');
     return true;
   }
 
@@ -257,15 +320,19 @@ export class Triage {
     const [done] = await sql<{ work_item: string; type: string }[]>`
       select work_item, type from events where id = ${idsFor(taken.id)()}`;
     if (done) {
-      const outcome = judged(signal)
-        ? signal.sense === 'planner'
-          ? 'finding'
-          : 'report'
-        : done.type === 'work-item.opened'
-          ? 'opened'
-          : done.type === 'work-item.reopened'
-            ? 'reopened'
-            : 'evidence';
+      const [burst] = await sql`select 1 from events where work_item = ${done.work_item} and type = 'hold.started'
+                                and payload->>'cause' = 'burst' limit 1`;
+      const outcome = burst
+        ? 'held'
+        : judged(signal)
+          ? signal.sense === 'planner'
+            ? 'finding'
+            : 'report'
+          : done.type === 'work-item.opened'
+            ? 'opened'
+            : done.type === 'work-item.reopened'
+              ? 'reopened'
+              : 'evidence';
       // Counted once already, if at all: the time it took is not this attempt's.
       return { outcome, workItem: done.work_item, ticketOpened: false };
     }
@@ -326,6 +393,18 @@ export class Triage {
       return { outcome: 'report', workItem, ticketOpened: decision.routed.route === 'ticket' };
     }
 
+    const made = await this.#sense(signal, taken.id, tickets, taken);
+    if (made.events.length) await events.append(made.events);
+    return { outcome: made.outcome, workItem: made.workItem, ticketOpened: made.ticket !== undefined };
+  }
+
+  /**
+   * What a sense's signal makes, given the open tickets, with its events' ids from `seed`. One taken from the inbox
+   * (`taken`) may be held in a burst instead of opening a ticket; one a burst held, as Martin lets it through, may not.
+   */
+  async #sense(signal: InboxSignal, seed: string, tickets: Ticket[], taken?: Taken): Promise<Made> {
+    const { sql } = this.#o;
+    const now = this.#o.now();
     const fingerprint = { route: signal.route, class: signal.symptom as SymptomClass };
     const ticket = tickets.find((open) =>
       sameFingerprint(open.fingerprint, fingerprint, { open: open.sense, found: signal.sense }),
@@ -336,25 +415,85 @@ export class Triage {
       // any signal on a ticket a dry run verified: its fix never shipped, so the sense still sees what it saw.
       const verified = await verifiedTicket(sql, fingerprint, signal.sense);
       if (verified && (verified.dryRun || Date.parse(signal.observedAt) <= verified.closedAt.getTime())) {
-        return { outcome: 'counted', workItem: verified.workItem, ticketOpened: false };
+        return { outcome: 'counted', workItem: verified.workItem, events: [] };
       }
       if (verified) {
-        await events.append(senseReopened(signal, taken.id, verified.workItem, now));
-        return { outcome: 'reopened', workItem: verified.workItem, ticketOpened: false };
+        return {
+          outcome: 'reopened',
+          workItem: verified.workItem,
+          events: senseReopened(signal, seed, verified.workItem, now),
+        };
       }
+      const burst = taken && (await this.#burst(taken, tickets));
+      if (burst) return burst;
       const workItem = await nextWorkItem(sql);
-      const joined = await this.#joinFindings(fingerprint, workItem, 'sense', taken.id, signal.sense);
-      await events.append([...senseTicket(signal, taken.id, workItem, now), ...joined]);
-      return { outcome: 'opened', workItem, ticketOpened: true };
+      const joined = await this.#joinFindings(fingerprint, workItem, 'sense', seed, signal.sense);
+      const { category } = SYMPTOMS[fingerprint.class];
+      return {
+        outcome: 'opened',
+        workItem,
+        events: [...senseTicket(signal, seed, workItem, now), ...joined],
+        ticket: { workItem, title: ticketTitle(fingerprint, signal.sense), category, fingerprint, sense: signal.sense },
+      };
     }
     // Seen again in a version this sense has not seen it in, such as another release rolled back on it: the ticket
     // records it, with its evidence, for the console and for the planner when it takes the ticket.
     const [seen] = await sql`select 1 from events where work_item = ${ticket.workItem}
                              and type = 'signal.received' and payload->>'sense' = ${signal.sense}
                              and payload->>'version' = ${signal.version} limit 1`;
-    if (seen) return { outcome: 'counted', workItem: ticket.workItem, ticketOpened: false };
-    await events.append(senseEvidence(signal, taken.id, ticket.workItem, now));
-    return { outcome: 'evidence', workItem: ticket.workItem, ticketOpened: false };
+    if (seen) return { outcome: 'counted', workItem: ticket.workItem, events: [] };
+    return {
+      outcome: 'evidence',
+      workItem: ticket.workItem,
+      events: senseEvidence(signal, seed, ticket.workItem, now),
+    };
+  }
+
+  /**
+   * Holds a signal that would open a ticket in a burst, if its sense's is waiting for Martin, or if with it the sense
+   * has found more new problems than `BURST.tickets` within `BURST.minutes` of it: the tickets it opened, and the new
+   * problems in its signals still waiting in the inbox, which triage would otherwise open one by one. A problem the
+   * burst holds already is counted.
+   */
+  async #burst(taken: Taken, tickets: Ticket[]): Promise<Made | undefined> {
+    const { sql } = this.#o;
+    const now = this.#o.now();
+    const { signal } = taken;
+    const fingerprint = fingerprintOf(signal);
+    const waiting = (await heldBursts(sql)).find((burst) => burst.sense === taken.sense);
+    if (waiting) {
+      const [seen] = await sql`select 1 from inbox where work_item = ${waiting.workItem} and outcome = 'held'
+                               and fingerprint = ${fingerprint} limit 1`;
+      if (seen) return { outcome: 'counted', workItem: waiting.workItem, events: [] };
+      return {
+        outcome: 'held',
+        workItem: waiting.workItem,
+        events: senseEvidence(signal, taken.id, waiting.workItem, now),
+      };
+    }
+    const near = await sql<{ fingerprint: string; opened: boolean; route: string; symptom: SymptomClass }[]>`
+      select fingerprint, outcome is not null as opened, signal->>'route' as route, signal->>'symptom' as symptom
+      from inbox
+      where sense = ${taken.sense} and id <> ${taken.id} and fingerprint is distinct from ${fingerprint}
+        and received_at between ${taken.received_at}::timestamptz - make_interval(mins => ${BURST.minutes})
+                            and ${taken.received_at}::timestamptz + make_interval(mins => ${BURST.minutes})
+        and (outcome = 'opened' or (triaged_at is null and attempts < ${INBOX.attempts}))`;
+    const opened = near.filter((row) => row.opened).length;
+    const ahead = new Set(
+      near
+        .filter((row) => !row.opened)
+        .filter(({ route, symptom }) =>
+          tickets.every(
+            (open) =>
+              !sameFingerprint(open.fingerprint, { route, class: symptom }, { open: open.sense, found: signal.sense }),
+          ),
+        )
+        .map((row) => row.fingerprint),
+    ).size;
+    const found = 1 + opened + ahead;
+    if (found <= BURST.tickets) return undefined;
+    const workItem = await nextWorkItem(sql);
+    return { outcome: 'held', workItem, events: burstEvents(signal, taken.id, workItem, found, now) };
   }
 }
 
@@ -384,6 +523,33 @@ async function parkedFindings(sql: Sql): Promise<Parked[]> {
   return rows.map((row) => ({
     workItem: row.work_item,
     defect: row.defect,
+    decision: row.decision === 'approved' || row.decision === 'rejected' ? row.decision : null,
+  }));
+}
+
+/** A burst triage holds for Martin: the sense whose signals it holds, and his answer, when triage has yet to act on it. */
+interface Burst {
+  workItem: string;
+  sense: string;
+  decision: 'approved' | 'rejected' | null;
+}
+
+/** Every burst still held, oldest first, with Martin's last answer to it. Their holds have an index of their own (0014). */
+async function heldBursts(sql: Sql): Promise<Burst[]> {
+  const rows = await sql<{ work_item: string; sense: string; decision: string | null }[]>`
+    select h.work_item,
+           (select s.payload->>'sense' from events s
+            where s.work_item = h.work_item and s.type = 'signal.received' order by s.seq limit 1) as sense,
+           (select a.payload->>'decision' from events a
+            where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq
+            order by a.seq desc limit 1) as decision
+    from events h
+    where h.type = 'hold.started' and h.payload->>'cause' = 'burst'
+      and not exists (select 1 from events e where e.work_item = h.work_item and e.type = 'work-item.closed')
+    order by h.seq`;
+  return rows.map((row) => ({
+    workItem: row.work_item,
+    sense: row.sense,
     decision: row.decision === 'approved' || row.decision === 'rejected' ? row.decision : null,
   }));
 }

@@ -37,7 +37,7 @@ export const VERSIONS = {
   'verification.finished': 3,
   // Anywhere on the line
   'work.returned': 3,
-  'hold.started': 5,
+  'hold.started': 6,
   'hold.answered': 1,
   'action.refused': 2,
   'model.called': 2,

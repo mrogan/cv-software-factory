@@ -14,7 +14,9 @@ flowchart TD
   policy --> match{Matches by fingerprint}
   match -- an open ticket --> repeat[A repeat on that ticket]
   match -- "a ticket closed as verified" --> reopen[Reopens it]
-  match -- none --> open[Opens a ticket]
+  match -- none --> burst{"A burst from its sense?"}
+  burst -- no --> open[Opens a ticket]
+  burst -- yes --> held["Holds for Martin (burst),<br>with no ticket"]
   jev -- a report --> route["Routing as plain code"]
   jev -- a finding --> held["Holds for Martin (finding),<br>or joins an open ticket's evidence"]
 ```
@@ -25,6 +27,7 @@ flowchart TD
 - **Only reports and the planner's findings go to Jev** (`triage/v1`), with routing as plain code.
 - It quarantines injection attempts, and parks suggestions for Martin.
 - **One fingerprint, one ticket.**
+- **More new problems than a handful from one sense at once** wait for Martin as one [burst](#a-burst), before any has a ticket.
 
 ## Matching an open ticket
 
@@ -43,6 +46,24 @@ It counts as a repeat on that ticket instead when:
 - the ticket's last verification was a dry run's, whose fix never shipped.
 
 A report or a planner's finding never reopens a ticket.
+
+## A burst
+
+A sense that finds many new problems at once may have found as many defects, or one fault in what it reads, such as a gap in the log that looks like a missing record on every page. Each ticket would be a planner's step and more, so triage holds a burst for one look from Martin instead (cause `burst`).
+
+- **What counts.** A sense's signal that would open a ticket, when with it that sense has found more than five new problems within ten minutes of it (`BURST` in `packages/triage/src/events.ts`). It counts the tickets the sense opened in that time, and the new problems in its signals still waiting in the inbox, so a burst that arrives at once is held from its first signal. A signal on an open ticket, or one that reopens a verified ticket, never counts.
+- **What it holds.** One work item, held at Triage with no ticket, so nothing of it reaches Plan. Each new problem the sense finds while it waits joins it as evidence, however long after; one it holds already is counted. Other senses carry on as ever.
+- **A fresh app.** The line's first start on a fresh app finds many problems by design, and costs this one answer: a first look at what the senses see is worth it, and approving lets them all through.
+
+### Martin's answer to a burst
+
+| Answer | Does |
+|---|---|
+| Approve | Makes of each problem what it would have made without the burst, in the order the sense sent them: a ticket, as a rule, which the line takes in its turn, or evidence on a ticket opened since. Closes the burst, naming the tickets |
+| Reject | Closes it with no ticket. A problem the sense still sees is found again, and counts toward a burst afresh |
+| Answer in words | Leaves it waiting |
+
+Triage does as he answered once an event is appended, as for a finding.
 
 ## The planner's findings
 

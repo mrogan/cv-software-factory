@@ -7,7 +7,7 @@ import type { Sql } from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { INBOX } from '../../../../policy/triage.ts';
 import { type Database, freshDatabase } from '../../../store/test/database.ts';
-import { idsFor, senseTicket } from '../../src/events.ts';
+import { BURST, burstEvents, idsFor, senseTicket } from '../../src/events.ts';
 import { type Answer, type Judge, JudgeWaiting } from '../../src/judge.ts';
 import { Triage, type TriageOptions } from '../../src/worker.ts';
 
@@ -25,12 +25,14 @@ beforeAll(async () => {
 });
 afterAll(() => database?.end());
 
-// Each test starts with an empty inbox, no open tickets and no parked findings: earlier tests' are closed by hand.
+// Each test starts with an empty inbox, no open tickets, no parked findings and no bursts: earlier tests' are closed by
+// hand, and their signals moved a day back, so that no test's tickets count toward the next one's burst.
 beforeEach(async () => {
   await database.owner`update inbox set triaged_at = now(), outcome = 'counted' where triaged_at is null`;
+  await database.owner`update inbox set received_at = received_at - interval '1 day'`;
   const open = await writer<{ work_item: string }[]>`
     select distinct o.work_item from events o
-    where (o.type = 'ticket.opened' or (o.type = 'hold.started' and o.payload->>'cause' = 'finding'))
+    where (o.type = 'ticket.opened' or (o.type = 'hold.started' and o.payload->>'cause' in ('finding', 'burst')))
       and ${lastEnd(writer, 'o.work_item')} is distinct from 'work-item.closed'`;
   for (const { work_item } of open) await events.append(closed(work_item));
 });
@@ -784,5 +786,151 @@ describe('triage', () => {
     const [row] = await writer`select work_item from inbox where id = ${id}`;
     expect(row?.work_item).toBe('1999');
     expect(await writer`select count(*)::int as n from events where id = ${idsFor(id)()}`).toEqual([{ n: 1 }]);
+  });
+
+  describe('a burst of new problems from one sense', () => {
+    const page = (n: number, overrides: Partial<InboxSignal> = {}) => found({ route: `/burst/${n}`, ...overrides });
+    const answer = (item: string, decision: 'approved' | 'rejected' | 'answered') =>
+      events.append({
+        id: crypto.randomUUID(),
+        ts: at,
+        work_item: item,
+        type: 'hold.answered',
+        version: 1,
+        actor: 'martin',
+        summary: `Martin ${decision} it`,
+        payload: { decision },
+        artifacts: [],
+      } as NewEvent<'hold.answered'>);
+    const takeAll = async (worker = triage()) => {
+      const took: string[] = [];
+      for (let next = await worker.takeOne(); next !== 'idle'; next = await worker.takeOne()) took.push(next);
+      return took;
+    };
+    const heldIn = async () =>
+      (
+        await writer<{ work_item: string }[]>`
+          select work_item from inbox where outcome = 'held' order by received_at desc limit 1`
+      )[0]?.work_item ?? '';
+    const payloadOf = async <T>(item: string, type: string) =>
+      (await writer<{ payload: T }[]>`select payload from events where work_item = ${item} and type = ${type}`)[0]
+        ?.payload;
+    /** The open tickets on these routes: the earlier tests' are closed. */
+    const ticketsOf = (route: string) =>
+      writer<{ work_item: string }[]>`
+        select work_item from events t where type = 'ticket.opened' and payload->'fingerprint'->>'route' like ${route}
+          and ${lastEnd(writer, 't.work_item')} is distinct from 'work-item.closed'
+        order by seq`.then((rows) => rows.map((row) => row.work_item));
+
+    it('holds more new problems than a handful, sent at once, as one work item with no ticket', async () => {
+      const many = BURST.tickets + 2;
+      for (let n = 1; n <= many; n++) await sendSignal(writer, page(n));
+      expect(await takeAll()).toEqual(Array(many).fill('held'));
+      const item = await heldIn();
+      const types = await writer<{ type: string }[]>`select type from events where work_item = ${item} order by seq`;
+      expect(types.map((row) => row.type)).toEqual([
+        'work-item.opened',
+        'signal.received',
+        'hold.started',
+        'work-item.summarised',
+        ...Array(many - 1).fill('signal.received'),
+      ]);
+      expect(await payloadOf(item, 'hold.started')).toMatchObject({
+        stage: 'triage',
+        kind: 'held',
+        cause: 'burst',
+        reason: expect.stringMatching(
+          new RegExp(`^The crawler found ${many} new problems within ${BURST.minutes} minutes`),
+        ),
+      });
+      expect(await ticketsOf('/burst/%')).toEqual([]);
+
+      // A problem it holds already is counted, and another sense's opens its ticket as ever.
+      await sendSignal(writer, page(1));
+      await sendSignal(writer, page(1, { sense: 'probe' }));
+      expect(await takeAll()).toEqual(['counted', 'opened']);
+    });
+
+    it('counts the tickets the sense opened just before, and holds every new problem after them', async () => {
+      for (let n = 1; n <= BURST.tickets; n++) {
+        await sendSignal(writer, page(n));
+        expect(await triage().takeOne()).toBe('opened');
+      }
+      await sendSignal(writer, page(BURST.tickets + 1));
+      expect(await triage().takeOne()).toBe('held');
+      const item = await heldIn();
+      expect(await payloadOf<{ reason: string }>(item, 'hold.started')).toMatchObject({
+        reason: expect.stringContaining(`found ${BURST.tickets + 1} new problems`),
+      });
+      // While it waits, every new problem the sense finds joins it, however long after.
+      await sendSignal(writer, page(99, { symptom: 'broken-image', check: 'images load' }));
+      expect(await triage().takeOne()).toBe('held');
+      expect(await heldIn()).toBe(item);
+    });
+
+    it('never counts a signal on an open ticket, nor problems a handful apart in time', async () => {
+      await sendSignal(writer, page(1));
+      expect(await triage().takeOne()).toBe('opened');
+      for (let n = 0; n < BURST.tickets + 2; n++) await sendSignal(writer, page(1, { version: `d0${n}efd8` }));
+      expect(new Set(await takeAll())).toEqual(new Set(['evidence']));
+      // Older than the window, as the earlier tests' signals are.
+      await database.owner`update inbox set received_at = received_at - interval '1 hour'`;
+      for (let n = 2; n <= BURST.tickets; n++) await sendSignal(writer, page(n));
+      expect(await takeAll()).toEqual(Array(BURST.tickets - 1).fill('opened'));
+      await sendSignal(writer, page(BURST.tickets + 1));
+      expect(await triage().takeOne()).toBe('opened');
+    });
+
+    it('waits while Martin only answers, and opens a ticket for each problem when he approves', async () => {
+      const many = BURST.tickets + 1;
+      for (let n = 1; n <= many; n++) await sendSignal(writer, page(n));
+      await takeAll();
+      const item = await heldIn();
+      await answer(item, 'answered');
+      expect(await triage().settleOne()).toBe(false);
+      expect(await ticketsOf('/burst/%')).toEqual([]);
+
+      // A sense's ticket opened meanwhile takes the problem it has: that one joins it as evidence.
+      await sendSignal(writer, page(2, { sense: 'probe' }));
+      expect(await triage().takeOne()).toBe('opened');
+      const [probe = ''] = await ticketsOf('/burst/2');
+
+      await answer(item, 'approved');
+      expect(await triage().settleOne()).toBe(true);
+      const opened = await ticketsOf('/burst/%');
+      expect(opened).toHaveLength(many);
+      expect(opened[0]).toBe(probe);
+      const [first] = opened.slice(1);
+      expect(await payloadOf(item, 'work-item.closed')).toEqual({
+        outcome: 'no-change',
+        reason: `Martin let it through: ${many - 1} tickets, from #${first}`,
+      });
+      const signals = await writer<{ sense: string }[]>`
+        select payload->>'sense' as sense from events where work_item = ${probe} and type = 'signal.received'
+        order by seq`;
+      expect(signals.map((row) => row.sense)).toEqual(['probe', 'crawler']);
+      expect(await triage().settleOne()).toBe(false);
+    });
+
+    it('closes with no ticket when he rejects it, and a problem still there is found again', async () => {
+      for (let n = 1; n <= BURST.tickets + 1; n++) await sendSignal(writer, page(n));
+      await takeAll();
+      const item = await heldIn();
+      await answer(item, 'rejected');
+      expect(await triage().settleOne()).toBe(true);
+      expect(await payloadOf(item, 'work-item.closed')).toMatchObject({ outcome: 'discarded' });
+      expect(await ticketsOf('/burst/%')).toEqual([]);
+      await sendSignal(writer, page(1));
+      expect(await triage().takeOne()).toBe('opened');
+    });
+
+    it('records a held signal whose events were appended before a crash, appending nothing again', async () => {
+      const signal = page(1);
+      const id = await sendSignal(writer, signal);
+      await events.append(burstEvents(signal, id, '1998', BURST.tickets + 1, new Date(at)));
+      expect(await triage().takeOne()).toBe('held');
+      const [row] = await writer`select work_item from inbox where id = ${id}`;
+      expect(row?.work_item).toBe('1998');
+    });
   });
 });
