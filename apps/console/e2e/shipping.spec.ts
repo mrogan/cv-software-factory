@@ -43,6 +43,32 @@ test.describe('the Canary panel', () => {
     await expect(canary.getByRole('button', { name: '#1308 Slow responses in a canary release' })).toBeVisible();
   });
 
+  test('says both versions’ figures for a failed measure the line drew', async ({ page, request }) => {
+    type Event = { ts: string; type: string; payload: { failed?: Record<string, unknown>[] } };
+    const events = (await (await request.get('/api/events')).json()) as Event[];
+    // As the line records a rollback with Prometheus to read: the analysis's figure, and each version's series to it.
+    const rolledBack = events.find((e) => e.type === 'release.rolled-back' && e.ts.startsWith('2026-10-05T10:23'));
+    const [measure] = rolledBack?.payload.failed ?? [];
+    if (!measure) throw new Error('No failed measure on Monday’s rollback');
+    Object.assign(measure, {
+      value: 0.27624,
+      series: {
+        label: 'p99 latency',
+        unit: 'ms',
+        stepSeconds: 15,
+        canary: [40.1, 415.2],
+        baseline: [38.5, 38.96],
+        at: 1,
+      },
+    });
+    await page.route('**/api/events?after=0', (route) => route.fulfill({ json: events }));
+    await page.goto(consoleUrl({ at: CANARY['rolled-back-no-step'] }));
+    await shown(page);
+    await expect(panel(page).getByRole('row', { name: /^Latency / })).toContainText(
+      'p99 415 ms against 39 ms: 276 ms over its limit',
+    );
+  });
+
   test('leaves Release’s panel saying a merge waits for Martin’s deploy', async ({ page }) => {
     await page.goto(consoleUrl());
     await shown(page);
