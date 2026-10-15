@@ -20,3 +20,6 @@ Each record of the widget becomes a `report` signal. The text goes to the inbox,
 ## Agreement
 
 Per route, it compares the requests counted in metrics, logged and traced, over two windows that ended minutes ago (Tempo answers late). The odd one out is `missing-log` or `wrong-metric`.
+
+- **Routes.** The metrics and traces name the path asked for; the log names its route. A path takes its route from the window's log, or failing that from the last day's, asked for once an hour. The names are kept between windows, so a gap in the log longer than a day, or a lookup that failed, still finds each page's route. A gap is then one finding per route, not one per page.
+- **A silent log.** When more than one route's requests are missing from the log, and across every route it holds no more records than an edge of the window explains, the log is silent for everything. That is one `missing-log` signal on every route (`*`), showing the busiest routes' requests beside no records, and none per route. Loki that stopped storing the app's records, and an app that stopped writing them, look the same.

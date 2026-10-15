@@ -101,12 +101,17 @@ export function requestsBetween(job: string, seconds: number): string {
   return `sum by (http_route, service_version) ((${delta} >= 0) or (${counter()} unless (${delta} >= 0)))`;
 }
 
-/** Counts each route's requests between two times, in each of the three records. */
+/**
+ * Counts each route's requests between two times, in each of the three records. A path takes its route from the
+ * window's own log records, or failing them from `known`, the routes the log gave paths before: the window when the
+ * log says least is the one that cannot place a path by itself, and a path it cannot place is a route of its own.
+ */
 export async function count(
   o: Objectives,
   backends: { prometheus: Prometheus; loki: Loki; tempo: Tempo },
   start: Date,
   end: Date,
+  known: ReadonlyMap<string, string> = new Map(),
 ): Promise<{ routes: RouteCounts[]; tracesComplete: boolean }> {
   const seconds = Math.round((end.getTime() - start.getTime()) / 1000);
   const job = `job=${quoted(o.app.metricsJob)}`;
@@ -120,7 +125,7 @@ export async function count(
   const at = (path: string) => {
     let entry = routes.get(path);
     if (!entry) {
-      entry = { path, route: path, version: undefined, metrics: 0, logs: 0 };
+      entry = { path, route: known.get(path) ?? path, version: undefined, metrics: 0, logs: 0 };
       routes.set(path, entry);
     }
     return entry;
@@ -152,6 +157,71 @@ export async function count(
     if (!traced.complete) delete entry.traces;
   }
   return { routes: [...routes.values()].filter((entry) => entry.path), tracesComplete: traced.complete };
+}
+
+/**
+ * Whether the log is silent for every route at once, rather than for some: more than one route's requests are
+ * missing from it, and across every route, judged or not, it holds no more records than an edge of the window
+ * explains. That is one finding about the log, not one per route: Loki stopped storing the app's records, or the app
+ * stopped writing them. A route left out of an otherwise full log is not this, and is judged on its own.
+ */
+export function logSilent(entries: RouteCounts[], tolerance: Tolerance = TOLERANCE): boolean {
+  const unlogged = new Set(entries.filter((entry) => judge(entry, tolerance) === 'missing-log').map((e) => e.route));
+  const logged = entries.reduce((sum, entry) => sum + entry.logs, 0);
+  return unlogged.size >= 2 && agree(logged, 0, tolerance);
+}
+
+/** At most this many routes are shown in a silent log's evidence, the busiest first. */
+const SILENT_ROUTES_SHOWN = 8;
+
+/**
+ * The one signal for a log silent for every route, on every route (`*`) as `missing-log`, so that each window it
+ * holds is the same ticket. Its evidence is the log of each of the busiest routes as it should have been: none at
+ * all beside the requests counted elsewhere. Nothing, if the metrics do not say which version served the requests.
+ */
+export function signalForSilentLog(entries: RouteCounts[], end: Date): InboxSignal | undefined {
+  const byRoute = new Map<string, { route: string; requests: number; versions: Map<string, number> }>();
+  const versions = new Map<string, number>();
+  for (const entry of entries) {
+    const requests = Math.max(entry.metrics, entry.traces ?? 0);
+    const route = byRoute.get(entry.route) ?? { route: entry.route, requests: 0, versions: new Map() };
+    route.requests += requests;
+    if (entry.version) {
+      route.versions.set(entry.version, (route.versions.get(entry.version) ?? 0) + entry.metrics);
+      versions.set(entry.version, (versions.get(entry.version) ?? 0) + entry.metrics);
+    }
+    byRoute.set(entry.route, route);
+  }
+  const version = busiest(versions);
+  if (!version) return undefined;
+  const evidence = [...byRoute.values()]
+    .filter((route) => route.requests > 0)
+    .sort((a, b) => b.requests - a.requests)
+    .slice(0, SILENT_ROUTES_SHOWN)
+    .map((route) => ({
+      kind: 'logs' as const,
+      route: route.route,
+      version: busiest(route.versions) ?? version,
+      requests: Math.round(route.requests),
+      lines: [],
+    }));
+  return {
+    sense: 'logs',
+    check: 'requests in the log',
+    route: '*',
+    version,
+    symptom: 'missing-log',
+    observedAt: end.toISOString(),
+    artifacts: [],
+    evidence,
+  };
+}
+
+/** The key with the largest count. */
+function busiest(counts: Map<string, number>): string | undefined {
+  let best: [string, number] | undefined;
+  for (const [key, value] of counts) if (!best || value > best[1]) best = [key, value];
+  return best?.[0];
 }
 
 /**
