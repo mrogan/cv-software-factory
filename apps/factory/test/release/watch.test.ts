@@ -265,7 +265,7 @@ describe('a release, from the Rollout and its runs', () => {
         journeys: { phase: 'Successful' },
       },
     });
-    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true });
+    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true });
     const series: Series = {
       label: 'p99 latency',
       unit: 'ms',
@@ -293,6 +293,67 @@ describe('a release, from the Rollout and its runs', () => {
       },
     ]);
     expect(s.pass(aborted, [failedRun]).said).toEqual({});
+  });
+
+  /** A run in the background that failed the canary at a time. */
+  const failedInBackground = (completed: string) =>
+    background({ phase: 'Failed', completed, metrics: { latency: { phase: 'Failed', value: '[0.3]' } } });
+
+  it('rolls back from the background at the weight the canary reached, which the aborted Rollout no longer says', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 4, weight: 50 }), [background(), step(2)]);
+    // At 50%, the background analysis fails it: the Rollout is aborted, back at its first step, in the same write.
+    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true });
+    const { drafts } = s.pass(aborted, [failedInBackground(t(5)), step(2)]);
+    expect(drafts.get('1001')?.map((d) => d.summary)).toEqual(['Rolled back at 50%: The analysis failed the canary']);
+    expect(s.of('1006', 'release.rolled-back').map((p) => (p as PayloadOf<'release.rolled-back'>).weight)).toEqual([
+      50,
+    ]);
+  });
+
+  it('rolls back from the background at a step whose analysis has not passed, and at its first before any', () => {
+    const weightOf = (runs: AnalysisRun[]) => {
+      const s = store(STABLE_RECORDED);
+      s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+      s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true }), runs);
+      return s.of('1001', 'release.rolled-back').map((p) => (p as PayloadOf<'release.rolled-back'>).weight);
+    };
+    expect(weightOf([failedInBackground(t(2))])).toEqual([25]);
+    // A step the analysis could not settle holds the canary at its weight, until Martin resumes it: then the next
+    // step's run, which the abort terminated, says it went on.
+    const inconclusive = step(2, { phase: 'Inconclusive' });
+    expect(weightOf([failedInBackground(t(5)), inconclusive])).toEqual([25]);
+    const terminated = step(5, { phase: 'Successful', message: 'Run Terminated', terminate: true });
+    expect(weightOf([failedInBackground(t(7)), inconclusive, terminated])).toEqual([50]);
+  });
+
+  it('rolls back from the background at a weight the analysis judges twice, between the two', () => {
+    const s = store(STABLE_RECORDED);
+    const twice = (r: Rollout) => {
+      r.spec.strategy.canary = {
+        steps: [
+          { setWeight: 25 },
+          { pause: { duration: '3m' } },
+          { analysis: {} },
+          { analysis: {} },
+          { setWeight: 50 },
+          { analysis: {} },
+        ],
+      };
+      return r;
+    };
+    s.pass(twice(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 })), [background()], {
+      start: START,
+    });
+    s.pass(twice(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 })), [background(), step(2)]);
+    s.pass(twice(rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true })), [
+      failedInBackground(t(5)),
+      step(2),
+    ]);
+    expect(s.of('1001', 'release.rolled-back').map((p) => (p as PayloadOf<'release.rolled-back'>).weight)).toEqual([
+      25,
+    ]);
   });
 
   it('records Martin’s abort, by whoever made it, and starts the release again when he retries it', () => {
@@ -504,6 +565,10 @@ describe('a release, from the Rollout and its runs', () => {
     expect(
       (s.of('1001', 'release.rolled-back')[1] as PayloadOf<'release.rolled-back'>).failed.map((m) => m.name),
     ).toEqual(['latency']);
+    // The first at its failed step's weight; the retry's, from the background, at the weight of its own steps.
+    expect(s.of('1001', 'release.rolled-back').map((p) => (p as PayloadOf<'release.rolled-back'>).weight)).toEqual([
+      25, 50,
+    ]);
   });
 
   it('records a stable version it has no record of as found live, by the factory, and not watched', () => {
