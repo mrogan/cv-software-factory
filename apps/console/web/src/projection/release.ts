@@ -92,7 +92,8 @@ export const MEASURES = [
  * compare, which the analysis counts as infinitely worse.
  *
  * Errors and latency say each version's own figure first, where the rollback's series has both at the moment the
- * analysis failed (`versionsAt`): "p99 415 ms against 39 ms: 276 ms over its limit".
+ * analysis failed (`versionsAt`): "p99 415 ms against 39 ms: 276 ms over its limit". Each figure is rounded on its
+ * own, so the last digit of the excess can differ by one from the sum a reader makes of the two beside it.
  */
 export function sawOf(failed: Failed, reason: string): string {
   const { name, value, limit, message } = failed;
@@ -108,7 +109,8 @@ export function sawOf(failed: Failed, reason: string): string {
   const against = (words: string) => (limit === null ? '' : `, against ${words}`);
   const both = versionsAt(failed);
   if (name === 'latency') {
-    const over = `${Math.max(1, Math.round((value - (limit ?? 0)) * 1000))} ms over its limit`;
+    // In µs first, so a float such as 1.0005 s is not read as 1000.4999… ms.
+    const over = `${Math.max(1, Math.round(Math.round((value - (limit ?? 0)) * 1e6) / 1000))} ms over its limit`;
     return both ? `p99 ${Math.round(both.canary)} ms against ${Math.round(both.baseline)} ms: ${over}` : `p99 ${over}`;
   }
   if (name === 'errors') {
@@ -120,14 +122,18 @@ export function sawOf(failed: Failed, reason: string): string {
   return `${value}${against(`a limit of ${limit}`)}`;
 }
 
-/** The unit each measure's series is drawn in, as the line draws it (`apps/factory/src/release/read.ts`). */
-const SERIES_UNITS: Record<string, string> = { errors: '%', latency: 'ms' };
+/**
+ * The unit each measure's series is drawn in, as the line draws it (`apps/factory/src/release/read.ts`'s `DRAWN`). A
+ * test holds them together.
+ */
+export const SERIES_UNITS: Record<string, string> = { errors: '%', latency: 'ms' };
 
 /**
  * Each version's own figure when the analysis failed a measure: the canary's and the baseline's values at the series'
  * `at`, in its unit (a share of 5xx answers in percent, a p99 in ms). The line draws the series from the same query
- * the analysis runs for each version, over the same window, up to the analysis's end, moments after its failing look:
- * the figures there are the ones the analysis compared. Undefined for a measure with no series, one in a unit not its
+ * the analysis runs for each version, over the same window, up to the run's end. Argo Rollouts ends a run in the
+ * same pass as the look that fails it, so the figures there are the ones that look compared, to within a moment of
+ * the window. Undefined for a measure with no series, one in a unit not its
  * own, or where either version has no value.
  */
 export function versionsAt({ name, series }: Failed): { canary: number; baseline: number } | undefined {

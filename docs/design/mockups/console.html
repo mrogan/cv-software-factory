@@ -1190,7 +1190,7 @@ const ok4 = { requests: 'passed', errors: 'passed', latency: 'passed', journeys:
 const RELEASES = {
   r1276: { id: '7c41d09e2a', version: 'v0.9.1', previous: 'v0.9.0', commit: '3e1f0aa', digest: 'sha256:5d0c…e81a', carries: ['1276'], day: 'Fri 2 Oct', start: '08:22:30', steps: STEPS, measured: [],
     end: { kind: 'rolledback', at: '08:25:54', weight: 25, words: 'Metric "latency" assessed Failed due to failed (2) > failureLimit (1)',
-      failed: [['latency', 'Latency', 'p99 412 ms against 39 ms: 273 ms over its limit']] } },
+      failed: [['latency', 'Latency', 'p99 412 ms against 139 ms: 173 ms over its limit']] } },
   r1296: { id: '4f2a9c71b0', version: 'v0.9.7', previous: 'v0.9.6', commit: 'c81d2e4', digest: 'sha256:a3f1…07bd', carries: ['1296'], day: 'Sat 3 Oct', start: '09:15:40', steps: STEPS,
     measured: [{ w: 25, at: '09:18:40', req: [231, 702], err: [0.0043, 0.0057], p99: [41, 44], jour: [[24, 24], [24, 24]], v: ok4 },
       { w: 50, at: '09:22:10', req: [478, 491], err: [0.0042, 0.0061], p99: [40, 43], jour: [[24, 24], [24, 24]], v: ok4 }],

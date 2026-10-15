@@ -5,6 +5,7 @@
 import type { PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { release as policy } from '../../../../policy/release.ts';
+import { DRAWN } from '../../../factory/src/release/read.ts';
 import { project, upTo } from '../../web/src/projection/index.ts';
 import { type Card, timeline } from '../../web/src/projection/reel.ts';
 import {
@@ -13,6 +14,7 @@ import {
   ownWords,
   type Release,
   releases,
+  SERIES_UNITS,
   sawOf,
   versionsAt,
 } from '../../web/src/projection/release.ts';
@@ -448,6 +450,10 @@ it('keeps the measures’ rules in the policy’s terms', () => {
   expect(words.journeys).toContain('twice');
 });
 
+it('reads each series in the unit the line draws it in', () => {
+  expect(SERIES_UNITS).toEqual(Object.fromEntries(Object.entries(DRAWN).map(([name, d]) => [name, d.unit])));
+});
+
 describe('what the analysis saw of a measure that failed', () => {
   const reason = 'Metric "latency" assessed Failed due to failed (2) > failureLimit (1)';
   const failed = (name: string, value: number | null, limit: number | null, message?: string): Failed => ({
@@ -466,6 +472,9 @@ describe('what the analysis saw of a measure that failed', () => {
     expect(sawOf(failed('latency', 0.273, 0), reason)).toBe('p99 273 ms over its limit');
     // Any excess fails, so a fraction of a millisecond is not said as none.
     expect(sawOf(failed('latency', 0.0004, 0), reason)).toBe('p99 1 ms over its limit');
+    // Otherwise to the nearest millisecond, as the figures beside it are, and not misread by a float's last digits.
+    expect(sawOf(failed('latency', 0.2731, 0), reason)).toBe('p99 273 ms over its limit');
+    expect(sawOf(failed('latency', 1.0005, 0), reason)).toBe('p99 1001 ms over its limit');
     // The limit is what the value is held to: the excess over it is what is said.
     expect(sawOf(failed('latency', 0.273, 0.1), reason)).toBe('p99 173 ms over its limit');
     // A limit the analysis did not record is not said.

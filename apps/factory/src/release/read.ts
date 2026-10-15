@@ -196,7 +196,7 @@ export async function figuresAt(
 }
 
 /** The measures a rollback can draw, and how: the share of 5xx answers in percent, and the latency in ms. */
-const DRAWN = {
+export const DRAWN = {
   errors: { label: 'share of 5xx answers', unit: '%', query: 'errorShare', scale: 100 },
   latency: { label: 'p99 latency', unit: 'ms', query: 'latency', scale: 1000 },
 } as const;
