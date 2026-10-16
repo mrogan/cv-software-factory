@@ -16,7 +16,7 @@ import {
   type SymptomClass,
   VERSIONS,
 } from '@software-factory/events';
-import { SYMPTOMS } from '../../../policy/triage.ts';
+import { BURST, SYMPTOMS } from '../../../policy/triage.ts';
 import type { Fingerprint, Judgement, ReportDecision } from './reports.ts';
 import { privatePath, shortPath } from './scrub.ts';
 
@@ -200,6 +200,64 @@ export function senseReopened(signal: InboxSignal, signalId: string, workItem: s
   });
   return signalEvent(writer, signal).events;
 }
+
+/**
+ * A sense's signal that would have opened a ticket, and with the others found with it makes a burst: a work item held
+ * for Martin, with the signal as its first evidence and none of its problems a ticket. `found` is how many it found.
+ */
+export function burstEvents(
+  signal: InboxSignal,
+  signalId: string,
+  workItem: string,
+  found: number,
+  now: Date,
+): NewEvent[] {
+  const sense = SENSE_NAMES[signal.sense as Exclude<Sense, 'report'>];
+  const title = `A burst of new problems from ${lower(sense)}`;
+  const writer = new Writer(signalId, workItem, now);
+  writer.add('work-item.opened', 'triage', `${sense} found a burst of new problems`, {
+    kind: 'defect-fix',
+    title,
+    sample: false,
+    category: SYMPTOMS[signal.symptom as SymptomClass].category,
+  });
+  signalEvent(writer, signal);
+  writer.add('hold.started', 'triage', 'Held for Martin: a burst of new problems', {
+    stage: 'triage',
+    kind: 'held',
+    cause: 'burst',
+    reason: `${sense} found ${found} new problems within ${BURST.minutes} minutes, more than ${BURST.tickets} at once: it may be what it reads that is at fault. None has a ticket until Martin looks. Approving opens a ticket for each; rejecting closes them all.`,
+  });
+  return summarise(writer, {
+    title,
+    description: `${sense} found ${found} new problems at once. Triage held them for Martin as one burst, before any has a ticket or reaches Plan.`,
+    story: `${sense} found ${found} new problems within ${BURST.minutes} minutes, first on ${where(signal.route)} in version ${signal.version}: ${signal.check}. That may be as many defects, or one fault in what the sense reads, and each ticket would cost a planner’s step and more. So triage opened none: the burst holds for Martin, and every new problem the sense finds while it waits joins it. Approving opens a ticket for each, as the sense’s would have been; rejecting closes them all, and a problem still there is found again.`,
+  });
+}
+
+/** A burst Martin answered closes: its tickets opened (`opened`, which may be none if open tickets had them), or not. */
+export function closedBurst(
+  workItem: string,
+  why: { opened: readonly string[] } | { rejected: true },
+  now: Date,
+): NewEvent[] {
+  const writer = new Writer(`burst:${workItem}:closed`, workItem, now);
+  if ('rejected' in why) {
+    return writer.add('work-item.closed', 'triage', 'Closed: Martin rejected the burst', {
+      outcome: 'discarded',
+      reason: 'Martin rejected the burst: none of its problems has a ticket',
+    }).events;
+  }
+  const [first] = why.opened;
+  const reason = !first
+    ? 'Martin let it through: open tickets already had every problem in it'
+    : why.opened.length === 1
+      ? `Martin let it through: ticket #${first}`
+      : `Martin let it through: ${why.opened.length} tickets, from #${first}`;
+  return writer.add('work-item.closed', 'triage', reason, { outcome: 'no-change', reason }).events;
+}
+
+const lower = (name: string) => `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
 
 const QUARANTINED = 'The report holds instructions aimed at the system, so nothing acts on it';
 
