@@ -32,7 +32,7 @@ beforeEach(async () => {
   await database.owner`update inbox set received_at = received_at - interval '1 day'`;
   const open = await writer<{ work_item: string }[]>`
     select distinct o.work_item from events o
-    where (o.type = 'ticket.opened' or (o.type = 'hold.started' and o.payload->>'cause' in ('finding', 'burst')))
+    where (o.type = 'ticket.opened' or (o.type = 'hold.started' and o.payload->>'cause' in ('finding', 'burst', 'environment')))
       and ${lastEnd(writer, 'o.work_item')} is distinct from 'work-item.closed'`;
   for (const { work_item } of open) await events.append(closed(work_item));
 });
@@ -974,6 +974,162 @@ describe('triage', () => {
       expect(await triage().takeOne()).toBe('held');
       const [row] = await writer`select work_item from inbox where id = ${id}`;
       expect(row?.work_item).toBe('1998');
+    });
+  });
+  describe('what a sense reads, looked at before its signal is trusted', () => {
+    type Look = NonNullable<TriageOptions['look']>;
+    type Reading = Awaited<ReturnType<Look>>['dependencies'][number];
+    const reading = (name: Reading['name'], healthy: boolean | null = true): Reading => ({
+      name,
+      healthy,
+      saw: healthy ? 'all well' : healthy === null ? 'could not ask: answered 503' : 'no record stored',
+    });
+    const looking =
+      (...readings: Reading[]): Look =>
+      async (at) => ({ at: at.toISOString(), dependencies: readings });
+    const all = (loki: boolean | null = true) =>
+      looking(reading('prometheus'), reading('loki', loki), reading('tempo'), reading('disk'));
+    const logs = (overrides: Partial<InboxSignal> = {}) =>
+      found({ sense: 'logs', check: 'every request leaves a record', symptom: 'missing-log', ...overrides });
+    const answer = (item: string, decision: 'approved' | 'rejected') =>
+      events.append({
+        id: crypto.randomUUID(),
+        ts: at,
+        work_item: item,
+        type: 'hold.answered',
+        version: 1,
+        actor: 'martin',
+        summary: `Martin ${decision} it`,
+        payload: { decision },
+        artifacts: [],
+      } as NewEvent<'hold.answered'>);
+    const heldIn = async () =>
+      (
+        await writer<{ work_item: string }[]>`
+          select work_item from inbox where outcome = 'held' order by received_at desc limit 1`
+      )[0]?.work_item ?? '';
+    const payloads = <T>(item: string, type: string) =>
+      writer<
+        { payload: T }[]
+      >`select payload from events where work_item = ${item} and type = ${type} order by seq`.then((rows) =>
+        rows.map((row) => row.payload),
+      );
+    const ticketsOn = (route: string) =>
+      writer<{ work_item: string }[]>`
+        select work_item from events t where type = 'ticket.opened' and payload->'fingerprint'->>'route' = ${route}
+          and ${lastEnd(writer, 't.work_item')} is distinct from 'work-item.closed'`.then((rows) =>
+        rows.map((row) => row.work_item),
+      );
+
+    it('records the look with the signal, as of when the sense saw it, only at what that sense reads', async () => {
+      const asked: string[] = [];
+      const look: Look = async (when) => {
+        asked.push(when.toISOString());
+        return all()(when);
+      };
+      await sendSignal(writer, found({ route: '/looked' }));
+      expect(await triage({ look }).takeOne()).toBe('opened');
+      expect(asked).toEqual([at]);
+      const [item = ''] = await ticketsOn('/looked');
+      const [signal] = await payloads<PayloadOf<'signal.received'>>(item, 'signal.received');
+      // The crawler reads nothing but the disk besides the app.
+      expect(signal?.environment).toEqual({ at, dependencies: [reading('disk')] });
+    });
+
+    it('holds a new problem seen while what its sense reads was not healthy, and every new one after it', async () => {
+      const worker = triage({ look: all(false) });
+      await sendSignal(writer, logs({ route: '/unwell/1' }));
+      expect(await worker.takeOne()).toBe('held');
+      const item = await heldIn();
+      expect(await types(item)).toEqual([
+        'work-item.opened',
+        'signal.received',
+        'hold.started',
+        'work-item.summarised',
+      ]);
+      expect((await payloads(item, 'hold.started'))[0]).toMatchObject({
+        stage: 'triage',
+        kind: 'held',
+        cause: 'environment',
+        reason: expect.stringMatching(/^The log watcher found a new problem while Loki was not healthy: /),
+      });
+      const [signal] = await payloads<PayloadOf<'signal.received'>>(item, 'signal.received');
+      expect(signal?.environment?.dependencies.map((d) => d.name)).toEqual(['prometheus', 'loki', 'tempo', 'disk']);
+      expect(await ticketsOn('/unwell/1')).toEqual([]);
+
+      // Another new problem joins it, even once Loki is well again; one it has is counted. Another sense, whose disk
+      // was well, opens its ticket as ever.
+      await sendSignal(writer, logs({ route: '/unwell/2' }));
+      expect(await triage({ look: all() }).takeOne()).toBe('held');
+      expect(await heldIn()).toBe(item);
+      await sendSignal(writer, logs({ route: '/unwell/1' }));
+      expect(await worker.takeOne()).toBe('counted');
+      await sendSignal(writer, found({ route: '/unwell/1', sense: 'probe', check: 'links' }));
+      expect(await worker.takeOne()).toBe('opened');
+    });
+
+    it('holds one it could not tell about, but adds evidence to an open ticket whatever it saw', async () => {
+      await sendSignal(writer, logs({ route: '/unknown' }));
+      expect(await triage({ look: all(null) }).takeOne()).toBe('held');
+      const item = await heldIn();
+      expect((await payloads<{ reason: string }>(item, 'hold.started'))[0]?.reason).toContain('while Loki was not');
+
+      await sendSignal(writer, found({ route: '/known' }));
+      expect(await triage().takeOne()).toBe('opened');
+      const [open = ''] = await ticketsOn('/known');
+      const disk = looking(reading('disk', false));
+      await sendSignal(writer, found({ route: '/known', version: 'd03afe9' }));
+      expect(await triage({ look: disk }).takeOne()).toBe('evidence');
+      const signals = await payloads<PayloadOf<'signal.received'>>(open, 'signal.received');
+      expect(signals.at(-1)?.environment?.dependencies).toEqual([reading('disk', false)]);
+    });
+
+    it('holds a signal that would reopen a verified ticket, and lets it reopen when Martin approves', async () => {
+      await sendSignal(writer, found({ route: '/came-back' }));
+      expect(await triage().takeOne()).toBe('opened');
+      const [item = ''] = await ticketsOn('/came-back');
+      await events.append(closed(item, 'verified'));
+      const later = { version: 'd03afe9', observedAt: '2026-10-04T10:00:00.000Z' };
+      await sendSignal(writer, found({ route: '/came-back', ...later }));
+      expect(await triage({ look: looking(reading('disk', false)) }).takeOne()).toBe('held');
+      const held = await heldIn();
+      await answer(held, 'approved');
+      expect(await triage({ look: looking(reading('disk', false)) }).settleOne()).toBe(true);
+      expect(await ticketsOn('/came-back')).toEqual([item]);
+      expect((await payloads(held, 'work-item.closed'))[0]).toEqual({
+        outcome: 'no-change',
+        reason: 'Martin let it through: open tickets already had every problem in it',
+      });
+    });
+
+    it('opens a ticket for each when Martin approves, and none when he rejects', async () => {
+      await sendSignal(writer, logs({ route: '/let/1' }));
+      await sendSignal(writer, logs({ route: '/let/2' }));
+      const worker = triage({ look: all(false) });
+      expect([await worker.takeOne(), await worker.takeOne()]).toEqual(['held', 'held']);
+      const item = await heldIn();
+      await answer(item, 'approved');
+      expect(await worker.settleOne()).toBe(true);
+      const [first = ''] = await ticketsOn('/let/1');
+      expect(await ticketsOn('/let/2')).toHaveLength(1);
+      expect((await payloads(item, 'work-item.closed'))[0]).toEqual({
+        outcome: 'no-change',
+        reason: `Martin let it through: 2 tickets, from #${first}`,
+      });
+      // Each ticket's signal carries the look, taken again as of when the sense saw it.
+      const [signal] = await payloads<PayloadOf<'signal.received'>>(first, 'signal.received');
+      expect(signal?.environment?.dependencies).toContainEqual(reading('loki', false));
+
+      await sendSignal(writer, logs({ route: '/let/3' }));
+      expect(await worker.takeOne()).toBe('held');
+      const again = await heldIn();
+      await answer(again, 'rejected');
+      expect(await worker.settleOne()).toBe(true);
+      expect((await payloads(again, 'work-item.closed'))[0]).toEqual({
+        outcome: 'discarded',
+        reason: 'Martin rejected the held problems: none of them has a ticket',
+      });
+      expect(await ticketsOn('/let/3')).toEqual([]);
     });
   });
 });

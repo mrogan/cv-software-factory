@@ -11,10 +11,14 @@ flowchart TD
   signal[Signal] --> kind{From}
   kind -- a sense --> policy["policy/triage.ts: category and severity"]
   kind -- "a report, or a planner's finding" --> jev["Jev (triage/v2)"]
-  policy --> match{Matches by fingerprint}
+  policy --> look["Looks at what the sense reads"]
+  look --> match{Matches by fingerprint}
   match -- an open ticket --> repeat[A repeat on that ticket]
-  match -- "a ticket closed as verified" --> reopen[Reopens it]
-  match -- none --> burst{"A burst from its sense?"}
+  match -- "a ticket closed as verified" --> healthy{"What it reads healthy?"}
+  match -- none --> healthy
+  healthy -- no --> environmentHold["Holds for Martin (environment),<br>with no ticket"]
+  healthy -- "yes, a verified ticket" --> reopen[Reopens it]
+  healthy -- "yes, none" --> burst{"A burst from its sense?"}
   burst -- no --> open[Opens a ticket]
   burst -- yes --> burstHold["Holds for Martin (burst),<br>with no ticket"]
   jev -- a report --> route["Routing as plain code"]
@@ -28,6 +32,7 @@ flowchart TD
 - It quarantines injection attempts, and parks suggestions for Martin.
 - **One fingerprint, one ticket.**
 - **More new problems than a handful from one sense at once** wait for Martin as one [burst](#a-burst), before any has a ticket.
+- **A new problem seen while what its sense reads was not healthy** waits for Martin too, its cause [the environment](#what-a-sense-reads).
 
 ## Matching an open ticket
 
@@ -57,6 +62,8 @@ A sense that finds many new problems at once may have found as many defects, or 
 
 ### Martin's answer to a burst
 
+And to problems held for the environment.
+
 | Answer | Does |
 |---|---|
 | Approve | Makes of each problem what it would have made without the burst, in the order the sense sent them: a ticket, as a rule, which the line takes in its turn, or evidence on a ticket opened since. Closes the burst, naming the tickets |
@@ -64,6 +71,17 @@ A sense that finds many new problems at once may have found as many defects, or 
 | Answer in words | Leaves it waiting |
 
 Triage does as he answered once an event is appended, as for a finding.
+
+## What a sense reads
+
+Each sense reads something besides the app, and when that fails a sense can see the app as broken. On 13 October Loki stopped storing records while the local cluster's disk filled, and the log watcher opened a ticket for every page. No agent can mend a full disk or a backend that stores nothing, so triage looks before it trusts a sense's signal.
+
+- **What each reads.** `ENVIRONMENT` in `policy/triage.ts` (human-owned): the log watcher reads Prometheus, Loki and Tempo; the metrics and the canary, Prometheus; every sense, the disk under the cluster's volumes, which the app, the senses and the backends share.
+- **Healthy.** Prometheus, when every target it scrapes is `up` and metrics still arrive over OTLP. Loki, when it stored a record from anything in the five minutes before; Tempo, a trace in the ten minutes before. "Answers" is not enough: on 13 October Loki answered every query, and returned nothing. The disk, when every volume has a tenth or more free, below which the kubelet starts evicting pods. A backend that cannot be asked, or has no measure, is not seen to be healthy.
+- **When.** As of the time the sense saw it, so a signal that waited in the inbox is judged on how things stood then. One look a minute serves every signal seen in it.
+- **The look is evidence.** Each sense's signal records it (`environment` on `signal.received`): a ticket that opens shows how its sense's dependencies stood when it was seen.
+- **What it holds.** A signal that would open or reopen a ticket while anything its sense reads was not healthy is held for Martin as a burst is, with cause `environment`: one work item with no ticket, which every new problem the sense finds while it waits joins. A signal on an open ticket adds its evidence as ever. Martin answers it as [a burst](#martins-answer-to-a-burst).
+- **Where it looks.** `factory triage` looks at the backends it has an address for (`PROMETHEUS_URL`, `LOKI_URL`, `TEMPO_URL`; the disk through Prometheus). With none, it looks at nothing and holds nothing for the environment.
 
 ## The planner's findings
 

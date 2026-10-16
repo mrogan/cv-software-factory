@@ -1,0 +1,109 @@
+/**
+ * Triage's look at what the senses read besides the app (`ENVIRONMENT` in policy/triage.ts): whether Prometheus
+ * scrapes every target and still takes metrics over OTLP, whether Loki and Tempo still store what they are sent, and
+ * whether the cluster's volumes have room. Each is asked as of a time, so a look taken after a signal waited in the
+ * inbox says how things stood when the sense saw it.
+ *
+ * Only the backends it has an address for are looked at, and the disk is read through Prometheus. A backend that
+ * cannot be asked, or has no measure, is neither healthy nor not (`healthy: null`), which triage counts as not seen to
+ * be healthy. A look is kept for its minute, so a burst of signals asks once.
+ *
+ * "Still storing" is asked as "stored something lately", never as "answers": on 13 October Loki answered every query
+ * while the disk was full, and returned nothing.
+ */
+import type { Dependency, PayloadOf } from '@software-factory/events';
+import { ENVIRONMENT } from '../../../policy/triage.ts';
+import type { Loki } from './clients/loki.ts';
+import type { Prometheus } from './clients/prometheus.ts';
+import type { Tempo } from './clients/tempo.ts';
+
+export type Environment = NonNullable<PayloadOf<'signal.received'>['environment']>;
+type Reading = Environment['dependencies'][number];
+
+export interface Backends {
+  prometheus?: Prometheus | undefined;
+  loki?: Loki | undefined;
+  tempo?: Tempo | undefined;
+}
+
+/** Looks kept, one a minute: enough for signals that waited a while in the inbox. */
+const KEPT = 10;
+
+/** A look at the backends given, as of a time, or nothing when none is given. */
+export function environmentLook(backends: Backends): ((at: Date) => Promise<Environment>) | undefined {
+  const { prometheus, loki, tempo } = backends;
+  const checks: [Dependency, (at: Date) => Promise<Omit<Reading, 'name'>>][] = [];
+  if (prometheus) {
+    checks.push(['prometheus', (at) => scraping(prometheus, at)], ['disk', (at) => disk(prometheus, at)]);
+  }
+  if (loki) checks.push(['loki', (at) => storingLogs(loki, at)]);
+  if (tempo) checks.push(['tempo', (at) => storingTraces(tempo, at)]);
+  if (!checks.length) return undefined;
+  const kept = new Map<number, Promise<Environment>>();
+  return (at) => {
+    const minute = Math.floor(at.getTime() / 60_000);
+    let look = kept.get(minute);
+    if (!look) {
+      look = Promise.all(
+        checks.map(async ([name, check]) => {
+          const reading = await check(at).catch((error: unknown) => ({
+            healthy: null,
+            saw: `could not ask: ${error instanceof Error ? error.message : String(error)}`,
+          }));
+          return { name, ...reading, saw: clip(reading.saw) };
+        }),
+      ).then((dependencies) => ({ at: at.toISOString(), dependencies }));
+      kept.set(minute, look);
+      for (const old of kept.keys()) if (kept.size > KEPT) kept.delete(old);
+    }
+    return look;
+  };
+}
+
+/** Every target Prometheus scrapes answered its last scrape, and metrics still arrive over OTLP. */
+async function scraping(prometheus: Prometheus, at: Date): Promise<Omit<Reading, 'name'>> {
+  const up = await prometheus.instant('up', at);
+  if (!up.length) return { healthy: false, saw: 'no scrape stored at the time, not even of itself' };
+  const down = [...new Set(up.filter((target) => target.value !== 1).map((target) => target.labels.job ?? '?'))];
+  if (down.length) return { healthy: false, saw: `${down.length} of ${up.length} targets down: ${down.join(', ')}` };
+  const [otlp] = await prometheus.instant('count(target_info)', at);
+  if (!otlp?.value) return { healthy: false, saw: `all ${up.length} targets up, but no metrics arriving over OTLP` };
+  return {
+    healthy: true,
+    saw: `all ${up.length} targets up, and metrics arriving over OTLP from ${otlp.value} services`,
+  };
+}
+
+/** Loki stored a record from anything within the last few minutes. */
+async function storingLogs(loki: Loki, at: Date): Promise<Omit<Reading, 'name'>> {
+  const minutes = ENVIRONMENT.lokiMinutes;
+  const [stored] = await loki.instant(`sum(count_over_time({service_name=~".+"}[${minutes}m]))`, at);
+  const records = stored?.value ?? 0;
+  return records > 0
+    ? { healthy: true, saw: `${records} records stored in the ${minutes} minutes before` }
+    : { healthy: false, saw: `no record stored from anything in the ${minutes} minutes before` };
+}
+
+/** Tempo stored a trace from anything within the last few minutes. */
+async function storingTraces(tempo: Tempo, at: Date): Promise<Omit<Reading, 'name'>> {
+  const minutes = ENVIRONMENT.tempoMinutes;
+  const stored = await tempo.anyTrace(new Date(at.getTime() - minutes * 60_000), at);
+  return stored
+    ? { healthy: true, saw: `traces stored in the ${minutes} minutes before` }
+    : { healthy: false, saw: `no trace stored from anything in the ${minutes} minutes before` };
+}
+
+/** The fullest of the volumes the cluster's pods keep has room. */
+async function disk(prometheus: Prometheus, at: Date): Promise<Omit<Reading, 'name'>> {
+  const [fullest] = await prometheus.instant(
+    'bottomk(1, kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes)',
+    at,
+  );
+  if (!fullest) return { healthy: null, saw: 'no measure of the cluster’s volumes' };
+  const { namespace, persistentvolumeclaim: claim } = fullest.labels;
+  const which = namespace && claim ? ` (${namespace}/${claim})` : '';
+  const free = `${Math.floor(fullest.value * 100)}% free`;
+  return { healthy: fullest.value >= ENVIRONMENT.diskFree, saw: `the fullest volume${which} ${free}` };
+}
+
+const clip = (text: string) => (text.length > 160 ? `${text.slice(0, 159)}…` : text);

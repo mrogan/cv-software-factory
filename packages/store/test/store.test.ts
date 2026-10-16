@@ -49,7 +49,7 @@ function report(item: string): NewEvent<'signal.received'> {
     ts: at(1),
     work_item: item,
     type: 'signal.received',
-    version: 3,
+    version: 4,
     actor: 'widget',
     summary: 'Report: the clock says ten past four',
     payload: {
@@ -83,6 +83,7 @@ describe('migrations', () => {
       { version: 12, name: 'scoreboard' },
       { version: 13, name: 'forget-pictures' },
       { version: 14, name: 'burst' },
+      { version: 15, name: 'environment-holds' },
     ]);
   });
 });

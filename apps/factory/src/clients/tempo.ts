@@ -65,6 +65,17 @@ export class Tempo {
     return { spans, complete: traces.length < limit };
   }
 
+  /** Whether Tempo has any trace, from anything, that began between two times. */
+  async anyTrace(start: Date, end: Date): Promise<boolean> {
+    const answer = (await getJson(this.fetcher, this.base, '/api/search', {
+      q: '{}',
+      start: Math.floor(start.getTime() / 1000),
+      end: Math.ceil(end.getTime() / 1000),
+      limit: 1,
+    })) as { traces?: unknown[] };
+    return (answer.traces?.length ?? 0) > 0;
+  }
+
   /** The spans of a trace, in the order they began, or nothing if Tempo does not have it yet. */
   async spans(traceId: string): Promise<SpanSummary[] | undefined> {
     let answer: {

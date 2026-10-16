@@ -12,6 +12,10 @@
  *   (`BURST`) is held instead, with the others, as one burst: a work item with no ticket, which waits for Martin.
  *   Each new problem the sense finds while it waits joins it. Martin approving it opens their tickets, as the sense's
  *   would have been; his rejection closes it (`settleOne`). A signal on an open ticket never counts toward a burst.
+ * - Before it trusts a sense's signal, triage looks at what that sense reads besides the app, as it stood when the
+ *   sense saw it (`ENVIRONMENT`), and records the look with the signal. One that would open or reopen a ticket while
+ *   any of it was not seen to be healthy is held for Martin as a burst is, with its cause the environment: no agent
+ *   can mend a full disk or a backend that stores nothing.
  * - Every report becomes events, judged by Jev: a new ticket, a repeat that joins an open one, or a work item
  *   that says it was quarantined, parked or discarded.
  * - So does every finding the planner leaves, judged the same way and trusted no more, except that it never opens a
@@ -26,16 +30,20 @@
 import type { InboxSignal, NewEvent, PayloadOf, SignalSource, SymptomClass } from '@software-factory/events';
 import { type EventWriter, fingerprintOf, lastEnd, nextWorkItem } from '@software-factory/store';
 import type { Sql } from 'postgres';
-import { BURST, INBOX, SYMPTOMS } from '../../../policy/triage.ts';
+import { BURST, ENVIRONMENT, INBOX, SYMPTOMS } from '../../../policy/triage.ts';
 import {
   approvedFinding,
   burstEvents,
-  closedBurst,
   closedFinding,
+  closedHeld,
+  type Environment,
+  environmentEvents,
   findingEvents,
+  healthy,
   idsFor,
   type ParkedDefect,
   reportEvents,
+  type Seen,
   senseEvidence,
   senseReopened,
   senseTicket,
@@ -63,6 +71,11 @@ export interface TriageOptions {
   read: PageReader;
   log: Logger;
   now?: () => Date;
+  /**
+   * How what the senses read stood at a time (`apps/factory/src/environment.ts`). Without it, triage looks at nothing,
+   * records no look, and holds nothing for the environment.
+   */
+  look?: ((at: Date) => Promise<Environment>) | undefined;
   /** Told of each signal triaged, with how long it waited in the inbox. */
   onTriaged?: (outcome: Outcome, signal: InboxSignal, waitedSeconds: number, ticketOpened: boolean) => void;
 }
@@ -91,7 +104,7 @@ interface Made {
 }
 
 export class Triage {
-  readonly #o: Required<Omit<TriageOptions, 'onTriaged'>> & Pick<TriageOptions, 'onTriaged'>;
+  readonly #o: Required<Omit<TriageOptions, 'onTriaged' | 'look'>> & Pick<TriageOptions, 'onTriaged' | 'look'>;
   /** Until when reports wait: the gateway cannot answer before then. The senses' signals need no model. */
   #reportsWaitUntil = 0;
   /** Whether an event has been appended since the held findings were last settled: only an answer can settle one. */
@@ -192,7 +205,7 @@ export class Triage {
     const { sql, events, log } = this.#o;
     const now = this.#o.now();
     if (await lineStopped(sql)) return false;
-    if (await this.#settleBurst()) return true;
+    if (await this.#settleHeld()) return true;
     const failures = this.#settleFailures;
     const answered = (await parkedFindings(sql)).find(
       (parked) => parked.decision !== null && (failures.get(parked.workItem) ?? 0) < INBOX.attempts,
@@ -229,22 +242,23 @@ export class Triage {
   }
 
   /**
-   * Does what Martin answered to a burst, if he has approved or rejected one still held. Approving makes of each signal
-   * held in it what it would have made without the burst, in the order the sense sent them: a ticket, as a rule, or
-   * evidence on a ticket opened since; and closes the burst, naming the tickets. Rejecting closes it, with none.
+   * Does what Martin answered to signals triage held, a burst or a sense's problems seen while what it reads was not
+   * healthy, if he has approved or rejected a hold of them. Approving makes of each signal held what it would have made
+   * without the hold, in the order the sense sent them: a ticket, as a rule, or evidence on a ticket opened since; and
+   * closes the hold, naming the tickets. Rejecting closes it, with none.
    */
-  async #settleBurst(): Promise<boolean> {
+  async #settleHeld(): Promise<boolean> {
     const { sql, events, log } = this.#o;
     const now = this.#o.now();
     const failures = this.#settleFailures;
-    const answered = (await heldBursts(sql)).find(
-      (burst) => burst.decision !== null && (failures.get(burst.workItem) ?? 0) < INBOX.attempts,
+    const answered = (await heldSignals(sql)).find(
+      (held) => held.decision !== null && (failures.get(held.workItem) ?? 0) < INBOX.attempts,
     );
     if (!answered) return false;
-    const { workItem, decision } = answered;
+    const { workItem, cause, decision } = answered;
     try {
       if (decision === 'rejected') {
-        await events.append(closedBurst(workItem, { rejected: true }, now));
+        await events.append(closedHeld(workItem, cause, { rejected: true }, now));
       } else {
         const held = await sql<{ id: string; signal: InboxSignal }[]>`
           select id, signal from inbox where work_item = ${workItem} and outcome = 'held' order by received_at, id`;
@@ -256,8 +270,9 @@ export class Triage {
         const closes = new Set<string>();
         const seen = new Set<string>();
         for (const { id, signal } of held) {
-          // Seeded apart from the signal's own events, which the burst holds.
-          const next = await this.#sense(signal, `burst:${id}`, tickets);
+          // Seeded apart from the signal's own events, which the hold has. Its look is taken again, as of when the
+          // sense saw it, and never holds it again: Martin let it through.
+          const next = await this.#sense(await this.#seen(signal), `burst:${id}`, tickets);
           const evidence = `${next.workItem} ${signal.sense} ${signal.version}`;
           if (next.outcome === 'evidence' && seen.has(evidence)) continue;
           seen.add(evidence);
@@ -271,18 +286,31 @@ export class Triage {
             opened.push(next.workItem);
           }
         }
-        await events.append([...made, ...closedBurst(workItem, { opened }, now)]);
+        await events.append([...made, ...closedHeld(workItem, cause, { opened }, now)]);
       }
     } catch (error) {
       const tries = (failures.get(workItem) ?? 0) + 1;
       failures.set(workItem, tries);
       const reason = error instanceof Error ? error.message : String(error);
-      log.warn({ workItem, decision, reason, last: tries >= INBOX.attempts }, 'could not settle a burst');
+      log.warn({ workItem, cause, decision, reason, last: tries >= INBOX.attempts }, 'could not settle held signals');
       return false;
     }
     failures.delete(workItem);
-    log.info({ workItem, decision }, 'settled a burst, as Martin answered');
+    log.info({ workItem, cause, decision }, 'settled held signals, as Martin answered');
     return true;
+  }
+
+  /**
+   * A sense's signal with triage's look at what the sense reads, as of when it saw it: only what the policy says the
+   * sense reads, and only what triage has an address for. Nothing for a report or a finding, which no backend made.
+   */
+  async #seen(signal: InboxSignal): Promise<Seen> {
+    const { look } = this.#o;
+    if (!look || judged(signal)) return signal;
+    const reads: readonly string[] = ENVIRONMENT.reads[signal.sense as keyof typeof ENVIRONMENT.reads] ?? [];
+    const environment = await look(new Date(signal.observedAt));
+    const dependencies = environment.dependencies.filter((dependency) => reads.includes(dependency.name));
+    return dependencies.length ? { ...signal, environment: { at: environment.at, dependencies } } : signal;
   }
 
   /** The events that close every parked finding a new ticket has, into that ticket. */
@@ -330,22 +358,23 @@ export class Triage {
     const [done] = await sql<{ work_item: string; type: string }[]>`
       select work_item, type from events where id = ${idsFor(taken.id)()}`;
     if (done) {
-      const [burst] = await sql<{ closed: boolean }[]>`
+      const [hold] = await sql<{ closed: boolean }[]>`
         select exists (select 1 from events c where c.work_item = ${done.work_item} and c.type = 'work-item.closed')
                as closed
-        from events where work_item = ${done.work_item} and type = 'hold.started' and payload->>'cause' = 'burst'
+        from events where work_item = ${done.work_item} and type = 'hold.started'
+          and payload->>'cause' in ('burst', 'environment')
         limit 1`;
-      if (burst?.closed) {
-        // Martin answered the burst before the inbox heard it held this signal, so settling it passed the signal by:
-        // the signal is let through now, as the burst was, unless he rejected it.
+      if (hold?.closed) {
+        // Martin answered the hold before the inbox heard it held this signal, so settling it passed the signal by:
+        // the signal is let through now, as the hold's were, unless he rejected it.
         const rejected = await sql`select 1 from events where work_item = ${done.work_item}
                                    and type = 'work-item.closed' and payload->>'outcome' = 'discarded' limit 1`;
         if (rejected.length) return { outcome: 'held', workItem: done.work_item, ticketOpened: false };
-        const made = await this.#sense(signal, `burst:${taken.id}`, await openTickets(sql));
+        const made = await this.#sense(await this.#seen(signal), `burst:${taken.id}`, await openTickets(sql));
         if (made.events.length) await events.append(made.events);
         return { outcome: made.outcome, workItem: made.workItem, ticketOpened: made.ticket !== undefined };
       }
-      const outcome = burst
+      const outcome = hold
         ? 'held'
         : judged(signal)
           ? signal.sense === 'planner'
@@ -416,16 +445,16 @@ export class Triage {
       return { outcome: 'report', workItem, ticketOpened: decision.routed.route === 'ticket' };
     }
 
-    const made = await this.#sense(signal, taken.id, tickets, taken);
+    const made = await this.#sense(await this.#seen(signal), taken.id, tickets, taken);
     if (made.events.length) await events.append(made.events);
     return { outcome: made.outcome, workItem: made.workItem, ticketOpened: made.ticket !== undefined };
   }
 
   /**
    * What a sense's signal makes, given the open tickets, with its events' ids from `seed`. One taken from the inbox
-   * (`taken`) may be held in a burst instead of opening a ticket; one a burst held, as Martin lets it through, may not.
+   * (`taken`) may be held instead of opening or reopening a ticket; one held, as Martin lets it through, may not.
    */
-  async #sense(signal: InboxSignal, seed: string, tickets: Ticket[], taken?: Taken): Promise<Made> {
+  async #sense(signal: Seen, seed: string, tickets: Ticket[], taken?: Taken): Promise<Made> {
     const { sql } = this.#o;
     const now = this.#o.now();
     const fingerprint = { route: signal.route, class: signal.symptom as SymptomClass };
@@ -440,6 +469,8 @@ export class Triage {
       if (verified && (verified.dryRun || Date.parse(signal.observedAt) <= verified.closedAt.getTime())) {
         return { outcome: 'counted', workItem: verified.workItem, events: [] };
       }
+      const held = taken && (await this.#hold(signal, taken, tickets, verified !== undefined));
+      if (held) return held;
       if (verified) {
         return {
           outcome: 'reopened',
@@ -447,8 +478,6 @@ export class Triage {
           events: senseReopened(signal, seed, verified.workItem, now),
         };
       }
-      const burst = taken && (await this.#burst(taken, tickets));
-      if (burst) return burst;
       const workItem = await nextWorkItem(sql);
       const joined = await this.#joinFindings(fingerprint, workItem, 'sense', seed, signal.sense);
       const { category } = SYMPTOMS[fingerprint.class];
@@ -473,19 +502,21 @@ export class Triage {
   }
 
   /**
-   * Holds a signal that would open a ticket in a burst, if its sense's is waiting for Martin, or if with it the sense
-   * has found more new problems than `BURST.tickets` within `BURST.minutes` of it: the tickets it opened, and the new
-   * problems in its signals still waiting in the inbox, which triage would otherwise open one by one. A problem the
-   * burst holds already is counted.
+   * Holds a signal that would open or reopen a ticket, if it was seen while what its sense reads was not seen to be
+   * healthy. One that would open a ticket is also held if its sense has a hold waiting for Martin, or if with it the
+   * sense has found more new problems than `BURST.tickets` within `BURST.minutes` of it: the tickets it opened, and the
+   * new problems in its signals still waiting in the inbox, which triage would otherwise open one by one. A held signal
+   * joins its sense's waiting hold, of either cause, or starts one; a problem the hold has already is counted.
    */
-  async #burst(taken: Taken, tickets: Ticket[]): Promise<Made | undefined> {
+  async #hold(signal: Seen, taken: Taken, tickets: Ticket[], reopens: boolean): Promise<Made | undefined> {
     const { sql } = this.#o;
     const now = this.#o.now();
-    const { signal } = taken;
+    const unhealthy = !healthy(signal.environment);
+    if (reopens && !unhealthy) return undefined;
     const fingerprint = fingerprintOf(signal);
-    // A burst that could not be settled as Martin answered is left, as a finding is; it takes no more problems.
-    const waiting = (await heldBursts(sql)).find(
-      (burst) => burst.sense === taken.sense && (this.#settleFailures.get(burst.workItem) ?? 0) < INBOX.attempts,
+    // A hold that could not be settled as Martin answered is left, as a finding is; it takes no more problems.
+    const waiting = (await heldSignals(sql)).find(
+      (held) => held.sense === taken.sense && (this.#settleFailures.get(held.workItem) ?? 0) < INBOX.attempts,
     );
     if (waiting) {
       const [seen] = await sql`select 1 from inbox where work_item = ${waiting.workItem} and outcome = 'held'
@@ -496,6 +527,10 @@ export class Triage {
         workItem: waiting.workItem,
         events: senseEvidence(signal, taken.id, waiting.workItem, now),
       };
+    }
+    if (unhealthy) {
+      const workItem = await nextWorkItem(sql);
+      return { outcome: 'held', workItem, events: environmentEvents(signal, taken.id, workItem, now) };
     }
     const near = await sql<{ fingerprint: string; opened: boolean; route: string; symptom: SymptomClass }[]>`
       select fingerprint, outcome is not null as opened, signal->>'route' as route, signal->>'symptom' as symptom
@@ -553,28 +588,36 @@ async function parkedFindings(sql: Sql): Promise<Parked[]> {
   }));
 }
 
-/** A burst triage holds for Martin: the sense whose signals it holds, and his answer, when triage has yet to act on it. */
-interface Burst {
+/**
+ * Signals triage holds for Martin, a burst or a sense's problems seen while what it reads was not healthy: the sense
+ * whose signals it holds, and his answer, when triage has yet to act on it.
+ */
+interface Held {
   workItem: string;
+  cause: 'burst' | 'environment';
   sense: string;
   decision: 'approved' | 'rejected' | null;
 }
 
-/** Every burst still held, oldest first, with Martin's last answer to it. Their holds have an index of their own (0014). */
-async function heldBursts(sql: Sql): Promise<Burst[]> {
-  const rows = await sql<{ work_item: string; sense: string; decision: string | null }[]>`
-    select h.work_item,
+/**
+ * Every hold of a sense's signals still waiting, oldest first, with Martin's last answer to it. Their holds have an
+ * index of their own (0015).
+ */
+async function heldSignals(sql: Sql): Promise<Held[]> {
+  const rows = await sql<{ work_item: string; cause: Held['cause']; sense: string; decision: string | null }[]>`
+    select h.work_item, h.payload->>'cause' as cause,
            (select s.payload->>'sense' from events s
             where s.work_item = h.work_item and s.type = 'signal.received' order by s.seq limit 1) as sense,
            (select a.payload->>'decision' from events a
             where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq
             order by a.seq desc limit 1) as decision
     from events h
-    where h.type = 'hold.started' and h.payload->>'cause' = 'burst'
+    where h.type = 'hold.started' and h.payload->>'cause' in ('burst', 'environment')
       and not exists (select 1 from events e where e.work_item = h.work_item and e.type = 'work-item.closed')
     order by h.seq`;
   return rows.map((row) => ({
     workItem: row.work_item,
+    cause: row.cause,
     sense: row.sense,
     decision: row.decision === 'approved' || row.decision === 'rejected' ? row.decision : null,
   }));

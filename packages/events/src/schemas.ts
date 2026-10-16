@@ -374,6 +374,20 @@ export const PAYLOADS = {
     evidence: z.array(evidence).max(8).optional(),
     /** For a planner's finding: the work item whose ticket it was planning, which the finding is not about. */
     planning: workItem.optional(),
+    /**
+     * For a sense's signal: how what the sense reads besides the app stood when it saw this, as triage looked, at a
+     * time within a minute of it. Each dependency is healthy, not, or null when triage could not tell, with what it
+     * saw. Triage writes it, never the sense; a signal triage took with nothing to look at has none.
+     */
+    environment: z
+      .strictObject({
+        at: timestamp,
+        dependencies: z
+          .array(z.strictObject({ name: z.enum(V.DEPENDENCIES), healthy: z.boolean().nullable(), saw: text(160) }))
+          .min(1)
+          .max(V.DEPENDENCIES.length),
+      })
+      .optional(),
   }),
   /**
    * One request to Jev about a report: what it was asked and answered. The request that routes the report records
@@ -819,7 +833,8 @@ export type Validated = { ok: true } | { ok: false; problems: string[] };
  */
 export const inboxSignal = z
   .intersection(
-    PAYLOADS['signal.received'],
+    // Triage's look at what the sense reads, which `validateSignal` refuses from a sense.
+    PAYLOADS['signal.received'].omit({ environment: true }),
     z.object({
       observedAt: timestamp,
       /** What the sense saw, in a line, for the event's summary. A report has none: its text is never a summary. */
@@ -855,6 +870,10 @@ export const inboxSignal = z
 
 /** Checks a signal before it goes in the inbox, so a sense cannot leave triage something it would refuse. */
 export function validateSignal(input: unknown): Validated {
+  // How what the sense reads stood is triage's to look at, not the sense's to say.
+  if (input && typeof input === 'object' && 'environment' in input) {
+    return { ok: false, problems: ['environment: triage looks at what a sense reads; a sense never says'] };
+  }
   const result = inboxSignal.safeParse(input);
   return result.success ? { ok: true } : { ok: false, problems: problemsOf(result.error) };
 }

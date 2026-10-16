@@ -77,7 +77,7 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
 
   Beside the cluster's own generator, it would double the app's traffic and the requests a canary is judged on, so scale that one to nothing first (`kubectl -n factory scale deployment/traffic --replicas=0`), and back to one after.
 
-  Scale the cluster's copy of a worker to nothing first (`kubectl -n factory scale deployment/triage --replicas=0`), and back to one after, so two do not take the same signals. Add `PAGES_URL=http://localhost:8090` to triage to have it read the pages reports name.
+  Scale the cluster's copy of a worker to nothing first (`kubectl -n factory scale deployment/triage --replicas=0`), and back to one after, so two do not take the same signals. Add `PAGES_URL=http://localhost:8090` to triage to have it read the pages reports name, and `PROMETHEUS_URL=http://localhost:9090 LOKI_URL=http://localhost:3100 TEMPO_URL=http://localhost:3200` to have it look at what each sense reads before it trusts a signal.
 - Node 24 runs TypeScript directly: erasable syntax only, `.ts` extensions in imports, no build step. The console's browser code is the exception: Vite builds it.
 - In the console, anything that runs every frame (a drag, a wipe, the reel settling) writes to the DOM through refs, and component state changes only when the movement ends. A test counts renders during a drag.
 - Visual snapshots are taken in the pinned Playwright image, never on the host: `make e2e` refreshes them with `UPDATE=1`.

@@ -43,6 +43,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
     4: (payload) => payload,
     // Version 6 adds a burst of new problems from one sense; a version 5 hold reads as it was.
     5: (payload) => payload,
+    // Version 7 adds a sense's new problem held while what it reads was not healthy; a version 6 hold reads as it was.
+    6: (payload) => payload,
   },
   // Version 2 of a release's events names the release, says whether the line watched it and whether the dry run
   // answers for it, and records the analysis's own measures. A version 1 release was told apart by its version, was
@@ -115,7 +117,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   'work-item.opened': { 1: (payload) => payload },
   // Version 2 adds the planner to the sources of a signal; a version 1 signal reads as it was.
   // Version 3 adds the canary to the senses, and its analysis to the evidence; a version 2 signal reads as it was.
-  'signal.received': { 1: (payload) => payload, 2: (payload) => payload },
+  // Version 4 adds how what the sense reads stood, as triage looked; a version 3 signal never said.
+  'signal.received': { 1: (payload) => payload, 2: (payload) => payload, 3: (payload) => payload },
   // Version 2 lets the canary reopen a ticket as any sense may; a version 1 reopening reads as it was.
   'work-item.reopened': { 1: (payload) => payload },
   // Version 2 adds where each criterion comes from. A version 1 spec never said, so its criteria read without it.

@@ -3,7 +3,7 @@
  * `packages/triage`; the evaluation set (`make eval`) shows how far each threshold sits from the answers it
  * separates.
  */
-import type { DefectCategory, Severity, SymptomClass } from '../packages/events/src/vocabulary.ts';
+import type { DefectCategory, Dependency, Sense, Severity, SymptomClass } from '../packages/events/src/vocabulary.ts';
 
 /**
  * A sense knows what it saw, so its ticket's category and severity follow from the symptom class. Severity is how
@@ -60,4 +60,36 @@ export const BURST = {
   tickets: 5,
   /** How close together a sense's signals are, in minutes, to count as one burst. Two of a sense's runs, by default. */
   minutes: 10,
+} as const;
+
+/**
+ * What each sense reads besides the app, and when triage counts each healthy. A sense's new problem, seen while one of
+ * them was not healthy or could not be told, may be the factory's environment at fault, which no agent can mend: it
+ * waits for Martin as one hold for the sense, before any of its problems has a ticket. All of them depend on the disk,
+ * which the app, the senses and the backends share: a full one breaks them all.
+ */
+export const ENVIRONMENT = {
+  reads: {
+    probe: ['disk'],
+    crawler: ['disk'],
+    // Alerts are Prometheus's rules over the app's metrics.
+    metrics: ['prometheus', 'disk'],
+    // The log watcher reads the app's records in Loki, counts its requests in Prometheus and follows traces in Tempo.
+    logs: ['prometheus', 'loki', 'tempo', 'disk'],
+    // The canary's analysis asks Prometheus.
+    canary: ['prometheus', 'disk'],
+  } satisfies Record<Exclude<Sense, 'report'>, readonly Dependency[]>,
+  /**
+   * Prometheus is healthy when every target it scrapes answered its last scrape, and metrics still arrive over OTLP.
+   * Loki is when it stored a record from anything within `lokiMinutes`; Tempo, a trace within `tempoMinutes`, since a
+   * trace is searchable only a minute or two after it ends. Each of them always has something: the traffic generator
+   * keeps the app busy, and the factory's own workers log and trace.
+   */
+  lokiMinutes: 5,
+  tempoMinutes: 10,
+  /**
+   * The disk is healthy while every volume the cluster's pods keep has at least this fraction of it free: below a
+   * tenth of the node's disk, the kubelet starts evicting pods by default.
+   */
+  diskFree: 0.1,
 } as const;

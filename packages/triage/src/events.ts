@@ -7,6 +7,7 @@
  */
 import { createHash } from 'node:crypto';
 import {
+  type Dependency,
   type EventType,
   type InboxSignal,
   type NewEvent,
@@ -34,6 +35,16 @@ export function idsFor(signalId: string): () => string {
   let n = 0;
   return () => uuidFrom(`triage:${signalId}:${n++}`);
 }
+
+/** How what a sense reads stood when it saw something, as triage looked. */
+export type Environment = NonNullable<PayloadOf<'signal.received'>['environment']>;
+
+/** A sense's signal as triage records it: as the sense left it, with triage's look at what it reads, if it took one. */
+export type Seen = InboxSignal & { environment?: Environment };
+
+/** Whether everything a sense reads was seen to be healthy: a dependency triage could not tell about was not. */
+export const healthy = (environment: Environment | undefined) =>
+  !environment || environment.dependencies.every((dependency) => dependency.healthy === true);
 
 /** Writes a work item's events in order, with ids from the signal and one time for all of them. */
 class Writer {
@@ -132,7 +143,7 @@ function tracesOf(signal: InboxSignal): string[] {
 }
 
 /** The signal as an event of the work item, with its own artifacts. */
-function signalEvent(writer: Writer, signal: InboxSignal): Writer {
+function signalEvent(writer: Writer, signal: Seen): Writer {
   const { observedAt: _at, summary, artifacts, ...payload } = signal;
   const actor = signal.sense === 'report' ? 'widget' : signal.sense;
   const page = shortPath(payload.report?.page ?? payload.route);
@@ -146,7 +157,7 @@ function signalEvent(writer: Writer, signal: InboxSignal): Writer {
 }
 
 /** A sense's signal with a fingerprint no open ticket has: a new work item with its ticket, waiting for Plan. */
-export function senseTicket(signal: InboxSignal, signalId: string, workItem: string, now: Date): NewEvent[] {
+export function senseTicket(signal: Seen, signalId: string, workItem: string, now: Date): NewEvent[] {
   const symptom = signal.symptom as SymptomClass;
   const { category, severity } = SYMPTOMS[symptom];
   const fingerprint = { route: signal.route, class: symptom };
@@ -179,7 +190,7 @@ export function senseTicket(signal: InboxSignal, signalId: string, workItem: str
 }
 
 /** A sense's signal on an open ticket, its first in this version of the app: its evidence joins the ticket. */
-export function senseEvidence(signal: InboxSignal, signalId: string, workItem: string, now: Date): NewEvent[] {
+export function senseEvidence(signal: Seen, signalId: string, workItem: string, now: Date): NewEvent[] {
   return signalEvent(new Writer(signalId, workItem, now), signal).events;
 }
 
@@ -187,7 +198,7 @@ export function senseEvidence(signal: InboxSignal, signalId: string, workItem: s
  * A sense's signal on a ticket closed as verified: the same defect came back. The work item reopens, saying what
  * came back, and the signal joins it with its evidence.
  */
-export function senseReopened(signal: InboxSignal, signalId: string, workItem: string, now: Date): NewEvent[] {
+export function senseReopened(signal: Seen, signalId: string, workItem: string, now: Date): NewEvent[] {
   const sense = signal.sense as Exclude<Sense, 'report'>;
   const reason = `${SENSE_NAMES[sense]} saw it again on ${where(signal.route, sense)} in version ${signal.version}: ${signal.check}`;
   const writer = new Writer(signalId, workItem, now);
@@ -205,13 +216,7 @@ export function senseReopened(signal: InboxSignal, signalId: string, workItem: s
  * A sense's signal that would have opened a ticket, and with the others found with it makes a burst: a work item held
  * for Martin, with the signal as its first evidence and none of its problems a ticket. `found` is how many it found.
  */
-export function burstEvents(
-  signal: InboxSignal,
-  signalId: string,
-  workItem: string,
-  found: number,
-  now: Date,
-): NewEvent[] {
+export function burstEvents(signal: Seen, signalId: string, workItem: string, found: number, now: Date): NewEvent[] {
   const sense = SENSE_NAMES[signal.sense as Exclude<Sense, 'report'>];
   const title = `A burst of new problems from ${lower(sense)}`;
   const writer = new Writer(signalId, workItem, now);
@@ -235,17 +240,68 @@ export function burstEvents(
   });
 }
 
-/** A burst Martin answered closes: its tickets opened (`opened`, which may be none if open tickets had them), or not. */
-export function closedBurst(
+const DEPENDENCY_NAMES: Record<Dependency, string> = {
+  prometheus: 'Prometheus',
+  loki: 'Loki',
+  tempo: 'Tempo',
+  disk: 'the cluster’s disk',
+};
+
+/**
+ * A sense's signal that would have opened or reopened a ticket, seen while something the sense reads was not seen to
+ * be healthy: a work item held for Martin, with the signal and triage's look as its first evidence and none of its
+ * problems a ticket. No agent can mend the factory's environment.
+ */
+export function environmentEvents(signal: Seen, signalId: string, workItem: string, now: Date): NewEvent[] {
+  const sense = SENSE_NAMES[signal.sense as Exclude<Sense, 'report'>];
+  const unhealthy = (signal.environment?.dependencies ?? []).filter((dependency) => dependency.healthy !== true);
+  const names = unhealthy.map((dependency) => DEPENDENCY_NAMES[dependency.name]);
+  const listed = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+  const which = `${listed ?? 'what it reads'} ${names.length > 1 ? 'were' : 'was'} not healthy`;
+  const title = `New problems from ${lower(sense)}, while ${which}`;
+  const writer = new Writer(signalId, workItem, now);
+  writer.add('work-item.opened', 'triage', `${sense} found a problem while ${which}`, {
+    kind: 'defect-fix',
+    title: title.slice(0, 120),
+    sample: false,
+    category: SYMPTOMS[signal.symptom as SymptomClass].category,
+  });
+  signalEvent(writer, signal);
+  writer.add('hold.started', 'triage', 'Held for Martin: what the sense reads was not healthy', {
+    stage: 'triage',
+    kind: 'held',
+    cause: 'environment',
+    reason: `${sense} found a new problem while ${which}: the factory’s environment may be at fault, not the app, and no agent can mend that. None has a ticket until Martin looks. Approving opens a ticket for each; rejecting closes them all.`,
+  });
+  const looked = unhealthy.map((dependency) => `${DEPENDENCY_NAMES[dependency.name]}, ${dependency.saw}`).join('; ');
+  return summarise(writer, {
+    title: title.slice(0, 120),
+    description: `${sense} found a new problem while ${which}. Triage held it for Martin before it had a ticket: no agent can mend the factory’s environment.`,
+    story:
+      `${sense} found a new problem on ${where(signal.route, signal.sense)} in version ${signal.version}: ${signal.check}. Before trusting it, triage looked at what the sense reads besides the app, as it stood then (${looked}). A sense reading a backend that stores nothing, or on a full disk, can see a fault in the app that is not there, and no agent can mend its environment: each ticket would cost a planner’s step and more for nothing. So triage opened none. The hold waits for Martin, and every new problem the sense finds while it waits joins it. Approving opens a ticket for each, as the sense’s would have been; rejecting closes them all, and a problem still there is found again.`.slice(
+        0,
+        1200,
+      ),
+  });
+}
+
+/**
+ * Signals triage held for Martin close when he answers: a burst, or a sense's new problems seen while what it reads was
+ * not healthy. Approving lets them through, with the tickets they opened (`opened`, which may be none if open tickets
+ * had them); rejecting closes them with none.
+ */
+export function closedHeld(
   workItem: string,
+  cause: 'burst' | 'environment',
   why: { opened: readonly string[] } | { rejected: true },
   now: Date,
 ): NewEvent[] {
   const writer = new Writer(`burst:${workItem}:closed`, workItem, now);
   if ('rejected' in why) {
-    return writer.add('work-item.closed', 'triage', 'Closed: Martin rejected the burst', {
+    const held = cause === 'burst' ? 'the burst' : 'the held problems';
+    return writer.add('work-item.closed', 'triage', `Closed: Martin rejected ${held}`, {
       outcome: 'discarded',
-      reason: 'Martin rejected the burst: none of its problems has a ticket',
+      reason: `Martin rejected ${held}: none of ${cause === 'burst' ? 'its problems' : 'them'} has a ticket`,
     }).events;
   }
   const [first] = why.opened;
