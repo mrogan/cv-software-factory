@@ -43,7 +43,7 @@ Everything is denied in and out, then each pod is allowed what it needs.
 | Every worker but the GitHub worker and the traffic generator | Postgres and the collector | |
 | Gateway | The internet | Triage, and the runners' agent pods |
 | GitHub worker | The collector and the internet | The line, only |
-| Triage | The gateway; the probes' page reader | |
+| Triage | The gateway; the probes' page reader; Prometheus, Loki and Tempo | |
 | Intake | Prometheus and Loki | Alertmanager |
 | Log watcher | Prometheus, Loki and Tempo | |
 | Probes | The app, the canary's pods included | The line, on their verify port; triage, on their page reader |

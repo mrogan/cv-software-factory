@@ -204,6 +204,10 @@ expect "the GitHub worker reaches GHCR" deployment/github https://ghcr.io/v2/ re
 expect "the GitHub worker cannot reach the app" deployment/github http://website.website blocked
 expect "the GitHub worker cannot reach the gateway" deployment/github http://gateway:8080/health blocked
 expect "triage reaches the gateway" deployment/triage http://gateway:8080/health reached
+expect "triage reaches Prometheus" deployment/triage http://prometheus-server.telemetry/-/healthy reached
+expect "triage reaches Loki" deployment/triage http://loki.telemetry:3100/ready reached
+expect "triage reaches Tempo's query port" deployment/triage http://tempo.telemetry:3200/ready reached
+expect "triage cannot reach Grafana" deployment/triage http://grafana.telemetry/api/health blocked
 expect "the intake cannot reach the gateway" deployment/intake http://gateway:8080/health blocked
 expect "the worker cannot reach the probes" "$pod" http://probes:8080/health blocked
 expect "the worker cannot reach the probes' verification" "$pod" http://probes:8081/health blocked
