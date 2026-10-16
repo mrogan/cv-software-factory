@@ -5,8 +5,9 @@
 # Only the gateway (TypeSafe, Anthropic) and the GitHub worker (GitHub and GHCR) may reach the internet, over TLS, and
 # only triage and runners' agent pods may reach the gateway. This starts a pod labelled like a worker, which is what a
 # compromised one would be, and shows that it cannot reach TypeSafe, GitHub, the gateway, the GitHub worker, the app or
-# a public address, while the gateway can reach TypeSafe and the GitHub worker can reach GitHub. Triage reaches
-# Prometheus, Loki and Tempo's query port, and not Tempo's intake or Grafana.
+# a public address, while the gateway can reach TypeSafe and the GitHub worker can reach GitHub. Triage, the intake and
+# the log watcher reach the backends they read, Prometheus, Loki and Tempo's query port, and not Tempo's intake,
+# Grafana, or a stranger in `telemetry` listening on the backends' ports: each backend is named by its own pods.
 #
 # Then the line, which reaches the Kubernetes API, Prometheus, Loki, Tempo and the probes' verification, and not another
 # address on the API's port, the node's other ports, the probes' page reader or the app.
@@ -62,6 +63,7 @@ cleanup() {
     --wait=false >/dev/null || true
   kubectl --context "$context" -n argo-rollouts delete pod egress-rollouts --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n kyverno delete pod egress-admission egress-kyverno --ignore-not-found --wait=false >/dev/null || true
+  kubectl --context "$context" -n telemetry delete pod egress-stranger --ignore-not-found --wait=false >/dev/null || true
 }
 trap cleanup EXIT
 
@@ -100,9 +102,12 @@ get.then(
     console.log((blocks.includes(code) ? "blocked: " : names.includes(code) ? "no name: " : "failed: ") + code);
   })'
 
-# Starts a pod that idles, with the fences every namespace here enforces (the restricted standard).
-# $1: namespace; $2: name; $3: image; $4: Node's path in it; $5: its labels, one per line; $6: more of its spec.
+# Starts a pod that idles, or runs the script given, with the fences every namespace here enforces (the restricted
+# standard).
+# $1: namespace; $2: name; $3: image; $4: Node's path in it; $5: its labels, one per line; $6: more of its spec; $7:
+# what it runs.
 start_pod() {
+  local script=${7:-'setTimeout(() => {}, 600000)'}
   kubectl --context "$context" -n "$1" delete pod "$2" --ignore-not-found --wait >/dev/null
   kubectl --context "$context" -n "$1" apply -f - >/dev/null <<EOF
 apiVersion: v1
@@ -123,7 +128,7 @@ ${6:-}
   containers:
     - name: $2
       image: $3
-      command: [$4, -e, "setTimeout(() => {}, 600000)"]
+      command: [$4, -e, '$script']
       securityContext:
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true
@@ -165,12 +170,17 @@ start_pod website egress-stranger "$browser_image" node "app.kubernetes.io/name:
 start_pod argo-rollouts egress-rollouts "$runner_image" node "app.kubernetes.io/component: rollouts-controller"
 start_pod kyverno egress-admission "$runner_image" node "app.kubernetes.io/component: admission-controller"
 start_pod kyverno egress-kyverno "$runner_image" node "app.kubernetes.io/component: reports-controller"
+# A pod in `telemetry` that is none of its backends, answering on their query ports, as anything new there might.
+start_pod telemetry egress-stranger "$runner_image" node "app.kubernetes.io/name: egress-stranger" "" \
+  'for (const port of [9090, 3100, 3200]) require("node:http").createServer((q, r) => r.end("stranger")).listen(port)'
 for started in factory/$pod runners/egress-agent runners/egress-prepare website/egress-journeys website/egress-app \
-  website/egress-stranger argo-rollouts/egress-rollouts kyverno/egress-admission kyverno/egress-kyverno; do
+  website/egress-stranger argo-rollouts/egress-rollouts kyverno/egress-admission kyverno/egress-kyverno \
+  telemetry/egress-stranger; do
   kubectl --context "$context" -n "${started%%/*}" wait "pod/${started#*/}" --for=condition=Ready --timeout=2m >/dev/null
 done
 # The policy reaches a new pod a moment after it starts.
 sleep 5
+stranger_ip=$(kubectl --context "$context" -n telemetry get pod egress-stranger -o jsonpath='{.status.podIP}')
 
 failed=0
 # $1: what is being tried; $2: where from (the pod); $3: the address; $4: blocked or reached, as it must be; $5: the
@@ -211,6 +221,23 @@ expect "triage reaches Tempo's query port" deployment/triage http://tempo.teleme
 expect "triage cannot reach Tempo's intake" deployment/triage http://tempo.telemetry:4318/ blocked
 expect "triage cannot reach Tempo's gRPC intake" deployment/triage http://tempo.telemetry:4317/ blocked
 expect "triage cannot reach Grafana" deployment/triage http://grafana.telemetry/api/health blocked
+expect "the stranger in telemetry answers on Prometheus's port" telemetry:egress-stranger "http://$stranger_ip:9090" reached
+for port in 9090 3100 3200; do
+  expect "triage cannot reach the stranger on $port" deployment/triage "http://$stranger_ip:$port" blocked
+done
+expect "the intake reaches Prometheus" deployment/intake http://prometheus-server.telemetry/-/healthy reached
+expect "the intake reaches Loki" deployment/intake http://loki.telemetry:3100/ready reached
+expect "the intake cannot reach Tempo" deployment/intake http://tempo.telemetry:3200/ready blocked
+expect "the intake cannot reach the stranger on 9090" deployment/intake "http://$stranger_ip:9090" blocked
+expect "the intake cannot reach the stranger on 3100" deployment/intake "http://$stranger_ip:3100" blocked
+expect "the log watcher reaches Prometheus" deployment/logs http://prometheus-server.telemetry/-/healthy reached
+expect "the log watcher reaches Loki" deployment/logs http://loki.telemetry:3100/ready reached
+expect "the log watcher reaches Tempo's query port" deployment/logs http://tempo.telemetry:3200/ready reached
+expect "the log watcher cannot reach Tempo's intake" deployment/logs http://tempo.telemetry:4318/ blocked
+expect "the log watcher cannot reach Grafana" deployment/logs http://grafana.telemetry/api/health blocked
+for port in 9090 3100 3200; do
+  expect "the log watcher cannot reach the stranger on $port" deployment/logs "http://$stranger_ip:$port" blocked
+done
 expect "the intake cannot reach the gateway" deployment/intake http://gateway:8080/health blocked
 expect "the worker cannot reach the probes" "$pod" http://probes:8080/health blocked
 expect "the worker cannot reach the probes' verification" "$pod" http://probes:8081/health blocked
@@ -224,6 +251,9 @@ expect "the line reaches Tempo's query port" deployment/line http://tempo.teleme
 expect "the line cannot reach Tempo's intake" deployment/line http://tempo.telemetry:4318/ blocked
 expect "the line cannot reach Tempo's gRPC intake" deployment/line http://tempo.telemetry:4317/ blocked
 expect "the line cannot reach Grafana" deployment/line http://grafana.telemetry/api/health blocked
+for port in 9090 3100 3200; do
+  expect "the line cannot reach the stranger in telemetry on $port" deployment/line "http://$stranger_ip:$port" blocked
+done
 expect "the line reaches the probes' verification" deployment/line http://probes:8081/health reached
 expect "the line cannot reach the probes' page reader" deployment/line http://probes:8080/health blocked
 expect "the line cannot reach the app" deployment/line http://website.website blocked

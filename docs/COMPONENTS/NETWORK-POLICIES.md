@@ -43,15 +43,16 @@ Everything is denied in and out, then each pod is allowed what it needs.
 | Every worker but the GitHub worker and the traffic generator | Postgres and the collector | |
 | Gateway | The internet | Triage, and the runners' agent pods |
 | GitHub worker | The collector and the internet | The line, only |
-| Triage | The gateway; the probes' page reader; Prometheus, Loki and Tempo | |
+| Triage | The gateway; the probes' page reader; Prometheus, Loki and Tempo's query port | |
 | Intake | Prometheus and Loki | Alertmanager |
-| Log watcher | Prometheus, Loki and Tempo | |
+| Log watcher | Prometheus, Loki and Tempo's query port | |
 | Probes | The app, the canary's pods included | The line, on their verify port; triage, on their page reader |
 | Crawler | The app, the canary's pods included | Nothing |
 | Line | The GitHub worker, the Kubernetes API, Prometheus, Loki, Tempo and the probes' verify port | The runners' agent pods, with their handbacks |
 | Traffic generator | Traefik and the collector, and nothing else but DNS | |
 
 - Only the line may call the probes' verify port, as only triage may call their page reader.
+- Each pod that reads telemetry names each backend by its own pods, not the whole of `telemetry`.
 - The runners' pods are fenced as [their page](AGENT-RUNNERS.md) says.
 
 ## `kyverno`
@@ -86,7 +87,8 @@ It starts a pod labelled like each fenced part, and shows what each reaches and 
 - the analysis Job;
 - the app;
 - the Rollouts controller;
-- Kyverno's two controllers.
+- Kyverno's two controllers;
+- a pod in `telemetry` that is none of its backends, answering on their ports, which no reader of telemetry reaches.
 
 It has controls, which must reach what they reach:
 
