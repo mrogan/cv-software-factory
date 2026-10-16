@@ -10,7 +10,7 @@ An agent: reviews the fix once the gates pass. Part of the [factory plane](READM
 
 - **The rules as they are at the base,** so a change cannot loosen them.
 - **The diff,** against the coder's claims.
-- **The spec, against the ticket,** with Martin's answers as part of the ticket, as well as the diff against the spec.
+- **The spec, against the ticket,** with Martin's answers as part of the ticket, as well as the diff against the spec. Each criterion comes with the words the planner quoted for it, which the line found where it said; the reviewer judges whether they ask for it.
 
 | It finds | Finding | Goes to |
 |---|---|---|

@@ -410,10 +410,20 @@ export const PAYLOADS = {
     outcome: text(200),
     /**
      * Given, when, then. `expect` holds the then, because an object with a `then` looks like a promise. `from` names
-     * what in the ticket's evidence asks for it: a line of the ticket, or a signal. A version 1 spec never said.
+     * what in the ticket's evidence asks for it: a line of the ticket, or a signal. `quote` gives the words there that
+     * ask for it, which the line found in what `from` names before it took the spec. A version 1 spec said neither,
+     * and a version 2 spec only `from`.
      */
     criteria: z
-      .array(z.strictObject({ given: text(200), when: text(200), expect: text(200), from: text(200).optional() }))
+      .array(
+        z.strictObject({
+          given: text(200),
+          when: text(200),
+          expect: text(200),
+          from: text(200).optional(),
+          quote: text(200).optional(),
+        }),
+      )
       .min(1)
       .max(12),
     scope: z.array(text(200)).min(1).max(40),

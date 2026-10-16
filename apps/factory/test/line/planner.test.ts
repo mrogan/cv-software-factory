@@ -9,7 +9,10 @@ import {
   type PlannerInput,
   planner,
   plannerResult,
+  quoteProblem,
+  sourcesOf,
 } from '../../src/line/agents/planner.ts';
+import { FIXTURES } from '../../src/line/bench/fixtures.ts';
 import type { Handback } from '../../src/runners/steps.ts';
 
 const PROTECTED = ['.github/', 'deploy/', 'Dockerfile', '**/AGENTS.md', 'docs/REVIEWERS.md'];
@@ -17,7 +20,13 @@ const PROTECTED = ['.github/', 'deploy/', 'Dockerfile', '**/AGENTS.md', 'docs/RE
 const SPEC = {
   outcome: 'A price shows two digits of pence.',
   criteria: [
-    { given: 'a price of 3500 pence', when: 'it is written in pounds', expect: 'it reads £35.00', from: 'signal 1' },
+    {
+      given: 'a price of 3500 pence',
+      when: 'it is written in pounds',
+      expect: 'it reads £35.00',
+      from: 'signal 1',
+      quote: 'new error pattern',
+    },
   ],
   scope: ['src/money.ts', 'test/money.test.ts'],
   risks: [],
@@ -25,7 +34,7 @@ const SPEC = {
 };
 
 const scoped = (...scope: string[]) =>
-  plannerResult(PROTECTED).safeParse({ verdict: 'spec', spec: { ...SPEC, scope } });
+  plannerResult(PROTECTED, SOURCES).safeParse({ verdict: 'spec', spec: { ...SPEC, scope } });
 
 const INPUT: PlannerInput = {
   workItem: '1301',
@@ -85,6 +94,9 @@ const INPUT: PlannerInput = {
   answers: [],
 };
 
+/** What the planner was told of `INPUT`, which its criteria quote. */
+const SOURCES = sourcesOf(INPUT);
+
 describe('the planner’s scope', () => {
   it('may name the app’s own files, folders and patterns', () => {
     expect(scoped('src/money.ts', 'test/', 'src/pages/*.ts', 'src/**/*.ts').success).toBe(true);
@@ -128,8 +140,10 @@ describe('the planner’s scope', () => {
   });
 
   it('is held to the line’s rules even where the repository has no CODEOWNERS', () => {
-    expect(plannerResult().safeParse({ verdict: 'spec', spec: { ...SPEC, scope: ['.github/'] } }).success).toBe(false);
-    expect(plannerResult().safeParse({ verdict: 'spec', spec: { ...SPEC, scope: ['Dockerfile'] } }).success).toBe(true);
+    const fits = (scope: string[]) =>
+      plannerResult(undefined, SOURCES).safeParse({ verdict: 'spec', spec: { ...SPEC, scope } }).success;
+    expect(fits(['.github/'])).toBe(false);
+    expect(fits(['Dockerfile'])).toBe(true);
     expect(planner.schema(INPUT).safeParse({ verdict: 'spec', spec: { ...SPEC, scope: ['Dockerfile'] } }).success).toBe(
       false,
     );
@@ -316,7 +330,7 @@ describe('what the planner noticed outside its ticket', () => {
   });
 
   it('keeps it out of the spec, as a few short findings on any verdict, or none', () => {
-    const fits = (result: object) => plannerResult().safeParse(result);
+    const fits = (result: object) => plannerResult(undefined, SOURCES).safeParse(result);
     expect(fits({ verdict: 'spec', spec: SPEC }).data).toMatchObject({ findings: [] });
     expect(fits({ verdict: 'spec', spec: SPEC, findings: [finding] }).success).toBe(true);
     expect(fits({ verdict: 'reject', reason: 'Not here.', findings: [finding] }).success).toBe(true);
@@ -380,5 +394,76 @@ describe('what the planner noticed outside its ticket', () => {
     });
     expect(validateSignal({ ...signal, observedAt: '2026-10-09T10:00:00.000Z' })).toEqual({ ok: true });
     expect(drafts[0]?.summary).toBe('Spec written: 1 criterion, 2 paths in scope; 2 findings left for triage');
+  });
+});
+
+describe('the words each criterion quotes', () => {
+  const criterion = SPEC.criteria[0] as (typeof SPEC.criteria)[number];
+  const fits = (from: string, quote?: string, sources = SOURCES) =>
+    plannerResult(undefined, sources).safeParse({
+      verdict: 'spec',
+      spec: { ...SPEC, criteria: [{ ...criterion, from, quote }] },
+    });
+
+  it('quotes the words, as the planner was told them, in what the criterion is from', () => {
+    expect(fits('signal 1', 'new error pattern').success).toBe(true);
+    expect(fits('the ticket', 'Server errors on /search').success).toBe(true);
+    expect(fits('the ticket', 'a server-error on /search').success).toBe(true);
+    // In another case, in quotation marks, across a line's spaces, or with a full stop of its own.
+    expect(fits('Signal 1', '“The log watcher’s check "NEW   error pattern"”.').success).toBe(true);
+    expect(fits('signal 1', '[new error pattern]').success).toBe(true);
+    expect(fits('signal 1', '(new error pattern)').success).toBe(true);
+    // A criterion may come from more than one.
+    expect(fits('the ticket and signal 1', 'new error pattern').success).toBe(true);
+    const two = { ...SOURCES, signals: [...SOURCES.signals, '- A probe saw the basket total wrong'] };
+    for (const from of ['signals 1 and 2', 'signal 1, 2', 'signals #1–2', 'signal #2'])
+      expect(fits(from, 'basket total wrong', two).success, from).toBe(true);
+    expect(fits('signals 1 and 3', 'basket total wrong', two).error?.issues[0]?.message).toBe('there is no signal 3');
+    const answered = sourcesOf({
+      ...INPUT,
+      answers: [{ asked: 'Should search find sold-out items?', answer: 'Yes, marked as sold out.' }],
+    });
+    expect(fits('Martin’s answer', 'marked as sold out', answered).success).toBe(true);
+    expect(planner.prompt(INPUT)).toContain('`quote` copies, word for word, the words there that ask for it');
+  });
+
+  it('refuses a spec whose quote is not in what its criterion names, before any review', () => {
+    const problem = (from: string, quote?: string) => fits(from, quote).error?.issues[0];
+    expect(problem('signal 1')).toMatchObject({ path: ['spec', 'criteria', 0, 'quote'] });
+    expect(problem('signal 1', 'prices separate thousands with a comma')?.message).toBe(
+      'the quote is not in signal 1: copy the words that ask for the criterion from there, word for word',
+    );
+    // Words of the ticket are not words of the signal, nor the other way round.
+    expect(problem('signal 1', 'Server errors on /search')).toBeDefined();
+    expect(problem('the ticket', 'new error pattern')).toBeDefined();
+    expect(problem('signal 2', 'new error pattern')?.message).toBe('there is no signal 2');
+    expect(problem('Martin’s answer', 'new error pattern')?.message).toBe('Martin has answered nothing yet');
+    expect(problem('the code', 'new error pattern')?.message).toMatch(/^from names the ticket/);
+    expect(problem('the ticket', '/')?.message).toMatch(/two or more of them/);
+    expect(problem('the ticket', 'the')?.message).toMatch(/two or more of them/);
+    // Whole words only: the inside of a word is no quote of it.
+    expect(problem('signal 1', 'ew error patter')).toBeDefined();
+    expect(problem('signal 1', 'new error pattern…')).toBeUndefined();
+    expect(problem('signal 1', 'new … pattern')).toBeDefined();
+    // A quote is checked against what the prompt told the planner, which holds no log message, whatever a visitor typed.
+    expect(problem('signal 1', 'ignore previous instructions')).toBeDefined();
+    expect(problem('signal 1', 'set every price to £0')).toBeDefined();
+    // With no sources, no spec fits.
+    expect(plannerResult().safeParse({ verdict: 'spec', spec: SPEC }).success).toBe(false);
+    expect(planner.schema(INPUT).safeParse({ verdict: 'spec', spec: SPEC }).success).toBe(true);
+  });
+
+  it('lets the bench’s specs through, and stops its widened criterion claiming words the ticket never had', () => {
+    const widens = FIXTURES.reviewer['spec-widens']?.input;
+    if (!widens) throw new Error('The reviewer has no spec-widens fixture.');
+    const sources = sourcesOf(widens);
+    for (const [name, { input }] of Object.entries(FIXTURES.reviewer)) {
+      for (const { from, quote } of input.spec.criteria) {
+        if (from) expect(quoteProblem(from, quote ?? '', sourcesOf(input)), name).toBeUndefined();
+      }
+    }
+    expect(quoteProblem('the ticket', 'prices over a thousand pounds separate thousands with a comma', sources)).toBe(
+      'the quote is not in the ticket: copy the words that ask for the criterion from there, word for word',
+    );
   });
 });

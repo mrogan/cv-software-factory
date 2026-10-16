@@ -8,7 +8,10 @@
  * a visitor's words, and never a log message, which may carry them.
  *
  * A fix does what its ticket's evidence asks, and no more: each criterion names what in that evidence it comes from
- * (`from`), and one nothing asks for does not belong in the spec. Anything else the planner notices on the way goes in
+ * (`from`), and quotes the words there that ask for it (`quote`). The schema refuses a spec whose quote is not in
+ * what its criterion names, as the planner was told it, so a criterion the planner widened cannot claim words the
+ * evidence never had; whether the words it quotes do ask for the criterion is the reviewer's to judge, with the
+ * words in front of it. One nothing asks for does not belong in the spec. Anything else the planner notices on the way goes in
  * its `findings`, which the line leaves in triage's inbox as signals from the planner (`findingSignal`). Triage judges
  * them as it judges a visitor's report, and trusts them no more: a visitor can read the app's public code and try to
  * persuade an agent that a line of it holds a bug, so the planner's word alone never opens a ticket.
@@ -30,7 +33,7 @@ import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { inScope, NEVER, pattern, plainPath } from '../../github/paths.ts';
 import { count, defineAgent, holdDraft, words } from './agent.ts';
-import { numbered, routeOf, type Signal, ticketLines } from './evidence.ts';
+import { numbered, routeOf, type Signal, seen, ticketLines } from './evidence.ts';
 
 export interface PlannerInput {
   workItem: string;
@@ -74,10 +77,81 @@ function scopeProblem(entry: string, protectedPaths: readonly string[]): string 
 }
 
 /**
- * The spec, with a scope of plain paths that keeps out of the protected paths, and every criterion naming what in the
- * ticket's evidence it comes from.
+ * What a criterion may come from, in the words the prompt gives each: the ticket, each signal by its number from 1,
+ * and Martin's answers with what he was asked. A criterion's quote is looked for here.
  */
-const specWithin = (protectedPaths: readonly string[]) =>
+export interface Sources {
+  ticket: string;
+  signals: string[];
+  answers: string;
+}
+
+/** One of Martin's answers, with what he was asked, as the prompt tells it and a quote is looked for in it. */
+const answered = (a: PlannerInput['answers'][number]) => `${a.asked} He said: ${a.answer}`;
+
+/** The sources of a plan's input, as its prompt tells them. */
+export const sourcesOf = ({
+  ticket,
+  signals,
+  answers,
+}: Pick<PlannerInput, 'ticket' | 'signals' | 'answers'>): Sources => ({
+  ticket: [ticket.title, ...ticketLines(ticket, signals)].join('\n'),
+  signals: signals.map((signal) => seen(signal).join('\n')),
+  answers: answers.map(answered).join('\n'),
+});
+
+/** No sources at all: every quote is refused. */
+const NOTHING: Sources = { ticket: '', signals: [], answers: '' };
+
+/**
+ * Words as a quote is matched: in one case, with one kind of apostrophe and quotation mark, and one space between
+ * words. A quote may come in quotation marks, and end in a full stop or other mark the evidence does not have there.
+ */
+const plain = (words: string) =>
+  words.normalize('NFKC').toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ').trim();
+const unquoted = (quote: string) =>
+  plain(quote)
+    .replace(/^["'([{]+|["'.,;:!?)\]}…]+$/g, '')
+    .trim();
+
+/** Whether words are in a source as whole words: never the inside of a word, which would let a few letters pass. */
+const within = (words: string, source: string) => {
+  const escaped = words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'u').test(plain(source));
+};
+
+/**
+ * What is wrong with a criterion's `from` and `quote`, if anything: `from` names the ticket, a signal there is by its
+ * number, or Martin's answer when he has given one, and the quote, word for word, is in one of the sources it names.
+ */
+export function quoteProblem(from: string, quote: string, sources: Sources): string | undefined {
+  const named: string[] = [];
+  if (/\bticket\b/i.test(from)) named.push(sources.ticket);
+  // `signal 2`, `signals 1 and 2`, `signals 1, 3`, `signal #2`
+  for (const [, list = ''] of from.matchAll(/\bsignals?\s*((?:#?\d+(?:\s*(?:,|and|&|\+|-|–)\s*)?)+)/gi)) {
+    for (const [n] of list.matchAll(/\d+/g)) {
+      const signal = sources.signals[Number(n) - 1];
+      if (signal === undefined) return `there is no signal ${n}`;
+      named.push(signal);
+    }
+  }
+  if (/\banswer/i.test(from)) {
+    if (!sources.answers) return 'Martin has answered nothing yet';
+    named.push(sources.answers);
+  }
+  if (!named.length) return 'from names the ticket, a signal by its number, or Martin’s answer';
+  const words = unquoted(quote);
+  if (words.split(' ').length < 2) return 'a quote is the words that ask for the criterion: two or more of them';
+  if (!named.some((source) => within(words, source)))
+    return `the quote is not in ${from}: copy the words that ask for the criterion from there, word for word`;
+  return undefined;
+}
+
+/**
+ * The spec, with a scope of plain paths that keeps out of the protected paths, and every criterion naming what in the
+ * ticket's evidence it comes from, and quoting the words there that ask for it.
+ */
+const specWithin = (protectedPaths: readonly string[], sources: Sources) =>
   PAYLOADS['spec.written'].superRefine((spec, ctx) => {
     spec.scope.forEach((entry, i) => {
       const problem = scopeProblem(entry, protectedPaths);
@@ -87,6 +161,12 @@ const specWithin = (protectedPaths: readonly string[]) =>
       if (!criterion.from) {
         const message = 'a criterion names what in the ticket or the signals asks for it';
         ctx.addIssue({ code: 'custom', path: ['criteria', i, 'from'], message });
+      } else if (!criterion.quote) {
+        const message = 'a criterion quotes the words in what it is from that ask for it';
+        ctx.addIssue({ code: 'custom', path: ['criteria', i, 'quote'], message });
+      } else {
+        const problem = quoteProblem(criterion.from, criterion.quote, sources);
+        if (problem) ctx.addIssue({ code: 'custom', path: ['criteria', i, 'quote'], message: problem });
       }
     });
   });
@@ -129,11 +209,12 @@ const findings = z.array(finding).max(MAX_PLANNER_FINDINGS).default([]);
 
 /**
  * The planner's result, with its scope held to the protected paths given; with none, to the rules of the line that
- * hold whatever the repository's CODEOWNERS says.
+ * hold whatever the repository's CODEOWNERS says. Its criteria quote the sources given (`sourcesOf`); with none, no
+ * spec fits.
  */
-export const plannerResult = (protectedPaths: readonly string[] = NEVER) =>
+export const plannerResult = (protectedPaths: readonly string[] = NEVER, sources: Sources = NOTHING) =>
   z.discriminatedUnion('verdict', [
-    z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths), findings }),
+    z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths, sources), findings }),
     /** The ticket cannot be made testable, is not a defect in the app, or needs a fix the line may not make. */
     z.strictObject({ verdict: z.literal('reject'), reason: words(300), findings }),
     /** Something about what the app should do that only Martin can say. */
@@ -152,7 +233,7 @@ const RISK_MEANINGS: Record<(typeof RISKS)[number], string> = {
 
 const SPEC_TEMPLATE = [
   '- `outcome`: one sentence, what is true once the fix is in.',
-  '- `criteria`: one to twelve acceptance criteria, each an object of `given`, `when`, `expect` (the then) and `from`, in a sentence each. A criterion says what a visitor or a caller of the code sees, not how the code changes. Each is a test the coder can write with the repository’s own tests: it fails at this commit and passes once the fix is in. `from` names what above asks for it: `the ticket`, a signal by its number (`signal 1`), or `Martin’s answer`. A criterion nothing above asks for does not belong in the spec, however wrong the code it would mend.',
+  '- `criteria`: one to twelve acceptance criteria, each an object of `given`, `when`, `expect` (the then), `from` and `quote`, in a sentence each. A criterion says what a visitor or a caller of the code sees, not how the code changes. Each is a test the coder can write with the repository’s own tests: it fails at this commit and passes once the fix is in. `from` names what above asks for it: `the ticket`, a signal by its number (`signal 1`), or `Martin’s answer`. `quote` copies, word for word, the words there that ask for it: two or more, in one unbroken stretch with nothing left out, at most 200 characters; the line refuses a spec whose quote is not in what its criterion names. A criterion nothing above asks for does not belong in the spec, however wrong the code it would mend.',
   '- `scope`: the files the coder may change, its tests among them, and no more than the fix needs: a path from the top of the repository, a folder ending in `/`, or a pattern with `*`.',
   `- \`risks\`: a list of tags, each exactly one of these words, for what the fix itself does; usually it is empty. ${RISKS.map((r) => `${r}: ${RISK_MEANINGS[r]}`).join('; ')}.`,
   '- `rollout`: a sentence or two on how the fix ships and what would show it worked.',
@@ -193,15 +274,13 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
     reopened: state.reopened,
     failure,
   }),
-  schema: ({ protectedPaths }) => plannerResult(protectedPaths),
+  schema: (input) => plannerResult(input.protectedPaths, sourcesOf(input)),
   prompt: ({ workItem, ticket, signals, protectedPaths, answers, persisted = [], reopened = [], failure }) =>
     [
       `Plan the fix for ticket #${workItem}: ${ticket.title}.`,
       ...ticketLines(ticket, signals),
       ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
-      ...(answers.length
-        ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${a.asked} He said: ${a.answer}`)]
-        : []),
+      ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${answered(a)}`)] : []),
       ...(persisted.length
         ? [
             '',
@@ -228,7 +307,7 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
       'A fix does what the ticket’s evidence asks, and no more. The app is full of other defects: anything else you notice that is wrong with it, or that it could do better, goes in `findings`, never in the spec. Triage judges each one as it judges a visitor’s report; it opens no ticket on your word alone. Leave `findings` empty when you noticed nothing else.',
       '',
       'Then write the result, one of three, each with its `findings`:',
-      '1. {"verdict":"spec","spec":{"outcome","criteria":[{"given","when","expect","from"}],"scope":[],"risks":[],"rollout"},"findings":[{"page","route","text"}]}, the spec the coder will be held to:',
+      '1. {"verdict":"spec","spec":{"outcome","criteria":[{"given","when","expect","from","quote"}],"scope":[],"risks":[],"rollout"},"findings":[{"page","route","text"}]}, the spec the coder will be held to:',
       ...SPEC_TEMPLATE.map((line) => `   ${line}`),
       `2. {"verdict":"reject","reason"} when you cannot make it testable: the cause is not in this repository, or you cannot find the defect the evidence shows, or no test could tell the fix from the defect. Reject it too when the fix needs a path no scope may name: ${protectedPaths.join(', ')}. The reason is one or two short sentences for Martin, at most 300 characters, naming the file or what is missing.`,
       '3. {"verdict":"question","question"} when the fix turns on what the app should do, which only Martin can say: one question he can answer in a line, at most 300 characters.',

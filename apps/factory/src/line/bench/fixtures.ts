@@ -312,14 +312,33 @@ const PRICE_SIGNALS: Signal[] = [
 const PRICE_SPEC: PayloadOf<'spec.written'> = {
   outcome: 'Every price shows pounds and exactly two digits of pence, so 3500 pence is £35.00 and 705 pence is £7.05.',
   criteria: [
-    { given: 'a price of 600 pence', when: 'pounds is called with it', expect: 'it returns £6.00', from: 'signal 1' },
-    { given: 'a price of 705 pence', when: 'pounds is called with it', expect: 'it returns £7.05', from: 'signal 1' },
-    { given: 'a price of 10 pence', when: 'pounds is called with it', expect: 'it returns £0.10', from: 'signal 1' },
+    {
+      given: 'a price of 600 pence',
+      when: 'pounds is called with it',
+      expect: 'it returns £6.00',
+      from: 'signal 1',
+      quote: 'a price is in pounds and two digits of pence',
+    },
+    {
+      given: 'a price of 705 pence',
+      when: 'pounds is called with it',
+      expect: 'it returns £7.05',
+      from: 'signal 1',
+      quote: 'a price is in pounds and two digits of pence',
+    },
+    {
+      given: 'a price of 10 pence',
+      when: 'pounds is called with it',
+      expect: 'it returns £0.10',
+      from: 'signal 1',
+      quote: 'a price is in pounds and two digits of pence',
+    },
     {
       given: 'a product that costs a whole number of pounds',
       when: 'a visitor opens its page',
       expect: 'the price shows two zeros of pence, such as £2.00',
       from: 'the ticket',
+      quote: 'A wrong result on /products/:slug',
     },
   ],
   scope: ['src/money.ts', 'test/money.test.ts', 'test/pages-product.test.ts'],
@@ -337,13 +356,15 @@ const CARDS_SPEC: PayloadOf<'spec.written'> = {
       when: 'a visitor opens the product list',
       expect: 'its card shows the price with two zeros of pence, such as £2.00',
       from: 'the ticket',
+      quote: 'A wrong result on /products/:slug',
     },
   ],
 };
 
 /**
  * The wrong price's spec, widened: a criterion for thousands separators, which no evidence of the ticket asks for,
- * though the planner says the ticket does. The fix the line wants is two digits of pence and nothing more.
+ * though the planner says the ticket does. Its quote is in the ticket, as the line holds every quote to be, and asks
+ * for nothing about thousands. The fix the line wants is two digits of pence and nothing more.
  */
 const WIDENED_SPEC: PayloadOf<'spec.written'> = {
   ...PRICE_SPEC,
@@ -354,6 +375,7 @@ const WIDENED_SPEC: PayloadOf<'spec.written'> = {
       when: 'pounds is called with it',
       expect: 'it returns £12,345.67, with a comma between thousands',
       from: 'the ticket',
+      quote: 'A wrong result on /products/:slug',
     },
   ],
 };

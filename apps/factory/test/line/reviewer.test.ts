@@ -130,10 +130,11 @@ describe('the reviewer', () => {
     expect(prompt).toContain('It is a wrong-result on /products/:slug. Category functional, severity broken.');
     expect(prompt).toContain('1. A probe\'s check "a price is in pounds and two digits of pence" on /products/:slug');
     expect(prompt).toContain(
-      '5. Given a price of 1234567 pence, when pounds is called with it, then it returns £12,345.67, with a comma between thousands. (From the ticket.)',
+      '5. Given a price of 1234567 pence, when pounds is called with it, then it returns £12,345.67, with a comma between thousands. (From the ticket, which says “A wrong result on /products/:slug”.)',
     );
     expect(prompt).toContain('2. Hold the spec to the ticket.');
     expect(prompt).toContain('is a blocking finding that cites that criterion with `"ticket":true`');
+    expect(prompt).toContain('The line checked only that each quote is there, not that it asks for its criterion');
   });
 
   it('sends a criterion beyond the ticket to Martin, and a change beyond a sound spec back to the coder', () => {

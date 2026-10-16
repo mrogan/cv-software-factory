@@ -313,16 +313,21 @@ describe('validation', () => {
     expect(validateSignal({ ...finding, symptom: 'wrong-result', artifacts: [] }).ok).toBe(false);
   });
 
-  it('takes where each criterion of a spec comes from, and a spec that never said', () => {
+  it('takes where each criterion of a spec comes from and the words it quotes there, and a spec that never said', () => {
     const criterion = { given: 'a price of 600 pence', when: 'it is shown', expect: 'it reads £6.00' };
     const spec = { outcome: 'Prices show two digits of pence.', scope: ['src/money.ts'], risks: [], rollout: 'Ships.' };
-    const written = { ...opened, type: 'spec.written', version: 2, actor: 'planner' };
-    expect(validate({ ...written, payload: { ...spec, criteria: [{ ...criterion, from: 'signal 1' }] } })).toEqual({
-      ok: true,
-    });
-    expect(upcast({ type: 'spec.written', version: 1, payload: { ...spec, criteria: [criterion] } })).toMatchObject({
-      event: { version: 2, payload: { criteria: [criterion] } },
-    });
+    const written = { ...opened, type: 'spec.written', version: 3, actor: 'planner' };
+    const quoted = { ...criterion, from: 'signal 1', quote: 'a price is in pounds and two digits of pence' };
+    expect(validate({ ...written, payload: { ...spec, criteria: [quoted] } })).toEqual({ ok: true });
+    expect(validate({ ...written, payload: { ...spec, criteria: [{ ...quoted, quote: ' ' }] } }).ok).toBe(false);
+    for (const [version, older] of [
+      [1, criterion],
+      [2, { ...criterion, from: 'signal 1' }],
+    ] as const) {
+      expect(upcast({ type: 'spec.written', version, payload: { ...spec, criteria: [older] } })).toMatchObject({
+        event: { version: 3, payload: { criteria: [older] } },
+      });
+    }
   });
 
   it('only lets work return upstream', () => {
