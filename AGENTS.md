@@ -89,7 +89,7 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   ```sh
   kubectl --context k3d-software-factory -n scoreboard exec deploy/scoreboard -- /nodejs/bin/node src/cli.ts scoreboard --print
   ```
-- Files listed in `.github/CODEOWNERS` are the rules of the line. Change them only when Martin asks.
+- Files listed in `.github/CODEOWNERS` are the rules of the line, and a change to one merges only with Martin's approval. When the work needs one changed, change it in the same pull request, keep to what the work needs, and give each file a line in a section of the description of its own: what changed and why. Never leave one stale, or file an issue for a change that belongs in the pull request.
 - Merging is Martin's call. The factory's App opens the deploy and release pull requests; no workflow opens or approves one.
 - pnpm installs no release younger than a day, runs no dependency's install script unless `pnpm-workspace.yaml` allows it, and refuses a provenance downgrade. When it refuses, find out why; an exception goes in that file with its reason.
 - Refresh a Dependabot pull request with `@dependabot rebase` or `@dependabot recreate`. Don't close it: that tells Dependabot to skip the version.
