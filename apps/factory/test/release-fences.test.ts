@@ -108,7 +108,7 @@ describe('the line’s Verify', () => {
       ports: rule.ports.map((p) => `${p.protocol}/${p.port}`),
     }));
 
-  it('reaches the probes’ verification, Prometheus and Loki, each by its pods and port', async () => {
+  it('reaches the probes’ verification, Prometheus, Loki and Tempo, each by its pods and port', async () => {
     const egress = peers((await policy('line')).spec.egress, 'to');
     expect(egress).toContainEqual({
       peers: [['factory', { matchLabels: { 'app.kubernetes.io/name': 'probes' } }]],
@@ -127,8 +127,21 @@ describe('the line’s Verify', () => {
       ],
       ports: ['TCP/9090'],
     });
-    // Tempo, and the rest of telemetry, stay out of its reach.
-    expect(egress.flatMap((rule) => rule.ports)).not.toContain('TCP/3200');
+    // Tempo's query port, for the log watcher's agreement check: not its intake.
+    expect(egress).toContainEqual({
+      peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'tempo' } }]],
+      ports: ['TCP/3200'],
+    });
+    // Those three, each on its one port, and nothing else in telemetry: not the collector, Grafana or Alertmanager.
+    const telemetry = egress.filter((rule) => rule.peers.some(([namespace]) => namespace === 'telemetry'));
+    expect(telemetry.map((rule) => [rule.peers.map(([, pods]) => pods), rule.ports])).toEqual([
+      [
+        [{ matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } }],
+        ['TCP/9090'],
+      ],
+      [[{ matchLabels: { 'app.kubernetes.io/name': 'loki' } }], ['TCP/3100']],
+      [[{ matchLabels: { 'app.kubernetes.io/name': 'tempo' } }], ['TCP/3200']],
+    ]);
   });
 
   it('is let in by the probes on the verification’s port alone, and the page reader’s is triage’s', async () => {
