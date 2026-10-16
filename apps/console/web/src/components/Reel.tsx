@@ -12,7 +12,7 @@
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { dayLabel, isCommit, shortVersion, when } from '../format.ts';
 import type { Card as CardData, View } from '../projection/index.ts';
-import { stopWords } from '../projection/release.ts';
+import { backWords } from '../projection/release.ts';
 import { renders } from '../renders.ts';
 import { Card, OUTCOME } from './Card.tsx';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
@@ -20,8 +20,8 @@ import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 const PLAY_EVERY_MS = 2500;
 /** The least room a work item's mark has along the timeline: a mark is 26px across, and 32px at the centre. */
 const MARK_ROOM = 40;
-/** Room at each end of the timeline's window, so the first and last marks are drawn whole. */
-const EDGE = 20;
+/** Room at each end of the timeline's window, so the first and last marks, and their version labels, are drawn whole. */
+const EDGE = 26;
 /** On first view the reel plays this many of the latest work items once. */
 const AUTOPLAY = 8;
 
@@ -56,7 +56,7 @@ const appWords = (card: CardData) => (card.appVersion ? shortVersion(card.appVer
 function wentBack(card: CardData): string | undefined {
   const { to, rolledBack, stopped } = card.versions;
   if (!to || !(rolledBack || stopped)) return undefined;
-  return `${shortVersion(to)} was ${stopped ? stopWords(stopped) : 'rolled back'}`;
+  return `${shortVersion(to)} was ${backWords(stopped)}`;
 }
 
 interface Drag {
@@ -194,12 +194,14 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     const here = positions[centre] ?? 0;
     const at = (m: HTMLElement) => Number(m.dataset.at);
     const labels = (kind: string) => [...(rail.current?.querySelectorAll<HTMLElement>(kind) ?? [])];
+    // Every label is measured whole before any is thinned: one layout, not one for each label.
+    for (const mark of labels('.thin')) mark.classList.remove('thin');
     const thinOut = (marks: HTMLElement[], rank: (m: HTMLElement) => number) => {
-      for (const mark of marks) mark.classList.remove('thin');
+      const boxes = new Map(marks.map((m) => [m, m.getBoundingClientRect()]));
       const kept: DOMRect[] = [];
       for (const mark of marks.sort((a, b) => rank(a) - rank(b))) {
-        const box = mark.getBoundingClientRect();
-        if (!box.width) continue;
+        const box = boxes.get(mark);
+        if (!box?.width) continue;
         if (kept.some((k) => box.left < k.right + 4 && k.left < box.right + 4)) mark.classList.add('thin');
         else kept.push(box);
       }
@@ -225,7 +227,8 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
       const tallest = Math.max(0, ...elements.current.map((el) => el?.offsetHeight ?? 0));
       if (reel.current) reel.current.style.height = `${tallest + 12}px`;
       measure();
-      layout(position.current);
+      // Mid-scrub, the strip stays under the pointer.
+      layout(position.current, false, !scrubbing.current);
       thin();
     };
     fit();
@@ -235,8 +238,14 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
       clearTimeout(timer);
       timer = window.setTimeout(fit, 80);
     };
+    // The timeline's window changes width with the page's, and with a scrollbar coming or going.
+    const observer = 'ResizeObserver' in window ? new ResizeObserver(resize) : undefined;
+    if (shown.current) observer?.observe(shown.current);
     addEventListener('resize', resize);
-    return () => removeEventListener('resize', resize);
+    return () => {
+      observer?.disconnect();
+      removeEventListener('resize', resize);
+    };
   }, [layout, measure, thin]);
 
   const settle = useCallback(
@@ -343,11 +352,17 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   };
 
   // Scrubbing the timeline: the strip holds still under the pointer, and follows the playhead once it is let go.
+  // A pointer beyond the window's ends counts as at them, so it never lands on a mark out of sight.
   const fromRail = (event: React.PointerEvent<HTMLElement>) => {
-    const box = strip.current?.getBoundingClientRect();
-    if (box?.width) {
-      layout(positionFromRail(Math.max(0, Math.min(1, (event.clientX - box.left) / box.width))), false, false);
-    }
+    const [box, frame] = [strip.current?.getBoundingClientRect(), shown.current?.getBoundingClientRect()];
+    if (!box?.width || !frame) return;
+    const x = Math.max(frame.left + EDGE, Math.min(frame.right - EDGE, event.clientX));
+    layout(positionFromRail(Math.max(0, Math.min(1, (x - box.left) / box.width))), false, false);
+  };
+  /** Stops the strip where it is drawn, part way through a slide or not, before a scrub measures against it. */
+  const hold = () => {
+    const [box, frame] = [strip.current?.getBoundingClientRect(), shown.current?.getBoundingClientRect()];
+    if (box && frame && strip.current) strip.current.style.transform = `translateX(${box.left - frame.left}px)`;
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -481,6 +496,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
           scrubbing.current = true;
           event.currentTarget.setPointerCapture(event.pointerId);
           stop();
+          hold();
           fromRail(event);
         }}
         onPointerMove={(event) => scrubbing.current && fromRail(event)}

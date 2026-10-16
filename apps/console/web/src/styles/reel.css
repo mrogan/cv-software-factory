@@ -242,11 +242,6 @@
   touch-action: none;
   cursor: pointer;
 }
-.rail .window {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-}
 /* An end of the window fades where the timeline goes on past it. */
 .rail .window.before {
   --before: transparent;
@@ -255,6 +250,9 @@
   --after: transparent;
 }
 .rail .window {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
   mask-image: linear-gradient(90deg, var(--before, #000), #000 40px calc(100% - 40px), var(--after, #000));
 }
 .rail .strip {
@@ -267,8 +265,8 @@
 }
 .rail .track {
   position: absolute;
-  left: -20px;
-  right: -20px;
+  left: -26px;
+  right: -26px;
   top: 46px;
   height: 2px;
   background: var(--line-strong);
