@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Waits for Copilot's one review of a pull request, then lists the unresolved threads: copilot.sh <pr> [minutes]
 # The wait counts from when the pull request opened (15 minutes by default). Exit 0 once Copilot has reviewed, 4 if it
-# did not in time; the threads are listed either way, one block each: thread id, path:line, url, the first comment.
+# did not in time; the threads are listed either way, one block each: thread id, path:line, author, url, the first
+# comment. A thread someone other than Copilot started is marked NOT COPILOT: it is theirs to resolve, not the worker's.
 set -euo pipefail
 pr=${1:?usage: copilot.sh <pr> [minutes]} minutes=${2:-15}
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
@@ -21,5 +22,6 @@ gh api graphql -F owner="${repo%/*}" -F name="${repo#*/}" -F n="$pr" -f query='
   query($owner:String!, $name:String!, $n:Int!) { repository(owner:$owner, name:$name) { pullRequest(number:$n) {
     reviewThreads(first:100) { nodes { id isResolved path line comments(first:1) { nodes { author { login } url body } } } }
   } } }' -q '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)
-    | "\n\(.id)  \(.path):\(.line // "-")  (\(.comments.nodes[0].author.login))\n\(.comments.nodes[0].url)\n\(.comments.nodes[0].body)"'
+    | (.comments.nodes[0].author.login) as $who
+    | "\n\(.id)  \(.path):\(.line // "-")  (\($who))\(if ($who | startswith("copilot")) then "" else "  NOT COPILOT" end)\n\(.comments.nodes[0].url)\n\(.comments.nodes[0].body)"'
 exit $status

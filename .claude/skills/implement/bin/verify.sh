@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Checks a sub-agent's report against GitHub and git.
 #   verify.sh <key> <pr>   pr-open: the pull request is open, from the worktree's branch at its pushed HEAD, with
-#                          nothing uncommitted; an issue's says Closes (or Part of) #<n>; its description names every
-#                          file it changes that CODEOWNERS gives Martin. Shows checks and threads.
+#                          nothing uncommitted; an issue's says Closes (or Part of) #<n>; every file it changes that
+#                          CODEOWNERS gives Martin has a line in the description's section on them (a heading naming
+#                          CODEOWNERS), with words beside the path. Whether those words are a good reason is left to
+#                          the reader. Shows checks and threads.
 #   verify.sh <key>        skipped: nothing was left behind, no branch pushed and no pull request opened.
 # A key of 278-2 is issue 278's second pull request. Exit 1 on any mismatch.
 set -euo pipefail
@@ -37,7 +39,7 @@ if [[ $key =~ ^([0-9]+)(-[0-9]+)?$ ]]; then
   grep -qiE "(closes|part of) #$issue\b" <<<"$body" || bad body "no 'Closes #$issue' or 'Part of #$issue'"
 fi
 
-# Every changed file CODEOWNERS gives Martin is named in the description, with its reason beside it.
+# Every changed file CODEOWNERS gives Martin has a line in the description's section on them, with its reason beside it.
 owners=$(git -C "$root" show origin/main:.github/CODEOWNERS | sed 's/#.*//' | awk 'NF { print $1 }')
 owned=()
 while IFS= read -r file; do
@@ -47,8 +49,13 @@ while IFS= read -r file; do
   done <<<"$owners"
 done < <(gh pr diff "$pr" --name-only)
 say owned "${#owned[@]} file(s) CODEOWNERS gives Martin"
+section=$(awk '/^#+ / { inside = /CODEOWNERS/; next } inside' <<<"$body")
+if (( ${#owned[@]} )) && [[ -z $section ]]; then bad owned "no section on them: a heading naming CODEOWNERS"; fi
 for file in ${owned[@]+"${owned[@]}"}; do
-  grep -qF "$file" <<<"$body" || bad owned "$file changes and the description does not name it"
+  line=$(grep -F "$file" <<<"$section" | head -1 || true)
+  words=$(tr -d '`*' <<<"${line//"$file"/}" | tr -cs '[:alnum:]' '\n' | grep -c . || true)
+  if [[ -z $line ]]; then bad owned "$file changes and the section does not name it"
+  elif (( words < 3 )); then bad owned "$file is named with no reason beside it"; fi
 done
 
 if [[ -d $wt ]]; then

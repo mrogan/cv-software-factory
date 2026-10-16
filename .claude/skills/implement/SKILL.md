@@ -53,7 +53,7 @@ Something that needs Martin's decision, or that cannot merge until something els
 With more than one pull request:
 
 1. **Meta-review.** In a fresh sub-agent, read all the open pull requests together against `docs/REVIEWERS.md`, for changes that conflict, duplicate each other, pull in different directions (naming, an API's shape, how a doc describes something), or would leave `main` broken in any order of merging. It fixes what it finds on the pull request where it belongs. Wait for it to end, and verify every pull request again.
-2. **Checks.** Every pull request's checks pass, and no thread is unresolved except the arguable ones.
+2. **Checks.** Every pull request's checks pass, and no thread is unresolved except the arguable ones and other reviewers' own.
 
 Then write `<run dir>/SUMMARY.md` and give it to Martin, leaving out what does not apply:
 

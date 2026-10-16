@@ -26,7 +26,7 @@ Your job is to finish this item, not to find more work. Never open an issue.
 
 `.github/CODEOWNERS` lists the rules of the line, and a change to one merges only with Martin's approval. That is a reason to make the change well, not to avoid it: when the work needs one changed, change it in this pull request. Never leave one stale, or put off to an issue a change that belongs here.
 
-Keep the change to what the work needs, and give each file a line in its own section of the pull request: what changed and why the work needs it. Say plainly if a change loosens a rule. `verify.sh` fails a pull request whose description does not name every such file it changes.
+Keep the change to what the work needs, and give each file a line in its own section of the pull request: what changed and why the work needs it. Say plainly if a change loosens a rule. `verify.sh` fails a pull request unless each such file it changes has a line in that section, under a heading that names CODEOWNERS, with words beside the path.
 
 ## Steps
 
@@ -40,7 +40,7 @@ Keep the change to what the work needs, and give each file a line in its own sec
 3. **Implement.** Follow `AGENTS.md` and the docs it points to. Add or change tests to cover the change. `make check` passes before going on; run `make e2e` too if the console changed (snapshots only in the pinned image, `make e2e UPDATE=1`).
 4. **Review.** A fresh sub-agent runs `/code-review medium <branch>`, always with the branch named, and you wait for it. Add `/security-review` if a mistake would be a security hole (auth, secrets, admission, anything reaching the network or the answer key). Fix what holds up and belongs to the item; put the rest under `found`. Don't re-run the review on the fixes unless the change is fundamentally different.
 5. **Pull request.** Write a note in `<run dir>/pr-<key>.md`, with the CODEOWNERS section above if it applies, then run `/visual-pr <base> <note>` and open the pull request with the description it returns. The title is a Conventional Commit. An issue's body says `Closes #<n>`, or `Part of #<n>` when another pull request completes it; a brief's says what it does in its own right and names any issue it touches without closing it.
-6. **Copilot.** Copilot reviews once, automatically, when the pull request opens, and may not review at all if it is out of credits. `copilot.sh <pr>` waits for it, up to 15 minutes from the opening, and lists the unresolved threads with their ids. Answer each with `reply.sh <thread-id> <body>`: fixed → name the commit, and it resolves; wrong → say why, and it resolves; arguable → reply with `--open`, and report it. Never request a review from Copilot or anyone else.
+6. **Copilot.** Copilot reviews once, automatically, when the pull request opens, and may not review at all if it is out of credits. `copilot.sh <pr>` waits for it, up to 15 minutes from the opening, and lists the unresolved threads with their ids. Answer each of Copilot's with `reply.sh <thread-id> <body>`: fixed → name the commit, and it resolves; wrong → say why, and it resolves; arguable → reply with `--open`, and report it. A thread marked `NOT COPILOT` is someone else's: never resolve it; fix what it asks if it belongs to the item, reply with `--open`, and report it. Never request a review from Copilot or anyone else.
 7. **Checks.** Wait for CI (`gh pr checks <pr> --watch`). Fix a failure the change caused; report one it didn't.
 8. **Check yourself.** `verify.sh <key> <pr>` for each pull request (or `verify.sh <key>` when skipped) exits 0 before you report.
 
