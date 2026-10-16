@@ -622,15 +622,17 @@ describe('how many looks of a failed measure failed', () => {
     ticket: undefined,
   });
 
-  it('says the count the rollback kept, summed over the runs that failed the measure', () => {
+  it('says the count the rollback kept for the one run that failed the measure', () => {
     expect(failedLooks(back({ ...latency, failures: 2 }), 'latency')).toBe(2);
-    // A step's analysis and the background's both failed it: three looks in all.
-    expect(failedLooks(back({ ...latency, failures: 1 }, { ...latency, failures: 2 }), 'latency')).toBe(3);
+    expect(failedLooks(back({ ...latency, failures: 1 }, { ...latency, name: 'errors', failures: 2 }), 'latency')).toBe(
+      1,
+    );
   });
 
   it('says nothing for a rollback that did not count them, a measure it did not fail, or another end', () => {
     expect(failedLooks(back(latency), 'latency')).toBeUndefined();
-    expect(failedLooks(back({ ...latency, failures: 2 }, latency), 'latency')).toBeUndefined();
+    // A step's analysis and the background's both failed it: each run's count is its own, so neither is the step's.
+    expect(failedLooks(back({ ...latency, failures: 1 }, { ...latency, failures: 2 }), 'latency')).toBeUndefined();
     expect(failedLooks(back({ ...latency, failures: 2 }), 'errors')).toBeUndefined();
     expect(failedLooks({ kind: 'promoted', at: 0, weight: 100 }, 'latency')).toBeUndefined();
     expect(failedLooks(undefined, 'latency')).toBeUndefined();
