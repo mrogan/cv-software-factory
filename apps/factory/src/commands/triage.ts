@@ -7,6 +7,10 @@
  * gateway), PAGES_URL (the probes' page reader, for a report's screenshot and the page's text; without it a report
  * is judged with neither), ARTIFACTS_DIR (where screenshots are), and DATABASE_URL or the PG* variables for the
  * store, which it connects to as the factory's writer.
+ *
+ * PROMETHEUS_URL, LOKI_URL and TEMPO_URL are what the senses read besides the app, which triage looks at before it
+ * trusts a sense's new problem (`ENVIRONMENT` in policy/triage.ts); the disk is read through Prometheus. Triage looks
+ * only at those it has an address for, and with none it looks at nothing and holds nothing for the environment.
  */
 import type { Screenshot } from '@software-factory/events';
 import { type Judge, type PageReader, Triage } from '@software-factory/triage';
@@ -15,7 +19,7 @@ import { INBOX } from '../../../../policy/triage.ts';
 export const USAGE = '  factory triage';
 
 export async function run(args: string[]): Promise<number> {
-  const { GATEWAY_URL, PAGES_URL, ARTIFACTS_DIR, DATABASE_URL } = process.env;
+  const { GATEWAY_URL, PAGES_URL, ARTIFACTS_DIR, DATABASE_URL, PROMETHEUS_URL, LOKI_URL, TEMPO_URL } = process.env;
   if (args.length || !GATEWAY_URL || !ARTIFACTS_DIR) {
     console.log(`Usage:\n${USAGE}\n\nSet GATEWAY_URL and ARTIFACTS_DIR, and PAGES_URL to read the pages reports name.`);
     return 2;
@@ -28,6 +32,10 @@ export async function run(args: string[]): Promise<number> {
   const { DiskArtifacts, EventWriter } = await import('@software-factory/store');
   const { GatewayClient } = await import('../gateway/client.ts');
   const { waitingFor } = await import('../gateway/waiting.ts');
+  const { environmentLook } = await import('../environment.ts');
+  const { Prometheus } = await import('../clients/prometheus.ts');
+  const { Loki } = await import('../clients/loki.ts');
+  const { Tempo } = await import('../clients/tempo.ts');
 
   const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
   const gateway = new GatewayClient({ url: GATEWAY_URL });
@@ -79,11 +87,18 @@ export async function run(args: string[]): Promise<number> {
       }
     });
 
+  const look = environmentLook({
+    prometheus: PROMETHEUS_URL ? new Prometheus(PROMETHEUS_URL) : undefined,
+    loki: LOKI_URL ? new Loki(LOKI_URL) : undefined,
+    tempo: TEMPO_URL ? new Tempo(TEMPO_URL) : undefined,
+  });
+
   const triage = new Triage({
     sql,
     events: new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts(ARTIFACTS_DIR) }),
     judge,
     read,
+    look,
     log,
     onTriaged: (outcome, signal, _waited, ticketOpened) => {
       triaged.add(1, { sense: signal.sense, outcome });
@@ -100,7 +115,8 @@ export async function run(args: string[]): Promise<number> {
       abort.abort();
     });
   }
-  log.info({ gateway: GATEWAY_URL, pages: PAGES_URL ?? null }, 'triage taking signals from the inbox');
+  const looks = { prometheus: PROMETHEUS_URL ?? null, loki: LOKI_URL ?? null, tempo: TEMPO_URL ?? null };
+  log.info({ gateway: GATEWAY_URL, pages: PAGES_URL ?? null, ...looks }, 'triage taking signals from the inbox');
   try {
     await triage.run(abort.signal);
     return 0;

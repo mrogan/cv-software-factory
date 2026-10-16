@@ -110,11 +110,12 @@ export type Resolution =
  */
 export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
   // Triage's: a suggestion never comes onto the line, nor does a defect only the planner has seen until Martin approves
-  // it, nor a burst's problems until he lets them through. Triage then opens their tickets (`settleOne`), and the line
-  // carries each on from there as any other.
+  // it, nor a burst's problems, or those seen while what their sense reads was not healthy, until he lets them through.
+  // Triage then opens their tickets (`settleOne`), and the line carries each on from there as any other.
   suggestion: { approved: 'wait', rejected: 'close', answered: 'wait' },
   finding: { approved: 'carry-on', rejected: 'close', answered: 'wait' },
   burst: { approved: 'carry-on', rejected: 'close', answered: 'wait' },
+  environment: { approved: 'carry-on', rejected: 'close', answered: 'wait' },
   spec: { approved: 'carry-on', rejected: 'close', answered: 'replan' },
   question: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
   'ticket-rejected': { approved: 'close', rejected: 'close', answered: 'carry-on' },

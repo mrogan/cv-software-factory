@@ -498,11 +498,11 @@ describe('upcasting the real catalogue', () => {
   it('reads versions 2 to 4 of hold.started as they were, and takes a defect the planner noticed at version 4', () => {
     const v2 = { stage: 'gates', kind: 'held', cause: 'gates', reason: 'The gates failed: test' };
     expect(upcast({ type: 'hold.started', version: 2, payload: v2 })).toMatchObject({
-      event: { version: 6, payload: v2 },
+      event: { version: 7, payload: v2 },
     });
     const nothing = { stage: 'build', kind: 'held', cause: 'nothing-to-fix', reason: 'The coder found nothing.' };
     expect(upcast({ type: 'hold.started', version: 3, payload: nothing })).toMatchObject({
-      event: { version: 6, payload: nothing },
+      event: { version: 7, payload: nothing },
     });
     const finding = {
       stage: 'triage',
@@ -511,7 +511,7 @@ describe('upcasting the real catalogue', () => {
       reason: 'The planner noticed a defect.',
       defect: { fingerprint: { route: '/basket', class: 'wrong-result' }, symptom: 'wrong-result' },
     };
-    const hold = (payload: object, version = 6) =>
+    const hold = (payload: object, version = 7) =>
       validate({ ...opened, type: 'hold.started', version, actor: 'triage', payload });
     expect(hold(finding)).toEqual({ ok: true });
     expect(hold(finding, 3).ok).toBe(false);
@@ -526,7 +526,7 @@ describe('upcasting the real catalogue', () => {
       event: { version: 2, payload: opened.payload },
     });
     expect(upcast({ type: 'signal.received', version: 1, payload: signal.payload })).toMatchObject({
-      event: { version: 3, payload: signal.payload },
+      event: { version: 4, payload: signal.payload },
     });
     const finding = { kind: 'planner-finding', title: 'A finding on /about', sample: false };
     expect(validate({ ...opened, actor: 'planner', payload: finding })).toEqual({ ok: true });
@@ -609,11 +609,11 @@ describe('upcasting the real catalogue', () => {
   it('reads version 4 of hold.started as it was, and holds for a deploy and a verification at version 5', () => {
     const merge = { stage: 'review', kind: 'approval', cause: 'merge', reason: 'Waits for Martin’s merge' };
     expect(upcast({ type: 'hold.started', version: 4, payload: merge })).toMatchObject({
-      event: { version: 6, payload: merge },
+      event: { version: 7, payload: merge },
     });
     for (const cause of ['deploy', 'verify']) {
       const payload = { stage: 'release', kind: 'approval', cause, reason: 'Waits for Martin' };
-      expect(validate({ ...opened, type: 'hold.started', version: 6, actor: 'factory', payload })).toEqual({
+      expect(validate({ ...opened, type: 'hold.started', version: 7, actor: 'factory', payload })).toEqual({
         ok: true,
       });
     }
@@ -622,13 +622,48 @@ describe('upcasting the real catalogue', () => {
   it('reads version 5 of hold.started as it was, and holds a burst of new problems at version 6', () => {
     const deploy = { stage: 'release', kind: 'approval', cause: 'deploy', reason: 'Waits for a deploy' };
     expect(upcast({ type: 'hold.started', version: 5, payload: deploy })).toMatchObject({
-      event: { version: 6, payload: deploy },
+      event: { version: 7, payload: deploy },
     });
     const burst = { stage: 'triage', kind: 'held', cause: 'burst', reason: 'The log watcher found 34 new problems' };
-    expect(validate({ ...opened, type: 'hold.started', version: 6, actor: 'triage', payload: burst })).toEqual({
+    expect(validate({ ...opened, type: 'hold.started', version: 7, actor: 'triage', payload: burst })).toEqual({
       ok: true,
     });
     expect(validate({ ...opened, type: 'hold.started', version: 5, actor: 'triage', payload: burst }).ok).toBe(false);
+  });
+
+  it('reads version 6 of hold.started as it was, and holds a problem seen while its sense’s reads were not healthy at 7', () => {
+    const burst = { stage: 'triage', kind: 'held', cause: 'burst', reason: 'The log watcher found 34 new problems' };
+    expect(upcast({ type: 'hold.started', version: 6, payload: burst })).toMatchObject({
+      event: { version: 7, payload: burst },
+    });
+    const environment = { stage: 'triage', kind: 'held', cause: 'environment', reason: 'Loki was not healthy' };
+    const hold = (version: number) =>
+      validate({ ...opened, type: 'hold.started', version, actor: 'triage', payload: environment });
+    expect(hold(7)).toEqual({ ok: true });
+    expect(hold(6).ok).toBe(false);
+  });
+
+  it('reads version 3 of signal.received as it was, and takes triage’s look at what the sense reads at 4', () => {
+    const logs = { sense: 'logs', check: 'every request leaves a record', route: '/about', version: 'v0.9.2' };
+    expect(upcast({ type: 'signal.received', version: 3, payload: logs })).toMatchObject({
+      event: { version: 4, payload: logs },
+    });
+    const environment = {
+      at: '2026-10-13T19:47:57.000Z',
+      dependencies: [
+        { name: 'loki', healthy: false, saw: 'no record stored from anything in the 5 minutes before' },
+        { name: 'disk', healthy: null, saw: 'could not ask: prometheus-server/api/v1/query answered 503' },
+      ],
+    };
+    const seen = (payload: object) =>
+      validate({ ...signal, actor: 'logs', summary: 'A request left no record', payload });
+    expect(seen({ ...logs, symptom: 'missing-log', environment })).toEqual({ ok: true });
+    const wrong = { ...environment, dependencies: [{ name: 'grafana', healthy: true, saw: 'answered' }] };
+    expect(seen({ ...logs, symptom: 'missing-log', environment: wrong }).ok).toBe(false);
+    // The look is triage's to take: a sense cannot leave one in the inbox.
+    const inbox = { ...logs, symptom: 'missing-log', observedAt: signal.ts, artifacts: [] };
+    expect(validateSignal(inbox)).toEqual({ ok: true });
+    expect(validateSignal({ ...inbox, environment }).ok).toBe(false);
   });
 
   it('reads version 2 of release.started as a release whose steps are not known', () => {

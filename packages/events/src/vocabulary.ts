@@ -57,6 +57,13 @@ export const SYMPTOM_CLASSES = [
 ] as const;
 export type SymptomClass = (typeof SYMPTOM_CLASSES)[number];
 
+/**
+ * What the senses read besides the app, which triage looks at before it trusts a sense's new problem: Prometheus, Loki
+ * and Tempo, and the disk under the cluster's volumes.
+ */
+export const DEPENDENCIES = ['prometheus', 'loki', 'tempo', 'disk'] as const;
+export type Dependency = (typeof DEPENDENCIES)[number];
+
 /** A ticket's severity: how badly the problem hurts a visitor. */
 export const SEVERITIES = ['cosmetic', 'degraded', 'broken'] as const;
 export type Severity = (typeof SEVERITIES)[number];
@@ -134,6 +141,11 @@ export const HOLD_CAUSES = [
    * for Martin to look at what it saw before any reaches Plan.
    */
   'burst',
+  /**
+   * Triage held a sense's new problem because something the sense reads besides the app was not seen to be healthy
+   * when it saw it: the problem may be the factory's environment, which no agent can mend, so it waits for Martin.
+   */
+  'environment',
   /** A spec waits for Martin's approval before anything is built: an improvement's, or one tagged `out-of-scope`. */
   'spec',
   /** An agent asks Martin something only he can say. */
