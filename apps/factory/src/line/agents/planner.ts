@@ -111,7 +111,7 @@ const plain = (words: string) =>
   words.normalize('NFKC').toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ').trim();
 const unquoted = (quote: string) =>
   plain(quote)
-    .replace(/^["'(]+|["'.,;:!?)…]+$/g, '')
+    .replace(/^["'([{]+|["'.,;:!?)\]}…]+$/g, '')
     .trim();
 
 /** Whether words are in a source as whole words: never the inside of a word, which would let a few letters pass. */

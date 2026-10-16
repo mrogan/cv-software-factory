@@ -391,6 +391,8 @@ describe('the words each criterion quotes', () => {
     expect(fits('the ticket', 'a server-error on /search').success).toBe(true);
     // In another case, in quotation marks, across a line's spaces, or with a full stop of its own.
     expect(fits('Signal 1', '“The log watcher’s check "NEW   error pattern"”.').success).toBe(true);
+    expect(fits('signal 1', '[new error pattern]').success).toBe(true);
+    expect(fits('signal 1', '(new error pattern)').success).toBe(true);
     // A criterion may come from more than one.
     expect(fits('the ticket and signal 1', 'new error pattern').success).toBe(true);
     const two = { ...SOURCES, signals: [...SOURCES.signals, '- A probe saw the basket total wrong'] };
