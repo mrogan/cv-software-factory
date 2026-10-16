@@ -161,7 +161,7 @@ const where = (f: Finding) => `${f.path}:${f.line}${cites(f) ? ` (${cites(f)})` 
 
 /** What the planner said a criterion is from, and the words it quoted there: an older spec quoted none. */
 const source = ({ from, quote }: PayloadOf<'spec.written'>['criteria'][number]) =>
-  from ? ` (From ${from}${quote ? `, which says “${quote}”` : ''}.)` : '';
+  from ? ` (From ${from}${quote ? `, which says “${quote.replace(/^["'“‘]+|["'”’]+$/g, '')}”` : ''}.)` : '';
 
 function prompt({
   workItem,

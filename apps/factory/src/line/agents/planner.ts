@@ -86,6 +86,9 @@ export interface Sources {
   answers: string;
 }
 
+/** One of Martin's answers, with what he was asked, as the prompt tells it and a quote is looked for in it. */
+const answered = (a: PlannerInput['answers'][number]) => `${a.asked} He said: ${a.answer}`;
+
 /** The sources of a plan's input, as its prompt tells them. */
 export const sourcesOf = ({
   ticket,
@@ -94,7 +97,7 @@ export const sourcesOf = ({
 }: Pick<PlannerInput, 'ticket' | 'signals' | 'answers'>): Sources => ({
   ticket: [ticket.title, ...ticketLines(ticket, signals)].join('\n'),
   signals: signals.map((signal) => seen(signal).join('\n')),
-  answers: answers.map((a) => `${a.asked} He said: ${a.answer}`).join('\n'),
+  answers: answers.map(answered).join('\n'),
 });
 
 /** No sources at all: every quote is refused. */
@@ -102,14 +105,20 @@ const NOTHING: Sources = { ticket: '', signals: [], answers: '' };
 
 /**
  * Words as a quote is matched: in one case, with one kind of apostrophe and quotation mark, and one space between
- * words. A quote may come in quotation marks, and end in a full stop the evidence does not have there.
+ * words. A quote may come in quotation marks, and end in a full stop or other mark the evidence does not have there.
  */
 const plain = (words: string) =>
   words.normalize('NFKC').toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ').trim();
 const unquoted = (quote: string) =>
   plain(quote)
-    .replace(/^["']+|["'.,;:]+$/g, '')
+    .replace(/^["'(]+|["'.,;:!?)…]+$/g, '')
     .trim();
+
+/** Whether words are in a source as whole words: never the inside of a word, which would let a few letters pass. */
+const within = (words: string, source: string) => {
+  const escaped = words.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'u').test(plain(source));
+};
 
 /**
  * What is wrong with a criterion's `from` and `quote`, if anything: `from` names the ticket, a signal there is by its
@@ -118,10 +127,13 @@ const unquoted = (quote: string) =>
 export function quoteProblem(from: string, quote: string, sources: Sources): string | undefined {
   const named: string[] = [];
   if (/\bticket\b/i.test(from)) named.push(sources.ticket);
-  for (const [, n] of from.matchAll(/\bsignals?\s+(\d+)/gi)) {
-    const signal = sources.signals[Number(n) - 1];
-    if (signal === undefined) return `there is no signal ${n}`;
-    named.push(signal);
+  // `signal 2`, `signals 1 and 2`, `signals 1, 3`, `signal #2`
+  for (const [, list = ''] of from.matchAll(/\bsignals?\s*((?:#?\d+(?:\s*(?:,|and|&|\+|-|–)\s*)?)+)/gi)) {
+    for (const [n] of list.matchAll(/\d+/g)) {
+      const signal = sources.signals[Number(n) - 1];
+      if (signal === undefined) return `there is no signal ${n}`;
+      named.push(signal);
+    }
   }
   if (/\banswer/i.test(from)) {
     if (!sources.answers) return 'Martin has answered nothing yet';
@@ -129,8 +141,8 @@ export function quoteProblem(from: string, quote: string, sources: Sources): str
   }
   if (!named.length) return 'from names the ticket, a signal by its number, or Martin’s answer';
   const words = unquoted(quote);
-  if (words.length < 3) return 'a quote is the words that ask for the criterion, not a letter or two of them';
-  if (!named.some((source) => plain(source).includes(words)))
+  if (words.split(' ').length < 2) return 'a quote is the words that ask for the criterion: two or more of them';
+  if (!named.some((source) => within(words, source)))
     return `the quote is not in ${from}: copy the words that ask for the criterion from there, word for word`;
   return undefined;
 }
@@ -211,7 +223,7 @@ const RISK_MEANINGS: Record<(typeof RISKS)[number], string> = {
 
 const SPEC_TEMPLATE = [
   '- `outcome`: one sentence, what is true once the fix is in.',
-  '- `criteria`: one to twelve acceptance criteria, each an object of `given`, `when`, `expect` (the then), `from` and `quote`, in a sentence each. A criterion says what a visitor or a caller of the code sees, not how the code changes. Each is a test the coder can write with the repository’s own tests: it fails at this commit and passes once the fix is in. `from` names what above asks for it: `the ticket`, a signal by its number (`signal 1`), or `Martin’s answer`. `quote` copies, word for word, the words there that ask for it, a few words to a line of them; the line refuses a spec whose quote is not in what its criterion names. A criterion nothing above asks for does not belong in the spec, however wrong the code it would mend.',
+  '- `criteria`: one to twelve acceptance criteria, each an object of `given`, `when`, `expect` (the then), `from` and `quote`, in a sentence each. A criterion says what a visitor or a caller of the code sees, not how the code changes. Each is a test the coder can write with the repository’s own tests: it fails at this commit and passes once the fix is in. `from` names what above asks for it: `the ticket`, a signal by its number (`signal 1`), or `Martin’s answer`. `quote` copies, word for word, the words there that ask for it: two or more, in one unbroken stretch with nothing left out, at most 200 characters; the line refuses a spec whose quote is not in what its criterion names. A criterion nothing above asks for does not belong in the spec, however wrong the code it would mend.',
   '- `scope`: the files the coder may change, its tests among them, and no more than the fix needs: a path from the top of the repository, a folder ending in `/`, or a pattern with `*`.',
   `- \`risks\`: a list of tags, each exactly one of these words, for what the fix itself does; usually it is empty. ${RISKS.map((r) => `${r}: ${RISK_MEANINGS[r]}`).join('; ')}.`,
   '- `rollout`: a sentence or two on how the fix ships and what would show it worked.',
@@ -258,9 +270,7 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
       `Plan the fix for ticket #${workItem}: ${ticket.title}.`,
       ...ticketLines(ticket, signals),
       ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
-      ...(answers.length
-        ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${a.asked} He said: ${a.answer}`)]
-        : []),
+      ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${answered(a)}`)] : []),
       ...(persisted.length
         ? [
             '',
