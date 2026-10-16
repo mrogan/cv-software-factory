@@ -29,7 +29,7 @@ The workers that read telemetry (triage, the intake, the log watcher and the lin
 
 Any other method is answered 405 and any other path 403, before it reaches a backend. The proxy passes on the path as nginx has decoded and normalised it, never as the client wrote it, and keeps no access log, since a query can hold a visitor's report. A read the factory starts to need is a line in `deploy/base/telemetry/query/nginx.conf`.
 
-The collector writes, Grafana and the canary's analysis read, and each reaches the backends directly. Prometheus's lifecycle endpoints are off, so nothing that reaches it can stop it or have it reload: it reloads its configuration and rules itself when they change, every 30 seconds.
+Every worker still sends its own telemetry to the collector, which passes it on to the backends with the service name the sender gave. The collector writes, Grafana and the canary's analysis read, and each reaches the backends directly. Prometheus's lifecycle endpoints are off, so nothing that reaches it can stop it or have it reload: it reloads its configuration and rules itself when they change, every 30 seconds.
 
 ## Dashboards
 

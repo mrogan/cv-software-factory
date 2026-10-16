@@ -136,11 +136,13 @@ describe('the read-only proxy', () => {
     }
   });
 
-  it('passes on the path nginx has normalised, never the one the client wrote', async () => {
+  it('passes on the path nginx has normalised, or the trace id it captured, never the one the client wrote', async () => {
     const conf = await readFile(join(DEPLOY, 'base/telemetry/query/nginx.conf'), 'utf-8');
     const passes = [...conf.matchAll(/proxy_pass ([^;]+);/g)].map(([, target]) => target);
     expect(passes.length).toBeGreaterThan(0);
-    for (const target of passes) expect(target).toMatch(/^http:\/\/(prometheus|loki|tempo)\$uri(\$is_args\$args)?$/);
+    for (const target of passes) {
+      expect(target).toMatch(/^http:\/\/((prometheus|loki|tempo)\$uri|tempo\/api\/traces\/\$1)(\$is_args\$args)?$/);
+    }
   });
 });
 

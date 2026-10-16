@@ -432,6 +432,6 @@ fi
 
 if [ "$failed" = 0 ]; then
   echo "Only the gateway, the GitHub worker and Kyverno's admission controller leave the cluster; the readers of telemetry"
-  echo "only read it; the runners, the release, the traffic, the app and the scoreboard are fenced."
+  echo "only query the backends; the runners, the release, the traffic, the app and the scoreboard are fenced."
 else echo "The network policies do not hold."; fi
 exit "$failed"
