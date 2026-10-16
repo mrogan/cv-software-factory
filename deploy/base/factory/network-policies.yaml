@@ -234,7 +234,8 @@ spec:
         - { protocol: TCP, port: 4318 }
 ---
 # Triage asks the gateway to judge a report, and the probes' page reader for the page it names. It reads
-# Prometheus, Loki and Tempo, which the senses read besides the app, before it trusts a sense's signal.
+# Prometheus, Loki and Tempo's query port, which the senses read besides the app, before it trusts a sense's signal: each
+# backend's own pods only, as the line's are, since triage handles reports from the public.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -257,10 +258,30 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/component: server
       ports:
-        - { protocol: TCP, port: 9090 } # Prometheus
-        - { protocol: TCP, port: 3100 } # Loki
-        - { protocol: TCP, port: 3200 } # Tempo
+        - { protocol: TCP, port: 9090 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - { protocol: TCP, port: 3100 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+      ports:
+        - { protocol: TCP, port: 3200 }
 ---
 # Alertmanager posts firing alerts to the intake, which fetches the series behind each from Prometheus and Loki.
 apiVersion: networking.k8s.io/v1

@@ -5,7 +5,8 @@
 # Only the gateway (TypeSafe, Anthropic) and the GitHub worker (GitHub and GHCR) may reach the internet, over TLS, and
 # only triage and runners' agent pods may reach the gateway. This starts a pod labelled like a worker, which is what a
 # compromised one would be, and shows that it cannot reach TypeSafe, GitHub, the gateway, the GitHub worker, the app or
-# a public address, while the gateway can reach TypeSafe and the GitHub worker can reach GitHub.
+# a public address, while the gateway can reach TypeSafe and the GitHub worker can reach GitHub. Triage reaches
+# Prometheus, Loki and Tempo's query port, and not Tempo's intake or Grafana.
 #
 # Then the line, which reaches the Kubernetes API, Prometheus, Loki, Tempo and the probes' verification, and not another
 # address on the API's port, the node's other ports, the probes' page reader or the app.
@@ -207,6 +208,8 @@ expect "triage reaches the gateway" deployment/triage http://gateway:8080/health
 expect "triage reaches Prometheus" deployment/triage http://prometheus-server.telemetry/-/healthy reached
 expect "triage reaches Loki" deployment/triage http://loki.telemetry:3100/ready reached
 expect "triage reaches Tempo's query port" deployment/triage http://tempo.telemetry:3200/ready reached
+expect "triage cannot reach Tempo's intake" deployment/triage http://tempo.telemetry:4318/ blocked
+expect "triage cannot reach Tempo's gRPC intake" deployment/triage http://tempo.telemetry:4317/ blocked
 expect "triage cannot reach Grafana" deployment/triage http://grafana.telemetry/api/health blocked
 expect "the intake cannot reach the gateway" deployment/intake http://gateway:8080/health blocked
 expect "the worker cannot reach the probes" "$pod" http://probes:8080/health blocked
