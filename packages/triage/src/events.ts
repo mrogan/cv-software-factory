@@ -8,6 +8,7 @@
 import { createHash } from 'node:crypto';
 import {
   type Dependency,
+  type Environment,
   type EventType,
   type InboxSignal,
   type NewEvent,
@@ -35,9 +36,6 @@ export function idsFor(signalId: string): () => string {
   let n = 0;
   return () => uuidFrom(`triage:${signalId}:${n++}`);
 }
-
-/** How what a sense reads stood when it saw something, as triage looked. */
-export type Environment = NonNullable<PayloadOf<'signal.received'>['environment']>;
 
 /** A sense's signal as triage records it: as the sense left it, with triage's look at what it reads, if it took one. */
 export type Seen = InboxSignal & { environment?: Environment };

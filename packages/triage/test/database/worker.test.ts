@@ -1096,9 +1096,10 @@ describe('triage', () => {
       await answer(held, 'approved');
       expect(await triage({ look: looking(reading('disk', false)) }).settleOne()).toBe(true);
       expect(await ticketsOn('/came-back')).toEqual([item]);
+      expect((await types(item)).filter((type) => type === 'work-item.reopened')).toHaveLength(1);
       expect((await payloads(held, 'work-item.closed'))[0]).toEqual({
         outcome: 'no-change',
-        reason: 'Martin let it through: open tickets already had every problem in it',
+        reason: `Martin let it through: ticket #${item}`,
       });
     });
 

@@ -87,7 +87,7 @@ describe('the look at what the senses read', () => {
     });
   });
 
-  it('cannot tell about a backend that fails to answer, and asks once a minute', async () => {
+  it('cannot tell about a backend that fails to answer twice, and asks again for the next signal', async () => {
     const seen: URL[] = [];
     const failing = (async (input: URL) => {
       seen.push(input);
@@ -98,10 +98,23 @@ describe('the look at what the senses read', () => {
       at: at.toISOString(),
       dependencies: [{ name: 'loki', healthy: null, saw: 'could not ask: loki:3100/loki/api/v1/query answered 503' }],
     });
-    await look?.(new Date(at.getTime() + 1000));
-    expect(seen).toHaveLength(1);
-    await look?.(new Date(at.getTime() + 60_000));
     expect(seen).toHaveLength(2);
+    await look?.(new Date(at.getTime() + 1000));
+    expect(seen).toHaveLength(4);
+  });
+
+  it('takes a dropped request again, and asks once a minute when every backend answers', async () => {
+    let calls = 0;
+    const flaky = (async () => {
+      calls++;
+      return calls === 1 ? new Response('', { status: 502 }) : Response.json(vector([{}, 12]));
+    }) as typeof fetch;
+    const look = environmentLook({ loki: new Loki('http://loki:3100', flaky) });
+    expect((await look?.(at))?.dependencies[0]).toMatchObject({ healthy: true });
+    await look?.(new Date(at.getTime() + 1000));
+    expect(calls).toBe(2);
+    await look?.(new Date(at.getTime() + 60_000));
+    expect(calls).toBe(3);
   });
 
   it('looks at nothing with no backend', () => {

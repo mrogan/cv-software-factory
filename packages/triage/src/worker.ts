@@ -27,7 +27,14 @@
  * One worker decides at a time (it holds an advisory lock), so two signals with the same new fingerprint cannot
  * open two tickets. It takes nothing while the line is stopped, and no report while the gateway waits on a spend cap.
  */
-import type { InboxSignal, NewEvent, PayloadOf, SignalSource, SymptomClass } from '@software-factory/events';
+import type {
+  Environment,
+  InboxSignal,
+  NewEvent,
+  PayloadOf,
+  SignalSource,
+  SymptomClass,
+} from '@software-factory/events';
 import { type EventWriter, fingerprintOf, lastEnd, nextWorkItem } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { BURST, ENVIRONMENT, INBOX, SYMPTOMS } from '../../../policy/triage.ts';
@@ -36,7 +43,6 @@ import {
   burstEvents,
   closedFinding,
   closedHeld,
-  type Environment,
   environmentEvents,
   findingEvents,
   healthy,
@@ -272,7 +278,9 @@ export class Triage {
         for (const { id, signal } of held) {
           // Seeded apart from the signal's own events, which the hold has. Its look is taken again, as of when the
           // sense saw it, and never holds it again: Martin let it through.
+          // A hold has each fingerprint once (`#hold` counts the rest), so no two of its signals reopen one ticket.
           const next = await this.#sense(await this.#seen(signal), `burst:${id}`, tickets);
+          if (next.outcome === 'reopened') opened.push(next.workItem);
           const evidence = `${next.workItem} ${signal.sense} ${signal.version}`;
           if (next.outcome === 'evidence' && seen.has(evidence)) continue;
           seen.add(evidence);

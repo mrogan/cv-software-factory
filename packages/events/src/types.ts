@@ -14,6 +14,8 @@ export type Screenshot = Extract<ArtifactRef, { kind: 'screenshot' }>;
 export type Evidence = z.infer<typeof evidence>;
 /** A signal as a sense leaves it in the inbox (schemas.ts). */
 export type InboxSignal = z.infer<typeof inboxSignal>;
+/** How what a sense reads stood when it saw something, as triage looked. */
+export type Environment = NonNullable<PayloadOf<'signal.received'>['environment']>;
 
 /**
  * A payload at its type's current version. A public view has the same shape: what it leaves out (report text, a

@@ -6,18 +6,17 @@
  *
  * Only the backends it has an address for are looked at, and the disk is read through Prometheus. A backend that
  * cannot be asked, or has no measure, is neither healthy nor not (`healthy: null`), which triage counts as not seen to
- * be healthy. A look is kept for its minute, so a burst of signals asks once.
+ * be healthy. A look is kept for its minute, so a burst of signals asks once, unless a backend did not answer.
  *
- * "Still storing" is asked as "stored something lately", never as "answers": on 13 October Loki answered every query
- * while the disk was full, and returned nothing.
+ * "Still storing" is asked as "stored something lately", never as "answers": a Loki on a full disk answers every
+ * query, and returns nothing.
  */
-import type { Dependency, PayloadOf } from '@software-factory/events';
+import type { Dependency, Environment } from '@software-factory/events';
 import { ENVIRONMENT } from '../../../policy/triage.ts';
 import type { Loki } from './clients/loki.ts';
 import type { Prometheus } from './clients/prometheus.ts';
 import type { Tempo } from './clients/tempo.ts';
 
-export type Environment = NonNullable<PayloadOf<'signal.received'>['environment']>;
 type Reading = Environment['dependencies'][number];
 
 export interface Backends {
@@ -44,15 +43,23 @@ export function environmentLook(backends: Backends): ((at: Date) => Promise<Envi
     const minute = Math.floor(at.getTime() / 60_000);
     let look = kept.get(minute);
     if (!look) {
+      let unasked = false;
       look = Promise.all(
         checks.map(async ([name, check]) => {
-          const reading = await check(at).catch((error: unknown) => ({
-            healthy: null,
-            saw: `could not ask: ${error instanceof Error ? error.message : String(error)}`,
-          }));
+          // Asked twice before it counts as not answering, so one dropped request holds nothing.
+          const reading = await check(at)
+            .catch(() => check(at))
+            .catch((error: unknown) => {
+              unasked = true;
+              return { healthy: null, saw: `could not ask: ${error instanceof Error ? error.message : String(error)}` };
+            });
           return { name, ...reading, saw: clip(reading.saw) };
         }),
-      ).then((dependencies) => ({ at: at.toISOString(), dependencies }));
+      ).then((dependencies) => {
+        // A look with a backend that did not answer is not kept: the next signal asks again.
+        if (unasked && kept.get(minute) === look) kept.delete(minute);
+        return { at: at.toISOString(), dependencies };
+      });
       kept.set(minute, look);
       for (const old of kept.keys()) if (kept.size > KEPT) kept.delete(old);
     }
