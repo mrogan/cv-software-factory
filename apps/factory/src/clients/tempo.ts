@@ -2,6 +2,7 @@
  * Tempo's HTTP API. A trace is not queryable until a minute or two after its spans are sent, so every
  * caller treats "not there yet" as an answer and never waits for one.
  */
+import { TRACES_FROM_THE_APP } from '../provenance.ts';
 import { type Fetch, getJson } from './http.ts';
 
 export interface ServerSpan {
@@ -31,8 +32,9 @@ export class Tempo {
   }
 
   /**
-   * The server spans of a service between two times, one for each request that has been indexed, of one version of
-   * it when one is named. `complete` is false when the answer holds as many as were asked for, so there may be more.
+   * The server spans of the app's service between two times, one for each request that has been indexed, of one
+   * version of it when one is named. Only spans the collector stamped as from the app's pods count (provenance.ts).
+   * `complete` is false when the answer holds as many as were asked for, so there may be more.
    */
   async serverSpans(
     service: string,
@@ -47,7 +49,7 @@ export class Tempo {
       this.base,
       '/api/search',
       {
-        q: `{ resource.service.name = ${JSON.stringify(service)}${ofVersion} && kind = server && span.http.route != nil } | select(span.http.route)`,
+        q: `{ resource.service.name = ${JSON.stringify(service)} && ${TRACES_FROM_THE_APP}${ofVersion} && kind = server && span.http.route != nil } | select(span.http.route)`,
         start: Math.floor(start.getTime() / 1000),
         end: Math.ceil(end.getTime() / 1000),
         limit,

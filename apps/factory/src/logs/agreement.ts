@@ -14,6 +14,7 @@ import { quoted } from '../alerts/queries.ts';
 import type { Loki } from '../clients/loki.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
 import type { Tempo } from '../clients/tempo.ts';
+import { METRICS_FROM_THE_APP } from '../provenance.ts';
 import { requestLogs } from '../routes.ts';
 
 /** The requests one route had in a window, as each record of them says. `traces` is absent when Tempo had none. */
@@ -122,7 +123,7 @@ export async function count(
   version?: string,
 ): Promise<{ routes: RouteCounts[]; tracesComplete: boolean }> {
   const seconds = Math.round((end.getTime() - start.getTime()) / 1000);
-  const job = `job=${quoted(o.app.metricsJob)}${version === undefined ? '' : `, service_version=${quoted(version)}`}`;
+  const job = `job=${quoted(o.app.metricsJob)}, ${METRICS_FROM_THE_APP}${version === undefined ? '' : `, service_version=${quoted(version)}`}`;
   const logged = version === undefined ? requestLogs(o) : `${requestLogs(o)} | service_version=${quoted(version)}`;
   const [metrics, logs, traced] = await Promise.all([
     backends.prometheus.instant(requestsBetween(job, seconds), end),
@@ -281,9 +282,9 @@ export async function signalForDisagreement(
     };
   }
   const minutes = Math.round((end.getTime() - start.getTime()) / 60_000);
-  const job = quoted(backends.objectives.app.metricsJob);
+  const job = `job=${quoted(backends.objectives.app.metricsJob)}, ${METRICS_FROM_THE_APP}`;
   const picture = await backends.prometheus.range(
-    `sum (increase(http_server_request_duration_seconds_count{job=${job}, http_route=${quoted(entry.path)}}[1m]))`,
+    `sum (increase(http_server_request_duration_seconds_count{${job}, http_route=${quoted(entry.path)}}[1m]))`,
     new Date(end.getTime() - 3600_000),
     end,
     60,

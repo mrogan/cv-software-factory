@@ -15,10 +15,11 @@ import type { InboxSignal } from '@software-factory/events';
 import type { Objectives } from '../../../../policy/objectives.ts';
 import { quoted } from '../alerts/queries.ts';
 import type { LogRecord } from '../clients/loki.ts';
+import { LOGS_FROM_THE_APP } from '../provenance.ts';
 
 /** The selector of the widget's records. */
 export function reportLogs(o: Objectives): string {
-  return `{service_name=${quoted(o.app.logsService)}} | event="report"`;
+  return `{service_name=${quoted(o.app.logsService)}, ${LOGS_FROM_THE_APP}} | event="report"`;
 }
 
 const MAX_TEXT = 2000;

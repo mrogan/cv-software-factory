@@ -47,7 +47,8 @@ config:
     # the stable version's pods and the canary's each their own: the canary's analysis tells the two apart by it. The
     # pod is found by the address its record came from, so this runs before batching, which forgets it. Only the app's
     # namespace is watched, and only it may be read (collector-reads-website.yaml); telemetry from anywhere else passes
-    # through unchanged.
+    # through unchanged. So these stamps also say which records are the app's: any worker may name itself `website`,
+    # and the senses read only stamped records as the app's (apps/factory/src/provenance.ts).
     k8s_attributes:
       filter:
         namespace: website
