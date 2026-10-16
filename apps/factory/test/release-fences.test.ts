@@ -108,27 +108,29 @@ describe('the line’s Verify', () => {
       ports: rule.ports.map((p) => `${p.protocol}/${p.port}`),
     }));
 
-  it('reaches the probes’ verification, Prometheus and Loki, each by its pods and port', async () => {
+  it('reaches the probes’ verification, Prometheus, Loki and Tempo, each by its pods and port', async () => {
     const egress = peers((await policy('line')).spec.egress, 'to');
     expect(egress).toContainEqual({
       peers: [['factory', { matchLabels: { 'app.kubernetes.io/name': 'probes' } }]],
       ports: ['TCP/8081'],
     });
-    expect(egress).toContainEqual({
-      peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'loki' } }]],
-      ports: ['TCP/3100'],
-    });
-    expect(egress).toContainEqual({
-      peers: [
-        [
-          'telemetry',
-          { matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } },
+    // Every rule of the line's that leaves its own namespace, by any namespace selector: Prometheus, Loki and Tempo,
+    // each by its pods and on its one port (Tempo's query port, for the log watcher's agreement check, not its intake).
+    const raw = (await policy('line')).spec.egress ?? [];
+    const elsewhere = raw.filter((rule) => rule.to?.some((peer) => peer.namespaceSelector !== undefined));
+    expect(peers(elsewhere, 'to').sort((a, b) => a.ports.join().localeCompare(b.ports.join()))).toEqual([
+      { peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'loki' } }]], ports: ['TCP/3100'] },
+      { peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'tempo' } }]], ports: ['TCP/3200'] },
+      {
+        peers: [
+          [
+            'telemetry',
+            { matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } },
+          ],
         ],
-      ],
-      ports: ['TCP/9090'],
-    });
-    // Tempo, and the rest of telemetry, stay out of its reach.
-    expect(egress.flatMap((rule) => rule.ports)).not.toContain('TCP/3200');
+        ports: ['TCP/9090'],
+      },
+    ]);
   });
 
   it('is let in by the probes on the verification’s port alone, and the page reader’s is triage’s', async () => {

@@ -48,7 +48,7 @@ Everything is denied in and out, then each pod is allowed what it needs.
 | Log watcher | Prometheus, Loki and Tempo | |
 | Probes | The app, the canary's pods included | The line, on their verify port; triage, on their page reader |
 | Crawler | The app, the canary's pods included | Nothing |
-| Line | The GitHub worker, the Kubernetes API, Prometheus, Loki and the probes' verify port | The runners' agent pods, with their handbacks |
+| Line | The GitHub worker, the Kubernetes API, Prometheus, Loki, Tempo and the probes' verify port | The runners' agent pods, with their handbacks |
 | Traffic generator | Traefik and the collector, and nothing else but DNS | |
 
 - Only the line may call the probes' verify port, as only triage may call their page reader.
@@ -94,6 +94,6 @@ It has controls, which must reach what they reach:
 - the GitHub worker reaches GitHub and GHCR;
 - Kyverno's admission controller reaches GHCR and Sigstore;
 - the traffic generator reaches the app only through Traefik;
-- the line reaches Loki and the probes' verify port, but not Tempo or their page reader;
+- the line reaches Loki, Tempo and the probes' verify port, but not their page reader;
 - the probes reach the canary;
 - Traefik, the probes and the crawler still reach the app.
