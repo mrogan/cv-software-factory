@@ -2,7 +2,8 @@
 // node blink.ts <before.png> <after.png> <out.svg>
 // The PNGs are embedded, so the SVG stands alone when GitHub shows it in a description. Before blinks over After, so
 // a reader who asks for reduced motion sees After, still.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 const [before, after, out] = process.argv.slice(2);
 if (!before || !after || !out) {
@@ -34,6 +35,7 @@ const frame = (label: string, image: ReturnType<typeof png>) => `
   <text x="12" y="${band / 2}" dominant-baseline="central" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="600" fill="#fff">${label}</text>
   <image y="${band}" width="${image.width}" height="${image.height}" href="data:image/png;base64,${image.data}"/>`;
 
+mkdirSync(dirname(out), { recursive: true });
 writeFileSync(
   out,
   `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">

@@ -8,7 +8,12 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'unit',
-          include: ['apps/*/test/**/*.test.ts', 'packages/*/test/**/*.test.ts', 'scripts/**/*.test.ts'],
+          include: [
+            'apps/*/test/**/*.test.ts',
+            'packages/*/test/**/*.test.ts',
+            'scripts/**/*.test.ts',
+            '.claude/skills/*/bin/*.test.ts',
+          ],
           exclude: ['packages/store/test/**', 'packages/*/test/database/**', 'apps/factory/test/**'],
         },
       },
