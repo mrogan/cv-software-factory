@@ -59,7 +59,7 @@ export default new Item(null, '2026-10-05T00:00:00+01:00', 'line/releases')
     restored: 'v0.9.8',
     weight: 25,
     reason: FAILED,
-    failed: [V099_LATENCY],
+    failed: [{ ...V099_LATENCY, failures: 2 }],
     dryRun: false,
   })
   // Monday evening: a build of one of Martin's commits fails latency the same way. #1308 is still open, so triage
@@ -77,7 +77,7 @@ export default new Item(null, '2026-10-05T00:00:00+01:00', 'line/releases')
     restored: 'v0.9.10',
     weight: 25,
     reason: FAILED,
-    failed: [V099_LATENCY],
+    failed: [{ ...V099_LATENCY, failures: 2 }],
     dryRun: false,
   })
   // Monday night: a build of another of Martin's commits reaches its 25% step while Prometheus is out of reach. The

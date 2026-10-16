@@ -150,6 +150,18 @@ export function versionsAt({ name, series }: Failed): { canary: number; baseline
   return typeof canary === 'number' && typeof baseline === 'number' ? { canary, baseline } : undefined;
 }
 
+/**
+ * How many looks of a measure failed before the rollback, as Argo Rollouts counted them in the one run that failed it:
+ * across the run, not in a row. Undefined for any end but a rollback, a measure it did not fail, a rollback that did
+ * not count them (version 2), and a measure more than one run failed (a step's and the background's), whose counts
+ * the rollback's own table says run by run: then the verdict says "failed" alone.
+ */
+export function failedLooks(end: End | undefined, name: string): number | undefined {
+  if (end?.kind !== 'rolled-back') return undefined;
+  const runs = end.failed.filter((f) => f.name === name);
+  return runs.length === 1 ? runs[0]?.failures : undefined;
+}
+
 /** A failed measure's message, when it says more than the rollback's reason or Argo Rollouts' boilerplate. */
 export const ownWords = (message: string | undefined, reason: string) =>
   message !== reason && !/ assessed \w+ due to /.test(message ?? '') ? message : undefined;

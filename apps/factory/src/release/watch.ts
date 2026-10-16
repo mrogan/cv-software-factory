@@ -516,7 +516,12 @@ function forTarget(
           .filter((m) => m.phase === 'failed')
           .map((m) => {
             const series = facts.series.get(`${run.metadata.name}/${m.name}`);
-            return series ? { ...m, series } : m;
+            const looks = run.status.metricResults.find((r) => r.name === m.name)?.failed;
+            return {
+              ...m,
+              ...(series ? { series } : {}),
+              ...(looks ? { failures: Math.min(looks, 10_000) } : {}),
+            };
           }),
       )
       .slice(0, 8);

@@ -53,6 +53,8 @@ test.describe('the Canary panel', () => {
     await expect(canary.getByRole('row', { name: /^Latency / })).toContainText(
       'no figures to compare, which counts as infinitely worse',
     );
+    // Argo Rollouts counts the failed looks across the run, not in a row.
+    await expect(canary.getByRole('row', { name: /^Latency / })).toContainText('failed twice');
     await expect(canary).toContainText('75% of the traffic never saw it: it stayed on v0.9.8.');
     await expect(canary.getByRole('button', { name: '#1308 Slow responses in a canary release' })).toBeVisible();
   });

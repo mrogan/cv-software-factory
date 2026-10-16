@@ -95,7 +95,7 @@ export interface RunState {
   step?: number;
   phase?: Phase;
   /** Each metric's phase and latest value, as Argo keeps it. */
-  metrics?: Record<string, { phase?: Phase; value?: string; message?: string }>;
+  metrics?: Record<string, { phase?: Phase; value?: string; message?: string; failed?: number }>;
   message?: string;
   created: string;
   completed?: string;
@@ -161,6 +161,7 @@ export function run(state: RunState): AnalysisRun {
         name,
         phase: m.phase ?? 'Successful',
         count: 1,
+        ...('failed' in m && m.failed !== undefined ? { failed: m.failed } : {}),
         ...('message' in m && m.message ? { message: m.message } : {}),
         measurements: [
           {

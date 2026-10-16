@@ -708,7 +708,7 @@ describe('upcasting the real catalogue', () => {
     const read = upcast({ type: 'release.rolled-back', version: 1, payload: v1 });
     expect(read).toMatchObject({
       event: {
-        version: 2,
+        version: 3,
         payload: {
           release: 'v0.9.1',
           failed: [
@@ -731,6 +731,25 @@ describe('upcasting the real catalogue', () => {
     const named = upcast({ type: 'release.rolled-back', version: 1, payload: odd });
     expect(named).toMatchObject({ event: { payload: { failed: [{ name: 'metric' }] } } });
     expect(named.ok && validate(asNew(named.event))).toEqual({ ok: true });
+  });
+
+  it('reads version 2 of release.rolled-back as it was, its failed looks not counted, and takes a count of them', () => {
+    const latency = { name: 'latency', phase: 'failed', value: 0.276, limit: 0 };
+    const v2 = { release: 'r', version: 'v0.9.1', restored: 'v0.9.0', weight: 25, reason: 'Failed', dryRun: false };
+    const read = upcast({ type: 'release.rolled-back', version: 2, payload: { ...v2, failed: [latency] } });
+    expect(read).toMatchObject({ event: { version: 3, payload: { failed: [latency] } } });
+    expect(read.ok && validate(asNew(read.event))).toEqual({ ok: true });
+    const counted = (failures: number) =>
+      validate({
+        ...opened,
+        type: 'release.rolled-back',
+        version: 3,
+        actor: 'rollouts',
+        payload: { ...v2, failed: [{ ...latency, failures }] },
+      });
+    expect(counted(2)).toEqual({ ok: true });
+    expect(counted(0).ok).toBe(false);
+    expect(counted(1.5).ok).toBe(false);
   });
 
   it('reads version 1 of verification.finished as a verification that ran, by a sense it never named', () => {

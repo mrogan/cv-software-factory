@@ -31,7 +31,7 @@ export const VERSIONS = {
   'release.started': 3,
   'canary.stepped': 2,
   'release.promoted': 2,
-  'release.rolled-back': 2,
+  'release.rolled-back': 3,
   'release.aborted': 1,
   'release.errored': 1,
   'verification.finished': 3,
