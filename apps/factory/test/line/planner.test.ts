@@ -324,12 +324,32 @@ describe('what the planner noticed outside its ticket', () => {
     for (const wrong of [
       Array.from({ length: MAX_PLANNER_FINDINGS + 1 }, () => finding),
       [{ ...finding, text: 'x'.repeat(301) }],
-      [{ ...finding, page: '/search?q=anything' }],
+      [{ ...finding, page: `/search?q=${'x'.repeat(1000)}` }],
+      [{ ...finding, route: 'products/:slug' }],
+      [{ ...finding, page: '' }],
+      [{ ...finding, route: '  ' }],
       [{ ...finding, symptom: 'wrong-result' }],
     ]) {
       expect(fits({ verdict: 'spec', spec: SPEC, findings: wrong }).success).toBe(false);
     }
     expect(planner.prompt(INPUT)).toContain('goes in `findings`, never in the spec');
+  });
+
+  it('cuts a page or route at its query, rather than refusing the result it came in', () => {
+    const queried = {
+      page: '/search?q=lamp#results',
+      route: '/search?q=:term',
+      text: 'Search for lamp lists a chair.',
+    };
+    const result = plannerResult().safeParse({ verdict: 'reject', reason: 'Not here.', findings: [queried] });
+    expect(result.data?.findings).toEqual([{ ...queried, page: '/search', route: '/search' }]);
+    const cut = (page: string) =>
+      plannerResult().safeParse({ verdict: 'reject', reason: 'Not here.', findings: [{ ...queried, page }] }).data
+        ?.findings[0]?.page;
+    expect(cut(' /search ?q=lamp')).toBe('/search');
+    expect(cut('?q=lamp')).toBe('/');
+    expect(cut('#top')).toBe('/');
+    expect(planner.prompt(INPUT)).toContain('without its query');
   });
 
   it('leaves each finding in triage’s inbox as the planner’s signal, its words where a report’s are', async () => {

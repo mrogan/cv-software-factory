@@ -94,13 +94,23 @@ const specWithin = (protectedPaths: readonly string[]) =>
 /** The most findings one plan leaves triage. */
 export const MAX_PLANNER_FINDINGS = 5;
 
-/** A path of the app with no query: a page a visitor opens, or a route as the app's code names it. */
+/**
+ * A path of the app: a page a visitor opens, or a route as the app's code names it. A query or fragment is cut off
+ * rather than refused, as `findingSignal` would cut it (a query alone is `/`; nothing at all is still refused), so
+ * one finding that names one does not cost the whole result: the query is the model's choice, and goes no further
+ * than the finding's text, which triage reads as untrusted.
+ */
 const path = (example: string) =>
   z
     .string()
-    .trim()
-    .regex(/^\/[^\s?#]*$/, `a path such as ${example}, with no query`)
-    .max(200);
+    .max(1000)
+    .transform((value) => (value.trim() ? routeOf(value.trim()).trim() : ''))
+    .pipe(
+      z
+        .string()
+        .regex(/^\/\S*$/, `a path such as ${example}`)
+        .max(200),
+    );
 
 /**
  * Something the planner noticed that its ticket does not ask for: where it shows, as a page and as the route that
@@ -222,7 +232,7 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
       ...SPEC_TEMPLATE.map((line) => `   ${line}`),
       `2. {"verdict":"reject","reason"} when you cannot make it testable: the cause is not in this repository, or you cannot find the defect the evidence shows, or no test could tell the fix from the defect. Reject it too when the fix needs a path no scope may name: ${protectedPaths.join(', ')}. The reason is one or two short sentences for Martin, at most 300 characters, naming the file or what is missing.`,
       '3. {"verdict":"question","question"} when the fix turns on what the app should do, which only Martin can say: one question he can answer in a line, at most 300 characters.',
-      `\`findings\`: at most ${MAX_PLANNER_FINDINGS}, each with \`page\`, a page of the app that shows it, as the path a visitor opens (\`/\` when it shows on none); \`route\`, the route that serves that page, as the app’s code names it, such as \`/products/:slug\`; and \`text\`, what is wrong or could be better, in a sentence or two of at most 300 characters.`,
+      `\`findings\`: at most ${MAX_PLANNER_FINDINGS}, each with \`page\`, a page of the app that shows it, as the path a visitor opens, without its query (\`/\` when it shows on none); \`route\`, the route that serves that page, as the app’s code names it, such as \`/products/:slug\`; and \`text\`, what is wrong or could be better, in a sentence or two of at most 300 characters, with the query if it shows only with one.`,
     ].join('\n'),
   apply: async (planned, _handback, _input, context) => {
     // A finding is known by where it is and what it says, so the same one handed back by a later plan, after a
