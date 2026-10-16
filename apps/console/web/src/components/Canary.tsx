@@ -138,14 +138,31 @@ export function phaseOf(r: Release, m: Measured, name: string): keyof typeof VER
   return analysis.measures.find((x) => x.name === name)?.phase ?? (analysis.measures.length ? 'none' : analysis.phase);
 }
 
-/** The measures at the latest step measured: the canary's figure, the baseline's, and the verdict. */
-function Measures({ r, m }: { r: Release; m: Measured }) {
-  const { analysis } = m.stepped;
+/**
+ * When the first step is measured, while the release waits for it: in flight, not a dry run, nothing measured yet,
+ * and at a step the analysis judges when its pause runs out. Otherwise there is nothing to wait for, and no table.
+ */
+function firstMeasured(r: Release): number | undefined {
+  const step = r.steps[r.step];
+  return r.planned && !r.end && !r.dryRun && !r.measured.length && step?.analysis ? r.until : undefined;
+}
+
+/**
+ * The measures at the latest step measured: the canary's figure, the baseline's, and the verdict. Before the first
+ * step is measured, the same rows wait for it, with no figures, each measuring.
+ */
+function Measures({ r, m, until }: { r: Release; m: Measured | undefined; until?: number | undefined }) {
   return (
     <table className="measures">
       <caption className="label">
-        At the {m.weight}% step ·{' '}
-        {r.dryRun ? `recorded ${clockSeconds(m.at)} by the dry run` : `measured ${clockSeconds(m.at)}`}
+        {m ? (
+          <>
+            At the {m.weight}% step ·{' '}
+            {r.dryRun ? `recorded ${clockSeconds(m.at)} by the dry run` : `measured ${clockSeconds(m.at)}`}
+          </>
+        ) : (
+          `At the ${r.weight}% step · measuring until ${until === undefined ? '' : clockSeconds(until)}`
+        )}
       </caption>
       <thead>
         <tr>
@@ -157,9 +174,11 @@ function Measures({ r, m }: { r: Release; m: Measured }) {
       </thead>
       <tbody>
         {MEASURES.map(([name, label, rule]) => {
-          const measure = analysis.measures.find((x) => x.name === name);
-          const phase = phaseOf(r, m, name);
-          const [canary, baseline] = [figureOf(r, m, name, 'canary'), figureOf(r, m, name, 'baseline')];
+          const measure = m?.stepped.analysis.measures.find((x) => x.name === name);
+          const phase = m ? phaseOf(r, m, name) : 'running';
+          const [canary, baseline] = m
+            ? [figureOf(r, m, name, 'canary'), figureOf(r, m, name, 'baseline')]
+            : ['—', '—'];
           return (
             <tr key={name} className={phase === 'failed' ? 'failed' : ''}>
               <td>
@@ -365,13 +384,14 @@ export function Canary({ view, t, onOpen }: { view: CanaryView; t: number; onOpe
     ? items[0].title + (items.length > 1 ? ` and ${items.length - 1} more` : '')
     : 'Carries no work item';
   const m = r.measured.at(-1);
+  const first = firstMeasured(r);
   const right =
     r.end?.kind === 'rolled-back' ? (
       <Rollback r={r} onOpen={onOpen} />
     ) : r.end?.kind === 'errored' ? (
       <ErrorEnd r={r} />
     ) : (
-      m && <Measures r={r} m={m} />
+      (m || first !== undefined) && <Measures r={r} m={m} until={first} />
     );
   return (
     <section className="canary" aria-labelledby="canary-title">
