@@ -221,7 +221,10 @@ expect "triage reaches Tempo's query port" deployment/triage http://tempo.teleme
 expect "triage cannot reach Tempo's intake" deployment/triage http://tempo.telemetry:4318/ blocked
 expect "triage cannot reach Tempo's gRPC intake" deployment/triage http://tempo.telemetry:4317/ blocked
 expect "triage cannot reach Grafana" deployment/triage http://grafana.telemetry/api/health blocked
-expect "the stranger in telemetry answers on Prometheus's port" telemetry:egress-stranger "http://$stranger_ip:9090" reached
+# The control: the stranger answers on each port, so a reader's "blocked" there is the policy's doing.
+for port in 9090 3100 3200; do
+  expect "the stranger in telemetry answers on $port" telemetry:egress-stranger "http://$stranger_ip:$port" reached
+done
 for port in 9090 3100 3200; do
   expect "triage cannot reach the stranger on $port" deployment/triage "http://$stranger_ip:$port" blocked
 done
