@@ -257,7 +257,7 @@ const boxOf = (screenshot: Screenshot) => {
   return rect;
 };
 
-/** Jev's answers to `triage/v1`, as TypeSafe returns them. */
+/** Jev's answers to `triage/v2`, as TypeSafe returns them. */
 function answers(
   category: [label: string, p: number],
   symptom: [label: string, p: number],
@@ -296,7 +296,7 @@ interface Report {
   text: string;
   shot: string;
   at: Date;
-  /** Jev's answers, to `triage/v1` and, for a content report, `passage/v1`. */
+  /** Jev's answers, to `triage/v2` and, for a content report, `passage/v1`. */
   triage: Record<string, Answer>;
   passage?: Record<string, Answer>;
 }
