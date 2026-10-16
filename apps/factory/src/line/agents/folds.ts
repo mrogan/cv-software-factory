@@ -35,8 +35,11 @@ const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
 /** A quote's markers, which a fold inside a quote stands behind. */
 const QUOTED = /^ {0,3}(?:> ?)+/;
 
-/** Where a tag is only text: inline code of any number of backticks, and an HTML comment. */
-const NOT_TAGS = /(`+)[^`][\s\S]*?\1|<!--[\s\S]*?-->/g;
+/**
+ * A `<details>` tag, opening or closing, as the second group; matched beside where a tag is only text, inline code of
+ * any number of backticks and an HTML comment, so that one there is passed over.
+ */
+const DETAILS = /(`+)[^`][\s\S]*?\1|<!--[\s\S]*?-->|(<\/?details\b)/gi;
 
 const quote = (line: string) => `“${line.trim().slice(0, 80)}”`;
 
@@ -74,7 +77,8 @@ export function unrenderedFolds(markdown: string): string[] {
       // Indented four spaces or more, outside a block: code, or a list's deeper content, where it is not followed.
       continue;
     }
-    for (const [tag] of line.replace(NOT_TAGS, '').matchAll(/<\/?details\b/gi)) {
+    for (const [, , tag] of line.matchAll(DETAILS)) {
+      if (!tag) continue;
       depth += tag.startsWith('</') ? -1 : 1;
       if (depth < 0) {
         found.push('a </details> closes no <details>');
