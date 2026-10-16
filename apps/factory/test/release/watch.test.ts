@@ -258,7 +258,7 @@ describe('a release, from the Rollout and its runs', () => {
     ).toEqual(['release.started', 'canary.stepped', 'canary.stepped', 'release.promoted']);
   });
 
-  it('rolls back when an analysis run of the release failed, with the failed measures and their series', () => {
+  it('rolls back when an analysis run of the release failed, with the failed measures, their series and failed looks', () => {
     const s = store(STABLE_RECORDED);
     const runs = [background()];
     s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), runs, { start: START });
@@ -269,7 +269,7 @@ describe('a release, from the Rollout and its runs', () => {
       message,
       metrics: {
         errors: { phase: 'Successful', value: '[0.0019]' },
-        latency: { phase: 'Failed', value: '[0.2473]', message: 'x'.repeat(400) },
+        latency: { phase: 'Failed', value: '[0.2473]', message: 'x'.repeat(400), failed: 2 },
         journeys: { phase: 'Successful' },
       },
     });
@@ -296,11 +296,35 @@ describe('a release, from the Rollout and its runs', () => {
         restored: commitOf(STABLE),
         weight: 25,
         reason: message,
-        failed: [{ name: 'latency', phase: 'failed', value: 0.2473, limit: 0, message: 'x'.repeat(300), series }],
+        failed: [
+          { name: 'latency', phase: 'failed', value: 0.2473, limit: 0, message: 'x'.repeat(300), series, failures: 2 },
+        ],
         dryRun: false,
       },
     ]);
     expect(s.pass(aborted, [failedRun]).said).toEqual({});
+  });
+
+  it('leaves out a failed measure’s count when Argo Rollouts kept none, and caps one beyond any run', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start: START });
+    const failedRun = background({
+      phase: 'Failed',
+      completed: t(3),
+      metrics: {
+        errors: { phase: 'Failed', value: '[0.03]', failed: 0 },
+        latency: { phase: 'Failed', value: '[0.2473]', failed: 20_000 },
+        journeys: { phase: 'Failed' },
+      },
+    });
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true }), [failedRun]);
+    const [back] = s.of('1001', 'release.rolled-back') as PayloadOf<'release.rolled-back'>[];
+    expect(back?.failed.map((m) => [m.name, m.failures])).toEqual([
+      ['errors', undefined],
+      ['latency', 10_000],
+      ['journeys', undefined],
+    ]);
+    expect(back?.failed.some((m) => 'failures' in m && m.failures === undefined)).toBe(false);
   });
 
   /** A run in the background that failed the canary at a time. */

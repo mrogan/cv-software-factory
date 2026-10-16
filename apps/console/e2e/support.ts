@@ -56,6 +56,7 @@ export function fixtureUrl({
  * samples' last moment shows a release in flight.
  */
 export const CANARY = {
+  'first-step': Date.parse('2026-10-06T14:19:30Z'),
   'no-work-item': Date.parse('2026-10-06T07:04:00Z'),
   promoted: Date.parse('2026-10-06T07:10:00Z'),
   'rolled-back': Date.parse('2026-10-02T07:26:30Z'),

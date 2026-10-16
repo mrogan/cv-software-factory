@@ -29,6 +29,20 @@ test.describe('the Canary panel', () => {
     await expect(page.getByRole('dialog', { name: 'The contact form loses your message' })).toBeVisible();
   });
 
+  test('draws the measures waiting before the first step is measured', async ({ page }) => {
+    await page.goto(consoleUrl({ at: CANARY['first-step'] }));
+    await shown(page);
+    const canary = panel(page);
+    await expect(canary.locator('.kick')).toHaveText('Canary · 25% of traffic');
+    await expect(canary.locator('table.measures caption')).toHaveText('At the 25% step · measuring until 15:21:00');
+    const rows = canary.locator('table.measures tbody tr');
+    await expect(rows).toHaveCount(4);
+    for (const row of await rows.all()) {
+      await expect(row.locator('td.mono')).toHaveText(['—baseline —', '—']);
+      await expect(row).toContainText('measuring');
+    }
+  });
+
   test('says a rollback’s story in words, and links the ticket its signal opened', async ({ page }) => {
     await page.goto(consoleUrl({ at: CANARY['rolled-back-no-step'] }));
     await shown(page);
@@ -39,6 +53,8 @@ test.describe('the Canary panel', () => {
     await expect(canary.getByRole('row', { name: /^Latency / })).toContainText(
       'no figures to compare, which counts as infinitely worse',
     );
+    // Argo Rollouts counts the failed looks across the run, not in a row.
+    await expect(canary.getByRole('row', { name: /^Latency / })).toContainText('failed twice');
     await expect(canary).toContainText('75% of the traffic never saw it: it stayed on v0.9.8.');
     await expect(canary.getByRole('button', { name: '#1308 Slow responses in a canary release' })).toBeVisible();
   });

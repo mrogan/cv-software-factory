@@ -104,6 +104,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
         dryRun: false,
       };
     },
+    // Version 3 adds how many of each failed measure's looks failed; a version 2 rollback never counted them.
+    2: (payload) => payload,
   },
   // Version 2 adds the sense and the version verified, and whether the dry run answers for it; a version 1
   // verification was a sense's, though it never said which.

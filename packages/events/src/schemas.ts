@@ -598,8 +598,13 @@ export const PAYLOADS = {
     weight: z.number().int().min(1).max(100),
     /** Why, in the analysis's words. */
     reason: text(200),
-    /** Each measure that failed, with the series that condemned it when there is one to draw. */
-    failed: z.array(measure.extend({ series: series.optional() })).max(8),
+    /**
+     * Each measure that failed, with the series that condemned it when there is one to draw, and how many of its run's
+     * looks failed, as Argo Rollouts counted them: across the run, not in a row. A version 2 rollback never said.
+     */
+    failed: z
+      .array(measure.extend({ series: series.optional(), failures: z.number().int().min(1).max(10_000).optional() }))
+      .max(8),
     dryRun: z.boolean(),
   }),
   /**

@@ -117,6 +117,8 @@ export const analysisRunSchema = z.object({
             name: z.string(),
             phase: z.string().optional(),
             message: z.string().optional(),
+            /** How many of its looks failed, across the run: Argo Rollouts fails the run when this passes the limit. */
+            failed: z.number().int().nonnegative().optional().catch(undefined),
             measurements: z.array(measurement).default([]),
           }),
         )
