@@ -5,12 +5,16 @@
 # Only the gateway (TypeSafe, Anthropic) and the GitHub worker (GitHub and GHCR) may reach the internet, over TLS, and
 # only triage and runners' agent pods may reach the gateway. This starts a pod labelled like a worker, which is what a
 # compromised one would be, and shows that it cannot reach TypeSafe, GitHub, the gateway, the GitHub worker, the app or
-# a public address, while the gateway can reach TypeSafe and the GitHub worker can reach GitHub. Triage, the intake and
-# the log watcher reach the backends they read, Prometheus, Loki and Tempo's query port, and not Tempo's intake,
-# Grafana, or a stranger in `telemetry` listening on the backends' ports: each backend is named by its own pods.
+# a public address, while the gateway can reach TypeSafe and the GitHub worker can reach GitHub.
 #
-# Then the line, which reaches the Kubernetes API, Prometheus, Loki, Tempo and the probes' verification, and not another
-# address on the API's port, the node's other ports, the probes' page reader or the app.
+# Then the line, which reaches the Kubernetes API and the probes' verification, and not another address on the API's
+# port, the node's other ports, the probes' page reader or the app.
+#
+# Then the readers of telemetry (triage, the intake, the log watcher and the line), which query Prometheus, Loki and
+# Tempo through the read-only proxy in `telemetry` and cannot write through it: not metrics, not logs, not a reload of
+# Prometheus or a flush of Tempo. They cannot reach the backends themselves, Tempo's intake, Grafana, or a stranger in
+# `telemetry` listening on the backends' ports. And Prometheus, asked directly, will not reload: its lifecycle
+# endpoints are off.
 #
 # Then the runners (ADR 0008): a pod made like an agent pod (its labels, no DNS, the line's two addresses in its hosts)
 # reaches the gateway and the line's handback and nothing else: not GitHub, the Kubernetes API, the cloud metadata
@@ -74,7 +78,9 @@ trap cleanup EXIT
 try='process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const blocks = ["ECONNREFUSED", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT", "TimeoutError"];
 const names = ["ENOTFOUND", "EAI_AGAIN"];
-const [url, host] = process.argv.slice(1);
+// An address may start with a method, as "POST http://...": it is sent with an empty body.
+const [target, host] = process.argv.slice(1);
+const [method, url] = target.includes(" ") ? target.split(" ") : ["GET", target];
 const tcp = url.startsWith("tcp://") && new URL(url);
 const get = tcp
   ? new Promise((resolve, reject) => {
@@ -94,7 +100,7 @@ const get = tcp
       req.on("timeout", () => req.destroy(Object.assign(new Error("timeout"), { code: "TimeoutError" })));
       req.on("error", reject);
     })
-  : fetch(url, { signal: AbortSignal.timeout(6000) });
+  : fetch(url, { method, body: method === "GET" ? undefined : "", signal: AbortSignal.timeout(6000) });
 get.then(
   (r) => console.log(r.tcp ? "reached, TCP" : "reached, HTTP " + r.status),
   (e) => {
@@ -215,32 +221,6 @@ expect "the GitHub worker reaches GHCR" deployment/github https://ghcr.io/v2/ re
 expect "the GitHub worker cannot reach the app" deployment/github http://website.website blocked
 expect "the GitHub worker cannot reach the gateway" deployment/github http://gateway:8080/health blocked
 expect "triage reaches the gateway" deployment/triage http://gateway:8080/health reached
-expect "triage reaches Prometheus" deployment/triage http://prometheus-server.telemetry/-/healthy reached
-expect "triage reaches Loki" deployment/triage http://loki.telemetry:3100/ready reached
-expect "triage reaches Tempo's query port" deployment/triage http://tempo.telemetry:3200/ready reached
-expect "triage cannot reach Tempo's intake" deployment/triage http://tempo.telemetry:4318/ blocked
-expect "triage cannot reach Tempo's gRPC intake" deployment/triage http://tempo.telemetry:4317/ blocked
-expect "triage cannot reach Grafana" deployment/triage http://grafana.telemetry/api/health blocked
-# The control: the stranger answers on each port, so a reader's "blocked" there is the policy's doing.
-for port in 9090 3100 3200; do
-  expect "the stranger in telemetry answers on $port" telemetry:egress-stranger "http://$stranger_ip:$port" reached
-done
-for port in 9090 3100 3200; do
-  expect "triage cannot reach the stranger on $port" deployment/triage "http://$stranger_ip:$port" blocked
-done
-expect "the intake reaches Prometheus" deployment/intake http://prometheus-server.telemetry/-/healthy reached
-expect "the intake reaches Loki" deployment/intake http://loki.telemetry:3100/ready reached
-expect "the intake cannot reach Tempo" deployment/intake http://tempo.telemetry:3200/ready blocked
-expect "the intake cannot reach the stranger on 9090" deployment/intake "http://$stranger_ip:9090" blocked
-expect "the intake cannot reach the stranger on 3100" deployment/intake "http://$stranger_ip:3100" blocked
-expect "the log watcher reaches Prometheus" deployment/logs http://prometheus-server.telemetry/-/healthy reached
-expect "the log watcher reaches Loki" deployment/logs http://loki.telemetry:3100/ready reached
-expect "the log watcher reaches Tempo's query port" deployment/logs http://tempo.telemetry:3200/ready reached
-expect "the log watcher cannot reach Tempo's intake" deployment/logs http://tempo.telemetry:4318/ blocked
-expect "the log watcher cannot reach Grafana" deployment/logs http://grafana.telemetry/api/health blocked
-for port in 9090 3100 3200; do
-  expect "the log watcher cannot reach the stranger on $port" deployment/logs "http://$stranger_ip:$port" blocked
-done
 expect "the intake cannot reach the gateway" deployment/intake http://gateway:8080/health blocked
 expect "the worker cannot reach the probes" "$pod" http://probes:8080/health blocked
 expect "the worker cannot reach the probes' verification" "$pod" http://probes:8081/health blocked
@@ -248,15 +228,6 @@ expect "the worker cannot reach the probes' verification" "$pod" http://probes:8
 echo "The line:"
 expect "the line reaches the Kubernetes API" deployment/line "https://$api_ip/version" reached
 expect "the line reaches the API server on the node" deployment/line "https://$node_ip:6443/version" reached
-expect "the line reaches Prometheus" deployment/line http://prometheus-server.telemetry/-/healthy reached
-expect "the line reaches Loki" deployment/line http://loki.telemetry:3100/ready reached
-expect "the line reaches Tempo's query port" deployment/line http://tempo.telemetry:3200/ready reached
-expect "the line cannot reach Tempo's intake" deployment/line http://tempo.telemetry:4318/ blocked
-expect "the line cannot reach Tempo's gRPC intake" deployment/line http://tempo.telemetry:4317/ blocked
-expect "the line cannot reach Grafana" deployment/line http://grafana.telemetry/api/health blocked
-for port in 9090 3100 3200; do
-  expect "the line cannot reach the stranger in telemetry on $port" deployment/line "http://$stranger_ip:$port" blocked
-done
 expect "the line reaches the probes' verification" deployment/line http://probes:8081/health reached
 expect "the line cannot reach the probes' page reader" deployment/line http://probes:8080/health blocked
 expect "the line cannot reach the app" deployment/line http://website.website blocked
@@ -264,6 +235,48 @@ expect "the line cannot reach the node's ingress" deployment/line "https://$node
 expect "the line cannot reach a public address" deployment/line https://1.1.1.1 blocked
 expect "the line cannot reach the gateway" deployment/line http://gateway:8080/health blocked
 expect "the line cannot reach the host" deployment/line http://0.250.250.254:1234/v1/models blocked
+
+# What a reader of telemetry may do: query each backend it reads through the proxy, and nothing else. A write the proxy
+# refuses is answered 405, a path it does not pass 403, before it reaches a backend.
+# $1: the reader; $2: its pod; $3: "tempo" if it reads Tempo as well as Prometheus and Loki.
+reads_telemetry() {
+  local q=http://query.telemetry
+  expect "$1 queries Prometheus through the proxy" "$2" "$q:9090/api/v1/query?query=up" "reached, HTTP 200"
+  expect "$1 queries Loki through the proxy" "$2" "$q:3100/loki/api/v1/query?query=vector(1)" "reached, HTTP 200"
+  if [ "${3:-}" = tempo ]; then
+    expect "$1 searches Tempo through the proxy" "$2" "$q:3200/api/search?limit=1" "reached, HTTP 200"
+    expect "$1 cannot flush Tempo through the proxy" "$2" "$q:3200/flush" "reached, HTTP 403"
+  else
+    expect "$1 cannot reach Tempo through the proxy" "$2" "$q:3200/ready" blocked
+  fi
+  expect "$1 cannot write metrics through the proxy" "$2" "POST $q:9090/api/v1/otlp/v1/metrics" "reached, HTTP 405"
+  expect "$1 cannot push logs through the proxy" "$2" "POST $q:3100/loki/api/v1/push" "reached, HTTP 405"
+  expect "$1 cannot push OTLP logs through the proxy" "$2" "POST $q:3100/otlp/v1/logs" "reached, HTTP 405"
+  expect "$1 cannot have Prometheus reload through the proxy" "$2" "POST $q:9090/-/reload" "reached, HTTP 405"
+  expect "$1 cannot read Prometheus's configuration through the proxy" "$2" "$q:9090/api/v1/status/config" \
+    "reached, HTTP 403"
+  expect "$1 cannot reach Prometheus itself" "$2" http://prometheus-server.telemetry/-/healthy blocked
+  expect "$1 cannot reach Loki itself" "$2" http://loki.telemetry:3100/ready blocked
+  expect "$1 cannot reach Tempo itself" "$2" http://tempo.telemetry:3200/ready blocked
+  expect "$1 cannot reach Tempo's intake" "$2" http://tempo.telemetry:4318/ blocked
+  expect "$1 cannot reach Grafana" "$2" http://grafana.telemetry/api/health blocked
+  for port in 9090 3100 3200; do
+    expect "$1 cannot reach the stranger in telemetry on $port" "$2" "http://$stranger_ip:$port" blocked
+  done
+}
+
+echo "The readers of telemetry, through the read-only proxy, and Prometheus itself:"
+# The control: the stranger answers on each port, so a reader's "blocked" there is the policy's doing.
+for port in 9090 3100 3200; do
+  expect "the stranger in telemetry answers on $port" telemetry:egress-stranger "http://$stranger_ip:$port" reached
+done
+expect "Prometheus, asked directly, will not reload" telemetry:egress-stranger \
+  "POST http://prometheus-server.telemetry/-/reload" "reached, HTTP 403"
+reads_telemetry triage deployment/triage tempo
+reads_telemetry "the intake" deployment/intake
+reads_telemetry "the log watcher" deployment/logs tempo
+reads_telemetry "the line" deployment/line tempo
+expect "the worker cannot reach the proxy" "$pod" http://query.telemetry:9090/-/healthy blocked
 
 echo "Pods labelled like a runner's agent pod and prepare pod:"
 expect "the agent pod reaches the gateway" runners:egress-agent http://gateway.factory.svc:8080/health reached
@@ -310,6 +323,7 @@ expect "the app cannot reach the collector on another port" website:egress-app h
 expect "the app cannot reach Prometheus" website:egress-app http://prometheus-server.telemetry/-/healthy blocked
 expect "the app cannot reach Loki" website:egress-app http://loki.telemetry:3100/ready blocked
 expect "the app cannot reach Tempo" website:egress-app http://tempo.telemetry:3200/ready blocked
+expect "the app cannot reach the read-only proxy" website:egress-app http://query.telemetry:9090/-/healthy blocked
 expect "the app cannot reach Postgres" website:egress-app "http://$postgres_ip:5432" blocked
 expect "the app cannot reach the gateway" website:egress-app "http://$gateway_ip:8080/health" blocked
 expect "the app cannot reach the Kubernetes API" website:egress-app "https://$api_ip/version" blocked
@@ -354,6 +368,7 @@ expect "the scoreboard cannot reach the console" scoreboard:deployment/scoreboar
 expect "the scoreboard cannot reach the probes" scoreboard:deployment/scoreboard http://probes.factory:8080/health blocked
 expect "the scoreboard cannot reach Prometheus" scoreboard:deployment/scoreboard http://prometheus-server.telemetry/-/healthy blocked
 expect "the scoreboard cannot reach Loki" scoreboard:deployment/scoreboard http://loki.telemetry:3100/ready blocked
+expect "the scoreboard cannot reach the read-only proxy" scoreboard:deployment/scoreboard http://query.telemetry:9090/-/healthy blocked
 expect "the scoreboard cannot reach the app" scoreboard:deployment/scoreboard http://website.website blocked
 expect "the scoreboard cannot reach the Kubernetes API" scoreboard:deployment/scoreboard "https://$api_ip/version" blocked
 expect "the scoreboard cannot reach the API server on the node" scoreboard:deployment/scoreboard "https://$node_ip:6443" blocked
@@ -416,7 +431,7 @@ if [ -n "$answers" ]; then echo "$answers"; failed=1; else
 fi
 
 if [ "$failed" = 0 ]; then
-  echo "Only the gateway, the GitHub worker and Kyverno's admission controller leave the cluster; the runners, the release,"
-  echo "the traffic, the app and the scoreboard are fenced."
+  echo "Only the gateway, the GitHub worker and Kyverno's admission controller leave the cluster; the readers of telemetry"
+  echo "only read it; the runners, the release, the traffic, the app and the scoreboard are fenced."
 else echo "The network policies do not hold."; fi
 exit "$failed"

@@ -9,6 +9,10 @@
 # Policies add: a pod may do whatever any policy that selects it allows. Policies on telemetry are not needed to let
 # traffic in, because that namespace denies nothing; the app's pods in `website` let in only Traefik, the probes, the
 # crawler and the analysis (deploy/base/website/network-policy.yaml).
+#
+# The workers that read telemetry reach Prometheus, Loki and Tempo only through the read-only proxy in `telemetry`
+# (deploy/base/telemetry/query.yaml), on each backend's own port, and never the backends themselves: a policy allows a
+# port and not a path, and the proxy passes queries and refuses writes.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -233,9 +237,8 @@ spec:
       ports:
         - { protocol: TCP, port: 4318 }
 ---
-# Triage asks the gateway to judge a report, and the probes' page reader for the page it names. It reads
-# Prometheus, Loki and Tempo's query port, which the senses read besides the app, before it trusts a sense's signal: each
-# backend's own pods only, as the line's are, since triage handles reports from the public.
+# Triage asks the gateway to judge a report, and the probes' page reader for the page it names. It reads Prometheus,
+# Loki and Tempo, which the senses read besides the app, before it trusts a sense's signal: through the read-only proxy.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -260,31 +263,14 @@ spec:
               kubernetes.io/metadata.name: telemetry
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: prometheus
-              app.kubernetes.io/component: server
+              app.kubernetes.io/name: query
       ports:
         - { protocol: TCP, port: 9090 }
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: telemetry
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: loki
-      ports:
         - { protocol: TCP, port: 3100 }
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: telemetry
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: tempo
-      ports:
         - { protocol: TCP, port: 3200 }
 ---
-# Alertmanager posts firing alerts to the intake, which fetches the series behind each from Prometheus and Loki: each
-# backend's own pods only, as the line's rules do.
+# Alertmanager posts firing alerts to the intake, which fetches the series behind each from Prometheus and Loki, through
+# the read-only proxy.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -313,21 +299,12 @@ spec:
               kubernetes.io/metadata.name: telemetry
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: prometheus
-              app.kubernetes.io/component: server
+              app.kubernetes.io/name: query
       ports:
         - { protocol: TCP, port: 9090 }
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: telemetry
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: loki
-      ports:
         - { protocol: TCP, port: 3100 }
 ---
-# The log watcher reads Prometheus, Loki and Tempo's query port: each backend's own pods only, as the line's rules do.
+# The log watcher reads Prometheus, Loki and Tempo, through the read-only proxy.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -346,27 +323,10 @@ spec:
               kubernetes.io/metadata.name: telemetry
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: prometheus
-              app.kubernetes.io/component: server
+              app.kubernetes.io/name: query
       ports:
         - { protocol: TCP, port: 9090 }
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: telemetry
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: loki
-      ports:
         - { protocol: TCP, port: 3100 }
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: telemetry
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: tempo
-      ports:
         - { protocol: TCP, port: 3200 }
 ---
 # The probes look at the app; triage may call their page reader, and the line their verification, which runs a ticket's
@@ -424,10 +384,9 @@ spec:
         - { protocol: TCP, port: 8080 }
 ---
 # The line takes runners' handbacks, starts their Jobs and reads the app's Rollout through the Kubernetes API, asks the
-# GitHub worker to act, and reads each version's figures in a release from Prometheus, on its pods' port behind the
-# Service's 80. At Verify it asks the probes to run a ticket's check again, and reads Prometheus and Loki for an alert's
-# expression and the log watcher's pattern on the new version, and Tempo's query port too, for the watcher's agreement
-# check. The API server listens on the k3d node's own address, which Docker chooses when the cluster is made, on 6443.
+# GitHub worker to act, and reads each version's figures in a release from Prometheus. At Verify it asks the probes to
+# run a ticket's check again, and reads Prometheus and Loki for an alert's expression and the log watcher's pattern on
+# the new version, and Tempo too, for the watcher's agreement check: each through the read-only proxy. The API server listens on the k3d node's own address, which Docker chooses when the cluster is made, on 6443.
 # A policy sees a connection after the `kubernetes` Service has translated it, so 6443 on a private address is all the
 # line needs, and it reaches nothing else on the cluster's or the local network's addresses.
 apiVersion: networking.k8s.io/v1
@@ -473,27 +432,10 @@ spec:
               kubernetes.io/metadata.name: telemetry
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: prometheus
-              app.kubernetes.io/component: server
+              app.kubernetes.io/name: query
       ports:
         - { protocol: TCP, port: 9090 }
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: telemetry
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: loki
-      ports:
         - { protocol: TCP, port: 3100 }
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: telemetry
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: tempo
-      ports:
         - { protocol: TCP, port: 3200 }
     - to:
         - podSelector:

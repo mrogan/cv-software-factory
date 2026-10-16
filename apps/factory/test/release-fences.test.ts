@@ -95,27 +95,21 @@ describe('the line’s Verify', () => {
       ports: rule.ports.map((p) => `${p.protocol}/${p.port}`),
     }));
 
-  it('reaches the probes’ verification, Prometheus, Loki and Tempo, each by its pods and port', async () => {
+  it('reaches the probes’ verification, and Prometheus, Loki and Tempo through the read-only proxy alone', async () => {
     const egress = peers((await policy('line')).spec.egress, 'to');
     expect(egress).toContainEqual({
       peers: [['factory', { matchLabels: { 'app.kubernetes.io/name': 'probes' } }]],
       ports: ['TCP/8081'],
     });
-    // Every rule of the line's that leaves its own namespace, by any namespace selector: Prometheus, Loki and Tempo,
-    // each by its pods and on its one port (Tempo's query port, for the log watcher's agreement check, not its intake).
+    // Every rule of the line's that leaves its own namespace, by any namespace selector: the proxy's pods, on the ports
+    // of the three backends (Tempo's query port, for the log watcher's agreement check), and never a backend itself
+    // (telemetry-fences.test.ts).
     const raw = (await policy('line')).spec.egress ?? [];
     const elsewhere = raw.filter((rule) => rule.to?.some((peer) => peer.namespaceSelector !== undefined));
-    expect(peers(elsewhere, 'to').sort((a, b) => a.ports.join().localeCompare(b.ports.join()))).toEqual([
-      { peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'loki' } }]], ports: ['TCP/3100'] },
-      { peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'tempo' } }]], ports: ['TCP/3200'] },
+    expect(peers(elsewhere, 'to')).toEqual([
       {
-        peers: [
-          [
-            'telemetry',
-            { matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } },
-          ],
-        ],
-        ports: ['TCP/9090'],
+        peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'query' } }]],
+        ports: ['TCP/9090', 'TCP/3100', 'TCP/3200'],
       },
     ]);
   });
