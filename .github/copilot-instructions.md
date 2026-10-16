@@ -20,6 +20,6 @@ Follow the rules in `docs/REVIEWERS.md`.
   they describe. `docs/SPECIFICATION.md` is the source of truth; `docs/TERMS.md` holds the agreed words.
 - `deploy/` is GitOps: Argo CD deploys what is on `main`.
 - Files in `.github/CODEOWNERS` are the rules of the line: workflows, rulesets, policy and gate configuration. A change
-  that loosens one deserves a comment saying so, however small.
+  that loosens one deserves a comment saying so, however small. A pull request names each one it changes, and why.
 - GitHub Actions are pinned by full commit SHA, with the least `permissions` a job needs, and untrusted code runs
   under `pull_request`, never `pull_request_target`.
