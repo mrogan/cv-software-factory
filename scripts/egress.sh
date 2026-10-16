@@ -215,6 +215,8 @@ expect "the line reaches Prometheus" deployment/line http://prometheus-server.te
 expect "the line reaches Loki" deployment/line http://loki.telemetry:3100/ready reached
 expect "the line reaches Tempo's query port" deployment/line http://tempo.telemetry:3200/ready reached
 expect "the line cannot reach Tempo's intake" deployment/line http://tempo.telemetry:4318/ blocked
+expect "the line cannot reach Tempo's gRPC intake" deployment/line http://tempo.telemetry:4317/ blocked
+expect "the line cannot reach Grafana" deployment/line http://grafana.telemetry/api/health blocked
 expect "the line reaches the probes' verification" deployment/line http://probes:8081/health reached
 expect "the line cannot reach the probes' page reader" deployment/line http://probes:8080/health blocked
 expect "the line cannot reach the app" deployment/line http://website.website blocked

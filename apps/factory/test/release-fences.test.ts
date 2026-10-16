@@ -114,33 +114,22 @@ describe('the line’s Verify', () => {
       peers: [['factory', { matchLabels: { 'app.kubernetes.io/name': 'probes' } }]],
       ports: ['TCP/8081'],
     });
-    expect(egress).toContainEqual({
-      peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'loki' } }]],
-      ports: ['TCP/3100'],
-    });
-    expect(egress).toContainEqual({
-      peers: [
-        [
-          'telemetry',
-          { matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } },
+    // Every rule of the line's that leaves its own namespace, by any namespace selector: Prometheus, Loki and Tempo,
+    // each by its pods and on its one port (Tempo's query port, for the log watcher's agreement check, not its intake).
+    const raw = (await policy('line')).spec.egress ?? [];
+    const elsewhere = raw.filter((rule) => rule.to?.some((peer) => peer.namespaceSelector !== undefined));
+    expect(peers(elsewhere, 'to').sort((a, b) => a.ports.join().localeCompare(b.ports.join()))).toEqual([
+      { peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'loki' } }]], ports: ['TCP/3100'] },
+      { peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'tempo' } }]], ports: ['TCP/3200'] },
+      {
+        peers: [
+          [
+            'telemetry',
+            { matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } },
+          ],
         ],
-      ],
-      ports: ['TCP/9090'],
-    });
-    // Tempo's query port, for the log watcher's agreement check: not its intake.
-    expect(egress).toContainEqual({
-      peers: [['telemetry', { matchLabels: { 'app.kubernetes.io/name': 'tempo' } }]],
-      ports: ['TCP/3200'],
-    });
-    // Those three, each on its one port, and nothing else in telemetry: not the collector, Grafana or Alertmanager.
-    const telemetry = egress.filter((rule) => rule.peers.some(([namespace]) => namespace === 'telemetry'));
-    expect(telemetry.map((rule) => [rule.peers.map(([, pods]) => pods), rule.ports])).toEqual([
-      [
-        [{ matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } }],
-        ['TCP/9090'],
-      ],
-      [[{ matchLabels: { 'app.kubernetes.io/name': 'loki' } }], ['TCP/3100']],
-      [[{ matchLabels: { 'app.kubernetes.io/name': 'tempo' } }], ['TCP/3200']],
+        ports: ['TCP/9090'],
+      },
     ]);
   });
 
