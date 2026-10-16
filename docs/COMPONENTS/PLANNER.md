@@ -19,7 +19,7 @@ A spec, a rejection or a question, read with Zod, each with up to five `findings
 
 ### A spec
 
-- **Criteria.** Each criterion names what in the ticket's evidence asks for it (`from`: the ticket, a numbered signal, or Martin's answer). One nothing asks for does not belong in the spec.
+- **Criteria.** Each criterion names what in the ticket's evidence asks for it (`from`: the ticket, a numbered signal, or Martin's answer), and quotes the words there that do (`quote`). The schema refuses a spec whose quote is not in what its criterion names, as the prompt told it, before any review; whether the words ask for the criterion is the [reviewer's](REVIEWER.md) to judge. One nothing asks for does not belong in the spec.
 - **Scope.** A plain path in the repository. It never names `.github/`, `deploy/` or a path the app's CODEOWNERS gives Martin at that commit, which the line reads through the [GitHub worker](GITHUB-WORKER.md).
 - **Risk.** A spec tagged `out-of-scope` holds for Martin before the coder starts ([approval routing](APPROVAL-ROUTING.md)).
 

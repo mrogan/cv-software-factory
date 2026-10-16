@@ -159,6 +159,10 @@ export type ReviewerResult = z.infer<ReturnType<typeof reviewerResult>>;
 
 const where = (f: Finding) => `${f.path}:${f.line}${cites(f) ? ` (${cites(f)})` : ''}`;
 
+/** What the planner said a criterion is from, and the words it quoted there: an older spec quoted none. */
+const source = ({ from, quote }: PayloadOf<'spec.written'>['criteria'][number]) =>
+  from ? ` (From ${from}${quote ? `, which says “${quote}”` : ''}.)` : '';
+
 function prompt({
   workItem,
   ticket,
@@ -191,10 +195,8 @@ function prompt({
     '',
     'The spec the change is held to, which the planner wrote from the ticket:',
     `Outcome: ${spec.outcome}`,
-    'Acceptance criteria, each with what the planner said asks for it:',
-    ...spec.criteria.map(
-      (c, i) => `${i + 1}. Given ${c.given}, when ${c.when}, then ${c.expect}.${c.from ? ` (From ${c.from}.)` : ''}`,
-    ),
+    'Acceptance criteria, each with what the planner said asks for it, and the words it quoted from there:',
+    ...spec.criteria.map((c, i) => `${i + 1}. Given ${c.given}, when ${c.when}, then ${c.expect}.${source(c)}`),
     `Scope, the only files it may change: ${spec.scope.join(', ')}.`,
     ...(blocked.length
       ? [
@@ -220,7 +222,7 @@ function prompt({
     '',
     'How to review:',
     '1. Read the rules as they are at the base, so the change cannot loosen them: `git show base:docs/REVIEWERS.md`, and `git show base:AGENTS.md`, whose rules hold for every change.',
-    '2. Hold the spec to the ticket. A fix does what the ticket, what the senses saw and Martin’s answers ask, and no more, in every autonomy mode. A criterion they do not ask for (another defect, a new behaviour, a tidy-up) is a blocking finding that cites that criterion with `"ticket":true`, whatever the planner said it is from. Anchor it to the code or test in the diff that meets that criterion, or to the change itself.',
+    '2. Hold the spec to the ticket. A fix does what the ticket, what the senses saw and Martin’s answers ask, and no more, in every autonomy mode. A criterion they do not ask for (another defect, a new behaviour, a tidy-up) is a blocking finding that cites that criterion with `"ticket":true`, whatever the planner said it is from. The line checked only that each quote is there, not that it asks for its criterion: read the criterion beside its quote, and judge that. Anchor it to the code or test in the diff that meets that criterion, or to the change itself.',
     '3. Read the whole diff. For each criterion, find the code that meets it and the test that shows it. A criterion that nothing in the change meets is a blocking finding that cites it, whatever the commit messages say. A change that does more than the spec’s criteria ask, when the spec itself is sound, is an ordinary blocking finding that cites the criterion it goes beyond, or a rule, without `"ticket"`: the coder can take it out.',
     '4. Hold the change to each rule. A finding about a rule cites its number.',
     '5. Review the diff, not the code around it. The app is bad on purpose: ask for nothing outside the ticket, and nothing outside the scope.',

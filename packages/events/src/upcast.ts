@@ -117,7 +117,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   // Version 2 lets the canary reopen a ticket as any sense may; a version 1 reopening reads as it was.
   'work-item.reopened': { 1: (payload) => payload },
   // Version 2 adds where each criterion comes from. A version 1 spec never said, so its criteria read without it.
-  'spec.written': { 1: (payload) => payload },
+  // Version 3 adds the words each criterion quotes from there; a version 2 spec quoted none.
+  'spec.written': { 1: (payload) => payload, 2: (payload) => payload },
   // Version 2 adds the pull request's whole change. A version 1 push recorded only its own files, which are the whole
   // change for a first push, and the nearest the event has for a later one.
   'pull-request.pushed': { 1: (payload) => ({ ...payload, whole: payload.files }) },

@@ -93,7 +93,13 @@ new file mode 100644
 const SPEC = {
   outcome: 'Search answers a query with a quote in it.',
   criteria: [
-    { given: 'a query with a quote', when: 'it is searched', expect: 'the page lists matches', from: 'the ticket' },
+    {
+      given: 'a query with a quote',
+      when: 'it is searched',
+      expect: 'the page lists matches',
+      from: 'the ticket',
+      quote: 'Server errors',
+    },
   ],
   scope: ['src/search.ts', 'test/'],
   risks: [],
