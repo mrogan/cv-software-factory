@@ -1,6 +1,19 @@
+import type { InboxSignal } from '@software-factory/events';
+import { validateSignal } from '@software-factory/events/schemas';
 import { describe, expect, it } from 'vitest';
 import { objectives } from '../../../policy/objectives.ts';
-import { agree, combine, judge, type RouteCounts, requestsBetween, TOLERANCE } from '../src/logs/agreement.ts';
+import type { Sample } from '../src/clients/http.ts';
+import {
+  agree,
+  combine,
+  count,
+  judge,
+  logSilent,
+  type RouteCounts,
+  requestsBetween,
+  signalForSilentLog,
+  TOLERANCE,
+} from '../src/logs/agreement.ts';
 import { type Backends, Watcher } from '../src/logs/watcher.ts';
 import { VERSION } from './fakes.ts';
 
@@ -34,9 +47,9 @@ describe('judging a route from its three counts', () => {
   });
 });
 
-const entry = (path: string, metrics: number, logs: number, traces?: number): RouteCounts => ({
+const entry = (path: string, metrics: number, logs: number, traces?: number, route = path): RouteCounts => ({
   path,
-  route: path,
+  route,
   version: VERSION,
   metrics,
   logs,
@@ -108,5 +121,202 @@ describe('judging windows in pairs', () => {
     failing = true;
     await expect(watcher.checkAgreement(at(15))).rejects.toThrow('Loki is down');
     expect(previous()).toBeUndefined();
+  });
+});
+
+describe('a log silent for every route', () => {
+  it.each([
+    [
+      'every route’s requests, and none in the log',
+      [entry('/a', 40, 0, 40), entry('/b', 20, 0, 20), entry('/c', 9, 0)],
+      true,
+    ],
+    ['a stray record or two at the edge of the window', [entry('/a', 40, 2, 40), entry('/b', 20, 1, 20)], true],
+    ['one route quiet, the others logged', [entry('/a', 40, 0, 40), entry('/b', 20, 20, 20), entry('/c', 9, 9)], false],
+    [
+      'two routes quiet beside a busy one logged',
+      [entry('/a', 40, 0, 40), entry('/b', 20, 0), entry('/c', 90, 90)],
+      false,
+    ],
+    [
+      'a quiet log beside a light route logged',
+      [entry('/a', 40, 0, 40), entry('/b', 20, 0, 20), entry('/c', 4, 4)],
+      false,
+    ],
+    ['only one route had requests', [entry('/a', 40, 0, 40), entry('/b', 2, 0, 2)], false],
+    [
+      'two paths of one route are one route',
+      [entry('/p/x', 40, 0, 40, '/p/:slug'), entry('/p/y', 20, 0, 20, '/p/:slug')],
+      false,
+    ],
+    ['nothing anywhere', [entry('/a', 0, 0, 0), entry('/b', 0, 0)], false],
+    [
+      'a route spread thin over many pages still counts',
+      [...['1', '2', '3'].map((n) => entry(`/p/${n}`, 3, 0, 3, '/p/:slug')), entry('/', 40, 0, 40)],
+      true,
+    ],
+  ] as const)('%s: %s', (_what, entries, expected) => {
+    expect(logSilent([...entries])).toBe(expected);
+  });
+
+  const end = new Date(Date.UTC(2026, 9, 13, 19, 47));
+  const other = 'v0.9.3';
+
+  it('is one signal on every route, the busiest routes’ logs shown as they should have been', () => {
+    const entries = [
+      entry('/products/glove-left', 30, 0, 30, '/products/:slug'),
+      entry('/products/glove-right', 25, 0, 25, '/products/:slug'),
+      entry('/about', 20, 0, 20),
+      { ...entry('/departments/home', 60, 0, 60, '/departments/:slug'), version: other },
+    ];
+    const signal = signalForSilentLog(entries, end) as InboxSignal;
+    expect(validateSignal(signal)).toEqual({ ok: true });
+    expect(signal).toMatchObject({ sense: 'logs', route: '*', symptom: 'missing-log', version: VERSION });
+    expect(signal.evidence).toEqual([
+      { kind: 'logs', route: '/departments/:slug', version: other, requests: 60, lines: [] },
+      { kind: 'logs', route: '/products/:slug', version: VERSION, requests: 55, lines: [] },
+      { kind: 'logs', route: '/about', version: VERSION, requests: 20, lines: [] },
+    ]);
+  });
+
+  it('shows no more routes than a signal holds', () => {
+    const entries = Array.from({ length: 12 }, (_, i) => entry(`/r${i}`, 10 + i, 0));
+    const signal = signalForSilentLog(entries, end) as InboxSignal;
+    expect(validateSignal(signal)).toEqual({ ok: true });
+    expect(signal.evidence?.map((e) => ('route' in e ? e.route : ''))).toEqual([
+      '/r11',
+      '/r10',
+      '/r9',
+      '/r8',
+      '/r7',
+      '/r6',
+      '/r5',
+      '/r4',
+    ]);
+  });
+
+  it('is nothing when the metrics do not say which version served the requests', () => {
+    expect(signalForSilentLog([{ ...entry('/a', 40, 0), version: undefined }], end)).toBeUndefined();
+  });
+});
+
+/** Backends that answer each query from what a test says the records hold. */
+function records(options: {
+  metrics: Record<string, number>;
+  window: () => Sample[];
+  day: () => Sample[] | Promise<Sample[]>;
+  sent?: InboxSignal[];
+}) {
+  const days: string[] = [];
+  const backends = {
+    objectives,
+    prometheus: {
+      instant: async () =>
+        Object.entries(options.metrics).map(([path, value]) => ({
+          labels: { http_route: path, service_version: VERSION },
+          value,
+        })),
+      range: async () => undefined,
+    },
+    loki: {
+      instant: async (query: string) => {
+        if (!query.includes('[24h]')) return options.window();
+        days.push(query);
+        return options.day();
+      },
+    },
+    tempo: { serverSpans: async () => ({ spans: [], complete: true }) },
+    outbox: { send: async (signal: InboxSignal) => void options.sent?.push(signal) },
+    log: { info: () => {}, warn: () => {} },
+  } as unknown as Backends;
+  return { backends, days };
+}
+
+const logged = (path: string, route: string, value: number): Sample => ({ labels: { path, route }, value });
+const at = (minutes: number) => new Date(Date.UTC(2026, 9, 13, 19, minutes));
+
+describe('placing a path whose window the log is silent for', () => {
+  const metrics = { '/products/glove-left': 30, '/products/glove-right': 20, '/about': 15 };
+  const day = [
+    logged('/products/glove-left', '/products/:slug', 300),
+    logged('/products/glove-right', '/products/:slug', 200),
+  ];
+
+  it('takes the route the log gave it before, and the window’s own log first', async () => {
+    const { backends } = records({ metrics, window: () => [logged('/about', '/about', 15)], day: () => day });
+    const known = new Map([
+      ['/products/glove-left', '/products/:slug'],
+      ['/about', '/stale'],
+    ]);
+    const { routes } = await count(objectives, backends, at(40), at(45), known);
+    expect(Object.fromEntries(routes.map((e) => [e.path, e.route]))).toEqual({
+      '/products/glove-left': '/products/:slug',
+      '/products/glove-right': '/products/glove-right',
+      '/about': '/about',
+    });
+  });
+
+  it('signals a route once, not each of its pages, when its log is missing beside a logged one', async () => {
+    const sent: InboxSignal[] = [];
+    const { backends } = records({ metrics, window: () => [logged('/about', '/about', 15)], day: () => day, sent });
+    const watcher = new Watcher(backends, { errors: new Date(0), reports: new Date(0) });
+    await watcher.checkAgreement(at(44));
+    await watcher.checkAgreement(at(49));
+    expect(sent.map((s) => [s.route, s.symptom])).toEqual([['/products/:slug', 'missing-log']]);
+  });
+
+  it('signals once for the log as a whole when it is silent for every route', async () => {
+    const sent: InboxSignal[] = [];
+    const { backends } = records({ metrics, window: () => [], day: () => day, sent });
+    const watcher = new Watcher(backends, { errors: new Date(0), reports: new Date(0) });
+    for (const minutes of [44, 49, 54, 59]) await watcher.checkAgreement(at(minutes));
+    expect(sent.map((s) => [s.route, s.symptom])).toEqual([['*', 'missing-log']]);
+    expect(sent[0]?.evidence?.map((e) => ('route' in e ? e.route : ''))).toEqual(['/products/:slug', '/about']);
+  });
+
+  it('signals the log once, not each route, at the edges of a gap', async () => {
+    const sent: InboxSignal[] = [];
+    // The log holds the first window, then nothing for two, then everything again.
+    const windows = [[logged('/about', '/about', 15), logged('/products/glove-left', '/products/:slug', 30)], [], []];
+    const { backends } = records({
+      metrics,
+      window: () => windows.shift() ?? [logged('/about', '/about', 15)],
+      day: () => day,
+      sent,
+    });
+    const watcher = new Watcher(backends, { errors: new Date(0), reports: new Date(0) });
+    for (const minutes of [44, 49, 54]) await watcher.checkAgreement(at(minutes));
+    expect(sent.map((s) => [s.route, s.symptom])).toEqual([['*', 'missing-log']]);
+    // The window after the gap is judged with the last silent one: the gap still, already told.
+    await watcher.checkAgreement(at(59));
+    expect(sent).toHaveLength(1);
+  });
+
+  it('asks the last day’s log once an hour, and keeps the names it knew when the log has fewer or fails', async () => {
+    const sent: InboxSignal[] = [];
+    let lookup: () => Sample[] = () => day;
+    const { backends, days } = records({
+      metrics: { '/products/glove-left': 30, '/about': 15 },
+      window: () => [logged('/about', '/about', 15)],
+      day: () => lookup(),
+      sent,
+    });
+    const watcher = new Watcher(backends, { errors: new Date(0), reports: new Date(0) });
+    const hour = (h: number, m: number) => new Date(Date.UTC(2026, 9, 13, h, m));
+    for (const minutes of [4, 9, 14]) await watcher.checkAgreement(hour(19, minutes));
+    expect(days).toHaveLength(1);
+
+    // An hour on, the lookup fails, and is not asked again within the hour; then it finds only part of the day.
+    lookup = () => {
+      throw new Error('Loki is full');
+    };
+    await watcher.checkAgreement(hour(20, 9));
+    await watcher.checkAgreement(hour(20, 14));
+    expect(days).toHaveLength(2);
+    lookup = () => [logged('/about', '/about', 15)];
+    await watcher.checkAgreement(hour(21, 9));
+    expect(days).toHaveLength(3);
+    // The paths it named before still have their routes.
+    expect(sent.map((s) => s.route)).toEqual(['/products/:slug', '/products/:slug', '/products/:slug']);
   });
 });

@@ -9,6 +9,7 @@
  * What a visitor wrote is never logged here, whatever happens: a report's text is handled only by `reports.ts` and
  * the outbox, and nothing in this file logs a record, a page or a signal, only counts and routes the factory knows.
  */
+import type { InboxSignal } from '@software-factory/events';
 import type { Logger } from 'pino';
 import type { Objectives } from '../../../../policy/objectives.ts';
 import { quoted } from '../alerts/queries.ts';
@@ -17,7 +18,15 @@ import type { Prometheus } from '../clients/prometheus.ts';
 import type { Tempo } from '../clients/tempo.ts';
 import type { Outbox } from '../outbox.ts';
 import { routeTemplates } from '../routes.ts';
-import { combine, count, judge, type RouteCounts, signalForDisagreement } from './agreement.ts';
+import {
+  combine,
+  count,
+  judge,
+  logSilent,
+  type RouteCounts,
+  signalForDisagreement,
+  signalForSilentLog,
+} from './agreement.ts';
 import { signalForPattern } from './errors.ts';
 import { errorRecords, PatternMemory } from './patterns.ts';
 import { reportLogs, signalForReport } from './reports.ts';
@@ -45,6 +54,8 @@ export const TIMING: Timing = { settleMs: 60_000, agreementWindowMs: 5 * 60_000,
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How long before a finding that still holds is signalled again. */
 const REPEAT_MS = 60 * 60 * 1000;
+/** How often the agreement check asks the last day's log for the route of each path. */
+const ROUTES_REFRESH_MS = 60 * 60 * 1000;
 
 /** The selector of the app's error records. */
 export function errorLogs(o: Objectives): string {
@@ -61,6 +72,12 @@ export class Watcher {
   /** When each finding was last signalled. */
   private readonly signalledAt = new Map<string, number>();
   private lastWindowEnd = 0;
+  /**
+   * The route the log last gave each path, kept between windows, so that a window with no log records still places
+   * the paths the log has named before: through a gap longer than the lookup's day, or a lookup that failed.
+   */
+  private readonly routeNames = new Map<string, string>();
+  private routeNamesAt = Number.NEGATIVE_INFINITY;
 
   private readonly backends: Backends;
   private readonly timing: Timing;
@@ -148,40 +165,75 @@ export class Watcher {
    * an hour while it holds, as Alertmanager repeats an alert.
    */
   async checkAgreement(now: Date): Promise<number> {
-    const { objectives, loki, prometheus, tempo, outbox, log } = this.backends;
+    const { objectives, loki, prometheus, tempo, log } = this.backends;
     const end = new Date(now.getTime() - this.timing.agreementLagMs);
     if (end.getTime() - this.lastWindowEnd < this.timing.agreementWindowMs) return 0;
     const start = new Date(end.getTime() - this.timing.agreementWindowMs);
     this.lastWindowEnd = end.getTime();
 
+    await this.refreshRouteNames(end);
     let routes: Awaited<ReturnType<typeof count>>['routes'];
     try {
-      ({ routes } = await count(objectives, { prometheus, loki, tempo }, start, end));
+      ({ routes } = await count(objectives, { prometheus, loki, tempo }, start, end, this.routeNames));
     } catch (error) {
       // This window is lost, so the next one has no neighbour to be judged with: never pair windows with a gap.
       this.previousWindow = undefined;
       throw error;
     }
+    for (const entry of routes) if (entry.route !== entry.path) this.routeNames.set(entry.path, entry.route);
     const before = this.previousWindow;
     this.previousWindow = { start, routes };
     if (!before) return 0;
 
+    const both = combine(before.routes, routes);
+    // A log silent for every route is one finding about the log, not one for each route that had requests. A pair
+    // with one window silent is the edge of the same gap: over both, every route would seem to have lost some of its
+    // records, and each would be a finding of its own.
+    if (logSilent(both) || logSilent(before.routes) || logSilent(routes)) {
+      const sent = (await this.tell('* missing-log', end, async () => signalForSilentLog(both, end))) ? 1 : 0;
+      log.info({ routes: routes.length, signals: sent }, 'agreement checked: the log is silent for every route');
+      return sent;
+    }
     let wrong = 0;
     let sent = 0;
-    for (const entry of combine(before.routes, routes)) {
+    for (const entry of both) {
       const finding = judge(entry);
       if (!finding) continue;
       wrong += 1;
-      const key = `${entry.route} ${finding}`;
-      const told = this.signalledAt.get(key);
-      if (told !== undefined && end.getTime() - told < REPEAT_MS) continue;
-      const signal = await signalForDisagreement(finding, entry, { objectives, prometheus }, before.start, end);
-      if (!signal) continue;
-      await outbox.send(signal);
-      this.signalledAt.set(key, end.getTime());
-      sent += 1;
+      const told = await this.tell(`${entry.route} ${finding}`, end, () =>
+        signalForDisagreement(finding, entry, { objectives, prometheus }, before.start, end),
+      );
+      if (told) sent += 1;
     }
     log.info({ routes: routes.length, wrong, signals: sent }, 'agreement checked');
     return sent;
+  }
+
+  /** Sends a finding's signal, unless it was sent within the hour or there is none. Says whether it was sent. */
+  private async tell(key: string, end: Date, signal: () => Promise<InboxSignal | undefined>): Promise<boolean> {
+    const told = this.signalledAt.get(key);
+    if (told !== undefined && end.getTime() - told < REPEAT_MS) return false;
+    const made = await signal();
+    if (!made) return false;
+    await this.backends.outbox.send(made);
+    this.signalledAt.set(key, end.getTime());
+    return true;
+  }
+
+  /**
+   * Asks the last day's log for the route of each path, at most once an hour, and adds what it says to the names
+   * known before. A lookup that failed, or found nothing, leaves them as they were until the next hour: a log silent
+   * for a day has nothing more to say, and the query is a heavy one.
+   */
+  private async refreshRouteNames(end: Date): Promise<void> {
+    if (end.getTime() - this.routeNamesAt < ROUTES_REFRESH_MS) return;
+    this.routeNamesAt = end.getTime();
+    const { loki, objectives, log } = this.backends;
+    try {
+      const fresh = await routeTemplates(loki, objectives, end);
+      for (const [path, route] of fresh) if (route !== path) this.routeNames.set(path, route);
+    } catch (error) {
+      log.warn({ err: error }, 'the routes of the last day’s paths could not be looked up; the names known are kept');
+    }
   }
 }

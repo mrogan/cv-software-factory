@@ -53,7 +53,11 @@ const event = <K extends NewEvent['type']>(
  * A work item whose fix merged in pull request `number`, as `commit`, and which the line holds at Release. Its ticket
  * came from a probe, which the line here has no way to ask at Verify: there it waits.
  */
-async function merged(number: number, commit: string, sense: 'probe' | 'report' | 'canary' = 'probe'): Promise<string> {
+async function merged(
+  number: number,
+  commit: string,
+  sense: 'probe' | 'report' | 'canary' | 'logs' = 'probe',
+): Promise<string> {
   const workItem = await nextWorkItem(database.writer);
   await events.append([
     event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'A redirect loop', sample: false }, 'triage'),
@@ -74,9 +78,10 @@ async function merged(number: number, commit: string, sense: 'probe' | 'report' 
       'signal.received',
       {
         sense,
-        check: sense === 'canary' ? 'latency' : 'departments',
+        check: sense === 'canary' ? 'latency' : sense === 'logs' ? 'requests in the log' : 'departments',
         route: '/departments/:department',
         version: commitOf(STABLE),
+        ...(sense === 'logs' ? { symptom: 'missing-log' } : {}),
       },
       sense === 'report' ? 'widget' : sense,
     ),
@@ -982,6 +987,18 @@ describe('Verify on the line', () => {
       kind: 'held',
       cause: 'verify',
       reason: expect.stringContaining('Verify could not tell in 24 hours after the release'),
+    });
+  });
+
+  it('looks at a missing log by the agreement check, which needs Prometheus as well as Loki', async () => {
+    const workItem = await merged(30, FIX_3, 'logs');
+    await promote(workItem);
+    const { line: it } = line({ release: null, verify: {} });
+    now += 24 * 60 * 60_000;
+    await pass(it);
+    expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({
+      cause: 'verify',
+      reason: expect.stringContaining('the line has no way to Prometheus (PROMETHEUS_URL)'),
     });
   });
 

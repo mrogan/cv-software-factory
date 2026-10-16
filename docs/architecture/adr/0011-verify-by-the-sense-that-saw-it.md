@@ -6,7 +6,7 @@ A work item closes as verified only when, after its release is promoted, the sen
 
 - a probe or the crawler: the same check, run again against the stable Service by the probes worker, passes twice in a row;
 - an alert on an objective: the alert's own expression, over the new version's requests to the route, stays inside the objective for a window with enough requests;
-- the log watcher: the same error pattern is absent from the new version's logs for a window with traffic;
+- the log watcher: the same error pattern is absent from the new version's logs for a window with traffic, or, for a missing log or wrong metrics, the metrics, the log and the traces agree again on the route;
 - the canary: the measure that failed passes in a promoted release that carries the fix.
 
 A ticket only a visitor's report or the planner saw holds for Martin, since no sense can look again. The windows and counts are human-owned (`policy/release.ts`).
@@ -24,7 +24,7 @@ A failed canary analysis is a signal from a sense of its own, `canary`, one for 
 
 ## Consequences
 
-- The line reaches what each sense reads: the probes' verify port, Prometheus and Loki. Its image has no browser, so the probes worker runs the checks, on a port only the line may call.
+- The line reaches what each sense reads: the probes' verify port, Prometheus, Loki and Tempo. Its image has no browser, so the probes worker runs the checks, on a port only the line may call.
 - A fix that cleared on the canary's numbers but not on its own sense persists, and goes back to Plan with that verification as evidence, once; then it holds.
 - One fingerprint, one ticket holds through a release: a verified ticket whose signal returns reopens, rather than a second ticket opening for the same defect.
 - A release found live, which no analysis judged, cannot verify a canary ticket, nor one whose last step did not pass the measure: it holds for Martin.
