@@ -17,7 +17,8 @@ describe('folded sections', () => {
         '</details>',
       ),
       lines('- an item', '  <details>', '  <summary>', '', '  ## Nested', '', '  </summary>', '', '  </details>'),
-      'No fold at all, and `<details>` in code.',
+      'No fold at all, and `<details>` in code, ``<details>`` too.',
+      lines('Why.', '', '<!-- fold the tests in a <details> -->', '', '    <details>', '', 'Done.'),
     ]) {
       expect(unrenderedFolds(body), body).toEqual([]);
     }
@@ -35,6 +36,17 @@ describe('folded sections', () => {
         lines('<details>', '<summary>', '', '## T', '', '</summary>', '', '- a', '</details>', 'After **bold**'),
       ),
     ).toEqual(['a folded section shows “After **bold**” as text: leave a blank line before it']);
+  });
+
+  it('read a fold inside a quote, and after inline code that starts like a fence', () => {
+    expect(unrenderedFolds(lines('> <details>', '> <summary>', '> ## T', '> </summary>', '', '> </details>'))).toEqual([
+      'a folded section shows “## T” as text: leave a blank line before it',
+    ]);
+    expect(
+      unrenderedFolds(
+        lines('```npm test``` runs it.', '', '<details>', '<summary>', '## T', '</summary>', '', '</details>'),
+      ),
+    ).toEqual(['a folded section shows “## T” as text: leave a blank line before it']);
   });
 
   it('name Markdown on a tag’s own line', () => {

@@ -13,8 +13,8 @@
  * description written in Markdown, as the describer's and Martin's are, not one written in HTML, as Dependabot's are.
  */
 
-/** The tags that fold, opening or closing, at the start of a line. */
-const FOLD = /^\s*<\/?(?:details|summary)(?:[\s>]|$)/i;
+/** The tags that fold, opening or closing, at the start of a line, indented by three spaces at most. */
+const FOLD = /^ {0,3}<\/?(?:details|summary)(?:[\s>]|$)/i;
 
 /** Any HTML tag or comment, which an HTML block shows as HTML. */
 const TAG = /<!--[\s\S]*?-->|<\/?[a-z][^>]*>/gi;
@@ -26,8 +26,17 @@ const HAS_TAG = /<!--|<\/?[a-z][^>]*>/i;
  */
 const MARKDOWN = /^(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|~~~|\|)|\*\*|__|`|\]\(/;
 
-/** A fence that opens or closes fenced code: three or more backticks or tildes. */
-const FENCE = /^\s*(`{3,}|~{3,})/;
+/**
+ * A fence that opens or closes fenced code: three or more backticks or tildes, indented by three spaces at most. A
+ * backtick fence's info string has no backtick: "```npm test``` runs it" is inline code.
+ */
+const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
+
+/** A quote's markers, which a fold inside a quote stands behind. */
+const QUOTED = /^ {0,3}(?:> ?)+/;
+
+/** Where a tag is only text: inline code of any number of backticks, and an HTML comment. */
+const NOT_TAGS = /(`+)[^`][\s\S]*?\1|<!--[\s\S]*?-->/g;
 
 const quote = (line: string) => `“${line.trim().slice(0, 80)}”`;
 
@@ -37,7 +46,8 @@ export function unrenderedFolds(markdown: string): string[] {
   let fence = '';
   let inBlock = false;
   let depth = 0;
-  for (const line of markdown.split('\n')) {
+  for (const raw of markdown.split('\n')) {
+    const line = raw.replace(QUOTED, '');
     const marker = FENCE.exec(line)?.[1];
     if (fence) {
       // Closed by a fence of the same character, at least as long, with nothing after it.
@@ -60,9 +70,11 @@ export function unrenderedFolds(markdown: string): string[] {
     } else if (marker) {
       fence = marker;
       continue;
+    } else if (/^ {4}/.test(line)) {
+      // Indented four spaces or more, outside a block: code, or a list's deeper content, where it is not followed.
+      continue;
     }
-    // A tag in inline code is only text.
-    for (const [tag] of line.replace(/`[^`]*`/g, '').matchAll(/<\/?details\b/gi)) {
+    for (const [tag] of line.replace(NOT_TAGS, '').matchAll(/<\/?details\b/gi)) {
       depth += tag.startsWith('</') ? -1 : 1;
       if (depth < 0) {
         found.push('a </details> closes no <details>');

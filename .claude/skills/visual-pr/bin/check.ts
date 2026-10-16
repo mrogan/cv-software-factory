@@ -11,8 +11,8 @@ import { unrenderedFolds } from '../../../../apps/factory/src/line/agents/folds.
  * What is wrong with a description, given its Markdown and GitHub's rendering of it, which is empty when the folds
  * already failed; `published` adds local paths.
  */
-export function problems(body: string, html: string, published: boolean): string[] {
-  const found: string[] = unrenderedFolds(body);
+export function problems(body: string, html: string, published: boolean, folds = unrenderedFolds(body)): string[] {
+  const found: string[] = [...folds];
   const count = (re: RegExp) => html.match(re)?.length ?? 0;
 
   if (count(/<details[\s>]/g) !== count(/<\/details>/g)) found.push('a <details> is not closed');
@@ -57,13 +57,14 @@ if (import.meta.main) {
   const repo = gh('repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner').trim();
   // GitHub's own renderer: it reads the text and publishes nothing. Not needed for folds the rule already named, whose
   // Markdown left as text it would name again.
-  const html = unrenderedFolds(body).length
+  const folds = unrenderedFolds(body);
+  const html = folds.length
     ? ''
     : execFileSync('gh', ['api', 'markdown', '-f', 'mode=gfm', '-f', `context=${repo}`, '-F', 'text=@-'], {
         encoding: 'utf8',
         input: body,
       });
-  const found = problems(body, html, pr !== undefined);
+  const found = problems(body, html, pr !== undefined, folds);
   for (const p of found) console.log(p);
   process.exit(found.length ? 1 : 0);
 }
