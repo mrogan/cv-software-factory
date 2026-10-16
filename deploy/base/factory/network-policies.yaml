@@ -284,7 +284,7 @@ spec:
         - { protocol: TCP, port: 3200 }
 ---
 # Alertmanager posts firing alerts to the intake, which fetches the series behind each from Prometheus and Loki: each
-# backend's own pods only, as the line's are.
+# backend's own pods only, as the line's rules do.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -327,7 +327,7 @@ spec:
       ports:
         - { protocol: TCP, port: 3100 }
 ---
-# The log watcher reads Prometheus, Loki and Tempo's query port: each backend's own pods only, as the line's are.
+# The log watcher reads Prometheus, Loki and Tempo's query port: each backend's own pods only, as the line's rules do.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
