@@ -9,7 +9,9 @@ import { DRAWN } from '../../../factory/src/release/read.ts';
 import { project, projectSheet, upTo } from '../../web/src/projection/index.ts';
 import { type Card, timeline } from '../../web/src/projection/reel.ts';
 import {
+  type End,
   type Failed,
+  failedLooks,
   MEASURES,
   ownWords,
   type Release,
@@ -606,5 +608,39 @@ describe('what the analysis saw of a measure that failed', () => {
     expect(sawOf(failed('journeys', null, null, reason), reason)).toBe(
       'a check that passed on the baseline failed here',
     );
+  });
+});
+
+describe('how many looks of a failed measure failed', () => {
+  const latency: Failed = { name: 'latency', phase: 'failed', value: 0.276, limit: 0 };
+  const back = (...failed: Failed[]): End => ({
+    kind: 'rolled-back',
+    at: 0,
+    weight: 25,
+    reason: 'Failed',
+    failed,
+    ticket: undefined,
+  });
+
+  it('says the count the rollback kept, summed over the runs that failed the measure', () => {
+    expect(failedLooks(back({ ...latency, failures: 2 }), 'latency')).toBe(2);
+    // A step's analysis and the background's both failed it: three looks in all.
+    expect(failedLooks(back({ ...latency, failures: 1 }, { ...latency, failures: 2 }), 'latency')).toBe(3);
+  });
+
+  it('says nothing for a rollback that did not count them, a measure it did not fail, or another end', () => {
+    expect(failedLooks(back(latency), 'latency')).toBeUndefined();
+    expect(failedLooks(back({ ...latency, failures: 2 }, latency), 'latency')).toBeUndefined();
+    expect(failedLooks(back({ ...latency, failures: 2 }), 'errors')).toBeUndefined();
+    expect(failedLooks({ kind: 'promoted', at: 0, weight: 100 }, 'latency')).toBeUndefined();
+    expect(failedLooks(undefined, 'latency')).toBeUndefined();
+  });
+
+  it('is in the samples’ rollbacks, as the line records it', () => {
+    const ends = releases(SAMPLES, [], END)
+      .flatMap((r) => [...r.retried, r.end])
+      .filter((end) => end?.kind === 'rolled-back');
+    expect(ends.length).toBeGreaterThan(0);
+    for (const end of ends) expect(failedLooks(end, 'latency')).toBe(2);
   });
 });

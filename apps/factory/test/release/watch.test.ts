@@ -258,7 +258,7 @@ describe('a release, from the Rollout and its runs', () => {
     ).toEqual(['release.started', 'canary.stepped', 'canary.stepped', 'release.promoted']);
   });
 
-  it('rolls back when an analysis run of the release failed, with the failed measures and their series', () => {
+  it('rolls back when an analysis run of the release failed, with the failed measures, their series and failed looks', () => {
     const s = store(STABLE_RECORDED);
     const runs = [background()];
     s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), runs, { start: START });
@@ -269,7 +269,7 @@ describe('a release, from the Rollout and its runs', () => {
       message,
       metrics: {
         errors: { phase: 'Successful', value: '[0.0019]' },
-        latency: { phase: 'Failed', value: '[0.2473]', message: 'x'.repeat(400) },
+        latency: { phase: 'Failed', value: '[0.2473]', message: 'x'.repeat(400), failed: 2 },
         journeys: { phase: 'Successful' },
       },
     });
@@ -296,7 +296,9 @@ describe('a release, from the Rollout and its runs', () => {
         restored: commitOf(STABLE),
         weight: 25,
         reason: message,
-        failed: [{ name: 'latency', phase: 'failed', value: 0.2473, limit: 0, message: 'x'.repeat(300), series }],
+        failed: [
+          { name: 'latency', phase: 'failed', value: 0.2473, limit: 0, message: 'x'.repeat(300), series, failures: 2 },
+        ],
         dryRun: false,
       },
     ]);

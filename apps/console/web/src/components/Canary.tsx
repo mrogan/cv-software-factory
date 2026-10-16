@@ -2,9 +2,9 @@
  * The Canary panel: the release in flight against the version it would replace, for everyone, full width under the
  * line. It is always there; idle, it is one line.
  */
-import { capital, clock, clockSeconds, duration, isCommit, shortVersion, shortWhen } from '../format.ts';
+import { capital, clock, clockSeconds, duration, isCommit, shortVersion, shortWhen, times } from '../format.ts';
 import type { CanaryView, Carried, Measured, Release } from '../projection/index.ts';
-import { endedWords, MEASURES, ownWords, SIGNALLED, sawOf, stoppedBy } from '../projection/release.ts';
+import { endedWords, failedLooks, MEASURES, ownWords, SIGNALLED, sawOf, stoppedBy } from '../projection/release.ts';
 import { Glyph, type GlyphName } from './Glyph.tsx';
 
 export type Tone = 'signal' | 'ok' | 'attn' | 'faint';
@@ -22,12 +22,13 @@ export const VERDICT: Record<Phase | 'dry' | 'none', [word: string, tone: Tone, 
   none: ['not measured', 'faint', 'dash'],
 };
 
-export function Verdict({ phase }: { phase: keyof typeof VERDICT }) {
+/** A verdict, and for a measure a rollback failed, how many of its looks failed when the event counted them: "failed twice". */
+export function Verdict({ phase, looks }: { phase: keyof typeof VERDICT; looks?: number | undefined }) {
   const [word, tone, glyph] = VERDICT[phase];
   return (
     <span className={`v tone-${tone}`}>
       <Glyph name={glyph} />
-      {word}
+      {looks === undefined ? word : `${word} ${times(looks)}`}
     </span>
   );
 }
@@ -171,7 +172,7 @@ function Measures({ r, m }: { r: Release; m: Measured }) {
               </td>
               <td className="mono base">{baseline}</td>
               <td>
-                <Verdict phase={phase} />
+                <Verdict phase={phase} looks={phase === 'failed' ? failedLooks(r.end, name) : undefined} />
                 {phase === 'error' && measure?.message && <small>{measure.message}</small>}
               </td>
             </tr>
@@ -219,7 +220,7 @@ function Rollback({ r, onOpen }: { r: Release; onOpen: (item: string) => void })
                     </td>
                     <td>{sawOf(f, end.reason)}</td>
                     <td>
-                      <Verdict phase="failed" />
+                      <Verdict phase="failed" looks={f.failures} />
                     </td>
                   </tr>
                 );

@@ -76,6 +76,7 @@ export default new Item('1276', '2026-10-02T08:10:00+01:00')
         value: 0.173,
         limit: 0,
         message: 'Metric "latency" assessed Failed due to failed (2) > failureLimit (1)',
+        failures: 2,
         series: {
           label: 'p99 latency',
           unit: 'ms',
