@@ -1,5 +1,6 @@
 # Triage: takes each signal from the inbox once and turns it into a ticket. Reports go to Jev through the gateway; a report's
-# page is read through the probes' page reader.
+# page is read through the probes' page reader. Before it trusts a sense's new problem, it looks at what that sense reads
+# besides the app: Prometheus (the disk too), Loki and Tempo.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -63,6 +64,12 @@ spec:
               value: http://gateway:8080
             - name: PAGES_URL
               value: http://probes:8080
+            - name: PROMETHEUS_URL
+              value: http://prometheus-server.telemetry
+            - name: LOKI_URL
+              value: http://loki.telemetry:3100
+            - name: TEMPO_URL
+              value: http://tempo.telemetry:3200
             - name: ARTIFACTS_DIR
               value: /var/lib/factory/artifacts
           resources:
