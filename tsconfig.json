@@ -11,6 +11,7 @@
     "policy",
     "scripts",
     "docs/design/system/build.ts",
+    ".claude/skills/*/bin/*.ts",
     "*.ts"
   ]
 }
