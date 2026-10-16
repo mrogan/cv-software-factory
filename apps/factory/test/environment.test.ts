@@ -23,7 +23,7 @@ function backends(answers: { up?: unknown; otlp?: unknown; free?: unknown; recor
           answers.free ?? vector([{ namespace: 'telemetry', persistentvolumeclaim: 'storage-loki-0' }, 0.94]),
       },
       { path: '/loki/api/v1/query', answer: () => answers.records ?? vector([{}, 1530]) },
-      { path: '/api/search', answer: () => ({ traces: answers.traces ?? [{ traceID: 'a' }] }) },
+      { path: '/api/search', answer: () => ({ traces: 'traces' in answers ? answers.traces : [{ traceID: 'a' }] }) },
     ],
     seen,
   );
@@ -60,6 +60,14 @@ describe('the look at what the senses read', () => {
     const readings = await byName(look(at));
     expect(readings.loki).toEqual({ healthy: false, saw: 'no record stored from anything in the 5 minutes before' });
     expect(readings.tempo).toEqual({ healthy: false, saw: 'no trace stored from anything in the 10 minutes before' });
+  });
+
+  it('cannot tell about Tempo when it answers a search with something else', async () => {
+    const { look } = backends({ traces: null as unknown as unknown[] });
+    expect((await byName(look(at))).tempo).toEqual({
+      healthy: null,
+      saw: 'could not ask: Tempo answered a search with something else',
+    });
   });
 
   it('finds Prometheus unhealthy with a target down, no scrape at all, or no metrics over OTLP', async () => {

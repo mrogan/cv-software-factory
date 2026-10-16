@@ -72,8 +72,10 @@ export class Tempo {
       start: Math.floor(start.getTime() / 1000),
       end: Math.ceil(end.getTime() / 1000),
       limit: 1,
-    })) as { traces?: unknown[] };
-    return (answer.traces?.length ?? 0) > 0;
+    })) as { traces?: unknown };
+    if (answer.traces === undefined) return false;
+    if (!Array.isArray(answer.traces)) throw new Error('Tempo answered a search with something else');
+    return answer.traces.length > 0;
   }
 
   /** The spans of a trace, in the order they began, or nothing if Tempo does not have it yet. */
