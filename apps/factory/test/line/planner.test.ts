@@ -324,7 +324,7 @@ describe('what the planner noticed outside its ticket', () => {
     for (const wrong of [
       Array.from({ length: MAX_PLANNER_FINDINGS + 1 }, () => finding),
       [{ ...finding, text: 'x'.repeat(301) }],
-      [{ ...finding, page: '?q=anything' }],
+      [{ ...finding, page: `/search?q=${'x'.repeat(1000)}` }],
       [{ ...finding, route: 'products/:slug' }],
       [{ ...finding, symptom: 'wrong-result' }],
     ]) {
@@ -341,6 +341,12 @@ describe('what the planner noticed outside its ticket', () => {
     };
     const result = plannerResult().safeParse({ verdict: 'reject', reason: 'Not here.', findings: [queried] });
     expect(result.data?.findings).toEqual([{ ...queried, page: '/search', route: '/search' }]);
+    const cut = (page: string) =>
+      plannerResult().safeParse({ verdict: 'reject', reason: 'Not here.', findings: [{ ...queried, page }] }).data
+        ?.findings[0]?.page;
+    expect(cut(' /search ?q=lamp')).toBe('/search');
+    expect(cut('?q=lamp')).toBe('/');
+    expect(cut('#top')).toBe('/');
     expect(planner.prompt(INPUT)).toContain('without its query');
   });
 
