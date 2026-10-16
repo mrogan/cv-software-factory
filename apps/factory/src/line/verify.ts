@@ -7,9 +7,14 @@
  * - An alert on an objective: the alert's expression, over the new version's requests to the route alone, stays inside
  *   the objective for a window with enough requests. Outside it for as long as the alert waits before it fires, it
  *   persists.
- * - The log watcher: no error record of its pattern from the new version for a window in which the new version served
- *   enough requests. Any such record, and it persists. The signal kept the lines, not the pattern, so the pattern is
- *   rebuilt from them as the watcher builds it (`logs/patterns.ts`).
+ * - The log watcher's new error pattern: no error record of it from the new version for a window in which the new
+ *   version served enough requests. Any such record, and it persists. The signal kept the lines, not the pattern, so
+ *   the pattern is rebuilt from them as the watcher builds it (`logs/patterns.ts`).
+ * - The log watcher's agreement check (a `missing-log` or `wrong-metric` ticket): the check itself, over the route's
+ *   requests in the metrics, the log and the traces, for a window after the promotion (`logs/agreement.ts`). The
+ *   records agree on every one of the route's paths, and it has cleared; the one the ticket named is the odd one out
+ *   again on any, and it persists. A log silent for every route (`*`) persists while it is silent, and clears once it
+ *   counts the requests again for every route.
  * - The canary: the release that carries the fix, or a later one that carries it too, was promoted with the measure
  *   that failed passing at its last step. A promoted release passed every step, so this clears at once, saying so; a
  *   release found live, which no analysis judged, holds for Martin.
@@ -24,29 +29,46 @@
  *
  * The windows, counts and runs are `policy/release.ts`'s `verify`.
  */
-import type { Evidence, PayloadOf, Sense, SignalSource } from '@software-factory/events';
+import type { Evidence, PayloadOf, Sense, SignalSource, SymptomClass } from '@software-factory/events';
 import { SENSES } from '@software-factory/events';
 import { evidence as evidenceSchema } from '@software-factory/events/schemas';
 import { CANARY_ANY_ROUTE } from '@software-factory/triage';
 import { z } from 'zod';
 import { objectives as OBJECTIVES, type Objectives } from '../../../../policy/objectives.ts';
 import { release as RELEASE, type Release } from '../../../../policy/release.ts';
-import { quoted, requests, type Scope } from '../alerts/queries.ts';
+import { quoted, requests, type Scope, templatePattern } from '../alerts/queries.ts';
 import type { Loki } from '../clients/loki.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
+import type { Tempo } from '../clients/tempo.ts';
 import { measureOfCheck } from '../intake/alerts.ts';
+import {
+  AGREEMENT_CHECK,
+  agree,
+  combine,
+  count,
+  type Disagreement,
+  judge,
+  logSilent,
+  type RouteCounts,
+  signalForDisagreement,
+  signalForSilentLog,
+  TOLERANCE,
+  total,
+} from '../logs/agreement.ts';
 import { keptLine } from '../logs/errors.ts';
 import { sameError } from '../logs/patterns.ts';
-import { errorLogs } from '../logs/watcher.ts';
+import { errorLogs, TIMING } from '../logs/watcher.ts';
 import type { VerifyAnswer, VerifyRequest } from '../probes/verify.ts';
 import { short } from '../release/watch.ts';
-import { requestLogs } from '../routes.ts';
+import { requestLogs, routeTemplates } from '../routes.ts';
 
 /** The ticket's first signal, as Verify reads it: never a report's words, which it has no use for. */
 export interface FirstSignal {
   sense: SignalSource;
   check: string;
   route: string;
+  /** The class of defect the sense named, if it named one. */
+  symptom?: SymptomClass;
   evidence: Evidence[];
 }
 
@@ -82,6 +104,8 @@ export interface VerifyClients {
   probes?: ProbesPort | null;
   prometheus?: Prometheus | null;
   loki?: Loki | null;
+  /** Without it, an agreement check is judged on the metrics and the log alone, as the watcher does without traces. */
+  tempo?: Pick<Tempo, 'serverSpans'> | null;
 }
 
 export interface LookOptions extends VerifyClients {
@@ -104,7 +128,10 @@ const BY_SOURCE: Record<SignalSource, ByOne> = {
   probe: byCheck,
   crawler: byCheck,
   metrics: byObjective,
-  logs: byPattern,
+  logs: (signal, target, c) =>
+    signal.symptom === 'missing-log' || signal.symptom === 'wrong-metric'
+      ? byAgreement(signal, signal.symptom, target, c)
+      : byPattern(signal, target, c),
   canary: byAnalysis,
   report: async () => ({ kind: 'hold', reason: NO_SENSE.report }),
   planner: async () => ({ kind: 'hold', reason: NO_SENSE.planner }),
@@ -336,6 +363,104 @@ async function byPattern(signal: FirstSignal, target: Target, c: Context): Promi
   return finished(signal, target, 'cleared', lines([]));
 }
 
+/** A Tempo with none of the traces, so that the counts leave them out, as when Tempo has too many to answer. */
+const NO_TRACES: Pick<Tempo, 'serverSpans'> = { serverSpans: async () => ({ spans: [], complete: false }) };
+
+/**
+ * Whether a path's counts belong to a route: the route the log gave the path, or the path itself. A path the log did
+ * not place, in the window or in the last day (`known`), as a missing log places none, is matched against the route's
+ * template, as `/products/:slug` matches `/products/glove-left`; one the log placed under another route, or as a route
+ * of its own (`/products/new`), is that route's.
+ */
+export function onRoute(
+  { path, route: placed }: Pick<RouteCounts, 'path' | 'route'>,
+  route: string,
+  known: ReadonlyMap<string, string> = new Map(),
+): boolean {
+  if (placed === route || path === route) return true;
+  if (placed !== path || known.has(path)) return false;
+  return new RegExp(`^${templatePattern(route)}$`).test(path);
+}
+
+/**
+ * The log watcher's agreement check, again, over the new version's requests in the last of the policy's window: the
+ * watcher's windows, as many as fill it, the last ending long enough ago for the traces to have reached Tempo, and
+ * none before the promotion. Each window is counted on its own, one after another, so that Tempo is asked no more at
+ * once than the watcher asks it, and the windows are judged together. A path is judged, and its route, only with the
+ * policy's `minRequests`: persisting takes as much as clearing does.
+ */
+async function byAgreement(signal: FirstSignal, disagreement: Disagreement, target: Target, c: Context): Promise<Look> {
+  if (!c.prometheus) return { kind: 'wait', why: 'the line has no way to Prometheus (PROMETHEUS_URL)' };
+  if (!c.loki) return { kind: 'wait', why: 'the line has no way to Loki (LOKI_URL)' };
+  // Two records cannot say the metrics are wrong: only the traces say which of them is.
+  if (disagreement === 'wrong-metric' && !c.tempo) {
+    return { kind: 'wait', why: 'the line has no way to Tempo (TEMPO_URL), which says whether the metrics are wrong' };
+  }
+  const { windowMinutes, minRequests } = c.policy.logs;
+  const { agreementWindowMs: windowMs, agreementLagMs: lagMs } = TIMING;
+  const windows = Math.max(1, Math.ceil((windowMinutes * 60_000) / windowMs));
+  const due = target.at.getTime() + windows * windowMs + lagMs;
+  if (c.now.getTime() < due) return { kind: 'wait', why: `the window ends at ${new Date(due).toISOString()}` };
+  const end = new Date(c.now.getTime() - lagMs);
+  const start = new Date(end.getTime() - windows * windowMs);
+  const backends = { prometheus: c.prometheus, loki: c.loki, tempo: c.tempo ?? NO_TRACES };
+  // The routes the log gave paths in the last day: a page of a route of its own is never counted as the ticket's.
+  // Asked once a look; Loki not answering is a look that cannot tell, never one that counts a path on a guess.
+  const known = await routeTemplates(c.loki, c.objectives, end);
+  let all: RouteCounts[] = [];
+  for (let i = 0; i < windows; i += 1) {
+    const from = new Date(start.getTime() + i * windowMs);
+    const to = new Date(from.getTime() + windowMs);
+    all = combine(all, (await count(c.objectives, backends, from, to, known, target.version)).routes);
+  }
+  const tolerance = { ...TOLERANCE, minRequests };
+
+  if (signal.route === '*') {
+    // As the watcher judges a silent log, over the windows together: a gap of a few minutes is not the log silent.
+    if (logSilent(all, tolerance)) {
+      return finished(signal, target, 'persists', signalForSilentLog(all, end)?.evidence?.[0]);
+    }
+    const served = total(all);
+    const requests = Math.round(Math.max(served.metrics, served.traces ?? 0));
+    if (requests < minRequests) {
+      return { kind: 'wait', why: `the new version served ${requests} requests, fewer than ${minRequests}` };
+    }
+    // A route the log still leaves out, in an otherwise full log, is a ticket of its own, as the watcher finds it.
+    if (agree(served.logs, served.metrics, TOLERANCE)) return finished(signal, target, 'cleared');
+    return {
+      kind: 'wait',
+      why: 'the log counts some of the requests and not others, and is not silent for every route',
+    };
+  }
+
+  const paths = all.filter((entry) => onRoute(entry, signal.route, known));
+  const sum = total(paths);
+  // Any of the route's paths, as the watcher judges them, or the route as a whole.
+  const busiest = [...paths].sort((a, b) => b.metrics - a.metrics);
+  const worst =
+    busiest.find((entry) => judge(entry, tolerance) === disagreement) ??
+    (busiest[0] && judge(sum, tolerance) === disagreement
+      ? { path: busiest[0].path, route: signal.route, version: busiest[0].version, ...sum }
+      : undefined);
+  if (worst) {
+    const prometheus = c.prometheus;
+    const told = await signalForDisagreement(disagreement, worst, { objectives: c.objectives, prometheus }, start, end);
+    return finished(signal, target, 'persists', told?.evidence?.[0]);
+  }
+  const requests = Math.round(Math.max(sum.metrics, sum.logs, sum.traces ?? 0));
+  if (requests < minRequests) {
+    return { kind: 'wait', why: `the route had ${requests} requests on the new version, fewer than ${minRequests}` };
+  }
+  if (disagreement === 'wrong-metric' && sum.traces === undefined) {
+    return { kind: 'wait', why: 'Tempo did not have every trace of the window' };
+  }
+  const agrees =
+    agree(sum.logs, sum.metrics, TOLERANCE) &&
+    (sum.traces === undefined || (agree(sum.logs, sum.traces, TOLERANCE) && agree(sum.metrics, sum.traces, TOLERANCE)));
+  if (agrees) return finished(signal, target, 'cleared');
+  return { kind: 'wait', why: 'the route’s records disagree, and none of them is the odd one out the ticket named' };
+}
+
 /** What cleared a work item, in a sentence for its issue and its closing: the verification, or Martin's word. */
 export function whatCleared(
   verification: PayloadOf<'verification.finished'> | undefined,
@@ -353,8 +478,15 @@ export function whatCleared(
     case 'metrics':
       return `The ${check} of ${version}’s requests stayed inside its objective for ${policy.metrics.windowMinutes} minutes`;
     case 'logs': {
+      const minutes = policy.logs.windowMinutes;
+      if (check === AGREEMENT_CHECK['missing-log']) {
+        return `The log of ${version} recorded the requests counted elsewhere, for ${minutes} minutes`;
+      }
+      if (check === AGREEMENT_CHECK['wrong-metric']) {
+        return `The metrics of ${version} counted the requests its log and traces did, for ${minutes} minutes`;
+      }
       const served = evidence?.kind === 'logs' ? `, over ${evidence.requests} requests` : '';
-      return `No error like the one the log watcher saw came from ${version} in ${policy.logs.windowMinutes} minutes${served}`;
+      return `No error like the one the log watcher saw came from ${version} in ${minutes} minutes${served}`;
     }
     case 'canary':
       return `The canary’s ${check} passed against ${short(evidence?.kind === 'canary' ? evidence.against : verification.against)} as ${version} was released, and it was promoted`;

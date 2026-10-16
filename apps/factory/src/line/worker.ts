@@ -44,7 +44,7 @@
  * It acts in GitHub only through the GitHub worker, and every agent's model through the gateway: it holds no key.
  */
 import { hostname } from 'node:os';
-import type { Evidence, PayloadOf, RawEvent, SignalSource } from '@software-factory/events';
+import type { Evidence, PayloadOf, RawEvent, SignalSource, SymptomClass } from '@software-factory/events';
 import { returnWords, upcast } from '@software-factory/events';
 import { type EventWriter, sendSignal } from '@software-factory/store';
 import { lineStopped, uuidFrom } from '@software-factory/triage';
@@ -711,12 +711,20 @@ export class Line {
   /** The ticket's first signal: its sense, check, route and evidence, never a report's words. */
   async #firstSignal(workItem: string): Promise<FirstSignal | undefined> {
     const [row] = await this.#o.sql<
-      { sense: SignalSource; check: string; route: string; evidence: Evidence[] | null }[]
+      { sense: SignalSource; check: string; route: string; symptom: SymptomClass | null; evidence: Evidence[] | null }[]
     >`
       select payload->>'sense' as sense, payload->>'check' as check, payload->>'route' as route,
-             payload->'evidence' as evidence
+             payload->>'symptom' as symptom, payload->'evidence' as evidence
       from events where work_item = ${workItem} and type = 'signal.received' order by seq limit 1`;
-    return row && { sense: row.sense, check: row.check, route: row.route, evidence: row.evidence ?? [] };
+    return (
+      row && {
+        sense: row.sense,
+        check: row.check,
+        route: row.route,
+        ...(row.symptom ? { symptom: row.symptom } : {}),
+        evidence: row.evidence ?? [],
+      }
+    );
   }
 
   /** Runs one agent's step, and does what its handback says. `since` is the last event as the step starts. */

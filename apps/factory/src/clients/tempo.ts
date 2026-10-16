@@ -31,21 +31,23 @@ export class Tempo {
   }
 
   /**
-   * The server spans of a service between two times, one for each request that has been indexed. `complete` is false
-   * when the answer holds as many as were asked for, so there may be more.
+   * The server spans of a service between two times, one for each request that has been indexed, of one version of
+   * it when one is named. `complete` is false when the answer holds as many as were asked for, so there may be more.
    */
   async serverSpans(
     service: string,
     start: Date,
     end: Date,
     limit = 1000,
+    version?: string,
   ): Promise<{ spans: ServerSpan[]; complete: boolean }> {
+    const ofVersion = version === undefined ? '' : ` && resource.service.version = ${JSON.stringify(version)}`;
     const answer = (await getJson(
       this.fetcher,
       this.base,
       '/api/search',
       {
-        q: `{ resource.service.name = ${JSON.stringify(service)} && kind = server && span.http.route != nil } | select(span.http.route)`,
+        q: `{ resource.service.name = ${JSON.stringify(service)}${ofVersion} && kind = server && span.http.route != nil } | select(span.http.route)`,
         start: Math.floor(start.getTime() / 1000),
         end: Math.ceil(end.getTime() / 1000),
         limit,

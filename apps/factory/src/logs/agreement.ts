@@ -40,6 +40,12 @@ export function agree(a: number, b: number, tolerance: Tolerance): boolean {
 
 export type Disagreement = 'missing-log' | 'wrong-metric';
 
+/** The check each disagreement's signal names, and its verification after it. */
+export const AGREEMENT_CHECK: Record<Disagreement, string> = {
+  'missing-log': 'requests in the log',
+  'wrong-metric': 'metrics against logs and traces',
+};
+
 /** What the three records' counts for a route say is wrong, if they say. */
 export function judge({ metrics, logs, traces }: Counts, tolerance: Tolerance = TOLERANCE): Disagreement | undefined {
   if (Math.max(metrics, logs, traces ?? 0) < tolerance.minRequests) return undefined;
@@ -105,20 +111,23 @@ export function requestsBetween(job: string, seconds: number): string {
  * Counts each route's requests between two times, in each of the three records. A path takes its route from the
  * window's own log records, or failing them from `known`, the routes the log gave paths before: the window when the
  * log says least is the one that cannot place a path by itself, and a path it cannot place is a route of its own.
+ * With a `version`, only the requests that version of the app served are counted, in each record.
  */
 export async function count(
   o: Objectives,
-  backends: { prometheus: Prometheus; loki: Loki; tempo: Tempo },
+  backends: { prometheus: Prometheus; loki: Loki; tempo: Pick<Tempo, 'serverSpans'> },
   start: Date,
   end: Date,
   known: ReadonlyMap<string, string> = new Map(),
+  version?: string,
 ): Promise<{ routes: RouteCounts[]; tracesComplete: boolean }> {
   const seconds = Math.round((end.getTime() - start.getTime()) / 1000);
-  const job = `job=${quoted(o.app.metricsJob)}`;
+  const job = `job=${quoted(o.app.metricsJob)}${version === undefined ? '' : `, service_version=${quoted(version)}`}`;
+  const logged = version === undefined ? requestLogs(o) : `${requestLogs(o)} | service_version=${quoted(version)}`;
   const [metrics, logs, traced] = await Promise.all([
     backends.prometheus.instant(requestsBetween(job, seconds), end),
-    backends.loki.instant(`sum by (path, route) (count_over_time(${requestLogs(o)} [${seconds}s]))`, end),
-    backends.tempo.serverSpans(o.app.logsService, start, end),
+    backends.loki.instant(`sum by (path, route) (count_over_time(${logged} [${seconds}s]))`, end),
+    backends.tempo.serverSpans(o.app.logsService, start, end, undefined, version),
   ]);
 
   const routes = new Map<string, RouteCounts>();
@@ -167,23 +176,24 @@ export async function count(
  * judged here with their paths' counts together, so that a route spread thin over many pages still counts.
  */
 export function logSilent(entries: RouteCounts[], tolerance: Tolerance = TOLERANCE): boolean {
-  const byRoute = new Map<string, Counts>();
-  for (const { route, metrics, logs, traces } of entries) {
-    const before = byRoute.get(route);
-    if (!before) {
-      byRoute.set(route, { metrics, logs, ...(traces === undefined ? {} : { traces }) });
-      continue;
-    }
-    // As in `combine`: the route's traces are known only when every path's are.
-    byRoute.set(route, {
-      metrics: before.metrics + metrics,
-      logs: before.logs + logs,
-      ...(before.traces !== undefined && traces !== undefined ? { traces: before.traces + traces } : {}),
-    });
-  }
-  const unlogged = [...byRoute.values()].filter((counts) => judge(counts, tolerance) === 'missing-log').length;
+  const byRoute = new Map<string, RouteCounts[]>();
+  for (const entry of entries) byRoute.set(entry.route, [...(byRoute.get(entry.route) ?? []), entry]);
+  const unlogged = [...byRoute.values()].filter((paths) => judge(total(paths), tolerance) === 'missing-log').length;
   const logged = entries.reduce((sum, entry) => sum + entry.logs, 0);
   return unlogged >= 2 && agree(logged, 0, tolerance);
+}
+
+/** Several paths' counts as one. As in `combine`, the traces are known only when every path's are. */
+export function total(entries: readonly Counts[]): Counts {
+  let metrics = 0;
+  let logs = 0;
+  let traces: number | undefined = 0;
+  for (const entry of entries) {
+    metrics += entry.metrics;
+    logs += entry.logs;
+    traces = traces === undefined || entry.traces === undefined ? undefined : traces + entry.traces;
+  }
+  return { metrics, logs, ...(traces === undefined || !entries.length ? {} : { traces }) };
 }
 
 /** At most this many routes are shown in a silent log's evidence, the busiest first. */
@@ -222,7 +232,7 @@ export function signalForSilentLog(entries: RouteCounts[], end: Date): InboxSign
     }));
   return {
     sense: 'logs',
-    check: 'requests in the log',
+    check: AGREEMENT_CHECK['missing-log'],
     route: '*',
     version,
     symptom: 'missing-log',
@@ -264,7 +274,7 @@ export async function signalForDisagreement(
   if (disagreement === 'missing-log') {
     return {
       ...base,
-      check: 'requests in the log',
+      check: AGREEMENT_CHECK['missing-log'],
       evidence: [
         { kind: 'logs', route, version, requests: Math.round(Math.max(entry.metrics, entry.traces ?? 0)), lines: [] },
       ],
@@ -281,7 +291,7 @@ export async function signalForDisagreement(
   const counted = `metrics ${Math.round(entry.metrics)}, logs ${Math.round(entry.logs)}, traces ${entry.traces ?? 0}`;
   return {
     ...base,
-    check: 'metrics against logs and traces',
+    check: AGREEMENT_CHECK['wrong-metric'],
     ...(picture && picture.values.length >= 2
       ? {
           evidence: [

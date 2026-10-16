@@ -6,7 +6,7 @@ A work item closes as verified only when, after its release is promoted, the sen
 
 - a probe or the crawler: the same check, run again against the stable Service by the probes worker, passes twice in a row;
 - an alert on an objective: the alert's own expression, over the new version's requests to the route, stays inside the objective for a window with enough requests;
-- the log watcher: the same error pattern is absent from the new version's logs for a window with traffic;
+- the log watcher: the same error pattern is absent from the new version's logs for a window with traffic, or, for a missing log or wrong metrics, the metrics, the log and the traces agree again on the route;
 - the canary: the measure that failed passes in a promoted release that carries the fix.
 
 A ticket only a visitor's report or the planner saw holds for Martin, since no sense can look again. The windows and counts are human-owned (`policy/release.ts`).
