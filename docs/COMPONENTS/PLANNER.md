@@ -34,5 +34,6 @@ It rejects what it cannot make testable, or what only a protected path would fix
 
 Anything else it notices is a finding: a page, its route and a sentence.
 
+- The page and the route are paths without a query: one that names a query is cut at it, not refused, and a query the defect needs is in the sentence.
 - The line leaves it in triage's inbox as a signal from the planner, naming the work item it was planning, once for the work item however often it plans ([triage](TRIAGE.md#the-planners-findings)).
 - Its words are kept from every public view and every agent, as a report's are.
