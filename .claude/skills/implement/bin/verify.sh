@@ -20,6 +20,9 @@ if [[ -z $pr ]]; then
   if [[ -d $wt ]]; then
     branch=$(git -C "$wt" branch --show-current)
     say worktree "$wt on $branch"
+    ahead=$(git -C "$wt" rev-list --count origin/main..HEAD)
+    (( ahead == 0 )) || bad commits "$ahead commit(s) on $branch"
+    [[ -z $(git -C "$wt" status --porcelain) ]] || bad worktree "uncommitted changes in $wt"
     if git -C "$root" ls-remote -q --exit-code --heads origin "$branch" >/dev/null; then bad branch "$branch was pushed"; fi
     open=$(gh pr list --head "$branch" --state all --json number -q '[.[].number] | join(" ")')
     [[ -z $open ]] || bad pr "pull request(s) from $branch: $open"
@@ -41,13 +44,19 @@ fi
 
 # Every changed file CODEOWNERS gives Martin has a line in the description's section on them, with its reason beside it.
 owners=$(git -C "$root" show origin/main:.github/CODEOWNERS | sed 's/#.*//' | awk 'NF { print $1 }')
+files=$(gh pr diff "$pr" --name-only)
 owned=()
 while IFS= read -r file; do
   while IFS= read -r pattern; do
-    p=${pattern#/}
-    if [[ $file == "$p" || ( $p == */ && $file == "$p"* ) || $file == "$p/"* ]]; then owned+=("$file"); break; fi
+    # As GitHub reads them: globs, a folder owns what is in it, and a pattern with no slash but a trailing one is
+    # unanchored, matching at any depth. Unquoted on purpose: the patterns are globs.
+    p=${pattern#/} p=${p//\*\*/*} p=${p%/}
+    at=''
+    [[ $pattern == /* || $p == */* ]] || at='*/'
+    # shellcheck disable=SC2053
+    if [[ $file == $p || $file == $p/* || $file == $at$p || $file == $at$p/* ]]; then owned+=("$file"); break; fi
   done <<<"$owners"
-done < <(gh pr diff "$pr" --name-only)
+done <<<"$files"
 say owned "${#owned[@]} file(s) CODEOWNERS gives Martin"
 section=$(awk '/^#+ / { inside = /CODEOWNERS/; next } inside' <<<"$body")
 if (( ${#owned[@]} )) && [[ -z $section ]]; then bad owned "no section on them: a heading naming CODEOWNERS"; fi

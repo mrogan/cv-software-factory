@@ -14,5 +14,5 @@ if git -C "$root" show-ref -q --verify "refs/heads/$branch"; then echo "blocked:
 if git -C "$root" ls-remote -q --exit-code --heads origin "$branch" >/dev/null; then
   echo "blocked: branch $branch exists on origin" >&2; exit 3
 fi
-git -C "$root" worktree add -q "$wt" -b "$branch" "$base"
+git -C "$root" worktree add -q --no-track "$wt" -b "$branch" "$base"
 echo "$wt"

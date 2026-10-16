@@ -6,8 +6,8 @@
 set -euo pipefail
 pr=${1:?usage: copilot.sh <pr> [minutes]} minutes=${2:-15}
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-opened=$(gh pr view "$pr" --json createdAt -q .createdAt)
-deadline=$(( $(date -juf %Y-%m-%dT%H:%M:%SZ "$opened" +%s) + minutes * 60 ))
+opened=$(gh pr view "$pr" --json createdAt -q '.createdAt | fromdateiso8601')
+deadline=$(( opened + minutes * 60 ))
 reviewed() {
   gh api "repos/$repo/pulls/$pr/reviews" --paginate \
     -q '[.[] | select(.user.login | startswith("copilot-pull-request-reviewer"))] | length'

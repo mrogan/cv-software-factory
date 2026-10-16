@@ -41,10 +41,10 @@ Never run two sub-agents at once, and never give a worktree to a second agent wh
 The run exists to close work, not to find more. Hold to this order when a sub-agent says the work is bigger than its item, or reports something it found on the way:
 
 1. **The same pull request**, when it is part of doing the item properly: a doc or test that must change with it, a file CODEOWNERS gives Martin, a stale comment it touches. Send a sub-agent back to finish it.
-2. **A second pull request on the same item** (`<key>-2`, `Part of #<n>`), when the item is right but too big or too mixed for one review. Queue it next.
+2. **A second pull request on the same item** (`<key>-2`, `Part of #<n>`), when the item is right but too big or too mixed for one review. A worker opens it itself; if one reports it as a `split` instead, queue it next.
 3. **A new issue**, only for a different problem: one the item does not need solved to be done, such as a fault that predates it. File it to the standard in `.claude/skills/issue/SKILL.md`, on the milestone it waits for, then add it to the end of this run's list and implement it like the rest.
 
-   A work item Martin named may lead to one new issue at most, and an issue the run filed leads to none: so a run never grows past twice what Martin asked for. Anything more goes in the summary for Martin, unfiled.
+   A work item Martin named may lead to one new issue at most, and an issue the run filed leads to none: so a run never grows past twice what Martin asked for. Anything more goes in the summary, for Martin to file or drop.
 
 Something that needs Martin's decision, or that cannot merge until something else is deployed, is not an issue to file: it goes in the summary. Never leave an issue that the run filed without its pull request or a reason it was skipped.
 

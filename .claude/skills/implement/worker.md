@@ -18,7 +18,7 @@ Martin won't answer questions. Make the calls you would otherwise ask for, and w
 Your job is to finish this item, not to find more work. Never open an issue.
 
 - What the item needs to be done properly goes in this pull request: the docs and tests that change with it, comments it makes stale, and files CODEOWNERS gives Martin (below).
-- If the item is right but too big or too mixed for one review, you may open a second pull request on it, with every step below again: `worktree.sh <key>-2 <branch>`, stacked on the first with a third argument only if it must be, and `Part of #<n>` for an issue.
+- If the item is right but too big or too mixed for one review, open a second pull request on it yourself, with every step below again, and report both as `pr-open`: `worktree.sh <key>-2 <branch>`, stacked on the first with a third argument only if it must be, and `Part of #<n>` for an issue.
 - If finishing it needs work outside the item, stop at what is complete and report `split`, with each part you propose and why it cannot be part of this item.
 - Something unrelated you notice (a fault that predates the change, a doc that is wrong elsewhere) goes under `found` in your report, with its file and line. The orchestrator decides what becomes of it.
 
