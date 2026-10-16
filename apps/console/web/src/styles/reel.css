@@ -231,13 +231,35 @@
   }
 }
 
-/* The timeline: a mark per work item, a hairline per day, each release's version and the playhead. */
+/*
+ * The timeline: a mark per work item, a hairline per day, each release's version and the playhead. They sit on a strip
+ * that slides under a window of the timeline, the same on every screen: Reel.tsx sizes and moves the strip.
+ */
 .rail {
   position: relative;
   height: 92px;
-  margin: 18px 6px 0;
+  margin: 18px 0 0;
   touch-action: none;
   cursor: pointer;
+}
+.rail .window {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+/* An end of the window fades where the timeline goes on past it. */
+.rail .window.before {
+  --before: transparent;
+}
+.rail .window.after {
+  --after: transparent;
+}
+.rail .window {
+  mask-image: linear-gradient(90deg, var(--before, #000), #000 40px calc(100% - 40px), var(--after, #000));
+}
+.rail .strip {
+  position: absolute;
+  inset: 0 auto 0 0;
 }
 .rail:focus-visible {
   outline-offset: 6px;
@@ -245,8 +267,8 @@
 }
 .rail .track {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: -20px;
+  right: -20px;
   top: 46px;
   height: 2px;
   background: var(--line-strong);
@@ -313,13 +335,16 @@
 }
 .rail .ver.burnt {
   text-decoration: line-through;
+  color: var(--attn);
 }
-/* A label that would touch another, as a hairline: warm for a rollback or a stop. */
+/* A label that would touch another, as a hairline: warm for a rollback or a stop. A day keeps its own hairline. */
+.rail .thin {
+  font-size: 0;
+}
 .rail .ver.thin {
   width: 1px;
   height: 7px;
   margin-top: 4px;
-  font-size: 0;
   background: var(--text-muted);
 }
 .rail .ver.thin.burnt {
@@ -336,6 +361,9 @@
 }
 .reel.anim ~ .rail .playhead {
   transition: left 0.6s var(--motion-ease);
+}
+.reel.anim ~ .rail .strip {
+  transition: transform 0.6s var(--motion-ease);
 }
 .at-line {
   display: flex;
@@ -358,7 +386,8 @@
 }
 
 html[data-motion="off"] .reel.anim .card,
-html[data-motion="off"] .reel.anim ~ .rail .playhead {
+html[data-motion="off"] .reel.anim ~ .rail .playhead,
+html[data-motion="off"] .reel.anim ~ .rail .strip {
   transition: none;
 }
 
@@ -381,11 +410,5 @@ html[data-motion="off"] .reel.anim ~ .rail .playhead {
   .card .kind,
   .meta .opt {
     display: none;
-  }
-  .rail .ver:not(.here) {
-    display: none;
-  }
-  .rail .day {
-    font-size: 0;
   }
 }

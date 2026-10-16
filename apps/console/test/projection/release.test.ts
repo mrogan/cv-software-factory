@@ -181,6 +181,15 @@ describe('the timeline, from the samples', () => {
     expect(mark('v0.9.10')?.card).toBe(cards.findIndex((c) => c.number === '1306'));
   });
 
+  it('spans a card width for each step between marks, and half one more between days', () => {
+    // The window the console shows of the timeline gives each card width the same room: the closest two marks are one
+    // apart, and the whole is as many apart as there are marks after the first and half one for each day after the first.
+    const places = [...timeline.positions, ...timeline.versions.filter((v) => v.card === undefined).map((v) => v.at)];
+    const steps = places.sort((a, b) => a - b).flatMap((p, i) => (i ? [p - (places[i - 1] ?? 0)] : []));
+    expect(Math.min(...steps) * timeline.span).toBeCloseTo(1);
+    expect(timeline.span).toBeCloseTo(places.length - 1 + (timeline.days.length - 1) * 0.5);
+  });
+
   it('marks nothing for a dry run, or for a release still in flight', () => {
     const dryRun = releases(SAMPLES, [], END).find((r) => r.dryRun);
     expect(dryRun?.end?.kind).toBe('promoted');
