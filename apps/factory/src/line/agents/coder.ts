@@ -5,7 +5,7 @@
  *
  * It applies no coding standards or design rules beyond the repository's invariants in `AGENTS.md`: the reviewer
  * holds it to those, so they do not compete with the work for its context. Nor does it fix what else it notices: the
- * shop is bad on purpose, and a fix that mends other defects in passing would muddle what the ticket's fix did.
+ * app is bad on purpose, and a fix that mends other defects in passing would muddle what the ticket's fix did.
  *
  * The scope is a fence, not a request: the line refuses a patch that changes a file outside it, or a path no patch may
  * change (the workflows, the deployment, and what the app's CODEOWNERS gives a person at the step's commit), whole,
@@ -218,7 +218,7 @@ function first(input: CoderInput): string[] {
     '2. Write the test first: a test for each criterion, in a test file the scope allows, beside the tests that are there. Run it and see it fail because of the defect.',
     '3. Fix the code, and run the tests again until yours pass and none that passed before fails.',
     '',
-    'Change only what the criteria need. The shop is bad on purpose, so you may see other things wrong: leave them, even in a file the scope allows, and mention them in your note. The line refuses a patch that changes any file outside the scope, whole. Leave your changes in the checkout: the line takes them from there.',
+    'Change only what the criteria need. The app is bad on purpose, so you may see other things wrong: leave them, even in a file the scope allows, and mention them in your note. The line refuses a patch that changes any file outside the scope, whole. Leave your changes in the checkout: the line takes them from there.',
     '',
     ...RESULT,
   ];

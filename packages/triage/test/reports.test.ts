@@ -46,7 +46,7 @@ function fakeJev(answers: Record<string, Record<string, Answer>>) {
 }
 
 const triage = (category: string, injection = 0.01, extra: Record<string, Answer> = {}) => ({
-  'triage/v1': {
+  'triage/v2': {
     category: choice(category),
     symptom: choice('wrong-result'),
     severity: { type: 'score', score: 2.2, confidence: 0.8, probabilities: { 0: 0.05, 1: 0.1, 2: 0.45, 3: 0.4 } },
@@ -80,7 +80,7 @@ describe('judging a report', () => {
       page: '/about',
       report: 'It says founded 1887 but the photo is from 1990. Email me at [email]',
     });
-    expect(asked[0]).toMatchObject({ agent: 'triage', questionSet: 'triage/v1', model: 'jev-1.13.0' });
+    expect(asked[0]).toMatchObject({ agent: 'triage', questionSet: 'triage/v2', model: 'jev-1.13.0' });
   });
 
   it('builds the same questions every time, with the open tickets offered and "none of these"', () => {
@@ -94,7 +94,7 @@ describe('judging a report', () => {
   it('asks a content report which passage of the page it is about, and fingerprints the factory’s own text', async () => {
     const { judge, asked } = fakeJev({ ...triage('content'), 'passage/v1': { passage: choice('p1', 0.88) } });
     const decision = await judgeReport(REPORT, [], judge, read);
-    expect(asked.map((r) => r.questionSet)).toEqual(['triage/v1', 'passage/v1']);
+    expect(asked.map((r) => r.questionSet)).toEqual(['triage/v2', 'passage/v1']);
     expect(decision.fingerprint).toEqual({ page: '/about', text: 'Founded in 1887 by Ezra Mossop.' });
     expect(decision.judgements[1]?.route).toBeUndefined();
     expect(decision.judgements[1]?.state.passages?.[0]).toEqual({ key: 'p1', text: 'Founded in 1887 by Ezra Mossop.' });

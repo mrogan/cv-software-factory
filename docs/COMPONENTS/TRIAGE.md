@@ -10,7 +10,7 @@ An agent: turns signals into tickets. Part of the [factory plane](README.md#agen
 flowchart TD
   signal[Signal] --> kind{From}
   kind -- a sense --> policy["policy/triage.ts: category and severity"]
-  kind -- "a report, or a planner's finding" --> jev["Jev (triage/v1)"]
+  kind -- "a report, or a planner's finding" --> jev["Jev (triage/v2)"]
   policy --> match{Matches by fingerprint}
   match -- an open ticket --> repeat[A repeat on that ticket]
   match -- "a ticket closed as verified" --> reopen[Reopens it]
@@ -24,7 +24,7 @@ flowchart TD
 ## Every signal
 
 - **A sense's signal** takes its category and severity from `policy/triage.ts`, and repeats by fingerprint.
-- **Only reports and the planner's findings go to Jev** (`triage/v1`), with routing as plain code.
+- **Only reports and the planner's findings go to Jev** (`triage/v2`), with routing as plain code.
 - It quarantines injection attempts, and parks suggestions for Martin.
 - **One fingerprint, one ticket.**
 - **More new problems than a handful from one sense at once** wait for Martin as one [burst](#a-burst), before any has a ticket.

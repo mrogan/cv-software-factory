@@ -1,5 +1,5 @@
 /**
- * Judging a visitor's report: the one thing triage asks a model about. Jev answers `triage/v1` about the report
+ * Judging a visitor's report: the one thing triage asks a model about. Jev answers `triage/v2` about the report
  * (scrubbed), routing code decides where it goes, and a content report gets a second request, `passage/v1`, which
  * chooses the passage of the page it is about from the page as the factory read it itself. The ticket then holds
  * the factory's own text, never the visitor's.
