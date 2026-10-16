@@ -96,14 +96,15 @@ export const MAX_PLANNER_FINDINGS = 5;
 
 /**
  * A path of the app: a page a visitor opens, or a route as the app's code names it. A query or fragment is cut off
- * rather than refused, as `findingSignal` would cut it (a query alone is `/`), so one finding that names one does not cost the whole result:
- * the query is the model's choice, and goes no further than the finding's text, which triage reads as untrusted.
+ * rather than refused, as `findingSignal` would cut it (a query alone is `/`; nothing at all is still refused), so
+ * one finding that names one does not cost the whole result: the query is the model's choice, and goes no further
+ * than the finding's text, which triage reads as untrusted.
  */
 const path = (example: string) =>
   z
     .string()
     .max(1000)
-    .transform((value) => routeOf(value.trim()).trim())
+    .transform((value) => (value.trim() ? routeOf(value.trim()).trim() : ''))
     .pipe(
       z
         .string()

@@ -326,6 +326,8 @@ describe('what the planner noticed outside its ticket', () => {
       [{ ...finding, text: 'x'.repeat(301) }],
       [{ ...finding, page: `/search?q=${'x'.repeat(1000)}` }],
       [{ ...finding, route: 'products/:slug' }],
+      [{ ...finding, page: '' }],
+      [{ ...finding, route: '  ' }],
       [{ ...finding, symptom: 'wrong-result' }],
     ]) {
       expect(fits({ verdict: 'spec', spec: SPEC, findings: wrong }).success).toBe(false);
