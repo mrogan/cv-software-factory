@@ -5,40 +5,57 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-const args = process.argv.slice(2);
-const pr = args[0] === '--pr' ? args[1] : undefined;
-if (!args[0] || (args[0] === '--pr' && !pr)) {
-  console.error('usage: node check.ts <file> | --pr <n>');
-  process.exit(2);
-}
+/** What is wrong with a description, given its Markdown and GitHub's rendering of it; `published` adds local paths. */
+export function problems(body: string, html: string, published: boolean): string[] {
+  const found: string[] = [];
+  const count = (re: RegExp) => html.match(re)?.length ?? 0;
 
-const gh = (...a: string[]) => execFileSync('gh', a, { encoding: 'utf8', input: '' });
-const body = pr ? gh('pr', 'view', pr, '--json', 'body', '-q', '.body') : readFileSync(args[0], 'utf8');
-const repo = gh('repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner').trim();
-// GitHub's own renderer: it reads the text and publishes nothing.
-const html = execFileSync('gh', ['api', 'markdown', '-f', 'mode=gfm', '-f', `context=${repo}`, '-F', 'text=@-'], {
-  encoding: 'utf8',
-  input: body,
-});
-
-const problems: string[] = [];
-const count = (re: RegExp) => html.match(re)?.length ?? 0;
-
-if (count(/<details[\s>]/g) !== count(/<\/details>/g)) problems.push('a <details> is not closed');
-for (const [, inner] of html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)) {
-  const title = (inner ?? '').trim();
-  if (!/^<h[1-6][^>]*>[\s\S]*<\/h[1-6]>$/.test(title)) {
-    problems.push(`a summary is not one heading (blank lines around a "## title"?): ${title.slice(0, 80)}`);
+  if (count(/<details[\s>]/g) !== count(/<\/details>/g)) found.push('a <details> is not closed');
+  if (count(/<summary>/g) !== count(/<details[\s>]/g)) found.push('a <details> has no <summary>, or one has two');
+  for (const [, inner] of html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)) {
+    const title = (inner ?? '').trim();
+    if (!/^<h[1-6][^>]*>[\s\S]*<\/h[1-6]>$/.test(title)) {
+      found.push(`a summary is not one heading (blank lines around a "## title"?): ${title.slice(0, 80)}`);
+    }
   }
-}
-// Markdown left as text: what is outside code and pre, and still looks like Markdown.
-const text = html.replace(/<pre[\s\S]*?<\/pre>/g, '').replace(/<code[\s\S]*?<\/code>/g, '');
-for (const line of text.split('\n')) {
-  if (/^\s*(#{1,6} |[-*] |\d+\. |```)|\*\*|\]\(/.test(line)) problems.push(`Markdown left as text: ${line.trim()}`);
-}
-if (pr) {
-  for (const [path] of body.matchAll(/\]\((\/|~|\.\.?\/)[^)]*\)/g)) problems.push(`a local path is left: ${path}`);
+  // Markdown left as text: what is outside code and pre, and still looks like Markdown.
+  const text = html.replace(/<pre[\s\S]*?<\/pre>/g, '').replace(/<code[\s\S]*?<\/code>/g, '');
+  for (const line of text.split('\n')) {
+    if (/^\s*(#{1,6} |[-*] |\d+\. |```)|\*\*|\]\(/.test(line)) found.push(`Markdown left as text: ${line.trim()}`);
+  }
+  if (published) {
+    // Where a link or picture points, in each form Markdown and HTML allow: inline, a reference's definition, and src
+    // or href; code, which shows such forms without being them, aside. Anything but a web address or an anchor is a
+    // path on this Mac, which GitHub would show broken.
+    const prose = body.replace(/^(```|~~~)[\s\S]*?^\1/gm, '').replace(/`[^`\n]*`/g, '');
+    const targets = [
+      ...prose.matchAll(/\]\(\s*<?([^)\s>]+)/g),
+      ...prose.matchAll(/^\s*\[[^\]]+\]:\s*<?([^\s>]+)/gm),
+      ...prose.matchAll(/\b(?:src|href)\s*=\s*["']([^"']+)/g),
+    ].map((m) => m[1] ?? '');
+    for (const target of targets) {
+      if (!/^(https?:|mailto:|#)/.test(target)) found.push(`a local path is left: ${target}`);
+    }
+  }
+  return found;
 }
 
-for (const p of problems) console.log(p);
-process.exit(problems.length ? 1 : 0);
+if (import.meta.main) {
+  const args = process.argv.slice(2);
+  const pr = args[0] === '--pr' ? args[1] : undefined;
+  if (!args[0] || (args[0] === '--pr' && !pr)) {
+    console.error('usage: node check.ts <file> | --pr <n>');
+    process.exit(2);
+  }
+  const gh = (...a: string[]) => execFileSync('gh', a, { encoding: 'utf8', input: '' });
+  const body = pr ? gh('pr', 'view', pr, '--json', 'body', '-q', '.body') : readFileSync(args[0], 'utf8');
+  const repo = gh('repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner').trim();
+  // GitHub's own renderer: it reads the text and publishes nothing.
+  const html = execFileSync('gh', ['api', 'markdown', '-f', 'mode=gfm', '-f', `context=${repo}`, '-F', 'text=@-'], {
+    encoding: 'utf8',
+    input: body,
+  });
+  const found = problems(body, html, pr !== undefined);
+  for (const p of found) console.log(p);
+  process.exit(found.length ? 1 : 0);
+}
