@@ -82,6 +82,7 @@ describe('migrations', () => {
       { version: 11, name: 'canary-sense' },
       { version: 12, name: 'scoreboard' },
       { version: 13, name: 'forget-pictures' },
+      { version: 14, name: 'burst' },
     ]);
   });
 });

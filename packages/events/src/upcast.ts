@@ -41,6 +41,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
     3: (payload) => payload,
     // Version 5 adds waiting for a deploy and for Martin's word on a verification; a version 4 hold reads as it was.
     4: (payload) => payload,
+    // Version 6 adds a burst of new problems from one sense; a version 5 hold reads as it was.
+    5: (payload) => payload,
   },
   // Version 2 of a release's events names the release, says whether the line watched it and whether the dry run
   // answers for it, and records the analysis's own measures. A version 1 release was told apart by its version, was
