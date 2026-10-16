@@ -139,7 +139,10 @@ export interface LineOptions {
   dryRun?: boolean;
   /** How long a dry run's release takes over each move: to start after the merge, each step, and its promotion. */
   dryRunReleaseMs?: number;
-  /** Where Verify looks: the probes worker, Prometheus and Loki. A sense with none waits at Verify. */
+  /**
+   * Where Verify looks: the probes worker, Prometheus, Loki and Tempo. A sense with none waits at Verify. Without
+   * Tempo, the agreement check judges a missing log on the metrics and the log alone, and a wrong metric waits.
+   */
   verify?: VerifyClients;
   /**
    * The index of the pictures the probes worker took while each canary ran (`pictures/`), for the pages a verification
