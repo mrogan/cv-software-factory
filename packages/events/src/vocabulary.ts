@@ -129,6 +129,11 @@ export const HOLD_CAUSES = [
    * it waits for a sense to see it or for Martin.
    */
   'finding',
+  /**
+   * Triage held a burst: one sense found more new problems at once than a handful, so their tickets wait, unopened,
+   * for Martin to look at what it saw before any reaches Plan.
+   */
+  'burst',
   /** A spec waits for Martin's approval before anything is built: an improvement's, or one tagged `out-of-scope`. */
   'spec',
   /** An agent asks Martin something only he can say. */

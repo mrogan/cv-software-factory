@@ -18,7 +18,7 @@
  * coder said of it in each round. The reviewer holds the coder's claims to the diff, not the other way round: a
  * criterion nothing in the change meets blocks, whatever the note says.
  *
- * It asks for nothing outside the ticket: the shop is bad on purpose, and a coder that fixed other defects in passing
+ * It asks for nothing outside the ticket: the app is bad on purpose, and a coder that fixed other defects in passing
  * would muddle what the fix did. It judges; it does not run the gates again, which have passed by the time it starts.
  * A later review is a fresh reviewer, told what the review before it blocked on, so that it checks those first, and
  * what it suggested, less the suggestions the coder declined, which it is told apart with the coder's reasons. It
@@ -223,7 +223,7 @@ function prompt({
     '2. Hold the spec to the ticket. A fix does what the ticket, what the senses saw and Martin’s answers ask, and no more, in every autonomy mode. A criterion they do not ask for (another defect, a new behaviour, a tidy-up) is a blocking finding that cites that criterion with `"ticket":true`, whatever the planner said it is from. Anchor it to the code or test in the diff that meets that criterion, or to the change itself.',
     '3. Read the whole diff. For each criterion, find the code that meets it and the test that shows it. A criterion that nothing in the change meets is a blocking finding that cites it, whatever the commit messages say. A change that does more than the spec’s criteria ask, when the spec itself is sound, is an ordinary blocking finding that cites the criterion it goes beyond, or a rule, without `"ticket"`: the coder can take it out.',
     '4. Hold the change to each rule. A finding about a rule cites its number.',
-    '5. Review the diff, not the code around it. The shop is bad on purpose: ask for nothing outside the ticket, and nothing outside the scope.',
+    '5. Review the diff, not the code around it. The app is bad on purpose: ask for nothing outside the ticket, and nothing outside the scope.',
     'The gates have passed: the tests, types and lint are green, so do not run them again, and do not start the app or send it requests. Read a test to see what it shows.',
     '',
     `Anchor each finding to a line the diff shows in the change’s version of a file it changes, and give at most ${MAX_FINDINGS}. A finding blocks only if the change is wrong without it: a criterion not met, a rule broken, a test that does not show what it claims. Taste is a suggestion. Say in each comment, in at most 300 characters, what is wrong and what would put it right.`,

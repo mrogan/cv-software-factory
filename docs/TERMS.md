@@ -59,6 +59,6 @@ The words we use, so docs, code, UI and commits stay consistent. Standard indust
 | **pictures** | visual diff, snapshots | Every page of the app screenshotted on the stable version and on the canary while a release runs, and each pair compared pixel by pixel; at Verify, "every page against the version before", the ticket's own page marked intended. Snapshots are the console's visual tests. |
 | **TypeSafe** | | The company and API that serve Jev. |
 | **Jev** | classifier, LLM | TypeSafe's model for typed judgements: it answers Choice, Score and Noul questions with probabilities and never generates text. |
-| **question set** | prompt | A versioned group of Jev questions, such as `triage/v1`, kept as code. |
+| **question set** | prompt | A versioned group of Jev questions, such as `triage/v2`, kept as code. |
 | **cassette** | recording, tape, mock | One model call as the gateway recorded it: the request and the provider's response, in a file named by the SHA-256 of the provider, model and request. Replaying it answers the same request again without calling the model. "Recording" means an event log. |
 | **bench** | harness, playground, test rig | One agent's step run on a developer's machine against a gateway on the host, on a fixture of invented work, to work on that agent's prompt (`factory line bench`): on Qwen for nothing, on Claude to record cassettes, then from the cassettes. It runs the runner's own steps, without the runner's fence. |

@@ -119,7 +119,7 @@ function prompt(input: DescriberInput): string {
     '2. The pull request’s title: a Conventional Commit of at most 80 characters, such as "fix(cart): count the last item". It becomes the squash commit’s headline. Keep the coder’s if it says what the change does.',
     '',
     '3. The work item’s summary, for the factory’s console. Anyone may read it, someone who has never seen a pull request among them, so write plain sentences with no Markdown and no code:',
-    '- `title`: what was wrong, as a visitor to the shop would see it, in a few words, at most 120 characters, such as "Prices lose a digit of pence".',
+    '- `title`: what was wrong, as a visitor would see it, in a few words, at most 120 characters, such as "Prices lose a digit of pence".',
     '- `description`: two short sentences for the work item’s card, at most 260 characters: what was wrong, and that the fix waits for Martin to merge it.',
     '- `story`: one paragraph, at most 1200 characters, in the past tense: what the senses saw, what the planner’s spec asked for, how the coder wrote a failing test and then the fix, what the gates and the reviewer said in each round, and that it now waits for Martin’s merge.',
     '',

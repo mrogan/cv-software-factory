@@ -43,7 +43,7 @@ export interface JudgeRequest {
   agent: Agent;
   /** The work item the call is for, which its cap counts against, or null for none. */
   workItem: string | null;
-  /** The question set and its version, such as `triage/v1`. */
+  /** The question set and its version, such as `triage/v2`. */
   questionSet: string;
   /** A pinned model, such as `jev-1.13.0`. */
   model: string;
@@ -72,7 +72,7 @@ export const judgeRequest = z.strictObject({
     .string()
     .regex(/^[1-9]\d{0,8}$/)
     .nullable(),
-  questionSet: z.string().regex(/^[a-z][a-z0-9-]*\/v\d+$/, 'a question set and version, such as triage/v1'),
+  questionSet: z.string().regex(/^[a-z][a-z0-9-]*\/v\d+$/, 'a question set and version, such as triage/v2'),
   model: z.string().max(80),
   state: z.unknown(),
   questions: z.unknown(),

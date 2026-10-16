@@ -24,7 +24,7 @@ A failed canary analysis is a signal from a sense of its own, `canary`, one for 
 
 ## Consequences
 
-- The line reaches what each sense reads: the probes' verify port, Prometheus and Loki. Its image has no browser, so the probes worker runs the checks, on a port only the line may call.
+- The line reaches what each sense reads: the probes' verify port, Prometheus, Loki and Tempo. Its image has no browser, so the probes worker runs the checks, on a port only the line may call.
 - A fix that cleared on the canary's numbers but not on its own sense persists, and goes back to Plan with that verification as evidence, once; then it holds.
 - One fingerprint, one ticket holds through a release: a verified ticket whose signal returns reopens, rather than a second ticket opening for the same defect.
 - A release found live, which no analysis judged, cannot verify a canary ticket, nor one whose last step did not pass the measure: it holds for Martin.
