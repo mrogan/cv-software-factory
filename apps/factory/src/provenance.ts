@@ -20,5 +20,8 @@ export const LOGS_FROM_THE_APP = 'k8s_pod_name!=""';
 /** Prometheus labels a series with the hash, which it promotes, and not the pod's name, which it does not. */
 export const METRICS_FROM_THE_APP = 'k8s_pod_label_rollouts_pod_template_hash!=""';
 
+/** The resource attribute the collector stamps: in a trace from Tempo, the app's spans are those whose resource has it. */
+export const APP_POD_ATTRIBUTE = 'k8s.pod.name';
+
 /** Tempo keeps every attribute of a span's resource, and `resource.` reads the resource's alone. */
-export const TRACES_FROM_THE_APP = 'resource.k8s.pod.name != nil';
+export const TRACES_FROM_THE_APP = `resource.${APP_POD_ATTRIBUTE} != nil`;

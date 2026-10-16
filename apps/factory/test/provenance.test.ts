@@ -101,6 +101,29 @@ describe('the senses read only what the collector stamped as the app’s', () =>
     ]);
   });
 
+  it('a trace fetched by its id, which anyone may send: only the app’s spans of it', async () => {
+    const resource = (attributes: Record<string, string>) => ({
+      attributes: Object.entries(attributes).map(([key, value]) => ({ key, value: { stringValue: value } })),
+    });
+    const batch = (name: string, attributes: Record<string, string>) => ({
+      resource: resource(attributes),
+      scopeSpans: [{ spans: [{ name, startTimeUnixNano: '1000000000', endTimeUnixNano: '2000000000' }] }],
+    });
+    const trace = {
+      batches: [
+        batch('GET /about', { 'service.name': 'website', 'k8s.pod.name': 'website-abc' }),
+        batch('planted', { 'service.name': 'website' }),
+      ],
+    };
+    const tempo = new Tempo('http://tempo', (async () => new Response(JSON.stringify(trace))) as typeof fetch);
+    expect((await tempo.spans('0af7651916cd43dd8448eb211c80319c'))?.map((s) => s.name)).toEqual(['GET /about']);
+    const planted = new Tempo(
+      'http://tempo',
+      (async () => new Response(JSON.stringify({ batches: trace.batches.slice(1) }))) as typeof fetch,
+    );
+    expect(await planted.spans('0af7651916cd43dd8448eb211c80319c')).toBeUndefined();
+  });
+
   it('the app’s dashboard', async () => {
     const dashboard = await readFile(join(DEPLOY, '../dashboards/website.json'), 'utf-8');
     const targets = (JSON.parse(dashboard) as { panels: { targets?: { expr?: string; query?: string }[] }[] }).panels

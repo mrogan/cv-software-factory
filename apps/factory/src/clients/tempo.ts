@@ -2,7 +2,7 @@
  * Tempo's HTTP API. A trace is not queryable until a minute or two after its spans are sent, so every
  * caller treats "not there yet" as an answer and never waits for one.
  */
-import { TRACES_FROM_THE_APP } from '../provenance.ts';
+import { APP_POD_ATTRIBUTE, TRACES_FROM_THE_APP } from '../provenance.ts';
 import { type Fetch, getJson } from './http.ts';
 
 export interface ServerSpan {
@@ -80,7 +80,10 @@ export class Tempo {
     return answer.traces.length > 0;
   }
 
-  /** The spans of a trace, in the order they began, or nothing if Tempo does not have it yet. */
+  /**
+   * The app's spans of a trace, in the order they began, or nothing if Tempo does not have them yet. A trace id is
+   * anyone's to send, so only the spans whose resource the collector stamped as the app's are kept (provenance.ts).
+   */
   async spans(traceId: string): Promise<SpanSummary[] | undefined> {
     let answer: {
       batches?: Batch[];
@@ -91,9 +94,9 @@ export class Tempo {
     } catch {
       return undefined;
     }
-    const raw = (answer.batches ?? answer.trace?.resourceSpans ?? []).flatMap((batch) =>
-      (batch.scopeSpans ?? []).flatMap((scope) => scope.spans ?? []),
-    );
+    const raw = (answer.batches ?? answer.trace?.resourceSpans ?? [])
+      .filter((batch) => batch.resource?.attributes?.some((a) => a.key === APP_POD_ATTRIBUTE && a.value.stringValue))
+      .flatMap((batch) => (batch.scopeSpans ?? []).flatMap((scope) => scope.spans ?? []));
     if (raw.length === 0) return undefined;
     const spans = raw
       .map((span) => ({ name: span.name, start: BigInt(span.startTimeUnixNano), end: BigInt(span.endTimeUnixNano) }))
@@ -109,5 +112,6 @@ export class Tempo {
 }
 
 interface Batch {
+  resource?: { attributes?: Attribute[] };
   scopeSpans?: { spans?: { name: string; startTimeUnixNano: string; endTimeUnixNano: string }[] }[];
 }
