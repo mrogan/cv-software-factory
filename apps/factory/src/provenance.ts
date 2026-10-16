@@ -8,7 +8,8 @@
  * same, then gives a record that came from a pod in `website` that pod's name and its `rollouts-pod-template-hash`
  * label (deploy/base/telemetry/values/otel-collector.yaml). It watches no other namespace, and nothing else in the
  * cluster sets them, so a record that carries them came from the app's pods, and one that names itself the app and
- * carries neither came from somewhere else.
+ * carries neither came from somewhere else. That holds of what passes through the collector: a worker that could write
+ * to a backend directly could write any label, so the readers' fences must let them read and no more.
  *
  * Each backend keeps a different one of the two where a selector can reach it.
  */
