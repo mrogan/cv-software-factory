@@ -5,9 +5,9 @@ import type { InboxSignal, NewEvent, PayloadOf, Screenshot } from '@software-fac
 import { DiskArtifacts, EventWriter, lastEnd, sendSignal } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { INBOX } from '../../../../policy/triage.ts';
+import { BURST, INBOX } from '../../../../policy/triage.ts';
 import { type Database, freshDatabase } from '../../../store/test/database.ts';
-import { BURST, burstEvents, idsFor, senseEvidence, senseTicket } from '../../src/events.ts';
+import { burstEvents, idsFor, senseEvidence, senseTicket } from '../../src/events.ts';
 import { type Answer, type Judge, JudgeWaiting } from '../../src/judge.ts';
 import { Triage, type TriageOptions } from '../../src/worker.ts';
 

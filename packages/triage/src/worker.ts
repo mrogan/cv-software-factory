@@ -26,10 +26,9 @@
 import type { InboxSignal, NewEvent, PayloadOf, SignalSource, SymptomClass } from '@software-factory/events';
 import { type EventWriter, fingerprintOf, lastEnd, nextWorkItem } from '@software-factory/store';
 import type { Sql } from 'postgres';
-import { INBOX, SYMPTOMS } from '../../../policy/triage.ts';
+import { BURST, INBOX, SYMPTOMS } from '../../../policy/triage.ts';
 import {
   approvedFinding,
-  BURST,
   burstEvents,
   closedBurst,
   closedFinding,

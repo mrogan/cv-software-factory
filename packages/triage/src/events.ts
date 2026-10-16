@@ -16,7 +16,7 @@ import {
   type SymptomClass,
   VERSIONS,
 } from '@software-factory/events';
-import { SYMPTOMS } from '../../../policy/triage.ts';
+import { BURST, SYMPTOMS } from '../../../policy/triage.ts';
 import type { Fingerprint, Judgement, ReportDecision } from './reports.ts';
 import { privatePath, shortPath } from './scrub.ts';
 
@@ -200,18 +200,6 @@ export function senseReopened(signal: InboxSignal, signalId: string, workItem: s
   });
   return signalEvent(writer, signal).events;
 }
-
-/**
- * More new problems than a handful from one sense at once: they could be as many defects, or one fault in what the
- * sense reads, such as a gap in the log. Each would be a planner's step and more, so a burst waits for Martin as one
- * work item, held, with no ticket, before any of its problems has one.
- */
-export const BURST = {
-  /** The most new tickets one sense opens within the window without a hold: more than this is a burst. */
-  tickets: 5,
-  /** How close together a sense's signals are, in minutes, to count as one burst. Two of a sense's runs, by default. */
-  minutes: 10,
-} as const;
 
 /**
  * A sense's signal that would have opened a ticket, and with the others found with it makes a burst: a work item held
