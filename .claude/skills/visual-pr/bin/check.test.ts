@@ -19,6 +19,13 @@ describe('check.ts', () => {
     ]);
   });
 
+  it('names the line a missing blank line leaves as text, by the describer’s rule, before anything is rendered', () => {
+    const body = '<details>\n<summary>\n## Tests\n</summary>\n\n- passes\n\n</details>';
+    expect(problems(body, '', false)).toEqual([
+      'a folded section shows “## Tests” as text: leave a blank line before it',
+    ]);
+  });
+
   it('names a section with no summary', () => {
     expect(problems('', '<details>\n<p dir="auto">body</p>\n</details>', false)).toEqual([
       'a <details> has no <summary>, or one has two',

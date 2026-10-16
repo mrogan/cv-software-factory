@@ -1,13 +1,18 @@
 // Renders a pull request's description as GitHub does and says what did not render: node check.ts <file> | --pr <n>
 // A <details> section is easy to break by a blank line: Markdown inside an HTML block stays literal until one ends
-// it. With --pr it checks the published body, where no local path may be left either: gh rewrites an attached file's
-// path only when the upload works. Exit 0 when nothing is wrong, 1 with a line for each problem.
+// it. The describer's rule for that, read line by line (folds.ts), goes first and names the line; GitHub's renderer
+// then catches the rest. With --pr it checks the published body, where no local path may be left either: gh rewrites
+// an attached file's path only when the upload works. Exit 0 when nothing is wrong, 1 with a line for each problem.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { unrenderedFolds } from '../../../../apps/factory/src/line/agents/folds.ts';
 
-/** What is wrong with a description, given its Markdown and GitHub's rendering of it; `published` adds local paths. */
+/**
+ * What is wrong with a description, given its Markdown and GitHub's rendering of it, which is empty when the folds
+ * already failed; `published` adds local paths.
+ */
 export function problems(body: string, html: string, published: boolean): string[] {
-  const found: string[] = [];
+  const found: string[] = unrenderedFolds(body);
   const count = (re: RegExp) => html.match(re)?.length ?? 0;
 
   if (count(/<details[\s>]/g) !== count(/<\/details>/g)) found.push('a <details> is not closed');
@@ -50,11 +55,14 @@ if (import.meta.main) {
   const gh = (...a: string[]) => execFileSync('gh', a, { encoding: 'utf8', input: '' });
   const body = pr ? gh('pr', 'view', pr, '--json', 'body', '-q', '.body') : readFileSync(args[0], 'utf8');
   const repo = gh('repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner').trim();
-  // GitHub's own renderer: it reads the text and publishes nothing.
-  const html = execFileSync('gh', ['api', 'markdown', '-f', 'mode=gfm', '-f', `context=${repo}`, '-F', 'text=@-'], {
-    encoding: 'utf8',
-    input: body,
-  });
+  // GitHub's own renderer: it reads the text and publishes nothing. Not needed for folds the rule already named, whose
+  // Markdown left as text it would name again.
+  const html = unrenderedFolds(body).length
+    ? ''
+    : execFileSync('gh', ['api', 'markdown', '-f', 'mode=gfm', '-f', `context=${repo}`, '-F', 'text=@-'], {
+        encoding: 'utf8',
+        input: body,
+      });
   const found = problems(body, html, pr !== undefined);
   for (const p of found) console.log(p);
   process.exit(found.length ? 1 : 0);
