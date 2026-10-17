@@ -631,6 +631,37 @@ describe('triage', () => {
       });
     }
 
+    it('closes a twin held before one fingerprint had one hold into the ticket his approval opens, and leaves it when he rejects', async () => {
+      // Two holds with one fingerprint, on work items of their own, as triage held them before it joined the second.
+      const twin = async (item: string, other: string) => {
+        const [hold] = await writer<{ payload: PayloadOf<'hold.started'> }[]>`
+          select payload from events where work_item = ${item} and type = 'hold.started'`;
+        await events.append([
+          {
+            ...closed(other),
+            type: 'work-item.opened',
+            version: 2,
+            payload: { kind: 'planner-finding', title: 'A finding', sample: false },
+          },
+          { ...closed(other), id: crypto.randomUUID(), type: 'hold.started', version: 7, payload: hold?.payload },
+        ] as NewEvent[]);
+        return other;
+      };
+      const approved = await park('/loyalty');
+      const held = await twin(approved, '9001');
+      await answer(approved, 'approved');
+      expect(await triage().settleOne()).toBe(true);
+      expect(await closing(held)).toEqual({ outcome: 'no-change', reason: `Ticket #${approved} already has it` });
+
+      const rejected = await park('/coupons');
+      const waiting = await twin(rejected, '9002');
+      await answer(rejected, 'rejected');
+      expect(await triage().settleOne()).toBe(true);
+      expect((await closing(rejected))?.outcome).toBe('discarded');
+      expect(await closing(waiting)).toBeUndefined();
+      expect(await triage().settleOne()).toBe(false);
+    });
+
     it('goes by the store’s order, not what triage read: an answer appended as a finding joins does not settle it', async () => {
       const item = await park('/vouchers');
       // Martin answers after triage has read the hold as unanswered, and before it appends the finding there.
