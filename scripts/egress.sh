@@ -47,8 +47,9 @@
 # policy blocks it: any other failure, such as a name that does not resolve, proves nothing about the fence.
 #
 # A check whose `kubectl exec` fails is a FAIL naming the exit status, and the rest go on: an exec lands in a pod being
-# replaced, or its Node, beside the container's own, runs it out of memory. The deployments checked from are rolled
-# out before anything starts, so a run straight after a deploy waits for it.
+# replaced, or its Node, beside the container's own, runs it out of memory. The deployments checked from, and the
+# proxy, are rolled out before anything starts, so a run during a rollout waits for it; one Argo CD has yet to sync
+# is not waited for.
 #
 # The controls matter: if the gateway could not reach TypeSafe either, the pod's failure would prove only that the
 # network was down.
@@ -64,17 +65,18 @@ browser_image=$(kubectl --context "$context" get clusteranalysistemplate website
   -o jsonpath='{.spec.metrics[?(@.name=="journeys")].provider.job.spec.template.spec.containers[0].image}')
 runners=(kubectl --context "$context" -n runners)
 
-# The deployments the checks run in, rolled out first: straight after a deploy, an exec could land in a pod being
-# replaced.
+# The deployments the checks run in, and the read-only proxy the readers query, rolled out first: straight after a
+# deploy, an exec could land in a pod being replaced. kubectl says why one that has not rolled out has not.
 for deployment in factory/gateway factory/github factory/triage factory/intake factory/logs factory/line \
-  factory/traffic factory/probes factory/crawler scoreboard/scoreboard; do
+  factory/traffic factory/probes factory/crawler scoreboard/scoreboard telemetry/query; do
   if ! kubectl --context "$context" -n "${deployment%%/*}" rollout status "deployment/${deployment#*/}" \
     --timeout=3m >/dev/null; then
-    echo "$deployment has not rolled out in 3 minutes: run this again when it has." >&2
+    echo "$deployment has not rolled out: run this again when it has." >&2
     exit 1
   fi
 done
 cleanup() {
+  rm -f "${exec_errors:-}"
   # Each delete goes on whether the one before failed, so no probe pod is left behind.
   "${kubectl[@]}" delete pod "$pod" --ignore-not-found --wait=false >/dev/null || true
   "${runners[@]}" delete pod egress-agent egress-prepare --ignore-not-found --wait=false >/dev/null || true
@@ -85,6 +87,8 @@ cleanup() {
   kubectl --context "$context" -n telemetry delete pod egress-stranger --ignore-not-found --wait=false >/dev/null || true
 }
 trap cleanup EXIT
+# What a failed exec said, for its FAIL line.
+exec_errors=$(mktemp)
 
 # What a pod runs to try an address: prints the HTTP status, or why it could not connect. A server's certificate is
 # not checked: the Kubernetes API's is the cluster's own, and reaching it at all is what counts. Given a host as well,
@@ -217,12 +221,13 @@ expect() {
   local status=0
   # An exec that fails is that check's FAIL, and the rest go on. One killed (137) ran out of memory beside the
   # container's own process, or landed in a pod being replaced.
-  result=$(kubectl --context "$context" -n "$namespace" exec "$target" -- "$node" -e "$try" "$3" ${5:+"$5"} 2>/dev/null) ||
-    status=$?
+  result=$(kubectl --context "$context" -n "$namespace" exec "$target" -- "$node" -e "$try" "$3" ${5:+"$5"} \
+    2>"$exec_errors") || status=$?
   if [ "$status" != 0 ]; then
-    local why=""
-    if [ "$status" = 137 ]; then why=", killed"; fi
-    printf '  FAIL  %-62s kubectl exec into %s exited %s%s (wanted %s)\n' "$1" "$2" "$status" "$why" "$4"
+    local why
+    why=$(tail -n 1 "$exec_errors")
+    if [ "$status" = 137 ]; then why="killed${why:+; $why}"; fi
+    printf '  FAIL  %-62s kubectl exec into %s exited %s%s (wanted %s)\n' "$1" "$2" "$status" "${why:+: $why}" "$4"
     failed=1
   elif [[ "$result" == "$4"* ]]; then printf '  ok    %-62s %s\n' "$1" "$result"; else
     printf '  FAIL  %-62s %s (wanted %s)\n' "$1" "$result" "$4"
