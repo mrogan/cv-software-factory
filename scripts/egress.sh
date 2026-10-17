@@ -37,19 +37,23 @@
 # checked in scoreboard-fences.test.ts. And no service account of ours, or of a chart but Argo Rollouts' controller,
 # may read its Secrets or reach them through a pod: each is asked of the API server (`kubectl auth can-i --as`).
 #
+# A worker's own checks run from a probe pod made from its live Deployment, never inside the worker, whose memory a
+# second Node beside its own could run out: the pod keeps what decides what it may reach (namespace, labels, DNS,
+# hosts, image, security contexts), and only idles in place of the worker's code, which makes no call here. So the
+# checks prove the worker's fences, and not that the worker's own code keeps to them.
+#
 # Every pod this starts runs an image the cluster already runs, pinned by digest, so nothing else is pulled and
-# admission control lets it in: the workers' pod the factory image the gateway runs, the runners' pods and the ones in
-# Kyverno's and Argo Rollouts' namespaces the runner image the line pins (Node is on its PATH), and the analysis Job's
-# and the app's the `factory-browser` image the analysis pins. Each tries an address with Node's `fetch`, or, to name
-# the app's host to Traefik, with `http.get`.
+# admission control lets it in: the probe pods their worker's own, the pod labelled like a worker the factory image the
+# gateway runs, the runners' pods and the ones in Kyverno's and Argo Rollouts' namespaces the runner image the line
+# pins (Node is on its PATH), and the analysis Job's and the app's the `factory-browser` image the analysis pins. Each
+# tries an address with Node's `fetch`, or, to name the app's host to Traefik, with `http.get`.
 #
 # A check that must be blocked passes only when the connection is refused, reset, unreachable or never answered, as a
 # policy blocks it: any other failure, such as a name that does not resolve, proves nothing about the fence.
 #
-# A check whose `kubectl exec` fails is a FAIL naming the exit status, and the rest go on: an exec lands in a pod being
-# replaced, or its Node, beside the container's own, runs it out of memory. The deployments checked from, and the
-# proxy, are rolled out before anything starts, so a run during a rollout waits for it; one Argo CD has yet to sync
-# is not waited for.
+# A check whose `kubectl exec` fails is a FAIL naming the exit status, and the rest go on. The workers, and the proxy,
+# are rolled out before anything starts, so a run during a rollout waits for it; one Argo CD has yet to sync is not
+# waited for.
 #
 # The controls matter: if the gateway could not reach TypeSafe either, the pod's failure would prove only that the
 # network was down.
@@ -65,10 +69,15 @@ browser_image=$(kubectl --context "$context" get clusteranalysistemplate website
   -o jsonpath='{.spec.metrics[?(@.name=="journeys")].provider.job.spec.template.spec.containers[0].image}')
 runners=(kubectl --context "$context" -n runners)
 
-# The deployments the checks run in, and the read-only proxy the readers query, rolled out first: straight after a
-# deploy, an exec could land in a pod being replaced. kubectl says why one that has not rolled out has not.
-for deployment in factory/gateway factory/github factory/triage factory/intake factory/logs factory/line \
-  factory/traffic factory/probes factory/crawler scoreboard/scoreboard telemetry/query; do
+# The workers whose own checks run from a probe pod made from their Deployment (start_probe), as
+# <namespace>/<deployment>.
+workers=(factory/gateway factory/github factory/triage factory/intake factory/logs factory/line factory/traffic
+  factory/probes factory/crawler scoreboard/scoreboard)
+
+# The workers, and the read-only proxy the readers query, rolled out first: each probe pod is then made from the
+# template its worker runs, and not one about to replace it, and every Service a check reaches has a pod behind it,
+# as a worker replaced (by recreating it) has none for a moment. kubectl says why one that has not rolled out has not.
+for deployment in "${workers[@]}" telemetry/query; do
   if ! kubectl --context "$context" -n "${deployment%%/*}" rollout status "deployment/${deployment#*/}" \
     --timeout=3m >/dev/null; then
     echo "$deployment has not rolled out: run this again when it has." >&2
@@ -85,6 +94,10 @@ cleanup() {
   kubectl --context "$context" -n argo-rollouts delete pod egress-rollouts --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n kyverno delete pod egress-admission egress-kyverno --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n telemetry delete pod egress-stranger --ignore-not-found --wait=false >/dev/null || true
+  for worker in "${workers[@]}"; do
+    kubectl --context "$context" -n "${worker%%/*}" delete pod "egress-${worker#*/}" --ignore-not-found --wait=false \
+      >/dev/null || true
+  done
 }
 trap cleanup EXIT
 # What a failed exec said, for its FAIL line.
@@ -162,6 +175,35 @@ ${6:-}
 EOF
 }
 
+# The workers' own checks run from a probe pod made from the worker's live Deployment, and not from inside the worker,
+# where a second Node beside the worker's own could run it out of memory. Its template keeps everything that decides
+# what the pod may reach (its namespace, labels and annotations, DNS, hosts, host network, service account, image and
+# security contexts), and a network policy selects by nothing else. Replaced: the command, an idle Node; the resources,
+# its own; and the service account's token, not mounted. Dropped, as they would run the worker or hand it the worker's
+# things: the init containers, the volumes, the environment, and every container but the first, which a network policy
+# would treat the same. And it is never ready, by a probe of a port nothing listens on, so the worker's Service does not
+# send the worker's callers to it.
+# $1: namespace; $2: the Deployment; $3: Node's path in its image.
+start_probe() {
+  kubectl --context "$context" -n "$1" delete pod "egress-$2" --ignore-not-found --wait >/dev/null
+  kubectl --context "$context" -n "$1" get deployment "$2" -o json | jq --arg name "egress-$2" --arg node "$3" '
+    .spec.template as $template | {
+      apiVersion: "v1",
+      kind: "Pod",
+      metadata: { name: $name, labels: $template.metadata.labels, annotations: ($template.metadata.annotations // {}) },
+      spec: ($template.spec | del(.initContainers, .ephemeralContainers, .volumes, .resources, .resourceClaims) + {
+        restartPolicy: "Never",
+        automountServiceAccountToken: false,
+        containers: [$template.spec.containers[0] | {
+          name, image, imagePullPolicy, securityContext,
+          command: [$node, "-e", "setTimeout(() => {}, 600000)"],
+          resources: { requests: { cpu: "10m", memory: "32Mi" }, limits: { memory: "128Mi" } },
+          readinessProbe: { tcpSocket: { port: 1 }, periodSeconds: 3600 }
+        }]
+      })
+    }' | kubectl --context "$context" -n "$1" apply -f - >/dev/null
+}
+
 # Addresses, for the agent pod, which has no DNS, and for the checks of the node's own ports.
 ip() { kubectl --context "$context" -n "$1" get service "$2" -o jsonpath='{.spec.clusterIP}'; }
 gateway_ip=$(ip factory gateway) line_ip=$(ip factory line) github_ip=$(ip factory github)
@@ -198,10 +240,23 @@ start_pod kyverno egress-kyverno "$runner_image" node "app.kubernetes.io/compone
 # A pod in `telemetry` that is none of its backends, answering on their query ports, as anything new there might.
 start_pod telemetry egress-stranger "$runner_image" node "app.kubernetes.io/name: egress-stranger" "" \
   'for (const port of [9090, 3100, 3200]) require("node:http").createServer((q, r) => r.end("stranger")).listen(port)'
+# The workers', each from its Deployment. The factory image's Node is /nodejs/bin/node; the probes' and the crawler's
+# browser image has it on its PATH.
+for worker in "${workers[@]}"; do
+  case $worker in
+    factory/probes | factory/crawler) start_probe "${worker%%/*}" "${worker#*/}" node ;;
+    *) start_probe "${worker%%/*}" "${worker#*/}" /nodejs/bin/node ;;
+  esac
+done
 for started in factory/$pod runners/egress-agent runners/egress-prepare website/egress-journeys website/egress-app \
   website/egress-stranger argo-rollouts/egress-rollouts kyverno/egress-admission kyverno/egress-kyverno \
   telemetry/egress-stranger; do
   kubectl --context "$context" -n "${started%%/*}" wait "pod/${started#*/}" --for=condition=Ready --timeout=2m >/dev/null
+done
+# A probe pod is never ready, so it is waited for until its Node has started.
+for worker in "${workers[@]}"; do
+  kubectl --context "$context" -n "${worker%%/*}" wait "pod/egress-${worker#*/}" --timeout=2m \
+    --for=jsonpath='{.status.containerStatuses[0].started}'=true >/dev/null
 done
 # The policy reaches a new pod a moment after it starts.
 sleep 5
@@ -219,8 +274,7 @@ expect() {
   if [[ "$2" == *:* ]]; then namespace=${2%%:*} target=${2#*:} node=node; fi
   if [ "$namespace" = scoreboard ]; then node=/nodejs/bin/node; fi
   local status=0
-  # An exec that fails is that check's FAIL, and the rest go on. One killed (137) ran out of memory beside the
-  # container's own process, or landed in a pod being replaced.
+  # An exec that fails is that check's FAIL, and the rest go on. One killed (137) ran its pod out of memory.
   result=$(kubectl --context "$context" -n "$namespace" exec "$target" -- "$node" -e "$try" "$3" ${5:+"$5"} \
     2>"$exec_errors") || status=$?
   if [ "$status" != 0 ]; then
@@ -236,7 +290,7 @@ expect() {
 }
 
 echo "A pod labelled like a worker (${pod}), the gateway and the GitHub worker:"
-expect "the gateway reaches TypeSafe" deployment/gateway https://api.typesafe.ai reached
+expect "the gateway reaches TypeSafe" egress-gateway https://api.typesafe.ai reached
 expect "the worker cannot reach TypeSafe" "$pod" https://api.typesafe.ai blocked
 expect "the worker cannot reach GitHub" "$pod" https://api.github.com blocked
 expect "the worker cannot reach a public address" "$pod" https://1.1.1.1 blocked
@@ -244,26 +298,26 @@ expect "the worker cannot reach the gateway" "$pod" http://gateway:8080/health b
 expect "the worker cannot reach the GitHub worker" "$pod" http://github:8080/health blocked
 expect "the worker cannot reach the app" "$pod" http://website.website blocked
 expect "the worker cannot reach Prometheus" "$pod" http://prometheus-server.telemetry/-/healthy blocked
-expect "the gateway cannot reach the app" deployment/gateway http://website.website blocked
-expect "the GitHub worker reaches GitHub" deployment/github https://api.github.com reached
-expect "the GitHub worker reaches GHCR" deployment/github https://ghcr.io/v2/ reached
-expect "the GitHub worker cannot reach the app" deployment/github http://website.website blocked
-expect "the GitHub worker cannot reach the gateway" deployment/github http://gateway:8080/health blocked
-expect "triage reaches the gateway" deployment/triage http://gateway:8080/health reached
-expect "the intake cannot reach the gateway" deployment/intake http://gateway:8080/health blocked
+expect "the gateway cannot reach the app" egress-gateway http://website.website blocked
+expect "the GitHub worker reaches GitHub" egress-github https://api.github.com reached
+expect "the GitHub worker reaches GHCR" egress-github https://ghcr.io/v2/ reached
+expect "the GitHub worker cannot reach the app" egress-github http://website.website blocked
+expect "the GitHub worker cannot reach the gateway" egress-github http://gateway:8080/health blocked
+expect "triage reaches the gateway" egress-triage http://gateway:8080/health reached
+expect "the intake cannot reach the gateway" egress-intake http://gateway:8080/health blocked
 expect "the worker cannot reach the probes" "$pod" http://probes:8080/health blocked
 expect "the worker cannot reach the probes' verification" "$pod" http://probes:8081/health blocked
 
 echo "The line:"
-expect "the line reaches the Kubernetes API" deployment/line "https://$api_ip/version" reached
-expect "the line reaches the API server on the node" deployment/line "https://$node_ip:6443/version" reached
-expect "the line reaches the probes' verification" deployment/line http://probes:8081/health reached
-expect "the line cannot reach the probes' page reader" deployment/line http://probes:8080/health blocked
-expect "the line cannot reach the app" deployment/line http://website.website blocked
-expect "the line cannot reach the node's ingress" deployment/line "https://$node_ip:443" blocked
-expect "the line cannot reach a public address" deployment/line https://1.1.1.1 blocked
-expect "the line cannot reach the gateway" deployment/line http://gateway:8080/health blocked
-expect "the line cannot reach the host" deployment/line http://0.250.250.254:1234/v1/models blocked
+expect "the line reaches the Kubernetes API" egress-line "https://$api_ip/version" reached
+expect "the line reaches the API server on the node" egress-line "https://$node_ip:6443/version" reached
+expect "the line reaches the probes' verification" egress-line http://probes:8081/health reached
+expect "the line cannot reach the probes' page reader" egress-line http://probes:8080/health blocked
+expect "the line cannot reach the app" egress-line http://website.website blocked
+expect "the line cannot reach the node's ingress" egress-line "https://$node_ip:443" blocked
+expect "the line cannot reach a public address" egress-line https://1.1.1.1 blocked
+expect "the line cannot reach the gateway" egress-line http://gateway:8080/health blocked
+expect "the line cannot reach the host" egress-line http://0.250.250.254:1234/v1/models blocked
 
 # What a reader of telemetry may do: query each backend it reads through the proxy, and nothing else. A write the proxy
 # refuses is answered 405, a path it does not pass 403, before it reaches a backend.
@@ -301,10 +355,10 @@ for port in 9090 3100 3200; do
 done
 expect "Prometheus, asked directly, will not reload" telemetry:egress-stranger \
   "POST http://prometheus-server.telemetry/-/reload" "reached, HTTP 403"
-reads_telemetry triage deployment/triage tempo
-reads_telemetry "the intake" deployment/intake
-reads_telemetry "the log watcher" deployment/logs tempo
-reads_telemetry "the line" deployment/line tempo
+reads_telemetry triage egress-triage tempo
+reads_telemetry "the intake" egress-intake
+reads_telemetry "the log watcher" egress-logs tempo
+reads_telemetry "the line" egress-line tempo
 expect "the worker cannot reach the proxy" "$pod" http://query.telemetry:9090/-/healthy blocked
 
 echo "Pods labelled like a runner's agent pod and prepare pod:"
@@ -331,12 +385,12 @@ expect "the prepare pod cannot reach Postgres" runners:egress-prepare "http://$p
 expect "the prepare pod cannot reach the line's handback" runners:egress-prepare http://line.factory.svc:8081/health blocked
 
 echo "The traffic generator, and a pod made like the canary's analysis Job (egress-journeys):"
-expect "the traffic generator reaches Traefik" deployment/traffic http://traefik.kube-system reached
-expect "the traffic generator cannot reach the app but through it" deployment/traffic http://website.website blocked
-expect "the traffic generator cannot reach the canary but through it" deployment/traffic http://website-canary.website blocked
-expect "the traffic generator cannot reach Postgres" deployment/traffic "http://$postgres_ip:5432" blocked
-expect "the traffic generator cannot reach the gateway" deployment/traffic http://gateway:8080/health blocked
-expect "the traffic generator cannot reach a public address" deployment/traffic https://1.1.1.1 blocked
+expect "the traffic generator reaches Traefik" egress-traffic http://traefik.kube-system reached
+expect "the traffic generator cannot reach the app but through it" egress-traffic http://website.website blocked
+expect "the traffic generator cannot reach the canary but through it" egress-traffic http://website-canary.website blocked
+expect "the traffic generator cannot reach Postgres" egress-traffic "http://$postgres_ip:5432" blocked
+expect "the traffic generator cannot reach the gateway" egress-traffic http://gateway:8080/health blocked
+expect "the traffic generator cannot reach a public address" egress-traffic https://1.1.1.1 blocked
 expect "the analysis reaches the app" website:egress-journeys http://website.website reached
 expect "the analysis reaches the canary" website:egress-journeys http://website-canary.website reached
 expect "the analysis cannot reach Prometheus" website:egress-journeys http://prometheus-server.telemetry/-/healthy blocked
@@ -357,11 +411,11 @@ expect "the app cannot reach Postgres" website:egress-app "http://$postgres_ip:5
 expect "the app cannot reach the gateway" website:egress-app "http://$gateway_ip:8080/health" blocked
 expect "the app cannot reach the Kubernetes API" website:egress-app "https://$api_ip/version" blocked
 expect "the app cannot reach a public address" website:egress-app https://1.1.1.1 blocked
-expect "Traefik passes a visitor to the app" deployment/traffic http://traefik.kube-system/health "reached, HTTP 200" \
+expect "Traefik passes a visitor to the app" egress-traffic http://traefik.kube-system/health "reached, HTTP 200" \
   website.localhost
-expect "the probes reach the app" factory:deployment/probes http://website.website/health "reached, HTTP 200"
-expect "the probes reach the canary, for its pictures" factory:deployment/probes http://website-canary.website/health "reached, HTTP 200"
-expect "the crawler reaches the app" factory:deployment/crawler http://website.website/health "reached, HTTP 200"
+expect "the probes reach the app" factory:egress-probes http://website.website/health "reached, HTTP 200"
+expect "the probes reach the canary, for its pictures" factory:egress-probes http://website-canary.website/health "reached, HTTP 200"
+expect "the crawler reaches the app" factory:egress-crawler http://website.website/health "reached, HTTP 200"
 expect "a pod beside the app reaches the collector" website:egress-stranger http://otel-collector.telemetry:4318 reached
 expect "a pod beside the app cannot reach it" website:egress-stranger http://website.website blocked
 
@@ -389,22 +443,22 @@ expect "the reports controller cannot reach a public address" kyverno:egress-kyv
 expect "the reports controller reaches the Kubernetes API" kyverno:egress-kyverno "https://$api_ip/version" reached
 
 echo "The scoreboard:"
-expect "the scoreboard reaches Postgres" scoreboard:deployment/scoreboard tcp://postgres.factory:5432 reached
-expect "the scoreboard cannot reach the collector" scoreboard:deployment/scoreboard http://otel-collector.telemetry:4318 blocked
-expect "the scoreboard cannot reach the gateway" scoreboard:deployment/scoreboard http://gateway.factory:8080/health blocked
-expect "the scoreboard cannot reach the GitHub worker" scoreboard:deployment/scoreboard http://github.factory:8080/health blocked
-expect "the scoreboard cannot reach the console" scoreboard:deployment/scoreboard http://console.factory blocked
-expect "the scoreboard cannot reach the probes" scoreboard:deployment/scoreboard http://probes.factory:8080/health blocked
-expect "the scoreboard cannot reach Prometheus" scoreboard:deployment/scoreboard http://prometheus-server.telemetry/-/healthy blocked
-expect "the scoreboard cannot reach Loki" scoreboard:deployment/scoreboard http://loki.telemetry:3100/ready blocked
-expect "the scoreboard cannot reach the read-only proxy" scoreboard:deployment/scoreboard http://query.telemetry:9090/-/healthy blocked
-expect "the scoreboard cannot reach the app" scoreboard:deployment/scoreboard http://website.website blocked
-expect "the scoreboard cannot reach the Kubernetes API" scoreboard:deployment/scoreboard "https://$api_ip/version" blocked
-expect "the scoreboard cannot reach the API server on the node" scoreboard:deployment/scoreboard "https://$node_ip:6443" blocked
-expect "the scoreboard cannot reach the host" scoreboard:deployment/scoreboard http://0.250.250.254:1234/v1/models blocked
-expect "the scoreboard cannot reach the metadata address" scoreboard:deployment/scoreboard http://169.254.169.254 blocked
-expect "the scoreboard cannot reach GitHub" scoreboard:deployment/scoreboard https://api.github.com blocked
-expect "the scoreboard cannot reach a public address" scoreboard:deployment/scoreboard https://1.1.1.1 blocked
+expect "the scoreboard reaches Postgres" scoreboard:egress-scoreboard tcp://postgres.factory:5432 reached
+expect "the scoreboard cannot reach the collector" scoreboard:egress-scoreboard http://otel-collector.telemetry:4318 blocked
+expect "the scoreboard cannot reach the gateway" scoreboard:egress-scoreboard http://gateway.factory:8080/health blocked
+expect "the scoreboard cannot reach the GitHub worker" scoreboard:egress-scoreboard http://github.factory:8080/health blocked
+expect "the scoreboard cannot reach the console" scoreboard:egress-scoreboard http://console.factory blocked
+expect "the scoreboard cannot reach the probes" scoreboard:egress-scoreboard http://probes.factory:8080/health blocked
+expect "the scoreboard cannot reach Prometheus" scoreboard:egress-scoreboard http://prometheus-server.telemetry/-/healthy blocked
+expect "the scoreboard cannot reach Loki" scoreboard:egress-scoreboard http://loki.telemetry:3100/ready blocked
+expect "the scoreboard cannot reach the read-only proxy" scoreboard:egress-scoreboard http://query.telemetry:9090/-/healthy blocked
+expect "the scoreboard cannot reach the app" scoreboard:egress-scoreboard http://website.website blocked
+expect "the scoreboard cannot reach the Kubernetes API" scoreboard:egress-scoreboard "https://$api_ip/version" blocked
+expect "the scoreboard cannot reach the API server on the node" scoreboard:egress-scoreboard "https://$node_ip:6443" blocked
+expect "the scoreboard cannot reach the host" scoreboard:egress-scoreboard http://0.250.250.254:1234/v1/models blocked
+expect "the scoreboard cannot reach the metadata address" scoreboard:egress-scoreboard http://169.254.169.254 blocked
+expect "the scoreboard cannot reach GitHub" scoreboard:egress-scoreboard https://api.github.com blocked
+expect "the scoreboard cannot reach a public address" scoreboard:egress-scoreboard https://1.1.1.1 blocked
 
 # Who may read the scoreboard's Secrets, or reach them another way: start a pod or a workload beside them that would
 # mount them, change one that runs there, run a command in the scoreboard's pod or add a debug container to it, or

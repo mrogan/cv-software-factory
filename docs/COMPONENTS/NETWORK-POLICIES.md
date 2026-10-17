@@ -90,6 +90,8 @@ It starts a pod labelled like each fenced part, and shows what each reaches and 
 - Kyverno's two controllers;
 - a pod in `telemetry` that is none of its backends, answering on their ports, which no reader of telemetry reaches.
 
+The workers' own checks (the gateway, the GitHub worker, triage, the intake, the log watcher, the line, the traffic generator, the probes, the crawler and the scoreboard) run from a short-lived probe pod made from each worker's live Deployment, never inside the worker, whose memory a second Node beside its own could exhaust. The probe pod keeps everything a network policy selects on or that decides where the pod can reach (namespace, labels, DNS, hosts, image, security contexts) and idles in place of the worker's code, with its own small memory limit and no service account token. It is never ready, so the worker's Service sends it nothing. So the checks prove the worker's fences, and not that the worker's own code keeps to them.
+
 Each reader of telemetry queries the backends it reads through the proxy, and through it cannot push metrics or logs, have Prometheus reload or flush Tempo; Prometheus, asked directly, will not reload either.
 
 It has controls, which must reach what they reach:
