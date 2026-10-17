@@ -49,8 +49,9 @@ export interface Timing {
   /** ...that ended this long ago, for the same reason. */
   agreementLagMs: number;
   /**
-   * A report may reach Loki this long after it was written: the collector retries a failed export for up to five
-   * minutes. A check that finds nothing new starts the next no later than this long ago.
+   * How long after it was written a report may still reach Loki and be read: the collector retries a failed export
+   * for up to five minutes, and this leaves room beyond that for the batching and ingest on either side. A check that
+   * finds nothing new starts the next no later than this long ago.
    */
   reportLateMs: number;
 }
@@ -59,7 +60,7 @@ export const TIMING: Timing = {
   settleMs: 60_000,
   agreementWindowMs: 5 * 60_000,
   agreementLagMs: 4 * 60_000,
-  reportLateMs: 5 * 60_000,
+  reportLateMs: 10 * 60_000,
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -96,7 +97,10 @@ export function errorLogs(o: Objectives, where = ''): string {
 export class Watcher {
   private patterns = new PatternMemory();
   private errorsFrom: Date;
-  /** The last report sent, in Loki's nanoseconds. Records after it are new. */
+  /**
+   * Where reading reports starts, in Loki's nanoseconds: the last report sent, or, after a check that found none,
+   * `reportLateMs` before it. Records after it are new.
+   */
   private reportCursor: bigint;
   /** The window before the latest, counted. */
   private previousWindow: { start: Date; routes: RouteCounts[] } | undefined;
@@ -173,7 +177,7 @@ export class Watcher {
   /**
    * Leaves each report written since the last in the inbox. A check that finds none moves the cursor up to
    * `reportLateMs` ago, so that the window read every few seconds stays short while no visitor writes, and a report
-   * that reaches Loki late is still in it.
+   * that reaches Loki late, but within that, is still in it.
    */
   async checkReports(now: Date): Promise<number> {
     const { loki, outbox, objectives, log } = this.backends;

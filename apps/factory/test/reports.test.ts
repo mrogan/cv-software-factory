@@ -186,15 +186,15 @@ describe('the log watcher and reports', () => {
     expect(await watcher.checkReports(NOW)).toBe(0);
     expect(await watcher.checkReports(after(10))).toBe(0);
     expect(await watcher.checkReports(after(20))).toBe(0);
-    // The first read goes back to where the watcher started; each after it only five minutes.
-    expect(starts()).toEqual(['2026-10-03T20:00:00.000Z', '2026-10-03T20:55:00.000Z', '2026-10-03T20:55:10.000Z']);
+    // The first read goes back to where the watcher started; each after it only ten minutes.
+    expect(starts()).toEqual(['2026-10-03T20:00:00.000Z', '2026-10-03T20:50:00.000Z', '2026-10-03T20:50:10.000Z']);
 
-    // Written two minutes ago, inside the margin, and only now in Loki.
-    late.push(widgetRecord('2026-10-03T20:58:00Z', { page: '/about', text: TEXT }));
+    // Written seven minutes ago, inside the margin, and only now in Loki.
+    late.push(widgetRecord('2026-10-03T20:53:00Z', { page: '/about', text: TEXT }));
     expect(await watcher.checkReports(after(30))).toBe(1);
     expect(await watcher.checkReports(after(40))).toBe(0);
     expect(sent).toHaveLength(1);
-    // The cursor stays at the report, rather than going back to five minutes ago.
-    expect(starts().at(-1)).toBe('2026-10-03T20:58:00.000Z');
+    // The cursor stays at the report, rather than going back to ten minutes ago.
+    expect(starts().at(-1)).toBe('2026-10-03T20:53:00.000Z');
   });
 });
