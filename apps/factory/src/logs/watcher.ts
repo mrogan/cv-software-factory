@@ -193,10 +193,14 @@ export class Watcher {
     const from = settled < this.reportsFrom ? settled : this.reportsFrom;
     const fromNs = BigInt(from.getTime()) * 1_000_000n;
     for (const [identity, ns] of this.reportsRead) if (ns < fromNs) this.reportsRead.delete(identity);
-    const fresh = (await loki.records(reportLogs(objectives), from, new Date(now.getTime() + 1000))).filter(
-      // Nothing before the window, which the memory no longer covers.
-      (record) => BigInt(record.ns) >= fromNs && !this.reportsRead.has(recordIdentity(record)),
-    );
+    const fresh =
+      // Every record in the window, however many: the window moves on after this check, and none is left behind it.
+      (
+        await loki.records(reportLogs(objectives), from, new Date(now.getTime() + 1000), Number.POSITIVE_INFINITY)
+      ).filter(
+        // Nothing before the window, which the memory no longer covers.
+        (record) => BigInt(record.ns) >= fromNs && !this.reportsRead.has(recordIdentity(record)),
+      );
     let sent = 0;
     let skipped = 0;
     if (fresh.length > 0) {

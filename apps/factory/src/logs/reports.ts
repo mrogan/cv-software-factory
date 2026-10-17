@@ -11,11 +11,11 @@
  * and `text` is what they wrote, each a field of the record. A record whose JSON body holds `page` and `text` is
  * read the same way.
  */
-import { createHash } from 'node:crypto';
 import type { InboxSignal } from '@software-factory/events';
+import { uuidFrom } from '@software-factory/triage';
 import type { Objectives } from '../../../../policy/objectives.ts';
 import { quoted } from '../alerts/queries.ts';
-import { type LogRecord, recordIdentity } from '../clients/loki.ts';
+import type { LogRecord } from '../clients/loki.ts';
 import { LOGS_FROM_THE_APP } from '../provenance.ts';
 
 /** The selector of the widget's records. */
@@ -69,17 +69,12 @@ export function signalForReport(
 }
 
 /**
- * The inbox id of a report record's signal, the same however often the record is read: a UUID (version 8) from a hash
- * of its time, line and labels. The inbox keeps the first signal with an id and drops any sent again with it, so a
- * report read twice, by a check that reads back over its margin or by a watcher that restarted, is left there once.
- * The hash says nothing of the visitor's words that the signal beside it does not.
+ * The inbox id of a report record's signal, the same however often the record is read: a UUID from its time, its
+ * line, and the report's own fields, and not from the labels Loki adds, which an upgrade may change. The inbox keeps
+ * the first signal with an id and drops any sent again with it, so a report read twice, by a check that reads back
+ * over its margin or by a watcher that restarted, is left there once.
  */
 export function reportSignalId(record: LogRecord): string {
-  const hash = createHash('sha256')
-    .update(`report ${recordIdentity(record)}`)
-    .digest();
-  hash[6] = ((hash[6] ?? 0) & 0x0f) | 0x80;
-  hash[8] = ((hash[8] ?? 0) & 0x3f) | 0x80;
-  const hex = hash.subarray(0, 16).toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  const { page, text, service_version } = record.fields;
+  return uuidFrom(`report:${JSON.stringify([record.ns, record.line, page, text, service_version])}`);
 }
