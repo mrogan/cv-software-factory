@@ -57,7 +57,7 @@ export function errSerializer(error: unknown): unknown {
   const kept: Record<string, unknown> = {
     type,
     message: errors.map(said).filter(Boolean).join(': '),
-    stack: errors.map((e) => e.stack ?? `${e.name}: ${e.message}`).join('\ncaused by: '),
+    stack: errors.map((e) => e.stack ?? `${e.name ?? 'Error'}: ${e.message}`).join('\ncaused by: '),
   };
   for (const key of KEPT) {
     const value = (error as unknown as Record<string, unknown>)[key];

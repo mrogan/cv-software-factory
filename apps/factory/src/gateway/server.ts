@@ -131,7 +131,7 @@ export function createGatewayServer({ gateway, agents, spend, log, clock = () =>
     handle(req, res).catch((error: unknown) => {
       const { status, body, retryAfterSeconds } = errorResponse(error, clock().getTime());
       if (status === 500) {
-        // The type and message only: an error's other fields can hold a query's parameters.
+        // As the factory's logger keeps an error: its other fields can hold a query's parameters, and it drops them.
         log.error({ err: error }, 'request failed');
       }
       if (res.headersSent) return void res.destroy();
