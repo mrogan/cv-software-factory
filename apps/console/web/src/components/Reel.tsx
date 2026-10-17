@@ -4,15 +4,24 @@
  * Per-frame work stays out of rendering (ADR 0007). Dragging, flicking and scrubbing the timeline move a position
  * held in a ref and write each card's transform directly; state hears only where the reel settles. A test counts renders
  * during a drag and fails if they grow with the number of frames.
+ *
+ * The timeline shows a window of itself around the playhead, the same on every screen: each work item's mark has at
+ * least `MARK_ROOM` pixels, and when the whole timeline does not fit at that, it slides under a window that follows the
+ * playhead, written like the cards on every frame of a drag.
  */
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { dayLabel, isCommit, shortVersion, when } from '../format.ts';
-import type { View } from '../projection/index.ts';
+import type { Card as CardData, View } from '../projection/index.ts';
+import { backWords } from '../projection/release.ts';
 import { renders } from '../renders.ts';
 import { Card, OUTCOME } from './Card.tsx';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 
 const PLAY_EVERY_MS = 2500;
+/** The least room a work item's mark has along the timeline: a mark is 26px across, and 32px at the centre. */
+const MARK_ROOM = 40;
+/** Room at each end of the timeline's window, so the first and last marks, and their version labels, are drawn whole. */
+const EDGE = 26;
 /** On first view the reel plays this many of the latest work items once. */
 const AUTOPLAY = 8;
 
@@ -37,6 +46,19 @@ function railAt(positions: readonly number[], p: number): number {
   return a + (b - a) * (Math.max(0, Math.min(n - 1, p)) - i);
 }
 
+/** The app's version at a work item, in words: "b5702d4", or "its first version". */
+const appWords = (card: CardData) => (card.appVersion ? shortVersion(card.appVersion) : 'its first version');
+
+/**
+ * What became of the work item's own release when the app went back from it, in words: "c41d2e9 was rolled back", "c41d2e9
+ * was aborted by Martin". On the timeline that version is struck through; this says it to everyone else.
+ */
+function wentBack(card: CardData): string | undefined {
+  const { to, rolledBack, stopped } = card.versions;
+  if (!to || !(rolledBack || stopped)) return undefined;
+  return `${shortVersion(to)} was ${backWords(stopped)}`;
+}
+
 interface Drag {
   x: number;
   p0: number;
@@ -56,6 +78,11 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   const n = cards.length;
   const reel = useRef<HTMLElement>(null);
   const rail = useRef<HTMLDivElement>(null);
+  /** The timeline's window, and the strip of marks that slides under it. */
+  const shown = useRef<HTMLDivElement>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  /** The window's width and the strip's length, in pixels: measured when either changes, never on a frame of a drag. */
+  const extent = useRef({ width: 0, length: 0 });
   const playhead = useRef<HTMLSpanElement>(null);
   const elements = useRef<(HTMLElement | null)[]>([]);
   /** Where the reel is, in cards: a whole number at rest, anything between while moving. */
@@ -81,10 +108,26 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   const positionsKey = timeline.positions.join(' ');
   // biome-ignore lint/correctness/useExhaustiveDependencies: the key stands for the positions
   const positions = useMemo(() => timeline.positions, [positionsKey]);
+  const { span } = timeline;
 
-  /** Writes every card's place for a position. No rendering: this runs on every frame of a drag. */
+  /**
+   * Sizes the strip: the window's width when every mark has its room in it, and longer, a mark's room for each card
+   * width it spans, when not.
+   */
+  const measure = useCallback(() => {
+    const width = shown.current?.clientWidth ?? 0;
+    const length = Math.max(width - 2 * EDGE, span * MARK_ROOM);
+    if (strip.current) strip.current.style.width = `${length}px`;
+    extent.current = { width, length };
+  }, [span]);
+
+  /**
+   * Writes every card's place for a position, and the playhead's. No rendering: this runs on every frame of a drag.
+   * The timeline's strip slides to keep the playhead in the middle of its window, as far as it goes, unless `follow`
+   * is off: while the timeline itself is scrubbed, it holds still under the pointer.
+   */
   const layout = useCallback(
-    (p: number, animate = false) => {
+    (p: number, animate = false, follow = true) => {
       const box = reel.current;
       if (!box) return;
       box.classList.toggle('anim', animate && motion);
@@ -104,7 +147,16 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
         el.setAttribute('aria-hidden', String(!atCentre));
         for (const handle of el.querySelectorAll<HTMLElement>('.handle')) handle.tabIndex = atCentre ? 0 : -1;
       });
-      if (playhead.current) playhead.current.style.left = `${railAt(positions, p) * 100}%`;
+      const along = railAt(positions, p);
+      if (playhead.current) playhead.current.style.left = `${along * 100}%`;
+      const { width: room, length } = extent.current;
+      if (follow && strip.current && shown.current && room) {
+        const x = Math.max(room - EDGE - length, Math.min(EDGE, room / 2 - along * length));
+        strip.current.style.transform = `translateX(${x}px)`;
+        // A fade at an end says the timeline goes on past it.
+        shown.current.classList.toggle('before', x < EDGE - 0.5);
+        shown.current.classList.toggle('after', x + length > room - EDGE + 0.5);
+      }
       position.current = p;
     },
     [motion, positions],
@@ -119,6 +171,9 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     return n - 1;
   };
 
+  // Before the reel is drawn where it rests: the strip's length is what the playhead's place is measured along.
+  useLayoutEffect(measure, [measure]);
+
   // State decides where the reel rests; this draws it there, sliding unless motion is off. Mid-gesture it waits:
   // letting go settles the reel from wherever the gesture left it.
   useLayoutEffect(() => {
@@ -131,28 +186,37 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   }, [centre, n, title, outcome]);
 
   /**
-   * Version labels that would touch are thinned to a hairline: the centre card's keeps its label, then the one the
-   * app is on now, then rollbacks and stops, then those nearest the centre. Measured where the reel rests and when the width changes.
+   * Labels that would touch are thinned to a hairline. Of the versions, the centre card's keeps its label, then the one
+   * the app is on now, then rollbacks and stops, then those nearest the centre; of the days, the centre card's, then
+   * those nearest it. Measured where the reel rests and when the width changes.
    */
   const thin = useCallback(() => {
-    const marks = [...(rail.current?.querySelectorAll<HTMLElement>('.ver') ?? [])];
-    for (const mark of marks) mark.classList.remove('thin');
-    const here = (positions[centre] ?? 0) * 100;
-    const kept: DOMRect[] = [];
-    const rank = (m: HTMLElement) =>
-      (m.classList.contains('here')
-        ? 0
-        : m.classList.contains('now')
-          ? 100
-          : m.classList.contains('burnt')
-            ? 200
-            : 400) + Math.abs(Number.parseFloat(m.style.left) - here);
-    for (const mark of marks.sort((a, b) => rank(a) - rank(b))) {
-      const box = mark.getBoundingClientRect();
-      if (!box.width) continue;
-      if (kept.some((k) => box.left < k.right + 4 && k.left < box.right + 4)) mark.classList.add('thin');
-      else kept.push(box);
-    }
+    const here = positions[centre] ?? 0;
+    const at = (m: HTMLElement) => Number(m.dataset.at);
+    const labels = (kind: string) => [...(rail.current?.querySelectorAll<HTMLElement>(kind) ?? [])];
+    // Every label is measured whole before any is thinned: one layout, not one for each label.
+    for (const mark of labels('.thin')) mark.classList.remove('thin');
+    const thinOut = (marks: HTMLElement[], rank: (m: HTMLElement) => number) => {
+      const boxes = new Map(marks.map((m) => [m, m.getBoundingClientRect()]));
+      const kept: DOMRect[] = [];
+      for (const mark of marks.sort((a, b) => rank(a) - rank(b))) {
+        const box = boxes.get(mark);
+        if (!box?.width) continue;
+        if (kept.some((k) => box.left < k.right + 4 && k.left < box.right + 4)) mark.classList.add('thin');
+        else kept.push(box);
+      }
+    };
+    const has = (m: HTMLElement, name: string) => m.classList.contains(name);
+    thinOut(
+      labels('.ver'),
+      (m) => (has(m, 'here') ? 0 : has(m, 'now') ? 1 : has(m, 'burnt') ? 2 : 4) + Math.abs(at(m) - here),
+    );
+    const today = Math.max(
+      ...labels('.day')
+        .map(at)
+        .filter((a) => a <= here),
+    );
+    thinOut(labels('.day'), (m) => (at(m) === today ? 0 : 1) + Math.abs(at(m) - here));
   }, [centre, positions]);
   // After every render, which a drag never causes.
   useLayoutEffect(thin);
@@ -162,7 +226,9 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     const fit = () => {
       const tallest = Math.max(0, ...elements.current.map((el) => el?.offsetHeight ?? 0));
       if (reel.current) reel.current.style.height = `${tallest + 12}px`;
-      layout(position.current);
+      measure();
+      // Mid-scrub, the strip stays under the pointer.
+      layout(position.current, false, !scrubbing.current);
       thin();
     };
     fit();
@@ -172,9 +238,15 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
       clearTimeout(timer);
       timer = window.setTimeout(fit, 80);
     };
+    // The timeline's window changes width with the page's, and with a scrollbar coming or going.
+    const observer = 'ResizeObserver' in window ? new ResizeObserver(resize) : undefined;
+    if (shown.current) observer?.observe(shown.current);
     addEventListener('resize', resize);
-    return () => removeEventListener('resize', resize);
-  }, [layout, thin]);
+    return () => {
+      observer?.disconnect();
+      removeEventListener('resize', resize);
+    };
+  }, [layout, measure, thin]);
 
   const settle = useCallback(
     (p: number) => {
@@ -279,10 +351,18 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     settle(position.current + (Math.abs(d.v) > 0.5 ? -Math.sign(d.v) * 0.5 : 0));
   };
 
-  // Scrubbing the timeline.
+  // Scrubbing the timeline: the strip holds still under the pointer, and follows the playhead once it is let go.
+  // A pointer beyond the window's ends counts as at them, so it never lands on a mark out of sight.
   const fromRail = (event: React.PointerEvent<HTMLElement>) => {
-    const box = rail.current?.getBoundingClientRect();
-    if (box) layout(positionFromRail(Math.max(0, Math.min(1, (event.clientX - box.left) / box.width))));
+    const [box, frame] = [strip.current?.getBoundingClientRect(), shown.current?.getBoundingClientRect()];
+    if (!box?.width || !frame) return;
+    const x = Math.max(frame.left + EDGE, Math.min(frame.right - EDGE, event.clientX));
+    layout(positionFromRail(Math.max(0, Math.min(1, (x - box.left) / box.width))), false, false);
+  };
+  /** Stops the strip where it is drawn, part way through a slide or not, before a scrub measures against it. */
+  const hold = () => {
+    const [box, frame] = [strip.current?.getBoundingClientRect(), shown.current?.getBoundingClientRect()];
+    if (box && frame && strip.current) strip.current.style.transform = `translateX(${box.left - frame.left}px)`;
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -299,6 +379,7 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   };
 
   const current = cards[centre];
+  const back = current && wentBack(current);
   return (
     <section className="history" aria-labelledby="history-title">
       <div className="history-head">
@@ -406,11 +487,16 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
         aria-valuemin={1}
         aria-valuemax={n}
         aria-valuenow={centre + 1}
-        aria-valuetext={current ? `${centre + 1} of ${n}: ${current.title}, ${when(current.startedAt)}` : undefined}
+        aria-valuetext={
+          current
+            ? `${centre + 1} of ${n}: ${current.title}, ${when(current.startedAt)}. The app at ${appWords(current)}${back ? `; ${back}` : ''}.`
+            : undefined
+        }
         onPointerDown={(event) => {
           scrubbing.current = true;
           event.currentTarget.setPointerCapture(event.pointerId);
           stop();
+          hold();
           fromRail(event);
         }}
         onPointerMove={(event) => scrubbing.current && fromRail(event)}
@@ -424,32 +510,42 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
         }}
         onKeyDown={onKeyDown}
       >
-        <span className="track" />
-        {timeline.days.map(({ at, day }) => (
-          <span key={day} className="day" style={{ left: `calc(${at * 100}% - 20px)` } as CSSProperties}>
-            {dayLabel(day)}
-          </span>
-        ))}
-        {cards.map((card, i) => (
-          <span
-            key={card.number}
-            className={`tick tone-${OUTCOME[card.outcome][1]} ${i === centre ? 'here' : ''}`}
-            style={{ left: `${(positions[i] ?? 0) * 100}%` }}
-            title={`${CATEGORY_NAME[card.category]}: ${card.title}`}
-          >
-            <Glyph name={card.category} />
-          </span>
-        ))}
-        {timeline.versions.map(({ at, card, version, rolledBack }, i) => (
-          <span
-            key={`${version}-${at}`}
-            className={`ver ${rolledBack ? 'burnt' : ''} ${card === centre ? 'here' : ''} ${i === appNow ? 'now' : ''}`}
-            style={{ left: `${at * 100}%` }}
-          >
-            {shortVersion(version)}
-          </span>
-        ))}
-        <span className="playhead" ref={playhead} />
+        <div className="window" ref={shown}>
+          <div className="strip" ref={strip}>
+            <span className="track" />
+            {timeline.days.map(({ at, day }) => (
+              <span
+                key={day}
+                className="day"
+                data-at={at}
+                style={{ left: `calc(${at * 100}% - 20px)` } as CSSProperties}
+              >
+                {dayLabel(day)}
+              </span>
+            ))}
+            {cards.map((card, i) => (
+              <span
+                key={card.number}
+                className={`tick tone-${OUTCOME[card.outcome][1]} ${i === centre ? 'here' : ''}`}
+                style={{ left: `${(positions[i] ?? 0) * 100}%` }}
+                title={`${CATEGORY_NAME[card.category]}: ${card.title}`}
+              >
+                <Glyph name={card.category} />
+              </span>
+            ))}
+            {timeline.versions.map(({ at, card, version, rolledBack }, i) => (
+              <span
+                key={`${version}-${at}`}
+                className={`ver ${rolledBack ? 'burnt' : ''} ${card === centre ? 'here' : ''} ${i === appNow ? 'now' : ''}`}
+                data-at={at}
+                style={{ left: `${at * 100}%` }}
+              >
+                {shortVersion(version)}
+              </span>
+            ))}
+            <span className="playhead" ref={playhead} />
+          </div>
+        </div>
       </div>
       {current && (
         <div className="at-line">
@@ -462,8 +558,9 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
               className="mono"
               title={current.appVersion && isCommit(current.appVersion) ? current.appVersion : undefined}
             >
-              {current.appVersion ? shortVersion(current.appVersion) : 'its first version'}
+              {appWords(current)}
             </b>
+            {back && <span className="attn-text"> · {back}</span>}
             {current.outcome === 'in-progress' && current.versions.onCanary && (
               <span className="attn-text"> · broken now; the fix is on the canary</span>
             )}

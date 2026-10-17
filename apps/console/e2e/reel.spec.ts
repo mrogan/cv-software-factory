@@ -36,6 +36,18 @@ async function drag(page: Page, frames: number) {
   await page.mouse.up();
 }
 
+/** Scrubs the timeline from its middle to a quarter of the way along, in a given number of pointer moves. */
+async function scrub(page: Page, frames: number) {
+  await page.locator('.rail').scrollIntoViewIfNeeded();
+  const box = await page.locator('.rail').boundingBox();
+  if (!box) throw new Error('No timeline');
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 4, y, { steps: frames });
+  await page.mouse.up();
+}
+
 test.describe('the reel', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -53,6 +65,20 @@ test.describe('the reel', () => {
       counts.push((await settledRenders(page)) - before);
     }
     // State hears where the drag settled, however many frames it drew on the way.
+    expect(counts[1]).toBe(counts[0]);
+    expect(counts[0]).toBeLessThanOrEqual(2);
+  });
+
+  test('scrubs the timeline without rendering on every frame', async ({ page }) => {
+    await page.route('**/api/events/stream*', () => {});
+    const counts: number[] = [];
+    for (const frames of [8, 80]) {
+      await page.goto(consoleUrl({ debug: 'renders' }));
+      await ready(page);
+      const before = await settledRenders(page);
+      await scrub(page, frames);
+      counts.push((await settledRenders(page)) - before);
+    }
     expect(counts[1]).toBe(counts[0]);
     expect(counts[0]).toBeLessThanOrEqual(2);
   });
@@ -139,6 +165,14 @@ test.describe('the reel', () => {
     const version = page.locator('.at-line b.mono');
     await expect(version).toHaveText('b5702d4');
     await expect(version).toHaveAttribute('title', commit);
+  });
+
+  test('says the app’s version in words, and that the work item’s own release was rolled back', async ({ page }) => {
+    await page.goto(consoleUrl({ item: '1276' }));
+    await ready(page);
+    const rail = page.getByRole('slider', { name: 'Timeline of work items' });
+    await expect(rail).toHaveAttribute('aria-valuetext', /\. The app at v[\d.]+; v[\d.]+ was rolled back\.$/);
+    await expect(page.locator('.at-line')).toContainText(/The app at v[\d.]+ · v[\d.]+ was rolled back/);
   });
 
   test('moves the wipe with its handle’s arrow keys', async ({ page }) => {
@@ -288,8 +322,52 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         for (const [a, b] of shown.slice(1).map((b, i) => [shown[i], b] as const))
           expect(b.left, `${a?.text} touches ${b.text}`).toBeGreaterThan(a?.right ?? 0);
         for (const here of labels.filter((l) => l.here)) expect(here.shown, `${here.text} at the centre`).toBe(true);
-        // The version the app is on keeps its label too, wherever the timeline shows more than the centre's.
-        if (width !== 'phone') expect(labels.find((l) => l.now)?.shown, 'the app’s version now').toBe(true);
+        // The version the app is on keeps its label too.
+        expect(labels.find((l) => l.now)?.shown, 'the app’s version now').toBe(true);
+      });
+    }
+  });
+}
+
+/**
+ * The timeline shows a window of itself around the playhead, the same at every width: no work item's mark touches
+ * another, the centre card's is in the window whole, and a phone's window holds only part of the timeline.
+ */
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, the timeline's window`, () => {
+    test.use({ viewport });
+
+    for (const item of ['first', 'latest', '1276']) {
+      test(`keeps every mark apart, with ${item === '1276' ? `#${item}` : `the ${item}`} at the centre`, async ({
+        page,
+      }) => {
+        await page.goto(consoleUrl({ item: item === '1276' ? item : undefined }));
+        await ready(page);
+        if (item === 'first') {
+          await page.locator('.reel').focus();
+          await page.keyboard.press('Home');
+          await expect(page.locator('.transport .count')).toHaveText(/^1 of/);
+        }
+        const shown = await page.locator('.rail .window').boundingBox();
+        if (!shown) throw new Error('No timeline');
+        // Read once the strip has stopped sliding.
+        await expect
+          .poll(() => page.locator('.rail .tick.here').evaluate((el) => el.getAnimations({ subtree: true }).length))
+          .toBe(0);
+        const marks = await page.locator('.rail .tick').evaluateAll((ticks) =>
+          ticks.map((t) => {
+            const { left, right } = t.getBoundingClientRect();
+            return { left, right, here: t.classList.contains('here') };
+          }),
+        );
+        const sorted = [...marks].sort((a, b) => a.left - b.left);
+        for (const [a, b] of sorted.slice(1).map((b, i) => [sorted[i], b] as const))
+          expect(b.left, 'a mark touches the one before it').toBeGreaterThanOrEqual(a?.right ?? 0);
+        const here = marks.find((m) => m.here);
+        expect(here?.left).toBeGreaterThanOrEqual(shown.x);
+        expect(here?.right).toBeLessThanOrEqual(shown.x + shown.width);
+        const outside = marks.filter((m) => m.right <= shown.x || m.left >= shown.x + shown.width);
+        if (width === 'phone') expect(outside.length, 'marks beyond a phone’s window').toBeGreaterThan(0);
       });
     }
   });

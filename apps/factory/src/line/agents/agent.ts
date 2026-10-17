@@ -16,6 +16,7 @@ import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResu
 import type { Handback, Step } from '../../runners/steps.ts';
 import type { Draft } from '../gates.ts';
 import type { LineAgent, WorkItemState } from '../machine.ts';
+import { outsideCode } from './code.ts';
 import type { Signal } from './evidence.ts';
 
 /** A step that went wrong in a way the line counts against it: no handback, a result refused, an action refused. */
@@ -279,14 +280,11 @@ const CLOSES = new RegExp(String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)
  */
 export const closesAnIssue = (text: string) => CLOSES.test(text);
 
-/** Markdown's code, fenced or inline, where GitHub notifies nobody. */
-const CODE = /(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g;
-
 /**
- * Whether Markdown mentions someone (`@name`, or a team's `@org/name`) outside code: published from the App's
- * account, it would notify them. An email address is no mention.
+ * Whether Markdown mentions someone (`@name`, or a team's `@org/name`) outside code, where GitHub notifies nobody:
+ * published from the App's account, it would notify them. An email address is no mention.
  */
-export const mentions = (markdown: string) => /(?:^|[^\w`@./])@[a-z\d]/im.test(markdown.replace(CODE, ''));
+export const mentions = (markdown: string) => /(?:^|[^\w`@./])@[a-z\d]/im.test(outsideCode(markdown));
 
 /**
  * A fix's pull request title, and so its squash commit's headline: a Conventional Commit of 80 characters at most,

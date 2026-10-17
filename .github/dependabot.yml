@@ -85,6 +85,8 @@ updates:
       - /apps/runner
       - /.devcontainer
       - /deploy/base/postgres
+      # The read-only proxy's nginx (query.yaml).
+      - /deploy/base/telemetry
     schedule:
       interval: weekly
     ignore:

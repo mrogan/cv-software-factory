@@ -40,14 +40,12 @@ prometheus-node-exporter:
 prometheus-pushgateway:
   enabled: false
 
-# The restricted Pod Security Standard, which the telemetry namespace enforces.
+# Prometheus reloads its configuration and rules itself when they change (`config.auto-reload`, every 30 seconds), so
+# it needs no sidecar to tell it to, and no lifecycle endpoints: with `web.enable-lifecycle` off, nothing that reaches
+# Prometheus can stop it or have it reload. The chart's sidecar would POST to /-/reload, which needs them on.
 configmapReload:
   prometheus:
-    containerSecurityContext: &restricted
-      allowPrivilegeEscalation: false
-      readOnlyRootFilesystem: true
-      capabilities:
-        drop: [ALL]
+    enabled: false
 
 server:
   securityContext:
@@ -57,9 +55,16 @@ server:
     runAsNonRoot: true
     seccompProfile:
       type: RuntimeDefault
-  containerSecurityContext: *restricted
+  # The restricted Pod Security Standard, which the telemetry namespace enforces.
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  # The collector writes metrics to the OTLP receiver. The factory's workers reach Prometheus only through the
+  # read-only proxy (query.yaml), which passes no write.
   extraFlags:
-    - web.enable-lifecycle
+    - config.auto-reload
     - web.enable-otlp-receiver
   retention: 7d
   persistentVolume:

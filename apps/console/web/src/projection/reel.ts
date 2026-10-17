@@ -203,6 +203,11 @@ export interface Timeline {
   /** Where each day starts along the timeline, and the day's start. */
   days: { at: number; day: number }[];
   /**
+   * How many card widths the timeline spans, from the first mark to the last: one between work items on the same day.
+   * A position's step from one work item to the next on the same day is one over this.
+   */
+  span: number;
+  /**
    * The version each release left the app on, where it sits along the timeline: under the work item it carried, or,
    * for a release with no work item, a place of its own at its time. Struck through when the app went back.
    */
@@ -535,5 +540,5 @@ export function timeline(cards: readonly Card[], shipped: readonly Release[]): T
     if (release)
       versions.push({ at: place, card, version: release.version, rolledBack: ending(release)?.kind !== 'promoted' });
   }
-  return { positions, days: days.map(({ unit, day }) => ({ at: at(unit), day })), versions };
+  return { positions, days: days.map(({ unit, day }) => ({ at: at(unit), day })), versions, span };
 }

@@ -43,15 +43,16 @@ Everything is denied in and out, then each pod is allowed what it needs.
 | Every worker but the GitHub worker and the traffic generator | Postgres and the collector | |
 | Gateway | The internet | Triage, and the runners' agent pods |
 | GitHub worker | The collector and the internet | The line, only |
-| Triage | The gateway; the probes' page reader; Prometheus, Loki and Tempo | |
-| Intake | Prometheus and Loki | Alertmanager |
-| Log watcher | Prometheus, Loki and Tempo | |
+| Triage | The gateway; the probes' page reader; Prometheus, Loki and Tempo, through the read-only proxy | |
+| Intake | Prometheus and Loki, through the read-only proxy | Alertmanager |
+| Log watcher | Prometheus, Loki and Tempo, through the read-only proxy | |
 | Probes | The app, the canary's pods included | The line, on their verify port; triage, on their page reader |
 | Crawler | The app, the canary's pods included | Nothing |
-| Line | The GitHub worker, the Kubernetes API, Prometheus, Loki, Tempo and the probes' verify port | The runners' agent pods, with their handbacks |
+| Line | The GitHub worker, the Kubernetes API, the probes' verify port, and Prometheus, Loki and Tempo through the read-only proxy | The runners' agent pods, with their handbacks |
 | Traffic generator | Traefik and the collector, and nothing else but DNS | |
 
 - Only the line may call the probes' verify port, as only triage may call their page reader.
+- Each pod that reads telemetry reaches the [read-only proxy](TELEMETRY.md#reading-it) on the ports of the backends it reads, and none of the backends: a policy allows a port, not a path, and on those ports the backends take writes too.
 - The runners' pods are fenced as [their page](AGENT-RUNNERS.md) says.
 
 ## `kyverno`
@@ -86,7 +87,10 @@ It starts a pod labelled like each fenced part, and shows what each reaches and 
 - the analysis Job;
 - the app;
 - the Rollouts controller;
-- Kyverno's two controllers.
+- Kyverno's two controllers;
+- a pod in `telemetry` that is none of its backends, answering on their ports, which no reader of telemetry reaches.
+
+Each reader of telemetry queries the backends it reads through the proxy, and through it cannot push metrics or logs, have Prometheus reload or flush Tempo; Prometheus, asked directly, will not reload either.
 
 It has controls, which must reach what they reach:
 

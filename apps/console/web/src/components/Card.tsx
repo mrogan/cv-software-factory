@@ -7,7 +7,7 @@ import { memo, type Ref } from 'react';
 import { duration, money, shortVersion, shortWhen } from '../format.ts';
 import type { Card as CardData, Outcome, Versions } from '../projection/index.ts';
 import { segmentsLabel } from '../projection/index.ts';
-import { stopWords } from '../projection/release.ts';
+import { backWords } from '../projection/release.ts';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { Picture } from './Pictures.tsx';
 
@@ -94,7 +94,7 @@ export function VersionPill({
       <span className="ver">
         <s>{to}</s>
         {/* The line-through says it to the eye; this says it to a screen reader. */}
-        <span className="sr"> ({stopped ? stopWords(stopped) : 'rolled back'})</span> → {from}
+        <span className="sr"> ({backWords(stopped)})</span> → {from}
       </span>
     );
   }
