@@ -2,8 +2,9 @@
 name: check
 
 # Pull requests the factory's App opens (deploy, release) run these too, at once: no workflow opens pull requests.
-# Theirs are lighter: no browser tests, and a deploy pull request's images are checked rather than built (the `kind`
-# job). They also run on main after each merge, which is what the README's badge reports.
+# Some are lighter (the `kind` job): the App's release and deploy pull requests, and anyone's that changes only
+# manifests, run no browser tests, and a deploy or manifests pull request's images are checked rather than built. They
+# also run on main after each merge, which is what the README's badge reports.
 on:
   pull_request:
   push:
@@ -17,9 +18,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Whether this is a release or deploy pull request that the factory's App opened and nobody has changed. Only those
-  # skip checks, and a skipped job counts as passed for the ruleset, so the test is the author and the exact files and
-  # lines that change. Anything else, or this job failing, is `code` and runs everything.
+  # Which checks can see what a pull request changes. A skipped job counts as passed for the ruleset, so only these skip
+  # any, each tested on the exact files that change:
+  # - `release` and `deploy`: the factory's App opened it and nobody has changed it, so the test is the author too, and
+  #   for a release the lines that change.
+  # - `manifests`: anyone's, changing only files under deploy/. No image copies anything from there
+  #   (scripts/dockerfiles.test.ts), and no browser test reads it, but for the Postgres the console's run beside: a
+  #   change to its pin is `code`.
+  # Anything else, or this job failing, is `code` and runs everything.
   kind:
     name: which checks apply
     runs-on: ubuntu-24.04
@@ -47,14 +53,22 @@ jobs:
           AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           kind=code
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$AUTHOR" = 'mrogan-software-factory[bot]' ]; then
-            files=$(git diff --name-only HEAD^1 HEAD)
-            # Every changed line of package.json is its version.
-            other_lines=$(git diff --unified=0 HEAD^1 HEAD -- package.json | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | grep -vE '^[-+]  "version": "[^"]+",$' || true)
-            if [ -n "$files" ] && ! grep -vqxE 'CHANGELOG\.md|package\.json|\.release-please-manifest\.json' <<< "$files" && [ -z "$other_lines" ]; then
-              kind=release
-            elif [ -n "$files" ] && ! grep -vqxE 'deploy/overlays/local/(console|factory)-image/kustomization\.yaml' <<< "$files"; then
-              kind=deploy
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            # Both sides of a rename, so that moving a file into deploy/ counts the place it left.
+            files=$(git diff --name-only --no-renames HEAD^1 HEAD)
+            if [ "$AUTHOR" = 'mrogan-software-factory[bot]' ]; then
+              # Every changed line of package.json is its version.
+              other_lines=$(git diff --unified=0 HEAD^1 HEAD -- package.json | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | grep -vE '^[-+]  "version": "[^"]+",$' || true)
+              if [ -n "$files" ] && ! grep -vqxE 'CHANGELOG\.md|package\.json|\.release-please-manifest\.json' <<< "$files" && [ -z "$other_lines" ]; then
+                kind=release
+              elif [ -n "$files" ] && ! grep -vqxE 'deploy/overlays/local/(console|factory)-image/kustomization\.yaml' <<< "$files"; then
+                kind=deploy
+              fi
+            fi
+            # The console's browser tests run beside the Postgres this pins (scripts/ci-images.sh postgres).
+            if [ "$kind" = code ] && [ -n "$files" ] && ! grep -vqE '^deploy/' <<< "$files" \
+              && ! grep -qxF 'deploy/base/postgres/statefulset.yaml' <<< "$files"; then
+              kind=manifests
             fi
           fi
           echo "$kind"
@@ -82,8 +96,8 @@ jobs:
   console-browser:
     name: console browser tests (${{ matrix.part }})
     needs: kind
-    # Skipped only for a release or deploy pull request: they change nothing a browser test could see.
-    if: ${{ !cancelled() && needs.kind.outputs.kind != 'release' && needs.kind.outputs.kind != 'deploy' }}
+    # Skipped only for a release, deploy or manifests pull request: they change nothing a browser test could see.
+    if: ${{ !cancelled() && !contains(fromJSON('["release", "deploy", "manifests"]'), needs.kind.outputs.kind) }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     # The console's tests in three shards, each on a runner of its own, and the speed test on another: it is timed, so
@@ -137,7 +151,7 @@ jobs:
   senses-browser:
     name: senses browser tests
     needs: kind
-    if: ${{ !cancelled() && needs.kind.outputs.kind != 'release' && needs.kind.outputs.kind != 'deploy' }}
+    if: ${{ !cancelled() && !contains(fromJSON('["release", "deploy", "manifests"]'), needs.kind.outputs.kind) }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     container:
@@ -152,11 +166,11 @@ jobs:
 
   # The one check the ruleset requires of the browser tests (scripts/github-settings.ts), so that it need not change
   # when they are split differently. It passes when both jobs passed, every part of the console's included, and is
-  # skipped, as they are, for a release or deploy pull request.
+  # skipped, as they are, for a release, deploy or manifests pull request.
   browser:
     name: browser tests
     needs: [kind, console-browser, senses-browser]
-    if: ${{ !cancelled() && needs.kind.outputs.kind != 'release' && needs.kind.outputs.kind != 'deploy' }}
+    if: ${{ !cancelled() && !contains(fromJSON('["release", "deploy", "manifests"]'), needs.kind.outputs.kind) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
@@ -167,9 +181,9 @@ jobs:
           echo "console: $CONSOLE, senses: $SENSES"
           [ "$CONSOLE" = success ] && [ "$SENSES" = success ]
 
-  # A deploy pull request builds nothing: it checks that each image it pins was built from main. Any change that moves a
-  # pin checks that the images it moves to were signed there. A release pull request changes nothing an image holds, so
-  # it skips this.
+  # A deploy or manifests pull request builds nothing, since no image holds what it changes: it checks that each image it
+  # pins was built from main. Any change that moves a pin checks that the images it moves to were signed there. A
+  # release pull request changes nothing an image holds or pins, so it skips this.
   image:
     name: image builds
     needs: kind
@@ -177,7 +191,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      DEPLOY: ${{ needs.kind.outputs.kind == 'deploy' }}
+      BUILD: ${{ !contains(fromJSON('["deploy", "manifests"]'), needs.kind.outputs.kind) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -187,7 +201,7 @@ jobs:
       # build.yml pushes each image tagged and labelled with the commit it was built from, and only on main does it
       # run with the right to push. A digest from a run on another branch, or one that is not in GHCR, fails here.
       - name: Check the pinned images were built from main
-        if: env.DEPLOY == 'true'
+        if: env.BUILD != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -247,13 +261,13 @@ jobs:
               echo "$ref: signed by $identity, with its SBOM attested"
             done
           done
-      - if: env.DEPLOY != 'true'
+      - if: env.BUILD == 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # Each base image a Dockerfile pins, from CI's copy of it (scripts/ci-images.sh).
-      - if: env.DEPLOY != 'true'
+      - if: env.BUILD == 'true'
         id: bases
         run: scripts/ci-images.sh contexts console factory runner
-      - if: env.DEPLOY != 'true'
+      - if: env.BUILD == 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -262,7 +276,7 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - if: env.DEPLOY != 'true'
+      - if: env.BUILD == 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -271,7 +285,7 @@ jobs:
           push: false
           cache-from: type=gha,scope=factory
           cache-to: type=gha,mode=max,scope=factory
-      - if: env.DEPLOY != 'true'
+      - if: env.BUILD == 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -279,7 +293,7 @@ jobs:
           push: false
           cache-from: type=gha,scope=factory-browser
           cache-to: type=gha,mode=max,scope=factory-browser
-      - if: env.DEPLOY != 'true'
+      - if: env.BUILD == 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
