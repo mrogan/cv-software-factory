@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
+import { ENVIRONMENT } from '../../../policy/triage.ts';
+import { TIMING } from '../src/logs/watcher.ts';
 import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 
 /**
@@ -158,6 +160,59 @@ describe('the read-only proxy', () => {
   });
 });
 
+describe('Tempo', () => {
+  /** A Go duration (`24h`, `1h30m`, `90s`) in milliseconds; NaN for anything else, which no bound passes. */
+  const ms = (duration: string) => {
+    const units: Record<string, number> = { h: 3_600_000, m: 60_000, s: 1000 };
+    const parts = [...duration.matchAll(/(\d+)([hms])/g)];
+    if (parts.length === 0 || parts.map(([part]) => part).join('') !== duration) return Number.NaN;
+    return parts.reduce((total, [, n, unit]) => total + Number(n) * (units[unit ?? ''] ?? Number.NaN), 0);
+  };
+  /** A Kubernetes quantity in Mi or Gi, in bytes. */
+  const bytes = (quantity: string) => {
+    const [, n, unit] = quantity.match(/^(\d+)(Mi|Gi)$/) ?? [];
+    return Number(n) * (unit === 'Gi' ? 2 ** 30 : 2 ** 20);
+  };
+
+  it('collects before the kernel kills it, and bounds what a search may take', async () => {
+    const values = await readFile(join(DEPLOY, 'base/telemetry/values/tempo.yaml'), 'utf-8');
+    const { tempo } = parse(values) as {
+      tempo: {
+        retention: string;
+        resources: { limits: { memory: string } };
+        extraEnv: { name: string; value: string }[];
+        querier: { max_concurrent_queries: number };
+        queryFrontend: {
+          max_batch_size: number;
+          search: { max_duration: string; max_result_limit: number };
+          metrics: { max_duration: string };
+        };
+      };
+    };
+    const limit = bytes(tempo.resources.limits.memory);
+    const goMemLimit = Number(tempo.extraEnv.find((env) => env.name === 'GOMEMLIMIT')?.value);
+    expect(goMemLimit / limit).toBeCloseTo(0.9, 2);
+
+    // Fewer jobs at once than Tempo's defaults (20 batches of 7), which held 818Mi when searches ran it out of memory
+    // (#380). The querier runs a batch's jobs all at once, so one job a batch makes its limit a limit on jobs.
+    expect(tempo.queryFrontend.max_batch_size).toBe(1);
+    expect(tempo.querier.max_concurrent_queries).toBeLessThanOrEqual(8);
+    expect(tempo.querier.max_concurrent_queries).toBeGreaterThanOrEqual(4);
+
+    // Above the widest the factory reads: the environment check's search, and the agreement check's metrics query.
+    const { search, metrics } = tempo.queryFrontend;
+    expect(ms(search.max_duration)).toBeGreaterThanOrEqual(ENVIRONMENT.tempoMinutes * 60_000);
+    expect(ms(metrics.max_duration)).toBeGreaterThanOrEqual(TIMING.agreementWindowMs);
+    // A day at most, below what Tempo keeps, or the bound would not bound anything.
+    expect(ms(search.max_duration)).toBeLessThanOrEqual(ms('24h'));
+    expect(ms(metrics.max_duration)).toBeLessThanOrEqual(ms('24h'));
+    expect(ms(search.max_duration)).toBeLessThan(ms(tempo.retention));
+    // The factory asks for one trace, and Grafana for 20 unless told otherwise; Tempo's own limit is 262,144.
+    expect(search.max_result_limit).toBeGreaterThanOrEqual(20);
+    expect(search.max_result_limit).toBeLessThanOrEqual(1000);
+  });
+});
+
 describe('Prometheus', () => {
   it('has its lifecycle endpoints off, and reloads itself', async () => {
     const values = await readFile(join(DEPLOY, 'base/telemetry/values/prometheus.yaml'), 'utf-8');
@@ -168,5 +223,28 @@ describe('Prometheus', () => {
     expect(parsed.server.extraFlags).not.toContain('web.enable-lifecycle');
     expect(parsed.server.extraFlags).toContain('config.auto-reload');
     expect(parsed.configmapReload.prometheus.enabled).toBe(false);
+  });
+
+  it('keeps seven days, or less before its blocks outgrow the volume', async () => {
+    const values = await readFile(join(DEPLOY, 'base/telemetry/values/prometheus.yaml'), 'utf-8');
+    const { server } = parse(values) as {
+      server: {
+        retention?: string;
+        persistentVolume: { size: string };
+        tsdb: { retention: { time: string; size: string } };
+      };
+    };
+    // Both binary: Prometheus's 3GB is 3GiB.
+    const bytes = (size: string, units: Record<string, number>) => {
+      const [, n, unit] = size.match(/^(\d+(?:\.\d+)?)(\w+)$/) ?? [];
+      return Number(n) * (units[unit ?? ''] ?? Number.NaN);
+    };
+    const volume = bytes(server.persistentVolume.size, { Mi: 2 ** 20, Gi: 2 ** 30 });
+    const retained = bytes(server.tsdb.retention.size, { MB: 2 ** 20, GB: 2 ** 30 });
+    // Size is checked only after compaction, which writes a block before deleting the ones it replaces.
+    expect(retained).toBeLessThanOrEqual(volume * 0.75);
+    expect(server.tsdb.retention.time).toBe('7d');
+    // The chart's flag would be a second, deprecated retention.
+    expect(server.retention).toBe('');
   });
 });

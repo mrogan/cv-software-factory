@@ -118,13 +118,18 @@ describe('the coder', () => {
     expect(prompt).toContain('2. src/money.ts:2: pounds says little of what it does.');
     expect(prompt).toContain('If you decline every suggestion, change nothing');
     expect(prompt).not.toContain('{"unchanged"}');
-    expect(prompt).toContain('{"title","note","declined"}');
-    expect(prompt).toContain('Every suggestion you leave out is one you took.');
+    // It is asked for a change's result if it takes any, and for the suggestions declined alone if it takes none.
+    expect(prompt).toMatch(/If you take any suggestion, then write the result again, \{"title","note","declined"\}/);
+    expect(prompt.indexOf('Every suggestion you leave out is one you took.')).toBeLessThan(
+      prompt.indexOf('If you decline every suggestion, change nothing'),
+    );
     // Without its session, it is told the work, that the fix is in and approved, and how to decline.
     const fresh = coder.prompt(suggested);
     expect(fresh).toContain('Read AGENTS.md first');
     expect(fresh).toContain('The fix is in the checkout, and the reviewer approved it');
     expect(fresh).toContain('- `declined`: the suggestions you decline');
+    expect(fresh).toContain('If you take any suggestion, then write the result, {"title","note","declined"}:');
+    expect(fresh.trimEnd()).toMatch(/write only \{"declined"\}, with each of them\.$/);
     expect(fresh).not.toContain('{"unchanged"}');
     expect(fresh).not.toContain('Write the test first');
 
