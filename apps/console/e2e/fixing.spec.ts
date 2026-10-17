@@ -143,6 +143,9 @@ test.describe('fixing', () => {
     const rows = page.getByRole('dialog', { name: 'Plan' }).getByRole('button', { name: /^Open #/ });
     await expect(rows.first()).toHaveAccessibleName(/^Open #1314, .+: working, Spec written/);
     await expect(rows.filter({ hasText: '#1315' })).toHaveAccessibleName(/^Open #1315, .+: Waiting for the planner$/);
+    // Its play icon blinks, as the reel's "In progress" does; the waiting ticket's pause icon is still.
+    await expect(rows.first().locator('.sicon')).toHaveClass(/blink/);
+    await expect(rows.filter({ hasText: '#1315' }).locator('.sicon')).not.toHaveClass(/blink/);
   });
 });
 

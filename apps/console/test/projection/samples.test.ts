@@ -100,6 +100,11 @@ describe('the samples, projected', () => {
     expect(SAMPLES.some((e) => e.type === 'work-item.opened' && 'visitor' in e.payload)).toBe(false);
   });
 
+  it('list a work item verified today in Verify’s panel as verified, the one place a row is `ok`', () => {
+    const { rows } = project(SAMPLES, Date.parse('2026-09-29T08:54:10Z')).panels.verify;
+    expect(rows).toMatchObject([{ item: '1262', note: 'verified', tone: 'ok', state: 'verified', left: true }]);
+  });
+
   it('label every card a sample', () => {
     expect(view.sample).toBe(true);
     expect(view.cards.every((c) => c.sample)).toBe(true);

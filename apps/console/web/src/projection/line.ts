@@ -82,6 +82,8 @@ export interface Return {
   at: number;
 }
 
+export type RowState = 'in-hand' | 'held' | 'waiting' | 'passed' | 'sent-back' | 'verified';
+
 export interface PanelRow {
   /** The work item's number, or for a release with no work item, its version. */
   item: string;
@@ -93,6 +95,13 @@ export interface PanelRow {
   earlier: string[];
   /** `signal` for what the station is at work on now. */
   tone: 'signal' | 'ok' | 'attn' | 'faint';
+  /**
+   * Where it stands, for the row's status icon: in hand, held or failed, waiting for the stage to take it, passed on
+   * (or closed) today, sent back upstream today, or verified.
+   */
+  state: RowState;
+  /** It left the stage today: listed after what is in it, under a stronger hairline. */
+  left?: true;
   /**
    * At work on it while the station says it is working: the row is marked as the station marks itself. Stopped,
    * capped or held, the station says "blocked", and its rows are not marked.
@@ -384,6 +393,7 @@ export function panel(
       note: noteOf(item, stage),
       earlier: [],
       tone: item.hold || item.failure ? 'attn' : item.queued ? 'faint' : 'signal',
+      state: item.hold || item.failure ? 'held' : item.queued ? 'waiting' : 'in-hand',
       at: item.lastAt,
     }),
   );
@@ -396,6 +406,8 @@ export function panel(
         note: stage === item.stage ? (CLOSED_NOTE[item.outcome] ?? 'passed') : `passed on to ${item.stage ?? ''}`,
         earlier: [],
         tone: stage === 'verify' ? 'ok' : 'faint',
+        state: stage === 'verify' ? 'verified' : 'passed',
+        left: true,
         at,
       }),
     );
@@ -418,6 +430,8 @@ export function panel(
         note: sentTo(latest),
         earlier: before.length ? [sentBackWords(before.length)] : [],
         tone: 'faint',
+        state: 'sent-back',
+        left: true,
         at: latest.at,
       });
     }
@@ -469,6 +483,8 @@ function ownRow(r: Release): PanelRow {
     note,
     earlier: [],
     tone,
+    state: !end ? 'in-hand' : end.kind === 'promoted' ? 'passed' : 'held',
+    ...(end && { left: true as const }),
     at: end?.at ?? r.startedAt,
   };
 }

@@ -57,6 +57,8 @@ test.describe('sensing and triage', () => {
     await expect(sources.getByRole('row', { name: /Crawler/ })).toContainText('65');
     await expect(sources.getByRole('row', { name: /Reports/ })).toContainText('1 quarantined · 1 parked · 1 closed');
     await expect(page.getByRole('dialog', { name: 'Triage' })).toContainText('counted by the inbox, not here');
+    // The work comes first, and where it comes from after it.
+    await expect(page.getByRole('dialog', { name: 'Triage' }).locator('.srow ~ .ref table')).toHaveCount(1);
   });
 
   test('a spend cap is said in the header, at Triage and in a notice, and stays in the panel once cleared', async ({
@@ -67,6 +69,11 @@ test.describe('sensing and triage', () => {
     await expect(page.locator('header .status')).toHaveText('Line running · spend cap reached');
     await expect(page.getByRole('button', { name: /^Triage: capped, until 01:00/ })).toBeVisible();
     await expect(page.locator('.notice')).toContainText('none is lost');
+    await page.getByRole('button', { name: /^Triage:/ }).click();
+    // A cap in force sits with the work, ruled as held.
+    await expect(page.getByRole('dialog', { name: 'Triage' }).locator('.srow', { hasText: 'spend cap' })).toHaveClass(
+      /ruled/,
+    );
     await page.goto(fixtureUrl({ at: 'cleared' }));
     await ready(page);
     await expect(page.locator('header .status')).toHaveText('Line running · Supervised');
@@ -74,6 +81,10 @@ test.describe('sensing and triage', () => {
     await page.getByRole('button', { name: /^Triage:/ }).click();
     await expect(page.getByRole('dialog', { name: 'Triage' })).toContainText(
       'The daily spend cap: reached at 21:14, cleared at 01:00',
+    );
+    // Cleared, it sits with what left today.
+    await expect(page.getByRole('dialog', { name: 'Triage' }).locator('.srow', { hasText: 'spend cap' })).toHaveClass(
+      /left/,
     );
   });
 

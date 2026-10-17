@@ -164,6 +164,15 @@ button.srow:hover { background: var(--surface); }
 .srow .id, .srow .aside { font: 11px/1.4 var(--font-mono); color: var(--text-muted); white-space: nowrap; }
 .srow .aside.go { color: var(--text-2); }
 .srow small { display: block; font-size: 12px; color: var(--tone, var(--text-muted)); }
+.srow small.working { color: var(--text); }
+/* One list: a status icon under each number; held and verified rows take the 2px rule; what left today is dimmed,
+   the first of it under a stronger hairline; the station's reference material comes after, under a hairline. */
+.sicon { display: block; width: 12px; height: 12px; margin-top: 3px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--tone, var(--text-faint)); }
+.sicon .solid { fill: currentColor; }
+.srow.ruled { margin: 0 -8px; width: calc(100% + 16px); padding: 9px 8px 9px 6px; border-left: 2px solid var(--tone); border-radius: var(--radius-rule) var(--radius-small) var(--radius-small) var(--radius-rule); }
+.srow.left > span:nth-child(2) { color: var(--text-muted); }
+.srow.first-left { border-top-color: var(--line-strong); }
+.stage-panel .ref { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
 
 /* ---- The reel ------------------------------------------------------------------------- */
 .history { margin-top: 64px; }
@@ -813,34 +822,35 @@ const LINE = [
   { kind: 'verify',  status: 'passing', fig: '1 today' },
 ];
 
-// What each stage holds. Row: [id, title, note, tone, work item to open or null, age]
+// What each stage holds. Row: [id, title, note, tone, work item to open or null, age, state], in the panel's order:
+// in hand, held or failed, waiting, then what left today. state: hand | held | wait | passed | back | verified.
 const STAGES = {
   sense:   { blurb: 'What the probes, the crawler, telemetry and visitor reports picked up.', rows: [
-    ['signal', 'Search journey passing on the canary', 'probe · watching v0.9.9', '', null, '1m'],
-    ['signal', 'A report on “Key, spare”', 'visitor report · untrusted text, sent to triage', '', null, '3m'],
-    ['signal', 'p95 on the home page steady at 85 ms', 'metrics · within its objective', '', null, '9m']] },
+    ['signal', 'Search journey passing on the canary', 'probe · watching v0.9.9', '', null, '1m', 'hand'],
+    ['signal', 'p95 on the home page steady at 85 ms', 'metrics · within its objective', '', null, '9m', 'hand'],
+    ['signal', 'A report on “Key, spare”', 'visitor report · untrusted text, sent to triage', '', null, '3m', 'passed']] },
   triage:  { blurb: 'Signals deduplicated and backed with evidence before anyone plans work.',
     sources: [['Sense', true], ['Visitor reports', true], ['Slack', false], ['Linear or Jira', false]], rows: [
-    ['#1306', 'A report on “Key, spare”', 'Jev answering triage/v1', '', null, '2m']] },
+    ['#1306', 'A report on “Key, spare”', 'Jev answering triage/v1', '', null, '2m', 'hand']] },
   plan:    { blurb: 'Specs and questions. Improvements wait here for approval.', add: true, rows: [
-    ['#1312', 'Server errors on /', 'reopened · the planner is at work', '', '1312', '20m'],
-    ['#1310', 'Errors logged on every search', 'sent back from Verify · waiting for the planner', '', '1310', '25m'],
-    ['#1308', 'Slow responses in a canary release', 'waiting for the planner', '', '1308', '2h'],
-    ['#1300', 'Sort products by price', 'spec ready · waiting for approval', 'attn', '1300', '50m']] },
+    ['#1312', 'Server errors on /', 'reopened · the planner is at work', '', '1312', '20m', 'hand'],
+    ['#1300', 'Sort products by price', 'spec ready · waiting for approval', 'attn', '1300', '50m', 'held'],
+    ['#1310', 'Errors logged on every search', 'sent back from Verify · waiting for the planner', '', '1310', '25m', 'wait'],
+    ['#1308', 'Slow responses in a canary release', 'waiting for the planner', '', '1308', '2h', 'wait']] },
   build:   { blurb: 'Coder agents write a failing test first, then the fix.', rows: [] },
   gates:   { blurb: 'Deterministic checks every PR must pass. Always enforced.', rows: [
-    ['#1279', 'A PR deletes the failing test', 'held by the test-integrity gate', 'attn', '1279', '1d']] },
+    ['#1279', 'A PR deletes the failing test', 'held by the test-integrity gate', 'attn', '1279', '1d', 'held']] },
   review:  { blurb: 'An agent reviewer reads what passed the gates.', rows: [] },
   release: { blurb: 'Signed images behind a canary that can roll itself back.', rows: [
-    ['#1314', 'The contact form loses your message', 'Needs you · waiting for Martin’s deploy', 'attn', '1314', '25m'],
-    ['#1302', 'Search returns only cats', 'v0.9.13 · canary at 50% · every measure passed so far', '', '1302', '6m'],
+    ['#1302', 'Search returns only cats', 'v0.9.13 · canary at 50% · every measure passed so far', '', '1302', '6m', 'hand'],
+    ['#1314', 'The contact form loses your message', 'Needs you · waiting for Martin’s deploy', 'attn', '1314', '25m', 'held'],
     // A release with no work item is a row too; it opens nothing, and the Canary panel below has it.
-    ['v0.9.10', 'A release with no work item', 'rolled back at 25% · opened #1308', 'attn', null, '2h']] },
+    ['v0.9.10', 'A release with no work item', 'rolled back at 25% · opened #1308', 'attn', null, '2h', 'held']] },
   // One row per work item: an earlier state it went through today is kept in the row, struck through (#209).
   verify:  { blurb: 'Has the original signal cleared in production? New problems it finds go back to Sense.', foot: 'and 6 more verified this week', rows: [
-    ['#1312', 'Server errors on /', [['sent back', true], ['verified', true], ['reopened', false]], '', '1312', '20m'],
-    ['#1310', 'Errors logged on every search', [['sent back to Plan · the errors persist', false]], '', '1310', '25m'],
-    ['#1296', 'Prices go negative', 'verified in 23min', 'ok', '1296', '7h']] },
+    ['#1312', 'Server errors on /', [['sent back', true], ['verified', true], ['reopened', false]], '', '1312', '20m', 'back'],
+    ['#1310', 'Errors logged on every search', [['sent back to Plan · the errors persist', false]], '', '1310', '25m', 'back'],
+    ['#1296', 'Prices go negative', 'verified in 23min', 'ok', '1296', '7h', 'verified']] },
 };
 
 // Returns: work going back upstream. Shown one at a time, newest first; a sender flips to "sending back" while its arc shows.
@@ -1535,6 +1545,17 @@ function renderLine() {
   ].join('');
 }
 
+// The stage panel's status icons, on a 12px grid: play, stop, pause, next, previous, and a stroked tick.
+const ROW_ICON = {
+  hand: '<path class="solid" d="M3.75 2.5 9.5 6 3.75 9.5Z"/>',
+  held: '<rect class="solid" x="3" y="3" width="6" height="6" rx="0.5"/>',
+  wait: '<rect class="solid" x="3.5" y="2.75" width="1" height="6.5"/><rect class="solid" x="7.5" y="2.75" width="1" height="6.5"/>',
+  passed: '<path class="solid" d="M2.75 2.75 7.25 6 2.75 9.25Z"/><rect class="solid" x="9" y="2.75" width="0.75" height="6.5"/>',
+  back: '<path class="solid" d="M9.25 2.75 4.75 6 9.25 9.25Z"/><rect class="solid" x="2.25" y="2.75" width="0.75" height="6.5"/>',
+  verified: '<path d="M2.75 6.25 5 8.5 9.25 3.5"/>',
+};
+const LEFT = ['passed', 'back', 'verified'];
+
 function renderStagePanel() {
   const panel = $('stage-panel');
   if (S.stage === null) { panel.hidden = true; return; }
@@ -1544,17 +1565,21 @@ function renderStagePanel() {
       <span class="mono muted" style="font-size: 11px">${st.rows.length} ${st.rows.length === 1 ? 'item' : 'items'}</span></div>
       <button type="button" class="close" data-close-stage aria-label="Close">×</button></header>
     <p>${esc(st.blurb)}</p>
-    ${st.sources ? `<div class="sources"><span class="label">Takes work from</span>${st.sources.map(([nm, live]) =>
-      `<span class="src ${live ? '' : 'off'}">${nm}${live ? '' : ' <em>not in the demo</em>'}</span>`).join('')}</div>` : ''}
     ${st.rows.length ? '' : `<div class="empty">Nothing in ${STAGE_NAME[s.kind]} right now.</div>`}
-    ${st.rows.map(([id, title, note, tone, link, age]) => {
+    ${st.rows.map(([id, title, note, tone, link, age, state], i) => {
       const said = Array.isArray(note) ? note.map(([w, gone]) => gone ? `<s><span class="sr">earlier: </span>${esc(w)}</s>` : esc(w)).join(' · ') : esc(note);
-      const body = `<span class="id">${esc(id)}</span><span>${esc(title)}<small class="${tone ? 'tone-' + tone : ''}" style="${tone ? 'color: var(--tone)' : ''}">${said}</small></span>`;
+      const icon = `<svg class="sicon ${state === 'hand' ? 'tone-signal blink' : ''}" viewBox="0 0 12 12" aria-hidden="true">${ROW_ICON[state]}</svg>`;
+      const first = LEFT.includes(state) && !st.rows.slice(0, i).some((r) => LEFT.includes(r[6]));
+      const cls = ['srow', state === 'held' ? 'ruled tone-attn' : state === 'verified' ? 'ruled tone-ok' : LEFT.includes(state) ? 'left' : '', first ? 'first-left' : ''].join(' ');
+      const working = state === 'hand' ? 'working' : '';
+      const body = `<span class="id">${esc(id)}${icon}</span><span>${esc(title)}<small class="${tone ? 'tone-' + tone : working}" style="${tone ? 'color: var(--tone)' : ''}">${said}</small></span>`;
       return link
-        ? `<button type="button" class="srow" data-open="${link}" aria-label="Open ${esc(id)} ${esc(title)}: ${esc(Array.isArray(note) ? note.map(([w, gone]) => (gone ? 'earlier ' : '') + w).join(', ') : note)}">${body}<span class="aside go">Open ›</span></button>`
-        : `<div class="srow">${body}<span class="aside">${age}</span></div>`;
+        ? `<button type="button" class="${cls}" data-open="${link}" aria-label="Open ${esc(id)} ${esc(title)}: ${esc((state === 'hand' ? 'working, ' : '') + (Array.isArray(note) ? note.map(([w, gone]) => (gone ? 'earlier ' : '') + w).join(', ') : note))}">${body}<span class="aside go">Open ›</span></button>`
+        : `<div class="${cls}">${body}<span class="aside">${age}</span></div>`;
     }).join('')}
     ${st.foot ? `<div class="srow" style="display: block"><span class="aside">${esc(st.foot)}</span></div>` : ''}
+    ${st.sources ? `<div class="ref"><div class="sources"><span class="label">Takes work from</span>${st.sources.map(([nm, live]) =>
+      `<span class="src ${live ? '' : 'off'}">${nm}${live ? '' : ' <em>not in the demo</em>'}</span>`).join('')}</div></div>` : ''}
     ${st.add && !S.visitor ? `<button type="button" class="btn small" data-add style="width: 100%; margin: 6px 0 8px"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5 V10.5 M1.5 6 H10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Request an improvement</button>` : ''}`;
   panel.hidden = false;
   // Desktop: under the stage, clamped to the line. Phone: a bottom sheet (CSS).

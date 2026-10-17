@@ -173,6 +173,9 @@ describe('a station’s figure', () => {
       findings: [],
     });
     expect(project(one.events, one.at(5)).stations.find((s) => s.stage === 'gates')?.figure).toBe('1 today');
+    expect(project(one.events, one.at(5)).panels.gates.rows).toMatchObject([
+      { item: '1', note: 'passed on to review', state: 'passed', left: true },
+    ]);
   });
 
   it('gives a canary’s share of traffic at Release', () => {
@@ -258,12 +261,19 @@ describe('a return', () => {
   it('stays a row in its sender’s panel, struck through once the work item is back in the stage', () => {
     const item = sentBack();
     expect(project(item.events, item.at(6)).panels.gates.rows).toMatchObject([
-      { item: '1', note: 'Sent back to Build · round 2 · sent back from gates', earlier: [] },
+      {
+        item: '1',
+        note: 'Sent back to Build · round 2 · sent back from gates',
+        earlier: [],
+        state: 'sent-back',
+        left: true,
+      },
     ]);
     item.add(7, 'gates.started', 'actions', payloads.gatesStarted);
-    expect(project(item.events, item.at(8)).panels.gates.rows).toMatchObject([
-      { item: '1', note: 'gates.started', earlier: ['sent back'] },
-    ]);
+    // Back in the stage, it takes its state now; the earlier one is in its note.
+    const [row] = project(item.events, item.at(8)).panels.gates.rows;
+    expect(row).toMatchObject({ item: '1', note: 'gates.started', earlier: ['sent back'], state: 'in-hand' });
+    expect(row?.left).toBeUndefined();
   });
 
   it('is not its sender’s row once the work item has passed the stage and gone upstream from a later one', () => {
@@ -319,12 +329,12 @@ describe('a stage panel', () => {
       ...ticket('4', 1).events,
     ];
     const { rows } = project(events, work('1').at(6)).panels.plan;
-    expect(rows.map((r) => [r.item, r.tone, r.working])).toEqual([
-      ['5', 'signal', true],
-      ['1', 'signal', true],
-      ['2', 'attn', undefined],
-      ['4', 'faint', undefined],
-      ['3', 'faint', undefined],
+    expect(rows.map((r) => [r.item, r.tone, r.state, r.working])).toEqual([
+      ['5', 'signal', 'in-hand', true],
+      ['1', 'signal', 'in-hand', true],
+      ['2', 'attn', 'held', undefined],
+      ['4', 'faint', 'waiting', undefined],
+      ['3', 'faint', 'waiting', undefined],
     ]);
     expect(rows[3]?.note).toBe('Waiting for the planner');
   });
