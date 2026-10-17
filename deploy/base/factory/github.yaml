@@ -84,12 +84,14 @@ spec:
               path: /health
               port: http
             periodSeconds: 10
+          # More than the other workers: on top of its steady use, release-please runs each time main moves, and
+          # checking a new build's signatures takes tens of megabytes more for a minute or so.
           resources:
             requests:
               cpu: 20m
-              memory: 96Mi
+              memory: 224Mi
             limits:
-              memory: 256Mi
+              memory: 384Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
