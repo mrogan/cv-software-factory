@@ -41,9 +41,11 @@ export function problems(message: string, { anyLength = false } = {}): string[] 
 }
 
 if (import.meta.main) {
-  const [flag, value, ...rest] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const anyLength = args.includes('--any-length');
+  const [flag, value] = args.filter((arg) => arg !== '--any-length');
   const message = flag === '--title' ? (value ?? '') : readFileSync(flag ?? '', 'utf-8');
-  const found = problems(message, { anyLength: rest.includes('--any-length') });
+  const found = problems(message, { anyLength });
   if (found.length) {
     console.error(`Not a Conventional Commit (https://www.conventionalcommits.org):\n  - ${found.join('\n  - ')}`);
     process.exit(1);
