@@ -1,6 +1,15 @@
 import { HOLD_CAUSES, type HoldCause, type PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
-import { ANSWERS, decide, type Facts, fold, LIMITS, type LineEvent, unchangedHold } from '../../src/line/machine.ts';
+import {
+  ANSWERS,
+  decide,
+  dryRunLeft,
+  type Facts,
+  fold,
+  LIMITS,
+  type LineEvent,
+  unchangedHold,
+} from '../../src/line/machine.ts';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
@@ -437,6 +446,37 @@ describe('after the merge', () => {
     expect(decide(live, facts).next).toMatchObject({ do: 'verified', verification: { dryRun: true } });
   });
 
+  it('leaves a live line to close a dry run’s work item, and reopen a ticket the dry run verified', () => {
+    const asDryRun = (event: LineEvent): LineEvent =>
+      event.type === 'pull-request.pushed' || event.type === 'pull-request.merged'
+        ? ({ ...event, payload: { ...event.payload, number: 1_000_000_012 } } as LineEvent)
+        : 'dryRun' in event.payload
+          ? ({ ...event, payload: { ...event.payload, dryRun: true } } as LineEvent)
+          : event;
+    const closed = (outcome: 'verified' | 'no-change'): LineEvent => ({
+      type: 'work-item.closed',
+      payload: { outcome, reason: 'Ended' },
+    });
+    const dry = done.map(asDryRun);
+    // Its pull request, open or merged, at Release or at Verify: none of it is in GitHub.
+    expect(dryRunLeft(approved.map(asDryRun))).toEqual({ end: 'close', merged: false });
+    expect(dryRunLeft(dry)).toEqual({ end: 'close', merged: true });
+    expect(dryRunLeft([...dry, ...[release(), promoted()].map(asDryRun)])).toEqual({ end: 'close', merged: true });
+    // Verified by the dry run's word: the defect it was opened on is still in the app.
+    const verifiedDry = [...dry, ...[release(), promoted(), verified('cleared')].map(asDryRun), closed('verified')];
+    expect(dryRunLeft(verifiedDry)).toEqual({ end: 'reopen', against: 'v0.9.3' });
+    // Nothing left once it is ended either way, nor on a work item the dry run never touched.
+    expect(dryRunLeft([...dry, closed('no-change')])).toBeUndefined();
+    const reopened: LineEvent = {
+      type: 'work-item.reopened',
+      payload: { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.3', reason: 'Again', dryRun: true },
+    };
+    expect(dryRunLeft([...verifiedDry, reopened])).toBeUndefined();
+    expect(dryRunLeft([...verifiedDry, reopened, ticket, spec])).toBeUndefined();
+    expect(dryRunLeft(done)).toBeUndefined();
+    expect(dryRunLeft([...done, release(), promoted(), verified('cleared'), closed('verified')])).toBeUndefined();
+  });
+
   it('sends the work back to Plan when its signal persists, and holds for Martin the second time', () => {
     const live = [...done, deployHold(done), release(), promoted()];
     const once = [...live, verified('persists')];
@@ -502,7 +542,14 @@ describe('after the merge', () => {
     const closed: LineEvent = { type: 'work-item.closed', payload: { outcome: 'verified', reason: 'Cleared' } };
     const reopened: LineEvent = {
       type: 'work-item.reopened',
-      payload: { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.6', reason: 'It came back' },
+      payload: {
+        sense: 'probe',
+        check: 'search',
+        route: '/search',
+        version: 'v0.9.6',
+        reason: 'It came back',
+        dryRun: false,
+      },
     };
     const persisted = [...done, deployHold(done), release(), promoted(), verified('persists')];
     const back: LineEvent = { type: 'work.returned', payload: { from: 'verify', to: 'plan', reason: 'It persists' } };
@@ -534,7 +581,14 @@ describe('after the merge', () => {
     const closed: LineEvent = { type: 'work-item.closed', payload: { outcome: 'verified', reason: 'Martin said so' } };
     const reopened: LineEvent = {
       type: 'work-item.reopened',
-      payload: { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.6', reason: 'It came back' },
+      payload: {
+        sense: 'probe',
+        check: 'search',
+        route: '/search',
+        version: 'v0.9.6',
+        reason: 'It came back',
+        dryRun: false,
+      },
     };
     const live = [...done, deployHold(done), release(), promoted(), hold, answer('approved', 'It looks right')];
     expect(decide(live, facts).next).toMatchObject({ do: 'verified' });

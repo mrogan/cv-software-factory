@@ -14,9 +14,9 @@
  * come onto the line in all, and then no more, while those on it go on to their end. It counts the line's own rows,
  * which are never deleted, under the same lock: a restart, or a second worker, takes none beyond the limit.
  *
- * A work item that closed as verified and reopened (triage reopens it when its signal comes back) is taken back into
- * Plan for a fresh pass (`revive`), whatever else is on the line and whatever the limit: it is one the line took
- * already, and its defect is back in the app. It is taken back once for each reopening, from wherever its row was
+ * A work item that closed as verified and reopened (triage reopens it when its signal comes back, and a line running
+ * live one a dry run verified) is taken back into Plan for a fresh pass (`revive`), whatever else is on the line and
+ * whatever the limit: it is one the line took already, and its defect is in the app. It is taken back once for each reopening, from wherever its row was
  * (ended, or not yet ended when it reopened), and until then the line hands it to nobody.
  */
 import { lastEnd } from '@software-factory/store';
@@ -174,6 +174,15 @@ export class Queue {
       where l.work_item = ${workItem} and ${reopenedSince(sql)} and ${unheld(sql)}
       returning l.work_item`;
     return rows.length > 0;
+  }
+
+  /** Every work item the line has taken, ended or not, longest on it first: only the one, for a queue of one. */
+  async all(): Promise<QueueItem[]> {
+    const sql = this.#sql;
+    const rows = await sql<Row[]>`
+      select ${sql(COLUMNS)} from line l ${this.#only ? sql`where l.work_item = ${this.#only}` : sql``}
+      order by l.taken_at`;
+    return rows.map(item);
   }
 
   /** The work items on the line that nobody holds, longest on it first: only the one, for a queue of one. */

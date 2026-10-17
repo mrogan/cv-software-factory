@@ -27,6 +27,10 @@
  *   that persists sends the work back to Plan, and the coder starts afresh, not from its old session.
  * - A verified work item whose ticket triage reopened, because its signal came back, comes back into Plan for a fresh
  *   pass once its issue is open again, with a comment saying what came back.
+ * - As it starts live, it ends what a dry run left on real tickets (`dryRunLeft`), which it could not carry on from:
+ *   a work item whose pull request was the dry run's, merged or not, closes with no change, so the next signal of its
+ *   defect opens a fresh ticket; a ticket the dry run verified, whose fix never shipped, reopens, and comes back into
+ *   Plan as any reopened ticket does.
  * - With `only`, it acts on that one work item, taking its ticket onto the line if it is not there: it starts no
  *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end. It still
  *   watches the app's releases, and records one that carries that work item or none.
@@ -51,6 +55,7 @@ import { lineStopped, uuidFrom } from '@software-factory/triage';
 import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
 import { release as RELEASE } from '../../../../policy/release.ts';
+import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 import { type Carry, DEPLOYS, MAX_CARRIES } from '../github/deploys.ts';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../github/server.ts';
 import { GitHubWorkerError } from '../github/worker-client.ts';
@@ -74,6 +79,7 @@ import { capOn, capsInForce, lastSeq } from './caps.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
 import {
   decide,
+  dryRunLeft,
   type Facts,
   fold,
   LIMITS,
@@ -211,6 +217,8 @@ export class Line {
   #releaseReadAt = Number.NEGATIVE_INFINITY;
   /** What the deploy pull request was last told it carries, with its number and commit; unknown after a start. */
   #described: string | undefined;
+  /** Whether what dry runs left has been ended: by a live line, once; a dry run leaves it. */
+  #dryRunsEnded: boolean;
 
   constructor(options: LineOptions) {
     this.#o = {
@@ -250,6 +258,7 @@ export class Line {
       dryRunEveryMs: this.#o.dryRunReleaseMs,
       only: this.#o.only,
     });
+    this.#dryRunsEnded = this.#o.dryRun;
   }
 
   /**
@@ -274,6 +283,7 @@ export class Line {
     }
     this.#stopped = false;
     if (!this.#o.takesWork) return;
+    if (!this.#dryRunsEnded) await this.#endDryRuns();
     if (this.#o.now().getTime() - this.#gatesReadAt >= this.#o.gatesEveryMs) {
       this.#gatesReadAt = this.#o.now().getTime();
       await this.#readGates();
@@ -304,6 +314,84 @@ export class Line {
   }
 
   /**
+   * Ends what dry runs left on the line (`dryRunLeft`), as a live line starts. A work item it cannot end now, because
+   * GitHub or the store failed or another worker holds it, is tried again on the next pass, and the passes stop trying
+   * once nothing is left.
+   */
+  async #endDryRuns(): Promise<void> {
+    let left = 0;
+    for (const item of await this.#queue.all()) {
+      await this.#endDryRun(item).catch((error: unknown) => {
+        left++;
+        this.#o.log.warn({ workItem: item.workItem, err: error }, 'could not end what a dry run left');
+      });
+    }
+    this.#dryRunsEnded = left === 0;
+  }
+
+  async #endDryRun(item: QueueItem): Promise<void> {
+    const { workItem } = item;
+    const left = dryRunLeft((await this.#events(workItem)).events);
+    if (!left) return;
+    if (left.end === 'reopen') {
+      // As triage reopens a ticket whose signal came back: the line takes it back into Plan on this pass (`#reopen`).
+      const first = await this.#firstSignal(workItem);
+      if (!first) {
+        this.#o.log.warn({ workItem }, 'a ticket a dry run verified has no signal to reopen it on');
+        return;
+      }
+      await this.#append(workItem, [
+        {
+          type: 'work-item.reopened',
+          actor: 'factory',
+          summary: 'Reopened: the dry run’s fix never shipped',
+          payload: {
+            sense: first.sense,
+            check: first.check.slice(0, 80),
+            route: first.route,
+            version: left.against,
+            reason: 'A dry run verified it, and its fix never shipped: the line, running live, takes it again',
+            dryRun: true,
+          },
+        },
+      ]);
+      this.#o.log.info({ workItem }, 'reopened a ticket a dry run verified');
+      return;
+    }
+    if (this.#inFlight.has(workItem)) throw new Error('a step is in hand');
+    const claimed = await this.#queue.claim(workItem, ACTION_LEASE_SECONDS);
+    if (!claimed) throw new Error('another worker holds it');
+    try {
+      const reason = left.merged
+        ? 'A dry run merged its fix, which never shipped: the line, running live, closed it'
+        : 'Its pull request was a dry run’s, which GitHub never had: the line, running live, closed it';
+      // A dry run's issue is one GitHub never had, as its pull request is.
+      if (claimed.issue && claimed.issue < DRY_RUN_NUMBERS_FROM) {
+        await this.#o.github.act('closeIssue', this.#o.repo, {
+          number: claimed.issue,
+          reason: 'not_planned',
+          comment: [
+            `${reason}.`,
+            '',
+            `The factory’s work item #${workItem} is closed with no change: the next signal of this defect opens a fresh ticket.`,
+          ].join('\n'),
+        });
+      }
+      await this.#append(workItem, [
+        {
+          type: 'work-item.closed',
+          actor: 'factory',
+          summary: 'Closed: the dry run’s work never reached GitHub',
+          payload: { outcome: 'no-change', reason },
+        },
+      ]);
+      this.#o.log.info({ workItem, merged: left.merged }, 'closed a work item a dry run left');
+    } finally {
+      await this.#release(workItem);
+    }
+  }
+
+  /**
    * Takes each reopened work item back into Plan, once its issue is open again, saying what came back. One whose issue
    * GitHub cannot open for now stays where it is, and is tried again on the next pass. One whose issue is gone, or
    * that the App may no longer open, comes back without it, and the line opens a new one as it enters Plan.
@@ -315,7 +403,9 @@ export class Line {
       let forgetIssue = false;
       try {
         const reopened = fold((await this.#events(workItem)).events).reopened.at(-1);
-        if (item.issue && reopened) {
+        // A dry run's issue is one GitHub never had: the line opens a new one.
+        if (item.issue && item.issue >= DRY_RUN_NUMBERS_FROM) forgetIssue = true;
+        else if (item.issue && reopened) {
           const comment = reopeningComment(reopened, workItem);
           await this.#o.github.act('reopenIssue', this.#o.repo, { number: item.issue, comment }).catch((error) => {
             if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;

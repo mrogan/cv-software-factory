@@ -61,7 +61,8 @@
  * which no sense can look at again: approving closes it as verified, answering sends it back to Plan with his words.
  *
  * A verified ticket whose signal comes back reopens (triage decides it): the same defect regressed. The work item
- * starts a fresh pass at Plan, as after a return to Plan, and the planner is told what came back.
+ * starts a fresh pass at Plan, as after a return to Plan, and the planner is told what came back. A ticket a dry run
+ * verified reopens the same way when the line runs live (`dryRunLeft`), with nothing come back to tell.
  *
  * The events are folded into where the work item is (`fold`), and `decide` turns that into one next action. Each
  * action either appends events, which moves the work item on, or waits for something outside the line: the gates
@@ -691,6 +692,24 @@ function afterMerge(s: WorkItemState): Decision {
   }
   const reason = `${seen} ${on}, the release that carried the fix`.slice(0, 200);
   return { stage: 'plan', next: { do: 'return', from: 'verify', to: 'plan', reason } };
+}
+
+/**
+ * What a dry run left on a work item that a line running live must end, or undefined for none. A work item whose
+ * pull request is the dry run's, merged or not, has nothing GitHub ever had to carry on from, and closes with no
+ * change. A ticket a dry run verified, whose fix never shipped, still has its defect, and reopens. A work item that
+ * already ended either way, or that a dry run never touched, has nothing left.
+ */
+export function dryRunLeft(
+  events: readonly LineEvent[],
+): { end: 'close'; merged: boolean } | { end: 'reopen'; against: string } | undefined {
+  const s = fold(events);
+  if (!s.closed) {
+    return (s.pullRequest?.number ?? 0) >= DRY_RUN_NUMBERS_FROM ? { end: 'close', merged: s.merged } : undefined;
+  }
+  const closed = events.findLast((event) => event.type === 'work-item.closed');
+  if (closed?.type !== 'work-item.closed' || closed.payload.outcome !== 'verified') return undefined;
+  return s.verification?.dryRun ? { end: 'reopen', against: s.verification.against } : undefined;
 }
 
 /**

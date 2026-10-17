@@ -583,10 +583,28 @@ describe('what cleared a work item, on its issue', () => {
   });
 
   it('says where it came back: a canary’s every route is routes it could not narrow to one', () => {
-    const reopened = { sense: 'canary' as const, check: 'errors', route: '*', version: VERSION, reason: 'Back' };
+    const reopened = {
+      sense: 'canary' as const,
+      check: 'errors',
+      route: '*',
+      version: VERSION,
+      reason: 'Back',
+      dryRun: false,
+    };
     expect(reopeningComment(reopened, '1001').split('\n')[0]).toBe(
       'It came back after its fix was verified: the canary saw “errors” again on routes it could not narrow to one, in version bbbbbbb.',
     );
     expect(reopeningComment({ ...reopened, sense: 'crawler' }, '1001')).toMatch(/again on every page, in version/);
+  });
+
+  it('says a dry run’s fix never shipped, when the line reopens a ticket the dry run verified', () => {
+    const reopened = { sense: 'report' as const, check: 'a report', route: '/', version: VERSION, reason: 'Back' };
+    expect(reopeningComment({ ...reopened, dryRun: true }, '1001')).toBe(
+      [
+        'A dry run verified a fix for this, and that fix never shipped: the defect is still in the app.',
+        '',
+        'The factory’s work item #1001 is open again, and goes back to Plan for a fix that ships.',
+      ].join('\n'),
+    );
   });
 });

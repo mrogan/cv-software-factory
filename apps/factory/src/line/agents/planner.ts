@@ -47,7 +47,10 @@ export interface PlannerInput {
   answers: { asked: string; answer: string }[];
   /** Each verification that found the signal persisting after a fix for this ticket was released. */
   persisted?: PayloadOf<'verification.finished'>[];
-  /** Each time the ticket reopened: a fix for it was verified in production, and the same defect came back. */
+  /**
+   * Each time the ticket reopened: a fix for it was verified in production, and the same defect came back. Not the
+   * line's reopening of a ticket a dry run verified, whose fix never shipped: that says nothing of a fix.
+   */
   reopened?: PayloadOf<'work-item.reopened'>[];
   /** Why the planner's last attempt failed, such as a scope its schema refused, so it does not hand that back again. */
   failure?: string | null | undefined;
@@ -271,7 +274,7 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
     protectedPaths: await read('protectedPaths', { ref: commit }),
     answers: state.answers,
     persisted: state.persisted,
-    reopened: state.reopened,
+    reopened: state.reopened.filter((r) => !r.dryRun),
     failure,
   }),
   schema: (input) => plannerResult(input.protectedPaths, sourcesOf(input)),
