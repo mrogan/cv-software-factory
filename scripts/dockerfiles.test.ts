@@ -14,6 +14,10 @@ import { describe, expect, it } from 'vitest';
  * it, so each counts as taking it.
  */
 function contextSources(dockerfile: string): string[] {
+  // The escape character, a backslash unless a parser directive at the top names another.
+  const escapeCharacter =
+    dockerfile.match(/^(?:#[ \t]*\w+[ \t]*=.*\n)*#[ \t]*escape[ \t]*=[ \t]*([\\`])[ \t]*(?:\n|$)/i)?.[1] ?? '\\';
+  const ending = new RegExp(`${escapeCharacter === '`' ? '`' : '\\\\'}\\s*$`);
   // Comment lines go first, as Docker drops them inside a continued instruction too; then heredoc bodies, which are
   // not instructions.
   const lines = dockerfile.split('\n').filter((line) => !line.trim().startsWith('#'));
@@ -25,8 +29,8 @@ function contextSources(dockerfile: string): string[] {
       if (line.trim() === heredoc) heredoc = undefined;
       continue;
     }
-    if (/\\\s*$/.test(line)) {
-      continued += `${line.replace(/\\\s*$/, '')} `;
+    if (ending.test(line)) {
+      continued += `${line.replace(ending, '')} `;
       continue;
     }
     const instruction = (continued + line).trim();
@@ -45,7 +49,10 @@ function contextSources(dockerfile: string): string[] {
       case 'ADD': {
         if (flags.some((flag) => flag.startsWith('--from='))) break;
         const args = rest.replace(/^(--\S+\s+)*/, '');
-        const paths: string[] = args.startsWith('[') ? JSON.parse(args) : args.split(/\s+/);
+        // The shell form's words may be quoted.
+        const paths: string[] = args.startsWith('[')
+          ? JSON.parse(args)
+          : (args.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((word) => word.replace(/^(["'])(.*)\1$/, '$2'));
         sources.push(...paths.slice(0, -1).filter((path) => !path.startsWith('<<') && !/^[a-z]+:\/\//.test(path)));
         break;
       }
@@ -114,6 +121,7 @@ describe('the Dockerfiles', () => {
         '# a comment inside a continued instruction',
         '  deploy/overlays /p',
         'ONBUILD ADD deploy/onbuild /o',
+        'COPY "deploy/quoted" \'/q\'',
         'RUN --mount=type=bind,source=deploy,target=/d --mount=type=cache,target=/c true',
         'RUN --mount=type=bind,from=build,source=deploy,target=/d true',
         'RUN --mount=target=/all true',
@@ -127,6 +135,7 @@ describe('the Dockerfiles', () => {
       'policy',
       'deploy/overlays',
       'deploy/onbuild',
+      'deploy/quoted',
       'deploy',
       '.',
     ]);
@@ -149,6 +158,17 @@ describe('the Dockerfiles', () => {
     const not = ['apps/factory/src', 'deployment.yaml', 'docs/deploy', 'policy', 'a*'];
     expect(taking.filter((source) => !takesDeploy(source))).toEqual([]);
     expect(not.filter(takesDeploy)).toEqual([]);
+  });
+
+  it('continue instructions with the escape character a parser directive names', () => {
+    const dockerfile = [
+      '# syntax=docker/dockerfile:1',
+      '# escape=`',
+      'FROM node',
+      'COPY package.json `',
+      '  deploy/base /x',
+    ];
+    expect(contextSources(dockerfile.join('\n'))).toEqual(['package.json', 'deploy/base']);
   });
 });
 
