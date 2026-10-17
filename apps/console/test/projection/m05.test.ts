@@ -582,6 +582,43 @@ describe('a story’s end', () => {
     );
   });
 
+  it('says how a metric verified it, and that Martin judged it cleared when Verify held it for him', () => {
+    const verify = (outcome: 'cleared' | 'persists') => ({
+      outcome,
+      sense: 'metrics' as const,
+      check: 'error rate',
+      version: 'v0.9.12',
+      against: 'v0.9.11',
+      pages: [],
+      dryRun: false,
+    });
+    const t = Date.parse('2026-10-04T00:00:00Z');
+    const cleared = fix()
+      .add(5, 'verification.finished', 'metrics', verify('cleared'))
+      .add(6, 'work-item.closed', 'factory', {
+        outcome: 'verified',
+        reason: 'The error rate stayed inside its objective',
+      });
+    expect(projectSheet(cleared.events, '5100', t)?.closing).toBe(
+      'It was verified on v0.9.12 by the metrics’ check “error rate”, and closed.',
+    );
+    const judged = fix()
+      .add(5, 'verification.finished', 'metrics', verify('persists'))
+      .add(6, 'hold.started', 'factory', {
+        stage: 'verify',
+        kind: 'approval',
+        cause: 'verify',
+        reason: 'Verify could not settle it',
+      })
+      .add(7, 'work-item.closed', 'factory', {
+        outcome: 'verified',
+        reason: 'Martin judged it cleared, saying: it is fine',
+      });
+    expect(projectSheet(judged.events, '5100', t)?.closing).toBe(
+      'It closed: Martin judged it cleared, saying: it is fine.',
+    );
+  });
+
   it('drops the words triage once ended its summary with, where the work item stood then, and no one else’s', () => {
     const story = 'The probes found it. Triage opened ticket #5200 with the evidence the sense captured.';
     const stored = (actor: 'triage' | 'describer') =>

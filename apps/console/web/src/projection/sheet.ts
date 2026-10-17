@@ -225,10 +225,20 @@ function foundBy(item: ItemState): string {
   return 'The factory';
 }
 
+/** Whose check it was, as the closing sentence says it. */
+const CHECK_OF: Record<Sense, string> = {
+  probe: 'the probe’s check',
+  crawler: 'the crawler’s check',
+  metrics: 'the metrics’ check',
+  logs: 'the log watcher’s check',
+  canary: 'the canary’s check',
+  report: 'the check',
+};
+
 /**
  * How a closed work item closed, in a sentence to end its story: verified on which version by which check, closed by
  * Martin or the line with the reason, or closed with its pull request unmerged. None while it is open, nor when its
- * summary was written at or after its close, which says so itself.
+ * summary comes after its close among its events, which says so itself.
  */
 function closing(item: ItemState): string | undefined {
   if (!item.closedAt) return undefined;
@@ -237,24 +247,26 @@ function closing(item: ItemState): string | undefined {
   if (close?.type !== 'work-item.closed') return undefined;
   if (item.events.findLastIndex((event) => event.type === 'work-item.summarised') > at) return undefined;
   const reason = `It closed: ${close.payload.reason.replace(/\.$/, '')}.`;
-  // Only the verifications since its last reopening are of this pass.
-  const since = item.events.findLastIndex((event) => event.type === 'work-item.reopened');
   if (close.payload.outcome === 'verified') {
-    const verification = item.events
-      .slice(since + 1, at)
-      .findLast((event) => event.type === 'verification.finished' && event.payload.outcome === 'cleared');
-    if (verification?.type !== 'verification.finished') return reason;
+    // Only a verification that closed it tells how: the pass's last, cleared, with no hold for Martin after it, who
+    // otherwise judged it himself, and the close's reason says so.
+    const since = item.events.findLastIndex((event) => event.type === 'work-item.reopened');
+    const after = item.events.slice(since + 1, at);
+    const last = after.findLastIndex((event) => event.type === 'verification.finished');
+    const verification = after[last];
+    const held = after.slice(last + 1).some((event) => event.type === 'hold.started');
+    if (verification?.type !== 'verification.finished' || verification.payload.outcome !== 'cleared' || held) {
+      return reason;
+    }
     const { dryRun, sense, check, version } = verification.payload;
     if (dryRun) return 'It closed on the dry run’s word: its release never shipped, so no sense looked.';
     const on = version ? ` on ${shortVersion(version)}` : '';
-    return `It was verified${on} by ${sense ? `${SENSE_NAME[sense]}’s` : 'the'} check “${check}”, and closed.`;
+    return `It was verified${on} by ${sense ? CHECK_OF[sense] : 'the check'} “${check}”, and closed.`;
   }
-  // GitHub's word that the pull request closed is Martin's: he closed it without merging it.
-  const merged = item.events.some(
-    (event) => event.type === 'pull-request.merged' && event.payload.number === item.pullRequest,
-  );
-  if (close.payload.outcome === 'no-change' && close.actor === 'martin' && item.pullRequest && !merged) {
-    return `It closed with pull request #${item.pullRequest} unmerged.`;
+  // GitHub's word that a pull request closed unmerged, which the line records as Martin's.
+  const unmerged = /^Pull request #(\d+) was closed without being merged/.exec(close.payload.reason);
+  if (close.payload.outcome === 'no-change' && close.actor === 'martin' && unmerged) {
+    return `It closed with pull request #${unmerged[1]} unmerged.`;
   }
   return reason;
 }

@@ -205,7 +205,12 @@ const DEFAULT_CATEGORY: Record<Kind, Category> = {
 export function withoutStanding(summary: PayloadOf<'work-item.summarised'>): PayloadOf<'work-item.summarised'> {
   return {
     title: summary.title,
-    description: summary.description.replace(/, which waits for the planner\.$/, '.'),
+    description: summary.description
+      .replace(/, which waits for the planner\.$/, '.')
+      .replace(
+        /, so it waits for a sense to see it, or for Martin\.$/,
+        ', so triage held it for a sense to see it, or for Martin.',
+      ),
     story: summary.story.replace(/ (?:Nothing has been fixed yet: the ticket waits at Plan|It waits at Plan)\.$/, ''),
   };
 }
