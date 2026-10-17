@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { dirname, join, matchesGlob, posix } from 'node:path';
+import { dirname, matchesGlob, posix } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -30,23 +30,35 @@ const read = (file: string) => readFileSync(file, 'utf-8');
 function workspace() {
   const specifiers = new Map<string, string>();
   for (const manifest of [...tracked].filter((file) => /^(apps|packages)\/[^/]+\/package\.json$/.test(file))) {
-    const { name, exports } = JSON.parse(read(manifest)) as { name: string; exports?: string | Record<string, string> };
-    const entries = typeof exports === 'string' ? { '.': exports } : (exports ?? {});
+    const { name, exports } = JSON.parse(read(manifest)) as { name: string; exports?: unknown };
+    const entries = typeof exports === 'string' ? { '.': exports } : ((exports ?? {}) as Record<string, unknown>);
     for (const [path, target] of Object.entries(entries)) {
-      specifiers.set(posix.join(name, path), posix.join(dirname(manifest), target));
+      // A conditional export's targets, each condition's: any of them may be the one that runs.
+      for (const file of targets(target)) specifiers.set(posix.join(name, path), posix.join(dirname(manifest), file));
     }
   }
   return specifiers;
 }
 
+/** The files an export names, a condition at a time. */
+const targets = (target: unknown): string[] =>
+  typeof target === 'string'
+    ? [target]
+    : target && typeof target === 'object'
+      ? Object.values(target).flatMap(targets)
+      : [];
+
 const packages = workspace();
+
+const CODE = /\.(ts|tsx|mts|js|jsx|mjs)$/;
 
 /** The tracked file a specifier names from a file, if it is in the repository. */
 function resolve(from: string, specifier: string): string | undefined {
   const bare = specifier.replace(/[?#].*$/, '');
   if (!bare.startsWith('.')) return packages.get(bare);
   const path = posix.normalize(posix.join(posix.dirname(from), bare));
-  return [path, `${path}.ts`, `${path}.tsx`, `${path}/index.ts`].find((candidate) => tracked.has(candidate));
+  const candidates = ['', '.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs', '/index.ts', '/index.tsx'];
+  return candidates.map((suffix) => path + suffix).find((candidate) => tracked.has(candidate));
 }
 
 /** What a file imports, loads or includes. */
@@ -55,8 +67,24 @@ function references(file: string, text: string) {
     ? [/\b(?:src|href)="([^"]+)"/g]
     : file.endsWith('.css')
       ? [/@import\s+(?:url\()?['"]([^'"]+)['"]/g]
-      : [/\b(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g];
-  return patterns.flatMap((pattern) => [...text.matchAll(pattern)].map(([, specifier = '']) => specifier));
+      : [/\b(?:from|import)\s*\(?\s*['"`]([^'"`]+)['"`]/g];
+  const found = patterns.flatMap((pattern) => [...text.matchAll(pattern)].map(([, specifier = '']) => specifier));
+  if (!CODE.test(file)) return found;
+  // A script it starts (a server, a worker), named as a file: from where it is, or from its package's folder, which is
+  // where a test starts one.
+  const scripts = [...text.matchAll(/['"`]((?:\.{0,2}\/)?[\w./-]+\.(?:ts|tsx|mts|js|mjs))['"`]/g)].map(
+    ([, script = '']) => script,
+  );
+  return [...found, ...scripts.flatMap((script) => [`./${script}`, `${'../'.repeat(depth(file))}${script}`])];
+}
+
+/** How many folders a file is below its package's. */
+function depth(file: string) {
+  const folders = file.split('/').slice(0, -1);
+  for (let up = 0; up <= folders.length; up++) {
+    if (tracked.has([...folders.slice(0, folders.length - up), 'package.json'].join('/').replace(/^\//, ''))) return up;
+  }
+  return folders.length;
 }
 
 /** Every file reached from the entry points. */
@@ -66,7 +94,7 @@ function closure(entries: string[]) {
   for (let file = stack.pop(); file !== undefined; file = stack.pop()) {
     if (reached.has(file)) continue;
     reached.add(file);
-    if (!/\.(ts|tsx|js|mjs|html|css)$/.test(file)) continue;
+    if (!CODE.test(file) && !/\.(html|css)$/.test(file)) continue;
     for (const specifier of references(file, read(file))) {
       const target = resolve(file, specifier);
       if (target) stack.push(target);
@@ -79,17 +107,21 @@ function closure(entries: string[]) {
 const folders = [...new Set([...tracked].flatMap((file) => file.match(/^deploy\/([^/]+)\//)?.[1] ?? []))];
 
 /**
- * The places under deploy/ a file names, outside its comments: as a path, or as `deploy` and one of its folders, side
- * by side. A comment opens a line, so a glob's `/*` inside a string is not taken for one.
+ * The places under deploy/ a file names, outside its comments: as a path there or to it (`../../deploy`), or as
+ * `deploy` and one of its folders side by side, as `join(…, 'deploy', 'base')` would. A comment opens a line, so a
+ * glob's `/*` inside a string is not taken for one; `#` opens one only in YAML, where it is not a private field.
  */
-function deployPaths(text: string) {
+function deployPaths(text: string, yaml = false) {
   const code = text
     .replace(/^\s*\/\*[\s\S]*?\*\//gm, '')
-    .replace(/^\s*(\/\/|#).*$/gm, '')
+    .replace(yaml ? /^\s*#.*$/gm : /^\s*\/\/.*$/gm, '')
     .replace(/<!--[\s\S]*?-->/g, '');
-  const parts = new RegExp(`['"\`]deploy['"\`]\\s*,\\s*['"\`](${folders.join('|')})['"\`]`, 'g');
+  const parts = new RegExp(`['"\`]deploy['"\`]\\s*,\\s*['"\`](${folders.join('|')})\\b`, 'g');
   return [
     ...[...code.matchAll(/(?<![\w-])deploy\/[\w./*-]*/g)].map(([path]) => path),
+    ...[...code.matchAll(/(?<![\w-])deploy(?=['"`])/g)]
+      .filter(({ index }) => code[index - 1] === '/')
+      .map(() => 'deploy'),
     ...[...code.matchAll(parts)].map(([, folder]) => `deploy/${folder}`),
   ];
 }
@@ -102,11 +134,21 @@ function entries() {
   const playwright = read(`${CONSOLE}/playwright.config.ts`);
   const testDir = playwright.match(/testDir: '([^']+)'/)?.[1] ?? '';
   const servers = [...playwright.matchAll(/command: 'node ([^']+)'/g)].map(([, script = '']) => `${CONSOLE}/${script}`);
+  // Setup and teardown files, in the browser project and in Playwright's config.
+  const setup = (text: string, base: string) =>
+    [...text.matchAll(/(?:globalSetup|globalTeardown|setupFiles): \[?([^\]\n]*)/g)].flatMap(([, list = '']) =>
+      [...list.matchAll(/'([^']+)'/g)].map(([, file = '']) => posix.normalize(posix.join(base, file))),
+    );
   const root = read(`${CONSOLE}/vite.config.ts`).match(/root: '([^']+)'/)?.[1] ?? '';
   return {
-    vitest: ['vitest.config.ts', ...[...tracked].filter((file) => globs.some((glob) => matchesGlob(file, glob)))],
+    vitest: [
+      'vitest.config.ts',
+      ...[...tracked].filter((file) => globs.some((glob) => matchesGlob(file, glob))),
+      ...setup(config.match(/name: 'browser',[\s\S]*?\n {6}\},/)?.[0] ?? '', '.'),
+    ],
     playwright: [
       `${CONSOLE}/playwright.config.ts`,
+      ...setup(playwright, CONSOLE),
       ...[...tracked].filter((file) => file.startsWith(`${CONSOLE}/${testDir}/`) && file.endsWith('.ts')),
       ...servers,
     ],
@@ -163,6 +205,25 @@ describe('what the browser tests run', () => {
       "const d = 'deployment/x';",
     ].join('\n');
     expect(deployPaths(text)).toEqual(['deploy/base/x.yaml', 'deploy/overlays']);
+    const more = [
+      "const e = join(ROOT, '../../deploy');",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a template's text, as a file holds it
+      'const f = `${ROOT}/deploy`;',
+      "const g = join(ROOT, 'deploy', 'overlays/local');",
+      "  #root = '../../deploy/base/x.yaml';",
+    ].join('\n');
+    expect(deployPaths(more)).toEqual(['deploy/base/x.yaml', 'deploy', 'deploy', 'deploy/overlays']);
+    expect(deployPaths('  # deploy/base, in a YAML comment', true)).toEqual([]);
+  });
+
+  it('follows a script a test starts, from its package', () => {
+    expect(closure(['apps/console/e2e/live.spec.ts'])).toContain('apps/console/src/server.ts');
+  });
+
+  it('starts from servers, builds and setup it can read', () => {
+    const playwright = read(`${CONSOLE}/playwright.config.ts`);
+    expect(playwright.match(/command: '[^']*'/g)?.every((command) => command.startsWith("command: 'node "))).toBe(true);
+    expect(JSON.parse(read(`${CONSOLE}/package.json`)).scripts.build).toBe('vite build');
   });
 
   it('is what check.yml runs: no other step, and no other image from the kind job', () => {
@@ -170,6 +231,17 @@ describe('what the browser tests run', () => {
     const browser = BROWSER_JOBS.map((id) => all.get(id) ?? '');
     expect(browser.every(Boolean)).toBe(true);
     const runs = browser.flatMap((job) => [...job.matchAll(/^\s+(?:- )?run: (.+)$/gm)].map(([, run = '']) => run));
+    // A step of many lines only reports what the jobs before it found.
+    const blocks = browser.flatMap((job) =>
+      [...job.matchAll(/run: \|\n((?:\s{10,}.*\n)+)/g)].flatMap(([, block = '']) => block.trim().split('\n')),
+    );
+    expect(
+      blocks.filter(
+        (line) => !/^(echo "[^"]*"|\[ "\$\w+" = success \]( && \[ "\$\w+" = success \])?)$/.test(line.trim()),
+      ),
+    ).toEqual([]);
+    const uses = browser.flatMap((job) => [...job.matchAll(/uses: ([\w/-]+)@/g)].map(([, action = '']) => action));
+    expect(new Set(uses)).toEqual(new Set(['actions/checkout', 'actions/upload-artifact']));
     expect(new Set(runs)).toEqual(
       new Set([
         'corepack enable && pnpm install --frozen-lockfile --ignore-scripts',
@@ -179,7 +251,7 @@ describe('what the browser tests run', () => {
         '|',
       ]),
     );
-    expect(browser.flatMap(deployPaths)).toEqual([]);
+    expect(browser.flatMap((job) => deployPaths(job, true))).toEqual([]);
     const outputs = new Set(
       browser.flatMap((job) => [...job.matchAll(/needs\.kind\.outputs\.(\w+)/g)].map(([, o]) => o)),
     );
@@ -199,6 +271,6 @@ describe("the manifests kind's exception", () => {
   });
 
   it('names a file that is there', () => {
-    expect(tracked.has(join(POSTGRES))).toBe(true);
+    expect(tracked.has(POSTGRES)).toBe(true);
   });
 });

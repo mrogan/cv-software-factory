@@ -37,7 +37,10 @@ function contextSources(dockerfile: string): string[] {
     continued = '';
     if (!instruction) continue;
     instructions.push(instruction);
-    heredoc = instruction.match(/<<-?["']?(\w+)["']?/)?.[1];
+    // A heredoc opens after a space in a RUN, COPY or ADD, never inside arithmetic like `$((1<<2))`.
+    heredoc = /^(ONBUILD\s+)?(RUN|COPY|ADD)\s/i.test(instruction)
+      ? instruction.match(/(?:^|\s)<<-?["']?(\w+)["']?/)?.[1]
+      : undefined;
   }
   const sources: string[] = [];
   for (const instruction of instructions) {
@@ -108,6 +111,7 @@ describe('the Dockerfiles', () => {
       [
         '# COPY deploy/ignored /x',
         'FROM node AS build',
+        'RUN echo $((1<<2))',
         'COPY package.json pnpm-lock.yaml ./',
         'COPY --chown=1000:1000 --chmod=644 apps/x/src \\',
         '  apps/x/src',
@@ -189,6 +193,6 @@ describe('the images built', () => {
     const build = readFileSync('.github/workflows/build.yml', 'utf-8');
     const paths = build.match(/^ {4}paths:\n((?: {6}- .+\n)+)/m)?.[1]?.match(/- (.+)/g) ?? [];
     expect(paths.length).toBeGreaterThan(0);
-    expect(paths.filter((path) => takesDeploy(path.slice(2)))).toEqual([]);
+    expect(paths.filter((path) => takesDeploy(path.slice(2).replace(/^(["'])(.*)\1$/, '$2')))).toEqual([]);
   });
 });
