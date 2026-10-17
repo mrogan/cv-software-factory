@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.8.0](https://github.com/mrogan/cv-software-factory/compare/v0.7.0...v0.8.0) (2026-10-17)
+
+
+### Features
+
+* **console:** list a stage's work first, with a status icon on each row ([#404](https://github.com/mrogan/cv-software-factory/issues/404)) ([acdb321](https://github.com/mrogan/cv-software-factory/commit/acdb321977de5910f43a9e69d1d3f5e9128a4fbe))
+* **visual-pr:** show a large change two-up, with what moved outlined ([#412](https://github.com/mrogan/cv-software-factory/issues/412)) ([9fb2fb7](https://github.com/mrogan/cv-software-factory/commit/9fb2fb73431b6342155fa51acb9d4d3893cee8c9))
+
+
+### Bug Fixes
+
+* **console:** end a closed work item's story with how it closed ([#411](https://github.com/mrogan/cv-software-factory/issues/411)) ([1725cd6](https://github.com/mrogan/cv-software-factory/commit/1725cd61b03555bea24cf89711ce7520fbe76ac5))
+* **deploy:** bound Tempo's searches and have Go collect before its limit ([#400](https://github.com/mrogan/cv-software-factory/issues/400)) ([c570c75](https://github.com/mrogan/cv-software-factory/commit/c570c750fe0f068d5391a335609ac6e8553c256e))
+* **deploy:** have Loki's compactor delete logs older than seven days ([#398](https://github.com/mrogan/cv-software-factory/issues/398)) ([219d13b](https://github.com/mrogan/cv-software-factory/commit/219d13b0e296a9b4bf7438d11ab81f5ba3515dbc))
+* **deploy:** store k3s's metrics once, and keep Prometheus within its volume ([#399](https://github.com/mrogan/cv-software-factory/issues/399)) ([eac2307](https://github.com/mrogan/cv-software-factory/commit/eac2307a19520c128621fe6ce36c99f8727277d4))
+* **factory:** log an error with its causes, so fetch failed says why ([#397](https://github.com/mrogan/cv-software-factory/issues/397)) ([4766735](https://github.com/mrogan/cv-software-factory/commit/4766735f05167ab2028a8c2341fbb8d5a5b765d1))
+* **factory:** move the log watcher's report cursor when a check finds nothing ([#396](https://github.com/mrogan/cv-software-factory/issues/396)) ([31f5c82](https://github.com/mrogan/cv-software-factory/commit/31f5c82b3c745eb1eaf7590b2c09328a25e5cd97))
+* **factory:** read reports back over a margin, so one that reaches Loki late is still sent ([#406](https://github.com/mrogan/cv-software-factory/issues/406)) ([8e324e8](https://github.com/mrogan/cv-software-factory/commit/8e324e894ca16ddacfd01ebed8041a4d98758965))
+* **line:** take a coder's change with no patch that declines every suggestion as declining them all ([#395](https://github.com/mrogan/cv-software-factory/issues/395)) ([beca90c](https://github.com/mrogan/cv-software-factory/commit/beca90cbc3b9af975b4df32e4ab0d2f81bfd9e66))
+* **triage:** count a finding into the held one with its fingerprint, so Martin answers it once ([#410](https://github.com/mrogan/cv-software-factory/issues/410)) ([4d325eb](https://github.com/mrogan/cv-software-factory/commit/4d325eb11e05effeb05943256869bbc82de66edc))
+
 ## [0.7.0](https://github.com/mrogan/cv-software-factory/compare/v0.6.0...v0.7.0) (2026-10-17)
 
 
