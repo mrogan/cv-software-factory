@@ -59,9 +59,9 @@ export async function run(args: string[]): Promise<number> {
     return 0;
   }
 
-  // Not before the last report the inbox holds, and a day back on a fresh store; errors from a couple of minutes ago.
+  // A margin before the last report the inbox holds, and a day back on a fresh store; errors from a couple of minutes ago.
   const reportsFrom = sql
-    ? await readReportsFrom(sql, new Date(), duration('24h'))
+    ? await readReportsFrom(sql, new Date(), duration('24h'), TIMING.reportLateMs)
     : new Date(Date.now() - duration('24h'));
   const watcher = new Watcher(backends, { errors: new Date(Date.now() - 2 * 60_000), reports: reportsFrom });
   const learned = await watcher.learnPatterns();

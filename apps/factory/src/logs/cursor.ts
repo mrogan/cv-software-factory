@@ -13,14 +13,15 @@ export async function lastObserved(sql: Sql, sense: Sense): Promise<Date | undef
 }
 
 /**
- * Where reading reports starts: just after the last one the inbox holds, so a restart sends none twice. A store with
- * none starts a day back, so reports sent while the factory was away are not lost, but never before the store began
- * to take real work: a report sent to the store before `make real-store` emptied it is not this store's.
+ * Where reading reports starts: `lateMs` before the last one the inbox holds, for a report written before it that
+ * reached Loki after it, or had not yet when the watcher stopped. The inbox drops a report it already holds, by the id
+ * it takes from its record. A store with none starts a day back, so reports sent while the factory was away are not
+ * lost. Neither starts before the store began to take real work: a report sent to the store before `make real-store`
+ * emptied it is not this store's.
  */
-export async function reportsFrom(sql: Sql, now: Date, lookbackMs: number): Promise<Date> {
+export async function reportsFrom(sql: Sql, now: Date, lookbackMs: number, lateMs: number): Promise<Date> {
   const last = await lastObserved(sql, 'report');
-  if (last) return last;
   const [store] = await sql<{ chosen_at: Date }[]>`select chosen_at from store where not sample`;
-  const dayBack = now.getTime() - lookbackMs;
-  return new Date(Math.max(dayBack, store?.chosen_at.getTime() ?? dayBack));
+  const from = last ? last.getTime() - lateMs : now.getTime() - lookbackMs;
+  return new Date(Math.max(from, store?.chosen_at.getTime() ?? from));
 }

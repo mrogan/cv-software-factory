@@ -1,6 +1,7 @@
 /**
  * The log watcher: three checks over what the app has written, each with a cursor of its own so that it does not
- * send again what it has sent. A restart may send a little again, and triage counts repeats.
+ * send again what it has sent. A restart may send a little again: triage counts a finding's repeats, and the inbox
+ * drops a report it already holds.
  *
  * - New error patterns: error records, reduced to patterns, one signal for each the log has not shown in a day.
  * - Reports: the widget's records, each left in the inbox as a `report` signal.
@@ -13,7 +14,7 @@ import type { InboxSignal } from '@software-factory/events';
 import type { Logger } from 'pino';
 import type { Objectives } from '../../../../policy/objectives.ts';
 import { quoted } from '../alerts/queries.ts';
-import type { Loki } from '../clients/loki.ts';
+import { type Loki, recordIdentity } from '../clients/loki.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
 import type { Tempo } from '../clients/tempo.ts';
 import type { Outbox } from '../outbox.ts';
@@ -30,7 +31,7 @@ import {
 } from './agreement.ts';
 import { MAX_LINES, signalForPattern } from './errors.ts';
 import { errorRecords, freshInPage, type NewPattern, PatternMemory } from './patterns.ts';
-import { reportLogs, signalForReport } from './reports.ts';
+import { reportLogs, reportSignalId, signalForReport } from './reports.ts';
 
 export interface Backends {
   objectives: Objectives;
@@ -50,8 +51,9 @@ export interface Timing {
   agreementLagMs: number;
   /**
    * How long after it was written a report may still reach Loki and be read: the collector retries a failed export
-   * for up to five minutes, and this leaves room beyond that for the batching and ingest on either side. A check that
-   * finds nothing new starts the next no later than this long ago.
+   * for up to five minutes, and this leaves room beyond that for the batching and ingest on either side. Each check
+   * reads the reports of this long before it, however many it has sent since, so a report that arrives behind a newer
+   * one is still read.
    */
   reportLateMs: number;
 }
@@ -98,10 +100,16 @@ export class Watcher {
   private patterns = new PatternMemory();
   private errorsFrom: Date;
   /**
-   * Where reading reports starts, in Loki's nanoseconds: the last report sent, or, after a check that found none,
-   * `reportLateMs` before it. Records after it are new.
+   * Before it, every report has been read: `reportLateMs` before the last check, or, before the first, where the
+   * watcher was told to start. A check reads from here, or from `reportLateMs` before itself if that is earlier.
    */
-  private reportCursor: bigint;
+  private reportsFrom: Date;
+  /**
+   * The reports read since `reportsFrom`, by their identity, with their time in Loki's nanoseconds: those already
+   * handled, so that reading back over the margin does not send them again. A restart forgets them, and the inbox
+   * drops any sent again, by the id each report's signal takes from its record.
+   */
+  private readonly reportsRead = new Map<string, bigint>();
   /** The window before the latest, counted. */
   private previousWindow: { start: Date; routes: RouteCounts[] } | undefined;
   /** When each finding was last signalled. */
@@ -122,7 +130,7 @@ export class Watcher {
     this.backends = backends;
     this.timing = timing;
     this.errorsFrom = since.errors;
-    this.reportCursor = BigInt(since.reports.getTime()) * 1_000_000n;
+    this.reportsFrom = since.reports;
   }
 
   /**
@@ -175,41 +183,47 @@ export class Watcher {
   }
 
   /**
-   * Leaves each report written since the last in the inbox. A check that finds none moves the cursor up to
-   * `reportLateMs` ago, so that the window read every few seconds stays short while no visitor writes, and a report
-   * that reaches Loki late, but within that, is still in it.
+   * Leaves each report not yet read in the inbox. Each check reads back `reportLateMs`, or to where the watcher
+   * started if that is earlier, so that a report that reaches Loki late is read even when a newer one was read first,
+   * and the window read every few seconds stays short. What it has read before, it passes over.
    */
   async checkReports(now: Date): Promise<number> {
     const { loki, outbox, objectives, log } = this.backends;
-    const from = new Date(Number(this.reportCursor / 1_000_000n));
-    const fresh = (await loki.records(reportLogs(objectives), from, new Date(now.getTime() + 1000))).filter(
-      (record) => BigInt(record.ns) > this.reportCursor,
-    );
-    if (fresh.length === 0) {
-      const settled = BigInt(now.getTime() - this.timing.reportLateMs) * 1_000_000n;
-      if (settled > this.reportCursor) this.reportCursor = settled;
-      return 0;
-    }
-    // Where the app's logs can place a page, the report is about that route; the lookup never blocks a report.
-    const templates = await routeTemplates(loki, objectives, now).catch(() => new Map<string, string>());
+    const settled = new Date(now.getTime() - this.timing.reportLateMs);
+    const from = settled < this.reportsFrom ? settled : this.reportsFrom;
+    const fromNs = BigInt(from.getTime()) * 1_000_000n;
+    for (const [identity, ns] of this.reportsRead) if (ns < fromNs) this.reportsRead.delete(identity);
+    const until = new Date(now.getTime() + 1000);
+    let templates: Map<string, string> | undefined;
     let sent = 0;
     let skipped = 0;
-    for (const record of fresh) {
-      const signal = signalForReport(record, (page) => templates.get(page));
-      if (signal) {
-        try {
-          await outbox.send(signal);
-        } catch {
-          // Not the cause: a refusal can quote the signal, and the signal holds the visitor's words.
-          throw new Error('A report could not be left in the inbox');
+    // Every record in the window, however many, a page at a time: the window moves on after this check, and none is
+    // left behind it.
+    for await (const page of loki.pages(reportLogs(objectives), from, until, Number.POSITIVE_INFINITY)) {
+      for (const record of page) {
+        const identity = recordIdentity(record);
+        // Nothing before the window, which the memory no longer covers, and nothing read before.
+        if (BigInt(record.ns) < fromNs || this.reportsRead.has(identity)) continue;
+        // Where the app's logs can place a page, the report is about that route; the lookup never blocks a report.
+        templates ??= await routeTemplates(loki, objectives, now).catch(() => new Map<string, string>());
+        const known = templates;
+        const signal = signalForReport(record, (path) => known.get(path));
+        if (signal) {
+          try {
+            await outbox.send(signal, reportSignalId(record));
+          } catch {
+            // Not the cause: a refusal can quote the signal, and the signal holds the visitor's words.
+            throw new Error('A report could not be left in the inbox');
+          }
+          sent += 1;
+        } else {
+          skipped += 1;
         }
-        sent += 1;
-      } else {
-        skipped += 1;
+        this.reportsRead.set(identity, BigInt(record.ns));
       }
-      this.reportCursor = BigInt(record.ns);
     }
-    log.info({ reports: sent, unreadable: skipped }, 'reports checked');
+    if (templates) log.info({ reports: sent, unreadable: skipped }, 'reports checked');
+    this.reportsFrom = settled;
     return sent;
   }
 
