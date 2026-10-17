@@ -1,16 +1,14 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parse, parseAllDocuments } from 'yaml';
+import { parse } from 'yaml';
+import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 
 /**
  * The scoreboard's fences as deploy/ declares them (milestone 6): it is the only reader of the answer key, so no
  * service account of ours may read its namespace's Secrets or start a pod there, nothing reaches it, and it reaches
  * Postgres and DNS alone. `make egress` shows the same on the cluster, and asks the API server who may read them.
  */
-const DEPLOY = fileURLToPath(new URL('../../../deploy/', import.meta.url));
-
 interface Rule {
   apiGroups?: string[];
   resources?: string[];
@@ -28,25 +26,7 @@ interface Manifest {
   spec?: Record<string, unknown>;
 }
 
-/** Every manifest under deploy/, with its namespace: its own, or its directory's kustomization's. */
-async function manifests(): Promise<{ file: string; namespace?: string; manifest: Manifest }[]> {
-  const files = (await readdir(DEPLOY, { recursive: true })).filter((f) => f.endsWith('.yaml'));
-  const namespaces = new Map<string, string | undefined>();
-  for (const file of files.filter((f) => f.endsWith('kustomization.yaml'))) {
-    const kustomization = parse(await readFile(join(DEPLOY, file), 'utf-8')) as { namespace?: string };
-    namespaces.set(dirname(file), kustomization.namespace);
-  }
-  const all: { file: string; namespace?: string; manifest: Manifest }[] = [];
-  for (const file of files) {
-    for (const doc of parseAllDocuments(await readFile(join(DEPLOY, file), 'utf-8'))) {
-      const manifest = doc.toJS() as Manifest | null;
-      if (!manifest?.kind) continue;
-      const namespace = namespaces.get(dirname(file)) ?? manifest.metadata?.namespace;
-      all.push({ file, manifest, ...(namespace ? { namespace } : {}) });
-    }
-  }
-  return all;
-}
+const manifests = () => deployManifests<Manifest>();
 
 const inScoreboard = async () => (await manifests()).filter(({ namespace }) => namespace === 'scoreboard');
 
