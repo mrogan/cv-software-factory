@@ -196,14 +196,16 @@ describe('Tempo', () => {
     // Fewer jobs at once than Tempo's defaults (20 batches of 7), which held 818Mi when searches ran it out of memory
     // (#380). The querier runs a batch's jobs all at once, so one job a batch makes its limit a limit on jobs.
     expect(tempo.queryFrontend.max_batch_size).toBe(1);
-    expect(tempo.querier.max_concurrent_queries).toBeLessThan(20);
+    expect(tempo.querier.max_concurrent_queries).toBeLessThanOrEqual(8);
     expect(tempo.querier.max_concurrent_queries).toBeGreaterThanOrEqual(4);
 
     // Above the widest the factory reads: the environment check's search, and the agreement check's metrics query.
     const { search, metrics } = tempo.queryFrontend;
     expect(ms(search.max_duration)).toBeGreaterThanOrEqual(ENVIRONMENT.tempoMinutes * 60_000);
     expect(ms(metrics.max_duration)).toBeGreaterThanOrEqual(TIMING.agreementWindowMs);
-    // Below what Tempo keeps, or the bound would not bound anything.
+    // A day at most, below what Tempo keeps, or the bound would not bound anything.
+    expect(ms(search.max_duration)).toBeLessThanOrEqual(ms('24h'));
+    expect(ms(metrics.max_duration)).toBeLessThanOrEqual(ms('24h'));
     expect(ms(search.max_duration)).toBeLessThan(ms(tempo.retention));
     // The factory asks for one trace, and Grafana for 20 unless told otherwise; Tempo's own limit is 262,144.
     expect(search.max_result_limit).toBeGreaterThanOrEqual(20);
