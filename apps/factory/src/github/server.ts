@@ -348,8 +348,9 @@ export function createWorkerServer({
 
   return createServer((req, res) => {
     const on = actingFor(req);
-    // A failure's log says which action or read failed, and for which work item.
-    const [, kind, name] = ROUTE.exec(new URL(req.url ?? '/', 'http://github').pathname) ?? [];
+    // A failure's log says which action or read failed, and for which work item. Nothing here may throw: it runs
+    // outside the catch below.
+    const [, kind, name] = ROUTE.exec(URL.parse(req.url ?? '/', 'http://github')?.pathname ?? '') ?? [];
     const about = { ...(name ? { [kind === 'reads' ? 'read' : 'action']: name } : {}), ...on };
     handle(req, res, on).catch((error: unknown) => {
       if (res.headersSent) return void res.destroy();
