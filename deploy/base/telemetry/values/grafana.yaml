@@ -54,9 +54,15 @@ datasources:
         type: tempo
         url: http://tempo:3200
         jsonData:
+          # A record's trace id is structured metadata in Loki, not part of its text, so a line filter on it finds
+          # nothing: the query filters on the field, in the span's service's streams.
           tracesToLogsV2:
             datasourceUid: loki
-            filterByTraceID: true
+            customQuery: true
+            query: '{$${__tags}} | trace_id="$${__span.traceId}"'
+            tags:
+              - key: service.name
+                value: service_name
             spanStartTimeShift: -5m
             spanEndTimeShift: 5m
           serviceMap:
