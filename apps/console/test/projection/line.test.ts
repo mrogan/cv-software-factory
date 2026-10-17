@@ -339,6 +339,16 @@ describe('a stage panel', () => {
     expect(rows[3]?.note).toBe('Waiting for the planner');
   });
 
+  it('lists a work item closed at Verify with no change as passed, not verified', () => {
+    const item = work('1')
+      .open()
+      .add(1, 'hold.started', 'factory', { stage: 'verify', kind: 'approval', cause: 'verify', reason: 'V' })
+      .add(2, 'work-item.closed', 'factory', { outcome: 'no-change', reason: 'Martin closed it' });
+    expect(project(item.events, item.at(3)).panels.verify.rows).toMatchObject([
+      { item: '1', note: 'closed, no change', tone: 'faint', state: 'passed', left: true },
+    ]);
+  });
+
   it('marks nothing as working under Stop the line, when the station says it is blocked', () => {
     const item = planned('1', 5);
     const stop = {
