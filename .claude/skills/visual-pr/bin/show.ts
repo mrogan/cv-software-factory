@@ -272,10 +272,11 @@ function twoUp({ before: was, after: is }: ReturnType<typeof places>) {
   };
   const [ax, ay] = beside ? [width + GAP, 0] : [0, BAND + height + GAP];
   const outlined = telling && was.length + is.length > 0;
+  // No background: the gap between the two is the page's own, light or dark.
   return {
     outlined,
     svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${tall}" viewBox="0 0 ${total} ${tall}">
-<rect width="${total}" height="${tall}" fill="#fff"/>${side('Before', b, was, 0, 0)}${side('After', a, is, ax, ay)}
+${side('Before', b, was, 0, 0)}${side('After', a, is, ax, ay)}
 </svg>
 `,
   };

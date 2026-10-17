@@ -91,6 +91,8 @@ describe('show.ts', () => {
     expect(text).toContain('width="336" height="232"');
     expect(text.indexOf('>Before<')).toBeLessThan(text.indexOf('>After<'));
     expect(text).not.toContain('<animate');
+    // No background, so the gap between the two is the page's own, in a dark theme too.
+    expect(text).not.toContain('fill="#fff"/>');
     expect(outlined(text)).toEqual({ before: [], after: [{ top: 10, bottom: 40 }] });
   });
 
