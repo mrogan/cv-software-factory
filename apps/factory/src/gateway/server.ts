@@ -84,7 +84,7 @@ export function createGatewayServer({ gateway, agents, spend, log, clock = () =>
       if (error instanceof TooLarge) reply = apiError(413, 'request_too_large', 'The request is over 32 MB.');
       else if (error instanceof BadRequest) reply = apiError(400, 'invalid_request_error', error.message);
       else {
-        log.error({ err: { type: (error as Error)?.name, message: (error as Error)?.message } }, 'agent call failed');
+        log.error({ err: error }, 'agent call failed');
         reply = apiError(500, 'api_error', 'The gateway failed. See its log.');
       }
     }
@@ -131,8 +131,8 @@ export function createGatewayServer({ gateway, agents, spend, log, clock = () =>
     handle(req, res).catch((error: unknown) => {
       const { status, body, retryAfterSeconds } = errorResponse(error, clock().getTime());
       if (status === 500) {
-        // The type and message only: an error's other fields can hold a query's parameters.
-        log.error({ err: { type: (error as Error)?.name, message: (error as Error)?.message } }, 'request failed');
+        // As the factory's logger keeps an error: its other fields can hold a query's parameters, and it drops them.
+        log.error({ err: error }, 'request failed');
       }
       if (res.headersSent) return void res.destroy();
       send(res, status, body, retryAfterSeconds ? { 'retry-after': String(retryAfterSeconds) } : {});

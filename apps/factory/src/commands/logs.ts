@@ -76,7 +76,7 @@ export async function run(args: string[]): Promise<number> {
       try {
         await check();
       } catch (error) {
-        log.error({ check: name, error: error instanceof Error ? error.message : 'failed' }, 'check failed');
+        log.error({ check: name, err: error }, 'check failed');
       } finally {
         running = false;
       }

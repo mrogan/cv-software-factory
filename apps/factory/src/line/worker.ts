@@ -281,7 +281,7 @@ export class Line {
     if (this.#o.only === null && this.#o.now().getTime() - this.#deployReadAt >= this.#o.deployEveryMs) {
       this.#deployReadAt = this.#o.now().getTime();
       await this.#describeDeploy().catch((error: unknown) =>
-        this.#o.log.warn({ err: errorOf(error) }, 'could not say what the deploy pull request carries'),
+        this.#o.log.warn({ err: error }, 'could not say what the deploy pull request carries'),
       );
     }
     await this.#watchReleases(false);
@@ -291,7 +291,7 @@ export class Line {
     for (const item of await this.#queue.free()) {
       if (this.#inFlight.has(item.workItem)) continue;
       await this.#advance(item).catch((error: unknown) =>
-        this.#o.log.error({ workItem: item.workItem, err: errorOf(error) }, 'could not move a work item on'),
+        this.#o.log.error({ workItem: item.workItem, err: error }, 'could not move a work item on'),
       );
     }
   }
@@ -319,7 +319,7 @@ export class Line {
           const comment = reopeningComment(reopened, workItem);
           await this.#o.github.act('reopenIssue', this.#o.repo, { number: item.issue, comment }).catch((error) => {
             if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
-            this.#o.log.warn({ workItem, issue: item.issue, err: errorOf(error) }, 'the issue cannot be reopened');
+            this.#o.log.warn({ workItem, issue: item.issue, err: error }, 'the issue cannot be reopened');
             forgetIssue = true;
           });
         }
@@ -327,7 +327,7 @@ export class Line {
           this.#o.log.info({ workItem, issue: item.issue }, 'a reopened work item came back onto the line');
         }
       } catch (error) {
-        this.#o.log.warn({ workItem, err: errorOf(error) }, 'could not take a reopened work item back onto the line');
+        this.#o.log.warn({ workItem, err: error }, 'could not take a reopened work item back onto the line');
       }
     }
   }
@@ -348,9 +348,7 @@ export class Line {
     abort.addEventListener('abort', nudge);
     try {
       while (!abort.aborted) {
-        await this.tick().catch((error: unknown) =>
-          this.#o.log.error({ err: errorOf(error) }, 'a pass of the line failed'),
-        );
+        await this.tick().catch((error: unknown) => this.#o.log.error({ err: error }, 'a pass of the line failed'));
         const timer = setTimeout(nudge, 15_000);
         await wake.promise;
         clearTimeout(timer);
@@ -397,11 +395,11 @@ export class Line {
         const done = this.#look(workItem, next.release, this.#halt.signal)
           .catch((error: unknown) => {
             this.#lookAgainAt.set(workItem, this.#o.now().getTime() + this.#o.verifyEveryMs);
-            this.#o.log.warn({ workItem, err: errorOf(error) }, 'Verify could not look: it looks again later');
+            this.#o.log.warn({ workItem, err: error }, 'Verify could not look: it looks again later');
           })
           .then(() => this.#release(workItem))
           .catch((error: unknown) =>
-            this.#o.log.error({ workItem, err: errorOf(error) }, 'could not let go of a work item after a look'),
+            this.#o.log.error({ workItem, err: error }, 'could not let go of a work item after a look'),
           )
           .finally(() => this.#inFlight.delete(workItem));
         this.#inFlight.set(workItem, { stage: 'verify', done });
@@ -431,9 +429,7 @@ export class Line {
             ? this.#effects(claimed, state, claimed.effects).finally(() => this.#release(workItem))
             : this.#step(claimed, next.agent, next.round, state, last, this.#halt.signal)
         )
-          .catch((error: unknown) =>
-            this.#o.log.error({ workItem, err: errorOf(error) }, 'a step could not be recorded'),
-          )
+          .catch((error: unknown) => this.#o.log.error({ workItem, err: error }, 'a step could not be recorded'))
           .finally(() => this.#inFlight.delete(workItem));
         this.#inFlight.set(workItem, { stage: STAGE_OF[next.agent], done });
         return;
@@ -465,7 +461,7 @@ export class Line {
       await this.#o.steps.finish(workItem);
       this.#volumeGone.add(workItem);
     } catch (error) {
-      this.#o.log.warn({ workItem, err: errorOf(error) }, 'could not delete a merged work item’s volume');
+      this.#o.log.warn({ workItem, err: error }, 'could not delete a merged work item’s volume');
     }
   }
 
@@ -581,7 +577,7 @@ export class Line {
         signal,
       });
     } catch (error) {
-      found = { kind: 'wait', why: `the sense could not be asked: ${errorOf(error).message}` };
+      found = { kind: 'wait', why: `the sense could not be asked: ${messageOf(error)}` };
     }
     if (signal.aborted) return;
     // A release promoted while the sense looked: what it saw was of a version no longer stable. Look again at once.
@@ -706,7 +702,7 @@ export class Line {
       }
       return shown;
     } catch (error) {
-      this.#o.log.warn({ release: promoted.release, err: errorOf(error) }, 'the release’s pictures could not be read');
+      this.#o.log.warn({ release: promoted.release, err: error }, 'the release’s pictures could not be read');
       return { pages: [], artifacts: [] };
     }
   }
@@ -858,7 +854,7 @@ export class Line {
         this.#o.log.info({ workItem, agent, job: pending.job, reason: error.message }, 'a step is out of date: again');
         return;
       }
-      const reason = errorOf(error).message;
+      const reason = messageOf(error);
       const tries = pending.tries + 1;
       if (tries >= LIMITS.effects) {
         const hold = holdDraft('factory', {
@@ -981,7 +977,7 @@ export class Line {
         const drafts = gateEvents(pr, runs, required, gateRecord(raw));
         if (drafts.length) await this.#append(item.workItem, drafts);
       } catch (error) {
-        log.warn({ workItem: item.workItem, err: errorOf(error) }, 'could not read a pull request’s gates');
+        log.warn({ workItem: item.workItem, err: error }, 'could not read a pull request’s gates');
       }
     }
   }
@@ -1079,10 +1075,8 @@ export class Line {
 /** The inbox id of a signal the line leaves for a work item: the same key always gives the same id. */
 export const signalId = (workItem: string, key: string) => uuidFrom(`line:${workItem}:${key}`);
 
-const errorOf = (error: unknown) => ({
-  type: (error as Error)?.name ?? 'Error',
-  message: (error as Error)?.message ?? String(error),
-});
+/** An error's own message, for an event: its causes are for the log, where they can name the cluster's addresses. */
+const messageOf = (error: unknown) => (error as Error)?.message ?? String(error);
 
 const calledLine = (agent: LineAgent, calls: PayloadOf<'model.called'>) =>
   `${agent[0]?.toUpperCase()}${agent.slice(1)} called ${calls.model} ${count(calls.calls, 'time')}`;

@@ -124,13 +124,11 @@ export class Releases {
   async pass({ dryRun: andDryRun = true }: { dryRun?: boolean } = {}): Promise<void> {
     const { watch, dryRun, log } = this.#o;
     if (watch) {
-      await this.#watch(watch).catch((error: unknown) =>
-        log.warn({ err: errorOf(error) }, 'could not read the app’s release'),
-      );
+      await this.#watch(watch).catch((error: unknown) => log.warn({ err: error }, 'could not read the app’s release'));
     }
     if (dryRun && andDryRun) {
       await this.#dryRun().catch((error: unknown) =>
-        log.warn({ err: errorOf(error) }, 'could not answer for a dry run’s release'),
+        log.warn({ err: error }, 'could not answer for a dry run’s release'),
       );
     }
   }
@@ -159,7 +157,7 @@ export class Releases {
       try {
         figures.set(run.metadata.name, await figuresAt(prometheus, hashes, new Date(at)));
       } catch (error) {
-        log.warn({ run: run.metadata.name, err: errorOf(error) }, 'could not read a step’s figures');
+        log.warn({ run: run.metadata.name, err: error }, 'could not read a step’s figures');
       }
     }
     const series = new Map<string, Series>();
@@ -173,7 +171,7 @@ export class Releases {
           const drawn = await seriesOf(prometheus, measure.name, hashes, new Date(from), new Date(at));
           if (drawn) series.set(`${run.metadata.name}/${measure.name}`, drawn);
         } catch (error) {
-          log.warn({ run: run.metadata.name, measure: measure.name, err: errorOf(error) }, 'could not draw a series');
+          log.warn({ run: run.metadata.name, measure: measure.name, err: error }, 'could not draw a series');
         }
       }
     }
@@ -227,7 +225,7 @@ export class Releases {
         );
       } catch (error) {
         // One measure that cannot be read or sent leaves the rest to go on, and is tried again on the next pass.
-        log.warn({ ...about, err: errorOf(error) }, 'could not send a failed measure of the canary: it waits');
+        log.warn({ ...about, err: error }, 'could not send a failed measure of the canary: it waits');
       }
     }
   }
@@ -487,8 +485,3 @@ const FOLDED = [
   'release.aborted',
   'release.errored',
 ];
-
-const errorOf = (error: unknown) => ({
-  type: (error as Error)?.name ?? 'Error',
-  message: (error as Error)?.message ?? String(error),
-});

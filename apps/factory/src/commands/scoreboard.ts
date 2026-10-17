@@ -74,8 +74,7 @@ async function serve(sql: postgres.Sql, key: Awaited<ReturnType<typeof loadKey>>
         const result = await scoreboard.pass();
         if (result.pass === 'published') log.info({ score: result.score }, 'scoreboard published');
       },
-      failed: (error) =>
-        log.error({ error: error instanceof Error ? error.message : 'failed' }, 'scoreboard pass failed'),
+      failed: (error) => log.error({ err: error }, 'scoreboard pass failed'),
       everyMs: EVERY_MS,
     },
     () =>
