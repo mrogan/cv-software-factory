@@ -102,4 +102,4 @@ A planner's finding is trusted no more than a report, since a visitor can read t
 
 An answer settles only the findings that reached the hold before it, in the store's order, however it was written. If one joined after it, triage acts on none of them: the hold starts again on the same work item, and waits for an answer that has read them all.
 
-Triage does as he answered once an event is appended, reading only the finding holds (an index of their own). It leaves one it cannot act on after as many tries as a signal gets.
+Triage does as he answered once an event is appended, reading only the finding holds (an index of their own). If it cannot act on his answer in as many tries as a signal gets, it leaves the answer: the hold starts again, saying which answer it could not act on, so Needs you asks him again and a restart has nothing answered to try. His next answer is tried afresh.
