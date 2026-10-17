@@ -152,7 +152,7 @@ export class Triage {
       const retry = new Date(now.getTime() + 2 ** taken.attempts * 15_000);
       await this.#o.sql`update inbox set failure = ${reason}, not_before = ${retry} where id = ${taken.id}`;
       const last = taken.attempts >= INBOX.attempts;
-      this.#o.log.warn({ ...log, reason, last }, last ? 'a signal failed for the last time' : 'a signal failed');
+      this.#o.log.warn({ ...log, err: error, last }, last ? 'a signal failed for the last time' : 'a signal failed');
       return 'failed';
     }
   }
@@ -237,9 +237,8 @@ export class Triage {
       // Not the line's to stop for: it is tried again on the next event, as often as a signal is, then left.
       const tries = (failures.get(workItem) ?? 0) + 1;
       failures.set(workItem, tries);
-      const reason = error instanceof Error ? error.message : String(error);
       const last = tries >= INBOX.attempts;
-      log.warn({ workItem, decision, reason, last }, 'could not settle a defect the planner noticed');
+      log.warn({ workItem, decision, err: error, last }, 'could not settle a defect the planner noticed');
       return false;
     }
     failures.delete(workItem);
@@ -299,8 +298,10 @@ export class Triage {
     } catch (error) {
       const tries = (failures.get(workItem) ?? 0) + 1;
       failures.set(workItem, tries);
-      const reason = error instanceof Error ? error.message : String(error);
-      log.warn({ workItem, cause, decision, reason, last: tries >= INBOX.attempts }, 'could not settle held signals');
+      log.warn(
+        { workItem, cause, decision, err: error, last: tries >= INBOX.attempts },
+        'could not settle held signals',
+      );
       return false;
     }
     failures.delete(workItem);

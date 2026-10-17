@@ -19,6 +19,7 @@ import { Cassettes } from '../src/gateway/cassettes.ts';
 import { Gateway } from '../src/gateway/gateway.ts';
 import { Spend } from '../src/gateway/spend.ts';
 import { DEFAULT_URL, type Question, TypeSafe } from '../src/gateway/typesafe.ts';
+import { logOptions } from '../src/log.ts';
 
 const MODEL = 'jev-1.13.0';
 const { DATABASE_URL, TYPESAFE_API_KEY } = process.env;
@@ -28,7 +29,7 @@ if (!DATABASE_URL || !TYPESAFE_API_KEY || !out) {
   process.exit(2);
 }
 
-const log = pino({ level: 'warn' });
+const log = pino(logOptions('warn'));
 const sql = postgres(DATABASE_URL, { onnotice: () => {} });
 await migrate(sql);
 const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts(tmpdir()) });

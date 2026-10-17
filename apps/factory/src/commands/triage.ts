@@ -61,7 +61,7 @@ export async function run(args: string[]): Promise<number> {
       return (await response.json()) as { screenshot: Screenshot; passages: string[] };
     } catch (error) {
       // A report is still judged without its page: it just has no screenshot, and no passage to point to.
-      log.warn({ path, reason: error instanceof Error ? error.message : String(error) }, 'could not read the page');
+      log.warn({ path, err: error }, 'could not read the page');
       return null;
     }
   };

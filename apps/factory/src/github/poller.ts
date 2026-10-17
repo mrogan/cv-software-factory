@@ -64,10 +64,7 @@ export class Poller {
       try {
         await watch();
       } catch (error) {
-        this.#log.warn(
-          { watch: name, err: { type: (error as Error)?.name, message: (error as Error)?.message } },
-          'watch failed',
-        );
+        this.#log.warn({ watch: name, err: error }, 'watch failed');
       }
     }
   }

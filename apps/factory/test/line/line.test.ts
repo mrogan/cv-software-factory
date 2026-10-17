@@ -1471,12 +1471,15 @@ describe('the line', () => {
     expect(steps.requests.at(-1)?.agent).toBe('describer');
   });
 
-  it('declines every suggestion without a change, and the approval stands', async () => {
+  it.each([
+    ['only what it declined', {}],
+    ['a title and a note as well', CODED],
+  ])('declines every suggestion without a change, saying %s, and the approval stands', async (_, wrote) => {
     const workItem = await ticket();
     const name = { path: 'src/search.ts', line: 1, blocking: false, comment: 'Name the escape for what it does.' };
     const reviews = [{ verdict: 'approved', note: 'It escapes the quote.', findings: [name] }];
     const declined = [{ suggestion: 1, reason: 'The name is the one the rest of the code uses.' }];
-    const coded = [handback(CODED, PATCH), handback({ declined })];
+    const coded = [handback(CODED, PATCH), handback({ ...wrote, declined })];
     const { pass, steps, github } = line({
       ...AGENTS,
       coder: () => coded.shift() ?? handback(CODED, PATCH),
@@ -1486,12 +1489,98 @@ describe('the line', () => {
     await pass();
     github.pass();
     await pass(); // the review approves, with a suggestion
-    await pass(); // the coder declines it, and pushes nothing
+    await pass(); // the coder resumes its session, declines it, and pushes nothing
+    const coder = steps.requests.at(-1);
+    expect(coder).toMatchObject({ agent: 'coder', round: 2, resume: 'session-1' });
+    // It is asked for one result or the other: a change with its title and note, or the suggestions declined alone.
+    expect(coder?.prompt).toMatch(
+      /If you take any suggestion, then write the result again[\s\S]*write only \{"declined"\}/,
+    );
     expect(await payloads(workItem, 'suggestions.answered')).toEqual([{ pullRequest: 12, suggestions: 1, declined }]);
     expect(await payloads(workItem, 'pull-request.pushed')).toHaveLength(1);
     expect(github.acts.filter((a) => a.action === 'resolveThreads')).toHaveLength(1);
     await pass();
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'reviewer', 'coder', 'describer']);
+  });
+
+  it('fails a change with no patch that declines only some of the suggestions', async () => {
+    const workItem = await ticket();
+    const name = { path: 'src/search.ts', line: 1, blocking: false, comment: 'Name the escape for what it does.' };
+    const test = { path: 'test/search.test.ts', line: 2, blocking: false, comment: 'Test two quotes.' };
+    const reviews = [{ verdict: 'approved', note: 'It escapes the quote.', findings: [name, test] }];
+    const declined = [{ suggestion: 1, reason: 'The name is the one the rest of the code uses.' }];
+    const coded = [handback(CODED, PATCH), handback({ ...CODED, declined })];
+    const { pass, github } = line({
+      ...AGENTS,
+      coder: () => coded.shift() ?? handback(CODED, PATCH),
+      reviewer: () => handback(reviews.shift()),
+    });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the review approves, with two suggestions
+    await pass(); // the coder declines one, says it took the other, and hands back no change
+    expect(await failures(workItem)).toEqual({
+      failures: 1,
+      failure: 'The coder handed back no change, and did not say why',
+    });
+    expect(await payloads(workItem, 'suggestions.answered')).toEqual([]);
+    expect(github.acts.filter((a) => a.action === 'resolveThreads')).toEqual([]);
+  });
+
+  it('fails a change with no patch that declines every suggestion when something blocks', async () => {
+    const workItem = await ticket();
+    const unmet = { path: 'src/search.ts', line: 1, blocking: true, criterion: 1, comment: 'No quote is escaped.' };
+    const name = { path: 'src/search.ts', line: 2, blocking: false, comment: 'Name the escape for what it does.' };
+    const reviews = [{ verdict: 'changes-requested', note: 'The quote is not escaped.', findings: [unmet, name] }];
+    const declined = [{ suggestion: 1, reason: 'The name is the one the rest of the code uses.' }];
+    const coded = [handback(CODED, PATCH), handback({ ...CODED, declined })];
+    const { pass, steps, github } = line({
+      ...AGENTS,
+      coder: () => coded.shift() ?? handback(CODED, PATCH),
+      reviewer: () => handback(reviews.shift()),
+    });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the review blocks, with a suggestion as well
+    await pass(); // the coder declines the suggestion, and hands back no change for the finding
+    expect(steps.requests.at(-1)?.prompt).not.toContain('If you decline every suggestion, change nothing');
+    expect(await failures(workItem)).toEqual({
+      failures: 1,
+      failure: 'The coder handed back no change, and did not say why',
+    });
+    expect(await payloads(workItem, 'suggestions.answered')).toEqual([]);
+    expect(github.acts.filter((a) => a.action === 'resolveThreads')).toEqual([]);
+  });
+
+  it('declines every suggestion without a change after the fence refused its patch, and the approval stands', async () => {
+    const workItem = await ticket();
+    const name = { path: 'src/search.ts', line: 1, blocking: false, comment: 'Name the escape for what it does.' };
+    const reviews = [{ verdict: 'approved', note: 'It escapes the quote.', findings: [name] }];
+    const declined = [{ suggestion: 1, reason: 'Renaming it would change files outside the scope.' }];
+    const outside = PATCH.replaceAll('src/search.ts', 'src/server.ts');
+    const coded = [handback(CODED, PATCH), handback(CODED, outside), handback({ ...CODED, declined })];
+    const { pass, steps, github } = line({
+      ...AGENTS,
+      coder: () => coded.shift() ?? handback(CODED, PATCH),
+      reviewer: () => handback(reviews.shift()),
+    });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the review approves, with a suggestion
+    await pass(); // the coder takes it outside the scope, and the fence refuses its patch
+    expect(await payloads(workItem, 'action.refused')).toHaveLength(1);
+    await pass(); // back to the coder, which declines it instead, and hands back no change
+    const back = steps.requests.at(-1);
+    expect(back).toMatchObject({ agent: 'coder', round: 2, resume: 'session-1' });
+    expect(back?.prompt).toContain('The line refused your patch for this round');
+    expect(await failures(workItem)).toMatchObject({ failures: 0 });
+    expect(await payloads(workItem, 'suggestions.answered')).toEqual([{ pullRequest: 12, suggestions: 1, declined }]);
+    expect(await payloads(workItem, 'pull-request.pushed')).toHaveLength(1);
+    await pass();
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'reviewer', 'coder', 'coder', 'describer']);
   });
 
   it('resolves the thread of a finding held again in other words when the later one is answered', async () => {

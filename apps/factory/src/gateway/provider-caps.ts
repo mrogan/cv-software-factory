@@ -80,7 +80,7 @@ export class ProviderCaps {
       try {
         if (await this.#options.probe(provider)) await this.clear(provider);
       } catch (error) {
-        this.#options.log.warn({ provider, err: { message: (error as Error).message } }, 'provider probe failed');
+        this.#options.log.warn({ provider, err: error }, 'provider probe failed');
       }
     }
   }

@@ -340,7 +340,7 @@ export function createWorkerServer({
         log.warn({ kind: error.kind, status: error.status, message: error.message }, 'github refused an action');
         return send(res, STATUS[error.kind], { error: error.kind, message: error.message });
       }
-      log.error({ err: { type: (error as Error)?.name, message: (error as Error)?.message } }, 'action failed');
+      log.error({ err: error }, 'action failed');
       send(res, 500, { error: 'internal', message: 'The action failed; the worker logged why.' });
     });
   });

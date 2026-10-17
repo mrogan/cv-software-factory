@@ -173,13 +173,11 @@ export class Runners {
       this.#running.delete(job);
       this.#stopped.delete(job);
       // Each of these is tried whatever the others do: a token that will not end must not leave a Job running.
-      await endJobToken(sql, job).catch((error: Error) =>
-        log.error({ job, err: { message: error.message } }, 'could not end a job token'),
-      );
+      await endJobToken(sql, job).catch((error: Error) => log.error({ job, err: error }, 'could not end a job token'));
       for (const part of ['prepare', 'agent']) {
         await kube
           .remove(`${jobs}/${job}-${part}`)
-          .catch((error: Error) => log.warn({ job, err: { message: error.message } }, 'could not delete a job'));
+          .catch((error: Error) => log.warn({ job, err: error }, 'could not delete a job'));
       }
     }
   }
@@ -200,7 +198,7 @@ export class Runners {
     for (const part of ['prepare', 'agent']) {
       await this.#o.kube
         .remove(`${jobs}/${job}-${part}`)
-        .catch((error: Error) => this.#o.log.warn({ job, err: { message: error.message } }, 'could not delete a job'));
+        .catch((error: Error) => this.#o.log.warn({ job, err: error }, 'could not delete a job'));
     }
     this.#o.log.info({ job }, 'the line stopped; the step’s jobs are deleted');
   }
@@ -266,7 +264,7 @@ export class Runners {
       } catch (error) {
         if (error instanceof TooLarge) return send(res, 413, { error: `The body is over ${MAX_BODY} bytes.` });
         if (error instanceof SyntaxError) return send(res, 400, { error: 'The body is not JSON.' });
-        this.#o.log.error({ err: { message: (error as Error)?.message } }, 'the handback failed');
+        this.#o.log.error({ err: error }, 'the handback failed');
         send(res, 500, { error: 'The handback failed.' });
       }
     };

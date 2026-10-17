@@ -22,6 +22,7 @@ import { Cassettes } from '../src/gateway/cassettes.ts';
 import { Gateway } from '../src/gateway/gateway.ts';
 import { Spend } from '../src/gateway/spend.ts';
 import { TypeSafe } from '../src/gateway/typesafe.ts';
+import { logOptions } from '../src/log.ts';
 
 const CASSETTES = fileURLToPath(new URL('../eval/cassettes/', import.meta.url));
 const { values } = parseArgs({ options: { runs: { type: 'string', default: '1' } } });
@@ -36,7 +37,7 @@ if (!key) {
   process.exit(2);
 }
 
-const log = pino({ level: 'warn' });
+const log = pino(logOptions('warn'));
 const database = await startPostgres();
 const sql = postgres(database.url, { onnotice: () => {} });
 try {
