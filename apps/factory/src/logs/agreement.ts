@@ -10,7 +10,7 @@
  */
 import type { InboxSignal } from '@software-factory/events';
 import type { Objectives } from '../../../../policy/objectives.ts';
-import { quoted } from '../alerts/queries.ts';
+import { appSeries, quoted } from '../alerts/queries.ts';
 import type { Loki } from '../clients/loki.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
 import type { Tempo } from '../clients/tempo.ts';
@@ -122,7 +122,7 @@ export async function count(
   version?: string,
 ): Promise<{ routes: RouteCounts[]; tracesComplete: boolean }> {
   const seconds = Math.round((end.getTime() - start.getTime()) / 1000);
-  const job = `job=${quoted(o.app.metricsJob)}${version === undefined ? '' : `, service_version=${quoted(version)}`}`;
+  const job = `${appSeries(o)}${version === undefined ? '' : `, service_version=${quoted(version)}`}`;
   const logged = version === undefined ? requestLogs(o) : `${requestLogs(o)} | service_version=${quoted(version)}`;
   const [metrics, logs, traced] = await Promise.all([
     backends.prometheus.instant(requestsBetween(job, seconds), end),
@@ -281,9 +281,9 @@ export async function signalForDisagreement(
     };
   }
   const minutes = Math.round((end.getTime() - start.getTime()) / 60_000);
-  const job = quoted(backends.objectives.app.metricsJob);
+  const job = appSeries(backends.objectives);
   const picture = await backends.prometheus.range(
-    `sum (increase(http_server_request_duration_seconds_count{job=${job}, http_route=${quoted(entry.path)}}[1m]))`,
+    `sum (increase(http_server_request_duration_seconds_count{${job}, http_route=${quoted(entry.path)}}[1m]))`,
     new Date(end.getTime() - 3600_000),
     end,
     60,

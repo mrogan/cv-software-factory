@@ -7,6 +7,7 @@
  * `http_route` is the path asked for, such as `/products/glove-left`, and is absent when no route matched.
  */
 import type { Objectives } from '../../../../policy/objectives.ts';
+import { METRICS_FROM_THE_APP } from '../provenance.ts';
 
 const REQUESTS = 'http_server_request_duration_seconds';
 
@@ -26,6 +27,11 @@ export function quoted(value: string): string {
   return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('\n', '\\n')}"`;
 }
 
+/** The app's request series: its job, and only series the collector stamped as from its pods (provenance.ts). */
+export function appSeries(o: Objectives): string {
+  return `job=${quoted(o.app.metricsJob)}, ${METRICS_FROM_THE_APP}`;
+}
+
 function matchers(o: Objectives, scope: Scope, extra: string[] = []): string {
   const route =
     scope.template !== undefined
@@ -34,7 +40,7 @@ function matchers(o: Objectives, scope: Scope, extra: string[] = []): string {
         ? 'http_route!=""'
         : `http_route=${quoted(scope.route)}`;
   const version = scope.version === undefined ? [] : [`service_version=${quoted(scope.version)}`];
-  return `{${[`job=${quoted(o.app.metricsJob)}`, route, ...version, ...extra].join(', ')}}`;
+  return `{${[appSeries(o), route, ...version, ...extra].join(', ')}}`;
 }
 
 /** `sum by (http_route)` for every route, a plain `sum` for one, or for a template's paths together. */

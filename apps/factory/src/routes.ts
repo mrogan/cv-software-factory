@@ -6,10 +6,11 @@
 import type { Objectives } from '../../../policy/objectives.ts';
 import { quoted } from './alerts/queries.ts';
 import type { LogRecord, Loki } from './clients/loki.ts';
+import { LOGS_FROM_THE_APP } from './provenance.ts';
 
 /** The selector of the app's request records: one per request, with `path` and `route` among its fields. */
 export function requestLogs(o: Objectives): string {
-  return `{service_name=${quoted(o.app.logsService)}} | event="request"`;
+  return `{service_name=${quoted(o.app.logsService)}, ${LOGS_FROM_THE_APP}} | event="request"`;
 }
 
 /** The route of each path that request records show, for paths whose route is not the path itself. */
