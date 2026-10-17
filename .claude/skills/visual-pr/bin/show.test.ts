@@ -83,7 +83,7 @@ describe('show.ts', () => {
     PNG.bitblt(PNG.sync.read(before), after, 0, 20, 160, 100, 0, 60);
     const { run, svg } = show(before, PNG.sync.write(after));
     expect(run.status).toBe(0);
-    expect(run.stdout).toMatch(/^two-up: \d+% of the picture changed\n$/);
+    expect(run.stdout).toMatch(/^two-up, outlined: \d+% of the picture changed\n$/);
     const text = svg();
     // Taller than wide, so side by side, each under its band.
     expect(text).toContain('width="336" height="232"');
@@ -107,11 +107,32 @@ describe('show.ts', () => {
 
   it('shows two-up with no outlines when they would cover most of the picture', () => {
     const { run, svg } = show(png(400, 100, [{ top: 0, bottom: 100 }]), png(400, 100));
-    expect(run.stdout).toBe('two-up: 100% of the picture changed\n');
+    expect(run.stdout).toBe('two-up, not outlined: 100% of the picture changed\n');
     const text = svg();
     // Wider than tall, so Before above After.
     expect(text).toContain('width="400" height="280"');
     expect(text).not.toContain('stroke-dasharray');
+  });
+
+  it('matches rows as wide as both pictures are, when After grew wider and taller', () => {
+    const before = picture(160, 200, [{ top: 20, bottom: 120 }]);
+    // The block moved down, something was put above it, and the picture gained columns and rows of background.
+    const after = picture(168, 230, [{ top: 10, bottom: 40 }]);
+    PNG.bitblt(before, after, 0, 20, 160, 100, 0, 60);
+    const { run, svg } = show(PNG.sync.write(before), PNG.sync.write(after));
+    expect(run.stdout).toMatch(/^two-up, outlined: /);
+    // As wide and as tall as the larger, side by side.
+    expect(svg()).toContain('width="352" height="262"');
+    expect(outlined(svg())).toEqual({ before: [], after: [{ top: 10, bottom: 40 }] });
+  });
+
+  it('keeps an outline at the edge of a picture within it, clear of its band', () => {
+    const before = picture(160, 200, [{ top: 60, bottom: 160 }]);
+    const after = picture(160, 200, [{ top: 0, bottom: 30 }]);
+    PNG.bitblt(before, after, 0, 60, 160, 100, 0, 90);
+    const { svg } = show(PNG.sync.write(before), PNG.sync.write(after));
+    const tops = [...svg().matchAll(/<rect x="\d+" y="(\d+)"[^>]*stroke-dasharray/g)].map(([, y]) => Number(y));
+    expect(tops).toEqual([33]);
   });
 
   it('refuses a file that is not a PNG', () => {

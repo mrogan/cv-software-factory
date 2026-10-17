@@ -4,13 +4,14 @@
 // showing, so the change is what moves; a reader who asks for reduced motion sees After, still. A change over much of
 // the picture, such as a list reordered, is too much to follow in half a second: it is shown two-up, Before beside
 // After (above it when the pictures are wider than tall), each under its band, with what changed outlined on both.
-// It prints which it chose, for the caption. The PNGs are embedded, so the SVG stands alone when GitHub shows it in a
-// description.
+// It prints which it chose, and whether a two-up is outlined, for the caption. The PNGs are embedded, so the SVG
+// stands alone when GitHub shows it in a description.
 //
 // What changed is found as the factory finds it (`apps/factory/src/pictures/compare.ts`): pixelmatch at its default
 // threshold, which ignores anti-aliasing, over where the pictures overlap; what only one of them has counts as changed.
 // The outlines are drawn as the console marks an element on a screenshot (`.mk` in its `pictures.css`): dashed, in
 // the design system's `attn`.
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import pixelmatch from 'pixelmatch';
@@ -102,13 +103,17 @@ type Box = { x: number; y: number; width: number; height: number };
  * rows beside it are the same, so a block that moved is matched whole, its blank rows too. A block that moved down
  * because something was put above it is not outlined, and what was put above it is, on After; what moved away is
  * outlined on Before. A row of background alone is never outlined, and outlined rows closer than a line of text are
- * one box.
+ * one box. Rows are compared as wide as both pictures are, so a picture that grew wider still matches. Content whose
+ * rows all repeat, such as stripes, has nothing found once to match by, and is all outlined or, past half of it, not.
  */
 function places(): { before: Box[]; after: Box[] } {
+  const across = Math.min(b.image.width, a.image.width) * 4;
   const rows = (picture: Picture) =>
     Array.from({ length: picture.image.height }, (_, y) => {
-      const row = picture.image.data.subarray(y * picture.image.width * 4, (y + 1) * picture.image.width * 4);
-      return Buffer.from(row).toString('base64');
+      const from = y * picture.image.width * 4;
+      return createHash('sha1')
+        .update(picture.image.data.subarray(from, from + across))
+        .digest('base64');
     });
   const [was, is] = [rows(b), rows(a)];
   const counts = (lines: string[]) => {
@@ -124,14 +129,19 @@ function places(): { before: Box[]; after: Box[] } {
     const j = where.get(line);
     if (j !== undefined && inWas.get(line) === 1 && inIs.get(line) === 1) [uniqueWas.push(i), uniqueIs.push(j)];
   });
-  // The longest run of those whose order agrees in both: the longest increasing subsequence of their places in After.
-  const longest = new Uint32Array(uniqueIs.length).fill(1);
-  const from = new Int32Array(uniqueIs.length).fill(-1);
+  // The longest run of those whose order agrees in both: the longest increasing subsequence of their places in After,
+  // by patience sorting. ends[n] is the run of n + 1 that ends lowest; previous[k] is the one before k in its run.
+  const ends: number[] = [];
+  const previous = new Int32Array(uniqueIs.length).fill(-1);
   uniqueIs.forEach((j, k) => {
-    uniqueIs.slice(0, k).forEach((earlier, l) => {
-      const run = (longest.at(l) ?? 0) + 1;
-      if (earlier < j && run > (longest.at(k) ?? 0)) [longest[k], from[k]] = [run, l];
-    });
+    let [low, high] = [0, ends.length];
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if ((uniqueIs.at(ends.at(middle) ?? 0) ?? 0) < j) low = middle + 1;
+      else high = middle;
+    }
+    previous[k] = low > 0 ? (ends.at(low - 1) ?? -1) : -1;
+    ends[low] = k;
   });
   const [stayedBefore, stayedAfter] = [new Uint8Array(was.length), new Uint8Array(is.length)];
   const match = (i: number, j: number) => {
@@ -139,7 +149,7 @@ function places(): { before: Box[]; after: Box[] } {
     stayedAfter[j] = 1;
   };
   const anchors: [number, number][] = [];
-  for (let k = longest.indexOf(Math.max(0, ...longest)); k >= 0; k = from.at(k) ?? -1) {
+  for (let k = ends.at(-1) ?? -1; k >= 0; k = previous.at(k) ?? -1) {
     anchors.unshift([uniqueWas.at(k) ?? 0, uniqueIs.at(k) ?? 0]);
   }
   for (const [i, j] of anchors) match(i, j);
@@ -166,11 +176,11 @@ function places(): { before: Box[]; after: Box[] } {
   return { before: boxes(b, stayedBefore), after: boxes(a, stayedAfter) };
 }
 
-/** The most common of some pixels, as packed RGBA: a row's or a column's background. */
-function commonest(pixels: Iterable<number>): number {
-  const count = new Map<number, number>();
-  for (const pixel of pixels) count.set(pixel, (count.get(pixel) ?? 0) + 1);
-  return [...count].reduce((best, entry) => (entry[1] > best[1] ? entry : best))[0];
+/** The most common of a picture's pixels along a row or down a column, as packed RGBA: its background. */
+function commonest(count: number, pixel: (n: number) => number): number {
+  const counts = new Map<number, number>();
+  for (let n = 0; n < count; n++) counts.set(pixel(n), (counts.get(pixel(n)) ?? 0) + 1);
+  return [...counts].reduce((best, entry) => (entry[1] > best[1] ? entry : best))[0];
 }
 
 /** The rows of a picture that did not stay, as boxes around what is drawn on them. */
@@ -179,9 +189,9 @@ function boxes(picture: Picture, stayed: Uint8Array): Box[] {
   const pixel = (x: number, y: number) => data.readUInt32BE((y * w + x) * 4);
   // A pixel is drawn when it is neither its row's background nor its column's, so a panel's edge, which runs down
   // the picture, is not drawn on every row it crosses; nor are its rounded corners, at the picture's own edges.
-  const columns = Array.from({ length: w }, (_, x) => commonest(Array.from({ length: h }, (_, y) => pixel(x, y))));
+  const columns = Array.from({ length: w }, (_, x) => commonest(h, (y) => pixel(x, y)));
   const drawn = (y: number) => {
-    const background = commonest(Array.from({ length: w }, (_, x) => pixel(x, y)));
+    const background = commonest(w, (x) => pixel(x, y));
     let [left, right] = [w, -1];
     for (let x = EDGE; x < w - EDGE; x++) {
       const at = pixel(x, y);
@@ -241,12 +251,14 @@ function twoUp({ before: was, after: is }: ReturnType<typeof places>) {
   const telling =
     area(was) <= MOST_OUTLINED * b.image.width * b.image.height &&
     area(is) <= MOST_OUTLINED * a.image.width * a.image.height;
-  // Each side outlines its own boxes, just outside what they hold, as the console's marks sit.
+  // Each side outlines its own boxes, just outside what they hold, as the console's marks sit, and within its picture.
   const side = (label: string, picture: Picture, boxes: Box[], x: number, y: number) => {
-    const outlines = (telling ? boxes : []).map(
-      (box) =>
-        `<rect x="${box.x - 3}" y="${BAND + box.y - 3}" width="${box.width + 6}" height="${box.height + 6}" rx="3" fill="none" stroke="${ATTN}" stroke-width="1.5" stroke-opacity="0.7" stroke-dasharray="4 3"/>`,
-    );
+    const outlines = (telling ? boxes : []).map((box) => {
+      const [left, top] = [Math.max(1, box.x - 3), Math.max(1, box.y - 3)];
+      const right = Math.min(picture.image.width - 1, box.x + box.width + 3);
+      const bottom = Math.min(picture.image.height - 1, box.y + box.height + 3);
+      return `<rect x="${left}" y="${BAND + top}" width="${right - left}" height="${bottom - top}" rx="3" fill="none" stroke="${ATTN}" stroke-width="1.5" stroke-opacity="0.7" stroke-dasharray="4 3"/>`;
+    });
     return `
 <g transform="translate(${x} ${y})">${band(label, width)}
   ${image(picture)}
@@ -254,15 +266,25 @@ function twoUp({ before: was, after: is }: ReturnType<typeof places>) {
 </g>`;
   };
   const [ax, ay] = beside ? [width + GAP, 0] : [0, BAND + height + GAP];
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${tall}" viewBox="0 0 ${total} ${tall}">
+  const outlined = telling && was.length + is.length > 0;
+  return {
+    outlined,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${tall}" viewBox="0 0 ${total} ${tall}">
 <rect width="${total}" height="${tall}" fill="#fff"/>${side('Before', b, was, 0, 0)}${side('After', a, is, ax, ay)}
 </svg>
-`;
+`,
+  };
 }
 
 const changed = changedCells();
 const share = changed.cells.reduce((sum, cell) => sum + cell, 0) / changed.cells.length;
-const blinks = share <= MOST_TO_BLINK;
+const percent = `${Math.round(share * 100)}% of the picture changed`;
 mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, blinks ? blink() : twoUp(places()));
-console.log(`${blinks ? 'blink' : 'two-up'}: ${Math.round(share * 100)}% of the picture changed`);
+if (share <= MOST_TO_BLINK) {
+  writeFileSync(out, blink());
+  console.log(`blink: ${percent}`);
+} else {
+  const { svg, outlined } = twoUp(places());
+  writeFileSync(out, svg);
+  console.log(`two-up, ${outlined ? 'outlined' : 'not outlined'}: ${percent}`);
+}
