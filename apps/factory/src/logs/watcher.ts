@@ -17,6 +17,7 @@ import type { Loki } from '../clients/loki.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
 import type { Tempo } from '../clients/tempo.ts';
 import type { Outbox } from '../outbox.ts';
+import { LOGS_FROM_THE_APP } from '../provenance.ts';
 import { routeTemplates } from '../routes.ts';
 import {
   combine,
@@ -59,7 +60,7 @@ const ROUTES_REFRESH_MS = 60 * 60 * 1000;
 
 /** The selector of the app's error records. */
 export function errorLogs(o: Objectives): string {
-  return `{service_name=${quoted(o.app.logsService)}} | severity_text=~"(?i)error|fatal"`;
+  return `{service_name=${quoted(o.app.logsService)}, ${LOGS_FROM_THE_APP}} | severity_text=~"(?i)error|fatal"`;
 }
 
 export class Watcher {
