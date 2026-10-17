@@ -10,7 +10,7 @@ const input: DescriberInput =
 
 const summary = {
   title: 'The last index was one too many',
-  description: 'lastIndex gave one past a list’s last item. The fix waits for Martin to merge it.',
+  description: 'lastIndex gave one past a list’s last item. The fix gives the last item’s own index.',
   story: 'A ticket said lastIndex gave the wrong result. The coder wrote a failing test, then the fix.',
 };
 
@@ -36,6 +36,9 @@ describe('the describer', () => {
     expect(prompt).toContain('with the visual-pr skill');
     expect(prompt).toContain('{"title","summary":{"title","description","story"}}');
     expect(prompt).toContain('do not run the tests, start the app, send it requests or change anything');
+    // A summary is never written again, so it says nothing of where the work item stands: the console says that.
+    expect(prompt).toContain('never where the work item stands now');
+    expect(prompt).not.toContain('waits for Martin to merge');
   });
 
   it('says one round when the first review approved', () => {

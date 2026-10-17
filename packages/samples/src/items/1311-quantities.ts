@@ -118,7 +118,7 @@ export default new Item('1311', '2026-10-05T16:01:00+01:00')
   .at('30:00', 'work-item.summarised', 'describer', 'Summary written', {
     title: 'Quantities over nine are refused',
     description:
-      'The basket takes any quantity, and a test sets twelve through the shop. It passed its gates and review in two rounds, and waits for Martin to merge it.',
+      'The basket takes any quantity, and a test sets twelve through the shop. It passed its gates and review in two rounds.',
     story:
       'The basket journey found that the shop refused a quantity of twelve: it took one digit only. The planner asked for any quantity up to the stock there is. The coder’s first attempt passed every gate, but the reviewer sent it back twice over: its test reached inside the basket page, and the page opened its own catalogue. The second attempt sets the quantity through the shop over HTTP, and takes the reviewer’s suggestion too, building the “not enough in stock” sentence once. The reviewer approved it.',
   })

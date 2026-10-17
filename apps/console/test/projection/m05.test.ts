@@ -533,3 +533,73 @@ describe('a hold’s picture, by its cause', () => {
     expect(pictureOf(fix().add(5, 'hold.started', 'factory', held('build', 'spend')))?.type).not.toBe('spend');
   });
 });
+
+describe('a story’s end', () => {
+  it('is the console’s own sentence once the work item closes after its summary: verified on which version, by what', () => {
+    expect(sheet('1304')?.closing).toBe(
+      'It was verified on v0.9.8 by the probe’s check “the contact form sends”, and closed.',
+    );
+    // #1306 closed verified, and the same error came back: open again, its story has no end until it closes again.
+    const closed = Date.parse(SAMPLES.find((e) => e.work_item === '1306' && e.type === 'work-item.closed')?.ts ?? '');
+    expect(projectSheet(SAMPLES, '1306', closed)?.closing).toBe(
+      'It was verified on v0.9.10 by the log watcher’s check “new error pattern”, and closed.',
+    );
+    expect(sheet('1306')?.closing).toBeUndefined();
+    expect(sheet('1310')?.closing).toBe(
+      'It closed on the dry run’s word: its release never shipped, so no sense looked.',
+    );
+  });
+
+  it('is none while the work item is open, nor when its summary was written at its close', () => {
+    expect(sheet('1311')?.closing).toBeUndefined();
+    expect(sheet('1262')?.closing).toBeUndefined();
+    expect(sheet('1268')?.closing).toBeUndefined();
+  });
+
+  const summarised = { title: 'Wrong words on /about', description: 'Two lines.', story: 'What happened.' };
+  const changed = [{ path: 'src/pages/about.ts', added: 1, removed: 1 }];
+  const pushed = { number: 5101, title: 'fix: the words', branch: 'fix/5100', attempt: 1, testsFirst: true };
+  const fix = () =>
+    work('5100')
+      .open()
+      .add(1, 'work-item.summarised', 'describer', summarised)
+      .add(2, 'pull-request.pushed', 'coder', { ...pushed, files: changed, whole: changed });
+
+  it('says Martin closed it, with his reason, or that its pull request closed unmerged', () => {
+    const answered = fix().add(9, 'work-item.closed', 'factory', {
+      outcome: 'no-change',
+      reason: 'Martin agreed with the coder, saying: nothing to fix',
+    }).events;
+    expect(projectSheet(answered, '5100', Date.parse('2026-10-04T00:00:00Z'))?.closing).toBe(
+      'It closed: Martin agreed with the coder, saying: nothing to fix.',
+    );
+    const unmerged = fix().add(9, 'work-item.closed', 'martin', {
+      outcome: 'no-change',
+      reason: 'Pull request #5101 was closed without being merged',
+    }).events;
+    expect(projectSheet(unmerged, '5100', Date.parse('2026-10-04T00:00:00Z'))?.closing).toBe(
+      'It closed with pull request #5101 unmerged.',
+    );
+  });
+
+  it('drops the words triage once ended its summary with, where the work item stood then, and no one else’s', () => {
+    const story = 'The probes found it. Triage opened ticket #5200 with the evidence the sense captured.';
+    const stored = (actor: 'triage' | 'describer') =>
+      work('5200')
+        .open()
+        .add(1, 'work-item.summarised', actor, {
+          title: 'Server errors on /contact',
+          description:
+            'The probes found it: the contact form sends. Triage opened a ticket, errors and broken, which waits for the planner.',
+          story: `${story} Nothing has been fixed yet: the ticket waits at Plan.`,
+        }).events;
+    const t = Date.parse('2026-10-04T00:00:00Z');
+    expect(projectSheet(stored('triage'), '5200', t)?.story).toBe(story);
+    expect(projectSheet(stored('triage'), '5200', t)?.card.description).toBe(
+      'The probes found it: the contact form sends. Triage opened a ticket, errors and broken.',
+    );
+    expect(projectSheet(stored('describer'), '5200', t)?.story).toBe(
+      `${story} Nothing has been fixed yet: the ticket waits at Plan.`,
+    );
+  });
+});

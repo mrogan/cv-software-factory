@@ -182,8 +182,8 @@ export function senseTicket(signal: Seen, signalId: string, workItem: string, no
       : `${sense} found it on ${where(signal.route)} in version ${signal.version}, on two checks in a row: ${signal.check}.`;
   return writer.add('work-item.summarised', 'triage', 'Summary written', {
     title,
-    description: `${sense} found it: ${signal.check}. Triage opened a ticket, ${category} and ${severity}, which waits for the planner.`,
-    story: `${how} A sense knows what it saw, so the ticket’s category and severity come from the policy’s table for the symptom, not from a model. Triage opened ticket #${workItem} with the evidence the sense captured. Nothing has been fixed yet: the ticket waits at Plan.`,
+    description: `${sense} found it: ${signal.check}. Triage opened a ticket, ${category} and ${severity}.`,
+    story: `${how} A sense knows what it saw, so the ticket’s category and severity come from the policy’s table for the symptom, not from a model. Triage opened ticket #${workItem} with the evidence the sense captured.`,
   }).events;
 }
 
@@ -416,7 +416,7 @@ export function reportEvents(
       });
       return summarise(writer, {
         title,
-        description: `A visitor reported it. Jev judged it ${routed.category} and ${routed.severity}; triage opened a ticket, which waits for the planner.`,
+        description: `A visitor reported it. Jev judged it ${routed.category} and ${routed.severity}; triage opened a ticket.`,
         story: `A visitor sent a report from ${page}. It went to Jev as data, and Jev judged it a ${routed.category} problem, ${routed.severity} for a visitor, with no instructions for the system in it. Triage opened ticket #${workItem} with a screenshot of the page, taken by the factory. The ticket holds Jev’s typed answers and the factory’s own evidence, never the visitor’s words.`,
       });
     }
@@ -474,7 +474,7 @@ export function findingEvents(
         });
         return summarise(writer, {
           title: `A defect the planner noticed on ${page}`,
-          description: `Jev judged it ${category} and ${severity}. The planner’s word alone opens no ticket, so it waits for a sense to see it, or for Martin.`,
+          description: `Jev judged it ${category} and ${severity}. The planner’s word alone opens no ticket, so triage held it for a sense to see it, or for Martin.`,
           story: `While planning ${ticket}, the planner noticed something else wrong on ${page}. A fix does only what its ticket asks, so it left this for triage. Jev judged it a ${category} problem, ${severity} for a visitor. A visitor can read the app’s public code and try to persuade an agent that a line of it holds a bug, so the planner is trusted no more than a visitor: no ticket opens until a sense sees the defect or Martin opens one.`,
         });
       }
@@ -536,8 +536,8 @@ export function approvedFinding(workItem: string, defect: ParkedDefect, now: Dat
   });
   return summarise(writer, {
     title,
-    description: `The planner noticed it, and Martin opened a ticket, ${category} and ${severity}, which waits for the planner.`,
-    story: `While planning another ticket, the planner noticed this defect on ${'page' in fingerprint ? shortPath(fingerprint.page) : where(fingerprint.route)}. Its word alone never opens a ticket, so triage held it for a sense or for Martin. Martin approved it, so triage opened ticket #${workItem}, with its category and severity from the policy’s table for the symptom, as a sense’s ticket has. It waits at Plan.`,
+    description: `The planner noticed it, and Martin opened a ticket, ${category} and ${severity}.`,
+    story: `While planning another ticket, the planner noticed this defect on ${'page' in fingerprint ? shortPath(fingerprint.page) : where(fingerprint.route)}. Its word alone never opens a ticket, so triage held it for a sense or for Martin. Martin approved it, so triage opened ticket #${workItem}, with its category and severity from the policy’s table for the symptom, as a sense’s ticket has.`,
   });
 }
 
@@ -566,6 +566,10 @@ export function closedFinding(
   return writer.add('work-item.closed', 'triage', reason, { outcome: 'no-change', reason }).events;
 }
 
+/**
+ * A summary says what happened, never where the work item stands now: it moves on, and nothing writes the summary
+ * again, so the console ends the story from what it projects.
+ */
 const summarise = (writer: Writer, summary: PayloadOf<'work-item.summarised'>) =>
   writer.add('work-item.summarised', 'triage', 'Summary written', summary).events;
 

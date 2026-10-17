@@ -197,6 +197,19 @@ const DEFAULT_CATEGORY: Record<Kind, Category> = {
   'planner-finding': 'improvement',
 };
 
+/**
+ * A summary of triage's without the fixed words that once ended it with where the work item stood then, which its
+ * later events overtake. Summaries no longer say it, and the sheet ends the story from what it projects; those
+ * already in the store keep it, and triage's are fixed words, so they go exactly. The describer's own words cannot.
+ */
+export function withoutStanding(summary: PayloadOf<'work-item.summarised'>): PayloadOf<'work-item.summarised'> {
+  return {
+    title: summary.title,
+    description: summary.description.replace(/, which waits for the planner\.$/, '.'),
+    story: summary.story.replace(/ (?:Nothing has been fixed yet: the ticket waits at Plan|It waits at Plan)\.$/, ''),
+  };
+}
+
 /** The outcome each way of closing gives. */
 const CLOSED: Record<PayloadOf<'work-item.closed'>['outcome'], Outcome> = {
   verified: 'verified',
@@ -286,11 +299,13 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     }
 
     switch (event.type) {
-      case 'work-item.summarised':
-        state.title = event.payload.title;
-        state.description = event.payload.description;
-        state.story = event.payload.story;
+      case 'work-item.summarised': {
+        const { title, description, story } = event.actor === 'triage' ? withoutStanding(event.payload) : event.payload;
+        state.title = title;
+        state.description = description;
+        state.story = story;
         break;
+      }
       case 'ticket.opened':
         state.category = event.payload.category;
         state.ticket = event.payload;

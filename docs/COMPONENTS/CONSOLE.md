@@ -37,6 +37,7 @@ Everything it draws is the design system's (`docs/design/system`):
 - **The scoreboard**, from the latest `score.updated` ([scoreboard](SCOREBOARD.md)).
 - **The reel**, whose timeline marks each ended release's version, struck through when it was not promoted.
 - **The sheet**, with:
+  - the latest summary's story, ended, once the work item closes after it, with how it closed: a summary says nothing of where the work item stands. A story triage wrote before it stopped saying so loses the fixed words it ended with; the describer's own words stay as they are;
   - for a ticket, each sense that saw it, and the later versions it saw it in again;
   - a Release and Verify section, one block per release that carried the work item;
   - a scrubber with a chapter per release, and each pass after the first folded to one.
