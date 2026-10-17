@@ -259,7 +259,11 @@ export class Runners {
         if (!waiting) return send(res, 409, { error: 'Nothing is waiting for this job to hand back.' });
         this.#waiting.delete(job.job);
         waiting(parsed.data as Handback);
-        this.#o.log.info({ job: job.job, ending: parsed.data.ending, patch: parsed.data.patch.length }, 'handed back');
+        const { ending, patch } = parsed.data;
+        this.#o.log.info(
+          { job: job.job, workItem: job.workItem, agent: job.agent, ending, patch: patch.length },
+          'handed back',
+        );
         send(res, 202, { taken: true });
       } catch (error) {
         if (error instanceof TooLarge) return send(res, 413, { error: `The body is over ${MAX_BODY} bytes.` });

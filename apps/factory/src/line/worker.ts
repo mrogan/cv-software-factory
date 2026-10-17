@@ -52,7 +52,15 @@ import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
 import { release as RELEASE } from '../../../../policy/release.ts';
 import { type Carry, DEPLOYS, MAX_CARRIES } from '../github/deploys.ts';
-import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../github/server.ts';
+import type {
+  ActingFor,
+  ActionArgs,
+  ActionName,
+  ActionResult,
+  ReadArgs,
+  ReadName,
+  ReadResult,
+} from '../github/server.ts';
 import { GitHubWorkerError } from '../github/worker-client.ts';
 import type { PictureIndex } from '../pictures/index.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
@@ -107,7 +115,8 @@ export interface Steps {
 
 /** The GitHub worker, as the line uses it (`github/worker-client.ts`). */
 export interface GitHubPort {
-  act<K extends ActionName>(action: K, repo: string, args: ActionArgs[K]): Promise<ActionResult<K>>;
+  /** `on` names the work item, and the agent, the action is for, for the worker's log of it. */
+  act<K extends ActionName>(action: K, repo: string, args: ActionArgs[K], on?: ActingFor): Promise<ActionResult<K>>;
   read<K extends ReadName>(read: K, repo: string, args: ReadArgs[K]): Promise<ReadResult<K>>;
 }
 
@@ -317,11 +326,13 @@ export class Line {
         const reopened = fold((await this.#events(workItem)).events).reopened.at(-1);
         if (item.issue && reopened) {
           const comment = reopeningComment(reopened, workItem);
-          await this.#o.github.act('reopenIssue', this.#o.repo, { number: item.issue, comment }).catch((error) => {
-            if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
-            this.#o.log.warn({ workItem, issue: item.issue, err: error }, 'the issue cannot be reopened');
-            forgetIssue = true;
-          });
+          await this.#o.github
+            .act('reopenIssue', this.#o.repo, { number: item.issue, comment }, { workItem })
+            .catch((error) => {
+              if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
+              this.#o.log.warn({ workItem, issue: item.issue, err: error }, 'the issue cannot be reopened');
+              forgetIssue = true;
+            });
         }
         if (await this.#queue.revive(workItem, { forgetIssue })) {
           this.#o.log.info({ workItem, issue: item.issue }, 'a reopened work item came back onto the line');
@@ -515,7 +526,12 @@ export class Line {
       case 'close':
         // The issue goes with it; closing one already closed changes nothing.
         if (item.issue) {
-          await this.#o.github.act('closeIssue', this.#o.repo, { number: item.issue, reason: 'not_planned' });
+          await this.#o.github.act(
+            'closeIssue',
+            this.#o.repo,
+            { number: item.issue, reason: 'not_planned' },
+            { workItem },
+          );
         }
         await this.#append(workItem, [
           {
@@ -530,11 +546,16 @@ export class Line {
         // The issue first, with what cleared it: closing one already closed changes nothing, and says nothing again.
         const reason = whatCleared(next.verification, next.answer);
         if (item.issue) {
-          await this.#o.github.act('closeIssue', this.#o.repo, {
-            number: item.issue,
-            reason: 'completed',
-            comment: closingComment(next.verification, workItem, next.answer),
-          });
+          await this.#o.github.act(
+            'closeIssue',
+            this.#o.repo,
+            {
+              number: item.issue,
+              reason: 'completed',
+              comment: closingComment(next.verification, workItem, next.answer),
+            },
+            { workItem },
+          );
         }
         await this.#append(workItem, [
           {
@@ -926,7 +947,7 @@ export class Line {
         pending.done[name] = kept;
         return result;
       },
-      act: (action, args) => github.act(action, repo, args),
+      act: (action, args) => github.act(action, repo, args, { workItem, agent: pending.agent }),
       // Its id is the same each time, and the inbox keeps the first: leaving it again does nothing.
       leaveSignal: async (key, signal) => {
         const observedAt = this.#o.now().toISOString();
@@ -952,7 +973,7 @@ export class Line {
       '',
       'The factory is working on it: its fix will come as a pull request that refers here. The issue closes when the fix is verified in production.',
     ].join('\n');
-    return this.#o.github.act('openIssue', this.#o.repo, { title: ticket.title, body });
+    return this.#o.github.act('openIssue', this.#o.repo, { title: ticket.title, body }, { workItem });
   }
 
   /**

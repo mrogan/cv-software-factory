@@ -3,7 +3,17 @@
  * holds the App's key, and nothing else does. Reads go through it too (`reads.ts`), so it is the one place that
  * talks to GitHub.
  */
-import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from './server.ts';
+import {
+  type ActingFor,
+  type ActionArgs,
+  type ActionName,
+  type ActionResult,
+  AGENT_HEADER,
+  type ReadArgs,
+  type ReadName,
+  type ReadResult,
+  WORK_ITEM_HEADER,
+} from './server.ts';
 
 export class GitHubWorkerError extends Error {
   readonly status: number;
@@ -26,8 +36,18 @@ export class GitHubWorker {
     this.#dryRun = dryRun;
   }
 
-  async act<K extends ActionName>(action: K, repo: string, args: ActionArgs[K]): Promise<ActionResult<K>> {
-    return this.#post(`actions/${action}`, repo, args, this.#dryRun ? { 'x-factory-dry-run': 'true' } : {});
+  /** `on` names the work item, and the agent, an action is taken for, for the worker's log of it. */
+  async act<K extends ActionName>(
+    action: K,
+    repo: string,
+    args: ActionArgs[K],
+    on: ActingFor = {},
+  ): Promise<ActionResult<K>> {
+    return this.#post(`actions/${action}`, repo, args, {
+      ...(this.#dryRun ? { 'x-factory-dry-run': 'true' } : {}),
+      ...(on.workItem ? { [WORK_ITEM_HEADER]: on.workItem } : {}),
+      ...(on.agent ? { [AGENT_HEADER]: on.agent } : {}),
+    });
   }
 
   /**
