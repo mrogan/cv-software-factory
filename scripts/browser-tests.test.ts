@@ -24,7 +24,8 @@ const CHECK = '.github/workflows/check.yml';
 const CONSOLE = 'apps/console';
 
 const tracked = new Set(execFileSync('git', ['ls-files'], { encoding: 'utf-8' }).split('\n').filter(Boolean));
-const read = (file: string) => readFileSync(file, 'utf-8');
+/** A file's text, its CRLF line endings read as LF. */
+const read = (file: string) => readFileSync(file, 'utf-8').replace(/\r\n?/g, '\n');
 
 /** The workspace's packages, each export of each by its specifier, as a file. */
 function workspace() {
@@ -108,7 +109,7 @@ const folders = [...new Set([...tracked].flatMap((file) => file.match(/^deploy\/
 
 /**
  * The places under deploy/ a file names, outside its comments: as a path there or to it (`../../deploy`), or as
- * `deploy` and one of its folders side by side, as `join(…, 'deploy', 'base')` would. A comment opens a line, so a
+ * `deploy` and one of its folders side by side, as `join(…, 'deploy', 'base')` would, or a variable after it. A comment opens a line, so a
  * glob's `/*` inside a string is not taken for one; `#` opens one only in YAML, where it is not a private field.
  * An HTML comment is read as code, which errs towards failing.
  */
@@ -117,10 +118,12 @@ function deployPaths(text: string, yaml = false) {
   const parts = new RegExp(`['"\`]deploy['"\`]\\s*,\\s*['"\`](${folders.join('|')})\\b`, 'g');
   return [
     ...[...code.matchAll(/(?<![\w-])deploy\/[\w./*-]*/g)].map(([path]) => path),
-    ...[...code.matchAll(/(?<![\w-])deploy(?=['"`])/g)]
+    ...[...code.matchAll(/(?<![\w-])deploy(?=['"`$])/g)]
       .filter(({ index }) => code[index - 1] === '/')
       .map(() => 'deploy'),
     ...[...code.matchAll(parts)].map(([, folder]) => `deploy/${folder}`),
+    // `deploy` with a variable after it, joined or added: the variable could name any folder.
+    ...[...code.matchAll(/['"`]deploy['"`]\s*(?:\+|,\s*(?![\s'"`])[\w$.]+\s*[),])/g)].map(() => 'deploy'),
   ];
 }
 
@@ -209,8 +212,22 @@ describe('what the browser tests run', () => {
       'const f = `${ROOT}/deploy`;',
       "const g = join(ROOT, 'deploy', 'overlays/local');",
       "  #root = '../../deploy/base/x.yaml';",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a template's text, as a file holds it
+      'const h = `${ROOT}/deploy${rest}`;',
+      "const i = join(ROOT, 'deploy', folder);",
+      "const j = ROOT + 'deploy' + rest;",
     ].join('\n');
-    expect(deployPaths(more)).toEqual(['deploy/base/x.yaml', 'deploy', 'deploy', 'deploy/overlays']);
+    expect(deployPaths(more)).toEqual([
+      'deploy/base/x.yaml',
+      'deploy',
+      'deploy',
+      'deploy',
+      'deploy/overlays',
+      'deploy',
+      'deploy',
+    ]);
+    expect(deployPaths("const k = { kind: 'deploy', at };\nwait('deploy', 'release');")).toEqual([]);
+    expect(deployPaths("const l = '../../deploy/base/x.yaml';\r\n")).toEqual(['deploy/base/x.yaml']);
     expect(deployPaths('  # deploy/base, in a YAML comment', true)).toEqual([]);
   });
 
