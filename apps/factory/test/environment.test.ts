@@ -1,8 +1,12 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { Loki } from '../src/clients/loki.ts';
 import { Prometheus } from '../src/clients/prometheus.ts';
 import { Tempo } from '../src/clients/tempo.ts';
 import { environmentLook } from '../src/environment.ts';
+import { DEPLOY } from './deploy.ts';
 import { fakeFetch, vector } from './fakes.ts';
 
 const at = new Date('2026-10-13T19:47:57.000Z');
@@ -127,5 +131,44 @@ describe('the look at what the senses read', () => {
 
   it('looks at nothing with no backend', () => {
     expect(environmentLook({})).toBeUndefined();
+  });
+});
+
+describe('Prometheus keeps what the look reads', () => {
+  interface ScrapeConfig {
+    enabled?: boolean;
+    metric_relabel_configs?: { source_labels?: string[]; regex?: string; action?: string }[];
+  }
+  const values = async (file: string) => parse(await readFile(join(DEPLOY, file), 'utf-8'));
+
+  it('still scrapes the kubelet’s volume stats on k3s, with the second copy of its metrics dropped', async () => {
+    const local = (await values('overlays/local/values/prometheus.yaml')) as {
+      scrapeConfigs: Record<string, ScrapeConfig>;
+    };
+    expect(local.scrapeConfigs['kubernetes-api-servers']?.enabled).toBe(false);
+    const nodes = local.scrapeConfigs['kubernetes-nodes'];
+    expect(nodes?.enabled).not.toBe(false);
+    // Prometheus anchors a relabelling regex at both ends.
+    const dropped = (name: string) =>
+      (nodes?.metric_relabel_configs ?? []).some(
+        (rule) =>
+          rule.action === 'drop' &&
+          rule.source_labels?.join(';') === '__name__' &&
+          new RegExp(`^(?:${rule.regex})$`).test(name),
+      );
+    for (const name of volumes.match(/kubelet_volume_stats_\w+/g) ?? []) expect(dropped(name)).toBe(false);
+    expect(dropped('apiserver_request_duration_seconds_bucket')).toBe(true);
+    expect(dropped('apiserver_request_duration_seconds_count')).toBe(false);
+  });
+
+  it('is given those values on the local cluster', async () => {
+    const kustomization = await readFile(join(DEPLOY, 'overlays/local/kustomization.yaml'), 'utf-8');
+    const { patches } = parse(kustomization) as { patches: { target: { name: string }; patch: string }[] };
+    const patch = patches.find((p) => p.target.name === 'prometheus')?.patch ?? '';
+    expect(parse(patch)).toContainEqual({
+      op: 'add',
+      path: '/spec/sources/0/helm/valueFiles/-',
+      value: '$values/deploy/overlays/local/values/prometheus.yaml',
+    });
   });
 });

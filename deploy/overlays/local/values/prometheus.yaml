@@ -1,0 +1,17 @@
+# Local only: k3s runs the kubelet and the API server in one process, which serves one registry of metrics. Scraping
+# the node's kubelet (`kubernetes-nodes`) already collects everything the API server's endpoint
+# (`kubernetes-api-servers`) would, so that job would store every series a second time. Off here; a cluster whose
+# control plane runs apart from its kubelets keeps it.
+#
+# Of what the kubelet's endpoint serves, the control plane's latency histograms are most of it: one series for each
+# bucket of each verb, resource and scope. Nothing reads them (the factory's only cluster metric is the kubelet's
+# `kubelet_volume_stats_*`, environment.ts), so their buckets are dropped as they are scraped; their `_count` and
+# `_sum` stay, enough for rates and mean latencies.
+scrapeConfigs:
+  kubernetes-api-servers:
+    enabled: false
+  kubernetes-nodes:
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: (apiserver|etcd)_.+_bucket
+        action: drop

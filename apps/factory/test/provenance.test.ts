@@ -69,7 +69,7 @@ describe('the senses read only what the collector stamped as the app’s', () =>
     const { sent, loki, prometheus, tempo } = recording();
     const log = pino({ level: 'silent' });
     const outbox = { send: async () => {} } as never;
-    const timing = { settleMs: 0, agreementWindowMs: 5 * 60_000, agreementLagMs: 0 };
+    const timing = { settleMs: 0, agreementWindowMs: 5 * 60_000, agreementLagMs: 0, reportLateMs: 0 };
     const watcher = new Watcher(
       { objectives, loki, prometheus, tempo, outbox, log },
       { errors: at(0), reports: at(0) },
@@ -160,5 +160,15 @@ describe('the collector stamps the app’s records, and the backends keep what t
     // Configured otherwise, the stamp could be dropped, or a record's own attribute could reach a stream's labels.
     expect(loki.limits_config.otlp_config).toBeUndefined();
     expect(LOGS_FROM_THE_APP).toMatch(/^k8s_pod_name!=/);
+  });
+
+  it('Loki deletes logs by age, and on no one’s request', async () => {
+    const { loki } = await values('loki.yaml');
+    // Loki applies a retention period only when the compactor's retention is on; without it, it keeps every log.
+    expect(loki.limits_config.retention_period).toBe('168h');
+    expect(loki.compactor.retention_enabled).toBe(true);
+    expect(loki.compactor.delete_request_store).toBe('filesystem');
+    // With a delete request store, Loki would take requests to delete logs, from anything that reaches it.
+    expect(loki.limits_config.deletion_mode).toBe('disabled');
   });
 });

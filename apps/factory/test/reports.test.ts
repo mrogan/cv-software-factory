@@ -87,17 +87,22 @@ describe('a report record becomes a report signal', () => {
 /** A watcher over a fake Loki that holds the given reports, with everything it logs captured. */
 function watching(reports: LogRecord[], send: (signal: InboxSignal) => Promise<void>) {
   const logged: string[] = [];
-  const loki = fakeFetch([
-    {
-      path: '/loki/api/v1/query_range',
-      when: (url) => (url.searchParams.get('query') ?? '').includes('event="report"'),
-      answer: () => streams(...reports.map((r): [string, string, Record<string, string>] => [r.ns, r.line, r.fields])),
-    },
-    {
-      path: '/loki/api/v1/query',
-      answer: () => vector([{ path: '/products/teapot-lid', route: '/products/:slug' }, 4]),
-    },
-  ]);
+  const seen: URL[] = [];
+  const loki = fakeFetch(
+    [
+      {
+        path: '/loki/api/v1/query_range',
+        when: (url) => (url.searchParams.get('query') ?? '').includes('event="report"'),
+        answer: () =>
+          streams(...reports.map((r): [string, string, Record<string, string>] => [r.ns, r.line, r.fields])),
+      },
+      {
+        path: '/loki/api/v1/query',
+        answer: () => vector([{ path: '/products/teapot-lid', route: '/products/:slug' }, 4]),
+      },
+    ],
+    seen,
+  );
   const watcher = new Watcher(
     {
       objectives,
@@ -109,7 +114,12 @@ function watching(reports: LogRecord[], send: (signal: InboxSignal) => Promise<v
     },
     { errors: NOW, reports: new Date('2026-10-03T20:00:00Z') },
   );
-  return { watcher, logged };
+  /** Where each of the report check's reads of Loki started. */
+  const starts = () =>
+    seen
+      .filter((url) => (url.searchParams.get('query') ?? '').includes('event="report"'))
+      .map((url) => new Date(Number(BigInt(url.searchParams.get('start') ?? '0') / 1_000_000n)).toISOString());
+  return { watcher, logged, starts };
 }
 
 describe('the log watcher and reports', () => {
@@ -165,5 +175,26 @@ describe('the log watcher and reports', () => {
       page: '/products/teapot-lid',
       text: `(${TEXT.length} characters)`,
     });
+  });
+
+  it('reads a short window while no visitor writes, and still sends a report that reached Loki late', async () => {
+    const late: LogRecord[] = [];
+    const sent: InboxSignal[] = [];
+    const { watcher, starts } = watching(late, async (signal) => void sent.push(signal));
+    const after = (seconds: number) => new Date(NOW.getTime() + seconds * 1000);
+
+    expect(await watcher.checkReports(NOW)).toBe(0);
+    expect(await watcher.checkReports(after(10))).toBe(0);
+    expect(await watcher.checkReports(after(20))).toBe(0);
+    // The first read goes back to where the watcher started; each after it only ten minutes.
+    expect(starts()).toEqual(['2026-10-03T20:00:00.000Z', '2026-10-03T20:50:00.000Z', '2026-10-03T20:50:10.000Z']);
+
+    // Written seven minutes ago, inside the margin, and only now in Loki.
+    late.push(widgetRecord('2026-10-03T20:53:00Z', { page: '/about', text: TEXT }));
+    expect(await watcher.checkReports(after(30))).toBe(1);
+    expect(await watcher.checkReports(after(40))).toBe(0);
+    expect(sent).toHaveLength(1);
+    // The cursor stays at the report, rather than going back to ten minutes ago.
+    expect(starts().at(-1)).toBe('2026-10-03T20:53:00.000Z');
   });
 });
