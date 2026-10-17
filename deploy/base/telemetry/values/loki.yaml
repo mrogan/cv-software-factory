@@ -19,12 +19,15 @@ loki:
   limits_config:
     allow_structured_metadata: true
     retention_period: 168h
-  # The compactor applies the retention period, and deletes nothing unless its retention is on. Its working directory
-  # holds the marks of chunks waiting to be deleted, so it sits on the persistent volume and survives a restart.
+    # The store below would also open Loki's API for deleting logs on request, and the logs are what Verify judges a
+    # fix by: only age deletes them.
+    deletion_mode: disabled
+  # The compactor applies the retention period, and deletes nothing unless its retention is on, which needs a store
+  # for delete requests. Its working directory, holding the marks of chunks waiting to be deleted, defaults to
+  # /var/loki/compactor, on the persistent volume.
   compactor:
     retention_enabled: true
     delete_request_store: filesystem
-    working_directory: /var/loki/compactor
   analytics:
     reporting_enabled: false
 
