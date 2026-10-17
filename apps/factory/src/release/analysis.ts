@@ -144,8 +144,9 @@ const LABELS = { 'app.kubernetes.io/name': 'journeys', 'app.kubernetes.io/part-o
  * The journeys gate (`factory gate journeys`), as a Job in the app's namespace: the stable Service is the base and the
  * canary's the change, and the Job fails when a check that passes on the base fails on the change twice. It writes
  * those checks, and how many passed of how many ran on each, to its container's termination message, where the line
- * reads them (`release/read.ts`): the counts at each step, and the checks when the journeys fail a release. Only what the gate writes there: a gate that crashed before writing leaves it empty, rather
- * than its logs, which the line would have no use for.
+ * reads them (`release/read.ts`): the counts at each step, and the checks when the journeys fail a release. Only what
+ * the gate writes there: a gate that crashed before writing leaves it empty, rather than its logs, which the line
+ * would have no use for.
  */
 export const JOURNEYS_MESSAGE = '/dev/termination-log';
 function journeys(r: Release) {

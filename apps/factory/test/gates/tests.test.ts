@@ -314,7 +314,7 @@ describe('journeys, as the canary’s analysis Job reports them', () => {
     message: 'The browser’s console logged an error',
   };
 
-  it('writes the checks that regressed and the counts for the line to read back, and nothing else of what they saw', () => {
+  it('writes the counts and the checks that regressed for the line to read back, and nothing else they saw', () => {
     const message = comparisonMessage(comparison([{ ...regressed, evidence: [] }]));
     expect(JSON.parse(message)).toEqual({
       regressions: [
@@ -358,7 +358,7 @@ describe('journeys, as the canary’s analysis Job reports them', () => {
     expect(comparisonIn(message)?.counts).toEqual({ base: { passed: 31, ran: 40 }, change: { passed: 30, ran: 40 } });
   });
 
-  it('reads the regressions of a message with no counts, as an older gate wrote it, or with counts that are not', () => {
+  it('reads the regressions of a message with no counts, as an older gate wrote, or with bad ones', () => {
     const regressions = [{ sense: 'probe', check: 'checkout/console', route: '/checkout' }];
     expect(comparisonIn(JSON.stringify({ regressions }))).toEqual({ regressions });
     for (const counts of [{ base: { passed: 3, ran: 2 }, change: { passed: 1, ran: 2 } }, { base: 'all' }, 7]) {

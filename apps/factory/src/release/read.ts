@@ -154,6 +154,8 @@ export async function readRollout(
 }
 
 type Figures = PayloadOf<'canary.stepped'>['figures'];
+/** The journeys' checks that passed, of how many ran, as the event keeps them. */
+type Counted = NonNullable<NonNullable<Figures>['canary']['journeys']>;
 type Series = NonNullable<PayloadOf<'release.rolled-back'>['failed'][number]['series']>;
 
 /** A pod-template hash, as Argo Rollouts makes one. */
@@ -364,7 +366,7 @@ export async function journeysCounted(
   kube: Kube,
   namespace: string,
   run: AnalysisRun,
-): Promise<{ canary: [number, number]; baseline: [number, number] } | undefined> {
+): Promise<{ canary: Counted; baseline: Counted } | undefined> {
   const read = await messagesOf(kube, namespace, journeysMeasurements(run).at(-1));
   if (read.kind !== 'ended') return undefined;
   const counts = read.messages.map((m) => comparisonIn(m)?.counts).find((c) => c !== undefined);

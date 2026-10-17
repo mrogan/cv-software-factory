@@ -472,6 +472,32 @@ describe('the line’s watch of the app’s release', () => {
     expect(stepped?.figures).toBeUndefined();
   });
 
+  it('keeps the journeys’ counts at a step when Prometheus cannot say', async () => {
+    const { line: it, github, kube } = line({}, { prometheusDown: true });
+    github.history = HISTORY;
+    github.revisions.set(digestOf(STABLE), commitOf(STABLE));
+    github.revisions.set(digestOf(CANARY), commitOf(CANARY));
+    kube.rollout = rollout({ current: STABLE, stable: STABLE });
+    await it.tick();
+    const carried = await merged(30, FIX_3);
+    const t0 = new Date(now).toISOString();
+    const step = run({ step: 2, created: t0, completed: t0 });
+    const journeys = step.status.metricResults.find((m) => m.name === 'journeys');
+    for (const m of journeys?.measurements ?? []) m.metadata = { 'job-name': 'step.journeys.1' };
+    kube.messages.set(
+      'step.journeys.1',
+      JSON.stringify({ regressions: [], counts: { base: { passed: 41, ran: 48 }, change: { passed: 40, ran: 48 } } }),
+    );
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 });
+    kube.runs = [run({ created: t0, phase: 'Running' }), step];
+    await it.tick();
+    const [stepped] = await payloads(carried, 'canary.stepped');
+    expect(stepped?.figures).toEqual({
+      canary: { requests: null, errorRate: null, p99Ms: null, journeys: [40, 48] },
+      baseline: { requests: null, errorRate: null, p99Ms: null, journeys: [41, 48] },
+    });
+  });
+
   it('records a release of the one work item the line acts on, and the line’s own, while it acts on that alone', async () => {
     const workItem = await merged(30, FIX_3);
     const { line: it, github, kube } = line({ only: workItem });

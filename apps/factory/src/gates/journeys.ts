@@ -38,7 +38,7 @@ export interface Comparison {
   flaky: Seen[];
   /** Fail on the change, where the base could not tell. */
   unsure: Seen[];
-  /** How many checks ran on each, and how many of those passed: on the change, a check that failed once and then passed. */
+  /** How many checks ran on each, and how many passed: on the change, one that failed once and then passed does. */
   counts: { base: Count; change: Count };
 }
 
@@ -186,7 +186,7 @@ export function comparisonIn(text: string | undefined): ComparisonMessage | unde
   }
 }
 
-/** The regressions a comparison message names, or undefined for one that is not a comparison message (`comparisonIn`). */
+/** The regressions a comparison message names, or undefined for one that is not one (`comparisonIn`). */
 export function regressionsIn(text: string | undefined): Regression[] | undefined {
   return comparisonIn(text)?.regressions;
 }

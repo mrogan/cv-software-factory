@@ -156,18 +156,23 @@ export class Releases {
       const hashes = hashesOf(run);
       const at = run.status.completedAt;
       if (!hashes || !at) continue;
-      try {
-        const read = await figuresAt(prometheus, hashes, new Date(at));
-        const journeys = await journeysCounted(kube, rollout.namespace, run).catch((error: unknown) => {
+      // The counts are Kubernetes's, not Prometheus's: one that cannot be read leaves the other its figures.
+      const [read, journeys] = await Promise.all([
+        figuresAt(prometheus, hashes, new Date(at)).catch((error: unknown) => {
+          log.warn({ run: run.metadata.name, err: error }, 'could not read a step’s figures');
+          return undefined;
+        }),
+        journeysCounted(kube, rollout.namespace, run).catch((error: unknown) => {
           log.warn({ run: run.metadata.name, err: error }, 'could not read the journeys’ counts at a step');
           return undefined;
-        });
+        }),
+      ]);
+      if (read || journeys) {
+        const none = { requests: null, errorRate: null, p99Ms: null };
         figures.set(run.metadata.name, {
-          canary: { ...read.canary, journeys: journeys?.canary ?? null },
-          baseline: { ...read.baseline, journeys: journeys?.baseline ?? null },
+          canary: { ...(read?.canary ?? none), journeys: journeys?.canary ?? null },
+          baseline: { ...(read?.baseline ?? none), journeys: journeys?.baseline ?? null },
         });
-      } catch (error) {
-        log.warn({ run: run.metadata.name, err: error }, 'could not read a step’s figures');
       }
     }
     const series = new Map<string, Series>();

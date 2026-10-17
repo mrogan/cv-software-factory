@@ -40,7 +40,7 @@ describe('the journeys’ counts at a step', () => {
     });
   });
 
-  it('has none from an older gate’s message, a crashed gate, a Job still running or gone, or a run that names none', async () => {
+  it('has none from an older gate, a crashed one, a Job running or gone, or a run that names none', async () => {
     const older = JSON.stringify({ regressions: [] });
     for (const message of [older, 'Error: Chromium crashed', null, undefined]) {
       expect(await journeysCounted(kubeWith(JOB, message), 'website', stepRun(JOB))).toBeUndefined();
