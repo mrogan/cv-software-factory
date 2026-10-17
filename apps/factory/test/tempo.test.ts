@@ -28,8 +28,9 @@ describe('counting the app’s requests by route in Tempo', () => {
     expect(url?.searchParams.get('q')).toBe(
       `{ resource.service.name = "website" && ${TRACES_FROM_THE_APP} && resource.service.version = "abc1234" && kind = server && span.http.route != nil } | count_over_time() by (span.http.route)`,
     );
-    expect(url?.searchParams.get('start')).toBe(String(start.getTime() / 1000));
-    expect(url?.searchParams.get('end')).toBe(String(end.getTime() / 1000));
+    // To the nanosecond, so that windows meet without overlapping.
+    expect(url?.searchParams.get('start')).toBe('1792227600000000000');
+    expect(url?.searchParams.get('end')).toBe('1792227900000000000');
     expect(url?.searchParams.has('limit')).toBe(false);
   });
 
@@ -47,6 +48,14 @@ describe('counting the app’s requests by route in Tempo', () => {
   it('is complete and empty when Tempo has nothing, and leaves out its series', async () => {
     const { tempo } = answering({ metrics: { inspectedBytes: '0', completedJobs: 1, totalJobs: 1 } });
     expect(await tempo.requestsByRoute('website', start, end)).toEqual({ routes: [], complete: true });
+  });
+
+  it('counts a series with no value as none', async () => {
+    const { tempo } = answering({ series: [{ labels: route('/', 0).labels }] });
+    expect(await tempo.requestsByRoute('website', start, end)).toEqual({
+      routes: [{ route: '/', requests: 0 }],
+      complete: true,
+    });
   });
 
   it('is not complete when Tempo says its answer is partial', async () => {

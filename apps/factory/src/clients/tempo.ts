@@ -51,8 +51,9 @@ export class Tempo {
       '/api/metrics/query',
       {
         q: `{ resource.service.name = ${JSON.stringify(service)} && ${TRACES_FROM_THE_APP}${ofVersion} && kind = server && span.http.route != nil } | count_over_time() by (span.http.route)`,
-        start: Math.floor(start.getTime() / 1000),
-        end: Math.ceil(end.getTime() / 1000),
+        // In nanoseconds, so that one window ends where the next begins: whole seconds would count a span twice.
+        start: nanoseconds(start),
+        end: nanoseconds(end),
       },
       20_000,
     )) as { series?: { labels?: Attribute[]; value?: number }[]; status?: string | number };
@@ -62,7 +63,8 @@ export class Tempo {
     }
     const routes = (answer.series ?? []).flatMap((series) => {
       const route = series.labels?.find((a) => a.key === 'span.http.route')?.value.stringValue;
-      const requests = Number(series.value);
+      // A count of zero may be left out, as JSON leaves out a field at its default.
+      const requests = Number(series.value ?? 0);
       return route && Number.isFinite(requests) ? [{ route, requests }] : [];
     });
     // A partial answer is one some of Tempo's jobs did not finish (`PARTIAL`, or its number in the enum).
@@ -111,6 +113,11 @@ export class Tempo {
       durationMs: ms(span.end - span.start),
     }));
   }
+}
+
+/** A time as Tempo takes it to the nanosecond. */
+function nanoseconds(time: Date): string {
+  return `${BigInt(time.getTime()) * 1_000_000n}`;
 }
 
 interface Batch {
