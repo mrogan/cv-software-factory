@@ -155,6 +155,9 @@ export interface ActingFor {
   agent?: string | undefined;
 }
 
+/** `/v1/actions/<action>` or `/v1/reads/<read>`. */
+const ROUTE = /^\/v1\/(actions|reads)\/([A-Za-z]+)$/;
+
 /** A work item's id or an agent's name, as a log may carry it: anything else a caller sends is left out. */
 const NAMED = /^[A-Za-z0-9-]{1,64}$/;
 
@@ -304,7 +307,7 @@ export function createWorkerServer({
     const dry = req.headers['x-factory-dry-run'] === 'true';
     const actions = dry && dryRun ? dryRun : live;
     const reads = dry && dryRunReads ? dryRunReads : liveReads;
-    const [, kind, name = ''] = /^\/v1\/(actions|reads)\/([A-Za-z]+)$/.exec(pathname) ?? [];
+    const [, kind, name = ''] = ROUTE.exec(pathname) ?? [];
     const known =
       kind === 'actions' ? Object.hasOwn(ARGS, name) : kind === 'reads' && reads && Object.hasOwn(READS, name);
     if (!known)
@@ -345,29 +348,35 @@ export function createWorkerServer({
 
   return createServer((req, res) => {
     const on = actingFor(req);
+    // A failure's log says which action or read failed, and for which work item.
+    const [, kind, name] = ROUTE.exec(new URL(req.url ?? '/', 'http://github').pathname) ?? [];
+    const about = { ...(name ? { [kind === 'reads' ? 'read' : 'action']: name } : {}), ...on };
     handle(req, res, on).catch((error: unknown) => {
       if (res.headersSent) return void res.destroy();
       if (error instanceof PatchRefused) {
-        log.warn({ ...on, message: error.message }, 'a patch was refused');
+        log.warn({ ...about, message: error.message }, 'a patch was refused');
         return send(res, 422, { error: 'patch-refused', message: error.message });
       }
       if (error instanceof BranchRefused) {
-        log.warn({ ...on, message: error.message }, 'a branch was refused');
+        log.warn({ ...about, message: error.message }, 'a branch was refused');
         return send(res, 422, { error: 'branch-refused', message: error.message });
       }
       if (error instanceof DeployRefused) {
-        log.warn({ ...on, message: error.message }, 'a deploy was refused');
+        log.warn({ ...about, message: error.message }, 'a deploy was refused');
         return send(res, 422, { error: 'deploy-refused', message: error.message });
       }
       if (error instanceof RegistryError) {
-        log.warn({ status: error.status, message: error.message }, 'ghcr.io failed a read');
+        log.warn({ ...about, status: error.status, message: error.message }, 'ghcr.io failed a read');
         return send(res, 502, { error: 'registry', message: error.message });
       }
       if (error instanceof GitHubError) {
-        log.warn({ ...on, kind: error.kind, status: error.status, message: error.message }, 'github refused an action');
+        log.warn(
+          { ...about, kind: error.kind, status: error.status, message: error.message },
+          'github refused an action',
+        );
         return send(res, STATUS[error.kind], { error: error.kind, message: error.message });
       }
-      log.error({ ...on, err: error }, 'action failed');
+      log.error({ ...about, err: error }, 'action failed');
       send(res, 500, { error: 'internal', message: 'The action failed; the worker logged why.' });
     });
   });

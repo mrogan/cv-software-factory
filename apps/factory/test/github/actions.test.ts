@@ -629,6 +629,14 @@ describe('the worker over HTTP', () => {
       { action: 'openIssue', repo: REPO, workItem: undefined, agent: undefined },
       { action: 'openIssue', repo: REPO, workItem: undefined, agent: undefined },
     ]);
+    // A refusal says which action it was, and for what.
+    const main = { branch: 'main', sha: 'a'.repeat(40), force: true };
+    await expect(worker.act('setBranch', REPO, main, { workItem: '1042', agent: 'coder' })).rejects.toThrow();
+    expect(logged.find((l) => l.msg === 'a branch was refused')).toMatchObject({
+      action: 'setBranch',
+      workItem: '1042',
+      agent: 'coder',
+    });
   });
 
   it("keeps a GitHub failure's meaning", async () => {
