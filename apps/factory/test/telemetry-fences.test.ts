@@ -136,6 +136,18 @@ describe('the read-only proxy', () => {
     }
   });
 
+  it('passes each path the factory’s clients ask a backend for, on that backend’s port', async () => {
+    const byPort = new Map((await servers()).map(({ port, body }) => [port, body]));
+    const clients = { prometheus: 9090, loki: 3100, tempo: 3200 };
+    for (const [client, port] of Object.entries(clients)) {
+      const source = await readFile(new URL(`../src/clients/${client}.ts`, import.meta.url), 'utf-8');
+      // The paths the client names whole; a trace's path, built from its id, has a test of its own above.
+      const paths = [...source.matchAll(/getJson\([^)]*?'(\/[^']+)'/g)].map(([, path]) => path);
+      expect(paths.length, client).toBeGreaterThan(0);
+      for (const path of paths) expect(byPort.get(port), `${client} ${path}`).toContain(`location = ${path} {`);
+    }
+  });
+
   it('passes on the path nginx has normalised, or the trace id it captured, never the one the client wrote', async () => {
     const conf = await readFile(join(DEPLOY, 'base/telemetry/query/nginx.conf'), 'utf-8');
     const passes = [...conf.matchAll(/proxy_pass ([^;]+);/g)].map(([, target]) => target);
