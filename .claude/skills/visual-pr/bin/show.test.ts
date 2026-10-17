@@ -73,7 +73,9 @@ describe('show.ts', () => {
     expect(text).toContain(`data:image/png;base64,${before.toString('base64')}`);
     expect(text).toContain(`data:image/png;base64,${after.toString('base64')}`);
     expect(text.indexOf('>After<')).toBeLessThan(text.indexOf('>Before<'));
-    expect(text).toMatch(/<g class="before">[\s\S]*<animate attributeName="opacity" values="1;0" keyTimes="0;0.5"/);
+    expect(text).toMatch(
+      /<g class="before">[\s\S]*<animate attributeName="opacity" values="1;0" keyTimes="0;0.5" calcMode="discrete" dur="1.6s"/,
+    );
     expect(text).toContain('prefers-reduced-motion: reduce');
   });
 

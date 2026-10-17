@@ -1,9 +1,10 @@
 // Writes an SVG that shows how a picture changed, as fits the change:
 // node show.ts <before.png> <after.png> <out.svg>
-// A change in a few small places blinks, Before over After, half a second each, under a band that says which is
-// showing, so the change is what moves; a reader who asks for reduced motion sees After, still. A change over much of
-// the picture, such as a list reordered, is too much to follow in half a second: it is shown two-up, Before beside
-// After (above it when the pictures are wider than tall), each under its band, with what changed outlined on both.
+// A change in a few small places blinks, Before over After, 0.8s each, long enough to read a line, under a band that
+// says which is showing, so the change is what moves; a reader who asks for reduced motion sees After, still. A change
+// over much of the picture, such as a list reordered, is too much to follow in a blink: it is shown two-up, Before
+// beside After (above it when the pictures are wider than tall), each under its band, with what changed outlined on
+// both.
 // It prints which it chose, and whether a two-up is outlined, for the caption. The PNGs are embedded, so the SVG
 // stands alone when GitHub shows it in a description.
 //
@@ -237,7 +238,7 @@ function blink() {
 <g>${frame('After', a)}
 </g>
 <g class="before">${frame('Before', b)}
-  <animate attributeName="opacity" values="1;0" keyTimes="0;0.5" calcMode="discrete" dur="1s" repeatCount="indefinite"/>
+  <animate attributeName="opacity" values="1;0" keyTimes="0;0.5" calcMode="discrete" dur="1.6s" repeatCount="indefinite"/>
 </g>
 </svg>
 `;
