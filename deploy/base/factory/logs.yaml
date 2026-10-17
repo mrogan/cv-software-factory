@@ -60,11 +60,11 @@ spec:
                   name: postgres-writer
                   key: password
             - name: PROMETHEUS_URL
-              value: http://prometheus-server.telemetry
+              value: http://query.telemetry:9090
             - name: LOKI_URL
-              value: http://loki.telemetry:3100
+              value: http://query.telemetry:3100
             - name: TEMPO_URL
-              value: http://tempo.telemetry:3200
+              value: http://query.telemetry:3200
           resources:
             requests:
               cpu: 20m

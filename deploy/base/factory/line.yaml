@@ -117,17 +117,18 @@ spec:
               value: "9"
             # After the merge: the read-only watch of the app's releases, with each version's figures from Prometheus,
             # and Verify, which asks the probes (their verify port), Prometheus, Loki and Tempo whether a ticket's signal
-            # cleared. Tempo is for the log watcher's agreement check: without it, wrong metrics wait at Verify.
+            # cleared. Tempo is for the log watcher's agreement check: without it, wrong metrics wait at Verify. The
+            # three are read through the read-only proxy in `telemetry` (deploy/base/telemetry/query.yaml).
             - name: RELEASE_ROLLOUT
               value: website/website
             - name: PROMETHEUS_URL
-              value: http://prometheus-server.telemetry
+              value: http://query.telemetry:9090
             - name: PROBES_URL
               value: http://probes:8081
             - name: LOKI_URL
-              value: http://loki.telemetry:3100
+              value: http://query.telemetry:3100
             - name: TEMPO_URL
-              value: http://tempo.telemetry:3200
+              value: http://query.telemetry:3200
           # The handback's port: the step API listens on loopback only, so the kubelet cannot reach it.
           readinessProbe:
             httpGet:

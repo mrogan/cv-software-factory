@@ -1,5 +1,6 @@
 # The telemetry stack, as Argo CD Applications of the upstream charts at pinned versions.
 # The console and the app send OTLP to the collector, which fans out: traces to Tempo, metrics to Prometheus, logs to Loki.
+# The factory's workers read them through a read-only proxy (query.yaml).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -9,7 +10,13 @@ resources:
   - loki.yaml
   - tempo.yaml
   - grafana.yaml
+  - query.yaml
 configMapGenerator:
+  # The proxy's configuration. Its name gains a hash of the file, so a change to it rolls the proxy.
+  - name: query
+    namespace: telemetry
+    files:
+      - query/nginx.conf
   # Picked up by Grafana's dashboard sidecar, which watches for the grafana_dashboard label.
   - name: dashboards
     namespace: telemetry

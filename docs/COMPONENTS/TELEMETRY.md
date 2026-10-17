@@ -13,7 +13,23 @@ flowchart LR
   collector --> loki[Loki]
   collector --> tempo[Tempo]
   prometheus & loki & tempo --> grafana[Grafana]
+  readers[Factory workers that read] -- GET --> query[Read-only proxy]
+  query --> prometheus & loki & tempo
 ```
+
+## Reading it
+
+The workers that read telemetry (triage, the intake, the log watcher and the line) reach Prometheus, Loki and Tempo only through a read-only proxy in `telemetry`, `query`, and never the backends themselves ([network policies](NETWORK-POLICIES.md)). A NetworkPolicy allows a port, not a path, and on the ports they query the backends also take writes: Loki takes pushed logs, Prometheus metrics over OTLP, Tempo a flush. A worker that untrusted input had turned could plant the evidence the senses and the canary judge by.
+
+| Address | Backend | Passes, by GET only |
+|---|---|---|
+| `query.telemetry:9090` | Prometheus | `/api/v1/query`, `/api/v1/query_range`, `/-/healthy`, `/-/ready` |
+| `query.telemetry:3100` | Loki | `/loki/api/v1/query`, `/loki/api/v1/query_range`, `/ready` |
+| `query.telemetry:3200` | Tempo's query port | `/api/search`, `/api/traces/<id>`, `/ready` |
+
+Any other method is answered 405 and any other path 403, before it reaches a backend. The proxy passes on the path as nginx has decoded and normalised it, never as the client wrote it, and keeps no access log, since a query can hold a visitor's report. A read the factory starts to need is a line in `deploy/base/telemetry/query/nginx.conf`.
+
+The collector, which every worker still sends its own telemetry to, writes; Grafana and the canary's analysis read; each reaches the backends directly. Prometheus's lifecycle endpoints are off, so nothing that reaches it can stop it or have it reload: it reloads its configuration and rules itself when they change, every 30 seconds.
 
 ## Dashboards
 

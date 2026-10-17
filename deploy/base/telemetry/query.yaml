@@ -1,0 +1,85 @@
+# The read-only way into Prometheus, Loki and Tempo for the factory's workers (#348). A NetworkPolicy allows a port and
+# not a path, so a worker allowed to query a backend directly could also push records into Loki, metrics into
+# Prometheus's OTLP receiver, or flush Tempo, and plant the evidence the senses and the canary judge by. The workers
+# reach this proxy instead, and none of the backends (deploy/base/factory/network-policies.yaml): it passes the query
+# paths they read, by GET, and refuses the rest (query/nginx.conf). The collector, Grafana and the canary's analysis
+# still reach the backends themselves.
+#
+# Each backend keeps its own port here, so a worker's address names the backend it reads: query.telemetry:9090 is
+# Prometheus, :3100 Loki, :3200 Tempo's query port. nginx, unprivileged, from its maintainers' image, pinned by digest.
+# `telemetry` is not one of the namespaces admission control guards, which run only the factory's signed images.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: query
+  namespace: telemetry
+  labels: &labels
+    app.kubernetes.io/name: query
+    app.kubernetes.io/part-of: software-factory
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: query
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: query
+          image: nginxinc/nginx-unprivileged:1.30.5-alpine-slim@sha256:7f79f463c6eb0d0bf8782992bb9636434398e3e5848398805aef2c9b025d8609
+          # nginx itself, not the image's entrypoint, whose scripts would rewrite its configuration.
+          command: [nginx, -e, stderr, -c, /etc/nginx/query/nginx.conf]
+          ports:
+            - { name: prometheus, containerPort: 9090 }
+            - { name: loki, containerPort: 3100 }
+            - { name: tempo, containerPort: 3200 }
+            - { name: health, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: health }
+          livenessProbe:
+            httpGet: { path: /healthz, port: health }
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - { name: config, mountPath: /etc/nginx/query, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap:
+            name: query
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: query
+  namespace: telemetry
+  labels:
+    app.kubernetes.io/name: query
+    app.kubernetes.io/part-of: software-factory
+spec:
+  selector:
+    app.kubernetes.io/name: query
+  ports:
+    - { name: prometheus, port: 9090, targetPort: prometheus }
+    - { name: loki, port: 3100, targetPort: loki }
+    - { name: tempo, port: 3200, targetPort: tempo }
