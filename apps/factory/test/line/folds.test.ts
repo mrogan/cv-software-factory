@@ -62,6 +62,12 @@ describe('folded sections', () => {
     expect(unrenderedFolds(lines('Why.', '', '</details>'))).toEqual(['a </details> closes no <details>']);
   });
 
+  it('read code as GitHub does: across lines, and ended with its quote', () => {
+    expect(unrenderedFolds(lines('Use `a <details>', 'b` here.'))).toEqual([]);
+    expect(unrenderedFolds(lines('> ```', '> code', '', '</details>'))).toEqual(['a </details> closes no <details>']);
+    expect(unrenderedFolds(lines('```', '> ```', '</details>', '```'))).toEqual([]);
+  });
+
   it('leave fenced code alone, which shows tags as text on purpose', () => {
     const body = lines(
       '```markdown',

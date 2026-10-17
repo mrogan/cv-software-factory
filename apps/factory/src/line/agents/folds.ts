@@ -13,7 +13,7 @@
  * reads a description written in Markdown, as the describer's and Martin's are, not one written in HTML, as
  * Dependabot's are.
  */
-import { closes, FENCE, INLINE, QUOTED } from './code.ts';
+import { type Fence, opens, outsideCode, QUOTED, within } from './code.ts';
 
 /** The tags that fold, opening or closing, at the start of a line, indented by three spaces at most. */
 const FOLD = /^ {0,3}<\/?(?:details|summary)(?:[\s>]|$)/i;
@@ -29,26 +29,31 @@ const HAS_TAG = /<!--|<\/?[a-z][^>]*>/i;
 const MARKDOWN = /^(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|~~~|\|)|\*\*|__|`|\]\(/;
 
 /**
- * A `<details>` tag, opening or closing, as the second group; matched beside where a tag is only text, inline code of
- * any number of backticks and an HTML comment, so that one there is passed over.
+ * A `<details>` tag, opening or closing, as the first group; matched beside an HTML comment, where a tag is only text,
+ * so that one there is passed over. Read where code is blanked, where a tag is only text too.
  */
-const DETAILS = new RegExp(String.raw`${INLINE.source}|<!--[\s\S]*?-->|(<\/?details\b)`, 'gi');
+const DETAILS = /<!--[\s\S]*?-->|(<\/?details\b)/gi;
 
 const quote = (line: string) => `“${line.trim().slice(0, 80)}”`;
 
 /** What would not render in a description's folded sections, a line for each problem; none when they all render. */
 export function unrenderedFolds(markdown: string): string[] {
   const found: string[] = [];
-  let fence = '';
+  let fence: Fence | undefined;
   let inBlock = false;
   let depth = 0;
-  for (const raw of markdown.split('\n')) {
-    const line = raw.replace(QUOTED, '');
-    const marker = FENCE.exec(line)?.[1];
+  const lines = markdown.split('\n');
+  const prose = outsideCode(markdown).split('\n');
+  for (const [i, raw] of lines.entries()) {
     if (fence) {
-      if (closes(fence, line)) fence = '';
-      continue;
+      const at = within(fence, raw);
+      if (at !== 'end') {
+        if (at === 'close') fence = undefined;
+        continue;
+      }
+      fence = undefined;
     }
+    const line = raw.replace(QUOTED, '');
     if (!line.trim()) {
       inBlock = false;
       continue;
@@ -60,14 +65,12 @@ export function unrenderedFolds(markdown: string): string[] {
         found.push(`a folded section shows ${quote(line)} as text: ${fix}`);
       }
       inBlock = true;
-    } else if (marker) {
-      fence = marker;
-      continue;
-    } else if (/^ {4}/.test(line)) {
+    } else {
+      fence = opens(raw);
       // Indented four spaces or more, outside a block: code, or a list's deeper content, where it is not followed.
-      continue;
+      if (fence || /^ {4}/.test(line)) continue;
     }
-    for (const [, , tag] of line.matchAll(DETAILS)) {
+    for (const [, tag] of (prose[i] ?? '').matchAll(DETAILS)) {
       if (!tag) continue;
       depth += tag.startsWith('</') ? -1 : 1;
       if (depth < 0) {

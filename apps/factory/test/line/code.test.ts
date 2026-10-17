@@ -38,4 +38,16 @@ describe('Markdown outside code', () => {
   it('reads a backtick fence with a backtick after it as inline code', () => {
     expect(outsideCode('```npm test``` runs it')).toBe(`${spaces('```npm test```')} runs it`);
   });
+
+  it('ends a quote’s fenced code with the quote, and reads quote markers in code that is not quoted as code', () => {
+    expect(outsideCode(lines('> ```', '> code', '', 'after'))).toBe(lines('     ', '      ', '', 'after'));
+    expect(outsideCode(lines('```', '> ```', 'code', '```', 'after'))).toBe(
+      lines('   ', '     ', '    ', '   ', 'after'),
+    );
+  });
+
+  it('leaves a backtick escaped by a backslash, and a span across a quoted blank line, as text', () => {
+    expect(outsideCode('a \\` b `c`')).toBe('a \\` b    ');
+    expect(outsideCode(lines('> `a', '>', '> b`'))).toBe(lines('> `a', '>', '> b`'));
+  });
 });

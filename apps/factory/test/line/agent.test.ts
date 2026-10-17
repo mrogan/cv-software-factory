@@ -91,6 +91,10 @@ describe('what a published text may not do from the App’s account', () => {
       '````\ncode\n````` too\n````\nThanks @mrogan.',
       '    ```\n\nThanks @mrogan.',
       'A lone `` ` and @mrogan.',
+      '```\n> ```\n```\nThanks @mrogan.',
+      '> ```\n> code\n\nThanks @mrogan.',
+      'An escaped \\` and @mrogan, then `code`.',
+      '> `a\n>\n> @mrogan`',
     ]) {
       expect(mentions(mention), mention).toBe(true);
     }
