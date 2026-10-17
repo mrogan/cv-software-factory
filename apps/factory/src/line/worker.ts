@@ -331,7 +331,7 @@ export class Line {
 
   async #endDryRun(item: QueueItem): Promise<void> {
     const { workItem } = item;
-    const left = dryRunLeft((await this.#events(workItem)).events);
+    const left = dryRunLeft((await this.#events(workItem)).events, item.issue);
     if (!left) return;
     if (left.end === 'reopen') {
       // As triage reopens a ticket whose signal came back: the line takes it back into Plan on this pass (`#reopen`).
@@ -362,9 +362,11 @@ export class Line {
     const claimed = await this.#queue.claim(workItem, ACTION_LEASE_SECONDS);
     if (!claimed) throw new Error('another worker holds it');
     try {
-      const reason = left.merged
-        ? 'A dry run merged its fix, which never shipped: the line, running live, closed it'
-        : 'Its pull request was a dry run’s, which GitHub never had: the line, running live, closed it';
+      const reason = {
+        merge: 'A dry run merged its fix, which never shipped: the line, running live, closed it',
+        'pull-request': 'Its pull request was a dry run’s, which GitHub never had: the line, running live, closed it',
+        issue: 'Its issue was a dry run’s, which GitHub never had: the line, running live, closed it',
+      }[left.why];
       // A dry run's issue is one GitHub never had, as its pull request is.
       if (claimed.issue && claimed.issue < DRY_RUN_NUMBERS_FROM) {
         await this.#o.github.act('closeIssue', this.#o.repo, {
@@ -385,7 +387,7 @@ export class Line {
           payload: { outcome: 'no-change', reason },
         },
       ]);
-      this.#o.log.info({ workItem, merged: left.merged }, 'closed a work item a dry run left');
+      this.#o.log.info({ workItem, why: left.why }, 'closed a work item a dry run left');
     } finally {
       await this.#release(workItem);
     }

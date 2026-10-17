@@ -459,22 +459,26 @@ describe('after the merge', () => {
     });
     const dry = done.map(asDryRun);
     // Its pull request, open or merged, at Release or at Verify: none of it is in GitHub.
-    expect(dryRunLeft(approved.map(asDryRun))).toEqual({ end: 'close', merged: false });
-    expect(dryRunLeft(dry)).toEqual({ end: 'close', merged: true });
-    expect(dryRunLeft([...dry, ...[release(), promoted()].map(asDryRun)])).toEqual({ end: 'close', merged: true });
+    const merge = { end: 'close', why: 'merge' };
+    expect(dryRunLeft(approved.map(asDryRun), 3)).toEqual({ end: 'close', why: 'pull-request' });
+    expect(dryRunLeft(dry, 3)).toEqual(merge);
+    expect(dryRunLeft([...dry, ...[release(), promoted()].map(asDryRun)], 3)).toEqual(merge);
+    // Taken by the dry run, with no pull request yet: its issue is the dry run's.
+    expect(dryRunLeft([ticket, spec], 1_000_000_011)).toEqual({ end: 'close', why: 'issue' });
     // Verified by the dry run's word: the defect it was opened on is still in the app.
     const verifiedDry = [...dry, ...[release(), promoted(), verified('cleared')].map(asDryRun), closed('verified')];
-    expect(dryRunLeft(verifiedDry)).toEqual({ end: 'reopen', against: 'v0.9.3' });
+    expect(dryRunLeft(verifiedDry, 1_000_000_011)).toEqual({ end: 'reopen', against: 'v0.9.3' });
     // Nothing left once it is ended either way, nor on a work item the dry run never touched.
-    expect(dryRunLeft([...dry, closed('no-change')])).toBeUndefined();
+    expect(dryRunLeft([...dry, closed('no-change')], 3)).toBeUndefined();
     const reopened: LineEvent = {
       type: 'work-item.reopened',
       payload: { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.3', reason: 'Again', dryRun: true },
     };
-    expect(dryRunLeft([...verifiedDry, reopened])).toBeUndefined();
-    expect(dryRunLeft([...verifiedDry, reopened, ticket, spec])).toBeUndefined();
-    expect(dryRunLeft(done)).toBeUndefined();
-    expect(dryRunLeft([...done, release(), promoted(), verified('cleared'), closed('verified')])).toBeUndefined();
+    // Reopened, it waits for the line to take it back with a new issue: its old one is no reason to close it.
+    expect(dryRunLeft([...verifiedDry, reopened], 1_000_000_011)).toBeUndefined();
+    expect(dryRunLeft([...verifiedDry, reopened, ticket, spec], 41)).toBeUndefined();
+    expect(dryRunLeft(done, 3)).toBeUndefined();
+    expect(dryRunLeft([...done, release(), promoted(), verified('cleared'), closed('verified')], 3)).toBeUndefined();
   });
 
   it('sends the work back to Plan when its signal persists, and holds for Martin the second time', () => {

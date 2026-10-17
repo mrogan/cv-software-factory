@@ -695,17 +695,23 @@ function afterMerge(s: WorkItemState): Decision {
 }
 
 /**
- * What a dry run left on a work item that a line running live must end, or undefined for none. A work item whose
- * pull request is the dry run's, merged or not, has nothing GitHub ever had to carry on from, and closes with no
- * change. A ticket a dry run verified, whose fix never shipped, still has its defect, and reopens. A work item that
- * already ended either way, or that a dry run never touched, has nothing left.
+ * What a dry run left on a work item that a line running live must end, or undefined for none, given the work item's
+ * issue. A work item whose pull request is the dry run's, merged or not, or whose issue is, has nothing GitHub ever had
+ * to carry on from, and closes with no change. A ticket a dry run verified, whose fix never shipped, still has its
+ * defect, and reopens; until the line takes it back into Plan with a new issue, its old one is no reason to close it. A
+ * work item that already ended either way, or that a dry run never touched, has nothing left.
  */
 export function dryRunLeft(
   events: readonly LineEvent[],
-): { end: 'close'; merged: boolean } | { end: 'reopen'; against: string } | undefined {
+  issue: number | null,
+): { end: 'close'; why: 'merge' | 'pull-request' | 'issue' } | { end: 'reopen'; against: string } | undefined {
   const s = fold(events);
   if (!s.closed) {
-    return (s.pullRequest?.number ?? 0) >= DRY_RUN_NUMBERS_FROM ? { end: 'close', merged: s.merged } : undefined;
+    if ((s.pullRequest?.number ?? 0) >= DRY_RUN_NUMBERS_FROM) {
+      return { end: 'close', why: s.merged ? 'merge' : 'pull-request' };
+    }
+    const reopenedFromDryRun = s.reopened.at(-1)?.dryRun === true;
+    return (issue ?? 0) >= DRY_RUN_NUMBERS_FROM && !reopenedFromDryRun ? { end: 'close', why: 'issue' } : undefined;
   }
   const closed = events.findLast((event) => event.type === 'work-item.closed');
   if (closed?.type !== 'work-item.closed' || closed.payload.outcome !== 'verified') return undefined;

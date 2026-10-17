@@ -1129,7 +1129,7 @@ describe('Verify on the line', () => {
   });
 
   describe('what a dry run left, as the line runs live', () => {
-    it('closes each work item whose pull request was the dry run’s with no change, and only a real issue', async () => {
+    it('closes each work item whose pull request or issue was the dry run’s with no change, and a real issue', async () => {
       const atRelease = await merged(1_000_000_001, 'd'.repeat(40));
       const atVerify = await merged(1_000_000_002, 'e'.repeat(40));
       await promote(atVerify, 'dry-run-eeeeeeeeeeee', 'e'.repeat(40), true);
@@ -1137,6 +1137,9 @@ describe('Verify on the line', () => {
       const open = await opened();
       await events.append([pushed(open, 1_000_000_003)]);
       await database.writer`insert into line (work_item, stage, issue) values (${open}, 'gates', 7)`;
+      // Taken by the dry run, with no pull request yet: its issue is the dry run's.
+      const taken = await opened();
+      await database.writer`insert into line (work_item, stage, issue) values (${taken}, 'plan', 1000000005)`;
       const real = await merged(30, FIX_3);
       const { line: it, github } = line({ release: null, gatesEveryMs: 0 });
       // GitHub fails once: that one is tried again on the next pass.
@@ -1148,6 +1151,12 @@ describe('Verify on the line', () => {
       expect(await payloads(atVerify, 'work-item.closed')).toEqual([{ outcome: 'no-change', reason: merge }]);
       const unmerged = 'Its pull request was a dry run’s, which GitHub never had: the line, running live, closed it';
       expect(await payloads(open, 'work-item.closed')).toEqual([{ outcome: 'no-change', reason: unmerged }]);
+      expect(await payloads(taken, 'work-item.closed')).toEqual([
+        {
+          outcome: 'no-change',
+          reason: 'Its issue was a dry run’s, which GitHub never had: the line, running live, closed it',
+        },
+      ]);
       expect(github.acts.filter((a) => a.action !== 'describeDeploy')).toEqual([
         {
           action: 'closeIssue',
@@ -1163,7 +1172,8 @@ describe('Verify on the line', () => {
         },
       ]);
       await pass(it);
-      expect([await stage(atRelease), await stage(atVerify), await stage(open)]).toEqual(['ended', 'ended', 'ended']);
+      const stages = await Promise.all([atRelease, atVerify, open, taken].map(stage));
+      expect(stages).toEqual(['ended', 'ended', 'ended', 'ended']);
       // The real merge waits for a real release, and nothing is closed twice.
       expect(await payloads(real, 'work-item.closed')).toEqual([]);
       expect(await payloads(atRelease, 'work-item.closed')).toHaveLength(1);
