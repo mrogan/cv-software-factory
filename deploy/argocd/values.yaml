@@ -1,4 +1,5 @@
-# Argo CD, installed once by `make up` with Helm. From then on it deploys everything else from git.
+# Argo CD, installed by `make up` with Helm. From then on it deploys everything else from git, but not itself: a change
+# here reaches the cluster at the next `make up`, which upgrades the release in place.
 
 dex:
   enabled: false
@@ -33,7 +34,53 @@ configs:
   rbac:
     policy.default: role:readonly
 
+# Each component's requests and memory limit, from its peak working set on the local cluster in the week to 17 October,
+# so a bad sync cannot take the memory the app, telemetry and the factory need on a node they share (the DigitalOcean
+# profile's single node). The application controller holds every resource it watches in memory, and peaked at 619Mi.
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  # Go collects hard before the kernel kills: 90% of the limit above, in bytes, as Tempo sets for itself.
+  env:
+    - name: GOMEMLIMIT
+      value: "966367641"
+# It renders each Application's manifests with Kustomize, and peaked at 206Mi.
+repoServer:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+# Peaked at 84Mi.
+applicationSet:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+# Peaked at 28Mi.
+redis:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+# Peaked at 103Mi.
 server:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
   ingress:
     enabled: true
     ingressClassName: traefik
