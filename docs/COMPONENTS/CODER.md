@@ -12,7 +12,7 @@ An agent: writes the fix. Part of the [factory plane](README.md#agents).
 - The spec, with its scope as the only files it may change.
 - In a later round sent back by review, the review's blocking findings and its suggestions, numbered.
 
-It writes the test first, and leaves alone what else it notices.
+It writes the test first, and leaves alone what else it notices. Before it hands back, it runs what the app's CI requires of a change, lint and formatting, the type check and the tests, by the commands the app's `make check` runs, since the runner has no `make`, and leaves out the manifests, which it has no renderer for. A change the gates would refuse for its formatting or a type error does not cost a round. A later round that resumes its session is reminded to run them again.
 
 ## Its result
 

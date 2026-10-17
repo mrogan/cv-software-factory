@@ -33,6 +33,41 @@ describe('the coder', () => {
     expect(prompt).toContain('The line refuses a patch that changes any file outside the scope, whole.');
   });
 
+  it('runs what CI requires, formatting and types as well as tests, before every hand-back', () => {
+    const suggested =
+      FIXTURES.coder['price-suggestions']?.input ??
+      (() => {
+        throw new Error('The coder has no price-suggestions fixture.');
+      })();
+    const returned = { from: 'gates' as const, reason: 'The gates failed: lint, types, tests' };
+    const inFull = 'Before you hand back, run what CI requires of a change, as AGENTS.md names it';
+    const reminder =
+      'Then run the checks again before you hand back: lint and formatting, the type check and the tests.';
+    // A step that starts afresh is told the checks in full, and how to run them with no `make`.
+    for (const step of [
+      input,
+      { ...input, round: 2, returned, session: null },
+      coderInputAfterRefusal(input, FENCED, null),
+      suggested,
+    ]) {
+      const prompt = coder.prompt(step);
+      expect(prompt).toContain(inFull);
+      expect(prompt).toContain('There is no `make` here');
+      expect(prompt).toContain('the formatter’s own fix, run on that file alone');
+      expect(prompt).not.toContain(reminder);
+    }
+    // One that resumes its session is reminded of them.
+    for (const step of [
+      { ...input, round: 2, returned, session: 's' },
+      coderInputAfterRefusal(input, FENCED, 's'),
+      { ...suggested, session: 's' },
+    ]) {
+      const prompt = coder.prompt(step);
+      expect(prompt).toContain(reminder);
+      expect(prompt).not.toContain(inFull);
+    }
+  });
+
   it('hands back a Conventional Commit title and a note for the commit', () => {
     const note = 'pounds wrote the pence without padding. A test for 705 pence shows it; it pads them now.';
     expect(coder.schema(input).safeParse({ title: 'fix(money): show two digits of pence', note }).success).toBe(true);
