@@ -66,12 +66,22 @@ server:
   extraFlags:
     - config.auto-reload
     - web.enable-otlp-receiver
-  retention: 7d
+  # The chart's `retention` and `retentionSize` pass flags Prometheus has deprecated for the configuration file's
+  # `storage.tsdb.retention`; empty, the chart passes no flag.
+  retention: ""
   persistentVolume:
     size: 4Gi
   tsdb:
     # OTLP batches can arrive a little out of order.
     out_of_order_time_window: 30m
+    # Seven days, or less when they would outgrow the volume: past the size, counting blocks and write-ahead log,
+    # Prometheus deletes its oldest blocks. It checks only after compaction, which writes a block before it deletes the
+    # ones it replaces, and the head grows in between; its units are binary, so 3GB is 3GiB, and the last quarter of
+    # the volume is left for that, and for the filesystem's own. A volume in the cloud refuses a write past its size;
+    # `local-path`, on the Mac, does not, so only this keeps it in.
+    retention:
+      time: 7d
+      size: 3GB
   otlp:
     promote_resource_attributes:
       - service.namespace
