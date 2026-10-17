@@ -273,7 +273,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                 {sheet.storyBy === 'describer' && (
                   <p className="source byline">
                     The describer, from the ticket, the spec, the final diff and the review
-                    {sheet.closing && ', and the console its last sentence, from what happened since'}. The pull
+                    {sheet.closing && '; the last sentence is the console’s, from what happened since'}. The pull
                     request’s own description is on GitHub.
                   </p>
                 )}
