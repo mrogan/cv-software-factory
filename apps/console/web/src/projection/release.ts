@@ -173,6 +173,9 @@ export const ownWords = (message: string | undefined, reason: string) =>
 export const stopWords = (by: StoppedBy) =>
   by === 'stop' ? 'stopped with the line' : by === 'martin' ? 'aborted by Martin' : 'stopped by an analysis error';
 
+/** What became of a release the app went back from: "rolled back", or what stopped it. */
+export const backWords = (by: StoppedBy | undefined) => (by ? stopWords(by) : 'rolled back');
+
 /**
  * What a fix waits for after the release that carried it was stopped, as "waiting for Martin's next deploy" is after
  * a rollback: Martin's retry or his next deploy, naming him once.
