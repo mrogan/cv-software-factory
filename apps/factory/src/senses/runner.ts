@@ -93,10 +93,16 @@ export class SenseRunner {
         return null;
       }
       const run: Run = { reason, version, checks: observations.length, failed: 0, signalled: 0 };
+      // The checks that could not tell, by route and why: one missing page leaves every check on its route not knowing,
+      // and a warning for each would say the same thing many times a run.
+      const untold = new Map<string, { route: string; trouble: string; checks: string[] }>();
       for (const observation of observations) {
         const { check, finding, route } = observation;
         if (observation.trouble) {
-          log.warn({ sense: sense.name, check, trouble: observation.trouble }, 'a check could not tell');
+          const key = JSON.stringify([route, observation.trouble]);
+          const same = untold.get(key) ?? { route, trouble: observation.trouble, checks: [] };
+          same.checks.push(check);
+          untold.set(key, same);
           continue;
         }
         if (!finding) {
@@ -137,6 +143,9 @@ export class SenseRunner {
             log.warn({ sense: sense.name, check, err: describe(error) }, 'where the finding was is not remembered');
           });
         }
+      }
+      for (const { route, trouble, checks } of untold.values()) {
+        log.warn({ sense: sense.name, route, checks, trouble }, 'checks could not tell');
       }
       this.probedVersion = version;
       log.info(

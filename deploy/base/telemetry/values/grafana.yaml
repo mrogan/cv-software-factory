@@ -25,6 +25,11 @@ sidecar:
     enabled: true
     label: grafana_dashboard
     searchNamespace: telemetry
+    # Each watch of ConfigMaps and Secrets is closed after this many seconds and started again, and each start logs a
+    # line: every minute, by default. An hour; the client waits a minute longer, so the server closes it first. A
+    # dashboard change still arrives at once, over the open watch.
+    watchServerTimeout: 3600
+    watchClientTimeout: 3660
 
 datasources:
   datasources.yaml:
