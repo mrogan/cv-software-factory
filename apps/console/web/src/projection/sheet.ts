@@ -147,9 +147,9 @@ export interface Sheet {
   card: Card;
   /**
    * A visitor's report, or the planner's finding: shown as withheld here, since only Martin (and a report's author)
-   * may read its words.
+   * may read its words. `times` is how often the planner noticed it: a finding with a held one's fingerprint joins it.
    */
-  report: { page: string; quarantined: boolean; by: 'visitor' | 'planner' } | undefined;
+  report: { page: string; quarantined: boolean; by: 'visitor' | 'planner'; times: number } | undefined;
   story: string;
   chapters: Chapter[];
   /** Screenshots taken at the signal, on the canary and at rollout, for the evidence. */
@@ -889,6 +889,9 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
             page: report.payload.report.page,
             quarantined: item.outcome === 'quarantined',
             by: report.payload.sense === 'planner' ? 'planner' : 'visitor',
+            times: item.events.filter(
+              (event) => event.type === 'signal.received' && event.payload.sense === report.payload.sense,
+            ).length,
           }
         : undefined,
     story: item.story ?? item.description ?? item.title,

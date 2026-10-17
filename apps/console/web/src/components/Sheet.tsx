@@ -284,8 +284,9 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
               {sheet.report &&
                 (sheet.report.by === 'planner' ? (
                   <p className="report withheld">
-                    The planner’s finding on {sheet.report.page}, noticed while it planned another ticket. Its words are
-                    untrusted, as a visitor’s are, so they are shown only to Martin; what triage made of them is below.
+                    {sheet.report.times > 1
+                      ? `The planner’s findings on ${sheet.report.page}, ${sheet.report.times} of them, each noticed while it planned another ticket. Their words are untrusted, as a visitor’s are, so they are shown only to Martin; what triage made of them is below.`
+                      : `The planner’s finding on ${sheet.report.page}, noticed while it planned another ticket. Its words are untrusted, as a visitor’s are, so they are shown only to Martin; what triage made of them is below.`}
                   </p>
                 ) : sheet.report.quarantined ? (
                   <p className="report withheld">
