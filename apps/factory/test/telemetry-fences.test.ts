@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
+import { ENVIRONMENT } from '../../../policy/triage.ts';
+import { TIMING } from '../src/logs/watcher.ts';
 import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 
 /**
@@ -155,6 +157,59 @@ describe('the read-only proxy', () => {
     for (const target of passes) {
       expect(target).toMatch(/^http:\/\/((prometheus|loki|tempo)\$uri|tempo\/api\/traces\/\$1)(\$is_args\$args)?$/);
     }
+  });
+});
+
+describe('Tempo', () => {
+  /** A Go duration (`24h`, `1h30m`, `90s`) in milliseconds; NaN for anything else, which no bound passes. */
+  const ms = (duration: string) => {
+    const units: Record<string, number> = { h: 3_600_000, m: 60_000, s: 1000 };
+    const parts = [...duration.matchAll(/(\d+)([hms])/g)];
+    if (parts.length === 0 || parts.map(([part]) => part).join('') !== duration) return Number.NaN;
+    return parts.reduce((total, [, n, unit]) => total + Number(n) * (units[unit ?? ''] ?? Number.NaN), 0);
+  };
+  /** A Kubernetes quantity in Mi or Gi, in bytes. */
+  const bytes = (quantity: string) => {
+    const [, n, unit] = quantity.match(/^(\d+)(Mi|Gi)$/) ?? [];
+    return Number(n) * (unit === 'Gi' ? 2 ** 30 : 2 ** 20);
+  };
+
+  it('collects before the kernel kills it, and bounds what a search may take', async () => {
+    const values = await readFile(join(DEPLOY, 'base/telemetry/values/tempo.yaml'), 'utf-8');
+    const { tempo } = parse(values) as {
+      tempo: {
+        retention: string;
+        resources: { limits: { memory: string } };
+        extraEnv: { name: string; value: string }[];
+        querier: { max_concurrent_queries: number };
+        queryFrontend: {
+          max_batch_size: number;
+          search: { max_duration: string; max_result_limit: number };
+          metrics: { max_duration: string };
+        };
+      };
+    };
+    const limit = bytes(tempo.resources.limits.memory);
+    const goMemLimit = Number(tempo.extraEnv.find((env) => env.name === 'GOMEMLIMIT')?.value);
+    expect(goMemLimit / limit).toBeCloseTo(0.9, 2);
+
+    // Fewer jobs at once than Tempo's defaults (20 batches of 7), which held 818Mi when searches ran it out of memory
+    // (#380). The querier runs a batch's jobs all at once, so one job a batch makes its limit a limit on jobs.
+    expect(tempo.queryFrontend.max_batch_size).toBe(1);
+    expect(tempo.querier.max_concurrent_queries).toBeLessThanOrEqual(8);
+    expect(tempo.querier.max_concurrent_queries).toBeGreaterThanOrEqual(4);
+
+    // Above the widest the factory reads: the environment check's search, and the agreement check's metrics query.
+    const { search, metrics } = tempo.queryFrontend;
+    expect(ms(search.max_duration)).toBeGreaterThanOrEqual(ENVIRONMENT.tempoMinutes * 60_000);
+    expect(ms(metrics.max_duration)).toBeGreaterThanOrEqual(TIMING.agreementWindowMs);
+    // A day at most, below what Tempo keeps, or the bound would not bound anything.
+    expect(ms(search.max_duration)).toBeLessThanOrEqual(ms('24h'));
+    expect(ms(metrics.max_duration)).toBeLessThanOrEqual(ms('24h'));
+    expect(ms(search.max_duration)).toBeLessThan(ms(tempo.retention));
+    // The factory asks for one trace, and Grafana for 20 unless told otherwise; Tempo's own limit is 262,144.
+    expect(search.max_result_limit).toBeGreaterThanOrEqual(20);
+    expect(search.max_result_limit).toBeLessThanOrEqual(1000);
   });
 });
 
