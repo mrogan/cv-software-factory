@@ -249,13 +249,15 @@ function again(input: CoderInput): string[] {
           'The checkout is the pull request’s head, with the change you pushed before in it.',
         ]
       : [];
+  // A round for suggestions alone that may decline them all is asked for one result or the other, never both at once.
+  const declineAll = !fenced && suggestionsAlone(input);
   const refused = fenced
     ? [
         `The line refused your patch${round > 1 ? ' for this round' : ''}: it changed files outside the spec’s scope. The scope fence printed:`,
         ...fenced.split('\n').map((line) => `    ${line}`),
         `Nothing of that patch was kept: the checkout is back where ${round > 1 ? 'this round' : 'you'} started. Make the fix again, changing only files the scope allows. A test that will not fit in a test file the scope allows is one to leave out; say so in your note.`,
       ]
-    : suggestionsAlone(input)
+    : declineAll
       ? ['Take what you take inside the same scope, and run the tests again.']
       : [
           'Put it right inside the same scope, and run the tests again.',
@@ -264,8 +266,6 @@ function again(input: CoderInput): string[] {
         ];
   const why = [...back, ...refused];
   const declining = suggestions?.length ? [DECLINING] : [];
-  // A round for suggestions alone that may decline them all is asked for one result or the other, never both at once.
-  const declineAll = !fenced && suggestionsAlone(input);
   // Without its session, a round for suggestions alone is told the work, and that the fix is in and approved.
   if (!resumed(input) && suggestionsAlone(input)) {
     return [
