@@ -134,7 +134,7 @@ describe('the look at what the senses read', () => {
   });
 });
 
-describe('Prometheus keeps what the look reads, within its volume', () => {
+describe('Prometheus keeps what the look reads', () => {
   interface ScrapeConfig {
     enabled?: boolean;
     metric_relabel_configs?: { source_labels?: string[]; regex?: string; action?: string }[];
@@ -161,19 +161,14 @@ describe('Prometheus keeps what the look reads, within its volume', () => {
     expect(dropped('apiserver_request_duration_seconds_count')).toBe(false);
   });
 
-  it('deletes its oldest blocks before they outgrow the volume', async () => {
-    const { server } = (await values('base/telemetry/values/prometheus.yaml')) as {
-      server: { retention?: string; persistentVolume: { size: string }; tsdb: { retention: { size: string } } };
-    };
-    // Both binary: Prometheus's 3GB is 3GiB.
-    const bytes = (size: string, units: Record<string, number>) => {
-      const [, n, unit] = size.match(/^(\d+(?:\.\d+)?)(\w+)$/) ?? [];
-      return Number(n) * (units[unit ?? ''] ?? Number.NaN);
-    };
-    const volume = bytes(server.persistentVolume.size, { Mi: 2 ** 20, Gi: 2 ** 30 });
-    const retained = bytes(server.tsdb.retention.size, { MB: 2 ** 20, GB: 2 ** 30 });
-    expect(retained).toBeLessThan(volume);
-    // The chart's flag would be a second, deprecated retention.
-    expect(server.retention).toBe('');
+  it('is given those values on the local cluster', async () => {
+    const kustomization = await readFile(join(DEPLOY, 'overlays/local/kustomization.yaml'), 'utf-8');
+    const { patches } = parse(kustomization) as { patches: { target: { name: string }; patch: string }[] };
+    const patch = patches.find((p) => p.target.name === 'prometheus')?.patch ?? '';
+    expect(parse(patch)).toContainEqual({
+      op: 'add',
+      path: '/spec/sources/0/helm/valueFiles/-',
+      value: '$values/deploy/overlays/local/values/prometheus.yaml',
+    });
   });
 });

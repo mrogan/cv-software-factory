@@ -169,4 +169,27 @@ describe('Prometheus', () => {
     expect(parsed.server.extraFlags).toContain('config.auto-reload');
     expect(parsed.configmapReload.prometheus.enabled).toBe(false);
   });
+
+  it('keeps seven days, or less before its blocks outgrow the volume', async () => {
+    const values = await readFile(join(DEPLOY, 'base/telemetry/values/prometheus.yaml'), 'utf-8');
+    const { server } = parse(values) as {
+      server: {
+        retention?: string;
+        persistentVolume: { size: string };
+        tsdb: { retention: { time: string; size: string } };
+      };
+    };
+    // Both binary: Prometheus's 3GB is 3GiB.
+    const bytes = (size: string, units: Record<string, number>) => {
+      const [, n, unit] = size.match(/^(\d+(?:\.\d+)?)(\w+)$/) ?? [];
+      return Number(n) * (units[unit ?? ''] ?? Number.NaN);
+    };
+    const volume = bytes(server.persistentVolume.size, { Mi: 2 ** 20, Gi: 2 ** 30 });
+    const retained = bytes(server.tsdb.retention.size, { MB: 2 ** 20, GB: 2 ** 30 });
+    // Size is checked only after compaction, which writes a block before deleting the ones it replaces.
+    expect(retained).toBeLessThanOrEqual(volume * 0.75);
+    expect(server.tsdb.retention.time).toBe('7d');
+    // The chart's flag would be a second, deprecated retention.
+    expect(server.retention).toBe('');
+  });
 });
