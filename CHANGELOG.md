@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.7.0](https://github.com/mrogan/cv-software-factory/compare/v0.6.0...v0.7.0) (2026-10-17)
+
+
+### Features
+
+* **console:** list a station's work in hand first, marked as the station marks itself ([#319](https://github.com/mrogan/cv-software-factory/issues/319)) ([aedb0ac](https://github.com/mrogan/cv-software-factory/commit/aedb0acf43799d02677ef5104dd152580eb92a02))
+* **console:** say both versions' figures beside a failed measure's excess ([#318](https://github.com/mrogan/cv-software-factory/issues/318)) ([a961667](https://github.com/mrogan/cv-software-factory/commit/a961667b2c1a83de79c348d815f57b9523e2514b))
+* **line:** give the describer the description rules /visual-pr follows ([#349](https://github.com/mrogan/cv-software-factory/issues/349)) ([eef5abe](https://github.com/mrogan/cv-software-factory/commit/eef5abe8fbd536cada1339ad5346028940b8d63f))
+* **line:** have the coder take or decline the reviewer's suggestions ([#274](https://github.com/mrogan/cv-software-factory/issues/274)) ([0f6d6d5](https://github.com/mrogan/cv-software-factory/commit/0f6d6d5ab39f73f0dce807e7e0d068e18a857ab5))
+* **line:** have the planner quote the words each criterion comes from ([#339](https://github.com/mrogan/cv-software-factory/issues/339)) ([fb81865](https://github.com/mrogan/cv-software-factory/commit/fb81865bb378ea56ce506459770cdd10bae63906))
+* **release:** count a rolled-back measure's failed looks, and say it on the Canary panel ([#341](https://github.com/mrogan/cv-software-factory/issues/341)) ([92d9f0e](https://github.com/mrogan/cv-software-factory/commit/92d9f0ebd15b7213d2789d36c5a624d276359009))
+* **release:** record an aborted release, so a stop is not inferred ([#271](https://github.com/mrogan/cv-software-factory/issues/271)) ([943aade](https://github.com/mrogan/cv-software-factory/commit/943aade0eb1260773b106790f4ea72efbc4447f5))
+* **release:** record an analysis that could not judge the canary as an end of its own ([#320](https://github.com/mrogan/cv-software-factory/issues/320)) ([c2ad85b](https://github.com/mrogan/cv-software-factory/commit/c2ad85bd80d6b2bbc09e3357e7507c5a24bd26ee))
+* **skills:** add /implement, which takes issues or a brief to pull requests ([#334](https://github.com/mrogan/cv-software-factory/issues/334)) ([b568b0d](https://github.com/mrogan/cv-software-factory/commit/b568b0d4f9ba7b0ccb0b51ea108e8275d88c33d8))
+* **skills:** have visual-pr show a change's snapshots before and after ([#301](https://github.com/mrogan/cv-software-factory/issues/301)) ([c3c7477](https://github.com/mrogan/cv-software-factory/commit/c3c74779558280d267780474b47d7dce1a523436))
+* **skills:** have visual-pr show a changed snapshot as a blink ([#344](https://github.com/mrogan/cv-software-factory/issues/344)) ([43f9192](https://github.com/mrogan/cv-software-factory/commit/43f91926919b913af6598e3ac42d1a7cb90c8a05))
+* **skills:** have visual-pr write shorter descriptions and fold supporting sections ([#345](https://github.com/mrogan/cv-software-factory/issues/345)) ([eeaa016](https://github.com/mrogan/cv-software-factory/commit/eeaa01632c2fb229399ec51a7b2a609cda4322e1))
+* **triage:** hold a burst of new problems from one sense for Martin ([#330](https://github.com/mrogan/cv-software-factory/issues/330)) ([34fe72c](https://github.com/mrogan/cv-software-factory/commit/34fe72c6672c3a13e7458f44868277a93b7f17aa))
+* **triage:** hold a sense's new problem while what it reads is unhealthy ([#342](https://github.com/mrogan/cv-software-factory/issues/342)) ([ea3d78d](https://github.com/mrogan/cv-software-factory/commit/ea3d78d498ce456934bd7e238c15953786a1bc99))
+* **triage:** record a signal seen again in a new version on its open ticket ([#266](https://github.com/mrogan/cv-software-factory/issues/266)) ([bf1d3fd](https://github.com/mrogan/cv-software-factory/commit/bf1d3fd96eb4ad3af270a67dd601f79dbc8ac38b))
+
+
+### Bug Fixes
+
+* call the app the app in the agents' prompts and triage's questions ([#331](https://github.com/mrogan/cv-software-factory/issues/331)) ([4b8b7e4](https://github.com/mrogan/cv-software-factory/commit/4b8b7e4388a401af53cfb8e1d2549dbccbbe035f))
+* call the app the app, not the shop, in the factory's code, console and docs ([#321](https://github.com/mrogan/cv-software-factory/issues/321)) ([7e2d314](https://github.com/mrogan/cv-software-factory/commit/7e2d31410673f8ecae2dba2ab25044ba9dcc3741))
+* **console:** count a sheet's event times in days past a day, in a column sized to hold them ([#304](https://github.com/mrogan/cv-software-factory/issues/304)) ([1608e85](https://github.com/mrogan/cv-software-factory/commit/1608e8553e2050478a35ff2932a1df5ed7622c09))
+* **console:** count a sheet's reviews in the pass the line limits them by ([#308](https://github.com/mrogan/cv-software-factory/issues/308)) ([d2aba71](https://github.com/mrogan/cv-software-factory/commit/d2aba7146bdcb092208046dfd66f628b0849613f))
+* **console:** don't render the reel to stop a history that isn't playing ([#254](https://github.com/mrogan/cv-software-factory/issues/254)) ([202222e](https://github.com/mrogan/cv-software-factory/commit/202222e6d9967339f1f53886bbf7c17b9b871f8e))
+* **console:** draw a rollback's marker label over the plot, clear of the end labels ([#307](https://github.com/mrogan/cv-software-factory/issues/307)) ([350151e](https://github.com/mrogan/cv-software-factory/commit/350151e03b9417a1fa773037eab7ddd03747bb9b))
+* **console:** draw the Canary panel's measures waiting before the first step is measured ([#340](https://github.com/mrogan/cv-software-factory/issues/340)) ([cc4aa05](https://github.com/mrogan/cv-software-factory/commit/cc4aa05d848fe5784ffcd491d05c5932bfdb8c53))
+* **console:** show a window of the timeline, and say its versions in words ([#353](https://github.com/mrogan/cv-software-factory/issues/353)) ([8385752](https://github.com/mrogan/cv-software-factory/commit/83857521c35ef6ed8c6bd0b12785bc553f74cfb4))
+* **console:** write a commit by its first seven characters under the timeline ([#303](https://github.com/mrogan/cv-software-factory/issues/303)) ([3242b48](https://github.com/mrogan/cv-software-factory/commit/3242b488e8f37d6bdfd234307312cfb9bed595d6))
+* **console:** write a duration as one value, 5d 1h rather than 5 d 1 h ([#300](https://github.com/mrogan/cv-software-factory/issues/300)) ([f7874e1](https://github.com/mrogan/cv-software-factory/commit/f7874e1d4102512aed416775e7cfb5b407b67a86))
+* **deploy:** give the GitHub worker the memory a merge needs ([#368](https://github.com/mrogan/cv-software-factory/issues/368)) ([4442b38](https://github.com/mrogan/cv-software-factory/commit/4442b3865720c2af9b74b6e79b8c11899b45dff5))
+* **deploy:** have the factory read telemetry through a read-only proxy ([#351](https://github.com/mrogan/cv-software-factory/issues/351)) ([d123f8f](https://github.com/mrogan/cv-software-factory/commit/d123f8fc5464a929ed15b1d0485aaefaece08741))
+* **deploy:** have the intake and the log watcher name each telemetry backend's pods ([#350](https://github.com/mrogan/cv-software-factory/issues/350)) ([a6cd286](https://github.com/mrogan/cv-software-factory/commit/a6cd28614b1aa25117dd301bfaa231d91e606147))
+* **deploy:** let the line read Tempo, for Verify's agreement check ([#333](https://github.com/mrogan/cv-software-factory/issues/333)) ([ff34c03](https://github.com/mrogan/cv-software-factory/commit/ff34c032be158b741ed1606090fb95794f4e0fdb))
+* **egress:** report a failed exec as that check's FAIL, and wait for rollouts ([#361](https://github.com/mrogan/cv-software-factory/issues/361)) ([e03cbc1](https://github.com/mrogan/cv-software-factory/commit/e03cbc15cb9ce014173e1bf0c4a028ad9a6d8ef2))
+* **egress:** run each worker's checks from a probe pod made from its Deployment ([#366](https://github.com/mrogan/cv-software-factory/issues/366)) ([c80f786](https://github.com/mrogan/cv-software-factory/commit/c80f786d347cebab8655a6b77699c608acd4dbb7))
+* **line:** cut a planner finding's page and route at their query instead of refusing the result ([#338](https://github.com/mrogan/cv-software-factory/issues/338)) ([2f0f0e8](https://github.com/mrogan/cv-software-factory/commit/2f0f0e80155f1152a01ce7335a69101c999b81c3))
+* **line:** resolve the threads of findings a later review finds answered ([#264](https://github.com/mrogan/cv-software-factory/issues/264)) ([57a098c](https://github.com/mrogan/cv-software-factory/commit/57a098c5f6e001617be80778565ee324f71cb286))
+* **line:** verify a missing-log or wrong-metric ticket by the agreement check ([#329](https://github.com/mrogan/cv-software-factory/issues/329)) ([fd4ce91](https://github.com/mrogan/cv-software-factory/commit/fd4ce9119cdd5d95c928788eb6a4a3d76499c999))
+* **logs:** count the agreement check's traces with a TraceQL metrics query ([#369](https://github.com/mrogan/cv-software-factory/issues/369)) ([ac25bfa](https://github.com/mrogan/cv-software-factory/commit/ac25bfa58f3a14fa5a177aa713b13ac470543978))
+* **logs:** learn the day's error patterns a page at a time, with only the fields read ([#367](https://github.com/mrogan/cv-software-factory/issues/367)) ([5e22f61](https://github.com/mrogan/cv-software-factory/commit/5e22f617e659e4477f712ffce772d0178f65d16a))
+* **logs:** one ticket for a gap in the log, not one per page ([#326](https://github.com/mrogan/cv-software-factory/issues/326)) ([bf69135](https://github.com/mrogan/cv-software-factory/commit/bf69135e0168eb7d512426760f813bb78e6667c6))
+* **pictures:** box every element the senses boxed on a page ([#262](https://github.com/mrogan/cv-software-factory/issues/262)) ([f523017](https://github.com/mrogan/cv-software-factory/commit/f523017a8ec585e08ba44dcbb7c64ef1bd26ad7a))
+* **release:** name a release by its hash and the Rollout's revision ([#265](https://github.com/mrogan/cv-software-factory/issues/265)) ([3005fa1](https://github.com/mrogan/cv-software-factory/commit/3005fa1f4ee2d99c72fee10fc611f4ba99011fff))
+* **release:** record a background rollback at the weight the canary reached ([#310](https://github.com/mrogan/cv-software-factory/issues/310)) ([ee482a1](https://github.com/mrogan/cv-software-factory/commit/ee482a1e089fbabebf228689531ecb2ca09d7cab))
+* **release:** record a missed release of an image promoted before ([#311](https://github.com/mrogan/cv-software-factory/issues/311)) ([f5324ae](https://github.com/mrogan/cv-software-factory/commit/f5324aee34dff46c086bfac5de7651a3a477fcb2))
+* **samples:** send an approval's suggestions back to the coder, as the line does ([#309](https://github.com/mrogan/cv-software-factory/issues/309)) ([ce1ce2d](https://github.com/mrogan/cv-software-factory/commit/ce1ce2d7bbc20eccd16ac2b786df5de8edfffa51))
+* **senses:** leave the senses' requests out of the app's figures ([#263](https://github.com/mrogan/cv-software-factory/issues/263)) ([9e6fb79](https://github.com/mrogan/cv-software-factory/commit/9e6fb7933c14885b05c97e5e281dd0ec43267efc))
+* **senses:** read as the app's only the telemetry the collector stamped ([#354](https://github.com/mrogan/cv-software-factory/issues/354)) ([81dd731](https://github.com/mrogan/cv-software-factory/commit/81dd731084c7938877a1e7547da0367ae3092287))
+* **store:** remove the test Postgres's data volume with its container ([#295](https://github.com/mrogan/cv-software-factory/issues/295)) ([4b41abc](https://github.com/mrogan/cv-software-factory/commit/4b41abc09b7cba958aad7f88a59eb052b21ebdae))
+
+
+### Performance Improvements
+
+* **console:** run the console on Preact, at half the JavaScript ([#284](https://github.com/mrogan/cv-software-factory/issues/284)) ([77a3209](https://github.com/mrogan/cv-software-factory/commit/77a3209b571a5ab1b95fdf6856c16c931603594f))
+
 ## [0.6.0](https://github.com/mrogan/cv-software-factory/compare/v0.5.0...v0.6.0) (2026-10-13)
 
 
