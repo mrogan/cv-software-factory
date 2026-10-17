@@ -5,10 +5,11 @@
 import { APP_POD_ATTRIBUTE, TRACES_FROM_THE_APP } from '../provenance.ts';
 import { type Fetch, getJson } from './http.ts';
 
-export interface ServerSpan {
-  traceId: string;
-  /** The `http.route` of the request: the path asked for. Empty when no route matched. */
+/** How many of the app's requests one route served, as its server spans count them. */
+export interface RouteRequests {
+  /** The `http.route` of the requests: the path asked for. */
   route: string;
+  requests: number;
 }
 
 export interface SpanSummary {
@@ -32,39 +33,40 @@ export class Tempo {
   }
 
   /**
-   * The server spans of the app's service between two times, one for each request that has been indexed, of one
-   * version of it when one is named. Only spans the collector stamped as from the app's pods count (provenance.ts).
-   * `complete` is false when the answer holds as many as were asked for, so there may be more.
+   * The app's requests between two times, route by route, of one version of it when one is named: its server spans
+   * with a route, counted by Tempo (a TraceQL metrics query) rather than listed, so that the count does not stop at a
+   * page of traces. Only spans the collector stamped as from the app's pods count (provenance.ts). `complete` is false
+   * when Tempo says its answer is partial.
    */
-  async serverSpans(
+  async requestsByRoute(
     service: string,
     start: Date,
     end: Date,
-    limit = 1000,
     version?: string,
-  ): Promise<{ spans: ServerSpan[]; complete: boolean }> {
+  ): Promise<{ routes: RouteRequests[]; complete: boolean }> {
     const ofVersion = version === undefined ? '' : ` && resource.service.version = ${JSON.stringify(version)}`;
     const answer = (await getJson(
       this.fetcher,
       this.base,
-      '/api/search',
+      '/api/metrics/query',
       {
-        q: `{ resource.service.name = ${JSON.stringify(service)} && ${TRACES_FROM_THE_APP}${ofVersion} && kind = server && span.http.route != nil } | select(span.http.route)`,
+        q: `{ resource.service.name = ${JSON.stringify(service)} && ${TRACES_FROM_THE_APP}${ofVersion} && kind = server && span.http.route != nil } | count_over_time() by (span.http.route)`,
         start: Math.floor(start.getTime() / 1000),
         end: Math.ceil(end.getTime() / 1000),
-        limit,
-        spss: 10,
       },
       20_000,
-    )) as { traces?: { traceID: string; spanSet?: { spans?: { attributes?: Attribute[] }[] } }[] };
-    const traces = answer.traces ?? [];
-    const spans = traces.flatMap((trace) =>
-      (trace.spanSet?.spans ?? []).map((span) => ({
-        traceId: trace.traceID,
-        route: span.attributes?.find((a) => a.key === 'http.route')?.value.stringValue ?? '',
-      })),
-    );
-    return { spans, complete: traces.length < limit };
+    )) as { series?: { labels?: Attribute[]; value?: number }[]; status?: string | number };
+    // Tempo leaves the series out when there are none.
+    if (answer.series !== undefined && !Array.isArray(answer.series)) {
+      throw new Error('Tempo answered a metrics query with something else');
+    }
+    const routes = (answer.series ?? []).flatMap((series) => {
+      const route = series.labels?.find((a) => a.key === 'span.http.route')?.value.stringValue;
+      const requests = Number(series.value);
+      return route && Number.isFinite(requests) ? [{ route, requests }] : [];
+    });
+    // A partial answer is one some of Tempo's jobs did not finish (`PARTIAL`, or its number in the enum).
+    return { routes, complete: answer.status !== 'PARTIAL' && answer.status !== 1 };
   }
 
   /** Whether Tempo has any trace, from anything, that began between two times. */

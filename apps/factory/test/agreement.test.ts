@@ -97,6 +97,44 @@ describe('counting the metrics', () => {
   });
 });
 
+describe('counting the traces', () => {
+  /** A window of `requests` on each path in every record, with Tempo's answer `complete` or not. */
+  const counted = (requests: Record<string, number>, complete: boolean) => {
+    const samples = Object.entries(requests);
+    const backends = {
+      prometheus: {
+        instant: async () =>
+          samples.map(([path, value]) => ({ labels: { http_route: path, service_version: VERSION }, value })),
+      },
+      loki: { instant: async () => samples.map(([path, value]) => ({ labels: { path, route: path }, value })) },
+      tempo: {
+        requestsByRoute: async () => ({
+          routes: samples.map(([route, value]) => ({ route, requests: value })),
+          complete,
+        }),
+      },
+    } as unknown as Parameters<typeof count>[1];
+    return count(objectives, backends, new Date(0), new Date(300_000));
+  };
+
+  it('knows the traces of a busy window, route by route, as Tempo counted them', async () => {
+    // More requests than the thousand traces a page of Tempo's search held.
+    const { routes, tracesComplete } = await counted({ '/': 1200, '/about': 300, '/contact': 0 }, true);
+    expect(tracesComplete).toBe(true);
+    expect(routes.map(({ path, traces }) => [path, traces])).toEqual([
+      ['/', 1200],
+      ['/about', 300],
+      ['/contact', 0],
+    ]);
+  });
+
+  it('leaves the traces out when Tempo could answer only in part', async () => {
+    const { routes, tracesComplete } = await counted({ '/': 1200 }, false);
+    expect(tracesComplete).toBe(false);
+    expect(routes[0]?.traces).toBeUndefined();
+  });
+});
+
 describe('judging windows in pairs', () => {
   it('never pairs a window with one before a gap: a window that could not be counted ends the pair', async () => {
     let failing = false;
@@ -108,7 +146,7 @@ describe('judging windows in pairs', () => {
       objectives,
       prometheus: { instant: counted },
       loki: { instant: counted },
-      tempo: { serverSpans: async () => ({ spans: [], complete: true }) },
+      tempo: { requestsByRoute: async () => ({ routes: [], complete: true }) },
       outbox: { send: async () => {} },
       log: { info: () => {}, warn: () => {} },
     } as unknown as Backends;
@@ -225,7 +263,7 @@ function records(options: {
         return options.day();
       },
     },
-    tempo: { serverSpans: async () => ({ spans: [], complete: true }) },
+    tempo: { requestsByRoute: async () => ({ routes: [], complete: true }) },
     outbox: { send: async (signal: InboxSignal) => void options.sent?.push(signal) },
     log: { info: () => {}, warn: () => {} },
   } as unknown as Backends;
