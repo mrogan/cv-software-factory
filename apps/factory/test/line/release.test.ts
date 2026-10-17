@@ -1143,6 +1143,25 @@ describe('Verify on the line', () => {
       // Taken by the dry run, with no pull request yet: its issue is the dry run's.
       const taken = await opened();
       await database.writer`insert into line (work_item, stage, issue) values (${taken}, 'plan', 1000000005)`;
+      // Reopened by triage, and waiting to come back into Plan, which forgets its issue: it is left to that.
+      const back = await opened();
+      await events.append([
+        event(back, 'work-item.closed', { outcome: 'verified', reason: 'Cleared' }, 'factory'),
+        event(
+          back,
+          'work-item.reopened',
+          {
+            sense: 'probe',
+            check: 'departments',
+            route: '/',
+            version: commitOf(STABLE),
+            reason: 'Back',
+            dryRun: false,
+          },
+          'triage',
+        ),
+      ]);
+      await database.writer`insert into line (work_item, stage, issue) values (${back}, 'ended', 1000000006)`;
       const real = await merged(30, FIX_3);
       const { line: it, github } = line({ release: null, gatesEveryMs: 0 });
       // GitHub fails once: that one is tried again on the next pass. One whose issue is gone closes all the same.
@@ -1181,6 +1200,7 @@ describe('Verify on the line', () => {
       expect(stages).toEqual(['ended', 'ended', 'ended', 'ended']);
       // The real merge waits for a real release, and nothing is closed twice.
       expect(await payloads(real, 'work-item.closed')).toEqual([]);
+      expect(await payloads(back, 'work-item.closed')).toHaveLength(1);
       expect(await payloads(atRelease, 'work-item.closed')).toHaveLength(1);
     });
 

@@ -176,13 +176,17 @@ export class Queue {
     return rows.length > 0;
   }
 
-  /** Every work item the line has taken, ended or not, longest on it first: only the one, for a queue of one. */
-  async all(): Promise<QueueItem[]> {
+  /**
+   * Every work item the line has taken, ended or not, longest on it first, and whether it reopened and waits to come
+   * back into Plan: only the one, for a queue of one.
+   */
+  async all(): Promise<(QueueItem & { waiting: boolean })[]> {
     const sql = this.#sql;
-    const rows = await sql<Row[]>`
-      select ${sql(COLUMNS)} from line l ${this.#only ? sql`where l.work_item = ${this.#only}` : sql``}
+    const rows = await sql<(Row & { waiting: boolean })[]>`
+      select ${sql(COLUMNS)}, ${reopenedSince(sql)} as waiting from line l
+      ${this.#only ? sql`where l.work_item = ${this.#only}` : sql``}
       order by l.taken_at`;
-    return rows.map(item);
+    return rows.map((row) => ({ ...item(row), waiting: row.waiting }));
   }
 
   /** The work items on the line that nobody holds, longest on it first: only the one, for a queue of one. */

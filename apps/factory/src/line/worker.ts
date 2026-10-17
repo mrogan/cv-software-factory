@@ -219,6 +219,8 @@ export class Line {
   #described: string | undefined;
   /** Whether what dry runs left has been ended: by a live line, once; a dry run leaves it. */
   #dryRunsEnded: boolean;
+  /** The work items whose dry run's leftovers could not be ended on the last try, which wait for the next. */
+  readonly #dryRunLeft = new Set<string>();
 
   constructor(options: LineOptions) {
     this.#o = {
@@ -283,7 +285,11 @@ export class Line {
     }
     this.#stopped = false;
     if (!this.#o.takesWork) return;
-    if (!this.#dryRunsEnded) await this.#endDryRuns();
+    if (!this.#dryRunsEnded) {
+      await this.#endDryRuns();
+      // Without knowing what a dry run left, the line would carry on from it.
+      if (!this.#dryRunsEnded && !this.#dryRunLeft.size) return;
+    }
     if (this.#o.now().getTime() - this.#gatesReadAt >= this.#o.gatesEveryMs) {
       this.#gatesReadAt = this.#o.now().getTime();
       await this.#readGates();
@@ -299,7 +305,7 @@ export class Line {
     const taken = await this.#queue.admit();
     if (taken) this.#o.log.info({ workItem: taken }, 'a ticket came onto the line');
     for (const item of await this.#queue.free()) {
-      if (this.#inFlight.has(item.workItem)) continue;
+      if (this.#inFlight.has(item.workItem) || this.#dryRunLeft.has(item.workItem)) continue;
       await this.#advance(item).catch((error: unknown) =>
         this.#o.log.error({ workItem: item.workItem, err: error }, 'could not move a work item on'),
       );
@@ -315,8 +321,9 @@ export class Line {
 
   /**
    * Ends what dry runs left on the line (`dryRunLeft`), as a live line starts. A work item it cannot end now, because
-   * GitHub or the store failed or another worker holds it, is tried again on the next pass, and the passes stop trying
-   * once nothing is left.
+   * GitHub or the store failed or another worker holds it, is tried again on the next pass, and until then the line
+   * reads no gates and starts nothing for it. The passes stop trying once nothing is left. A reopened work item waiting
+   * to come back into Plan is left to that: taking it back forgets a dry run's issue, and opens a new one.
    */
   async #endDryRuns(): Promise<void> {
     const items = await this.#queue.all().catch((error: unknown) => {
@@ -324,14 +331,15 @@ export class Line {
       return undefined;
     });
     if (!items) return;
-    let left = 0;
+    this.#dryRunLeft.clear();
     for (const item of items) {
+      if (item.waiting) continue;
       await this.#endDryRun(item).catch((error: unknown) => {
-        left++;
+        this.#dryRunLeft.add(item.workItem);
         this.#o.log.warn({ workItem: item.workItem, err: error }, 'could not end what a dry run left');
       });
     }
-    this.#dryRunsEnded = left === 0;
+    this.#dryRunsEnded = this.#dryRunLeft.size === 0;
   }
 
   async #endDryRun(item: QueueItem): Promise<void> {
@@ -1068,7 +1076,7 @@ export class Line {
     const { github, repo, log } = this.#o;
     let required: string[] | undefined;
     for (const item of await this.#queue.free()) {
-      if (this.#inFlight.has(item.workItem) || item.effects) continue;
+      if (this.#inFlight.has(item.workItem) || item.effects || this.#dryRunLeft.has(item.workItem)) continue;
       try {
         const { raw } = await this.#raw(item.workItem);
         const state = fold(raw as LineEvent[]);

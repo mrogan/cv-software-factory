@@ -482,12 +482,9 @@ describe('after the merge', () => {
       type: 'work-item.reopened',
       payload: { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.3', reason: 'Again', dryRun: true },
     };
-    // Reopened, it waits for the line to take it back with a new issue: its old one is no reason to close it.
-    expect(dryRunLeft([...verifiedDry, reopened], 1_000_000_011)).toBeUndefined();
+    // Reopened, and taken back into Plan with a new issue: nothing is left.
+    expect(dryRunLeft([...verifiedDry, reopened], 41)).toBeUndefined();
     expect(dryRunLeft([...verifiedDry, reopened, ticket, spec], 41)).toBeUndefined();
-    expect(
-      dryRunLeft([...verifiedDry, { ...reopened, payload: { ...reopened.payload, dryRun: false } }], 1_000_000_011),
-    ).toBeUndefined();
     expect(dryRunLeft(done, 3)).toBeUndefined();
     expect(dryRunLeft([...done, release(), promoted(), verified('cleared'), closed('verified')], 3)).toBeUndefined();
   });

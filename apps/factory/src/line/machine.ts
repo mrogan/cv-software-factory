@@ -698,8 +698,8 @@ function afterMerge(s: WorkItemState): Decision {
  * What a dry run left on a work item that a line running live must end, or undefined for none, given the work item's
  * issue. A work item whose pull request is the dry run's, merged or not, or whose issue is, has nothing GitHub ever had
  * to carry on from, and closes with no change. A ticket a dry run verified, whose fix never shipped, still has its
- * defect, and reopens; a reopened work item's old issue is no reason to close it, as the line takes it back into Plan
- * with a new one. A
+ * defect, and reopens. The line asks only of a work item that is not waiting to come back into Plan after a
+ * reopening: taking it back forgets a dry run's issue. A
  * work item that already ended either way, that a dry run never touched, or that Martin judged verified, which the
  * line closes as he answered, has nothing left.
  */
@@ -713,8 +713,7 @@ export function dryRunLeft(
     if ((s.pullRequest?.number ?? 0) >= DRY_RUN_NUMBERS_FROM) {
       return { end: 'close', why: s.merged ? 'merge' : 'pull-request' };
     }
-    // A reopened work item's old issue goes as the line takes it back (`revive`), and a new one is opened.
-    return (issue ?? 0) >= DRY_RUN_NUMBERS_FROM && !s.reopened.length ? { end: 'close', why: 'issue' } : undefined;
+    return (issue ?? 0) >= DRY_RUN_NUMBERS_FROM ? { end: 'close', why: 'issue' } : undefined;
   }
   const closed = events.findLast((event) => event.type === 'work-item.closed');
   if (closed?.type !== 'work-item.closed' || closed.payload.outcome !== 'verified') return undefined;
