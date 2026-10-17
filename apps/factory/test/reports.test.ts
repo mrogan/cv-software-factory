@@ -7,7 +7,7 @@ import type { LogRecord } from '../src/clients/loki.ts';
 import { Loki } from '../src/clients/loki.ts';
 import { Prometheus } from '../src/clients/prometheus.ts';
 import { Tempo } from '../src/clients/tempo.ts';
-import { signalForReport } from '../src/logs/reports.ts';
+import { reportSignalId, signalForReport } from '../src/logs/reports.ts';
 import { Watcher } from '../src/logs/watcher.ts';
 import { printing } from '../src/outbox.ts';
 import { fakeFetch, ns, streams, VERSION, vector } from './fakes.ts';
@@ -74,6 +74,16 @@ describe('a report record becomes a report signal', () => {
     expect(signalForReport(unversioned, none)).toBeUndefined();
   });
 
+  it('takes an id from its record, the same at every reading and its own to the record', () => {
+    const record = widgetRecord('2026-10-03T20:59:00Z', { page: '/about', text: TEXT });
+    const id = reportSignalId(record);
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(reportSignalId(structuredClone(record))).toBe(id);
+    expect(reportSignalId(widgetRecord('2026-10-03T20:59:00Z', { page: '/about', text: `${TEXT}!` }))).not.toBe(id);
+    expect(reportSignalId({ ...record, ns: (BigInt(record.ns) + 1n).toString() })).not.toBe(id);
+    expect(id).not.toContain('ZEBRA');
+  });
+
   it('cuts a very long text to what the inbox accepts', () => {
     const signal = signalForReport(
       widgetRecord('2026-10-03T20:59:00Z', { page: '/about', text: 'x'.repeat(5000) }),
@@ -85,7 +95,11 @@ describe('a report record becomes a report signal', () => {
 });
 
 /** A watcher over a fake Loki that holds the given reports, with everything it logs captured. */
-function watching(reports: LogRecord[], send: (signal: InboxSignal) => Promise<void>) {
+function watching(
+  reports: LogRecord[],
+  send: (signal: InboxSignal, id?: string) => Promise<void>,
+  from = new Date('2026-10-03T20:00:00Z'),
+) {
   const logged: string[] = [];
   const seen: URL[] = [];
   const loki = fakeFetch(
@@ -112,7 +126,7 @@ function watching(reports: LogRecord[], send: (signal: InboxSignal) => Promise<v
       outbox: { send },
       log: pino({ level: 'trace' }, { write: (line: string) => void logged.push(line) }),
     },
-    { errors: NOW, reports: new Date('2026-10-03T20:00:00Z') },
+    { errors: NOW, reports: from },
   );
   /** Where each of the report check's reads of Loki started. */
   const starts = () =>
@@ -177,7 +191,7 @@ describe('the log watcher and reports', () => {
     });
   });
 
-  it('reads a short window while no visitor writes, and still sends a report that reached Loki late', async () => {
+  it('reads back ten minutes at each check, and sends a report that reached Loki late once', async () => {
     const late: LogRecord[] = [];
     const sent: InboxSignal[] = [];
     const { watcher, starts } = watching(late, async (signal) => void sent.push(signal));
@@ -194,7 +208,35 @@ describe('the log watcher and reports', () => {
     expect(await watcher.checkReports(after(30))).toBe(1);
     expect(await watcher.checkReports(after(40))).toBe(0);
     expect(sent).toHaveLength(1);
-    // The cursor stays at the report, rather than going back to ten minutes ago.
-    expect(starts().at(-1)).toBe('2026-10-03T20:53:00.000Z');
+    // Each read starts where the one before it would have settled.
+    expect(starts().at(-1)).toBe('2026-10-03T20:50:30.000Z');
+  });
+
+  it('sends a report that reaches Loki after a newer one was sent', async () => {
+    const inLoki: LogRecord[] = [widgetRecord('2026-10-03T20:59:00Z', { page: '/about', text: `${TEXT} later` })];
+    const sent: InboxSignal[] = [];
+    const { watcher } = watching(inLoki, async (signal) => void sent.push(signal));
+    expect(await watcher.checkReports(NOW)).toBe(1);
+
+    // Written a minute before the one already sent, by a pod whose export was retried.
+    inLoki.unshift(widgetRecord('2026-10-03T20:58:00Z', { page: '/products/teapot-lid', text: TEXT }));
+    expect(await watcher.checkReports(new Date(NOW.getTime() + 10_000))).toBe(1);
+    expect(await watcher.checkReports(new Date(NOW.getTime() + 20_000))).toBe(0);
+    expect(sent.map((s) => s.report?.page)).toEqual(['/about', '/products/teapot-lid']);
+  });
+
+  it('gives a report the same id when a restarted watcher reads it again, so the inbox keeps it once', async () => {
+    const inLoki = [widgetRecord('2026-10-03T20:58:00Z', { page: '/about', text: TEXT })];
+    const ids: (string | undefined)[] = [];
+    const first = watching(inLoki, async (_signal, id) => void ids.push(id));
+    expect(await first.watcher.checkReports(NOW)).toBe(1);
+
+    // Restarted from the last report the inbox holds, it reads back over the margin before it.
+    const restarted = watching(inLoki, async (_signal, id) => void ids.push(id), new Date('2026-10-03T20:58:00Z'));
+    await restarted.watcher.checkReports(new Date(NOW.getTime() + 60_000));
+    expect(restarted.starts()).toEqual(['2026-10-03T20:51:00.000Z']);
+    expect(ids).toHaveLength(2);
+    expect(ids[1]).toBe(ids[0]);
+    expect(ids[0]).toBe(reportSignalId(inLoki[0] as LogRecord));
   });
 });

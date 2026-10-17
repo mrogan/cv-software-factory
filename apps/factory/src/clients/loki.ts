@@ -63,7 +63,7 @@ export class Loki {
       );
       answered.sort((a, b) => (BigInt(a.ns) < BigInt(b.ns) ? -1 : BigInt(a.ns) > BigInt(b.ns) ? 1 : 0));
       const boundary = from.toString();
-      const page = answered.filter((record) => record.ns !== boundary || !given.has(identity(record)));
+      const page = answered.filter((record) => record.ns !== boundary || !given.has(recordIdentity(record)));
       const last = answered.at(-1);
       if (page.length) {
         read += page.length;
@@ -77,7 +77,7 @@ export class Loki {
         continue;
       }
       if (last.ns !== boundary) given = new Set();
-      for (const record of page) if (record.ns === last.ns) given.add(identity(record));
+      for (const record of page) if (record.ns === last.ns) given.add(recordIdentity(record));
       from = BigInt(last.ns);
     }
   }
@@ -94,7 +94,7 @@ export class Loki {
 }
 
 /** What tells two records apart: their time, their line and their labels. */
-function identity({ ns, line, fields }: LogRecord): string {
+export function recordIdentity({ ns, line, fields }: LogRecord): string {
   const labels = Object.keys(fields)
     .sort()
     .map((name) => [name, fields[name]]);
