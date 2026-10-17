@@ -56,13 +56,20 @@ describe('the describer', () => {
     expect(describerResult.parse(result)).toEqual(result);
   });
 
-  it('refuses a title that is not a Conventional Commit, an empty description, a description that closes an issue or mentions someone, or a story too long for the sheet', () => {
+  it('takes a description with a folded section that renders', () => {
+    const body =
+      'It counted from one.\n\n<details>\n<summary>\n\n## Tests\n\n</summary>\n\n- `lastIndex` of three items is 2\n\n</details>';
+    expect(describerResult.safeParse({ title: 'fix: count from zero', body, summary }).success).toBe(true);
+  });
+
+  it('refuses a title that is not a Conventional Commit, an empty description, a description that closes an issue, mentions someone or has a folded section that would not render, or a story too long for the sheet', () => {
     const ok = { title: 'fix: count from zero', body: 'It counted from one.', summary };
     for (const wrong of [
       { ...ok, title: 'Count from zero' },
       { ...ok, body: '  ' },
       { ...ok, body: 'It counted from one.\n\nFixes #12' },
       { ...ok, body: 'It counted from one, as @someone saw.' },
+      { ...ok, body: 'It counted from one.\n\n<details>\n<summary>\n## Tests\n</summary>\n\n- passes\n\n</details>' },
       { ...ok, summary: { ...summary, story: 'x'.repeat(1201) } },
       { ...ok, extra: true },
     ]) {
