@@ -67,6 +67,15 @@ When a verified ticket reopens ([triage](TRIAGE.md) reopens it), its work item c
 2. It reopens the ticket's issue through the App, saying what came back. If the App can no longer open that issue, the work item comes back without it and the line opens a new one.
 3. It moves the work item to Plan, forgetting its last pass's failures, pending effects and coder's session.
 
+### After a dry run
+
+A dry run works on real tickets, so a line that starts `live` on the same store finds what the dry run left. It could not carry on from it: GitHub never had the dry run's pull requests, merges or issues, and a dry run's fix never shipped. As it starts, before anything else, it ends each (`dryRunLeft` in `line/machine.ts`):
+
+- **A work item whose pull request or issue was the dry run's**, the pull request merged or not, closes with no change, saying so. Its issue closes too, as not planned, when GitHub has it. The next signal of its defect opens a fresh ticket.
+- **A ticket the dry run verified** still has its defect, and reopens (`work-item.reopened`, with `dryRun: true` and the line as its actor). It comes back into Plan as any reopened ticket does, with a new issue, since its own was the dry run's. The planner is told of no fix that came back: none shipped.
+
+What it cannot end on one pass, because GitHub or the store failed, it tries again on the next, and until then it reads no gates and starts nothing for that work item. A reopened work item waiting to come back into Plan is left to that, which forgets a dry run's issue. With `LINE_ONLY`, it ends only that work item's.
+
 ## Steps
 
 - **State is derived.** What a work item does next is a pure function of its events (`line/machine.ts`), so after a stop or a crash the line carries on from the last event.

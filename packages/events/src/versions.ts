@@ -9,7 +9,7 @@ export const VERSIONS = {
   'work-item.opened': 2,
   'work-item.summarised': 1,
   'work-item.closed': 1,
-  'work-item.reopened': 2,
+  'work-item.reopened': 3,
   // Before the line: what a visitor started
   'defect.injected': 1,
   'attack.launched': 1,

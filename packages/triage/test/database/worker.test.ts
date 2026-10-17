@@ -290,6 +290,7 @@ describe('triage', () => {
         route: '/reopen',
         version: 'd03afe9',
         reason: 'The crawler saw it again on /reopen in version d03afe9: links lead somewhere',
+        dryRun: false,
       });
       const [inbox] = await writer`select outcome, work_item from inbox order by received_at desc limit 1`;
       expect(inbox).toEqual({ outcome: 'reopened', work_item: item });

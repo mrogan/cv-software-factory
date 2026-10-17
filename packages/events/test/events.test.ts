@@ -135,6 +135,34 @@ describe('validation', () => {
     });
   });
 
+  it('reopens a ticket on a sense’s signal, or on any first signal when it undoes a dry run’s verification', () => {
+    const back = {
+      sense: 'probe',
+      check: 'search',
+      route: '/search',
+      version: 'v0.9.3',
+      reason: 'Back',
+      dryRun: false,
+    };
+    const event = { ...opened, type: 'work-item.reopened', version: 3, actor: 'triage', payload: back };
+    expect(validate(event)).toEqual({ ok: true });
+    expect(validate({ ...event, payload: { ...back, sense: 'report' } })).toEqual({
+      ok: false,
+      problems: [
+        'payload.sense: only a sense’s signal reopens a ticket, unless the reopening undoes a dry run’s verification',
+      ],
+    });
+    expect(validate({ ...event, actor: 'factory', payload: { ...back, sense: 'report', dryRun: true } })).toEqual({
+      ok: true,
+    });
+    // A version 2 reopening was a sense's.
+    const { dryRun: _, ...v2 } = back;
+    expect(upcast({ type: 'work-item.reopened', version: 2, payload: v2 })).toMatchObject({
+      ok: true,
+      event: { version: 3, payload: back },
+    });
+  });
+
   it('names the image of a release that shipped, and none of a dry run’s', () => {
     const { image: _, ...dry } = {
       release: 'dry-run-1288',

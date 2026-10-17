@@ -160,7 +160,7 @@ describe('appending', () => {
       ...opened(item),
       id: uuid(),
       type: 'work-item.reopened',
-      version: 2,
+      version: 3,
       actor: 'triage',
       summary: 'Reopened: the probe saw it again',
       payload: {
@@ -169,6 +169,7 @@ describe('appending', () => {
         route: '/products/clock-stopped',
         version: 'v0.9.3',
         reason: 'The probe saw it again',
+        dryRun: false,
       },
     });
     await samples().append(opened(item));

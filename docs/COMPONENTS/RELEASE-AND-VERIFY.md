@@ -143,7 +143,7 @@ A merge the dry run made never ships, so with `LINE_MODE=dry-run` the line relea
 3. `release.promoted`;
 4. `verification.finished`, cleared.
 
-A dry run's release on a line no longer in a dry run holds at Verify for Martin.
+A line running live closes a dry run's merge with no change as it starts ([after a dry run](ORCHESTRATOR.md#after-a-dry-run)).
 
 ## With `LINE_ONLY`
 

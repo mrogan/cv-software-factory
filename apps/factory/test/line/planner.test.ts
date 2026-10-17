@@ -234,6 +234,7 @@ describe('the planner’s prompt', () => {
       route: '/search',
       version: 'c'.repeat(40),
       reason: 'The probes saw it again',
+      dryRun: false,
     };
     expect(planner.prompt(INPUT)).not.toContain('came back');
     expect(planner.prompt({ ...INPUT, reopened: [reopened] })).toContain(
