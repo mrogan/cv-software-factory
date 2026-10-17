@@ -603,6 +603,16 @@ describe('triage', () => {
       expect(await triage().settleOne()).toBe(false);
     });
 
+    it('holds one noticed after Martin approved its twin apart, and closes it into the ticket his answer opens', async () => {
+      const item = await park('/refunds');
+      await answer(item, 'approved');
+      // He approved the words he read: these are new, so they wait on their own until his answer is acted on.
+      const twin = await park('/refunds', '2');
+      expect(twin).not.toBe(item);
+      expect(await triage().settleOne()).toBe(true);
+      expect(await closing(twin)).toEqual({ outcome: 'no-change', reason: `Ticket #${item} already has it` });
+    });
+
     it('joins a ticket on every page, then one a sense already has, and closes when he rejects it', async () => {
       const first = await park('/gift-cards');
       const second = await park('/delivery');

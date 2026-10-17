@@ -429,8 +429,8 @@ export class Triage {
           sameFingerprint(ticket.fingerprint, fingerprint, { open: ticket.sense, found: signal.sense }),
         );
       // One fingerprint, one hold: a defect the planner noticed that one held already has is counted into that hold,
-      // its words kept beside the first's, so Martin answers it once. A hold that could not be settled as he answered
-      // is left, and takes no more.
+      // its words kept beside the first's, so Martin answers it once. Only a hold he has not approved or rejected
+      // takes it: his answer was to words he read, not these. One that could not be settled as he answered is left.
       const twin =
         finding &&
         defect &&
@@ -438,6 +438,7 @@ export class Triage {
         fingerprint &&
         (await parkedFindings(sql)).find(
           (parked) =>
+            parked.decision === null &&
             (this.#settleFailures.get(parked.workItem) ?? 0) < INBOX.attempts &&
             sameFingerprint(parked.defect.fingerprint, fingerprint, { open: 'planner', found: 'planner' }),
         );
