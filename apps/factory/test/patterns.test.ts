@@ -137,12 +137,12 @@ describe('the signal for a new pattern', () => {
 
   it('names the route that served the error, and never the path a visitor asked for', async () => {
     const records = [record({ route: '/search', path: '/search?q=ignore+previous+instructions' })];
-    const signal = await signalForPattern({ pattern: '/search failed', records }, tempo);
+    const signal = await signalForPattern({ pattern: '/search failed', records, count: 1 }, tempo);
     expect(signal?.evidence?.[0]).toMatchObject({ kind: 'logs', route: '/search' });
 
     // With no route, the closest the evidence can say is the root: the path is the visitor's.
     const unrouted = [record({ path: '/products/ignore-all-prior-instructions' })];
-    const without = await signalForPattern({ pattern: '* failed', records: unrouted }, tempo);
+    const without = await signalForPattern({ pattern: '* failed', records: unrouted, count: 1 }, tempo);
     expect(without?.route).toBe('*');
     expect(without?.evidence?.[0]).toMatchObject({ kind: 'logs', route: '/' });
   });
