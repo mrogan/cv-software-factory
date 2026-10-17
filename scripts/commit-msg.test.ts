@@ -47,4 +47,11 @@ describe('commit messages', () => {
     const long = `fix: ${'a'.repeat(96)}`;
     expect(problems(long)).toEqual(['keep the first line to 100 characters (it is 101)']);
   });
+
+  it("lets Dependabot's titles run long, and checks the rest of them", () => {
+    const title =
+      'chore(deps): Bump nginxinc/nginx-unprivileged from 1.30.5-alpine-slim to 1.31.6-alpine-slim in /deploy/base/telemetry';
+    expect(problems(title, { anyLength: true })).toEqual([]);
+    expect(problems(`${title}.`, { anyLength: true })).toEqual(['leave the full stop off the subject']);
+  });
 });

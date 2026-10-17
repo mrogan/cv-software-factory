@@ -106,11 +106,6 @@ updates:
       node:
         patterns: [node]
         group-by: dependency-name
-      # The read-only proxy's nginx. Its tags are long enough that Dependabot's own title for a single update, which
-      # names both versions and the directory, runs past the 100 characters scripts/commit-msg.ts allows; a group's
-      # title names neither version.
-      nginx:
-        patterns: ['nginxinc/*']
 
   - package-ecosystem: devcontainers
     directory: /

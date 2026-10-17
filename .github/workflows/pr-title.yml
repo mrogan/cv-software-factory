@@ -31,7 +31,15 @@ jobs:
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
           install_args: node
+      # Dependabot writes its own titles, and a long image tag takes them past the length (commit-msg.ts); the rest of
+      # the rule still holds for them.
       - name: Check the title
         env:
           TITLE: ${{ github.event.pull_request.title }}
-        run: node scripts/commit-msg.ts --title "$TITLE"
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ "$AUTHOR" = 'dependabot[bot]' ]; then
+            node scripts/commit-msg.ts --title "$TITLE" --any-length
+          else
+            node scripts/commit-msg.ts --title "$TITLE"
+          fi
