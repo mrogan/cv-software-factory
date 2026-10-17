@@ -1,8 +1,12 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { Loki } from '../src/clients/loki.ts';
 import { Prometheus } from '../src/clients/prometheus.ts';
 import { Tempo } from '../src/clients/tempo.ts';
 import { environmentLook } from '../src/environment.ts';
+import { DEPLOY } from './deploy.ts';
 import { fakeFetch, vector } from './fakes.ts';
 
 const at = new Date('2026-10-13T19:47:57.000Z');
@@ -127,5 +131,49 @@ describe('the look at what the senses read', () => {
 
   it('looks at nothing with no backend', () => {
     expect(environmentLook({})).toBeUndefined();
+  });
+});
+
+describe('Prometheus keeps what the look reads, within its volume', () => {
+  interface ScrapeConfig {
+    enabled?: boolean;
+    metric_relabel_configs?: { source_labels?: string[]; regex?: string; action?: string }[];
+  }
+  const values = async (file: string) => parse(await readFile(join(DEPLOY, file), 'utf-8'));
+
+  it('still scrapes the kubelet’s volume stats on k3s, with the second copy of its metrics dropped', async () => {
+    const local = (await values('overlays/local/values/prometheus.yaml')) as {
+      scrapeConfigs: Record<string, ScrapeConfig>;
+    };
+    expect(local.scrapeConfigs['kubernetes-api-servers']?.enabled).toBe(false);
+    const nodes = local.scrapeConfigs['kubernetes-nodes'];
+    expect(nodes?.enabled).not.toBe(false);
+    // Prometheus anchors a relabelling regex at both ends.
+    const dropped = (name: string) =>
+      (nodes?.metric_relabel_configs ?? []).some(
+        (rule) =>
+          rule.action === 'drop' &&
+          rule.source_labels?.join(';') === '__name__' &&
+          new RegExp(`^(?:${rule.regex})$`).test(name),
+      );
+    for (const name of volumes.match(/kubelet_volume_stats_\w+/g) ?? []) expect(dropped(name)).toBe(false);
+    expect(dropped('apiserver_request_duration_seconds_bucket')).toBe(true);
+    expect(dropped('apiserver_request_duration_seconds_count')).toBe(false);
+  });
+
+  it('deletes its oldest blocks before they outgrow the volume', async () => {
+    const { server } = (await values('base/telemetry/values/prometheus.yaml')) as {
+      server: { retention?: string; persistentVolume: { size: string }; tsdb: { retention: { size: string } } };
+    };
+    // Both binary: Prometheus's 3GB is 3GiB.
+    const bytes = (size: string, units: Record<string, number>) => {
+      const [, n, unit] = size.match(/^(\d+(?:\.\d+)?)(\w+)$/) ?? [];
+      return Number(n) * (units[unit ?? ''] ?? Number.NaN);
+    };
+    const volume = bytes(server.persistentVolume.size, { Mi: 2 ** 20, Gi: 2 ** 30 });
+    const retained = bytes(server.tsdb.retention.size, { MB: 2 ** 20, GB: 2 ** 30 });
+    expect(retained).toBeLessThan(volume);
+    // The chart's flag would be a second, deprecated retention.
+    expect(server.retention).toBe('');
   });
 });
