@@ -9,9 +9,11 @@
  * after `</summary>` and after `</details>` is what lets the Markdown beside them render; one before `</summary>` and
  * `</details>` is tidy but not needed, since such a tag may interrupt a paragraph or a list.
  *
- * It is no Markdown parser: it knows fenced code, where a tag is only text, and nothing else of Markdown. It reads a
- * description written in Markdown, as the describer's and Martin's are, not one written in HTML, as Dependabot's are.
+ * It is no Markdown parser: it knows code (`code.ts`), where a tag is only text, and nothing else of Markdown. It
+ * reads a description written in Markdown, as the describer's and Martin's are, not one written in HTML, as
+ * Dependabot's are.
  */
+import { closes, FENCE, INLINE, QUOTED } from './code.ts';
 
 /** The tags that fold, opening or closing, at the start of a line, indented by three spaces at most. */
 const FOLD = /^ {0,3}<\/?(?:details|summary)(?:[\s>]|$)/i;
@@ -27,19 +29,10 @@ const HAS_TAG = /<!--|<\/?[a-z][^>]*>/i;
 const MARKDOWN = /^(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|~~~|\|)|\*\*|__|`|\]\(/;
 
 /**
- * A fence that opens or closes fenced code: three or more backticks or tildes, indented by three spaces at most. A
- * backtick fence's info string has no backtick: "```npm test``` runs it" is inline code.
- */
-const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
-
-/** A quote's markers, which a fold inside a quote stands behind. */
-const QUOTED = /^ {0,3}(?:> ?)+/;
-
-/**
  * A `<details>` tag, opening or closing, as the second group; matched beside where a tag is only text, inline code of
  * any number of backticks and an HTML comment, so that one there is passed over.
  */
-const DETAILS = /(`+)[^`][\s\S]*?\1|<!--[\s\S]*?-->|(<\/?details\b)/gi;
+const DETAILS = new RegExp(String.raw`${INLINE.source}|<!--[\s\S]*?-->|(<\/?details\b)`, 'gi');
 
 const quote = (line: string) => `“${line.trim().slice(0, 80)}”`;
 
@@ -53,10 +46,7 @@ export function unrenderedFolds(markdown: string): string[] {
     const line = raw.replace(QUOTED, '');
     const marker = FENCE.exec(line)?.[1];
     if (fence) {
-      // Closed by a fence of the same character, at least as long, with nothing after it.
-      if (marker && marker[0] === fence[0] && marker.length >= fence.length && !line.trim().slice(marker.length)) {
-        fence = '';
-      }
+      if (closes(fence, line)) fence = '';
       continue;
     }
     if (!line.trim()) {

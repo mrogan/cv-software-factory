@@ -5,6 +5,7 @@
 // an attached file's path only when the upload works. Exit 0 when nothing is wrong, 1 with a line for each problem.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { outsideCode } from '../../../../apps/factory/src/line/agents/code.ts';
 import { unrenderedFolds } from '../../../../apps/factory/src/line/agents/folds.ts';
 
 /**
@@ -32,7 +33,7 @@ export function problems(body: string, html: string, published: boolean, folds =
     // Where a link or picture points, in each form Markdown and HTML allow: inline, a reference's definition, and src
     // or href; code, which shows such forms without being them, aside. Anything but a web address or an anchor is a
     // path on this Mac, which GitHub would show broken.
-    const prose = body.replace(/^(```|~~~)[\s\S]*?^\1/gm, '').replace(/`[^`\n]*`/g, '');
+    const prose = outsideCode(body);
     const targets = [
       ...prose.matchAll(/\]\(\s*<?([^)\s>]+)/g),
       ...prose.matchAll(/^\s*\[[^\]]+\]:\s*<?([^\s>]+)/gm),

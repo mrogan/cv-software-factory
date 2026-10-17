@@ -50,6 +50,22 @@ describe('check.ts', () => {
     ]);
   });
 
+  it('reads code as GitHub does before it looks for a local path', () => {
+    const body = [
+      '``[x](scratch/a.svg) ` [y](scratch/b.svg)``',
+      '   ```\n[x](scratch/c.svg)\n   ```',
+      '````\n```\n[x](scratch/d.svg)\n````',
+      '~~~\n```\n[x](scratch/e.svg)\n~~~',
+      '[after](scratch/f.svg)',
+      '```\n[x](scratch/g.svg)\n``` not closed\n[x](scratch/h.svg)',
+    ].join('\n\n');
+    expect(problems(body, '', true)).toEqual(['a local path is left: scratch/f.svg']);
+    expect(problems('    ```\n[x](scratch/i.svg)\n\n[ref]: scratch/j.svg', '', true)).toEqual([
+      'a local path is left: scratch/i.svg',
+      'a local path is left: scratch/j.svg',
+    ]);
+  });
+
   it('leaves local paths alone before the body is published', () => {
     expect(problems('[snapshot](scratch/pr/foo.svg)', '', false)).toEqual([]);
   });

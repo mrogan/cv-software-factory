@@ -75,6 +75,26 @@ describe('what a published text may not do from the App’s account', () => {
       expect(mentions(fine), fine).toBe(false);
     }
   });
+
+  it('reads code as GitHub does before it looks for a mention', () => {
+    for (const fine of [
+      'It is ``@scope/pkg`` in code.',
+      'It is `` `@mrogan` `` in code.',
+      '   ```\n@decorator\n   ```',
+      '````\n```\n@decorator\n````',
+      '~~~\n```\n@decorator\n~~~',
+    ]) {
+      expect(mentions(fine), fine).toBe(false);
+    }
+    for (const mention of [
+      '```\ncode\n```\nThanks @mrogan.',
+      '````\ncode\n````` too\n````\nThanks @mrogan.',
+      '    ```\n\nThanks @mrogan.',
+      'A lone `` ` and @mrogan.',
+    ]) {
+      expect(mentions(mention), mention).toBe(true);
+    }
+  });
 });
 
 describe('an agent’s step', () => {
