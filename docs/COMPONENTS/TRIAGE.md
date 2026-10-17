@@ -22,7 +22,7 @@ flowchart TD
   burst -- no --> open[Opens a ticket]
   burst -- yes --> burstHold["Holds for Martin (burst),<br>with no ticket"]
   jev -- a report --> route["Routing as plain code"]
-  jev -- a finding --> held["Holds for Martin (finding),<br>or joins an open ticket's evidence"]
+  jev -- a finding --> held["Holds for Martin (finding),<br>or joins an open ticket's evidence,<br>or a held finding's hold"]
 ```
 
 ## Every signal
@@ -89,6 +89,7 @@ A planner's finding is trusted no more than a report, since a visitor can read t
 
 - **A defect it noticed** holds for Martin (cause `finding`), with its fingerprint as a report's ticket would have it: the route the planner named and the symptom Jev judged, or, for wrong words, the passage of the page Jev chose.
 - **One that repeats an open ticket** joins its evidence, though never the ticket the planner was planning, which it is beyond. One with that ticket's fingerprint is held, saying so, until that ticket closes and a sense's ticket can take it.
+- **One a held defect has.** Another finding with the fingerprint of a defect still held joins that hold, its words kept beside the first's, so one defect waits for one answer.
 - **A later ticket.** A ticket triage opens later with the same fingerprint, from a sense or a report, closes the held defect into it ("A sense saw it: ticket #N").
 
 ### Martin's answer to a finding
@@ -98,5 +99,7 @@ A planner's finding is trusted no more than a report, since a visitor can read t
 | Approve | Opens its ticket on its own work item, with the category and severity `policy/triage.ts` gives its symptom, as a sense's would be, or joins it to an open ticket that has it |
 | Reject | Closes it |
 | Answer in words | Leaves it waiting |
+
+An answer settles only the findings that reached the hold before it, in the store's order, however it was written. If one joined after it, triage acts on none of them: the hold starts again on the same work item, and waits for an answer that has read them all.
 
 Triage does as he answered once an event is appended, reading only the finding holds (an index of their own). It leaves one it cannot act on after as many tries as a signal gets.

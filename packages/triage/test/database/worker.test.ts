@@ -606,14 +606,60 @@ describe('triage', () => {
       expect(await triage().settleOne()).toBe(false);
     });
 
-    it('holds one noticed after Martin approved its twin apart, and closes it into the ticket his answer opens', async () => {
-      const item = await park('/refunds');
-      await answer(item, 'approved');
-      // He approved the words he read: these are new, so they wait on their own until his answer is acted on.
-      const twin = await park('/refunds', '2');
-      expect(twin).not.toBe(item);
+    for (const decision of ['approved', 'rejected'] as const) {
+      it(`settles only what reached the hold before he ${decision} it, and asks again for one noticed after`, async () => {
+        const item = await park('/refunds');
+        await answer(item, decision);
+        // Noticed again after his answer, before triage acted on it: it joins the hold, which is not his answer's.
+        expect(await park('/refunds', '2', 'Refunds come to less than was paid')).toBe(item);
+        expect(await triage().settleOne()).toBe(true);
+        expect(await writer`select 1 from events where work_item = ${item} and type = 'ticket.opened'`).toHaveLength(0);
+        expect(await closing(item)).toBeUndefined();
+        expect((await types(item)).filter((t) => t === 'hold.started')).toHaveLength(2);
+        expect((await types(item)).at(-1)).toBe('hold.started');
+        // It waits for an answer that has read both, and does as that one says.
+        expect(await triage().settleOne()).toBe(false);
+        await answer(item, decision);
+        expect(await triage().settleOne()).toBe(true);
+        if (decision === 'approved') {
+          expect(await writer`select 1 from events where work_item = ${item} and type = 'ticket.opened'`).toHaveLength(
+            1,
+          );
+        } else {
+          expect((await closing(item))?.outcome).toBe('discarded');
+        }
+      });
+    }
+
+    it('goes by the store’s order, not what triage read: an answer appended as a finding joins does not settle it', async () => {
+      const item = await park('/vouchers');
+      // Martin answers after triage has read the hold as unanswered, and before it appends the finding there.
+      const racing = {
+        append: async (batch: NewEvent[]) => {
+          await answer(item, 'rejected');
+          return events.append(batch);
+        },
+      } as unknown as EventWriter;
+      await sendSignal(
+        writer,
+        found({
+          sense: 'planner',
+          check: 'planning ticket #2',
+          route: '/vouchers',
+          symptom: undefined,
+          report: { page: '/vouchers', text: 'A voucher takes off nothing' },
+          planning: '2',
+        }),
+      );
+      expect(await triage({ events: racing }).takeOne()).toBe('finding');
+      const [{ work_item: joined = '' } = {}] = await writer<{ work_item: string }[]>`
+        select work_item from inbox where outcome = 'finding' order by received_at desc limit 1`;
+      expect(joined).toBe(item);
+      // His rejection was of the first finding's words only: the hold asks again, and nothing is closed.
       expect(await triage().settleOne()).toBe(true);
-      expect(await closing(twin)).toEqual({ outcome: 'no-change', reason: `Ticket #${item} already has it` });
+      expect(await closing(item)).toBeUndefined();
+      expect((await types(item)).at(-1)).toBe('hold.started');
+      expect(await triage().settleOne()).toBe(false);
     });
 
     it('joins a ticket on every page, then one a sense already has, and closes when he rejects it', async () => {

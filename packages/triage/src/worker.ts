@@ -20,7 +20,8 @@
  *   that says it was quarantined, parked or discarded.
  * - So does every finding the planner leaves, judged the same way and trusted no more, except that it never opens a
  *   ticket: a defect is parked until a sense sees it or Martin opens one. Another finding with the fingerprint of one
- *   parked joins it, as a repeat joins a ticket, so one defect waits for one answer. A ticket triage opens with the same
+ *   parked joins it, as a repeat joins a ticket, so one defect waits for one answer; one that joins after Martin
+ *   answered starts the hold again, since he did not read it. A ticket triage opens with the same
  *   fingerprint closes it into that ticket; Martin approving it opens its ticket, by the policy's table as a sense's
  *   would be, or joins it to an open ticket that has it; his rejection closes it (`settleOne`). Nothing else opens a
  *   ticket from a finding.
@@ -47,6 +48,7 @@ import {
   environmentEvents,
   findingEvents,
   healthy,
+  heldAgain,
   idsFor,
   type ParkedDefect,
   reportEvents,
@@ -206,7 +208,9 @@ export class Triage {
    * Does what Martin answered to one defect the planner noticed, if he has approved or rejected one that is still
    * parked. Approving opens its ticket on its own work item, with the category and severity the policy gives its
    * symptom, unless an open ticket has its fingerprint, which it then joins; any other finding parked with the same
-   * fingerprint joins the new ticket. Rejecting closes it. Answering in words leaves it waiting.
+   * fingerprint joins the new ticket. Rejecting closes it. Answering in words leaves it waiting. An answer settles only
+   * the findings that reached the hold before it, in the store's order: if another joined after, the hold starts again,
+   * waiting for an answer that has read it.
    */
   async settleOne(): Promise<boolean> {
     const { sql, events, log } = this.#o;
@@ -218,10 +222,14 @@ export class Triage {
       (parked) => parked.decision !== null && (failures.get(parked.workItem) ?? 0) < INBOX.attempts,
     );
     if (!answered) return false;
-    const { workItem, defect, decision } = answered;
+    const { workItem, defect, decision, late } = answered;
     const seed = `finding:${workItem}:${decision}`;
     try {
-      if (decision === 'rejected') {
+      if (late) {
+        // A finding joined the hold after he answered, however the answer was written and whatever triage saw when it
+        // joined: his answer was to words that did not include it, so it settles nothing, and the hold asks again.
+        await events.append(heldAgain(workItem, defect, `finding:${workItem}:again:${answered.answered}`, now));
+      } else if (decision === 'rejected') {
         await events.append(closedFinding(workItem, { rejected: true }, seed, now));
       } else {
         const same = (await openTickets(sql)).find((ticket) =>
@@ -429,8 +437,9 @@ export class Triage {
           sameFingerprint(ticket.fingerprint, fingerprint, { open: ticket.sense, found: signal.sense }),
         );
       // One fingerprint, one hold: a defect the planner noticed that one held already has is counted into that hold,
-      // its words kept beside the first's, so Martin answers it once. Only a hold he has not approved or rejected
-      // takes it: his answer was to words he read, not these. One that could not be settled as he answered is left.
+      // its words kept beside the first's, so Martin answers it once. One he has answered already takes it too: an
+      // answer settles only the findings that reached the hold before it, and the hold then asks again
+      // (`settleOne`). One that could not be settled as he answered is left.
       const twin =
         finding &&
         defect &&
@@ -438,7 +447,6 @@ export class Triage {
         fingerprint &&
         (await parkedFindings(sql)).find(
           (parked) =>
-            parked.decision === null &&
             (this.#settleFailures.get(parked.workItem) ?? 0) < INBOX.attempts &&
             sameFingerprint(parked.defect.fingerprint, fingerprint, { open: 'planner', found: 'planner' }),
         );
@@ -589,6 +597,10 @@ interface Parked {
   defect: ParkedDefect;
   /** Martin's answer, when he has approved or rejected it and triage has yet to do as he said. */
   decision: 'approved' | 'rejected' | null;
+  /** Where his last answer since it was held is in the store, if he has answered. */
+  answered: string | null;
+  /** Whether a finding reached the hold after that answer, in the store's order: words he answered without reading. */
+  late: boolean;
 }
 
 /**
@@ -596,20 +608,31 @@ interface Parked {
  * answer to it. The finding holds have an index of their own (0007), so this reads only them.
  */
 async function parkedFindings(sql: Sql): Promise<Parked[]> {
-  const rows = await sql<{ work_item: string; defect: ParkedDefect; decision: string | null }[]>`
-    select h.work_item, h.payload->'defect' as defect,
-           (select a.payload->>'decision' from events a
-            where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq
-            order by a.seq desc limit 1) as decision
+  const rows = await sql<
+    { work_item: string; defect: ParkedDefect; decision: string | null; answered: string | null; late: boolean }[]
+  >`
+    select h.work_item, h.payload->'defect' as defect, a.decision, a.seq as answered,
+           a.seq is not null and exists (select 1 from events s where s.work_item = h.work_item
+                                         and s.type = 'signal.received' and s.seq > a.seq) as late
     from events h
+    left join lateral (
+      select a.payload->>'decision' as decision, a.seq from events a
+      where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq
+      order by a.seq desc limit 1
+    ) a on true
     where h.type = 'hold.started' and h.payload->>'cause' = 'finding'
       and not exists (select 1 from events e where e.work_item = h.work_item
                       and e.type in ('work-item.closed', 'ticket.opened'))
+      -- A hold started again is its question now: only the latest, and the answers after it.
+      and not exists (select 1 from events n where n.work_item = h.work_item and n.type = 'hold.started'
+                      and n.seq > h.seq)
     order by h.seq`;
   return rows.map((row) => ({
     workItem: row.work_item,
     defect: row.defect,
     decision: row.decision === 'approved' || row.decision === 'rejected' ? row.decision : null,
+    answered: row.answered,
+    late: row.late,
   }));
 }
 
