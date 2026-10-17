@@ -20,6 +20,26 @@ tempo:
       memory: 256Mi
     limits:
       memory: 1Gi
+  # Go collects hard before the kernel kills: 90% of the limit above, in bytes, as Prometheus sets for itself.
+  extraEnv:
+    - name: GOMEMLIMIT
+      value: "966367641"
+  # One search is split into jobs, a block or so each, and the querier runs this many at once across every search: the
+  # bound on what searches hold in memory together. Tempo's defaults run 20 batches of up to 7 jobs each, every job of a
+  # batch at once; one job a batch makes the bound eight jobs. The factory's reads take one to a dozen jobs.
+  querier:
+    max_concurrent_queries: 8
+  # The factory's widest read covers ten minutes (the environment check's search; the agreement check's metrics query
+  # covers five) and asks for one trace. A day covers Grafana's Explore in ordinary use; a wider look is several
+  # searches. A search asking for more traces than the limit is refused. A metrics query's day is Tempo's default,
+  # stated beside the search's.
+  queryFrontend:
+    max_batch_size: 1
+    search:
+      max_duration: 24h
+      max_result_limit: 1000
+    metrics:
+      max_duration: 24h
 persistence:
   enabled: true
   size: 4Gi
