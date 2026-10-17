@@ -193,21 +193,21 @@ export class Watcher {
     const from = settled < this.reportsFrom ? settled : this.reportsFrom;
     const fromNs = BigInt(from.getTime()) * 1_000_000n;
     for (const [identity, ns] of this.reportsRead) if (ns < fromNs) this.reportsRead.delete(identity);
-    const fresh =
-      // Every record in the window, however many: the window moves on after this check, and none is left behind it.
-      (
-        await loki.records(reportLogs(objectives), from, new Date(now.getTime() + 1000), Number.POSITIVE_INFINITY)
-      ).filter(
-        // Nothing before the window, which the memory no longer covers.
-        (record) => BigInt(record.ns) >= fromNs && !this.reportsRead.has(recordIdentity(record)),
-      );
+    const until = new Date(now.getTime() + 1000);
+    let templates: Map<string, string> | undefined;
     let sent = 0;
     let skipped = 0;
-    if (fresh.length > 0) {
-      // Where the app's logs can place a page, the report is about that route; the lookup never blocks a report.
-      const templates = await routeTemplates(loki, objectives, now).catch(() => new Map<string, string>());
-      for (const record of fresh) {
-        const signal = signalForReport(record, (page) => templates.get(page));
+    // Every record in the window, however many, a page at a time: the window moves on after this check, and none is
+    // left behind it.
+    for await (const page of loki.pages(reportLogs(objectives), from, until, Number.POSITIVE_INFINITY)) {
+      for (const record of page) {
+        const identity = recordIdentity(record);
+        // Nothing before the window, which the memory no longer covers, and nothing read before.
+        if (BigInt(record.ns) < fromNs || this.reportsRead.has(identity)) continue;
+        // Where the app's logs can place a page, the report is about that route; the lookup never blocks a report.
+        templates ??= await routeTemplates(loki, objectives, now).catch(() => new Map<string, string>());
+        const known = templates;
+        const signal = signalForReport(record, (path) => known.get(path));
         if (signal) {
           try {
             await outbox.send(signal, reportSignalId(record));
@@ -219,10 +219,10 @@ export class Watcher {
         } else {
           skipped += 1;
         }
-        this.reportsRead.set(recordIdentity(record), BigInt(record.ns));
+        this.reportsRead.set(identity, BigInt(record.ns));
       }
-      log.info({ reports: sent, unreadable: skipped }, 'reports checked');
     }
+    if (templates) log.info({ reports: sent, unreadable: skipped }, 'reports checked');
     this.reportsFrom = settled;
     return sent;
   }

@@ -111,13 +111,17 @@ describe('the log watcher, against a real inbox', () => {
 });
 
 describe('where reading reports starts', () => {
-  it('goes back a day for an empty store, but never before the store took real work', async () => {
+  it('goes back a day for an empty store, and a margin before the last report, but never before the store took real work', async () => {
     const fresh = await freshDatabase('cursor');
     try {
       const now = new Date('2026-10-04T09:00:00Z');
       const day = 24 * 60 * 60 * 1000;
       expect(await reportsFrom(fresh.writer, now, day, 10 * 60_000)).toEqual(new Date('2026-10-03T09:00:00Z'));
       await fresh.owner`insert into store (sample, chosen_at) values (false, '2026-10-04T08:30:00Z')`;
+      expect(await reportsFrom(fresh.writer, now, day, 10 * 60_000)).toEqual(new Date('2026-10-04T08:30:00Z'));
+      // Nor does the margin before the last report reach back before it.
+      await fresh.writer`insert into inbox (id, sense, fingerprint, signal) values (${crypto.randomUUID()}, 'report', null,
+        ${fresh.writer.json({ sense: 'report', observedAt: '2026-10-04T08:35:00Z' })})`;
       expect(await reportsFrom(fresh.writer, now, day, 10 * 60_000)).toEqual(new Date('2026-10-04T08:30:00Z'));
     } finally {
       await fresh.end();
