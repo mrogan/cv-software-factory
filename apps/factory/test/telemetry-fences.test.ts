@@ -1,15 +1,10 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { parse, parseAllDocuments } from 'yaml';
+import { manifests as deployManifests } from './deploy.ts';
 
 /**
  * The readers of telemetry as deploy/ declares them (#348): each names the pods it reaches in `telemetry`, as `make
  * egress` shows on the cluster, with a stranger there that no reader reaches.
  */
-const DEPLOY = fileURLToPath(new URL('../../../deploy/', import.meta.url));
-
 interface Peer {
   namespaceSelector?: { matchLabels?: Record<string, string>; matchExpressions?: unknown[] };
   podSelector?: { matchLabels?: Record<string, string>; matchExpressions?: unknown[] };
@@ -25,24 +20,7 @@ interface Manifest {
   spec?: { egress?: Rule[] };
 }
 
-/** Every manifest under deploy/, overlays too, with its namespace: its own, or its directory's kustomization's. */
-async function manifests(): Promise<{ namespace: string | undefined; manifest: Manifest }[]> {
-  const files = (await readdir(DEPLOY, { recursive: true })).filter((f) => f.endsWith('.yaml'));
-  const namespaces = new Map<string, string | undefined>();
-  for (const file of files.filter((f) => f.endsWith('kustomization.yaml'))) {
-    const kustomization = parse(await readFile(join(DEPLOY, file), 'utf-8')) as { namespace?: string };
-    namespaces.set(dirname(file), kustomization.namespace);
-  }
-  const all: { namespace: string | undefined; manifest: Manifest }[] = [];
-  for (const file of files) {
-    for (const doc of parseAllDocuments(await readFile(join(DEPLOY, file), 'utf-8'))) {
-      const manifest = doc.toJS() as Manifest | null;
-      if (!manifest?.kind) continue;
-      all.push({ manifest, namespace: namespaces.get(dirname(file)) ?? manifest.metadata?.namespace });
-    }
-  }
-  return all;
-}
+const manifests = () => deployManifests<Manifest>();
 
 /** The egress rules of the policies in `factory`, each peer on its own: the policy, the peer, the rule's ports. */
 async function factoryEgress() {

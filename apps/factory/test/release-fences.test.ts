@@ -1,15 +1,13 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { parse, parseAllDocuments } from 'yaml';
+import { parse } from 'yaml';
+import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 
 /**
  * The release's fences as deploy/ declares them: who may change a Rollout, what the line may read of a release, what
  * the analysis Job may reach, and what the app's own pods may reach and be reached by.
  */
-const DEPLOY = fileURLToPath(new URL('../../../deploy/', import.meta.url));
-
 interface Manifest {
   kind?: string;
   metadata?: { name?: string; namespace?: string };
@@ -19,18 +17,7 @@ interface Manifest {
   spec?: Record<string, unknown>;
 }
 
-/** Every manifest under deploy/, from every YAML file. */
-async function manifests(): Promise<{ file: string; manifest: Manifest }[]> {
-  const files = (await readdir(DEPLOY, { recursive: true })).filter((f) => f.endsWith('.yaml'));
-  const all: { file: string; manifest: Manifest }[] = [];
-  for (const file of files) {
-    for (const doc of parseAllDocuments(await readFile(join(DEPLOY, file), 'utf-8'))) {
-      const manifest = doc.toJS() as Manifest | null;
-      if (manifest?.kind) all.push({ file, manifest });
-    }
-  }
-  return all;
-}
+const manifests = () => deployManifests<Manifest>();
 
 const READ = ['get', 'list', 'watch'];
 
