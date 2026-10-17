@@ -61,7 +61,7 @@ const ROUTES_REFRESH_MS = 60 * 60 * 1000;
 /**
  * The fields of an error record that its readers use: the pattern (`patterns.ts`), the signal and its kept lines
  * (`errors.ts`), and Verify's filters. Loki returns these and no others: a record's other metadata, a stack trace of
- * a kilobyte or more among it, made a page of records seven times the size. A reader of another field adds it here.
+ * a kilobyte or more among it, is most of its size and read by nothing. A reader of another field adds it here.
  */
 export const ERROR_FIELDS = [
   'route',
@@ -112,14 +112,15 @@ export class Watcher {
   }
 
   /**
-   * Learns the error patterns of the day before the watcher starts, so that none of them is new. A page at a time:
-   * a day's records held at once outgrew the watcher's memory as the app's errors grew.
+   * Learns the error patterns of the day before the watcher starts, so that none of them is new: every record of the
+   * day, a page at a time, so that what the watcher holds stays one page however many errors the app logged, and the
+   * hours just before it starts are learned however busy the day.
    */
   async learnPatterns(): Promise<number> {
     const { loki, objectives } = this.backends;
     const from = new Date(this.errorsFrom.getTime() - DAY_MS);
     let learned = 0;
-    for await (const page of loki.pages(errorLogs(objectives), from, this.errorsFrom)) {
+    for await (const page of loki.pages(errorLogs(objectives), from, this.errorsFrom, Number.POSITIVE_INFINITY)) {
       this.patterns.remember(errorRecords(page));
       learned += page.length;
     }

@@ -13,7 +13,7 @@ Error records are reduced to a pattern:
 
 A pattern is signalled by route when the previous day has not shown it, with the lines and trace ids, and the spans when Tempo already has the trace. The evidence names the route that served the error, or the root when none did, never the request's own path.
 
-When it starts, it learns the previous day's patterns a page of Loki's at a time, so a busy day is never held at once. Loki returns an error record with only the fields the patterns, the signal and Verify read (`ERROR_FIELDS`), not its stack trace and the rest of its metadata.
+When it starts, it learns the patterns of every error record of the previous day, a page of Loki's at a time, so a busy day is never held at once. Loki returns an error record with only the fields the patterns, the signal and Verify read (`ERROR_FIELDS`), not its stack trace and the rest of its metadata.
 
 ## Reports
 
