@@ -113,7 +113,7 @@ describe('learning the day’s patterns when the watcher starts', () => {
     const watcher = new Watcher(
       { objectives, loki, tempo, outbox, log: pino({ level: 'silent' }) } as never,
       { errors: at, reports: at },
-      { settleMs: 0, agreementWindowMs: 300_000, agreementLagMs: 0 },
+      { settleMs: 0, agreementWindowMs: 300_000, agreementLagMs: 0, reportLateMs: 0 },
     );
     // More than the 20,000 records a read stops at otherwise: the last hours before the start are learned too.
     expect(await watcher.learnPatterns()).toBe(25_003);
@@ -207,7 +207,7 @@ describe('checking a window of errors bigger than a read used to hold', () => {
         log: pino({ level: 'silent' }),
       } as never,
       { errors: from, reports: from },
-      { settleMs: 0, agreementWindowMs: 300_000, agreementLagMs: 0 },
+      { settleMs: 0, agreementWindowMs: 300_000, agreementLagMs: 0, reportLateMs: 0 },
     );
 
   it('reads every record, and a pattern over many pages is one signal with them all counted', async () => {

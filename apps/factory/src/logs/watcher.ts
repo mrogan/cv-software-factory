@@ -48,9 +48,19 @@ export interface Timing {
   agreementWindowMs: number;
   /** ...that ended this long ago, for the same reason. */
   agreementLagMs: number;
+  /**
+   * A report may reach Loki this long after it was written: the collector retries a failed export for up to five
+   * minutes. A check that finds nothing new starts the next no later than this long ago.
+   */
+  reportLateMs: number;
 }
 
-export const TIMING: Timing = { settleMs: 60_000, agreementWindowMs: 5 * 60_000, agreementLagMs: 4 * 60_000 };
+export const TIMING: Timing = {
+  settleMs: 60_000,
+  agreementWindowMs: 5 * 60_000,
+  agreementLagMs: 4 * 60_000,
+  reportLateMs: 5 * 60_000,
+};
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How long before a finding that still holds is signalled again. */
@@ -160,14 +170,22 @@ export class Watcher {
     return sent;
   }
 
-  /** Leaves each report written since the last in the inbox. */
+  /**
+   * Leaves each report written since the last in the inbox. A check that finds none moves the cursor up to
+   * `reportLateMs` ago, so that the window read every few seconds stays short while no visitor writes, and a report
+   * that reaches Loki late is still in it.
+   */
   async checkReports(now: Date): Promise<number> {
     const { loki, outbox, objectives, log } = this.backends;
     const from = new Date(Number(this.reportCursor / 1_000_000n));
     const fresh = (await loki.records(reportLogs(objectives), from, new Date(now.getTime() + 1000))).filter(
       (record) => BigInt(record.ns) > this.reportCursor,
     );
-    if (fresh.length === 0) return 0;
+    if (fresh.length === 0) {
+      const settled = BigInt(now.getTime() - this.timing.reportLateMs) * 1_000_000n;
+      if (settled > this.reportCursor) this.reportCursor = settled;
+      return 0;
+    }
     // Where the app's logs can place a page, the report is about that route; the lookup never blocks a report.
     const templates = await routeTemplates(loki, objectives, now).catch(() => new Map<string, string>());
     let sent = 0;
