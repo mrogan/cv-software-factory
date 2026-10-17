@@ -1133,6 +1133,9 @@ describe('Verify on the line', () => {
       const atRelease = await merged(1_000_000_001, 'd'.repeat(40));
       const atVerify = await merged(1_000_000_002, 'e'.repeat(40));
       await promote(atVerify, 'dry-run-eeeeeeeeeeee', 'e'.repeat(40), true);
+      const gone = await opened();
+      await events.append([pushed(gone, 1_000_000_004)]);
+      await database.writer`insert into line (work_item, stage, issue) values (${gone}, 'gates', 8)`;
       // Its pull request open still, on a ticket the line took before the dry run, with an issue GitHub has.
       const open = await opened();
       await events.append([pushed(open, 1_000_000_003)]);
@@ -1142,7 +1145,8 @@ describe('Verify on the line', () => {
       await database.writer`insert into line (work_item, stage, issue) values (${taken}, 'plan', 1000000005)`;
       const real = await merged(30, FIX_3);
       const { line: it, github } = line({ release: null, gatesEveryMs: 0 });
-      // GitHub fails once: that one is tried again on the next pass.
+      // GitHub fails once: that one is tried again on the next pass. One whose issue is gone closes all the same.
+      github.refusing.set('closeIssue', new GitHubWorkerError(404, 'not-found', 'Not Found'));
       github.failing.set('closeIssue', 1);
       await pass(it);
       await pass(it);
@@ -1157,6 +1161,7 @@ describe('Verify on the line', () => {
           reason: 'Its issue was a dry run’s, which GitHub never had: the line, running live, closed it',
         },
       ]);
+      expect(await payloads(gone, 'work-item.closed')).toEqual([{ outcome: 'no-change', reason: unmerged }]);
       expect(github.acts.filter((a) => a.action !== 'describeDeploy')).toEqual([
         {
           action: 'closeIssue',

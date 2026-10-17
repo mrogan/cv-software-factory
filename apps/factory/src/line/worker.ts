@@ -319,8 +319,13 @@ export class Line {
    * once nothing is left.
    */
   async #endDryRuns(): Promise<void> {
+    const items = await this.#queue.all().catch((error: unknown) => {
+      this.#o.log.warn({ err: error }, 'could not read what dry runs left');
+      return undefined;
+    });
+    if (!items) return;
     let left = 0;
-    for (const item of await this.#queue.all()) {
+    for (const item of items) {
       await this.#endDryRun(item).catch((error: unknown) => {
         left++;
         this.#o.log.warn({ workItem: item.workItem, err: error }, 'could not end what a dry run left');
@@ -369,15 +374,21 @@ export class Line {
       }[left.why];
       // A dry run's issue is one GitHub never had, as its pull request is.
       if (claimed.issue && claimed.issue < DRY_RUN_NUMBERS_FROM) {
-        await this.#o.github.act('closeIssue', this.#o.repo, {
-          number: claimed.issue,
-          reason: 'not_planned',
-          comment: [
-            `${reason}.`,
-            '',
-            `The factory’s work item #${workItem} is closed with no change: the next signal of this defect opens a fresh ticket.`,
-          ].join('\n'),
-        });
+        // An issue that is gone, or that the App may not change, has nothing to close.
+        await this.#o.github
+          .act('closeIssue', this.#o.repo, {
+            number: claimed.issue,
+            reason: 'not_planned',
+            comment: [
+              `${reason}.`,
+              '',
+              `The factory’s work item #${workItem} is closed with no change: the next signal of this defect opens a fresh ticket.`,
+            ].join('\n'),
+          })
+          .catch((error) => {
+            if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
+            this.#o.log.warn({ workItem, issue: claimed.issue, err: error }, 'the issue cannot be closed');
+          });
       }
       await this.#append(workItem, [
         {

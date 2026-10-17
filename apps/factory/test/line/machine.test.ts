@@ -463,6 +463,14 @@ describe('after the merge', () => {
     expect(dryRunLeft(approved.map(asDryRun), 3)).toEqual({ end: 'close', why: 'pull-request' });
     expect(dryRunLeft(dry, 3)).toEqual(merge);
     expect(dryRunLeft([...dry, ...[release(), promoted()].map(asDryRun)], 3)).toEqual(merge);
+    // Martin judged it verified at Verify, where a live line held it: the line closes it as he answered.
+    const hold: LineEvent = {
+      type: 'hold.started',
+      payload: { stage: 'verify', kind: 'approval', cause: 'verify', reason: 'The dry run no longer runs' },
+    };
+    const atVerify = [...dry, ...[release(), promoted()].map(asDryRun), hold];
+    expect(dryRunLeft(atVerify, 3)).toEqual(merge);
+    expect(dryRunLeft([...atVerify, answer('approved', 'It looks right')], 3)).toBeUndefined();
     // Taken by the dry run, with no pull request yet: its issue is the dry run's.
     expect(dryRunLeft([ticket, spec], 1_000_000_011)).toEqual({ end: 'close', why: 'issue' });
     // Verified by the dry run's word: the defect it was opened on is still in the app.
@@ -477,6 +485,9 @@ describe('after the merge', () => {
     // Reopened, it waits for the line to take it back with a new issue: its old one is no reason to close it.
     expect(dryRunLeft([...verifiedDry, reopened], 1_000_000_011)).toBeUndefined();
     expect(dryRunLeft([...verifiedDry, reopened, ticket, spec], 41)).toBeUndefined();
+    expect(
+      dryRunLeft([...verifiedDry, { ...reopened, payload: { ...reopened.payload, dryRun: false } }], 1_000_000_011),
+    ).toBeUndefined();
     expect(dryRunLeft(done, 3)).toBeUndefined();
     expect(dryRunLeft([...done, release(), promoted(), verified('cleared'), closed('verified')], 3)).toBeUndefined();
   });
