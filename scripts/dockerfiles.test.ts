@@ -192,11 +192,3 @@ describe('the images built', () => {
     expect(paths.filter((path) => takesDeploy(path.slice(2)))).toEqual([]);
   });
 });
-
-describe("the manifests kind's exception", () => {
-  it('is the file the Postgres beside the browser tests is pinned in', () => {
-    const file = readFileSync('scripts/ci-images.sh', 'utf-8').match(/grep -oE "\$PIN" (\S+)/)?.[1];
-    expect(file).toBe('deploy/base/postgres/statefulset.yaml');
-    expect(readFileSync('.github/workflows/check.yml', 'utf-8')).toContain(`grep -qxF '${file}'`);
-  });
-});

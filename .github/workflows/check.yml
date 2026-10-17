@@ -23,8 +23,8 @@ jobs:
   # - `release` and `deploy`: the factory's App opened it and nobody has changed it, so the test is the author too, and
   #   for a release the lines that change.
   # - `manifests`: anyone's, changing only files under deploy/. No image copies anything from there
-  #   (scripts/dockerfiles.test.ts), and no browser test reads it, but for the Postgres the console's run beside: a
-  #   change to its pin is `code`.
+  #   (scripts/dockerfiles.test.ts), and nothing the browser tests run reads it (scripts/browser-tests.test.ts), but
+  #   for the Postgres the console's run beside: a change to its pin is `code`.
   # Anything else, or this job failing, is `code` and runs everything.
   kind:
     name: which checks apply
