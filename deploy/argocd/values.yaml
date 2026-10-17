@@ -1,5 +1,5 @@
-# Argo CD, installed by `make up` with Helm. From then on it deploys everything else from git, but not itself: a change
-# here reaches the cluster at the next `make up`, which upgrades the release in place.
+# Argo CD, installed on the local cluster by `make up` with Helm. From then on it deploys everything else from git, but
+# not itself: a change here reaches the cluster at the next `make up`, which upgrades the release in place.
 
 dex:
   enabled: false
@@ -48,14 +48,15 @@ controller:
   env:
     - name: GOMEMLIMIT
       value: "966367641"
-# It renders each Application's manifests with Kustomize, and peaked at 206Mi.
+# It renders each Application's manifests with Kustomize and Helm, in subprocesses its limit counts, and peaked at
+# 206Mi. A new cluster's first sync renders every chart at once, so it has more room than its peak alone would give.
 repoServer:
   resources:
     requests:
       cpu: 50m
       memory: 128Mi
     limits:
-      memory: 512Mi
+      memory: 1Gi
 # Peaked at 84Mi.
 applicationSet:
   resources:

@@ -6,7 +6,7 @@ Cluster state reconciled from git. Part of the [runtime plane](README.md#runtime
 
 ## Argo CD itself
 
-Argo CD deploys everything but itself. `make up` installs it with Helm from [`deploy/argocd/values.yaml`](../../deploy/argocd/values.yaml), so a change there reaches the cluster at the next `make up`, which upgrades the release in place, and not when it merges. The values give each of its components a memory limit from what it uses, so a bad sync cannot take the memory of what shares its node.
+Argo CD deploys everything but itself. On the local cluster, `make up` installs it with Helm from [`deploy/argocd/values.yaml`](../../deploy/argocd/values.yaml), so a change there reaches the cluster at the next `make up`, which upgrades the release in place, and not when it merges. The values give each of its components a memory limit from what it uses, so a bad sync cannot take the memory of what shares its node.
 
 ## Image pins
 
