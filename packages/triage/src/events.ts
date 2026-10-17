@@ -542,6 +542,26 @@ export function approvedFinding(workItem: string, defect: ParkedDefect, now: Dat
 }
 
 /**
+ * A defect the planner noticed is held again, on the same work item, when a finding joined its hold after Martin
+ * answered it: his answer settles nothing he had not read.
+ */
+export function heldAgain(workItem: string, defect: ParkedDefect, seed: string, now: Date): NewEvent[] {
+  return new Writer(seed, workItem, now).add(
+    'hold.started',
+    'triage',
+    'Waiting for Martin again: the planner noticed it again after he answered',
+    {
+      stage: 'triage',
+      kind: 'held',
+      cause: 'finding',
+      reason:
+        'The planner noticed this defect again after Martin answered, in words his answer did not cover. It waits for a sense to see it, or for his answer to all of them.',
+      defect,
+    },
+  ).events;
+}
+
+/**
  * A defect the planner noticed closes, without a ticket of its own: a ticket now has it (`joined`), or Martin
  * rejected it. `seed` keeps its event's id the same however often triage writes it.
  */

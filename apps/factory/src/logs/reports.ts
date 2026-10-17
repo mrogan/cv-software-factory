@@ -12,6 +12,7 @@
  * read the same way.
  */
 import type { InboxSignal } from '@software-factory/events';
+import { uuidFrom } from '@software-factory/triage';
 import type { Objectives } from '../../../../policy/objectives.ts';
 import { quoted } from '../alerts/queries.ts';
 import type { LogRecord } from '../clients/loki.ts';
@@ -65,4 +66,15 @@ export function signalForReport(
     report: { page, text },
     artifacts: [],
   };
+}
+
+/**
+ * The inbox id of a report record's signal, the same however often the record is read: a UUID from its time, its
+ * line, and the report's own fields, and not from the labels Loki adds, which an upgrade may change. The inbox keeps
+ * the first signal with an id and drops any sent again with it, so a report read twice, by a check that reads back
+ * over its margin or by a watcher that restarted, is left there once.
+ */
+export function reportSignalId(record: LogRecord): string {
+  const { page, text, service_version } = record.fields;
+  return uuidFrom(`report:${JSON.stringify([record.ns, record.line, page, text, service_version])}`);
 }

@@ -96,21 +96,33 @@ describe('the log watcher, against a real inbox', () => {
     ]);
   });
 
-  it('picks up where the last report left off, after a restart', async () => {
+  it('picks up a margin before the last report, after a restart, and leaves no report twice', async () => {
     expect(await lastObserved(database.writer, 'report')).toEqual(new Date('2026-10-03T20:45:00Z'));
     expect(await lastObserved(database.writer, 'probe')).toBeUndefined();
+    const from = await reportsFrom(database.writer, NOW, 24 * 60 * 60 * 1000, 10 * 60_000);
+    expect(from).toEqual(new Date('2026-10-03T20:35:00Z'));
+
+    // The restarted watcher reads the report at 20:45 again, and the inbox keeps the copy it holds.
+    expect(await watcher(from).checkReports(NOW)).toBe(1);
+    const [row] = await database.writer<{ reports: number }[]>`
+      select count(*)::int as reports from inbox where sense = 'report'`;
+    expect(row?.reports).toBe(2);
   });
 });
 
 describe('where reading reports starts', () => {
-  it('goes back a day for an empty store, but never before the store took real work', async () => {
+  it('goes back a day for an empty store, and a margin before the last report, but never before the store took real work', async () => {
     const fresh = await freshDatabase('cursor');
     try {
       const now = new Date('2026-10-04T09:00:00Z');
       const day = 24 * 60 * 60 * 1000;
-      expect(await reportsFrom(fresh.writer, now, day)).toEqual(new Date('2026-10-03T09:00:00Z'));
+      expect(await reportsFrom(fresh.writer, now, day, 10 * 60_000)).toEqual(new Date('2026-10-03T09:00:00Z'));
       await fresh.owner`insert into store (sample, chosen_at) values (false, '2026-10-04T08:30:00Z')`;
-      expect(await reportsFrom(fresh.writer, now, day)).toEqual(new Date('2026-10-04T08:30:00Z'));
+      expect(await reportsFrom(fresh.writer, now, day, 10 * 60_000)).toEqual(new Date('2026-10-04T08:30:00Z'));
+      // Nor does the margin before the last report reach back before it.
+      await fresh.writer`insert into inbox (id, sense, fingerprint, signal) values (${crypto.randomUUID()}, 'report', null,
+        ${fresh.writer.json({ sense: 'report', observedAt: '2026-10-04T08:35:00Z' })})`;
+      expect(await reportsFrom(fresh.writer, now, day, 10 * 60_000)).toEqual(new Date('2026-10-04T08:30:00Z'));
     } finally {
       await fresh.end();
     }
