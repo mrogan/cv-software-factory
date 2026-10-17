@@ -3,7 +3,7 @@
  *
  *     node scripts/commit-msg.ts .git/COMMIT_EDITMSG    # the commit-msg hook
  *     node scripts/commit-msg.ts --title "fix: …"       # CI, on a pull request title
- *     node scripts/commit-msg.ts --title "chore: …" --any-length    # CI, on one of Dependabot's
+ *     node scripts/commit-msg.ts --title "chore: …" --any-length    # CI, on a pull request Dependabot opened
  *
  * Pull requests are squash-merged, so the title is what lands on `main`; CI checks it with the same rules. Dependabot's
  * titles are the one exception to the length: it writes them itself, naming the versions and the directory, and some

@@ -1,5 +1,21 @@
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { problems } from './commit-msg.ts';
+
+const SCRIPT = fileURLToPath(new URL('./commit-msg.ts', import.meta.url));
+
+/** #360's title, 117 characters. */
+const LONG =
+  'chore(deps): Bump nginxinc/nginx-unprivileged from 1.30.5-alpine-slim to 1.31.6-alpine-slim in /deploy/base/telemetry';
+
+/** The script as pr-title.yml runs it, with its exit status. */
+const run = (args: string[]) =>
+  promisify(execFile)(process.execPath, [SCRIPT, ...args]).then(
+    ({ stderr }) => ({ code: 0, err: stderr }),
+    (e: { code: number; stderr: string }) => ({ code: e.code, err: e.stderr }),
+  );
 
 describe('commit messages', () => {
   it.each([
@@ -49,9 +65,28 @@ describe('commit messages', () => {
   });
 
   it("lets Dependabot's titles run long, and checks the rest of them", () => {
-    const title =
-      'chore(deps): Bump nginxinc/nginx-unprivileged from 1.30.5-alpine-slim to 1.31.6-alpine-slim in /deploy/base/telemetry';
-    expect(problems(title, { anyLength: true })).toEqual([]);
-    expect(problems(`${title}.`, { anyLength: true })).toEqual(['leave the full stop off the subject']);
+    expect(problems(LONG, { anyLength: true })).toEqual([]);
+    expect(problems(`${LONG}.`, { anyLength: true })).toEqual(['leave the full stop off the subject']);
+  });
+});
+
+describe('the title check, as pr-title.yml runs it', () => {
+  it('fails a long title', async () => {
+    const { code, err } = await run(['--title', LONG]);
+    expect(code).toBe(1);
+    expect(err).toContain('keep the first line to 100 characters (it is 117)');
+  });
+
+  it.each([
+    ['after the title', ['--title', LONG, '--any-length']],
+    ['before it', ['--any-length', '--title', LONG]],
+  ])('passes it with --any-length %s', async (_, args) => {
+    expect(await run(args)).toEqual({ code: 0, err: '' });
+  });
+
+  it('still checks every other rule with --any-length', async () => {
+    const { code, err } = await run(['--title', `${LONG}.`, '--any-length']);
+    expect(code).toBe(1);
+    expect(err).toContain('leave the full stop off the subject');
   });
 });
