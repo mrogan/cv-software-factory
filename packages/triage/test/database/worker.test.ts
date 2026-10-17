@@ -463,7 +463,7 @@ describe('triage', () => {
   });
 
   describe('a defect the planner noticed, parked', () => {
-    const park = async (route: string, planning = '1') => {
+    const park = async (route: string, planning = '1', text = 'The total is wrong') => {
       await sendSignal(
         writer,
         found({
@@ -471,7 +471,7 @@ describe('triage', () => {
           check: `planning ticket #${planning}`,
           route,
           symptom: undefined,
-          report: { page: route, text: 'The total is wrong' },
+          report: { page: route, text },
           planning,
         }),
       );
@@ -563,11 +563,14 @@ describe('triage', () => {
     it('counts one noticed again into its hold, with its words, so Martin answers it once', async () => {
       const item = await park('/returns');
       // Another planner, planning another ticket, notices the same defect in its own words.
-      expect(await park('/returns', '2')).toBe(item);
+      expect(await park('/returns', '2', 'Refunds come to less than was paid')).toBe(item);
       const signals = await writer<{ payload: PayloadOf<'signal.received'> }[]>`
         select payload from events where work_item = ${item} and type = 'signal.received' order by seq`;
       expect(signals.map((s) => s.payload.planning)).toEqual(['1', '2']);
-      expect(signals.every((s) => s.payload.report?.text === 'The total is wrong')).toBe(true);
+      expect(signals.map((s) => s.payload.report?.text)).toEqual([
+        'The total is wrong',
+        'Refunds come to less than was paid',
+      ]);
       expect((await types(item)).filter((t) => t === 'hold.started')).toHaveLength(1);
       const [joined] = await writer<{ payload: PayloadOf<'judgement.made'> }[]>`
         select payload from events where work_item = ${item} and type = 'judgement.made' order by seq desc limit 1`;
