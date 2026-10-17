@@ -19,6 +19,12 @@ loki:
   limits_config:
     allow_structured_metadata: true
     retention_period: 168h
+  # The compactor applies the retention period, and deletes nothing unless its retention is on. Its working directory
+  # holds the marks of chunks waiting to be deleted, so it sits on the persistent volume and survives a restart.
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+    working_directory: /var/loki/compactor
   analytics:
     reporting_enabled: false
 
