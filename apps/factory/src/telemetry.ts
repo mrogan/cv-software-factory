@@ -10,15 +10,19 @@ import { register } from 'node:module';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { PinoInstrumentation } from '@opentelemetry/instrumentation-pino';
 import { NodeSDK } from '@opentelemetry/sdk-node';
+import { untracedIncoming, untracedOutgoing } from './untraced.ts';
 
 // ES modules are patched through a loader hook, which has to be registered before they are imported.
 register('@opentelemetry/instrumentation/hook.mjs', import.meta.url);
 
 const sdk = new NodeSDK({
   serviceName: process.env.OTEL_SERVICE_NAME ?? `factory-${process.argv[2] ?? 'command'}`,
-  // Kubernetes probes /health every few seconds; a span for each would bury the requests that matter.
+  // Routine polling, in and out, is left out: a span for each would bury the requests that matter.
   instrumentations: [
-    new HttpInstrumentation({ ignoreIncomingRequestHook: (req) => req.url === '/health' }),
+    new HttpInstrumentation({
+      ignoreIncomingRequestHook: untracedIncoming,
+      ignoreOutgoingRequestHook: untracedOutgoing,
+    }),
     new PinoInstrumentation(),
   ],
 });
