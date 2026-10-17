@@ -84,7 +84,7 @@ describe('a report', () => {
     expect(card('1007')).toMatchObject({ outcome: 'quarantined', category: 'red-team', from: '/about' });
     expect(card('1007')?.picture.type).toBe('quarantine');
     expect(card('1007')?.segments.slice(0, 2)).toEqual(['passed', 'closed']);
-    expect(sheet('1007')?.report).toEqual({ page: '/about', quarantined: true, by: 'visitor' });
+    expect(sheet('1007')?.report).toEqual({ page: '/about', quarantined: true, by: 'visitor', times: 1 });
     expect(sheet('1007')?.chapters.find((c) => c.label === 'QUARANTINED')?.tone).toBe('faint');
   });
 
@@ -255,9 +255,30 @@ describe('Triage’s panel', () => {
     const t = AFTERNOON;
     const counts = project([...FIXTURE, ...finding], t).panels.triage.senses;
     expect(counts).toEqual(view.panels.triage.senses);
-    expect(projectSheet(finding, '2001', t)?.report).toEqual({ page: '/contact', quarantined: false, by: 'planner' });
+    expect(projectSheet(finding, '2001', t)?.report).toEqual({
+      page: '/contact',
+      quarantined: false,
+      by: 'planner',
+      times: 1,
+    });
     expect(projectSheet(finding, '2001', t)?.chapters.map((c) => c.label)).toContain('FINDING');
     expect(project(finding, t).cards[0]?.picture.type).toBe('judgement');
+
+    // Noticed again, by another planner in its own words: triage counts it into the hold, which still waits once.
+    const again = work('2001', AFTERNOON - 30_000)
+      .add(0, 'signal.received', 'planner', {
+        sense: 'planner',
+        check: 'planning ticket #1002',
+        route: '/contact',
+        version: 'a'.repeat(40),
+        report: { page: '/contact' },
+      })
+      .add(0.1, 'judgement.made', 'triage', { ...judgement, route: 'repeat', joined: '2001' })
+      .events.map((event) => ({ ...event, id: `${event.id}-again` }));
+    const twice = [...finding, ...again];
+    expect(projectSheet(twice, '2001', t)?.report?.times).toBe(2);
+    expect(projectSheet(twice, '2001', t)?.chapters.filter((c) => c.label === 'FINDING')).toHaveLength(2);
+    expect(project(twice, t).cards.map((card) => [card.number, card.outcome])).toEqual([['2001', 'held']]);
   });
 
   it('pictures a planner’s finding by its page, and keeps a defect it noticed apart from a suggestion once answered', () => {

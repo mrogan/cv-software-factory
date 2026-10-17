@@ -19,7 +19,8 @@
  * - Every report becomes events, judged by Jev: a new ticket, a repeat that joins an open one, or a work item
  *   that says it was quarantined, parked or discarded.
  * - So does every finding the planner leaves, judged the same way and trusted no more, except that it never opens a
- *   ticket: a defect is parked until a sense sees it or Martin opens one. A ticket triage opens with the same
+ *   ticket: a defect is parked until a sense sees it or Martin opens one. Another finding with the fingerprint of one
+ *   parked joins it, as a repeat joins a ticket, so one defect waits for one answer. A ticket triage opens with the same
  *   fingerprint closes it into that ticket; Martin approving it opens its ticket, by the policy's table as a sense's
  *   would be, or joins it to an open ticket that has it; his rejection closes it (`settleOne`). Nothing else opens a
  *   ticket from a finding.
@@ -427,10 +428,24 @@ export class Triage {
         others.find((ticket) =>
           sameFingerprint(ticket.fingerprint, fingerprint, { open: ticket.sense, found: signal.sense }),
         );
-      if (defect && same) {
-        decision.routed = { route: 'repeat', joined: same.workItem };
+      // One fingerprint, one hold: a defect the planner noticed that one held already has is counted into that hold,
+      // its words kept beside the first's, so Martin answers it once. A hold that could not be settled as he answered
+      // is left, and takes no more.
+      const twin =
+        finding &&
+        defect &&
+        !same &&
+        fingerprint &&
+        (await parkedFindings(sql)).find(
+          (parked) =>
+            (this.#settleFailures.get(parked.workItem) ?? 0) < INBOX.attempts &&
+            sameFingerprint(parked.defect.fingerprint, fingerprint, { open: 'planner', found: 'planner' }),
+        );
+      const joins = same || twin;
+      if (defect && joins) {
+        decision.routed = { route: 'repeat', joined: joins.workItem };
         const first = decision.judgements[0];
-        if (first) decision.judgements[0] = { ...first, route: 'repeat', joined: same.workItem };
+        if (first) decision.judgements[0] = { ...first, route: 'repeat', joined: joins.workItem };
       }
       const workItem = decision.routed.route === 'repeat' ? decision.routed.joined : await nextWorkItem(sql);
       if (finding) {

@@ -560,9 +560,29 @@ describe('triage', () => {
       expect(await triage().settleOne()).toBe(false);
     });
 
+    it('counts one noticed again into its hold, with its words, so Martin answers it once', async () => {
+      const item = await park('/returns');
+      // Another planner, planning another ticket, notices the same defect in its own words.
+      expect(await park('/returns', '2')).toBe(item);
+      const signals = await writer<{ payload: PayloadOf<'signal.received'> }[]>`
+        select payload from events where work_item = ${item} and type = 'signal.received' order by seq`;
+      expect(signals.map((s) => s.payload.planning)).toEqual(['1', '2']);
+      expect(signals.every((s) => s.payload.report?.text === 'The total is wrong')).toBe(true);
+      expect((await types(item)).filter((t) => t === 'hold.started')).toHaveLength(1);
+      const [joined] = await writer<{ payload: PayloadOf<'judgement.made'> }[]>`
+        select payload from events where work_item = ${item} and type = 'judgement.made' order by seq desc limit 1`;
+      expect(joined?.payload).toMatchObject({ route: 'repeat', joined: item });
+
+      // Noticed again once he has answered and its hold has closed, it is held on its own, for a new answer.
+      await answer(item, 'rejected');
+      expect(await triage().settleOne()).toBe(true);
+      const late = await park('/returns', '3');
+      expect(late).not.toBe(item);
+      expect(await types(late)).toContain('hold.started');
+    });
+
     it('waits while Martin only answers, and opens its ticket by the policy’s table when he approves', async () => {
       const item = await park('/checkout');
-      const twin = await park('/checkout');
       expect(await triage().settleOne()).toBe(false);
       await answer(item, 'answered');
       expect(await triage().settleOne()).toBe(false);
@@ -578,8 +598,8 @@ describe('triage', () => {
         fingerprint: { route: '/checkout', class: 'wrong-result' },
         traces: [],
       });
-      // One fingerprint, one ticket: the same defect parked again joins it.
-      expect(await closing(twin)).toEqual({ outcome: 'no-change', reason: `Ticket #${item} already has it` });
+      // One fingerprint, one ticket: the same defect noticed again joins it.
+      expect(await park('/checkout', '2')).toBe(item);
       expect(await triage().settleOne()).toBe(false);
     });
 
