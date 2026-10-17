@@ -3,11 +3,13 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DiskArtifacts } from '@software-factory/store';
+import pino from 'pino';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { GitHub } from '../../src/github/client.ts';
 import { carriesIn, carriesSection, DEPLOYS, DeployRefused, deployTitle } from '../../src/github/deploys.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
+import { GitHubWorker } from '../../src/github/worker-client.ts';
 import {
   CLIENT_ID,
   calls,
@@ -604,6 +606,29 @@ describe('the worker over HTTP', () => {
     expect(bad.body.message).toMatch(/branch.*expectedHead.*changes\.additions\.0\.path/s);
     expect(await call('/v1/actions/mergePullRequest', { repo: REPO })).toMatchObject({ status: 404 });
     expect(calls(sent)).toHaveLength(1);
+  });
+
+  it('logs each action with the work item and the agent it is for, and leaves out names a log should not carry', async () => {
+    const logged: Record<string, unknown>[] = [];
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const server = createWorkerServer({
+      actions: new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-17T12:00:00Z')),
+      repositories: [REPO],
+      health: () => ({ mode: 'test' }),
+      log: pino({ level: 'info' }, { write: (line: string) => void logged.push(JSON.parse(line)) }),
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    close = () => server.close();
+    const worker = new GitHubWorker(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    await worker.act('openIssue', REPO, { title: 'A broken link', body: '…' }, { workItem: '1042', agent: 'coder' });
+    await worker.act('openIssue', REPO, { title: 'A broken link', body: '…' });
+    await worker.act('openIssue', REPO, { title: 'A broken link', body: '…' }, { workItem: '1042 forged: yes' });
+    const actions = logged.filter((l) => l.msg === 'github openIssue');
+    expect(actions.map(({ action, repo, workItem, agent }) => ({ action, repo, workItem, agent }))).toEqual([
+      { action: 'openIssue', repo: REPO, workItem: '1042', agent: 'coder' },
+      { action: 'openIssue', repo: REPO, workItem: undefined, agent: undefined },
+      { action: 'openIssue', repo: REPO, workItem: undefined, agent: undefined },
+    ]);
   });
 
   it("keeps a GitHub failure's meaning", async () => {

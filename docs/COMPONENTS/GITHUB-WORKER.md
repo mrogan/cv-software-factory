@@ -32,6 +32,8 @@ Workers ask for actions over HTTP, `POST /v1/actions/<action>`, each body checke
   - closing one, as completed, with a comment once (which a fix verified in production gets);
   - reopening one with a comment (`reopenIssue`, only while it is closed, saying it once since it closed).
 
+The line names the work item an action is for in `x-factory-work-item`, and the agent whose step it carries out in `x-factory-agent`, and the worker's log of the action carries both, so a commit or a pull request is found by its work item. Neither changes what is done.
+
 ### Its branches only
 
 It moves, deletes and commits to the factory's own branches only, and refuses any other before GitHub is asked (`github/branches.ts`):

@@ -195,6 +195,8 @@ describe('the line', () => {
 
     await pass(); // the coder
     expect(github.acts.map((a) => a.action).slice(1)).toEqual(['setBranch', 'applyPatch', 'openPullRequest']);
+    // Each names its work item, and the agent whose step it carries out, for the GitHub worker's log.
+    expect(github.actingFor).toEqual([{ workItem }, ...Array(3).fill({ workItem, agent: 'coder' })]);
     expect(github.acts[1]?.args).toEqual({
       branch: `factory/${workItem}-server-errors-on-search`,
       sha: MAIN,

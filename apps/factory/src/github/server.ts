@@ -3,7 +3,8 @@
  * the only pod with the App's key.
  *
  *     POST /v1/actions/<action>   one of `Actions`, with its arguments as JSON; its result out. With the header
- *                                 `x-factory-dry-run: true` it is recorded in the artifact store and not done
+ *                                 `x-factory-dry-run: true` it is recorded in the artifact store and not done;
+ *                                 `x-factory-work-item` and `x-factory-agent` name what it is for, in its log
  *     POST /v1/reads/<read>       one of `Reads` (`reads.ts`), with its arguments as JSON; what GitHub says out.
  *                                 With `x-factory-dry-run: true`, what the dry run made reads as it would have
  *                                 been (`dry-run-reads.ts`), and anything else as GitHub says
@@ -144,6 +145,31 @@ export type ActionName = Name;
 export type ActionArgs = { [K in Name]: z.input<(typeof ARGS)[K]> };
 export type ActionResult<K extends Name> = Awaited<ReturnType<Actions[K]>>;
 
+/** The headers that name what an action is taken for, so the worker's log of it can be found by its work item. */
+export const WORK_ITEM_HEADER = 'x-factory-work-item';
+export const AGENT_HEADER = 'x-factory-agent';
+
+/** The work item, and the agent, an action is taken for: neither is needed, and neither changes what is done. */
+export interface ActingFor {
+  workItem?: string | undefined;
+  agent?: string | undefined;
+}
+
+/** A work item's id or an agent's name, as a log may carry it: anything else a caller sends is left out. */
+const NAMED = /^[A-Za-z0-9-]{1,64}$/;
+
+function actingFor(req: IncomingMessage): ActingFor {
+  const on: ActingFor = {};
+  for (const [key, header] of [
+    ['workItem', WORK_ITEM_HEADER],
+    ['agent', AGENT_HEADER],
+  ] as const) {
+    const value = req.headers[header];
+    if (typeof value === 'string' && NAMED.test(value)) on[key] = value;
+  }
+  return on;
+}
+
 /** Each action's call, from its checked arguments. */
 const CALLS: { [K in Name]: (actions: Actions, repo: string, args: z.infer<(typeof ARGS)[K]>) => Promise<unknown> } = {
   setBranch: (x, repo, { branch, sha, force }) => x.setBranch(repo, branch, sha, force === undefined ? {} : { force }),
@@ -271,7 +297,7 @@ export function createWorkerServer({
     res.end(JSON.stringify(body));
   };
 
-  const handle = async (req: IncomingMessage, res: ServerResponse) => {
+  const handle = async (req: IncomingMessage, res: ServerResponse, on: ActingFor) => {
     const { pathname } = new URL(req.url ?? '/', 'http://github');
     if (pathname === '/health') return send(res, 200, { status: 'ok', ...health() });
     // A dry run when asked for, such as the smoke run's, even from a worker that acts.
@@ -313,23 +339,24 @@ export function createWorkerServer({
       repo,
       parsed.data,
     );
-    log.info({ action: name, repo, dryRun: actions.dryRun }, `github ${name}`);
+    log.info({ action: name, repo, ...on, dryRun: actions.dryRun }, `github ${name}`);
     send(res, 200, { result: result ?? null, dryRun: actions.dryRun });
   };
 
   return createServer((req, res) => {
-    handle(req, res).catch((error: unknown) => {
+    const on = actingFor(req);
+    handle(req, res, on).catch((error: unknown) => {
       if (res.headersSent) return void res.destroy();
       if (error instanceof PatchRefused) {
-        log.warn({ message: error.message }, 'a patch was refused');
+        log.warn({ ...on, message: error.message }, 'a patch was refused');
         return send(res, 422, { error: 'patch-refused', message: error.message });
       }
       if (error instanceof BranchRefused) {
-        log.warn({ message: error.message }, 'a branch was refused');
+        log.warn({ ...on, message: error.message }, 'a branch was refused');
         return send(res, 422, { error: 'branch-refused', message: error.message });
       }
       if (error instanceof DeployRefused) {
-        log.warn({ message: error.message }, 'a deploy was refused');
+        log.warn({ ...on, message: error.message }, 'a deploy was refused');
         return send(res, 422, { error: 'deploy-refused', message: error.message });
       }
       if (error instanceof RegistryError) {
@@ -337,10 +364,10 @@ export function createWorkerServer({
         return send(res, 502, { error: 'registry', message: error.message });
       }
       if (error instanceof GitHubError) {
-        log.warn({ kind: error.kind, status: error.status, message: error.message }, 'github refused an action');
+        log.warn({ ...on, kind: error.kind, status: error.status, message: error.message }, 'github refused an action');
         return send(res, STATUS[error.kind], { error: error.kind, message: error.message });
       }
-      log.error({ err: error }, 'action failed');
+      log.error({ ...on, err: error }, 'action failed');
       send(res, 500, { error: 'internal', message: 'The action failed; the worker logged why.' });
     });
   });

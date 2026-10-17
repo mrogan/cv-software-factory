@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { issueJobToken, jobForToken } from '@software-factory/store';
+import pino, { type Logger } from 'pino';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../packages/store/test/database.ts';
 import { type Handback, RESULT_BYTES as RUNNER_RESULT_BYTES, type Step } from '../../runner/src/step.ts';
@@ -183,7 +184,7 @@ beforeAll(async () => {
 });
 afterAll(() => database?.end());
 
-async function line(agent: Parameters<typeof fakeKube>[0], prepare?: 'succeeded' | 'failed') {
+async function line(agent: Parameters<typeof fakeKube>[0], prepare?: 'succeeded' | 'failed', log: Logger = quiet) {
   const { kube, calls } = fakeKube(agent, prepare);
   let handbackUrl = '';
   const runners = new Runners({
@@ -192,7 +193,7 @@ async function line(agent: Parameters<typeof fakeKube>[0], prepare?: 'succeeded'
     image: 'runner',
     gatewayUrl: 'http://gateway',
     handbackUrl: 'http://line/v1/handback',
-    log: quiet,
+    log,
     pollMs: 10,
     graceMs: 10,
     lookup: async () => '10.43.0.9',
@@ -284,6 +285,26 @@ describe('a step’s attempts and results', () => {
     await close();
     expect(first).toEqual({ kind: 'handed-back', job: 'coder-1005-1-1', handback: withResult });
     expect(again).toMatchObject({ kind: 'handed-back', job: 'coder-1005-1-2' });
+  });
+
+  it('logs a handback with its work item and agent, from the job token', async () => {
+    const logged: Record<string, unknown>[] = [];
+    const log = pino({ level: 'info' }, { write: (line: string) => void logged.push(JSON.parse(line)) });
+    const { runners, handbackUrl, close } = await line(
+      (env) => handBack(handbackUrl, env.ANTHROPIC_API_KEY ?? '', DONE).then(() => {}),
+      undefined,
+      log,
+    );
+    await runners.run({ ...STEP, workItem: '1019', round: 1, deadlineSeconds: 60 });
+    await close();
+    const { job, workItem, agent, ending, patch } = logged.find((l) => l.msg === 'handed back') ?? {};
+    expect({ job, workItem, agent, ending, patch }).toEqual({
+      job: 'coder-1019-1-1',
+      workItem: '1019',
+      agent: 'coder',
+      ending: 'finished',
+      patch: DONE.patch.length,
+    });
   });
 
   it('refuses a result over its limit', async () => {

@@ -68,13 +68,18 @@ export async function smoke({
 }): Promise<SmokeResult> {
   const repo = SMOKE_REPOSITORY;
   // The scratch copy's base, as the dry-run worker remembers it: main with the seed on it.
-  await github.act('setBranch', repo, { branch: SMOKE_BRANCH, sha: commit, force: true });
-  const base = await github.act('applyPatch', repo, {
-    branch: SMOKE_BRANCH,
-    expectedHead: commit,
-    patch: SMOKE_SEED,
-    message: 'chore: the smoke run’s seeded defect',
-  });
+  await github.act('setBranch', repo, { branch: SMOKE_BRANCH, sha: commit, force: true }, { workItem });
+  const base = await github.act(
+    'applyPatch',
+    repo,
+    {
+      branch: SMOKE_BRANCH,
+      expectedHead: commit,
+      patch: SMOKE_SEED,
+      message: 'chore: the smoke run’s seeded defect',
+    },
+    { workItem },
+  );
   const outcome = await runners.run({
     workItem,
     round,
@@ -92,11 +97,16 @@ export async function smoke({
   const fenced = fence(outcome.handback.patch, SMOKE_SCOPE);
   log.info({ ok: fenced.ok, paths: fenced.paths }, 'the smoke run’s patch, fenced');
   if (!fenced.ok) return { outcome, fence: fenced, commit: null };
-  const made = await github.act('applyPatch', repo, {
-    branch: SMOKE_BRANCH,
-    expectedHead: base,
-    patch: outcome.handback.patch,
-    message: `fix(smoke): count the last index from zero\n\n${outcome.handback.note}`.slice(0, 9_000),
-  });
+  const made = await github.act(
+    'applyPatch',
+    repo,
+    {
+      branch: SMOKE_BRANCH,
+      expectedHead: base,
+      patch: outcome.handback.patch,
+      message: `fix(smoke): count the last index from zero\n\n${outcome.handback.note}`.slice(0, 9_000),
+    },
+    { workItem, agent: 'coder' },
+  );
   return { outcome, fence: fenced, commit: made };
 }
