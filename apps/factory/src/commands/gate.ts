@@ -8,8 +8,9 @@
  * passes on the base and fails on the change twice (`gates/journeys.ts`). It observes the two apps at once; the second
  * time, it runs only the probes that failed, and the crawl only when one of its checks did. It writes its summary as
  * Markdown to the file, or prints it. CRAWL_LIMIT caps the crawl, 150 by default. With COMPARISON_FILE set, it also
- * writes the checks that regressed there as JSON (`comparisonMessage`): the canary's analysis sets it to the Job's
- * termination message, which the line reads when the journeys fail a release. Its requests carry `UNMEASURED`, so
+ * writes the checks that regressed there as JSON, with how many passed of how many ran on each app
+ * (`comparisonMessage`): the canary's analysis sets it to the Job's termination message, which the line reads at each
+ * step for the counts, and when the journeys fail a release for the checks. Its requests carry `UNMEASURED`, so
  * that in a canary's analysis they do not count in the errors and latency it judges.
  */
 import { appendFile, mkdtemp, writeFile } from 'node:fs/promises';

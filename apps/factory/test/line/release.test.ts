@@ -274,10 +274,16 @@ describe('the line’s watch of the app’s release', () => {
     // A deploy merged: the canary starts, and its first step's analysis ends.
     const t0 = new Date(now).toISOString();
     kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 });
-    kube.runs = [
-      run({ created: t0, phase: 'Running' }),
-      run({ step: 2, created: t0, completed: new Date(now + 3.5 * 60_000).toISOString() }),
-    ];
+    // The step's journeys Job counted the checks on each version.
+    const step = run({ step: 2, created: t0, completed: new Date(now + 3.5 * 60_000).toISOString() });
+    const job = `${step.metadata.uid}.journeys.1`;
+    const journeys = step.status.metricResults.find((m) => m.name === 'journeys');
+    for (const m of journeys?.measurements ?? []) m.metadata = { 'job-name': job, 'job-namespace': 'website' };
+    kube.messages.set(
+      job,
+      JSON.stringify({ regressions: [], counts: { base: { passed: 41, ran: 48 }, change: { passed: 40, ran: 48 } } }),
+    );
+    kube.runs = [run({ created: t0, phase: 'Running' }), step];
     await it.tick();
     for (const workItem of carried) {
       expect(await typesOf(workItem)).toEqual(['release.started by rollouts', 'canary.stepped by rollouts']);
@@ -291,8 +297,8 @@ describe('the line’s watch of the app’s release', () => {
     ]);
     const [stepped] = await payloads(carried[0] as string, 'canary.stepped');
     expect(stepped?.figures).toEqual({
-      canary: { requests: 224, errorRate: 0.004, p99Ms: 124, journeys: null },
-      baseline: { requests: 640, errorRate: 0.002, p99Ms: 118, journeys: null },
+      canary: { requests: 224, errorRate: 0.004, p99Ms: 124, journeys: [40, 48] },
+      baseline: { requests: 640, errorRate: 0.002, p99Ms: 118, journeys: [41, 48] },
     });
     expect(stepped?.weight).toBe(25);
     expect(asked.filter((path) => path === '/api/v1/query')).toHaveLength(6);

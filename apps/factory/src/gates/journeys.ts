@@ -38,7 +38,14 @@ export interface Comparison {
   flaky: Seen[];
   /** Fail on the change, where the base could not tell. */
   unsure: Seen[];
-  checks: number;
+  /** How many checks ran on each, and how many of those passed: on the change, a check that failed once and then passed. */
+  counts: { base: Count; change: Count };
+}
+
+/** How many checks ran, and how many of those passed. */
+export interface Count {
+  passed: number;
+  ran: number;
 }
 
 export const keyOf = (s: Pick<Seen, 'sense' | 'check' | 'route'>) => `${s.sense} ${s.check} ${s.route}`;
@@ -63,13 +70,18 @@ export async function compareJourneys(observe: Observe, base: string, change: st
   const candidates = first.filter((s) => bad(s) && passed(s));
   const again = candidates.length ? index(await observe(change, candidates)) : new Map<string, Seen>();
   const after = index(first);
+  const regressions = candidates.filter((s) => bad(again.get(keyOf(s)))).map((s) => again.get(keyOf(s)) ?? s);
+  const flaky = candidates.filter((s) => !bad(again.get(keyOf(s))));
   return {
-    regressions: candidates.filter((s) => bad(again.get(keyOf(s)))).map((s) => again.get(keyOf(s)) ?? s),
-    flaky: candidates.filter((s) => !bad(again.get(keyOf(s)))),
+    regressions,
+    flaky,
     unsure: failing.filter((s) => !before.get(keyOf(s))?.failed && before.get(keyOf(s))?.trouble),
     unchanged: failing.filter((s) => before.get(keyOf(s))?.failed),
     fixed: [...before.values()].filter((s) => s.failed && after.has(keyOf(s)) && !after.get(keyOf(s))?.failed),
-    checks: first.length,
+    counts: {
+      base: { passed: seenOnBase.filter((s) => !bad(s)).length, ran: seenOnBase.length },
+      change: { passed: first.filter((s) => !bad(s)).length + flaky.length, ran: first.length },
+    },
   };
 }
 
@@ -94,7 +106,7 @@ export function summary(c: Comparison): string {
     '## Journeys',
     c.regressions.length
       ? `${c.regressions.length} check${c.regressions.length === 1 ? '' : 's'} that pass on the base fail on this change, twice.\n\n${table(c.regressions)}`
-      : `Nothing that passes on the base fails on this change (${c.checks} checks).`,
+      : `Nothing that passes on the base fails on this change (${c.counts.change.ran} checks).`,
   ];
   if (c.fixed.length) parts.push(`### Fixed\n\nFail on the base and pass on this change.\n\n${table(c.fixed)}`);
   if (c.flaky.length)
@@ -107,10 +119,10 @@ export function summary(c: Comparison): string {
 }
 
 /**
- * The comparison's regressions as one line of JSON, for whoever ran the gate to read back: the canary's analysis runs
- * it as a Job, and the line reads what it wrote from its container's termination message, which Kubernetes keeps to
- * 4 KiB. So it says only what a signal needs of each check, its words cut short, as many as fit, and how many more
- * there were.
+ * The comparison's regressions and counts as one line of JSON, for whoever ran the gate to read back: the canary's
+ * analysis runs it as a Job, and the line reads what it wrote from its container's termination message, which
+ * Kubernetes keeps to 4 KiB. So it says how many checks passed of how many ran on each side, and only what a signal
+ * needs of each check that regressed, its words cut short, as many as fit, and how many more there were.
  */
 export function comparisonMessage(c: Comparison, maxBytes = MESSAGE_BYTES): string {
   const all = c.regressions.slice(0, MOST_REGRESSIONS).map((s) => ({
@@ -122,10 +134,10 @@ export function comparisonMessage(c: Comparison, maxBytes = MESSAGE_BYTES): stri
   }));
   for (let n = all.length; n >= 0; n--) {
     const more = c.regressions.length - n;
-    const text = JSON.stringify({ regressions: all.slice(0, n), ...(more ? { more } : {}) });
+    const text = JSON.stringify({ regressions: all.slice(0, n), ...(more ? { more } : {}), counts: c.counts });
     if (Buffer.byteLength(text) <= maxBytes) return text;
   }
-  return JSON.stringify({ regressions: [], more: c.regressions.length });
+  return JSON.stringify({ regressions: [], more: c.regressions.length, counts: c.counts });
 }
 
 /** Kubernetes keeps 4096 bytes of a container's termination message. */
@@ -148,21 +160,33 @@ const regression = z.object({
 });
 export type Regression = z.infer<typeof regression>;
 
+const count = z
+  .object({ passed: z.number().int().min(0), ran: z.number().int().min(0) })
+  .refine((c) => c.passed <= c.ran);
+
 const message = z.object({
   regressions: z.array(regression).max(MOST_REGRESSIONS),
   more: z.number().int().min(0).optional(),
+  /** Missing from what an older gate wrote, and dropped when it is not counts, leaving the regressions to be read. */
+  counts: z.object({ base: count, change: count }).optional().catch(undefined),
 });
+export type ComparisonMessage = z.infer<typeof message>;
 
 /**
- * The regressions a comparison message names, or undefined for one that is missing, is not JSON, or does not say what
+ * What a comparison message says, or undefined for one that is missing, is not JSON, or does not say what
  * `comparisonMessage` writes: the gate crashed before writing it, or something else wrote there.
  */
-export function regressionsIn(text: string | undefined): Regression[] | undefined {
+export function comparisonIn(text: string | undefined): ComparisonMessage | undefined {
   if (!text?.trim()) return undefined;
   try {
     const parsed = message.safeParse(JSON.parse(text));
-    return parsed.success ? parsed.data.regressions : undefined;
+    return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** The regressions a comparison message names, or undefined for one that is not a comparison message (`comparisonIn`). */
+export function regressionsIn(text: string | undefined): Regression[] | undefined {
+  return comparisonIn(text)?.regressions;
 }

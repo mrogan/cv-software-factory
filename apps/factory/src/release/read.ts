@@ -1,6 +1,6 @@
 /**
  * What the line reads of a release, and nothing it could change: the app's Rollout and its AnalysisRuns, and the
- * journeys Jobs' pods for what they found, through the Kubernetes API (get and list, in `website` only:
+ * journeys Jobs' pods for what they found and counted, through the Kubernetes API (get and list, in `website` only:
  * deploy/base/analysis/line-reads-release.yaml), and each version's figures from Prometheus, by the pod-template hash
  * Argo Rollouts gives it. It polls; it never watches.
  *
@@ -11,7 +11,7 @@ import type { PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
 import { release as policy, type Release } from '../../../../policy/release.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
-import { type Regression, regressionsIn } from '../gates/journeys.ts';
+import { comparisonIn, type Regression } from '../gates/journeys.ts';
 import type { Kube } from '../runners/kube.ts';
 import { routeQueries, versionQueries } from './analysis.ts';
 
@@ -86,6 +86,8 @@ const measurement = z.object({
   /** For a Job's measure, the Job that took it: `job-name`. */
   metadata: z.record(z.string(), z.string()).optional(),
 });
+
+type Measurement = z.infer<typeof measurement>;
 
 /** One of the release's AnalysisRuns, as far as the watch reads it. */
 export const analysisRunSchema = z.object({
@@ -173,7 +175,8 @@ export function hashesOf(run: AnalysisRun): { stable: string; canary: string } |
 
 /**
  * Each version's own figures over the window that ended at `at`, from the app's telemetry by its pod-template hash.
- * A figure with nothing to measure is null. The journeys give a pass or a fail, not counts, so theirs is null.
+ * A figure with nothing to measure is null. The journeys' counts are not Prometheus's (`journeysCounted`), so they are
+ * null here.
  */
 export async function figuresAt(
   prometheus: Prometheus,
@@ -343,10 +346,51 @@ export type Journeys = { kind: 'found'; regressions: Regression[] } | { kind: 'r
  * the run's namespace only, and reads a pod whose container ended before one that has not.
  */
 export async function journeysOf(kube: Kube, namespace: string, run: AnalysisRun): Promise<Journeys> {
-  const measurements = run.status.metricResults.find((m) => m.name === 'journeys')?.measurements ?? [];
+  const measurements = journeysMeasurements(run);
   const failed = [...measurements].reverse().find((m) => m.phase === 'Failed') ?? measurements.at(-1);
-  const job = failed?.metadata?.['job-name'];
-  const where = failed?.metadata?.['job-namespace'];
+  const read = await messagesOf(kube, namespace, failed);
+  if (read.kind !== 'ended') return read;
+  const regressions = read.messages.map((m) => comparisonIn(m)?.regressions).find((r) => r?.length);
+  return regressions ? { kind: 'found', regressions } : { kind: 'lost' };
+}
+
+/**
+ * How many of the journeys' checks passed, of how many ran, on each version, as the Job of the run's latest journeys
+ * measurement wrote them (`comparisonMessage`): the canary is the change, and the baseline the base. Undefined while
+ * the Job has not ended, when it or its pod is gone, or when its message holds no counts (a gate that crashed, or one
+ * from before the gate counted).
+ */
+export async function journeysCounted(
+  kube: Kube,
+  namespace: string,
+  run: AnalysisRun,
+): Promise<{ canary: [number, number]; baseline: [number, number] } | undefined> {
+  const read = await messagesOf(kube, namespace, journeysMeasurements(run).at(-1));
+  if (read.kind !== 'ended') return undefined;
+  const counts = read.messages.map((m) => comparisonIn(m)?.counts).find((c) => c !== undefined);
+  if (!counts) return undefined;
+  return {
+    canary: [counts.change.passed, counts.change.ran],
+    baseline: [counts.base.passed, counts.base.ran],
+  };
+}
+
+const journeysMeasurements = (run: AnalysisRun) =>
+  run.status.metricResults.find((m) => m.name === 'journeys')?.measurements ?? [];
+
+/**
+ * The termination messages of a journeys measurement's Job, from its pod, found by the `job-name` label Kubernetes
+ * gives it, in the run's namespace only: `ended`, with each ended container's message; `running`, while the pod is
+ * there and its container has not ended (or has no status yet); `lost`, when the measurement names no Job, or there is
+ * no such pod.
+ */
+async function messagesOf(
+  kube: Kube,
+  namespace: string,
+  measurement: Measurement | undefined,
+): Promise<{ kind: 'ended'; messages: (string | undefined)[] } | { kind: 'running' } | { kind: 'lost' }> {
+  const job = measurement?.metadata?.['job-name'];
+  const where = measurement?.metadata?.['job-namespace'];
   if (!job || !JOB_NAME.test(job) || (where !== undefined && where !== namespace)) return { kind: 'lost' };
   const selector = encodeURIComponent(`job-name=${job}`);
   const pods = await kube.get(
@@ -359,6 +403,5 @@ export async function journeysOf(kube: Kube, namespace: string, run: AnalysisRun
     .filter((container) => container.name === 'journeys' && container.state?.terminated);
   // A pod is listed before its container has a status (Pending, pulling its image): it is still to run.
   if (!ended.length) return items.length ? { kind: 'running' } : { kind: 'lost' };
-  const regressions = ended.map((c) => regressionsIn(c.state?.terminated?.message)).find((r) => r?.length);
-  return regressions ? { kind: 'found', regressions } : { kind: 'lost' };
+  return { kind: 'ended', messages: ended.map((c) => c.state?.terminated?.message) };
 }

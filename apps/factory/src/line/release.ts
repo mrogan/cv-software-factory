@@ -7,7 +7,8 @@
  *   GHCR), and the work items it carries (`carried`): those whose fixes merged between the commit the last promoted
  *   release runs and the new image's, as the deploy pull request lists them. For a version found live, each merged
  *   work item no release has carried whose fix is already in it. A commit GitHub never had (a dry run's) is in neither.
- * - for each step, each version's figures from Prometheus; for a rollback, the series of each failed measure.
+ * - for each step, each version's figures from Prometheus, and how many of the journeys' checks passed of how many ran,
+ *   from the Job's termination message; for a rollback, the series of each failed measure.
  * - for an abort, who made it: Stop the line, which records the line's stop and then aborts every release in flight,
  *   when the line's last word before the abort is that it stopped, within the minute before; otherwise Martin, by
  *   hand. Argo Rollouts keeps the abort's time to the second, cut short, so a stop recorded within the second after
@@ -43,6 +44,7 @@ import { GitHubWorkerError } from '../github/worker-client.ts';
 import {
   figuresAt,
   hashesOf,
+  journeysCounted,
   journeysOf,
   type RolloutRef,
   readRollout,
@@ -155,7 +157,15 @@ export class Releases {
       const at = run.status.completedAt;
       if (!hashes || !at) continue;
       try {
-        figures.set(run.metadata.name, await figuresAt(prometheus, hashes, new Date(at)));
+        const read = await figuresAt(prometheus, hashes, new Date(at));
+        const journeys = await journeysCounted(kube, rollout.namespace, run).catch((error: unknown) => {
+          log.warn({ run: run.metadata.name, err: error }, 'could not read the journeys’ counts at a step');
+          return undefined;
+        });
+        figures.set(run.metadata.name, {
+          canary: { ...read.canary, journeys: journeys?.canary ?? null },
+          baseline: { ...read.baseline, journeys: journeys?.baseline ?? null },
+        });
       } catch (error) {
         log.warn({ run: run.metadata.name, err: error }, 'could not read a step’s figures');
       }
