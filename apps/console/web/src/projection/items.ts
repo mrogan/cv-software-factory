@@ -12,7 +12,7 @@ import type {
   Screenshot,
   Stage,
 } from '@software-factory/events';
-import { STAGES } from '@software-factory/events';
+import { STAGES, WORDS_LEAVE_HELD } from '@software-factory/events';
 import type { StoppedBy } from './release.ts';
 
 /**
@@ -358,6 +358,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         };
         break;
       case 'hold.answered':
+        // Words settle nothing for a hold of triage's or a deploy's, as the line reads them: it still waits for Martin.
+        if (event.payload.decision === 'answered' && state.hold && WORDS_LEAVE_HELD.includes(state.hold.cause)) break;
         state.hold = undefined;
         break;
       case 'release.started':

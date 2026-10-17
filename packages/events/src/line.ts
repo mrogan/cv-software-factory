@@ -3,7 +3,7 @@
  * path, and a return's few words. One copy, here, because the console's image holds the events package and not the
  * factory's code, and two copies of a rule drift apart. Plain values, so the browser can import them.
  */
-import type { Stage } from './vocabulary.ts';
+import type { HoldCause, Stage } from './vocabulary.ts';
 
 /** How far the line lets a work item go round before it holds for Martin. */
 export const LIMITS = {
@@ -31,6 +31,13 @@ export const LIMITS = {
    */
   suggestions: 1,
 } as const;
+
+/**
+ * The causes of a hold that an answer in words leaves standing: triage's, which wait for Martin to approve or reject
+ * what they hold, and a deploy's, which waits for his merge of a deploy pull request. His words settle none of them,
+ * so the work item stays held, and Needs you lists it, until he does. The line's `ANSWERS` has each wait for an answer.
+ */
+export const WORDS_LEAVE_HELD: readonly HoldCause[] = ['suggestion', 'finding', 'burst', 'environment', 'deploy'];
 
 /**
  * A scope entry as a pattern: a file (`src/money.ts`), a folder ending in `/` (`test/`), or a pattern with `*` (one
