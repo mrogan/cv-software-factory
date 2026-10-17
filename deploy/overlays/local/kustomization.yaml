@@ -21,3 +21,10 @@ patches:
       - op: add
         path: /spec/sources/0/helm/valueFiles/-
         value: $values/deploy/overlays/local/values/grafana.yaml
+  - target:
+      kind: Application
+      name: prometheus
+    patch: |
+      - op: add
+        path: /spec/sources/0/helm/valueFiles/-
+        value: $values/deploy/overlays/local/values/prometheus.yaml
