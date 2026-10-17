@@ -71,9 +71,9 @@ The GitHub milestones are the plan's: `Milestone 6: Shipping safely` is mileston
 5. **Show Martin the draft**: the repository, the title, the label, the milestone, and the body exactly as it will appear. Filing is public and outward-facing, so wait for his yes. If he has already said "file it", one look at the draft is still owed for anything longer than a few lines.
 6. **File it** with the body from a file, so nothing is mangled by the shell:
    ```sh
-   gh issue create -R mrogan/cv-software-factory --title "<title>" --label <label> [--milestone "<milestone>"] --body-file <scratch file>
+   gh issue create -R mrogan/cv-software-factory --title "<title>" --label <label> [--milestone "<milestone>"] --body-file <scratch file> [--attach <image>]
    ```
-   Write the body file in the session's scratchpad, not the repository. Screenshots cannot be attached through `gh`; say where to drag them in, or link one already public.
+   Write the body file in the session's scratchpad, not the repository. `--attach` uploads a screenshot or video. Reference it in the body by the same path (`![<alt text>](./scratch/screenshots/x.png)`) to place it where it belongs; `gh` rewrites the reference to the uploaded file. Otherwise it is added at the end. Give every image alt text that says what it shows.
 7. **Give back the link**, and nothing else to report.
 
 ## Examples
