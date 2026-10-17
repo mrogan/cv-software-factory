@@ -424,9 +424,8 @@ const SHAPES: Record<RowState, ReactElement> = {
  * the reel's "In progress" does; stopped, capped or held, the station is not at work on it, and it stays faint.
  */
 function StatusIcon({ state, working }: { state: RowState; working?: true | undefined }) {
-  // Held and verified take their row's tone.
   return (
-    <svg className={`glyph sicon ${working ? 'tone-signal blink' : ''}`} viewBox="0 0 12 12" aria-hidden="true">
+    <svg className={working ? 'glyph sicon tone-signal blink' : 'glyph sicon'} viewBox="0 0 12 12" aria-hidden="true">
       {SHAPES[state]}
     </svg>
   );
