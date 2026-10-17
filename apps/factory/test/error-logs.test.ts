@@ -1,3 +1,4 @@
+import type { InboxSignal } from '@software-factory/events';
 import pino from 'pino';
 import { describe, expect, it } from 'vitest';
 import { objectives } from '../../../policy/objectives.ts';
@@ -58,7 +59,7 @@ describe('the error records Loki is asked for', () => {
     expect(sameError(cut, keptLine(cut).message, line, everything.route ?? '')).toBe(true);
 
     const tempo = { spans: async () => undefined } as unknown as Tempo;
-    const signal = async (r: LogRecord) => signalForPattern({ pattern: 'p', records: [r] }, tempo);
+    const signal = async (r: LogRecord) => signalForPattern({ pattern: 'p', records: [r], count: 1 }, tempo);
     expect(await signal(cut)).toEqual(await signal(whole));
 
     // A record with no exception is told by its line, its path put back to its route, and its level by its severity.
@@ -120,5 +121,121 @@ describe('learning the day’s patterns when the watcher starts', () => {
 
     await watcher.checkErrors(new Date(at.getTime() + 60_000));
     expect(sent).toEqual([]);
+  });
+});
+
+/** A Loki that holds these records and answers a range as it does: from `start` on, before `end`, `limit` at most. */
+function lokiOf(held: [bigint, string, Record<string, string>][], seen: URL[] = []) {
+  return new Loki(
+    'http://loki',
+    fakeFetch(
+      [
+        {
+          path: '/loki/api/v1/query_range',
+          answer: (url) => {
+            const start = BigInt(url.searchParams.get('start') ?? '0');
+            const end = BigInt(url.searchParams.get('end') ?? '0');
+            const limit = Number(url.searchParams.get('limit'));
+            const range = held.filter(([ns]) => ns >= start && ns < end).slice(0, limit);
+            return streams(
+              ...range.map(([ns, line, fields]): [string, string, Record<string, string>] => [
+                String(ns),
+                line,
+                fields,
+              ]),
+            );
+          },
+        },
+      ],
+      seen,
+    ),
+  );
+}
+
+describe('reading Loki a page at a time, where records share a nanosecond', () => {
+  const from = new Date('2026-10-17T08:00:00Z');
+  const to = new Date('2026-10-17T09:00:00Z');
+  const at = (ms: number) => BigInt(from.getTime() + ms) * 1_000_000n;
+
+  it('gives every record of a nanosecond a page ends among, once', async () => {
+    // 4,998 records, then four at one nanosecond: the first page ends among them.
+    const held: [bigint, string, Record<string, string>][] = [
+      ...Array.from({ length: 4998 }, (_, i): [bigint, string, Record<string, string>] => [at(i), 'a', {}]),
+      ...['b', 'c', 'd', 'e'].map((line): [bigint, string, Record<string, string>] => [at(5000), line, { n: line }]),
+      [at(6000), 'f', {}],
+    ];
+    const records = await lokiOf(held).records('{}', from, to, Number.POSITIVE_INFINITY);
+    expect(records).toHaveLength(held.length);
+    expect(records.slice(-5).map((r) => r.line)).toEqual(['b', 'c', 'd', 'e', 'f']);
+  });
+
+  it('moves past a nanosecond with more records than a page holds, and does not go round', async () => {
+    const held: [bigint, string, Record<string, string>][] = [
+      ...Array.from({ length: 5500 }, (_, i): [bigint, string, Record<string, string>] => [at(10), `x${i}`, {}]),
+      [at(20), 'after', {}],
+    ];
+    const seen: URL[] = [];
+    const records = await lokiOf(held, seen).records('{}', from, to, Number.POSITIVE_INFINITY);
+    // Loki cannot page within a nanosecond: the page it holds is read, and the reading goes on after it.
+    expect(records).toHaveLength(5001);
+    expect(records.at(-1)?.line).toBe('after');
+    expect(seen.length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe('checking a window of errors bigger than a read used to hold', () => {
+  const from = new Date('2026-10-17T08:00:00Z');
+  const at = (ms: number) => BigInt(from.getTime() + ms) * 1_000_000n;
+  const fields = (route: string) => ({ route, service_version: 'v1.4.2' });
+  /** 24,000 records of an error the watcher has not seen, over five pages, and one of another after them all. */
+  const held: [bigint, string, Record<string, string>][] = [
+    ...Array.from({ length: 24_000 }, (_, i): [bigint, string, Record<string, string>] => [
+      at(i),
+      `GET /search failed after ${i} ms`,
+      fields('/search'),
+    ]),
+    [at(30_000), 'GET /about failed', fields('/about')],
+  ];
+
+  const watcher = (loki: Loki, outbox: { send: (signal: InboxSignal) => Promise<void> }) =>
+    new Watcher(
+      {
+        objectives,
+        loki,
+        tempo: { spans: async () => undefined } as unknown as Tempo,
+        outbox,
+        log: pino({ level: 'silent' }),
+      } as never,
+      { errors: from, reports: from },
+      { settleMs: 0, agreementWindowMs: 300_000, agreementLagMs: 0 },
+    );
+
+  it('reads every record, and a pattern over many pages is one signal with them all counted', async () => {
+    const sent: InboxSignal[] = [];
+    const check = watcher(lokiOf(held), { send: async (signal) => void sent.push(signal) });
+    expect(await check.checkErrors(new Date(from.getTime() + 60_000))).toBe(2);
+    expect(sent.map((signal) => signal.route)).toEqual(['/search', '/about']);
+    const evidence = sent[0]?.evidence?.[0];
+    expect(evidence).toMatchObject({ kind: 'logs', requests: 24_000 });
+    // The lines are the last twenty, as when the window was read at once.
+    const lines = evidence?.kind === 'logs' ? evidence.lines.map((line) => line.message) : [];
+    expect(lines).toHaveLength(20);
+    expect(lines.at(-1)).toBe('GET /search failed after 23999 ms');
+  });
+
+  it('leaves the patterns new when a signal could not be sent, so the window is read again', async () => {
+    let fail = true;
+    const sent: InboxSignal[] = [];
+    const check = watcher(lokiOf(held), {
+      send: async (signal) => {
+        if (fail) throw new Error('the inbox is away');
+        sent.push(signal);
+      },
+    });
+    const now = new Date(from.getTime() + 60_000);
+    await expect(check.checkErrors(now)).rejects.toThrow('the inbox is away');
+    fail = false;
+    expect(await check.checkErrors(now)).toBe(2);
+    expect(sent).toHaveLength(2);
   });
 });

@@ -8,7 +8,7 @@ import type { Tempo } from '../clients/tempo.ts';
 import type { NewPattern } from './patterns.ts';
 
 /** The lines a signal carries: enough to see the error, and few enough to read. */
-const MAX_LINES = 20;
+export const MAX_LINES = 20;
 /** The most of a line the evidence keeps. */
 export const MAX_MESSAGE = 300;
 const TRACE_ID = /^[0-9a-f]{32}$/;
@@ -80,7 +80,7 @@ export async function signalForPattern(found: NewPattern, tempo: Tempo): Promise
         // visitor typed: when no route served the error, the closest is the root.
         route: route ?? '/',
         version,
-        requests: found.records.length,
+        requests: found.count,
         lines: records.map(keptLine),
         ...(traceId && spans?.length ? { trace: { id: traceId, spans: spans.slice(0, 20) } } : {}),
       },

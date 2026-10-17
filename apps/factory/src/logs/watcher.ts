@@ -28,8 +28,8 @@ import {
   signalForDisagreement,
   signalForSilentLog,
 } from './agreement.ts';
-import { signalForPattern } from './errors.ts';
-import { errorRecords, PatternMemory } from './patterns.ts';
+import { MAX_LINES, signalForPattern } from './errors.ts';
+import { errorRecords, freshInPage, type NewPattern, PatternMemory } from './patterns.ts';
 import { reportLogs, signalForReport } from './reports.ts';
 
 export interface Backends {
@@ -84,7 +84,7 @@ export function errorLogs(o: Objectives, where = ''): string {
 }
 
 export class Watcher {
-  private readonly patterns = new PatternMemory();
+  private patterns = new PatternMemory();
   private errorsFrom: Date;
   /** The last report sent, in Loki's nanoseconds. Records after it are new. */
   private reportCursor: bigint;
@@ -127,25 +127,36 @@ export class Watcher {
     return learned;
   }
 
-  /** Signals each error pattern new to the log among the records written up to `settleMs` ago. */
+  /**
+   * Signals each error pattern new to the log among the records written up to `settleMs` ago: every one of them, read
+   * a page at a time, however long the window since the last check.
+   */
   async checkErrors(now: Date): Promise<number> {
     const { loki, tempo, outbox, objectives, log } = this.backends;
     const until = new Date(now.getTime() - this.timing.settleMs);
     if (until <= this.errorsFrom) return 0;
-    const batch = errorRecords(await loki.records(errorLogs(objectives), this.errorsFrom, until));
+    // Every record, a page at a time, remembered in a copy of the memory that becomes it only once every signal has
+    // been sent: a send that failed leaves the patterns new, and the window is read again next time.
+    const memory = this.patterns.copy();
+    const found = new Map<string, NewPattern>();
+    let errors = 0;
+    for await (const page of loki.pages(errorLogs(objectives), this.errorsFrom, until, Number.POSITIVE_INFINITY)) {
+      freshInPage(memory, found, errorRecords(page), MAX_LINES);
+      errors += page.length;
+    }
     let sent = 0;
-    for (const found of this.patterns.fresh(batch)) {
-      const signal = await signalForPattern(found, tempo);
+    for (const pattern of found.values()) {
+      const signal = await signalForPattern(pattern, tempo);
       if (!signal) {
-        log.warn({ records: found.records.length }, 'a new error pattern has no app version, so it is not signalled');
+        log.warn({ records: pattern.count }, 'a new error pattern has no app version, so it is not signalled');
         continue;
       }
       await outbox.send(signal);
       sent += 1;
     }
-    this.patterns.remember(batch);
+    this.patterns = memory;
     this.errorsFrom = until;
-    log.info({ errors: batch.length, signals: sent }, 'error patterns checked');
+    log.info({ errors, signals: sent }, 'error patterns checked');
     return sent;
   }
 
