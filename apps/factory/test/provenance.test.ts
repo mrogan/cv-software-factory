@@ -69,7 +69,7 @@ describe('the senses read only what the collector stamped as the app’s', () =>
     const { sent, loki, prometheus, tempo } = recording();
     const log = pino({ level: 'silent' });
     const outbox = { send: async () => {} } as never;
-    const timing = { settleMs: 0, agreementWindowMs: 5 * 60_000, agreementLagMs: 0 };
+    const timing = { settleMs: 0, agreementWindowMs: 5 * 60_000, agreementLagMs: 0, reportLateMs: 0 };
     const watcher = new Watcher(
       { objectives, loki, prometheus, tempo, outbox, log },
       { errors: at(0), reports: at(0) },
