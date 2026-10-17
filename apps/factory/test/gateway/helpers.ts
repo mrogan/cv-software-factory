@@ -8,6 +8,7 @@ import { Writable } from 'node:stream';
 import { pino } from 'pino';
 import type { JudgeRequest } from '../../src/gateway/gateway.ts';
 import type { TypeSafeRequest } from '../../src/gateway/typesafe.ts';
+import { logOptions } from '../../src/log.ts';
 
 /** A visitor's report text, as it would sit in a request's state. It must never come out of the gateway. */
 export const SECRET = 'my card number is 4111-SECRET-REPORT-TEXT';
@@ -108,5 +109,5 @@ export function capturingLog() {
       done();
     },
   });
-  return { log: pino({ level: 'debug' }, stream), lines, text: () => lines.join('') };
+  return { log: pino(logOptions('debug'), stream), lines, text: () => lines.join('') };
 }

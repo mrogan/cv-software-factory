@@ -89,7 +89,7 @@ export function lineServers({ runners, github, log }: { runners: Runners; github
       }
       send(res, 404, { error: 'not found' });
     })().catch((error: unknown) => {
-      log.error({ err: { message: (error as Error)?.message } }, 'a line request failed');
+      log.error({ err: error }, 'a line request failed');
       if (res.headersSent) return;
       if (error instanceof RangeError || error instanceof SyntaxError)
         send(res, 400, { error: (error as Error).message });

@@ -138,10 +138,7 @@ export class Spend {
     this.#queue = this.#queue
       .then(() => this.#reconcile())
       .catch((error: unknown) => {
-        this.#log.error(
-          { err: { type: (error as Error).name, message: (error as Error).message } },
-          'could not update the line on spend caps',
-        );
+        this.#log.error({ err: error }, 'could not update the line on spend caps');
       });
     return this.#queue;
   }
