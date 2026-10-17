@@ -128,6 +128,25 @@ describe('show.ts', () => {
     expect(outlined(svg())).toEqual({ before: [], after: [{ top: 10, bottom: 40 }] });
   });
 
+  it('outlines what was drawn in the columns only the wider picture has', () => {
+    const before = picture(160, 200, [{ top: 20, bottom: 120 }]);
+    // As above, and something drawn in the new columns beside the moved block: those rows of it no longer match theirs
+    // in Before, so both are outlined.
+    const after = picture(176, 230, [{ top: 10, bottom: 40 }]);
+    PNG.bitblt(before, after, 0, 20, 160, 100, 0, 60);
+    for (let y = 100; y < 110; y++) {
+      for (let x = 160; x < 168; x++) after.data.writeUInt32BE(0x000000ff, (y * 176 + x) * 4);
+    }
+    const { svg } = show(PNG.sync.write(before), PNG.sync.write(after));
+    expect(outlined(svg())).toEqual({
+      before: [{ top: 60, bottom: 70 }],
+      after: [
+        { top: 10, bottom: 40 },
+        { top: 100, bottom: 110 },
+      ],
+    });
+  });
+
   it('keeps an outline at the edge of a picture within it, clear of its band', () => {
     const before = picture(160, 200, [{ top: 60, bottom: 160 }]);
     const after = picture(160, 200, [{ top: 0, bottom: 30 }]);

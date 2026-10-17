@@ -104,19 +104,23 @@ type Box = { x: number; y: number; width: number; height: number };
  * rows beside it are the same, so a block that moved is matched whole, its blank rows too. A block that moved down
  * because something was put above it is not outlined, and what was put above it is, on After; what moved away is
  * outlined on Before. A row of background alone is never outlined, and outlined rows closer than a line of text are
- * one box. Rows are compared as wide as both pictures are, so a picture that grew wider still matches. Content whose
+ * one box. Rows are compared as wide as both pictures are, so a picture that grew wider still matches, unless a row
+ * has something drawn in the columns only the wider one has: that row matches none, and is outlined. Content whose
  * rows all repeat, such as stripes, has nothing found once to match by, and is all outlined or, past half of it, not.
  */
 function places(): { before: Box[]; after: Box[] } {
-  const across = Math.min(b.image.width, a.image.width) * 4;
-  const rows = (picture: Picture) =>
+  const shared = Math.min(b.image.width, a.image.width);
+  const rows = (picture: Picture, side: string) =>
     Array.from({ length: picture.image.height }, (_, y) => {
-      const from = y * picture.image.width * 4;
+      const { width: w, data } = picture.image;
+      const pixel = (x: number) => data.readUInt32BE((y * w + x) * 4);
+      const background = w > shared ? commonest(w, pixel) : 0;
+      for (let x = shared; x < w; x++) if (pixel(x) !== background) return `${side} ${y}`;
       return createHash('sha1')
-        .update(picture.image.data.subarray(from, from + across))
+        .update(data.subarray(y * w * 4, (y * w + shared) * 4))
         .digest('base64');
     });
-  const [was, is] = [rows(b), rows(a)];
+  const [was, is] = [rows(b, 'before'), rows(a, 'after')];
   const counts = (lines: string[]) => {
     const count = new Map<string, number>();
     for (const line of lines) count.set(line, (count.get(line) ?? 0) + 1);
