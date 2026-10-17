@@ -20,7 +20,8 @@
  * each, changing the code for it, or declines it with a reason (`declined`). The GitHub worker answers each declined
  * suggestion's thread with the reason and resolves it once the change is pushed; one taken is the next reviewer's to
  * find taken, and its thread is resolved then. An approval that leaves suggestions sends the work back for them alone
- * (`machine.ts`): a coder that declines them all changes nothing, and says only what it declined.
+ * (`machine.ts`): a coder that declines them all changes nothing, and says only what it declined. One that writes a
+ * title and a note as well, and hands back no change, has declined them all just the same.
  *
  * Changing nothing can be the right answer: a gate that fails on a defect the change uncovered and did not cause, a
  * finding the change already meets, or code that already does what the spec asks. The coder then says so, and why,
@@ -255,7 +256,7 @@ function again(input: CoderInput): string[] {
         `Nothing of that patch was kept: the checkout is back where ${round > 1 ? 'this round' : 'you'} started. Make the fix again, changing only files the scope allows. A test that will not fit in a test file the scope allows is one to leave out; say so in your note.`,
       ]
     : suggestionsAlone(input)
-      ? ['Take what you take inside the same scope, and run the tests again.', DECLINE_ALL]
+      ? ['Take what you take inside the same scope, and run the tests again.']
       : [
           'Put it right inside the same scope, and run the tests again.',
           ...(round > 1 ? [UNCHANGED] : []),
@@ -263,6 +264,8 @@ function again(input: CoderInput): string[] {
         ];
   const why = [...back, ...refused];
   const declining = suggestions?.length ? [DECLINING] : [];
+  // A round for suggestions alone that may decline them all is asked for one result or the other, never both at once.
+  const declineAll = !fenced && suggestionsAlone(input);
   // Without its session, a round for suggestions alone is told the work, and that the fix is in and approved.
   if (!resumed(input) && suggestionsAlone(input)) {
     return [
@@ -272,9 +275,10 @@ function again(input: CoderInput): string[] {
       '',
       'Read AGENTS.md first: its rules hold for every change here. The fix is in the checkout, and the reviewer approved it: change only what a suggestion you take needs.',
       '',
-      'Then write the result, {"title","note","declined"}:',
+      `${declineAll ? 'If you take any suggestion, then write' : 'Then write'} the result, {"title","note","declined"}:`,
       ...RESULT.slice(1, 3),
       ...declining,
+      ...(declineAll ? [DECLINE_ALL] : []),
     ];
   }
   // Without its session, the coder needs everything a first step is told.
@@ -287,8 +291,9 @@ function again(input: CoderInput): string[] {
     ...specLines(input),
     ...(answer ? ['', `Martin answered: ${answer}`] : []),
     '',
-    `Then write the result again, {"title","note"${suggestions?.length ? ',"declined"' : ''}}: the note says what the whole change does, not only this round.`,
+    `${declineAll ? 'If you take any suggestion, then write' : 'Then write'} the result again, {"title","note"${suggestions?.length ? ',"declined"' : ''}}: the note says what the whole change does, not only this round.`,
     ...declining,
+    ...(declineAll ? [DECLINE_ALL] : []),
   ];
 }
 
@@ -329,12 +334,17 @@ export const coder = defineAgent<CoderInput, CoderResult>({
       await answerDeclined(context, pullRequest, suggestions, declined);
       return [answeredDraft(pullRequest, suggestions, declined), hold];
     }
-    if (!('title' in result)) {
+    // Declining every suggestion of a round for them alone changes nothing, whether or not it wrote a title and a note.
+    if (
+      !('title' in result) ||
+      (!patch && suggestionsAlone(input) && (result.declined?.length ?? 0) === suggestions.length)
+    ) {
       if (patch) throw new StepFailed('The coder declined every suggestion, but handed back a change');
       const pullRequest = need(state.pullRequest, 'a pull request').number;
+      const declined = result.declined ?? [];
       await context.keepSession(handback.session);
-      await answerDeclined(context, pullRequest, suggestions, result.declined);
-      return [answeredDraft(pullRequest, suggestions, result.declined)];
+      await answerDeclined(context, pullRequest, suggestions, declined);
+      return [answeredDraft(pullRequest, suggestions, declined)];
     }
     const { title, note, declined = [] } = result;
     if (!patch) throw new StepFailed('The coder handed back no change, and did not say why');

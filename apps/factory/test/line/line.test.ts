@@ -1471,12 +1471,15 @@ describe('the line', () => {
     expect(steps.requests.at(-1)?.agent).toBe('describer');
   });
 
-  it('declines every suggestion without a change, and the approval stands', async () => {
+  it.each([
+    ['only what it declined', {}],
+    ['a title and a note as well', CODED],
+  ])('declines every suggestion without a change, saying %s, and the approval stands', async (_, wrote) => {
     const workItem = await ticket();
     const name = { path: 'src/search.ts', line: 1, blocking: false, comment: 'Name the escape for what it does.' };
     const reviews = [{ verdict: 'approved', note: 'It escapes the quote.', findings: [name] }];
     const declined = [{ suggestion: 1, reason: 'The name is the one the rest of the code uses.' }];
-    const coded = [handback(CODED, PATCH), handback({ declined })];
+    const coded = [handback(CODED, PATCH), handback({ ...wrote, declined })];
     const { pass, steps, github } = line({
       ...AGENTS,
       coder: () => coded.shift() ?? handback(CODED, PATCH),
@@ -1486,7 +1489,13 @@ describe('the line', () => {
     await pass();
     github.pass();
     await pass(); // the review approves, with a suggestion
-    await pass(); // the coder declines it, and pushes nothing
+    await pass(); // the coder resumes its session, declines it, and pushes nothing
+    const coder = steps.requests.at(-1);
+    expect(coder).toMatchObject({ agent: 'coder', round: 2, resume: 'session-1' });
+    // It is asked for one result or the other: a change with its title and note, or the suggestions declined alone.
+    expect(coder?.prompt).toMatch(
+      /If you take any suggestion, then write the result again[\s\S]*write only \{"declined"\}/,
+    );
     expect(await payloads(workItem, 'suggestions.answered')).toEqual([{ pullRequest: 12, suggestions: 1, declined }]);
     expect(await payloads(workItem, 'pull-request.pushed')).toHaveLength(1);
     expect(github.acts.filter((a) => a.action === 'resolveThreads')).toHaveLength(1);

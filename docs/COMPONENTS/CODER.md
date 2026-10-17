@@ -20,7 +20,7 @@ Read with Zod, one of:
 
 - **a change:** a Conventional Commit title and the commit's note, with the suggestions it declined;
 - **no change,** when the change needs none: why it changed nothing, in at most 200 characters ([when a step fails](ORCHESTRATOR.md#when-a-step-fails)), declining every suggestion it was given, so no thread outlives Martin's answer;
-- **every suggestion declined,** in a round sent back for an approval's suggestions alone: nothing changed, and the approval stands.
+- **every suggestion declined,** in a round sent back for an approval's suggestions alone: nothing changed, and the approval stands. A change's title and note that come with every suggestion declined and no patch are taken the same way.
 
 A step that hands back no change and does not say why has failed.
 
