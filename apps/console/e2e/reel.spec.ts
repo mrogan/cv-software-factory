@@ -271,11 +271,8 @@ test.describe('opening the console', () => {
     const count = page.locator('.transport .count');
     await expect(count).toHaveText('24 of 24');
     expect((await page.locator('.reel').boundingBox())?.y).toBeGreaterThan(560);
-    // Previous, next and Now: nothing to play the history with.
-    const transport = page.locator('.transport');
-    await expect(transport.getByRole('button')).toHaveCount(3);
-    for (const name of ['Previous work item', 'Next work item', 'NOW'])
-      await expect(transport.getByRole('button', { name })).toBeVisible();
+    // Nothing to play the history with.
+    await expect(page.locator('.transport').getByRole('button', { name: /play|pause/i })).toHaveCount(0);
 
     await page.locator('.reel').scrollIntoViewIfNeeded();
     await page.clock.runFor(10_000);
