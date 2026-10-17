@@ -30,10 +30,20 @@ export class Loki {
   /** The records the query selects between two times, oldest first, as many as `max`. */
   async records(query: string, start: Date, end: Date, max = 20_000): Promise<LogRecord[]> {
     const records: LogRecord[] = [];
+    for await (const page of this.pages(query, start, end, max)) records.push(...page);
+    return records;
+  }
+
+  /**
+   * The same records a page at a time, as Loki gives them, so that a reader that needs no more than one page at once
+   * can let each go before the next arrives.
+   */
+  async *pages(query: string, start: Date, end: Date, max = 20_000): AsyncGenerator<LogRecord[]> {
+    let read = 0;
     let from = BigInt(start.getTime()) * 1_000_000n;
     const to = BigInt(end.getTime()) * 1_000_000n;
-    while (records.length < max && from < to) {
-      const asked = Math.min(PAGE, max - records.length);
+    while (read < max && from < to) {
+      const asked = Math.min(PAGE, max - read);
       const answer = (await getJson(this.fetcher, this.base, '/loki/api/v1/query_range', {
         query,
         start: from.toString(),
@@ -45,12 +55,12 @@ export class Loki {
         values.map(([ns, line]) => ({ ns, time: new Date(Number(BigInt(ns) / 1_000_000n)), line, fields: stream })),
       );
       page.sort((a, b) => (BigInt(a.ns) < BigInt(b.ns) ? -1 : BigInt(a.ns) > BigInt(b.ns) ? 1 : 0));
-      records.push(...page);
+      read += page.length;
       const last = page.at(-1);
-      if (!last || page.length < asked) break;
+      if (page.length) yield page;
+      if (!last || page.length < asked) return;
       from = BigInt(last.ns) + 1n;
     }
-    return records;
   }
 
   /** A metric query's value at one time, one sample per series. */

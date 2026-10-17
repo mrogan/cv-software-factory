@@ -58,9 +58,29 @@ const REPEAT_MS = 60 * 60 * 1000;
 /** How often the agreement check asks the last day's log for the route of each path. */
 const ROUTES_REFRESH_MS = 60 * 60 * 1000;
 
-/** The selector of the app's error records. */
-export function errorLogs(o: Objectives): string {
-  return `{service_name=${quoted(o.app.logsService)}, ${LOGS_FROM_THE_APP}} | severity_text=~"(?i)error|fatal"`;
+/**
+ * The fields of an error record that its readers use: the pattern (`patterns.ts`), the signal and its kept lines
+ * (`errors.ts`), and Verify's filters. Loki returns these and no others: a record's other metadata, a stack trace of
+ * a kilobyte or more among it, made a page of records seven times the size. A reader of another field adds it here.
+ */
+export const ERROR_FIELDS = [
+  'route',
+  'path',
+  'exception_type',
+  'exception_message',
+  'service_version',
+  'trace_id',
+  'severity_text',
+  'detected_level',
+] as const;
+
+/**
+ * The app's error records, with only the fields their readers use. `where` narrows them with further filters, which
+ * come before the fields are cut, so that they may name any field.
+ */
+export function errorLogs(o: Objectives, where = ''): string {
+  const selector = `{service_name=${quoted(o.app.logsService)}, ${LOGS_FROM_THE_APP}}`;
+  return `${selector} | severity_text=~"(?i)error|fatal"${where} | keep ${ERROR_FIELDS.join(', ')}`;
 }
 
 export class Watcher {
@@ -91,16 +111,19 @@ export class Watcher {
     this.reportCursor = BigInt(since.reports.getTime()) * 1_000_000n;
   }
 
-  /** Learns the error patterns of the day before the watcher starts, so that none of them is new. */
+  /**
+   * Learns the error patterns of the day before the watcher starts, so that none of them is new. A page at a time:
+   * a day's records held at once outgrew the watcher's memory as the app's errors grew.
+   */
   async learnPatterns(): Promise<number> {
     const { loki, objectives } = this.backends;
-    const records = await loki.records(
-      errorLogs(objectives),
-      new Date(this.errorsFrom.getTime() - DAY_MS),
-      this.errorsFrom,
-    );
-    this.patterns.remember(errorRecords(records));
-    return records.length;
+    const from = new Date(this.errorsFrom.getTime() - DAY_MS);
+    let learned = 0;
+    for await (const page of loki.pages(errorLogs(objectives), from, this.errorsFrom)) {
+      this.patterns.remember(errorRecords(page));
+      learned += page.length;
+    }
+    return learned;
   }
 
   /** Signals each error pattern new to the log among the records written up to `settleMs` ago. */
