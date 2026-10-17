@@ -13,6 +13,8 @@ Error records are reduced to a pattern:
 
 A pattern is signalled by route when the previous day has not shown it, with the lines and trace ids, and the spans when Tempo already has the trace. The evidence names the route that served the error, or the root when none did, never the request's own path.
 
+Error records are read a page of Loki's at a time, with no cap: the previous day's when it starts, to learn its patterns, and each check's window since the last, so a busy day is never held at once and no record is skipped. A pattern new on one page of a window gathers its records on the pages after: its signal counts them all and shows the last twenty. Loki returns an error record with only the fields the patterns, the signal and Verify read (`ERROR_FIELDS`), not its stack trace and the rest of its metadata.
+
 ## Reports
 
 Each record of the widget becomes a `report` signal. The text goes to the inbox, and to no log line, metric label or error message.

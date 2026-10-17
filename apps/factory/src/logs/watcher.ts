@@ -28,8 +28,8 @@ import {
   signalForDisagreement,
   signalForSilentLog,
 } from './agreement.ts';
-import { signalForPattern } from './errors.ts';
-import { errorRecords, PatternMemory } from './patterns.ts';
+import { MAX_LINES, signalForPattern } from './errors.ts';
+import { errorRecords, freshInPage, type NewPattern, PatternMemory } from './patterns.ts';
 import { reportLogs, signalForReport } from './reports.ts';
 
 export interface Backends {
@@ -58,13 +58,33 @@ const REPEAT_MS = 60 * 60 * 1000;
 /** How often the agreement check asks the last day's log for the route of each path. */
 const ROUTES_REFRESH_MS = 60 * 60 * 1000;
 
-/** The selector of the app's error records. */
-export function errorLogs(o: Objectives): string {
-  return `{service_name=${quoted(o.app.logsService)}, ${LOGS_FROM_THE_APP}} | severity_text=~"(?i)error|fatal"`;
+/**
+ * The fields of an error record that its readers use: the pattern (`patterns.ts`), the signal and its kept lines
+ * (`errors.ts`), and Verify's filters. Loki returns these and no others: a record's other metadata, a stack trace of
+ * a kilobyte or more among it, is most of its size and read by nothing. A reader of another field adds it here.
+ */
+export const ERROR_FIELDS = [
+  'route',
+  'path',
+  'exception_type',
+  'exception_message',
+  'service_version',
+  'trace_id',
+  'severity_text',
+  'detected_level',
+] as const;
+
+/**
+ * The app's error records, with only the fields their readers use. `where` narrows them with further filters, which
+ * come before the fields are cut, so that they may name any field.
+ */
+export function errorLogs(o: Objectives, where = ''): string {
+  const selector = `{service_name=${quoted(o.app.logsService)}, ${LOGS_FROM_THE_APP}}`;
+  return `${selector} | severity_text=~"(?i)error|fatal"${where} | keep ${ERROR_FIELDS.join(', ')}`;
 }
 
 export class Watcher {
-  private readonly patterns = new PatternMemory();
+  private patterns = new PatternMemory();
   private errorsFrom: Date;
   /** The last report sent, in Loki's nanoseconds. Records after it are new. */
   private reportCursor: bigint;
@@ -91,37 +111,52 @@ export class Watcher {
     this.reportCursor = BigInt(since.reports.getTime()) * 1_000_000n;
   }
 
-  /** Learns the error patterns of the day before the watcher starts, so that none of them is new. */
+  /**
+   * Learns the error patterns of the day before the watcher starts, so that none of them is new: every record of the
+   * day, a page at a time, so that what the watcher holds stays one page however many errors the app logged, and the
+   * hours just before it starts are learned however busy the day.
+   */
   async learnPatterns(): Promise<number> {
     const { loki, objectives } = this.backends;
-    const records = await loki.records(
-      errorLogs(objectives),
-      new Date(this.errorsFrom.getTime() - DAY_MS),
-      this.errorsFrom,
-    );
-    this.patterns.remember(errorRecords(records));
-    return records.length;
+    const from = new Date(this.errorsFrom.getTime() - DAY_MS);
+    let learned = 0;
+    for await (const page of loki.pages(errorLogs(objectives), from, this.errorsFrom, Number.POSITIVE_INFINITY)) {
+      this.patterns.remember(errorRecords(page));
+      learned += page.length;
+    }
+    return learned;
   }
 
-  /** Signals each error pattern new to the log among the records written up to `settleMs` ago. */
+  /**
+   * Signals each error pattern new to the log among the records written up to `settleMs` ago: every one of them, read
+   * a page at a time, however long the window since the last check.
+   */
   async checkErrors(now: Date): Promise<number> {
     const { loki, tempo, outbox, objectives, log } = this.backends;
     const until = new Date(now.getTime() - this.timing.settleMs);
     if (until <= this.errorsFrom) return 0;
-    const batch = errorRecords(await loki.records(errorLogs(objectives), this.errorsFrom, until));
+    // Every record, a page at a time, remembered in a copy of the memory that becomes it only once every signal has
+    // been sent: a send that failed leaves the patterns new, and the window is read again next time.
+    const memory = this.patterns.copy();
+    const found = new Map<string, NewPattern>();
+    let errors = 0;
+    for await (const page of loki.pages(errorLogs(objectives), this.errorsFrom, until, Number.POSITIVE_INFINITY)) {
+      freshInPage(memory, found, errorRecords(page), MAX_LINES);
+      errors += page.length;
+    }
     let sent = 0;
-    for (const found of this.patterns.fresh(batch)) {
-      const signal = await signalForPattern(found, tempo);
+    for (const pattern of found.values()) {
+      const signal = await signalForPattern(pattern, tempo);
       if (!signal) {
-        log.warn({ records: found.records.length }, 'a new error pattern has no app version, so it is not signalled');
+        log.warn({ records: pattern.count }, 'a new error pattern has no app version, so it is not signalled');
         continue;
       }
       await outbox.send(signal);
       sent += 1;
     }
-    this.patterns.remember(batch);
+    this.patterns = memory;
     this.errorsFrom = until;
-    log.info({ errors: batch.length, signals: sent }, 'error patterns checked');
+    log.info({ errors, signals: sent }, 'error patterns checked');
     return sent;
   }
 

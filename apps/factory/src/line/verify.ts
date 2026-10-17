@@ -335,7 +335,7 @@ async function byPattern(signal: FirstSignal, target: Target, c: Context): Promi
   const errorsOn = ` | route=${quoted(signal.route === '*' ? '' : signal.route)}`;
   const requestsTo = signal.route === '*' ? '' : ` | route=${quoted(signal.route)}`;
   const [errors, served] = await Promise.all([
-    c.loki.records(`${errorLogs(o)} | ${version}${errorsOn}`, target.at, c.now, MAX_RECORDS),
+    c.loki.records(errorLogs(o, ` | ${version}${errorsOn}`), target.at, c.now, MAX_RECORDS),
     c.loki.instant(`sum(count_over_time(${requestLogs(o)} | ${version}${requestsTo} [${windowMinutes}m]))`, c.now),
   ]);
   const requested = Math.round(served[0]?.value ?? 0);

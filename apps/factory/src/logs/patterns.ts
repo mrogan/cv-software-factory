@@ -96,10 +96,11 @@ export function errorRecords(records: LogRecord[]): ErrorRecord[] {
   }));
 }
 
-/** A pattern new to the log, with the records that show it in the batch. */
+/** A pattern new to the log, with the records that show it in the batch, or the last of them, and how many there are. */
 export interface NewPattern {
   pattern: string;
   records: LogRecord[];
+  count: number;
 }
 
 /** Remembers when each pattern was last seen, and says which of a batch are new. */
@@ -119,10 +120,21 @@ export class PatternMemory {
       const before = seen.get(pattern);
       const isNew = before === undefined || record.time.getTime() - before > this.memoryMs;
       seen.set(pattern, record.time.getTime());
-      if (isNew && !found.has(pattern)) found.set(pattern, { pattern, records: [] });
-      found.get(pattern)?.records.push(record);
+      if (isNew && !found.has(pattern)) found.set(pattern, { pattern, records: [], count: 0 });
+      const entry = found.get(pattern);
+      if (entry) {
+        entry.records.push(record);
+        entry.count += 1;
+      }
     }
     return [...found.values()];
+  }
+
+  /** A memory of its own that starts as this one does, to remember a batch in before the batch is dealt with. */
+  copy(): PatternMemory {
+    const copy = new PatternMemory(this.memoryMs);
+    for (const [pattern, at] of this.lastSeen) copy.lastSeen.set(pattern, at);
+    return copy;
   }
 
   /** Notes that the batch has been dealt with, so its patterns are no longer new. */
@@ -131,4 +143,29 @@ export class PatternMemory {
       this.lastSeen.set(pattern, Math.max(this.lastSeen.get(pattern) ?? 0, record.time.getTime()));
     }
   }
+}
+
+/**
+ * Adds a page of a batch to the patterns new in the batch so far (`found`), and remembers the page in `memory`, so
+ * that read a page at a time, a batch's new patterns are those `fresh` finds in the whole batch at once: a pattern new
+ * on one page gathers its records on the pages after. Only the last `keep` records of each are kept, with the count of
+ * them all, so that what is held is a page and no more however long the batch.
+ */
+export function freshInPage(
+  memory: PatternMemory,
+  found: Map<string, NewPattern>,
+  page: ErrorRecord[],
+  keep: number,
+): void {
+  const earlier = new Set(found.keys());
+  for (const { record, pattern } of page) {
+    const entry = earlier.has(pattern) ? found.get(pattern) : undefined;
+    if (!entry) continue;
+    entry.records.push(record);
+    entry.count += 1;
+  }
+  for (const entry of memory.fresh(page)) if (!earlier.has(entry.pattern)) found.set(entry.pattern, entry);
+  for (const entry of found.values())
+    if (entry.records.length > keep) entry.records.splice(0, entry.records.length - keep);
+  memory.remember(page);
 }
