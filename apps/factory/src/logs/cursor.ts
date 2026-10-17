@@ -13,7 +13,8 @@ export async function lastObserved(sql: Sql, sense: Sense): Promise<Date | undef
 }
 
 /**
- * Where reading reports starts: just after the last one the inbox holds, so a restart sends none twice. A store with
+ * Where reading reports starts: the last one the inbox holds. The watcher reads back a margin before it, for a report
+ * that reaches Loki late, and the inbox drops one it already holds, by the id it takes from its record. A store with
  * none starts a day back, so reports sent while the factory was away are not lost, but never before the store began
  * to take real work: a report sent to the store before `make real-store` emptied it is not this store's.
  */

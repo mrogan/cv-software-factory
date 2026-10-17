@@ -8,7 +8,11 @@ import { sendSignal } from '@software-factory/store';
 import type { Sql } from 'postgres';
 
 export interface Outbox {
-  send(signal: InboxSignal): Promise<void>;
+  /**
+   * Leaves the signal. A sender that gives an id may send the same signal again with it: the inbox keeps the first and
+   * drops the rest. Without one, each send is a signal of its own.
+   */
+  send(signal: InboxSignal, id?: string): Promise<void>;
 }
 
 // A no-op until telemetry.ts has started the SDK, so tests and one-off commands count nothing.
@@ -20,8 +24,8 @@ const signals = metrics.getMeter('factory').createCounter('factory_signals', {
 /** The inbox, in Postgres. */
 export function inbox(sql: Sql): Outbox {
   return {
-    async send(signal) {
-      await sendSignal(sql, signal);
+    async send(signal, id) {
+      await sendSignal(sql, signal, id);
       signals.add(1, { sense: signal.sense });
     },
   };
