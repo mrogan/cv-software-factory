@@ -160,6 +160,11 @@ export interface Sheet {
   deploy: Extract<Picture, { type: 'deploy' }> | undefined;
   /** Who wrote the paragraph at the top: the describer, once it has. */
   storyBy: 'describer' | undefined;
+  /**
+   * The story's last sentence, the console's own, for a work item closed after its summary was written: how it closed,
+   * from its events. A summary says what happened, not where the work item stands, so nothing else ends it.
+   */
+  closing: string | undefined;
   /** The evidence of the problem, which the card's picture stands in for while the work waits on Martin. */
   evidence: Picture;
   spec: PayloadOf<'spec.written'> | undefined;
@@ -218,6 +223,52 @@ function foundBy(item: ItemState): string {
       : `${SENSE[signal.payload.sense]} · ${signal.payload.check}`;
   }
   return 'The factory';
+}
+
+/** Whose check it was, as the closing sentence says it. */
+const CHECK_OF: Record<Sense, string> = {
+  probe: 'the probe’s check',
+  crawler: 'the crawler’s check',
+  metrics: 'the metrics’ check',
+  logs: 'the log watcher’s check',
+  canary: 'the canary’s check',
+  report: 'the check',
+};
+
+/**
+ * How a closed work item closed, in a sentence to end its story: verified on which version by which check, closed by
+ * Martin or the line with the reason, or closed with its pull request unmerged. None while it is open, nor when its
+ * summary comes after its close among its events, which says so itself.
+ */
+function closing(item: ItemState): string | undefined {
+  if (!item.closedAt) return undefined;
+  const at = item.events.findLastIndex((event) => event.type === 'work-item.closed');
+  const close = item.events[at];
+  if (close?.type !== 'work-item.closed') return undefined;
+  if (item.events.findLastIndex((event) => event.type === 'work-item.summarised') > at) return undefined;
+  const reason = `It closed: ${close.payload.reason.replace(/\.$/, '')}.`;
+  if (close.payload.outcome === 'verified') {
+    // Only a verification that closed it tells how: the pass's last, cleared, with no hold for Martin after it, who
+    // otherwise judged it himself, and the close's reason says so.
+    const since = item.events.findLastIndex((event) => event.type === 'work-item.reopened');
+    const after = item.events.slice(since + 1, at);
+    const last = after.findLastIndex((event) => event.type === 'verification.finished');
+    const verification = after[last];
+    const held = after.slice(last + 1).some((event) => event.type === 'hold.started');
+    if (verification?.type !== 'verification.finished' || verification.payload.outcome !== 'cleared' || held) {
+      return reason;
+    }
+    const { dryRun, sense, check, version } = verification.payload;
+    if (dryRun) return 'It closed on the dry run’s word: its release never shipped, so no sense looked.';
+    const on = version ? ` on ${shortVersion(version)}` : '';
+    return `It was verified${on} by ${sense ? CHECK_OF[sense] : 'the check'} “${check}”, and closed.`;
+  }
+  // GitHub's word that a pull request closed unmerged, which the line records as Martin's.
+  const unmerged = /^Pull request #(\d+) was closed without being merged/.exec(close.payload.reason);
+  if (close.payload.outcome === 'no-change' && close.actor === 'martin' && unmerged) {
+    return `It closed with pull request #${unmerged[1]} unmerged.`;
+  }
+  return reason;
 }
 
 /** Openings worth a chapter of their own; the others open as their first signal or pull request arrives. */
@@ -903,6 +954,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
     ),
     shipped: own.reverse().map((release) => ({ release, verification: checked.get(release.id) })),
     deploy: deployPicture(item),
+    closing: closing(item),
     spec: specPayload,
     scope: specPayload && scopeOf(item, specPayload),
     // What a merge brings in: every round together, not only the last round's own files.

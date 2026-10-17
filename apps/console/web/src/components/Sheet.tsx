@@ -266,11 +266,15 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
           <div className="wrap sheet-body">
             <div className="sheet-main">
               <div>
-                <p className="lead">{sheet.story}</p>
+                <p className="lead">
+                  {sheet.story}
+                  {sheet.closing && ` ${sheet.closing}`}
+                </p>
                 {sheet.storyBy === 'describer' && (
                   <p className="source byline">
-                    The describer, from the ticket, the spec, the final diff and the review. The pull request’s own
-                    description is on GitHub.
+                    The describer, from the ticket, the spec, the final diff and the review
+                    {sheet.closing && '; the last sentence is the console’s, from what happened since'}. The pull
+                    request’s own description is on GitHub.
                   </p>
                 )}
               </div>

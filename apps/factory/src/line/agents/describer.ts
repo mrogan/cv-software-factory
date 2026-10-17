@@ -91,7 +91,7 @@ function prompt(input: DescriberInput): string {
   // A return from review is in the thread already, with its findings.
   const otherReturns = returns.filter((r) => r.from !== 'review');
   return [
-    `Describe pull request #${pullRequest}, the factory’s fix for ticket #${workItem}: “${title}”. Its gates and its review have passed it, and it waits for Martin to merge it.`,
+    `Describe pull request #${pullRequest}, the factory’s fix for ticket #${workItem}: “${title}”. Its gates and its review have passed it.`,
     '',
     'The checkout is the pull request’s head. Its base is the branch `base`: `git diff base` is the change, and `git log base..HEAD` holds the coder’s commit messages, its own note of what was wrong and what it changed.',
     '',
@@ -124,10 +124,10 @@ function prompt(input: DescriberInput): string {
     '',
     '2. The pull request’s title: a Conventional Commit of at most 80 characters, such as "fix(cart): count the last item". It becomes the squash commit’s headline. Keep the coder’s if it says what the change does.',
     '',
-    '3. The work item’s summary, for the factory’s console. Anyone may read it, someone who has never seen a pull request among them, so write plain sentences with no Markdown and no code:',
+    '3. The work item’s summary, for the factory’s console. Anyone may read it, someone who has never seen a pull request among them, so write plain sentences with no Markdown and no code. It says what happened, never where the work item stands now, such as that it waits for Martin’s merge: the work item moves on, and the console says where it stands.',
     '- `title`: what was wrong, as a visitor would see it, in a few words, at most 120 characters, such as "Prices lose a digit of pence".',
-    '- `description`: two short sentences for the work item’s card, at most 260 characters: what was wrong, and that the fix waits for Martin to merge it.',
-    '- `story`: one paragraph, at most 1200 characters, in the past tense: what the senses saw, what the planner’s spec asked for, how the coder wrote a failing test and then the fix, what the gates and the reviewer said in each round, and that it now waits for Martin’s merge.',
+    '- `description`: two short sentences for the work item’s card, at most 260 characters: what was wrong, and what the fix does.',
+    '- `story`: one paragraph, at most 1200 characters, in the past tense: what the senses saw, what the planner’s spec asked for, how the coder wrote a failing test and then the fix, and what the gates and the reviewer said in each round.',
     '',
     'Then write the result, {"title","summary":{"title","description","story"}}, and the description as its own file: the system prompt says where each goes.',
   ].join('\n');

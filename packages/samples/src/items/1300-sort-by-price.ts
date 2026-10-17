@@ -35,7 +35,7 @@ export default new Item('1300', '2026-10-03T09:40:00+01:00')
   .at('3:11', 'work-item.summarised', 'factory', 'Summary written', {
     title: 'Sort products by price',
     description:
-      'The spec is written and waiting for Martin, with one question from the planner. Nothing is built until he approves it.',
+      'The planner wrote a spec, with one question for Martin: where products that are out of stock go. Nothing is built before he approves it.',
     story:
-      'Martin asked for a way to sort products by price. The planner wrote a spec with three acceptance criteria and one question it could not settle alone: where products that are out of stock should go. No code is written until Martin answers and approves the spec.',
+      'Martin asked for a way to sort products by price. The planner wrote a spec with three acceptance criteria and one question it could not settle alone: where products that are out of stock should go, so it asked Martin. No code is written before he answers and approves the spec.',
   });

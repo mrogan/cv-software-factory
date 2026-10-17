@@ -42,7 +42,7 @@ export default new Item('1302', '2026-10-03T10:12:00+01:00')
   .at('5:07', 'work-item.summarised', 'factory', 'Summary written', {
     title: 'Search turns away long words',
     description:
-      'Search for anything longer than four letters and the shop asks for a shorter word. Triage has opened a ticket, and the planner is on it.',
+      'Search for anything longer than four letters and the shop asks for a shorter word. Triage opened a ticket.',
     story:
       'A visitor chose “Search turns away long words”. It went live as v0.9.6, and the search journey noticed a minute and twenty seconds later: a search for a ladder was turned away.',
   })

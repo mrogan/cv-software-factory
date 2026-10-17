@@ -23,7 +23,7 @@ Read with Zod:
 
 - **the description,** written as a Markdown file beside its result;
 - **the title,** a Conventional Commit of 80 characters at most;
-- **the summary:** a title, two lines for the card, and the paragraph at the top of the sheet.
+- **the summary:** a title, two lines for the card, and the paragraph at the top of the sheet. It says what happened, never where the work item stands, since nothing writes it again as the work item moves on: the console says where it stands, and ends the story once it closes.
 
 The squash commit takes the description as its message, so the schema refuses:
 
