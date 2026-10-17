@@ -105,7 +105,7 @@ export interface VerifyClients {
   prometheus?: Prometheus | null;
   loki?: Loki | null;
   /** Without it, an agreement check is judged on the metrics and the log alone, as the watcher does without traces. */
-  tempo?: Pick<Tempo, 'serverSpans'> | null;
+  tempo?: Pick<Tempo, 'requestsByRoute'> | null;
 }
 
 export interface LookOptions extends VerifyClients {
@@ -363,8 +363,8 @@ async function byPattern(signal: FirstSignal, target: Target, c: Context): Promi
   return finished(signal, target, 'cleared', lines([]));
 }
 
-/** A Tempo with none of the traces, so that the counts leave them out, as when Tempo has too many to answer. */
-const NO_TRACES: Pick<Tempo, 'serverSpans'> = { serverSpans: async () => ({ spans: [], complete: false }) };
+/** A Tempo with none of the traces, so that the counts leave them out, as when Tempo can answer only in part. */
+const NO_TRACES: Pick<Tempo, 'requestsByRoute'> = { requestsByRoute: async () => ({ routes: [], complete: false }) };
 
 /**
  * Whether a path's counts belong to a route: the route the log gave the path, or the path itself. A path the log did

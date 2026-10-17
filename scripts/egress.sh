@@ -328,6 +328,13 @@ reads_telemetry() {
   expect "$1 queries Loki through the proxy" "$2" "$q:3100/loki/api/v1/query?query=vector(1)" "reached, HTTP 200"
   if [ "${3:-}" = tempo ]; then
     expect "$1 searches Tempo through the proxy" "$2" "$q:3200/api/search?limit=1" "reached, HTTP 200"
+    # The log watcher's count of a window's requests by route, over the minute before last.
+    local now count
+    now=$(date +%s)
+    count="q=%7B%20kind%20%3D%20server%20%7D%20%7C%20count_over_time()%20by%20(span.http.route)"
+    expect "$1 counts Tempo's spans through the proxy" "$2" \
+      "$q:3200/api/metrics/query?$count&start=$((now - 120))&end=$((now - 60))" "reached, HTTP 200"
+    expect "$1 cannot post a query to Tempo through the proxy" "$2" "POST $q:3200/api/metrics/query" "reached, HTTP 405"
     expect "$1 cannot flush Tempo through the proxy" "$2" "$q:3200/flush" "reached, HTTP 403"
   else
     expect "$1 cannot reach Tempo through the proxy" "$2" "$q:3200/ready" blocked

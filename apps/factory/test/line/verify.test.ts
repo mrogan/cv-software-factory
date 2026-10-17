@@ -311,13 +311,11 @@ function records(paths: Record<string, PathCounts>, { complete = true } = {}) {
     },
   } as unknown as Loki;
   const tempo = {
-    serverSpans: async (_service: string, start: Date, end: Date, _limit?: number, version?: string) => {
+    requestsByRoute: async (_service: string, start: Date, end: Date, version?: string) => {
       windows.push({ start, end });
       asked.push(`version ${version}`);
-      const spans = entries.flatMap(([path, c]) =>
-        Array.from({ length: c.traces ?? 0 }, (_, i) => ({ traceId: `${path}-${i}`, route: path })),
-      );
-      return { spans, complete };
+      const routes = entries.filter(([, c]) => c.traces).map(([route, c]) => ({ route, requests: c.traces ?? 0 }));
+      return { routes, complete };
     },
   };
   return { prometheus, loki, tempo, windows, asked };

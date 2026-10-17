@@ -115,7 +115,7 @@ export function requestsBetween(job: string, seconds: number): string {
  */
 export async function count(
   o: Objectives,
-  backends: { prometheus: Prometheus; loki: Loki; tempo: Pick<Tempo, 'serverSpans'> },
+  backends: { prometheus: Prometheus; loki: Loki; tempo: Pick<Tempo, 'requestsByRoute'> },
   start: Date,
   end: Date,
   known: ReadonlyMap<string, string> = new Map(),
@@ -127,7 +127,7 @@ export async function count(
   const [metrics, logs, traced] = await Promise.all([
     backends.prometheus.instant(requestsBetween(job, seconds), end),
     backends.loki.instant(`sum by (path, route) (count_over_time(${logged} [${seconds}s]))`, end),
-    backends.tempo.serverSpans(o.app.logsService, start, end, undefined, version),
+    backends.tempo.requestsByRoute(o.app.logsService, start, end, version),
   ]);
 
   const routes = new Map<string, RouteCounts>();
@@ -154,13 +154,12 @@ export async function count(
     entry.logs += value;
     if (labels.route) entry.route = labels.route;
   }
-  for (const span of traced.spans) {
-    if (!span.route) continue;
-    const entry = at(span.route);
-    entry.traces = (entry.traces ?? 0) + 1;
+  for (const { route, requests } of traced.routes) {
+    const entry = at(route);
+    entry.traces = (entry.traces ?? 0) + requests;
   }
   // A route Tempo shows nothing of has traces of zero, once Tempo shows others: it is not simply late.
-  const anyTraces = traced.spans.length > 0;
+  const anyTraces = traced.routes.some(({ requests }) => requests > 0);
   for (const entry of routes.values()) {
     if (anyTraces) entry.traces ??= 0;
     if (!traced.complete) delete entry.traces;
