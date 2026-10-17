@@ -110,12 +110,10 @@ const folders = [...new Set([...tracked].flatMap((file) => file.match(/^deploy\/
  * The places under deploy/ a file names, outside its comments: as a path there or to it (`../../deploy`), or as
  * `deploy` and one of its folders side by side, as `join(…, 'deploy', 'base')` would. A comment opens a line, so a
  * glob's `/*` inside a string is not taken for one; `#` opens one only in YAML, where it is not a private field.
+ * An HTML comment is read as code, which errs towards failing.
  */
 function deployPaths(text: string, yaml = false) {
-  const code = text
-    .replace(/^\s*\/\*[\s\S]*?\*\//gm, '')
-    .replace(yaml ? /^\s*#.*$/gm : /^\s*\/\/.*$/gm, '')
-    .replace(/<!--[\s\S]*?-->/g, '');
+  const code = text.replace(/^\s*\/\*[\s\S]*?\*\//gm, '').replace(yaml ? /^\s*#.*$/gm : /^\s*\/\/.*$/gm, '');
   const parts = new RegExp(`['"\`]deploy['"\`]\\s*,\\s*['"\`](${folders.join('|')})\\b`, 'g');
   return [
     ...[...code.matchAll(/(?<![\w-])deploy\/[\w./*-]*/g)].map(([path]) => path),
