@@ -192,11 +192,11 @@ const UNCHANGED = `Change nothing only if what sent the work back is not your ch
  * for the app's manifests, so the coder runs the target's commands itself and leaves out what it cannot.
  */
 const CHECKS =
-  'Before you hand back, run what CI requires of a change, as AGENTS.md names it: lint and formatting, the type check and the tests. There is no `make` here, so run the commands its Makefile’s target runs, one at a time, and leave out any whose tool is not installed. Put right what they report in the files you changed, and only there: a file the formatter refuses is fixed by the formatter’s own fix, run on that file alone.';
+  'Before you hand back, run what CI requires of a change. AGENTS.md names it `make check`: lint and formatting, the type check and the tests. There is no `make` here, so run the commands of the Makefile’s `check` target yourself, one at a time, and leave out any whose tool is not installed; say in your note which you left out. Put right what they report that your change caused, and nothing else. A file of yours the formatter refuses is put right by the formatter alone, writing that file and no other: not by a lint fix, which changes more.';
 
 /** What a later round runs again before it hands back. */
 const CHECKS_AGAIN =
-  'Then run the checks again before you hand back: lint and formatting, the type check and the tests.';
+  'If you change anything, run the checks again before you hand back: lint and formatting, the type check and the tests.';
 
 function specLines({ spec }: CoderInput): string[] {
   return [

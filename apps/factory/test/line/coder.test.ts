@@ -40,9 +40,9 @@ describe('the coder', () => {
         throw new Error('The coder has no price-suggestions fixture.');
       })();
     const returned = { from: 'gates' as const, reason: 'The gates failed: lint, types, tests' };
-    const inFull = 'Before you hand back, run what CI requires of a change, as AGENTS.md names it';
+    const inFull = 'Before you hand back, run what CI requires of a change. AGENTS.md names it `make check`';
     const reminder =
-      'Then run the checks again before you hand back: lint and formatting, the type check and the tests.';
+      'If you change anything, run the checks again before you hand back: lint and formatting, the type check and the tests.';
     // A step that starts afresh is told the checks in full, and how to run them with no `make`.
     for (const step of [
       input,
@@ -53,9 +53,14 @@ describe('the coder', () => {
       const prompt = coder.prompt(step);
       expect(prompt).toContain(inFull);
       expect(prompt).toContain('There is no `make` here');
-      expect(prompt).toContain('the formatter’s own fix, run on that file alone');
+      expect(prompt).toContain('put right by the formatter alone, writing that file and no other');
+      expect(prompt).toContain('say in your note which you left out');
       expect(prompt).not.toContain(reminder);
     }
+    // A first step runs them once its fix is in, and before it writes its result.
+    const prompt = coder.prompt(input);
+    expect(prompt.indexOf('3. Fix the code')).toBeLessThan(prompt.indexOf(inFull));
+    expect(prompt.indexOf(inFull)).toBeLessThan(prompt.indexOf('Then write the result'));
     // One that resumes its session is reminded of them.
     for (const step of [
       { ...input, round: 2, returned, session: 's' },
