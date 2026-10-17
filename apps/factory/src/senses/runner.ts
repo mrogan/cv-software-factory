@@ -99,7 +99,7 @@ export class SenseRunner {
       for (const observation of observations) {
         const { check, finding, route } = observation;
         if (observation.trouble) {
-          const key = JSON.stringify([route, observation.trouble]);
+          const key = `${route}\n${observation.trouble}`;
           const same = untold.get(key) ?? { route, trouble: observation.trouble, checks: [] };
           same.checks.push(check);
           untold.set(key, same);
