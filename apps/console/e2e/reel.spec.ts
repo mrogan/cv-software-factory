@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { consoleUrl, END, expect, ready, test, WIDTHS } from './support.ts';
 
 const renders = (page: Page) =>
@@ -260,42 +260,26 @@ test.describe('the line', () => {
   });
 });
 
-test.describe('playing the history on first view', () => {
+test.describe('opening the console', () => {
   // Short enough that the reel starts out of sight, below the line.
   test.use({ viewport: { width: 1440, height: 560 } });
 
-  test('still plays when new work arrives before the reel comes into sight', async ({ page, request }) => {
-    const events = (await (await request.get('/api/events')).json()) as { seq: number; type: string }[];
-    const opened = events.find((event) => event.type === 'work-item.opened');
-    const last = events.at(-1);
-    if (!opened || !last) throw new Error('No samples');
-    let stream: Route | undefined;
-    await page.route('**/api/events/stream*', (route) => {
-      stream ??= route;
-    });
+  test('opens the reel on now, and it stays there when it comes into sight', async ({ page }) => {
+    await page.clock.install({ time: END });
     await page.goto(consoleUrl({ motion: true }));
     await ready(page);
     const count = page.locator('.transport .count');
-    // Waiting where the latest eight begin.
-    await expect(count).toHaveText('17 of 24');
+    await expect(count).toHaveText('24 of 24');
     expect((await page.locator('.reel').boundingBox())?.y).toBeGreaterThan(560);
-
-    await expect.poll(() => stream).toBeDefined();
-    const arrived = {
-      ...opened,
-      id: crypto.randomUUID(),
-      seq: last.seq + 1,
-      work_item: '1327',
-      ts: new Date(END).toISOString(),
-    };
-    await stream?.fulfill({
-      headers: { 'content-type': 'text/event-stream' },
-      body: `id: ${arrived.seq}\ndata: ${JSON.stringify(arrived)}\n\n`,
-    });
-    await expect(count).toHaveText('17 of 25');
+    // Previous, next and Now: nothing to play the history with.
+    const transport = page.locator('.transport');
+    await expect(transport.getByRole('button')).toHaveCount(3);
+    for (const name of ['Previous work item', 'Next work item', 'NOW'])
+      await expect(transport.getByRole('button', { name })).toBeVisible();
 
     await page.locator('.reel').scrollIntoViewIfNeeded();
-    await expect(count).toHaveText('18 of 25', { timeout: 6000 });
+    await page.clock.runFor(10_000);
+    await expect(count).toHaveText('24 of 24');
   });
 });
 
