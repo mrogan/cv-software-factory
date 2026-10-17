@@ -44,7 +44,12 @@ describe('the Canary panel, from the samples', () => {
     // The station works on the canary while a merge waits for Martin's deploy.
     expect(station).toMatchObject({ status: 'working', beacon: 'needs-you', figure: '50% · 1 waiting' });
     expect(shown(END).view.panels.release.rows).toContainEqual(
-      expect.objectContaining({ item: '1321', note: 'Needs you · waiting for Martin’s deploy', tone: 'attn' }),
+      expect.objectContaining({
+        item: '1321',
+        note: 'Needs you · waiting for Martin’s deploy',
+        tone: 'attn',
+        state: 'held',
+      }),
     );
   });
 
@@ -52,7 +57,13 @@ describe('the Canary panel, from the samples', () => {
     const { view, canary, station } = shown(at('2026-10-06T07:04:00Z'));
     expect(canary.state === 'shown' && canary.release).toMatchObject({ version: 'v0.9.12', items: [], weight: 50 });
     expect(station).toMatchObject({ status: 'working', figure: '50%' });
-    expect(view.panels.release.rows[0]).toMatchObject({ item: 'v0.9.12', release: true, note: 'canary at 50%' });
+    expect(view.panels.release.rows[0]).toMatchObject({
+      item: 'v0.9.12',
+      release: true,
+      note: 'canary at 50%',
+      state: 'in-hand',
+      working: true,
+    });
   });
 
   it('keeps a promoted release in full for a quarter of an hour, then folds it to one line', () => {
@@ -76,7 +87,14 @@ describe('the Canary panel, from the samples', () => {
       },
     });
     expect(view.panels.release.rows).toContainEqual(
-      expect.objectContaining({ item: 'v0.9.9', note: 'rolled back at 25% · opened #1308', tone: 'attn' }),
+      // Gone from the stage, but held: it takes the held row's rule and icon, after what is in the stage.
+      expect.objectContaining({
+        item: 'v0.9.9',
+        note: 'rolled back at 25% · opened #1308',
+        tone: 'attn',
+        state: 'held',
+        left: true,
+      }),
     );
   });
 

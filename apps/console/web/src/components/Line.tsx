@@ -4,13 +4,22 @@
  */
 import type { Sense, Stage } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
-import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { describe, STAGE_NAME, STATE } from '../../../../../docs/design/system/station.ts';
 import { clock, duration, shortVersion } from '../format.ts';
 import {
   type CapSpell,
   type PanelRow,
   type Return,
+  type RowState,
   type SenseCount,
   type Station,
   type Status,
@@ -344,12 +353,19 @@ function Sources({ senses }: { senses: SenseCount[] }) {
 
 const CAP_NAME = { day: 'The daily spend cap', month: 'The monthly spend cap' };
 
-/** A spend cap in Triage's panel: while it holds, and for the rest of the day it cleared, written as returns are. */
-function CapRow({ spell, t }: { spell: CapSpell; t: number }) {
+/**
+ * A spend cap in Triage's panel, written as returns are: while it holds, with the work and ruled as held; for the rest
+ * of the day it cleared, with what left today.
+ */
+function CapRow({ spell, t, first }: { spell: CapSpell; t: number; first: boolean }) {
   const cleared = spell.cleared;
+  const state = cleared === undefined ? 'held' : 'passed';
   return (
-    <div className="srow">
-      <span className="id">cap</span>
+    <div className={rowClass(state, cleared !== undefined, first)}>
+      <span className="id">
+        cap
+        <StatusIcon state={state} />
+      </span>
       <span>
         {CAP_NAME[spell.cap]}: reached at {clock(spell.reached)}
         {cleared !== undefined && `, cleared at ${clock(cleared)}`}
@@ -374,11 +390,108 @@ interface PanelProps {
 }
 
 /**
- * The station's own "working" dot, on a row it is at work on, so the work in hand stands out from what waits. It is
- * named "working" for a screen reader, since a release's row has no accessible name of its own to say it in.
+ * Each row's status icon, on a 12px grid in the console's glyph strokes: solid shapes, as outlines read weakly this
+ * small, and a stroked tick. Media-player signs, so they read without a key: play for the work in hand, stop for
+ * held or failed, pause for waiting, next for passed on, previous for sent back upstream, and a tick for verified.
  */
-function WorkingDot({ working }: { working: PanelRow['working'] }) {
-  return working ? <span className="dot tone-signal" role="img" aria-label="working" /> : null;
+const SHAPES: Record<RowState, ReactElement> = {
+  'in-hand': <path className="solid" d="M3.75 2.5 9.5 6 3.75 9.5Z" />,
+  held: <rect className="solid" x="3" y="3" width="6" height="6" rx="0.5" />,
+  waiting: (
+    <>
+      <rect className="solid" x="3.5" y="2.75" width="1" height="6.5" />
+      <rect className="solid" x="7.5" y="2.75" width="1" height="6.5" />
+    </>
+  ),
+  passed: (
+    <>
+      <path className="solid" d="M2.75 2.75 7.25 6 2.75 9.25Z" />
+      <rect className="solid" x="9" y="2.75" width="0.75" height="6.5" />
+    </>
+  ),
+  'sent-back': (
+    <>
+      <path className="solid" d="M9.25 2.75 4.75 6 9.25 9.25Z" />
+      <rect className="solid" x="2.25" y="2.75" width="0.75" height="6.5" />
+    </>
+  ),
+  verified: <path d="M2.75 6.25 5 8.5 9.25 3.5" />,
+};
+
+/**
+ * A row's status icon, under its number. Hidden from a screen reader: the note says the state in words, and a row in
+ * hand says "working" in its name. In hand while the station is at work, it is the station's `signal`, blinking as
+ * the reel's "In progress" does; stopped, capped or held, the station is not at work on it, and it stays faint.
+ */
+function StatusIcon({ state, working }: { state: RowState; working?: true | undefined }) {
+  return (
+    <svg className={working ? 'glyph sicon tone-signal blink' : 'glyph sicon'} viewBox="0 0 12 12" aria-hidden="true">
+      {SHAPES[state]}
+    </svg>
+  );
+}
+
+/**
+ * A row's classes: an `attn` rule when held, an `ok` rule when verified, dimmed when it left otherwise, and the first
+ * that left under a stronger hairline.
+ */
+function rowClass(state: RowState, left: boolean | undefined, first: boolean) {
+  const ruled = state === 'held' ? 'ruled tone-attn' : state === 'verified' ? 'ruled tone-ok' : left && 'left';
+  return ['srow', ruled, first && 'first-left'].filter(Boolean).join(' ');
+}
+
+/** One row of a stage panel: a work item, which opens its sheet, or a release with no work item, which opens nothing. */
+function Row({ row, first, onOpen }: { row: PanelRow; first: boolean; onOpen: (item: string) => void }) {
+  const className = rowClass(row.state, row.left, first);
+  const note = row.working ? 'working' : `tone-${row.tone}`;
+  if (row.release) {
+    // A release with no work item has no sheet to open: its row is the Canary panel's in one line. It has no
+    // accessible name of its own either, so the word "working" is written for a screen reader.
+    return (
+      <div className={className}>
+        <span className="id" title={row.item}>
+          {shortVersion(row.item)}
+          <StatusIcon state={row.state} working={row.working} />
+        </span>
+        <span>
+          {row.title}
+          <small className={note}>
+            {row.working && <span className="sr">working, </span>}
+            {row.note}
+          </small>
+        </span>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={() => onOpen(row.item)}
+      aria-label={`Open #${row.item}, ${row.title}: ${[
+        ...row.earlier.map((e) => `earlier ${e}`),
+        ...(row.working ? ['working'] : []),
+        row.note,
+      ].join(', ')}`}
+    >
+      <span className="id">
+        #{row.item}
+        <StatusIcon state={row.state} working={row.working} />
+      </span>
+      <span>
+        {row.title}
+        <small className={note}>
+          {row.earlier.map((e) => (
+            <span key={e}>
+              <s>{e}</s> ·{' '}
+            </span>
+          ))}
+          {row.note}
+        </small>
+      </span>
+      <span className="aside go">Open ›</span>
+    </button>
+  );
 }
 
 function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelProps) {
@@ -386,6 +499,16 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
   const title = useRef<HTMLHeadingElement>(null);
   const [place, setPlace] = useState<CSSProperties>({});
   const { rows, senses, caps, queued } = view.panels[stage];
+  // One list: the work in hand, a spend cap that holds (with the work, as held), the rest of what is in the stage,
+  // then a cap that cleared today and what left the stage today, the first of them under a stronger hairline.
+  const list: (PanelRow | CapSpell)[] = [
+    ...rows.filter((row) => !row.left && row.state === 'in-hand'),
+    ...caps.filter((spell) => spell.cleared === undefined),
+    ...rows.filter((row) => !row.left && row.state !== 'in-hand'),
+    ...caps.filter((spell) => spell.cleared !== undefined),
+    ...rows.filter((row) => row.left),
+  ];
+  const firstLeft = list.findIndex((entry) => ('cap' in entry ? entry.cleared !== undefined : entry.left));
 
   // Under its station, kept inside the line; on a phone the styles make it a bottom sheet instead.
   useLayoutEffect(() => {
@@ -435,57 +558,23 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
         </button>
       </header>
       <p>{BLURB[stage]}</p>
-      {senses && <Sources senses={senses} />}
-      {stage === 'plan' && queued > 0 && (
-        <p className="queue-note">Tickets wait here for the planner, which takes one at a time.</p>
-      )}
       {rows.length === 0 && caps.length === 0 && <div className="empty">Nothing in {STAGE_NAME[stage]} today.</div>}
-      {caps.map((spell) => (
-        <CapRow key={`cap-${spell.cap}-${spell.reached}`} spell={spell} t={view.t} />
-      ))}
-      {rows.map((row) =>
-        row.release ? (
-          // A release with no work item has no sheet to open: its row is the Canary panel's in one line.
-          <div key={`${row.item}-${row.at}`} className="srow">
-            <span className="id" title={row.item}>
-              {shortVersion(row.item)}
-            </span>
-            <span>
-              {row.title}
-              <small className={row.working ? 'working' : `tone-${row.tone}`}>
-                <WorkingDot working={row.working} />
-                {row.note}
-              </small>
-            </span>
-          </div>
+      {list.map((entry, i) =>
+        'cap' in entry ? (
+          <CapRow key={`cap-${entry.cap}-${entry.reached}`} spell={entry} t={view.t} first={i === firstLeft} />
         ) : (
-          <button
-            key={`${row.item}-${row.at}`}
-            type="button"
-            className="srow"
-            onClick={() => onOpen(row.item)}
-            aria-label={`Open #${row.item}, ${row.title}: ${[
-              ...row.earlier.map((e) => `earlier ${e}`),
-              ...(row.working ? ['working'] : []),
-              row.note,
-            ].join(', ')}`}
-          >
-            <span className="id">#{row.item}</span>
-            <span>
-              {row.title}
-              <small className={row.working ? 'working' : `tone-${row.tone}`}>
-                {row.earlier.map((e) => (
-                  <span key={e}>
-                    <s>{e}</s> ·{' '}
-                  </span>
-                ))}
-                <WorkingDot working={row.working} />
-                {row.note}
-              </small>
-            </span>
-            <span className="aside go">Open ›</span>
-          </button>
+          <Row key={`${entry.item}-${entry.at}`} row={entry} first={i === firstLeft} onOpen={onOpen} />
         ),
+      )}
+      {senses && (
+        <div className="ref">
+          <Sources senses={senses} />
+        </div>
+      )}
+      {stage === 'plan' && queued > 0 && (
+        <div className="ref">
+          <p className="queue-note">Tickets wait here for the planner, which takes one at a time.</p>
+        </div>
       )}
     </div>
   );

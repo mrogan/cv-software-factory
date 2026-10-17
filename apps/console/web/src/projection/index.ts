@@ -32,6 +32,7 @@ export type {
   PanelRow,
   ProviderSpell,
   Return,
+  RowState,
   Score,
   SenseCount,
   StagePanel,

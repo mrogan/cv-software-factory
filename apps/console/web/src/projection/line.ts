@@ -82,6 +82,8 @@ export interface Return {
   at: number;
 }
 
+export type RowState = 'in-hand' | 'held' | 'waiting' | 'passed' | 'sent-back' | 'verified';
+
 export interface PanelRow {
   /** The work item's number, or for a release with no work item, its version. */
   item: string;
@@ -93,6 +95,13 @@ export interface PanelRow {
   earlier: string[];
   /** `signal` for what the station is at work on now. */
   tone: 'signal' | 'ok' | 'attn' | 'faint';
+  /**
+   * Where it stands, for the row's status icon: in hand, held or failed, waiting for the stage to take it, passed on
+   * (or closed) today, sent back upstream today, or verified.
+   */
+  state: RowState;
+  /** It left the stage today: listed after what is in it, under a stronger hairline. */
+  left?: true;
   /**
    * At work on it while the station says it is working: the row is marked as the station marks itself. Stopped,
    * capped or held, the station says "blocked", and its rows are not marked.
@@ -356,12 +365,19 @@ const newestFirst = (a: PanelRow, b: PanelRow) => Number(b.item) - Number(a.item
 
 /**
  * What is in a stage, by what the station is doing with it: at work on it, held or failed in it, waiting for it. No
- * row in the stage is `ok`, which only a leaver of Verify is; it has a place so that every tone does.
+ * row in the stage has left it; those states have a place so that every state does.
  */
-const IN_STAGE: Record<PanelRow['tone'], number> = { signal: 0, attn: 1, ok: 2, faint: 3 };
+const IN_STAGE: Record<RowState, number> = {
+  'in-hand': 0,
+  held: 1,
+  waiting: 2,
+  passed: 3,
+  'sent-back': 3,
+  verified: 3,
+};
 
 /** What the station is working on first, then what is held or failed, then what waits; each newest first. */
-const inHandFirst = (a: PanelRow, b: PanelRow) => IN_STAGE[a.tone] - IN_STAGE[b.tone] || newestFirst(a, b);
+const inHandFirst = (a: PanelRow, b: PanelRow) => IN_STAGE[a.state] - IN_STAGE[b.state] || newestFirst(a, b);
 
 /**
  * What a stage panel lists: the items in the stage now, then what left it today, one row each. A work item the
@@ -384,6 +400,7 @@ export function panel(
       note: noteOf(item, stage),
       earlier: [],
       tone: item.hold || item.failure ? 'attn' : item.queued ? 'faint' : 'signal',
+      state: item.hold || item.failure ? 'held' : item.queued ? 'waiting' : 'in-hand',
       at: item.lastAt,
     }),
   );
@@ -395,7 +412,10 @@ export function panel(
         title: item.title,
         note: stage === item.stage ? (CLOSED_NOTE[item.outcome] ?? 'passed') : `passed on to ${item.stage ?? ''}`,
         earlier: [],
-        tone: stage === 'verify' ? 'ok' : 'faint',
+        // Only a verified result is `ok`: one closed at Verify for another reason passed through it.
+        tone: stage === 'verify' && item.outcome === 'verified' ? 'ok' : 'faint',
+        state: stage === 'verify' && item.outcome === 'verified' ? 'verified' : 'passed',
+        left: true,
         at,
       }),
     );
@@ -418,6 +438,8 @@ export function panel(
         note: sentTo(latest),
         earlier: before.length ? [sentBackWords(before.length)] : [],
         tone: 'faint',
+        state: 'sent-back',
+        left: true,
         at: latest.at,
       });
     }
@@ -431,17 +453,17 @@ export function panel(
     .map(ownRow);
   const { status } = station(stage, items, returns, line, t, shipped);
   const lit = status === 'working' || status === 'returning';
-  const mark = (row: PanelRow): PanelRow => (lit && row.tone === 'signal' ? { ...row, working: true } : row);
+  const mark = (row: PanelRow): PanelRow => (lit && row.state === 'in-hand' ? { ...row, working: true } : row);
   return {
     stage,
     // What is in the stage, the work in hand first, then what left it today, each newest first: the store numbers
     // work items in order. The line takes the oldest ticket, so by number alone the one in hand would sit below
     // every newer one waiting behind it.
     rows: [
-      ...own.filter((row) => row.tone === 'signal'),
+      ...own.filter((row) => row.state === 'in-hand'),
       ...now.sort(inHandFirst),
       ...[...done, ...back].sort(newestFirst),
-      ...own.filter((row) => row.tone !== 'signal'),
+      ...own.filter((row) => row.state !== 'in-hand'),
     ].map(mark),
     senses: triage ? senseCounts(items, events) : undefined,
     caps: triage ? line.caps.filter((spell) => spell.cleared === undefined || spell.cleared >= startOfDay(t)) : [],
@@ -469,6 +491,8 @@ function ownRow(r: Release): PanelRow {
     note,
     earlier: [],
     tone,
+    state: !end ? 'in-hand' : end.kind === 'promoted' ? 'passed' : 'held',
+    ...(end && { left: true as const }),
     at: end?.at ?? r.startedAt,
   };
 }

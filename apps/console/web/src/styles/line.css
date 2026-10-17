@@ -259,13 +259,41 @@ button.srow:hover {
 .srow small.tone-ok {
   color: var(--tone);
 }
-/* What the station is at work on: its note in ink, after the station's own "working" dot. */
+/* What the station is at work on: its note in ink. */
 .srow small.working {
   color: var(--text);
 }
-.srow small .dot {
-  margin-right: 6px;
-  vertical-align: 1px;
+/* A glyph (base.css) drawn smaller: the shapes are solid, the tick stroked. Held and verified take the row's tone; in
+   hand, `signal` at full strength, as people look at the icon before the number. It sits under the row's number,
+   left-aligned with its first character. */
+.sicon {
+  display: block;
+  margin-top: 3px;
+  width: 12px;
+  height: 12px;
+  color: var(--tone, var(--text-faint));
+}
+.sicon .solid {
+  fill: currentColor;
+}
+/*
+ * Needs you, and at Verify a verified result: the design system's 2px rule on the left edge, in the row's tone, not a
+ * filled box. It sits where a row's hover box starts, and the padding gives back what it takes, so the numbers line up.
+ */
+.srow.ruled {
+  margin: 0 -8px;
+  width: calc(100% + 16px);
+  padding-right: 8px;
+  padding-left: 6px;
+  border-left: var(--stroke-rule) solid var(--tone);
+  border-radius: var(--radius-rule) var(--radius-small) var(--radius-small) var(--radius-rule);
+}
+/* What left today is dimmed, title and all; the first of it sits under a stronger hairline, with no label. */
+.srow.left > span:nth-child(2) {
+  color: var(--text-muted);
+}
+.srow.first-left {
+  border-top-color: var(--line-strong);
 }
 /* An earlier state the work item went through in the stage today, kept in its row. */
 .srow small s {
@@ -396,6 +424,12 @@ button.srow:hover {
 .stage-panel .queue-note {
   font: 11.5px / 1.5 var(--font-mono);
   color: var(--text-2);
+}
+/* The station's reference material comes after its work, closed off from the rows by a hairline. */
+.stage-panel .ref {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
 
 /* A spend cap's reset time stays in Triage's caption at every width: it is the station's one figure. */
