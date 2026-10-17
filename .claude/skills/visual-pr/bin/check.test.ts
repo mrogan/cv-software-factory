@@ -19,6 +19,13 @@ describe('check.ts', () => {
     ]);
   });
 
+  it('names the line a missing blank line leaves as text, by the describer’s rule, before anything is rendered', () => {
+    const body = '<details>\n<summary>\n## Tests\n</summary>\n\n- passes\n\n</details>';
+    expect(problems(body, '', false)).toEqual([
+      'a folded section shows “## Tests” as text: leave a blank line before it',
+    ]);
+  });
+
   it('names a section with no summary', () => {
     expect(problems('', '<details>\n<p dir="auto">body</p>\n</details>', false)).toEqual([
       'a <details> has no <summary>, or one has two',
@@ -40,6 +47,22 @@ describe('check.ts', () => {
       'a local path is left: scratch/pr/foo.svg',
       'a local path is left: ./scratch/pr/c.svg',
       'a local path is left: scratch/pr/d.svg',
+    ]);
+  });
+
+  it('reads code as GitHub does before it looks for a local path', () => {
+    const body = [
+      '``[x](scratch/a.svg) ` [y](scratch/b.svg)``',
+      '   ```\n[x](scratch/c.svg)\n   ```',
+      '````\n```\n[x](scratch/d.svg)\n````',
+      '~~~\n```\n[x](scratch/e.svg)\n~~~',
+      '[after](scratch/f.svg)',
+      '```\n[x](scratch/g.svg)\n``` not closed\n[x](scratch/h.svg)',
+    ].join('\n\n');
+    expect(problems(body, '', true)).toEqual(['a local path is left: scratch/f.svg']);
+    expect(problems('    ```\n[x](scratch/i.svg)\n\n[ref]: scratch/j.svg', '', true)).toEqual([
+      'a local path is left: scratch/i.svg',
+      'a local path is left: scratch/j.svg',
     ]);
   });
 

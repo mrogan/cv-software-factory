@@ -10,8 +10,12 @@ An agent: describes the fix once review approves it. Part of the [factory plane]
 
 It names the runner's `visual-pr` skill (vendored from HumanLayer under MIT, `apps/runner/plugin`), which:
 
-- fits a description to its change: a line, if a line will do;
+- fits a description to its change: a line, if a line will do, and a few points for a small change;
+- lays it out to scan: the opening sentence alone, then one point to a bullet;
+- folds what supports the story, such as the tests and the rollout, into `<details>` sections with a `##` heading in each summary;
 - reads the repository's pull request template as questions to answer, not headings to fill.
+
+Martin's own `/visual-pr` follows the same skill, so the line's descriptions are written to his rules.
 
 ## Its result
 
@@ -24,7 +28,8 @@ Read with Zod:
 The squash commit takes the description as its message, so the schema refuses:
 
 - a closing keyword before an issue, which would close the ticket's issue on merge rather than once the fix is verified;
-- an @mention outside code.
+- an @mention outside code;
+- a folded section that would not render, read line by line (`line/agents/folds.ts`): GitHub shows the Markdown in a `<details>` as text unless a blank line ends the HTML before it.
 
 A refused result runs the step again, told why.
 
