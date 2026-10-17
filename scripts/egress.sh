@@ -178,11 +178,11 @@ EOF
 # The workers' own checks run from a probe pod made from the worker's live Deployment, and not from inside the worker,
 # where a second Node beside the worker's own could run it out of memory. Its template keeps everything that decides
 # what the pod may reach (its namespace, labels and annotations, DNS, hosts, host network, service account, image and
-# security contexts), and a network policy selects by nothing else. Replaced: the command, an idle Node; the resources,
-# its own; and the service account's token, not mounted. Dropped, as they would run the worker or hand it the worker's
-# things: the init containers, the volumes, the environment, and every container but the first, which a network policy
-# would treat the same. And it is never ready, by a probe of a port nothing listens on, so the worker's Service does not
-# send the worker's callers to it.
+# security contexts), and a network policy selects by nothing else. Replaced: the command, a Node that idles until the
+# run deletes it; the resources, its own; and the service account's token, not mounted. Dropped, as they would run the
+# worker or hand it the worker's things: the init containers, the volumes, the environment, and every container but
+# the first, which a network policy would treat the same. And it is never ready, by a probe of a port nothing listens
+# on, so the worker's Service does not send the worker's callers to it.
 # $1: namespace; $2: the Deployment; $3: Node's path in its image.
 start_probe() {
   kubectl --context "$context" -n "$1" delete pod "egress-$2" --ignore-not-found --wait >/dev/null
@@ -196,8 +196,8 @@ start_probe() {
         automountServiceAccountToken: false,
         containers: [$template.spec.containers[0] | {
           name, image, imagePullPolicy, securityContext,
-          command: [$node, "-e", "setTimeout(() => {}, 600000)"],
-          resources: { requests: { cpu: "10m", memory: "32Mi" }, limits: { memory: "128Mi" } },
+          command: [$node, "-e", "setInterval(() => {}, 3600000)"],
+          resources: { requests: { cpu: "10m", memory: "32Mi" }, limits: { memory: "256Mi" } },
           readinessProbe: { tcpSocket: { port: 1 }, periodSeconds: 3600 }
         }]
       })
