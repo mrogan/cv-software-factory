@@ -38,7 +38,10 @@ export interface Comparison {
   flaky: Seen[];
   /** Fail on the change, where the base could not tell. */
   unsure: Seen[];
-  /** How many checks ran on each, and how many passed: on the change, one that failed once and then passed does. */
+  /**
+   * How many checks ran on each, and how many passed: on the change, one that failed once and then passed when run
+   * again does; one the second run left out does not.
+   */
   counts: { base: Count; change: Count };
 }
 
@@ -80,7 +83,11 @@ export async function compareJourneys(observe: Observe, base: string, change: st
     fixed: [...before.values()].filter((s) => s.failed && after.has(keyOf(s)) && !after.get(keyOf(s))?.failed),
     counts: {
       base: { passed: seenOnBase.filter((s) => !bad(s)).length, ran: seenOnBase.length },
-      change: { passed: first.filter((s) => !bad(s)).length + flaky.length, ran: first.length },
+      // A check left out of the second run is not a regression, but nothing saw it pass either.
+      change: {
+        passed: first.filter((s) => !bad(s)).length + flaky.filter((s) => again.has(keyOf(s))).length,
+        ran: first.length,
+      },
     },
   };
 }

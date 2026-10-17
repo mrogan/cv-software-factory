@@ -425,6 +425,13 @@ describe('journeys, when a check cannot finish on the change', () => {
     expect(c.counts).toEqual({ base: { passed: 2, ran: 2 }, change: { passed: 1, ran: 2 } });
     expect(summary(c)).toContain('the button to click is not there');
   });
+
+  it('does not count as passing a check the second run left out', async () => {
+    const runs: Seen[][] = [[seen('buy', false)], [seen('buy', true)], []];
+    const c = await compareJourneys(async () => runs.shift() ?? [], 'base', 'change');
+    expect(c.flaky.map((s) => s.check)).toEqual(['buy']);
+    expect(c.counts.change).toEqual({ passed: 0, ran: 1 });
+  });
 });
 
 describe('the gates’ scripts, end to end', () => {
