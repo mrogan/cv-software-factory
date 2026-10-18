@@ -148,6 +148,32 @@ describe('the gates, as events', () => {
     expect(gateEvents(pr(), runs, ['test'], nothing).map((d) => d.type)).toEqual(['gates.started', 'gate.finished']);
   });
 
+  it('finish a round at a merge on the checks that have finished, with none required or one still running', () => {
+    const merged = pr({ state: 'closed', merged: true, mergeCommit: MERGED, mergedBy: 'mrogan' });
+    const runs = [run(1, 'test', 'success'), run(2, 'tests first', null)];
+    // No check required: the one still running is left out, as nothing reads it after the merge.
+    const none = gateEvents(merged, runs, [], nothing);
+    expect(none.map((d) => d.type)).toEqual([
+      'gates.started',
+      'gate.finished',
+      'gates.finished',
+      'pull-request.merged',
+    ]);
+    expect(none[2]?.payload).toMatchObject({ conclusion: 'passed', passed: 1, failed: [] });
+    expect(none[2]?.summary).toBe('PR #12 merged before tests first finished');
+    // A required check still running, as when the admin bypassed the ruleset to merge: the round ends all the same.
+    const bypassed = gateEvents(merged, runs, ['test', 'tests first'], nothing);
+    expect(bypassed.map((d) => d.type)).toEqual([
+      'gates.started',
+      'gate.finished',
+      'gates.finished',
+      'pull-request.merged',
+    ]);
+    expect(bypassed[2]?.payload).toMatchObject({ conclusion: 'passed', failed: [] });
+    // Open, both wait for every check.
+    expect(gateEvents(pr(), runs, [], nothing).map((d) => d.type)).toEqual(['gates.started', 'gate.finished']);
+  });
+
   it('wait for the merge commit when GitHub says a pull request merged before it names one', () => {
     expect(gateEvents(pr({ state: 'closed', merged: true, mergeCommit: null }), [], [], nothing)).toEqual([]);
   });
