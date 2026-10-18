@@ -612,6 +612,14 @@ export class Line {
           await this.#queue.release(workItem, item.stage);
           return;
         }
+        // Then the step's lease must outlast its deadline, not the effects'.
+        if (
+          kept &&
+          !effects &&
+          !(await this.#queue.claim(workItem, leaseFor(this.#bounds(next.agent).deadlineSeconds)))
+        ) {
+          return;
+        }
         const local = !effects && provider === 'local';
         await this.#queue.move(workItem, stage);
         this.#volumeGone.delete(workItem);
