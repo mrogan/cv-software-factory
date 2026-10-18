@@ -83,7 +83,8 @@ export function lineServers({
         const workItem = logged[1];
         // Read before the answer starts, so a store that fails answers 500 rather than half a log.
         const found = await logs.of(workItem);
-        // A mistyped number, or one never on the line, must not look like a work item with no steps.
+        // None kept: a mistyped number, one never on the line, or one whose first step has not ended. None of them is a
+        // work item with no steps, so none answers as one.
         if (!found.length) return send(res, 404, { error: `No runner's log is kept for ${workItem}.` });
         // Text that is never run: a browser sniffing it as a page would run what an agent printed.
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'x-content-type-options': 'nosniff' });
