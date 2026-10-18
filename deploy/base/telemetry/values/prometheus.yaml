@@ -5,11 +5,19 @@
 # `prometheus.io/` annotations), which the chart's `kubernetes-pods` job does. The canary's analysis counts the
 # requests the traffic split sends the canary there (`traefik_service_requests_total`, release/analysis.ts).
 #
+# The platform's components ask the same way, each through its chart's settings, so their own metrics are kept too: the
+# collector, Loki, Tempo and Alertmanager here; Argo Rollouts (rollouts/values.yaml), Kyverno (admission/values) and
+# Argo CD (deploy/argocd/values.yaml). Prometheus scrapes itself in its own job.
+#
 # Alertmanager has one receiver: the factory's intake, which turns each firing alert into a signal. Until the intake
 # is deployed, deliveries fail and Alertmanager retries them. The sub-chart's defaults already meet the restricted
 # Pod Security Standard.
 alertmanager:
   enabled: true
+  # Its own metrics, among them the deliveries to the intake that failed, on its HTTP port.
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9093"
   persistence:
     size: 100Mi
   resources:
@@ -95,3 +103,19 @@ server:
       memory: 256Mi
     limits:
       memory: 1Gi
+
+# `target_info` is a service that sends metrics over OTLP, and triage counts those to see that metrics still arrive
+# (environment.ts). The collector also serves its own where it is scraped, as may any SDK's exporter, which would be
+# counted after OTLP had stopped, so each job that scrapes what asks to be scraped drops it. The rest stays.
+scrapeConfigs:
+  kubernetes-pods:
+    metric_relabel_configs: &otlp-only
+      - source_labels: [__name__]
+        regex: target_info
+        action: drop
+  kubernetes-pods-slow:
+    metric_relabel_configs: *otlp-only
+  kubernetes-service-endpoints:
+    metric_relabel_configs: *otlp-only
+  kubernetes-service-endpoints-slow:
+    metric_relabel_configs: *otlp-only
