@@ -89,9 +89,9 @@ describe("the pins of Docker's official images", () => {
 /**
  * Playwright's library and its browsers are one release: the library refuses browsers from another. The library is in
  * the lockfile; the browsers are in its image, pinned once, under the probes and the crawler (Dockerfile.browser), and
- * read from there where the browser tests run (check.yml, the Makefile). Dependabot moves the lockfile and the
- * Dockerfile in one pull request, but the image skips its cooldown and the library waits it out, so for a few days
- * after a release that pull request names two releases, and this fails it.
+ * read from there where the browser tests run (check.yml, the Makefile). Dependabot moves them in one group, but
+ * proposes each when it is ready, in a pull request of its own when the other is not (.github/dependabot.yml), and
+ * this fails each half.
  */
 const PLAYWRIGHT = /mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-noble@(sha256:[0-9a-f]{64})/g;
 
