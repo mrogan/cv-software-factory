@@ -120,7 +120,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   // Version 4 adds how what the sense reads stood, as triage looked; a version 3 signal never said.
   'signal.received': { 1: (payload) => payload, 2: (payload) => payload, 3: (payload) => payload },
   // Version 2 lets the canary reopen a ticket as any sense may; a version 1 reopening reads as it was.
-  'work-item.reopened': { 1: (payload) => payload },
+  // Version 3 adds the line's reopening of a ticket a dry run verified; a version 2 reopening was a sense's.
+  'work-item.reopened': { 1: (payload) => payload, 2: (payload) => ({ ...payload, dryRun: false }) },
   // Version 2 adds where each criterion comes from. A version 1 spec never said, so its criteria read without it.
   // Version 3 adds the words each criterion quotes from there; a version 2 spec quoted none.
   'spec.written': { 1: (payload) => payload, 2: (payload) => payload },

@@ -152,7 +152,14 @@ describe('a reopened work item', () => {
       payload:
         type === 'work-item.closed'
           ? { outcome, reason: 'The probe passed twice in a row' }
-          : { sense: 'probe', check: 'pages load', route: '/search', version: 'v0.9.6', reason: 'It came back' },
+          : {
+              sense: 'probe',
+              check: 'pages load',
+              route: '/search',
+              version: 'v0.9.6',
+              reason: 'It came back',
+              dryRun: false,
+            },
       artifacts: [],
     } as NewEvent);
 

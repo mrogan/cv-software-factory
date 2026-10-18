@@ -186,6 +186,18 @@ const UNCHANGED_DECLINES =
 /** When a later round may change nothing, and how it says so. */
 const UNCHANGED = `Change nothing only if what sent the work back is not your change’s doing (a check fails on a defect your change uncovered and did not cause), or your change already does what is asked. Then leave the checkout as it is and write {"unchanged"} instead: at most ${UNCHANGED_MAX} characters, in plain sentences for Martin, on why. He decides what happens next.`;
 
+/**
+ * What the coder runs before it hands back: what the app's CI requires of a change, so that a patch the gates would
+ * refuse for its formatting or a type error does not cost a round. The runner's image has no `make`, and no renderer
+ * for the app's manifests, so the coder runs the target's commands itself and leaves out what it cannot.
+ */
+const CHECKS =
+  'Before you hand back, run what CI requires of a change. AGENTS.md names it `make check`: lint and formatting, the type check and the tests. There is no `make` here, so run the commands of the Makefile’s `check` target yourself, one at a time, and leave out any whose tool is not installed; say in your note which you left out. Put right what they report that your change caused, and nothing else. A file of yours the formatter refuses is put right by the formatter alone, writing that file and no other: not by a lint fix, which changes more.';
+
+/** What a later round runs again before it hands back. */
+const CHECKS_AGAIN =
+  'If you change anything, run the checks again before you hand back: lint and formatting, the type check and the tests.';
+
 function specLines({ spec }: CoderInput): string[] {
   return [
     `Outcome: ${spec.outcome}`,
@@ -218,6 +230,7 @@ function first(input: CoderInput): string[] {
     '1. Find the cause. Start from the code the criteria name, and its tests.',
     '2. Write the test first: a test for each criterion, in a test file the scope allows, beside the tests that are there. Run it and see it fail because of the defect.',
     '3. Fix the code, and run the tests again until yours pass and none that passed before fails.',
+    `4. ${CHECKS}`,
     '',
     'Change only what the criteria need. The app is bad on purpose, so you may see other things wrong: leave them, even in a file the scope allows, and mention them in your note. The line refuses a patch that changes any file outside the scope, whole. Leave your changes in the checkout: the line takes them from there.',
     '',
@@ -251,16 +264,20 @@ function again(input: CoderInput): string[] {
       : [];
   // A round for suggestions alone that may decline them all is asked for one result or the other, never both at once.
   const declineAll = !fenced && suggestionsAlone(input);
+  // A step without its session is told the checks in full below; one with it is reminded of them.
+  const recheck = resumed(input) ? [CHECKS_AGAIN] : [];
   const refused = fenced
     ? [
         `The line refused your patch${round > 1 ? ' for this round' : ''}: it changed files outside the spec’s scope. The scope fence printed:`,
         ...fenced.split('\n').map((line) => `    ${line}`),
         `Nothing of that patch was kept: the checkout is back where ${round > 1 ? 'this round' : 'you'} started. Make the fix again, changing only files the scope allows. A test that will not fit in a test file the scope allows is one to leave out; say so in your note.`,
+        ...recheck,
       ]
     : declineAll
-      ? ['Take what you take inside the same scope, and run the tests again.']
+      ? ['Take what you take inside the same scope.', ...recheck]
       : [
-          'Put it right inside the same scope, and run the tests again.',
+          'Put it right inside the same scope.',
+          ...recheck,
           ...(round > 1 ? [UNCHANGED] : []),
           ...(round > 1 && suggestions?.length ? [UNCHANGED_DECLINES] : []),
         ];
@@ -274,6 +291,7 @@ function again(input: CoderInput): string[] {
       ...briefing(input),
       '',
       'Read AGENTS.md first: its rules hold for every change here. The fix is in the checkout, and the reviewer approved it: change only what a suggestion you take needs.',
+      CHECKS,
       '',
       `${declineAll ? 'If you take any suggestion, then write' : 'Then write'} the result, {"title","note","declined"}:`,
       ...RESULT.slice(1, 3),

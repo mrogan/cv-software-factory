@@ -206,6 +206,7 @@ export function senseReopened(signal: Seen, signalId: string, workItem: string, 
     route: signal.route,
     version: signal.version,
     reason: reason.slice(0, 200),
+    dryRun: false,
   });
   return signalEvent(writer, signal).events;
 }
@@ -309,6 +310,36 @@ export function closedHeld(
       ? `Martin let it through: ticket #${first}`
       : `Martin let it through: ${why.opened.length} tickets, from #${first}`;
   return writer.add('work-item.closed', 'triage', reason, { outcome: 'no-change', reason }).events;
+}
+
+/** A hold of triage's that Martin answers, as it starts again: its cause, and a finding's defect. */
+export type AskedAgain = { cause: 'finding'; defect: ParkedDefect } | { cause: 'burst' | 'environment' };
+
+/**
+ * Triage could not do as Martin answered one of its holds, in as many tries as it gives a signal, and leaves his
+ * answer: the hold starts again, with its cause, saying so, and waits for his next answer, which it tries afresh.
+ * `answered` is where the answer it could not act on is in the store, so this is written once for each such answer.
+ */
+export function askedAgain(
+  workItem: string,
+  held: AskedAgain,
+  decision: 'approved' | 'rejected',
+  answered: string,
+  tries: number,
+  now: Date,
+): NewEvent[] {
+  const did = decision === 'approved' ? 'approval' : 'rejection';
+  return new Writer(`again:${workItem}:${answered}`, workItem, now).add(
+    'hold.started',
+    'triage',
+    `Waiting for Martin again: triage could not act on his ${did}`,
+    {
+      stage: 'triage',
+      kind: 'held',
+      ...held,
+      reason: `Triage tried ${tries} times to act on Martin's ${did} and could not; its log says why. It has stopped trying, and waits for his answer again.`,
+    },
+  ).events;
 }
 
 const lower = (name: string) => `${name.charAt(0).toLowerCase()}${name.slice(1)}`;

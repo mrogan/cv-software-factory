@@ -641,7 +641,9 @@ function AnswerRows({ answers }: { answers: Answers }) {
         const { text, p } = answerOf(answer);
         return (
           <div className="jev-row" key={answer.key}>
-            <span className="q">{QUESTION[answer.key] ?? answer.question}</span>
+            <span className="q" title={answer.question}>
+              {QUESTION[answer.key] ?? answer.question}
+            </span>
             <span className="p" aria-hidden="true">
               <i style={{ width: `${p * 100}%` }} />
             </span>
