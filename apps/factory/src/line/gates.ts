@@ -2,14 +2,16 @@
  * The gates and Martin's merge, as events. GitHub never calls the factory, so the line reads each of its pull
  * requests through the GitHub worker, about once a minute, and appends what changed: the checks starting on a
  * commit (`gates.started`), each one finishing (`gate.finished`), all of them done (`gates.finished`), and the merge
- * (`pull-request.merged`). A pull request closed without a merge closes its work item: as verified, when a look again
- * found its signal cleared on a release that did not carry it and nothing since says the defect is back (as when the
- * line closed it for that reason, or Martin did while it was held), and with no change otherwise.
+ * (`pull-request.merged`), after whatever the gates on the pull request's head did since the last read. A pull request
+ * closed without a merge closes its work item: as verified, when a look again found its signal cleared on a release
+ * that did not carry it and nothing since says the defect is back (as when the line closed it for that reason, or
+ * Martin did while it was held), and with no change otherwise.
  *
  * `gateEvents` is the decision, a pure function of what GitHub says and what the work item has already recorded, so
  * reading the same state again appends nothing. The gates are done when every check the ruleset requires has
- * finished on the commit, and every other check that started there; they pass when every required one passed. The
- * factory's own check runs (the reviewer's) are not gates, and are left out.
+ * finished on the commit, and every other check that started there, or at a merge, on the checks that have finished;
+ * they pass when every required one that finished passed. The factory's own check runs (the reviewer's) are not
+ * gates, and are left out.
  */
 import { type EventType, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { APP_LOGIN } from '../github/current.ts';
@@ -82,9 +84,14 @@ export function gateEvents(
   cleared?: { look: PayloadOf<'signal.rechecked'>; by: 'factory' | 'martin' },
 ): Draft[] {
   if (record.merged || record.closed) return [];
+  // GitHub can say a pull request merged before it names the merge commit: the next read records the merge.
+  if (pr.merged && !pr.mergeCommit) return [];
   if (pr.merged && pr.mergeCommit) {
     const by = pr.mergedBy === APP_LOGIN ? 'factory' : 'martin';
+    // What the gates on the pull request's head did since the last read comes first: a merge soon after they pass
+    // would otherwise leave their round unfinished for good, since nothing reads the pull request after it.
     return [
+      ...gateRun(pr, runs, required, record, true),
       {
         type: 'pull-request.merged',
         actor: by,
@@ -114,6 +121,20 @@ export function gateEvents(
     ];
   }
 
+  return gateRun(pr, runs, required, record);
+}
+
+/**
+ * The events the checks on the pull request's head call for that the work item has not had yet, in order. At a
+ * merge, the round ends with it, judged on the checks that have finished: nothing reads the rest after it.
+ */
+function gateRun(
+  pr: PullRequestState,
+  runs: readonly CheckRun[],
+  required: readonly string[],
+  record: GateRecord,
+  merged = false,
+): Draft[] {
   const commit = pr.head.sha;
   // The latest run of each check, by name: a check run again replaces the run before.
   const latest = new Map<string, CheckRun>();
@@ -152,18 +173,26 @@ export function gateEvents(
   }
 
   const all = [...latest.values()];
+  const finished = all.filter((run) => run.status === 'completed');
+  // At a merge nothing waits: no read comes after it, so a round left open then would stay open for good.
   const waiting =
-    required.some((name) => latest.get(name)?.status !== 'completed') || all.some((r) => r.status !== 'completed');
+    !merged && (required.some((name) => latest.get(name)?.status !== 'completed') || finished.length < all.length);
   if (!waiting && !record.done.has(commit)) {
-    const judged = required.length ? all.filter((run) => required.includes(run.name)) : all;
+    const judged = (required.length ? all.filter((run) => required.includes(run.name)) : all).filter((run) =>
+      finished.includes(run),
+    );
+    const relevant = required.length ? required : all.map((run) => run.name);
+    const unfinished = relevant.filter((name) => !judged.some((run) => run.name === name));
     const failed = judged.filter((run) => outcome(run.conclusion) === 'failure').map((run) => run.name.slice(0, 80));
-    const passed = all.filter((run) => outcome(run.conclusion) === 'success').length;
+    const passed = finished.filter((run) => outcome(run.conclusion) === 'success').length;
     drafts.push({
       type: 'gates.finished',
       actor: 'actions',
       summary: failed.length
         ? `${failed[0]} failed on PR #${pullRequest}`
-        : `All ${judged.length} required checks passed on PR #${pullRequest}`,
+        : unfinished.length
+          ? `PR #${pullRequest} merged before ${unfinished[0]?.slice(0, 80)} finished`
+          : `All ${judged.length} required checks passed on PR #${pullRequest}`,
       payload: {
         pullRequest,
         commit,

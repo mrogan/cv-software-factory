@@ -73,7 +73,8 @@ export type Picture =
   | { type: 'quarantine'; judgement: Judgement }
   /** A visitor's suggestion, parked for Martin: the page it named and Jev's answers, waiting on him. */
   | { type: 'suggestion'; page: Screenshot | undefined; judgement: Judgement }
-  | { type: 'spec'; spec: PayloadOf<'spec.written'>; question: string | undefined }
+  /** A spec: the decision Martin is asked to make while it holds for his answer, and otherwise what the work set out to do. */
+  | { type: 'spec'; spec: PayloadOf<'spec.written'>; waiting: boolean; question: string | undefined }
   /**
    * A merged fix waiting for Martin's deploy: the pull request it waits with, its merge, and the release that carried
    * it and rolled back, when it waits for the next deploy.
@@ -328,12 +329,19 @@ export function picture(item: ItemState, { waits = true }: { waits?: boolean } =
     return { type: 'judgement', page, judgement };
   }
 
-  const spec = last(ofType(item, 'spec.written'), () => true);
+  const found = last(ofType(item, 'spec.written'), () => true);
+  // Only a spec held at Plan for Martin's approval, or for his answer to the planner's question, waits for him.
+  const held = item.hold?.stage === 'plan' && (item.hold.cause === 'spec' || item.hold.cause === 'question');
+  const spec = found && {
+    type: 'spec' as const,
+    spec: found.payload,
+    waiting: held,
+    question: held ? item.hold?.question : undefined,
+  };
   if (waits) {
     const waiting = waitPicture(item);
     if (waiting) return waiting;
-    if (item.outcome === 'needs-you' && spec)
-      return { type: 'spec', spec: spec.payload, question: item.hold?.question };
+    if (held && spec) return spec;
   }
 
   if (item.dependency) {
@@ -367,7 +375,8 @@ export function picture(item: ItemState, { waits = true }: { waits?: boolean } =
 
   const broken = capture(item, 'broken');
   if (broken) return { type: 'screenshot', shot: broken.shot, tag: 'SEEN' };
-  if (spec) return { type: 'spec', spec: spec.payload, question: item.hold?.question };
+  // With nothing better to show, the spec says what the work set out to do, and waits only while it holds for Martin.
+  if (spec) return spec;
   return { type: 'none' };
 }
 

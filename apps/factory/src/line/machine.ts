@@ -209,7 +209,10 @@ export interface WorkItemState {
   fenceRefusals: number;
   /** The gates on the latest push: the commit they started on, and how they ended, once they have. */
   gates: { commit: string; conclusion: 'passed' | 'failed' | undefined; failed: string[] } | undefined;
-  /** Whether the gates have passed on the latest push: a later run on the same push (main merged in) is the console's. */
+  /**
+   * Whether the gates passed on the latest push, in its latest run that has ended: a run on a newer commit of the
+   * push (main merged in) leaves them passed while it runs, and replaces them when it ends.
+   */
   gatesPassed: boolean;
   gateReturns: number;
   /** The review of the latest push, if it has one. */
@@ -359,16 +362,26 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         state.gatesPassed = false;
         state.review = undefined;
         break;
+      // A run on a newer commit of the same push (GitHub bringing the branch up to date with main) replaces the run
+      // before once it ends: until then, gates that passed still stand, and the work item waits where it is.
       case 'gates.started':
-        if (!state.gatesPassed) state.gates = { commit: event.payload.commit, conclusion: undefined, failed: [] };
+        state.gates = { commit: event.payload.commit, conclusion: undefined, failed: [] };
         break;
       case 'gates.finished':
-        if (state.gates?.commit === event.payload.commit && !state.gatesPassed) {
+        if (state.gates?.commit === event.payload.commit) {
           state.gates = { ...state.gates, conclusion: event.payload.conclusion, failed: event.payload.failed };
           state.gatesPassed = event.payload.conclusion === 'passed';
           // Gates that pass answer the failure that sent the work back, whoever moved the branch: GitHub's update
           // with main, or a check run again. The coder has nothing left to put right.
           if (state.gatesPassed && state.rebuild?.from === 'gates') state.rebuild = undefined;
+          // Gates that fail after they passed end the wait for Martin's merge, which GitHub would refuse, whether the
+          // hold still stands or he answered it to wait: the failure sends the work back to Build, as on the push's
+          // first run. A round recorded with the merge comes before it, and the merge carries the work item on to
+          // Release whatever the round said.
+          if (!state.gatesPassed && (state.hold?.cause === 'merge' || state.answer?.cause === 'merge')) {
+            Object.assign(state, { hold: undefined, answer: undefined });
+            forgetLook(state);
+          }
         }
         break;
       case 'review.submitted':
@@ -390,6 +403,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (event.payload.to === 'build') {
           state.rebuild = { from: event.payload.from, reason: event.payload.reason };
           state.respecified = false;
+          // A change written up is written up again: the next round is a different change, and its pull request
+          // went back to draft with the return, until the describer readies it again.
+          state.described = false;
           state.returns.push(state.rebuild);
           state.round += 1;
           if (event.payload.from === 'gates') state.gateReturns += 1;

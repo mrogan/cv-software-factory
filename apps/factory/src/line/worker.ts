@@ -13,6 +13,9 @@
  *   recorded as it is begun and done, so none is done twice. After `LIMITS.effects` tries the work item holds.
  * - At most one step at a time in each of Plan, Build and Review, and a ticket comes onto the line only when nothing
  *   is in Plan or waiting for Build (`queue.ts`). Each work item is leased while it is acted on.
+ * - At most one step at a time on the local model, whatever its stage: LM Studio answers one prediction at a time, so
+ *   two steps on it would each take about twice as long. A step whose agent `policy/models.ts` sends there waits
+ *   while another such step runs, and the next pass tries again. Steps on Claude never wait on it.
  * - It reads its pull requests' gates and merges through the GitHub worker about once a minute (`gates.ts`).
  * - About as often, it tells the app's deploy pull request which work items it carries: those whose fixes merged
  *   between the commit the app runs and the one the pull request runs, as a release starting records them. It says
@@ -225,10 +228,13 @@ export class Line {
   readonly #o: Required<Omit<LineOptions, 'me'>>;
   readonly #queue: Queue;
   readonly #releases: Releases;
-  /** The steps in hand, by work item, with the stage each holds. */
+  /**
+   * The steps in hand, by work item, with the stage each holds, and whether it is an agent's step on the local model
+   * (not a kept handback's effects, which call no model).
+   */
   readonly #inFlight = new Map<
     string,
-    { stage: 'plan' | 'build' | 'review' | 'verify' | 'recheck'; done: Promise<void> }
+    { stage: 'plan' | 'build' | 'review' | 'verify' | 'recheck'; local?: boolean; done: Promise<void> }
   >();
   /** When each work item whose last look, at Verify or again, could not tell may be looked at again. */
   readonly #lookAgainAt = new Map<string, number>();
@@ -580,10 +586,17 @@ export class Line {
       if (next.do === 'step') {
         // One step at a time in each of Plan, Build and Review.
         if ([...this.#inFlight.values()].some((s) => s.stage === STAGE_OF[next.agent])) return;
+        // And one at a time on the local model, which answers one prediction at a time. A kept handback calls no model.
+        const provider = this.#o.providerOf(next.agent);
+        const localBusy = () => provider === 'local' && [...this.#inFlight.values()].some((s) => s.local);
+        if (!kept && localBusy()) {
+          this.#o.log.debug({ workItem: item.workItem, agent: next.agent }, 'a step waits for the local model');
+          return;
+        }
         if (kept && pending?.retryAt && Date.parse(pending.retryAt) > this.#o.now().getTime()) return;
         // Behind a cap the gateway refuses every call, so a step would only fail: it waits for the cap to clear.
         if (!kept) {
-          const cap = capOn(await capsInForce(this.#o.sql), this.#o.providerOf(next.agent));
+          const cap = capOn(await capsInForce(this.#o.sql), provider);
           if (cap) {
             this.#o.log.debug({ workItem: item.workItem, agent: next.agent, cap: cap.reason }, 'a step waits at a cap');
             return;
@@ -592,27 +605,47 @@ export class Line {
         const seconds = kept ? EFFECTS_LEASE_SECONDS : leaseFor(this.#bounds(next.agent).deadlineSeconds);
         const claimed = await this.#queue.claim(item.workItem, seconds);
         if (!claimed) return;
-        await this.#queue.move(item.workItem, stage);
         const workItem = item.workItem;
+        // A kept handback dropped since it was read leaves the agent's step to run again, on its model.
+        const effects = kept ? claimed.effects : null;
+        if (!effects && localBusy()) {
+          await this.#queue.release(workItem, item.stage);
+          return;
+        }
+        // Then the step's lease must outlast its deadline, not the effects'.
+        if (
+          kept &&
+          !effects &&
+          !(await this.#queue.claim(workItem, leaseFor(this.#bounds(next.agent).deadlineSeconds)))
+        ) {
+          return;
+        }
+        const local = !effects && provider === 'local';
+        await this.#queue.move(workItem, stage);
         this.#volumeGone.delete(workItem);
         const state = fold(events);
         const done = (
-          kept && claimed.effects
-            ? this.#effects(claimed, state, claimed.effects).finally(() => this.#release(workItem))
+          effects
+            ? this.#effects(claimed, state, effects).finally(() => this.#release(workItem))
             : this.#step(claimed, next.agent, next.round, state, last, this.#halt.signal)
         )
           .catch((error: unknown) => this.#o.log.error({ workItem, err: error }, 'a step could not be recorded'))
           .finally(() => this.#inFlight.delete(workItem));
-        this.#inFlight.set(workItem, { stage: STAGE_OF[next.agent], done });
+        this.#inFlight.set(workItem, { stage: STAGE_OF[next.agent], local, done });
         return;
       }
       const claimed = await this.#queue.claim(item.workItem, ACTION_LEASE_SECONDS);
       if (!claimed) return;
+      let acted: boolean | undefined;
       try {
-        await this.#act(claimed, next, fold(events));
+        acted = await this.#act(claimed, next, fold(events));
       } catch (error) {
         await this.#release(item.workItem);
         throw error;
+      }
+      if (acted === false) {
+        await this.#release(item.workItem);
+        return;
       }
       if (next.do === 'finish') {
         await this.#queue.release(item.workItem, 'ended');
@@ -649,12 +682,15 @@ export class Line {
     await this.#queue.release(workItem, stage === 'ended' ? item.stage : stage);
   }
 
-  /** An action that is not a step: quick, and done before the next. */
+  /**
+   * An action that is not a step: quick, and done before the next. Gives back false when it did nothing, and the
+   * work item waits for the line's next read of GitHub.
+   */
   async #act(
     item: QueueItem,
     next: Exclude<Next, { do: 'step' | 'wait' | 'verify' | 'recheck' }>,
     state: WorkItemState,
-  ): Promise<void> {
+  ): Promise<boolean | undefined> {
     const { workItem } = item;
     switch (next.do) {
       case 'open-issue': {
@@ -665,6 +701,24 @@ export class Line {
       }
       case 'return': {
         const { do: _, ...returned } = next;
+        // A pull request ready for review (the describer readied it) goes back to draft before the work goes back to
+        // Build, so that GitHub will not merge a round the reviewer has not seen. GitHub says whether it is ready, not
+        // the events: whoever readied it, it goes back.
+        if (next.to === 'build' && state.pullRequest) {
+          const { number } = state.pullRequest;
+          const pr = await this.#o.github.read('pullRequest', this.#o.repo, { number });
+          // Merged or closed since the line last read it: there is nothing to send back. The next read of GitHub
+          // records the merge, and the work item goes on to Release, or the close, which ends it.
+          if (pr.state !== 'open') return false;
+          if (!pr.draft) {
+            await this.#o.github.act(
+              'convertToDraft',
+              this.#o.repo,
+              { pullRequest: { number, url: '', nodeId: pr.nodeId } },
+              { workItem },
+            );
+          }
+        }
         // Back to Plan, the pass starts afresh, and its coder's first round with it.
         const payload = next.to === 'plan' ? returned : { ...returned, round: state.round + 1 };
         await this.#append(workItem, [
@@ -1310,7 +1364,10 @@ export class Line {
         // Once merged, the pull request has nothing more to say: the release carries the work item on.
         if (!state.pullRequest || state.merged) continue;
         const pr = await github.read('pullRequest', repo, { number: state.pullRequest.number });
-        const runs = pr.state === 'open' ? await github.read('checkRuns', repo, { sha: pr.head.sha }) : [];
+        // A merged pull request's checks too, on its head, once GitHub names the merge commit: what they did since the
+        // last read is recorded with the merge, which waits for that commit.
+        const runs =
+          pr.state === 'open' || pr.mergeCommit ? await github.read('checkRuns', repo, { sha: pr.head.sha }) : [];
         required ??= await github.read('requiredChecks', repo, { branch: 'main' });
         // A clearance that stands on the hold makes a close unmerged a verified one, and its issue closes completed.
         const cleared = state.hold ? state.cleared : undefined;
