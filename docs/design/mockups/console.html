@@ -1569,9 +1569,9 @@ function renderStagePanel() {
       const first = LEFT.includes(state) && !st.rows.slice(0, i).some((r) => LEFT.includes(r[6]));
       const cls = ['srow', state === 'held' ? 'ruled tone-attn' : state === 'verified' ? 'ruled tone-ok' : LEFT.includes(state) ? 'left' : '', first ? 'first-left' : ''].join(' ');
       const working = state === 'hand' ? 'working' : '';
-      const body = `<span class="id">${esc(id)}${icon}</span><span>${esc(title)}<small class="${tone ? 'tone-' + tone : working}" style="${tone ? 'color: var(--tone)' : ''}">${said}</small></span>`;
+      const body = `<span class="id">${esc(id)}${icon}</span> <span>${esc(title)}<span class="sr">: </span> <small class="${tone ? 'tone-' + tone : working}" style="${tone ? 'color: var(--tone)' : ''}">${working ? '<span class="sr">working, </span>' : ''}${said}</small></span>`;
       return link
-        ? `<button type="button" class="${cls}" data-open="${link}" aria-label="Open ${esc(id)} ${esc(title)}: ${esc((state === 'hand' ? 'working, ' : '') + (Array.isArray(note) ? note.map(([w, gone]) => (gone ? 'earlier ' : '') + w).join(', ') : note))}">${body}<span class="aside go">Open ›</span></button>`
+        ? `<button type="button" class="${cls}" data-open="${link}" >${body} <span class="aside go">Open<span aria-hidden="true"> ›</span></span></button>`
         : `<div class="${cls}">${body}<span class="aside">${age}</span></div>`;
     }).join('')}
     ${st.foot ? `<div class="srow" style="display: block"><span class="aside">${esc(st.foot)}</span></div>` : ''}

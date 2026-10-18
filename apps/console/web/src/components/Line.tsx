@@ -13,7 +13,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { describe, STAGE_NAME, STATE } from '../../../../../docs/design/system/station.ts';
+import { STAGE_NAME, STATE } from '../../../../../docs/design/system/station.ts';
 import { clock, duration, shortVersion } from '../format.ts';
 import {
   type CapSpell,
@@ -196,7 +196,14 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
           const shown = beacon === 'failed' ? 'failed' : beacon ? 'blocked' : status;
           const word = pending ? 'reading' : stopped ? 'stopped' : capped ? 'capped' : STATE[shown].label;
           const tone = pending ? 'faint' : stopped ? 'attn' : STATE[shown].tone;
-          const said = stopped || capped ? word : describe(status, beacon);
+          // The name starts with the caption's words in the caption's order, so a person who says what they see
+          // reaches the button. A station still at work under its beacon says so after them.
+          const still =
+            !stopped && !capped && beacon && (status === 'working' || status === 'returning')
+              ? `, still ${STATE[status].label}`
+              : '';
+          // A failed station's hatch reads FAULT, drawn above its caption, so its name starts with that word.
+          const fault = !stopped && !capped && status === 'failed' ? 'Fault. ' : '';
           const figure = capped ? `until ${clock(s.cappedUntil ?? 0)}` : s.figure;
           return (
             <li key={s.stage}>
@@ -211,7 +218,7 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
                 aria-label={
                   pending
                     ? `${STAGE_NAME[s.stage]}: reading the factory’s events`
-                    : `${STAGE_NAME[s.stage]}: ${said}, ${figure}. Show what is in this stage`
+                    : `${fault}${STAGE_NAME[s.stage]}: ${word}, ${figure}${still}. Show what is in this stage`
                 }
                 disabled={pending}
                 onClick={() => setOpen((was) => (was === s.stage ? null : s.stage))}
@@ -223,12 +230,13 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
                   decorative
                   motion={motion ? undefined : 'off'}
                 />
+                {/* The spaces keep the caption's words apart where its text is read, laid out in a column. */}
                 <span className="cap" aria-hidden="true">
-                  <span className="name">{STAGE_NAME[s.stage]}</span>
+                  <span className="name">{STAGE_NAME[s.stage]}</span>{' '}
                   <span className="state">
                     <span className={`dot tone-${tone} ${tone === 'attn' ? 'ring' : ''}`} />
                     {word}
-                  </span>
+                  </span>{' '}
                   {!pending && <span className={`fig ${capped ? 'keep' : ''}`}>{figure}</span>}
                 </span>
               </button>
@@ -420,8 +428,9 @@ const SHAPES: Record<RowState, ReactElement> = {
 
 /**
  * A row's status icon, under its number. Hidden from a screen reader: the note says the state in words, and a row in
- * hand says "working" in its name. In hand while the station is at work, it is the station's `signal`, blinking as
- * the reel's "In progress" does; stopped, capped or held, the station is not at work on it, and it stays faint.
+ * hand says "working" in words a screen reader reads. In hand while the station is at work, it is the station's
+ * `signal`, blinking as the reel's "In progress" does; stopped, capped or held, the station is not at work on it, and
+ * it stays faint.
  */
 function StatusIcon({ state, working }: { state: RowState; working?: true | undefined }) {
   return (
@@ -463,33 +472,32 @@ function Row({ row, first, onOpen }: { row: PanelRow; first: boolean; onOpen: (i
       </div>
     );
   }
+  // The row's words are its name, in the order they are seen, so a person who says what they see reaches it, and
+  // what only the drawing says (the station is at work on it; a struck-out step was an earlier one) is written in for
+  // a screen reader.
   return (
-    <button
-      type="button"
-      className={className}
-      onClick={() => onOpen(row.item)}
-      aria-label={`Open #${row.item}, ${row.title}: ${[
-        ...row.earlier.map((e) => `earlier ${e}`),
-        ...(row.working ? ['working'] : []),
-        row.note,
-      ].join(', ')}`}
-    >
+    <button type="button" className={className} onClick={() => onOpen(row.item)}>
       <span className="id">
         #{row.item}
         <StatusIcon state={row.state} working={row.working} />
-      </span>
+      </span>{' '}
       <span>
         {row.title}
+        <span className="sr">: </span>{' '}
         <small className={note}>
+          {row.working && <span className="sr">working, </span>}
           {row.earlier.map((e) => (
             <span key={e}>
+              <span className="sr">earlier </span>
               <s>{e}</s> ·{' '}
             </span>
           ))}
           {row.note}
         </small>
+      </span>{' '}
+      <span className="aside go">
+        Open<span aria-hidden="true"> ›</span>
       </span>
-      <span className="aside go">Open ›</span>
     </button>
   );
 }

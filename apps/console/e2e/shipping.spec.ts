@@ -24,7 +24,7 @@ test.describe('the Canary panel', () => {
       /^100%all, to come$/,
     ]);
     await expect(canary.locator('table.measures caption')).toContainText('At the 25% step');
-    await expect(page.getByRole('button', { name: /^Release: .*, 50% · 1 waiting\. / })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Release: .*, 50% · 1 waiting[.,] / })).toBeVisible();
     await canary.getByRole('button', { name: '#1314' }).click();
     await expect(page.getByRole('dialog', { name: 'The contact form loses your message' })).toBeVisible();
   });
@@ -88,7 +88,7 @@ test.describe('the Canary panel', () => {
   test('leaves Release’s panel saying a merge waits for Martin’s deploy', async ({ page }) => {
     await page.goto(consoleUrl());
     await shown(page);
-    await page.getByRole('button', { name: /^Release: .*, 50% · 1 waiting\. / }).click();
+    await page.getByRole('button', { name: /^Release: .*, 50% · 1 waiting[.,] / }).click();
     await expect(page.getByRole('dialog', { name: 'Release' })).toContainText(
       'Needs you · waiting for Martin’s deploy',
     );
