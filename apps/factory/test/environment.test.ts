@@ -55,6 +55,10 @@ describe('the look at what the senses read', () => {
     expect(seen.find((url) => url.pathname === '/api/v1/query')?.searchParams.get('time')).toBe(
       String(at.getTime() / 1000),
     );
+    // What the collector in `telemetry` stored, and not the pod log collector's, which arrive by another way.
+    expect(seen.find((url) => url.pathname === '/loki/api/v1/query')?.searchParams.get('query')).toContain(
+      'service_name!="pod-logs"',
+    );
     const search = seen.find((url) => url.pathname === '/api/search');
     expect(search?.searchParams.get('end')).toBe(String(at.getTime() / 1000));
   });

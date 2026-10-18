@@ -10,8 +10,8 @@
  * cluster sets them on a record that names itself the app: the pod log collector gives every pod's log its pod's name,
  * but always as the `pod-logs` service (deploy/base/pod-logs/values.yaml). So a record of the app's service that
  * carries them came from the app's pods, and one that names itself the app and carries neither came from somewhere
- * else. That holds of what passes through the collector: a worker that could write
- * to a backend directly could write any label, so the readers' fences must let them read and no more.
+ * else. That holds of what passes through the collector: a worker that could write to a backend directly could write
+ * any label, so the readers' fences must let them read and no more.
  *
  * Each backend keeps a different one of the two where a selector can reach it.
  */

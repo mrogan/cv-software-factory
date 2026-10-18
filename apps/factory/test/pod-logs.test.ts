@@ -17,7 +17,10 @@ interface Values {
   alternateConfig: {
     receivers: Record<string, { include: string[]; exclude: string[]; storage?: string }>;
     processors: Record<string, { attributes?: { key: string; value: string; action: string }[] }>;
-    exporters: Record<string, { endpoint: string }>;
+    exporters: Record<
+      string,
+      { endpoint: string; sending_queue?: { storage?: string }; retry_on_failure?: { max_elapsed_time?: number } }
+    >;
     extensions: Record<string, { directory?: string }>;
     service: { pipelines: Record<string, { receivers: string[]; processors: string[]; exporters: string[] }> };
   };
@@ -91,13 +94,17 @@ describe('the pod log collector', () => {
     ]);
   });
 
-  it('mounts the node’s pod logs read-only and its own marks, and nothing else of the node', async () => {
+  it('mounts the node’s pod logs read-only and its own marks and queue, and nothing else of the node', async () => {
     const { extraVolumes, extraVolumeMounts, alternateConfig } = await values();
     expect(extraVolumes.map((v) => v.hostPath?.path)).toEqual(['/var/log/pods', '/var/lib/otelcol/pod-logs']);
     const mount = (path: string) => extraVolumeMounts.find((m) => m.mountPath === path);
     expect(mount('/var/log/pods')?.readOnly).toBe(true);
     expect(alternateConfig.extensions.file_storage?.directory).toBe(mount('/var/lib/otelcol/pod-logs')?.mountPath);
     expect(alternateConfig.receivers.file_log?.storage).toBe('file_storage');
+    // What it has read and Loki has yet to take is kept there too, and tried until Loki takes it.
+    const [exporter] = Object.values(alternateConfig.exporters);
+    expect(exporter?.sending_queue?.storage).toBe('file_storage');
+    expect(exporter?.retry_on_failure?.max_elapsed_time).toBe(0);
   });
 
   it('runs as root with every capability dropped, listens on nothing, and has no token', async () => {

@@ -49,9 +49,8 @@
 # Every pod this starts runs an image the cluster already runs, pinned by digest, so nothing else is pulled and
 # admission control lets it in: the probe pods their worker's own, the pod labelled like a worker the factory image the
 # gateway runs, the runners' pods and the ones in Kyverno's, Argo Rollouts' and the pod log collector's namespaces the
-# runner image the line
-# pins (Node is on its PATH), and the analysis Job's and the app's the `factory-browser` image the analysis pins. Each
-# tries an address with Node's `fetch`, or, to name the app's host to Traefik, with `http.get`.
+# runner image the line pins (Node is on its PATH), and the analysis Job's and the app's the `factory-browser` image the
+# analysis pins. Each tries an address with Node's `fetch`, or, to name the app's host to Traefik, with `http.get`.
 #
 # A check that must be blocked passes only when the connection is refused, reset, unreachable or never answered, as a
 # policy blocks it: any other failure, such as a name that does not resolve, proves nothing about the fence.
@@ -488,8 +487,7 @@ expect "the scoreboard cannot reach a public address" scoreboard:egress-scoreboa
 # mount them, change one that runs there, run a command in the scoreboard's pod or add a debug container to it, or
 # give itself any of these rights (a role or binding there or cluster-wide, `bind` or `escalate`, impersonation). Every
 # service account in the namespaces the factory, the app, the telemetry, the pod log collector, Argo Rollouts and Kyverno
-# run in is asked of
-# the API server, the scoreboard's own included.
+# run in is asked of the API server, the scoreboard's own included.
 #
 # Argo Rollouts' controller runs the app's canaries from a cluster-wide install, whose role reads Secrets everywhere,
 # for its analyses' credentials, and makes and changes ReplicaSets, Jobs and pods' templates wherever a Rollout is. It
