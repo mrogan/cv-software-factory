@@ -4,10 +4,12 @@ version: 2
 
 # Playwright's library (npm) and its browsers' image (docker, apps/factory/Dockerfile.browser) are one release, so they
 # move in one pull request. An ecosystem entry in a multi-ecosystem group updates only the group's patterns, so each
-# ecosystem has a second entry, for everything else, which ignores Playwright. Dependabot cannot tell when Microsoft's
-# registry published an image, so the image skips the cooldown while the library waits it out: for three days after a
-# release the pull request names two releases, and scripts/image-pins.test.ts fails it. Daily, so it is brought up to
-# date soon after.
+# ecosystem has a second entry, for everything else, which ignores Playwright. A group opens its pull request with the
+# ecosystems that have an update, and opens another, beside it, when the rest have theirs: it does not add them to the
+# first. Dependabot cannot tell when Microsoft's registry published an image, so the image has no cooldown, and the
+# library's is a day, pnpm's own minimum release age, so that both are usually ready on the same daily run. When they
+# are not, each half fails scripts/image-pins.test.ts: the image's pin goes onto the library's pull request, by hand,
+# and Dependabot closes the image's.
 multi-ecosystem-groups:
   playwright:
     schedule:
@@ -21,8 +23,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # A day, not three: see the playwright group, above.
     cooldown:
-      default-days: 3
+      default-days: 1
     multi-ecosystem-group: playwright
     patterns: ['playwright', 'playwright-core', '@playwright/test']
 
