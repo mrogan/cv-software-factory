@@ -712,14 +712,16 @@ describe('the line', () => {
   });
 
   it('runs one step at a time on the local model, whatever its stage, and holds no step on Claude back for it', async () => {
-    /** Two tickets: the first carried to its describer, which works on; then a pass that may start the second's planner. */
+    /** A ticket carried to its describer, which works on; then a second ticket, and a pass that may start its planner. */
     const twoAtOnce = async (providerOf: NonNullable<LineOptions['providerOf']>) => {
-      const [first, second] = [await ticket('broken', '/search'), await ticket('degraded', '/products')];
+      const first = await ticket('broken', '/search');
       const it = line({ ...AGENTS, describer: () => 'works on' }, events, { providerOf });
       await it.pass(); // the first's planner
       await it.pass(); // the first's coder
       it.github.pass();
       await it.pass(); // the gates, and the first's reviewer
+      // Only now, so that its planner cannot start while nothing else is in hand.
+      const second = await ticket('broken', '/products');
       await it.line.tick(); // the first's describer starts, and the second comes into Plan
       for (let tries = 0; it.steps.working === 0 && tries < 200; tries++) await new Promise((r) => setTimeout(r, 5));
       expect(it.steps.working).toBe(1);
