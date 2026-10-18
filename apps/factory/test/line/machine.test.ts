@@ -310,6 +310,9 @@ describe('what the line does next', () => {
       next: { do: 'return', from: 'gates', to: 'build', reason: 'The gates failed: test', failed: ['test'] },
     });
     expect(decide([...failed, returned('gates')], facts).next).toEqual({ do: 'step', agent: 'coder', round: 2 });
+    // The next round is a different change: once it passes its gates and review, the describer writes it up again.
+    const again = [...failed, returned('gates'), pushed(2), started(), finished('passed'), review('approved')];
+    expect(decide(again, facts).next).toEqual({ do: 'step', agent: 'describer', round: 2 });
     // Another hold stands: Martin answers it first.
     const escalated = [...waiting.slice(0, -2), review('escalated')];
     const reviewHold: LineEvent = {
@@ -816,6 +819,18 @@ const answer = (decision: PayloadOf<'hold.answered'>['decision'], text?: string)
 
 describe('Martin’s answer to a hold', () => {
   const approvedAndDescribed = [ticket, spec, pushed(), started(), finished('passed'), review('approved'), summarised];
+
+  it('writes up again a round sent back by his words while it waits for the merge', () => {
+    const waiting = [...approvedAndDescribed, held('merge', 'review'), answer('answered', 'Name the test')];
+    expect(decide(waiting, facts).next).toEqual({
+      do: 'return',
+      from: 'review',
+      to: 'build',
+      reason: 'Martin sent it back: Name the test',
+    });
+    const again = [...waiting, returned('review'), pushed(2), started(), finished('passed'), review('approved')];
+    expect(decide(again, facts).next).toEqual({ do: 'step', agent: 'describer', round: 2 });
+  });
 
   it('has a rule for every cause and every answer', () => {
     for (const cause of HOLD_CAUSES) {

@@ -123,7 +123,7 @@ flowchart TD
 
 ## Build, gates and review
 
-- **The pull request.** The coder's first push opens the fix's pull request as a draft, with the ticket's issue and the spec. It is readied only once the [describer](DESCRIBER.md) has written its description.
+- **The pull request.** The coder's first push opens the fix's pull request as a draft, with the ticket's issue and the spec. It is readied only once the [describer](DESCRIBER.md) has written its description. Work sent back to Build after that (a gate that fails on a newer commit, or Martin's words on the hold for his merge) puts it back to draft first, so GitHub will not merge a round nobody has reviewed, and the describer writes up the next round again before Martin is asked.
 - **Each push** records its own files and the pull request's whole change, as GitHub compares its head with main.
 - **Reading GitHub.** Once a minute the line reads its pull requests' check runs and merges through the GitHub worker, and appends `gates.started`, `gate.finished`, `gates.finished` and `pull-request.merged`. It leaves out the factory's own check runs. A merge comes after what the gates on the pull request's head did since the last read, so a merge soon after they pass still finishes their round; at a merge, the round is done once its required checks are. Once gates have passed on a push, a run on a newer commit of it (GitHub bringing the branch up to date with main) leaves the work item where it waits while it runs, and replaces them when it ends: if it passes, nothing moves; if it fails, the work goes back to the coder as a failure on the push's first run would, and a wait for Martin's merge, which GitHub would refuse, ends.
 - **Failing gates** send the work back to the coder twice.

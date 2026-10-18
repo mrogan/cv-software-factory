@@ -147,6 +147,20 @@ describe('a dry run’s reads', () => {
     expect(await reads.pullRequestFrom(REPO, BRANCH)).toBeNull();
   });
 
+  it('never merge one put back to draft, and merge it a while after it is readied again', async () => {
+    const { made, reads, number, later } = await dryRun();
+    await made.readyForReview(REPO, { number, url: '', nodeId: `dry-run-${number}` });
+    later(TIMES.mergeAfterMs - 1);
+    await made.convertToDraft(REPO, { number, url: '', nodeId: `dry-run-${number}` });
+    later(TIMES.mergeAfterMs * 3);
+    expect(await reads.pullRequest(REPO, number)).toMatchObject({ state: 'open', merged: false, draft: true });
+    await made.readyForReview(REPO, { number, url: '', nodeId: `dry-run-${number}` });
+    later(TIMES.mergeAfterMs - 1);
+    expect(await reads.pullRequest(REPO, number)).toMatchObject({ state: 'open', merged: false, draft: false });
+    later(1);
+    expect(await reads.pullRequest(REPO, number)).toMatchObject({ state: 'closed', merged: true });
+  });
+
   it('read a pull request it closed as closed and unmerged, which never merges', async () => {
     const { made, reads, number, later } = await dryRun();
     await made.readyForReview(REPO, { number, url: '', nodeId: `dry-run-${number}` });

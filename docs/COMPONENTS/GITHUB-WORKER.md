@@ -144,7 +144,7 @@ A dry run's reads answer for what it would have made (`github/dry-run-reads.ts`)
 - each commit it made has every check main's ruleset requires, passing `GITHUB_DRY_RUN_CHECKS_SECONDS` after it (120 by default), each titled as having run nothing;
 - a comparison is taken from the real commit its first commit went on;
 - a step that starts from one of its commits is told the real commit under it, and the dry run's commits as patches (`checkout`), which the runner's prepare step makes on it, so the reviewer, the describer and a later round see the change;
-- the pull request is merged, as the App, `GITHUB_DRY_RUN_MERGE_SECONDS` after it is readied (1200), never while it is a draft, so a line in `dry-run` goes round.
+- the pull request is merged, as the App, `GITHUB_DRY_RUN_MERGE_SECONDS` after it was last readied (1200), never while it is a draft, so a line in `dry-run` goes round.
 - one it closed (`closePullRequest`) is closed and unmerged, and never merges.
 
 Everything else it reads from GitHub.

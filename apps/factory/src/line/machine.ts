@@ -399,6 +399,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (event.payload.to === 'build') {
           state.rebuild = { from: event.payload.from, reason: event.payload.reason };
           state.respecified = false;
+          // A change written up is written up again: the next round is a different change, and its pull request
+          // went back to draft with the return, until the describer readies it again.
+          state.described = false;
           state.returns.push(state.rebuild);
           state.round += 1;
           if (event.payload.from === 'gates') state.gateReturns += 1;

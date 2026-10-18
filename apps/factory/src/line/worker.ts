@@ -693,6 +693,20 @@ export class Line {
       }
       case 'return': {
         const { do: _, ...returned } = next;
+        // A change the describer readied goes back to draft before the work goes back to Build, so that GitHub will
+        // not merge a round the reviewer has not seen. One merged or closed since is left as it is.
+        if (next.to === 'build' && state.described && state.pullRequest) {
+          const { number } = state.pullRequest;
+          const pr = await this.#o.github.read('pullRequest', this.#o.repo, { number });
+          if (pr.state === 'open' && !pr.draft) {
+            await this.#o.github.act(
+              'convertToDraft',
+              this.#o.repo,
+              { pullRequest: { number, url: '', nodeId: pr.nodeId } },
+              { workItem },
+            );
+          }
+        }
         // Back to Plan, the pass starts afresh, and its coder's first round with it.
         const payload = next.to === 'plan' ? returned : { ...returned, round: state.round + 1 };
         await this.#append(workItem, [

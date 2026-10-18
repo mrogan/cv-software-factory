@@ -410,6 +410,38 @@ describe('the line', () => {
     expect(after.slice(0, 4)).toEqual(['gates.started', 'gate.finished', 'gates.finished', 'work.returned']);
     expect((await payloads(workItem, 'work.returned'))[0]).toMatchObject({ from: 'gates', to: 'build', round: 2 });
     expect(steps.requests.at(-1)).toMatchObject({ agent: 'coder', round: 2, commit: updated });
+    // The pull request went back to draft with the return, so GitHub will not merge a round nobody has reviewed.
+    const actions = github.acts.map((a) => a.action);
+    expect(actions.lastIndexOf('convertToDraft')).toBeGreaterThan(actions.lastIndexOf('readyForReview'));
+    expect(pr.draft).toBe(true);
+
+    // The second round's gates pass, and it is reviewed, written up and readied again before Martin is asked.
+    github.pass();
+    await pass(); // the gates pass, and the reviewer
+    await pass(); // the describer
+    await pass(); // the hold for Martin
+    expect(steps.requests.slice(-2).map((r) => r.agent)).toEqual(['reviewer', 'describer']);
+    expect(github.acts.at(-1)?.action).toBe('readyForReview');
+    expect(pr.draft).toBe(false);
+    expect(await stage(workItem)).toBe('held');
+  });
+
+  it('puts the pull request back to draft when Martin sends back a change waiting for his merge', async () => {
+    const workItem = await ticket();
+    const { pass, steps, github } = line();
+    await pass(); // the issue, and the planner
+    await pass(); // the coder
+    github.pass();
+    await pass(); // the gates pass, and the reviewer
+    await pass(); // the describer
+    await pass(); // the hold for Martin
+    expect(github.pulls.get(12)?.draft).toBe(false);
+    await events.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'Name the test' }, 'martin'));
+    await pass();
+    expect((await payloads(workItem, 'work.returned')).at(-1)).toMatchObject({ from: 'review', to: 'build' });
+    expect(github.acts.map((a) => a.action)).toContain('convertToDraft');
+    expect(github.pulls.get(12)?.draft).toBe(true);
+    expect(steps.requests.at(-1)).toMatchObject({ agent: 'coder', round: 2 });
   });
 
   it('sends a failing change back to the coder, which resumes its session on a branch that moved on', async () => {

@@ -108,6 +108,7 @@ const ARGS = {
   }),
   addLabels: z.strictObject({ number, labels: z.array(text(50)).min(1).max(10) }),
   readyForReview: z.strictObject({ pullRequest: pullRequestRef }),
+  convertToDraft: z.strictObject({ pullRequest: pullRequestRef }),
   updateBranch: z.strictObject({ number, expectedHead: sha }),
   review: z.strictObject({
     number,
@@ -192,6 +193,7 @@ const CALLS: { [K in Name]: (actions: Actions, repo: string, args: z.infer<(type
   describeDeploy: (x, repo, { number, ...deploy }) => x.describeDeploy(repo, number, defined(deploy)),
   addLabels: (x, repo, { number, labels }) => x.addLabels(repo, number, labels),
   readyForReview: (x, repo, { pullRequest }) => x.readyForReview(repo, pullRequest),
+  convertToDraft: (x, repo, { pullRequest }) => x.convertToDraft(repo, pullRequest),
   updateBranch: (x, repo, { number, expectedHead }) => x.updateBranch(repo, number, expectedHead),
   review: (x, repo, { number, ...review }) => x.review(repo, number, review),
   resolveThreads: (x, repo, { number, threads }) => x.resolveThreads(repo, number, threads),
