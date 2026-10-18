@@ -605,6 +605,23 @@ describe('closing a pull request', () => {
       args: { number: 66, comment: 'Closed unmerged.' },
     });
   });
+
+  it('records a dry run’s close of its own pull request once', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const { number } = await actions.openPullRequest(REPO, {
+      head: 'factory/1-a',
+      base: 'main',
+      title: 't',
+      body: 'b',
+    });
+    await actions.closePullRequest(REPO, number, 'Closed unmerged.');
+    await actions.closePullRequest(REPO, number, 'Closed unmerged.');
+    const records = await Promise.all(
+      (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+    );
+    expect(records.filter((r) => r.action === 'closePullRequest')).toHaveLength(1);
+  });
 });
 
 describe('reopening an issue in a dry run', () => {

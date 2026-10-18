@@ -504,8 +504,8 @@ export const PAYLOADS = {
    * there. A wait needs nobody: it is not a hold.
    */
   'wait.started': z.strictObject({
-    /** The work items in flight it waits on. */
-    on: z.array(workItem).min(1).max(10),
+    /** The work items in flight it waits on: every one whose spec shares a file. */
+    on: z.array(workItem).min(1).max(40),
     /** The entries of its scope that share a file with theirs. */
     files: z.array(text(200)).min(1).max(40),
     reason: text(300),

@@ -784,9 +784,11 @@ export class DryRunActions implements Actions {
   }
 
   async closePullRequest(repo: string, number: number, comment: string): Promise<void> {
-    await this.#record('closePullRequest', repo, { number, comment });
+    // One it closed already is left as it is, as GitHub's would be, and recorded once.
     const pull = this.#pulls.get(number);
-    if (pull && pull.closedAt === null) pull.closedAt = this.#now();
+    if (pull?.closedAt) return;
+    await this.#record('closePullRequest', repo, { number, comment });
+    if (pull) pull.closedAt = this.#now();
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {

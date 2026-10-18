@@ -704,7 +704,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
       return { stage: 'waiting', next: { do: 'wait', for: 'overlap' } };
     }
   } else if (!s.pullRequest && !s.rebuild && facts.overlaps?.length) {
-    const on = facts.overlaps.map((o) => o.workItem).slice(0, 10);
+    const on = facts.overlaps.map((o) => o.workItem).slice(0, 40);
     const files = [...new Set(facts.overlaps.flatMap((o) => o.files))].slice(0, 40);
     return { stage: 'waiting', next: { do: 'wait-on', on, files } };
   }
