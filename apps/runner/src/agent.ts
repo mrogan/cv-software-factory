@@ -247,7 +247,7 @@ export async function runAgent(
     }
   } catch (thrown) {
     error = (thrown as Error)?.message ?? String(thrown);
-    log('the Agent SDK failed', { level: 'error', error });
+    log('the Agent SDK failed', { level: 'error', error: bounded(error) });
   }
 
   if (!error && !result) error = 'The agent ended without a result.';

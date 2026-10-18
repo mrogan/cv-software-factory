@@ -529,6 +529,8 @@ describe('a step’s logs', () => {
     const running = runners.run({ ...STEP, workItem: '1024', round: 1, deadlineSeconds: 60 });
     while (!token) await new Promise((resolve) => setTimeout(resolve, 5));
     await runners.cancel();
+    // Its token ended before its logs were waited for, and its jobs went after.
+    expect(await jobForToken(database.writer, token)).toBeUndefined();
     expect(calls).toContain('DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1024-1-1-agent');
     expect(await running).toEqual({ kind: 'stopped', job: 'coder-1024-1-1' });
     await close();

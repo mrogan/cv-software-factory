@@ -308,6 +308,10 @@ export class Runners {
     const whose = this.#running.get(job);
     if (!whose || this.#stopped.has(job)) return;
     this.#stopped.add(job);
+    // Its token ends first, so the agent can neither call the gateway nor hand back while its logs are kept.
+    await endJobToken(this.#o.sql, job).catch((error: Error) =>
+      this.#o.log.error({ job, err: error }, 'could not end a job token'),
+    );
     await this.#keepLogsWithin(job, whose, 'stopped', null);
     const jobs = `/apis/batch/v1/namespaces/${NAMESPACE}/jobs`;
     for (const part of ['prepare', 'agent']) {
