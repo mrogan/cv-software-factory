@@ -92,9 +92,9 @@ export const ENVIRONMENT = {
     kubelet: { job: 'kubernetes-nodes' },
   } satisfies Record<string, Readonly<Record<string, string>>>,
   /**
-   * Loki is when it stored a record from anything within `lokiMinutes`; Tempo, a trace within `tempoMinutes`, since a
-   * trace is searchable only a minute or two after it ends. Each of them always has something: the traffic generator
-   * keeps the app busy, and the factory's own workers log and trace.
+   * Loki is healthy when it stored a record from anything within `lokiMinutes`; Tempo, a trace within `tempoMinutes`,
+   * since a trace is searchable only a minute or two after it ends. Each of them always has something: the traffic
+   * generator keeps the app busy, and the factory's own workers log and trace.
    */
   lokiMinutes: 5,
   tempoMinutes: 10,

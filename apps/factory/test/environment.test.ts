@@ -97,12 +97,17 @@ describe('the look at what the senses read', () => {
     const traefikDown = vector([PROMETHEUS, 1], [TRAEFIK, 0], [KUBELET, 0], [KYVERNO, 1]);
     expect((await byName(backends({ up: traefikDown }).look(at))).prometheus).toEqual({
       healthy: false,
-      saw: 'traefik kube-system/traefik-77b898c5c8-jns7z down, kubelet k3d-software-factory-server-0 down',
+      saw: 'down: traefik kube-system/traefik-77b898c5c8-jns7z, kubelet k3d-software-factory-server-0; metrics arriving over OTLP from 10 services',
     });
     const noTraefik = vector([PROMETHEUS, 1], [KUBELET, 1]);
     expect((await byName(backends({ up: noTraefik }).look(at))).prometheus).toEqual({
       healthy: false,
-      saw: 'no traefik target',
+      saw: 'no traefik target; metrics arriving over OTLP from 10 services',
+    });
+    const both = backends({ up: vector([PROMETHEUS, 1], [KUBELET, 0], [KYVERNO, 0]), otlp: vector() });
+    expect((await byName(both.look(at))).prometheus).toEqual({
+      healthy: false,
+      saw: 'no traefik target; down: kubelet k3d-software-factory-server-0; no metrics arriving over OTLP (1 of the rest down)',
     });
   });
 
