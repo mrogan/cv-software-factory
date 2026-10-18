@@ -358,7 +358,10 @@ function holdNote(item: ItemState, stage: Stage): string {
   // noticed. A report that became a ticket and is held later, at Gates say, shows that hold's own reason.
   if (item.hold?.stage === 'triage' && (item.kind === 'visitor-report' || item.kind === 'planner-finding'))
     return 'Needs you · parked for Martin';
-  return item.hold ? item.hold.reason : (item.latest[stage]?.summary ?? '');
+  if (item.hold) return item.hold.reason;
+  // Promoted, it is at Verify while the sense that saw it looks again: the promotion is Release's news, not Verify's.
+  if (item.latest[stage]?.type === 'release.promoted') return 'Promoted · verifying';
+  return item.latest[stage]?.summary ?? '';
 }
 
 /** Where a return went, and why, as a row's note: "Sent back to Build · round 2 · 2 blocking". */
