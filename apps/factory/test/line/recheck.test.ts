@@ -51,7 +51,12 @@ const OLD = commitOf(STABLE);
 const SCOPE = ['src/departments.ts', 'test/departments.test.ts'];
 
 /** A ticket a probe saw on the version before, with its spec, on the line at `stage`, with issue `issue`. */
-async function planned(stage: string, issue: number, scope = SCOPE): Promise<string> {
+async function planned(
+  stage: string,
+  issue: number,
+  scope = SCOPE,
+  route = '/departments/:department',
+): Promise<string> {
   const workItem = await nextWorkItem(database.writer);
   await events.append([
     event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'A redirect loop', sample: false }, 'triage'),
@@ -59,10 +64,10 @@ async function planned(stage: string, issue: number, scope = SCOPE): Promise<str
       workItem,
       'ticket.opened',
       {
-        title: 'A redirect loop on /departments/:department',
+        title: `A redirect loop on ${route}`,
         category: 'errors',
         severity: 'broken',
-        fingerprint: { route: '/departments/:department', class: 'redirect-loop' },
+        fingerprint: { route, class: 'redirect-loop' },
         traces: [],
       },
       'triage',
@@ -70,7 +75,7 @@ async function planned(stage: string, issue: number, scope = SCOPE): Promise<str
     event(
       workItem,
       'signal.received',
-      { sense: 'probe', check: 'departments', route: '/departments/:department', version: OLD },
+      { sense: 'probe', check: route === '/departments/:department' ? 'departments' : route, route, version: OLD },
       'probe',
     ),
     event(
@@ -380,5 +385,63 @@ describe('a spec that overlaps work in flight', () => {
     const third = await planned('plan', 31, ['src/departments.ts']);
     await pass(line(probes, { only: third }).line);
     expect(await payloads(third, 'wait.started')).toEqual([]);
+  });
+});
+
+describe('17 October again: two tickets for one defect', () => {
+  /**
+   * Two probe checks on two pages saw one defect, so triage opened two tickets with different fingerprints, and both
+   * specs scope the same file. The second waits after Plan; the first merges, is released and verified; then the
+   * second's sense looks again, at the release that carried the first's fix.
+   */
+  async function story(second: VerifyAnswer['outcome']) {
+    const probes = {
+      asked: [] as string[],
+      verify: async (request: { route: string }): Promise<VerifyAnswer> => {
+        probes.asked.push(request.route);
+        const outcome = request.route === '/departments' ? second : 'cleared';
+        return { outcome, version: NEW, runs: outcome === 'cleared' ? ['passed', 'passed'] : ['failed', 'failed'] };
+      },
+    };
+    const { line: it, github } = line(probes as unknown as FakeProbes);
+    const first = await held('merge', github);
+    const waiter = await planned('plan', 30, ['src/departments.ts'], '/departments');
+    await pass(it);
+    expect(await stage(waiter)).toBe('waiting');
+    // Martin merges the first's pull request, and a release carries it.
+    github.merge(12);
+    now += 60_000;
+    await pass(it);
+    await promoted(first);
+    for (let i = 0; i < 6; i++) {
+      now += 60_000;
+      await pass(it);
+    }
+    return { first, waiter, github };
+  }
+
+  it('closes the waiting one as verified when the release that carried the first’s fix cleared its signal', async () => {
+    const { first, waiter, github } = await story('cleared');
+    expect(await payloads(first, 'work-item.closed')).toMatchObject([{ outcome: 'verified' }]);
+    expect(await payloads(waiter, 'signal.rechecked')).toMatchObject([
+      { outcome: 'cleared', release: 'f00dfeed01', version: NEW, carried: [first] },
+    ]);
+    expect(await payloads(waiter, 'work-item.closed')).toEqual([
+      {
+        outcome: 'verified',
+        reason: `The probe’s check “/departments” passed twice in a row on ${NEW.slice(0, 7)}, a release that carried work item #${first}, not this one’s fix`,
+      },
+    ]);
+    expect(github.acts.filter((a) => a.action === 'closeIssue').map((a) => a.args.number)).toEqual([11, 30]);
+    expect(await payloads(waiter, 'pull-request.pushed')).toEqual([]);
+  });
+
+  it('sends the waiting one on to Build when its signal is still there once the first is verified', async () => {
+    const { first, waiter } = await story('persists');
+    expect(await payloads(first, 'work-item.closed')).toMatchObject([{ outcome: 'verified' }]);
+    const looks = await payloads(waiter, 'signal.rechecked');
+    expect(looks.at(-1)).toMatchObject({ for: 'wait', outcome: 'persists', carried: [first] });
+    expect(await payloads(waiter, 'work-item.closed')).toEqual([]);
+    expect(await stage(waiter)).toBe('build');
   });
 });
