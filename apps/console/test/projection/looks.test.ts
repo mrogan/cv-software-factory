@@ -128,6 +128,17 @@ describe('a spec on a card', () => {
     expect(pictureOf(held)).toMatchObject({ type: 'spec', waiting: true, question: 'Should sold-out products show?' });
   });
 
+  it('waits for nobody when Martin is asked something else, and keeps that question off the spec', () => {
+    const held = planned().add(2, 'hold.started', 'factory', {
+      stage: 'build',
+      kind: 'question',
+      cause: 'question',
+      reason: 'The coder needs an answer',
+      question: 'Use the second API?',
+    });
+    expect(pictureOf(held)).toMatchObject({ type: 'spec', waiting: false, question: undefined });
+  });
+
   it('waits for nobody once the work item closes with nothing better to show', () => {
     const closed = planned().add(2, 'work-item.closed', 'factory', { outcome: 'no-change', reason: 'Nothing to fix' });
     expect(pictureOf(closed)).toMatchObject({ type: 'spec', waiting: false, question: undefined });

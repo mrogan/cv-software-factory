@@ -329,12 +329,19 @@ export function picture(item: ItemState, { waits = true }: { waits?: boolean } =
     return { type: 'judgement', page, judgement };
   }
 
-  const spec = last(ofType(item, 'spec.written'), () => true);
+  const found = last(ofType(item, 'spec.written'), () => true);
+  // Only a spec held at Plan for Martin's approval, or for his answer to the planner's question, waits for him.
+  const held = item.hold?.stage === 'plan' && (item.hold.cause === 'spec' || item.hold.cause === 'question');
+  const spec = found && {
+    type: 'spec' as const,
+    spec: found.payload,
+    waiting: held,
+    question: held ? item.hold?.question : undefined,
+  };
   if (waits) {
     const waiting = waitPicture(item);
     if (waiting) return waiting;
-    if (item.outcome === 'needs-you' && spec)
-      return { type: 'spec', spec: spec.payload, waiting: true, question: item.hold?.question };
+    if (held && spec) return spec;
   }
 
   if (item.dependency) {
@@ -368,8 +375,8 @@ export function picture(item: ItemState, { waits = true }: { waits?: boolean } =
 
   const broken = capture(item, 'broken');
   if (broken) return { type: 'screenshot', shot: broken.shot, tag: 'SEEN' };
-  // With nothing better to show, the spec says what the work set out to do; it waits for nobody, whatever the item's state.
-  if (spec) return { type: 'spec', spec: spec.payload, waiting: false, question: undefined };
+  // With nothing better to show, the spec says what the work set out to do, and waits only while it holds for Martin.
+  if (spec) return spec;
   return { type: 'none' };
 }
 

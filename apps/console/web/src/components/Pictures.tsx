@@ -1035,7 +1035,7 @@ function SpecPicture({ spec, waiting, question }: Extract<PictureData, { type: '
   return (
     <div className="pad">
       <div className={waiting ? 'spec' : 'spec settled'}>
-        {waiting ? <div className="cap attn">Spec · waiting for Martin</div> : <div className="cap">Spec</div>}
+        <div className={waiting ? 'cap attn' : 'cap'}>{waiting ? 'Spec · waiting for Martin' : 'Spec'}</div>
         <div className="outcome">{spec.outcome}</div>
         <div className="gwt">
           {spec.criteria.map((c) => (
