@@ -65,9 +65,10 @@ alternateConfig:
       # collector in `telemetry` shares, and the app's records would be refused with the rest.
       start_at: end
       storage: file_storage
-      # Holds back, rather than dropping what it read, when the queue below is full.
+      # Holds back, rather than dropping what it read, when the queue below is full, for as long as it stays full.
       retry_on_failure:
         enabled: true
+        max_elapsed_time: 0
       # The container parser reads the namespace, pod and container from the file's path.
       include_file_path: true
       include_file_name: false

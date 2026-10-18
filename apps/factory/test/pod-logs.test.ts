@@ -15,7 +15,10 @@ interface Values {
   ports: Record<string, { enabled: boolean }>;
   serviceAccount: { automountServiceAccountToken: boolean };
   alternateConfig: {
-    receivers: Record<string, { include: string[]; exclude: string[]; storage?: string }>;
+    receivers: Record<
+      string,
+      { include: string[]; exclude: string[]; storage?: string; retry_on_failure?: { max_elapsed_time?: number } }
+    >;
     processors: Record<string, { attributes?: { key: string; value: string; action: string }[] }>;
     exporters: Record<
       string,
@@ -105,6 +108,8 @@ describe('the pod log collector', () => {
     const [exporter] = Object.values(alternateConfig.exporters);
     expect(exporter?.sending_queue?.storage).toBe('file_storage');
     expect(exporter?.retry_on_failure?.max_elapsed_time).toBe(0);
+    // And the reader waits for room in the queue as long as it takes, rather than dropping what it read.
+    expect(alternateConfig.receivers.file_log?.retry_on_failure?.max_elapsed_time).toBe(0);
   });
 
   it('runs as root with every capability dropped, listens on nothing, and has no token', async () => {
