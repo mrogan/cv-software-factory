@@ -54,8 +54,8 @@ function ownPages(pictures: readonly Picture[], own: Omit<Own, 'selectors'>) {
 }
 
 /**
- * The pages to name, at most twelve: the ticket's own first, then those that changed most, then the rest by path; and
- * their screenshots, in the order above. A page that is the own of one of `others`, the other work items the release
+ * The pages to name, at most twelve: the ticket's own first, then those that changed most, then any other that is
+ * another's own, then the rest by path; and their screenshots, in the order above. A page that is the own of one of `others`, the other work items the release
  * carried, and not the ticket's, names the first of them.
  */
 export function pagesFor(
@@ -77,13 +77,10 @@ export function pagesFor(
         ? []
         : shot.boxes.filter((_, i) => !selectors || mine.has(selectors[i] ?? '')).slice(0, MOST_BOXES),
   });
+  // The ticket's own, then those that changed or are another's own, then the rest: as the sheet orders them.
+  const rank = (p: Picture) => (intended.has(p) ? 0 : p.changed > 0 || intendedFor(p) ? 1 : 2);
   const chosen = [...pictures]
-    .sort(
-      (a, b) =>
-        Number(intended.has(b)) - Number(intended.has(a)) ||
-        b.changed - a.changed ||
-        (a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
-    )
+    .sort((a, b) => rank(a) - rank(b) || b.changed - a.changed || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
     .slice(0, MOST_PAGES);
   const rollouts = chosen.flatMap((p) => (intended.has(p) && p.rollout ? [boxed(p, p.rollout)] : []));
   return {

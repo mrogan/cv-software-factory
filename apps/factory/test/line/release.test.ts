@@ -1434,8 +1434,8 @@ describe('Verify on the line', () => {
       expect(pages?.map((p) => [p.page, p.intended, p.intendedFor])).toEqual([
         ['/departments/garden', true, undefined],
         ['/about', false, undefined],
-        ['/', false, undefined],
         ['/departments/home', false, other],
+        ['/', false, undefined],
       ]);
     });
 

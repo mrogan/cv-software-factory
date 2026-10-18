@@ -134,6 +134,8 @@ export const PAGES = [
   ['Contact', '/contact', 'contact'],
 ] as const;
 
+type SampleRoute = (typeof PAGES)[number][1];
+
 /** The letters Kubernetes makes a pod-template hash of, which names a release with the Rollout's revision. */
 const HASH_LETTERS = 'bcdfghjklmnpqrstvwxz2456789';
 
@@ -507,18 +509,19 @@ export class Item {
       variant = 'published',
       evidence,
       marked,
+      own,
       theirs = {},
     }: Verification,
   ): this {
     const pages = PAGES.map(([page, route, name]) => {
       const comparison = changed(`${variant}/${name}`);
-      const other = Object.hasOwn(theirs, route) ? theirs[route] : undefined;
+      const other = theirs[route];
       return {
         page,
         route,
         screenshot: shot(`${variant}/${name}`, version).hash,
         changed: comparison,
-        intended: !other && comparison > 0,
+        intended: own ? route === own : !other && comparison > 0,
         ...(other && { intendedFor: other }),
       };
     });
@@ -561,8 +564,10 @@ interface Verification {
   evidence?: PayloadOf<'verification.finished'>['evidence'];
   /** The screenshot that shows the fix, marked where the probe looked. */
   marked?: Screenshot;
+  /** The route of the ticket's own page, when it is not every page that changed. */
+  own?: SampleRoute;
   /** By route, the other work item the release carried whose own page it is. */
-  theirs?: Readonly<Record<string, string>>;
+  theirs?: Readonly<Partial<Record<SampleRoute, string>>>;
 }
 
 /** Triage's question set (TYPESAFE.md), answered for a report: category, severity, and whether it holds instructions. */
