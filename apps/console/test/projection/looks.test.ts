@@ -1,0 +1,107 @@
+/**
+ * A spec that waits for overlapping work in flight, and a held work item looked at again after a release that did
+ * not carry its fix: on the card, the line's rows and the sheet.
+ */
+import type { PayloadOf } from '@software-factory/events';
+import { describe, expect, it } from 'vitest';
+import { project, projectSheet } from '../../web/src/projection/index.ts';
+import { clearanceWords, foldItem } from '../../web/src/projection/items.ts';
+import { END, payloads, SAMPLES, work } from './support.ts';
+
+const look = (outcome: PayloadOf<'signal.rechecked'>['outcome'], occasion: 'release' | 'wait' = 'release') =>
+  ({
+    for: occasion,
+    outcome,
+    sense: 'probe',
+    check: 'products journey',
+    release: 'f00dfeed01-3',
+    version: 'd728dbe',
+    against: 'v0.9.4',
+    carried: ['1033'],
+    ...(outcome === 'unsure' ? { why: 'the check could not tell' } : {}),
+  }) satisfies PayloadOf<'signal.rechecked'>;
+
+const pushed = {
+  number: 76,
+  title: 'fix(products): load them all',
+  branch: 'factory/1-products',
+  attempt: 1,
+  testsFirst: true,
+  files: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+  whole: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+} satisfies PayloadOf<'pull-request.pushed'>;
+
+describe('a spec waiting for overlapping work', () => {
+  it('waits at Build, in the quiet tone, saying what it waits for, at the samples’ end', () => {
+    const card = project(SAMPLES, END).cards.find((c) => c.number === '1327');
+    expect(card?.outcome).toBe('waits-on-work');
+    const sheet = projectSheet(SAMPLES, '1327', END);
+    expect(sheet?.chapters.slice(-2)).toMatchObject([
+      { label: 'WAITS', tone: 'faint' },
+      {
+        label: 'WAITING · BUILD',
+        tone: 'faint',
+        waiting: true,
+        text: 'Waits for #1325, whose spec also changes src/pages/search.ts and test/search.test.ts',
+      },
+    ]);
+  });
+
+  it('goes on to Build when its look at the end of the wait still sees the signal', () => {
+    const item = foldItem(
+      work('2')
+        .open()
+        .add(1, 'signal.received', 'probe', payloads.signal)
+        .add(2, 'wait.started', 'factory', { on: ['1'], files: ['src/products.ts'], reason: 'Waits for #1' })
+        .add(30, 'signal.rechecked', 'probe', look('persists', 'wait')).events,
+    );
+    expect(item).toMatchObject({ waitingOn: undefined, stage: 'build' });
+  });
+});
+
+describe('a held work item looked at again', () => {
+  const held = (cause: 'merge' | 'gates') =>
+    work('1')
+      .open()
+      .add(1, 'signal.received', 'probe', payloads.signal)
+      .add(2, 'pull-request.pushed', 'coder', pushed)
+      .add(3, 'hold.started', 'factory', {
+        stage: cause === 'merge' ? 'review' : 'gates',
+        kind: cause === 'merge' ? 'approval' : 'held',
+        cause,
+        reason: 'Held for the test',
+      });
+
+  it('says on a hold for Martin that its signal cleared, and that closing its pull request verifies it', () => {
+    const item = foldItem(held('merge').add(40, 'signal.rechecked', 'probe', look('cleared')).events);
+    expect(item && clearanceWords(item)).toBe(
+      'Its signal cleared on d728dbe, a release that carried work item #1033, not this one’s fix: the probe saw “products journey” pass there. Closing its pull request closes it as verified.',
+    );
+    const sheet = projectSheet(item?.events ?? [], '1', Date.parse('2026-10-03T10:00:00Z'));
+    expect(sheet?.chapters.map((c) => c.label)).toContain('CLEARED');
+  });
+
+  it('forgets the clearance once a signal is seen on that version, or a later look sees it', () => {
+    const cleared = held('merge').add(40, 'signal.rechecked', 'probe', look('cleared'));
+    const again = foldItem(
+      cleared.add(41, 'signal.received', 'probe', { ...payloads.signal, version: 'd728dbe' }).events,
+    );
+    expect(again?.cleared).toBeUndefined();
+    const later = foldItem(
+      held('merge')
+        .add(40, 'signal.rechecked', 'probe', look('cleared'))
+        .add(50, 'signal.rechecked', 'probe', look('persists')).events,
+    );
+    expect(later?.cleared).toBeUndefined();
+  });
+
+  it('ends the story of one closed as verified by its look, saying what the release carried', () => {
+    const events = held('gates')
+      .add(40, 'signal.rechecked', 'probe', look('cleared'))
+      .add(41, 'work-item.closed', 'factory', { outcome: 'verified', reason: 'Cleared on a release' }).events;
+    const sheet = projectSheet(events, '1', Date.parse('2026-10-03T10:00:00Z'));
+    expect(sheet?.closing).toBe(
+      'It was verified on d728dbe by the probe’s check “products journey”, on a release that carried work item #1033, not this one’s fix, and closed.',
+    );
+  });
+});

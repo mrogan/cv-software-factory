@@ -119,6 +119,23 @@ describe('a ticket’s life', () => {
     ]);
   });
 
+  it('counts a ticket a dry run verified as verified once a look again cleared it on a real release', () => {
+    const fp = { route: '/a', class: 'server-error' } as const;
+    const looked = (item: string, minutes: number, outcome: 'cleared' | 'persists'): ScoreEvent => ({
+      ts: at(minutes),
+      work_item: item,
+      type: 'signal.rechecked',
+      payload: { outcome },
+    });
+    const events = [
+      ...life('1', 0, fp, verification('1', 30, true), closed('1', 30), reopened('1', 60), looked('1', 90, 'cleared')),
+      closed('1', 90),
+      ...life('2', 0, fp, verification('2', 30, true), closed('2', 30), reopened('2', 60), looked('2', 90, 'persists')),
+      closed('2', 120),
+    ];
+    expect(tickets(events).map((t) => t.verifiedAt && (t.verifiedAt - t.startedAt) / 60_000)).toEqual([90, null]);
+  });
+
   it('starts at its first signal, or at its opening when it has none', () => {
     const fp = { route: '/a', class: 'server-error' } as const;
     const events: ScoreEvent[] = [

@@ -72,14 +72,29 @@
  * A hold waits for Martin's answer, and what the answer does depends on why the work item is held: `ANSWERS` has a
  * rule for each cause and each answer. An answer in words to one of triage's holds leaves it standing
  * (`WORDS_LEAVE_HELD`): only his approval or his rejection settles those.
+ *
+ * A held work item's defect may go some other way: another work item's fix, Martin's own commit, a dependency update.
+ * So after each real release is promoted, and once as a hold starts, the sense that saw it looks again at the version
+ * the stable Service runs (`lookDue`), unless a signal on that version already says the defect is there. A hold the
+ * line made because its steps, gates or cap stopped the work (`closesWhenCleared`) closes as verified when the signal
+ * has cleared; one that waits on Martin's judgement stays, and says the signal cleared, and his closing its pull request
+ * then closes it as verified. A signal since, or a later look that finds it, ends the clearance.
+ *
+ * Two tickets can be one defect, which shows only once the planner names the files. After Plan, a work item whose
+ * spec's scope shares a file with the spec of work in flight waits (`wait.started`), before the coder starts and before
+ * a spec that always needs Martin is held for him, until each of those work items is verified or closed. Then its
+ * sense looks again: cleared, it closes as verified; otherwise it goes on to Build with its spec as written. While it
+ * waits, each release is looked at as for a hold. A work item never waits on one that waits on it.
  */
 import {
   ALWAYS_HELD,
   type HoldCause,
   LIMITS,
   type PayloadOf,
+  type SignalSource,
   STAGES,
   type Stage,
+  sameVersion,
   WORDS_LEAVE_HELD,
 } from '@software-factory/events';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
@@ -157,6 +172,9 @@ type Payloads = {
     | 'spec.written'
     | 'pull-request.pushed'
     | 'suggestions.answered'
+    | 'wait.started'
+    | 'signal.received'
+    | 'signal.rechecked'
     | 'gates.started'
     | 'gates.finished'
     | 'review.submitted'
@@ -256,6 +274,18 @@ export interface WorkItemState {
   /** How many of `persisted` came before the last reopening: `LIMITS.persists` bounds those since, a fix's own. */
   persistedBefore: number;
   closed: boolean;
+  /** The sense of the ticket's first signal, which looks again at a held or waiting work item. */
+  firstSense: SignalSource | undefined;
+  /** The versions of the app the ticket's signals were seen on: triage records each sense's first in each version. */
+  seenOn: string[];
+  /** The scope of the latest spec, in any pass: what the work item is about, even back at Plan for another. */
+  latestScope: string[] | undefined;
+  /** The work items it waits on after Plan, the files their specs share with its own, and whether the wait is over. */
+  waiting: { on: string[]; files: string[]; ended: boolean } | undefined;
+  /** The latest look again under the hold or wait in force, and the release it looked at. */
+  rechecked: PayloadOf<'signal.rechecked'> | undefined;
+  /** That look, while it cleared and nothing since says the defect is there. */
+  cleared: PayloadOf<'signal.rechecked'> | undefined;
 }
 
 /** A work item with no events yet. */
@@ -288,7 +318,16 @@ const initial = (): WorkItemState => ({
   reopened: [],
   persistedBefore: 0,
   closed: false,
+  firstSense: undefined,
+  seenOn: [],
+  latestScope: undefined,
+  waiting: undefined,
+  rechecked: undefined,
+  cleared: undefined,
 });
+
+/** A look again stands only under the hold or wait it was made under. */
+const forgetLook = (state: WorkItemState) => Object.assign(state, { rechecked: undefined, cleared: undefined });
 
 export function fold(events: readonly LineEvent[]): WorkItemState {
   const state = initial();
@@ -301,7 +340,10 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         break;
       case 'spec.written':
         state.spec = event.payload;
+        state.latestScope = event.payload.scope;
         state.specApproved = false;
+        // A new spec is checked against the work in flight again.
+        state.waiting = undefined;
         state.respecified = state.pullRequest !== undefined;
         // A new spec is a new scope: what the fence refused under the last one is no part of it, and a review held
         // the change to the old one, so the change is reviewed again against this.
@@ -359,6 +401,26 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         // A hold for a deploy decided as a release started is already answered by it.
         if (event.payload.cause === 'deploy' && state.release && !state.release.ended) break;
         state.hold = event.payload;
+        forgetLook(state);
+        break;
+      case 'wait.started':
+        state.waiting = { on: event.payload.on, files: event.payload.files, ended: false };
+        forgetLook(state);
+        break;
+      case 'signal.received':
+        state.firstSense ??= event.payload.sense;
+        state.seenOn.push(event.payload.version);
+        // Seen since on the version it cleared on, or a later one: the defect is there after all. Triage records a
+        // signal late only on the version before the look, which says nothing of it.
+        if (state.cleared?.against && !sameVersion(state.cleared.against, event.payload.version)) {
+          state.cleared = undefined;
+        }
+        break;
+      case 'signal.rechecked':
+        state.rechecked = event.payload;
+        if (event.payload.outcome === 'cleared') state.cleared = event.payload;
+        else if (event.payload.outcome === 'persists') state.cleared = undefined;
+        if (event.payload.for === 'wait' && state.waiting) state.waiting = { ...state.waiting, ended: true };
         break;
       case 'hold.answered': {
         if (!state.hold) break;
@@ -373,6 +435,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
           state.answers.push({ asked: askedOf(state.hold, state.fenced), answer: said });
         }
         state.hold = undefined;
+        forgetLook(state);
         state.answer = { cause, stage, decision: event.payload.decision, resolution, text: event.payload.answer };
         state.fenceRefusals = 0;
         if (resolution === 'replan') state.spec = undefined;
@@ -450,11 +513,13 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
  * Work sent back to Plan starts a fresh pass: the planner writes a new spec, and the coder's first round opens a new
  * pull request, with its own gates, review, merge and release. Only the ticket, the hold, Martin's answers, the
  * verifications that persisted and the reopenings carry over: the planner should not forget an answer, nor a fix that
- * did not work or did not last.
+ * did not work or did not last. So do the ticket's signals, and the last scope, which still says what it is about.
  */
 function startAgain(state: WorkItemState): void {
   const { ticket, hold, answer, answers, persisted, reopened, persistedBefore, closed } = state;
+  const { firstSense, seenOn, latestScope } = state;
   Object.assign(state, initial(), { ticket, hold, answer, answers, persisted, reopened, persistedBefore, closed });
+  Object.assign(state, { firstSense, seenOn, latestScope });
 }
 
 /** What approving a hold of the scope fence's says, for the planner. */
@@ -471,6 +536,7 @@ const MOVES_ON = new Set<LineEvent['type']>([
   'spec.written',
   'pull-request.pushed',
   'suggestions.answered',
+  'wait.started',
   'review.submitted',
   'work-item.summarised',
   'work.returned',
@@ -498,15 +564,31 @@ export type Next =
   | { do: 'return'; from: Stage; to: Stage; reason: string; blocking?: number; suggestions?: number; failed?: string[] }
   /** Hold the work item for Martin. */
   | { do: 'hold'; hold: PayloadOf<'hold.started'> }
-  /** Nothing to do until something outside the line happens: the gates, Martin, or the release in flight. */
-  | { do: 'wait'; for: 'gates' | 'martin' | 'release' }
+  /**
+   * Nothing to do until something outside the line happens: the gates, Martin, the release in flight, or the work in
+   * flight a spec that overlaps waits on.
+   */
+  | { do: 'wait'; for: 'gates' | 'martin' | 'release' | 'overlap' }
+  /** Wait on the work in flight whose specs share files with this one's, before the coder starts. */
+  | { do: 'wait-on'; on: string[]; files: string[] }
   /** Verify the promoted release that carries the change, by the sense that saw the defect. */
   | { do: 'verify'; release: PayloadOf<'release.promoted'> }
   /**
-   * Close the work item as verified, and its issue as completed, saying what cleared it: the verification, or Martin's
-   * word, with what he said.
+   * Look again at a held or waiting work item's signal, by the sense that saw it, at the version the stable Service
+   * runs: after a release (`release`), or as the work it waited on ended (`wait`).
    */
-  | { do: 'verified'; verification: PayloadOf<'verification.finished'> | undefined; answer?: string }
+  | { do: 'recheck'; for: 'release' | 'wait' }
+  /**
+   * Close the work item as verified, and its issue as completed, saying what cleared it: the verification, Martin's
+   * word, with what he said, or a look again that found the defect gone on a release that did not carry its fix. Its
+   * pull request, if it has one open, closes with it.
+   */
+  | {
+      do: 'verified';
+      verification: PayloadOf<'verification.finished'> | undefined;
+      answer?: string;
+      rechecked?: PayloadOf<'signal.rechecked'>;
+    }
   /** Close the work item, as Martin answered: before its merge, or after it, at Release or Verify. */
   | { do: 'close'; reason: string; merged: boolean }
   /** The work item is over: it closed. */
@@ -523,10 +605,30 @@ export interface Facts {
    * agents' calls from then on, so the line holds it rather than start a step that cannot finish. None, no cap.
    */
   spend?: { spentUsd: number; limitUsd: number };
+  /**
+   * The work items in flight whose specs share files with this one's, each with the files: given only at the point
+   * after Plan where a spec is checked against them. None known, no wait.
+   */
+  overlaps?: { workItem: string; files: string[] }[];
+  /** For each work item it waits on, when it closed, or null while it is open. Not known, it waits on. */
+  waitedOn?: Record<string, { closedAt: string } | null>;
+  /**
+   * The latest real release promoted, which the stable Service runs, and whether a look again at it is still due: no
+   * more than the policy's wait after it, or after the hold or wait started, whichever is later. None known, no look.
+   */
+  stable?: Stable;
+}
+
+/** The release the stable Service runs, as a look again at a held or waiting work item needs it. */
+export interface Stable {
+  release: string;
+  version: string;
+  /** Whether it is soon enough, after the release or the hold or wait, to look. */
+  due: boolean;
 }
 
 /** The stage a decision puts a work item in, as the line's table records it. */
-export type QueueStage = 'plan' | 'build' | 'gates' | 'review' | 'release' | 'verify' | 'held' | 'ended';
+export type QueueStage = 'plan' | 'build' | 'waiting' | 'gates' | 'review' | 'release' | 'verify' | 'held' | 'ended';
 
 export interface Decision {
   stage: QueueStage;
@@ -544,7 +646,15 @@ export const STAGE_OF: Record<LineAgent, 'plan' | 'build' | 'review'> = {
 export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   const s = fold(events);
   if (s.closed) return { stage: 'ended', next: { do: 'finish' } };
-  if (s.hold) return { stage: 'held', next: { do: 'wait', for: 'martin' } };
+  if (s.hold) {
+    if (!WORDS_LEAVE_HELD.includes(s.hold.cause)) {
+      if (s.cleared && closesWhenCleared(s)) {
+        return { stage: 'held', next: { do: 'verified', verification: undefined, rechecked: s.cleared } };
+      }
+      if (lookDue(s, facts.stable)) return { stage: 'held', next: { do: 'recheck', for: 'release' } };
+    }
+    return { stage: 'held', next: { do: 'wait', for: 'martin' } };
+  }
   const answered = s.answer && afterAnswer(s.answer, s.merged);
   if (answered) return answered;
   if (s.merged) return afterMerge(s);
@@ -580,6 +690,23 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   if (!s.spec) {
     if (facts.issue === null) return { stage: 'plan', next: { do: 'open-issue' } };
     return step('planner');
+  }
+  // Before the coder starts, and before a spec that always needs Martin is held for him: the work item may close as
+  // verified on another's fix.
+  if (s.waiting) {
+    if (s.cleared) return { stage: 'waiting', next: { do: 'verified', verification: undefined, rechecked: s.cleared } };
+    if (!s.waiting.ended) {
+      const { waitedOn } = facts;
+      if (waitedOn && s.waiting.on.every((workItem) => waitedOn[workItem])) {
+        return { stage: 'waiting', next: { do: 'recheck', for: 'wait' } };
+      }
+      if (lookDue(s, facts.stable)) return { stage: 'waiting', next: { do: 'recheck', for: 'release' } };
+      return { stage: 'waiting', next: { do: 'wait', for: 'overlap' } };
+    }
+  } else if (!s.pullRequest && !s.rebuild && facts.overlaps?.length) {
+    const on = facts.overlaps.map((o) => o.workItem).slice(0, 40);
+    const files = [...new Set(facts.overlaps.flatMap((o) => o.files))].slice(0, 40);
+    return { stage: 'waiting', next: { do: 'wait-on', on, files } };
   }
   // The rule holds the specs written under it: the planner's since its criteria named where each comes from. One in
   // the store from before carries on as it was.
@@ -654,6 +781,33 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
       };
     }
   }
+}
+
+/**
+ * Whether a held work item closes as verified by itself when a look again finds its signal cleared: the line held it
+ * because its steps, gates or cap stopped the work, as the fence kept refusing the coder, the gates kept failing, a
+ * step kept failing, the spend reached its cap, or the reviewer asked for changes once too often (the latest review
+ * asks for changes). Any other hold waits on Martin's judgement, and only says the signal cleared.
+ */
+export function closesWhenCleared(state: WorkItemState): boolean {
+  const cause = state.hold?.cause;
+  if (cause === 'review') return state.reviews.at(-1)?.verdict === 'changes-requested';
+  return cause === 'scope' || cause === 'gates' || cause === 'failures' || cause === 'spend';
+}
+
+/**
+ * Whether the sense that saw a held or waiting work item's defect should look again at the release the stable Service
+ * runs: one it has not looked at under this hold or wait, still due, that does not carry its own fix, by a sense that
+ * can look again (not a visitor's report or the planner), and with no signal of the ticket seen on that version, which
+ * already says the defect is there.
+ */
+export function lookDue(state: WorkItemState, stable: Stable | undefined): boolean {
+  if (!stable?.due || !state.ticket) return false;
+  // A release of its own fix is in the stable version, or on its way: Verify's to look at, not this.
+  if (state.release && !state.release.ended) return false;
+  if (!state.firstSense || state.firstSense === 'report' || state.firstSense === 'planner') return false;
+  if (state.rechecked?.release === stable.release) return false;
+  return !state.seenOn.some((version) => sameVersion(version, stable.version));
 }
 
 /** Why a change whose release ended without its promotion waits for Martin again. */

@@ -13,7 +13,17 @@ const WHOLE_TIMELINE = 30_000;
 describe('the samples, projected', () => {
   it('show every outcome', () => {
     expect(new Set(view.cards.map((c) => c.outcome))).toEqual(
-      new Set(['verified', 'rolled-back', 'held', 'closed', 'no-ticket', 'needs-you', 'waiting', 'in-progress']),
+      new Set([
+        'verified',
+        'rolled-back',
+        'held',
+        'closed',
+        'no-ticket',
+        'needs-you',
+        'waiting',
+        'waits-on-work',
+        'in-progress',
+      ]),
     );
   });
 

@@ -1,12 +1,12 @@
 /**
- * The samples: twenty-four hand-written work items over eight days, with work still on the line at the end, and the
+ * The samples: twenty-five hand-written work items over eight days, with work still on the line at the end, and the
  * line's own events beside them. They cover every kind of work item but a planner's finding, every outcome, every
  * picture the design system draws and every station state. Seven are fixes as milestone 5's line makes them: rounds
  * of review, a wait for Martin's merge, the four ways a mechanism holds a fix, and a run on the local model. The
  * rest of the last week ships as milestone 6's line does: waits for Martin's deploy, releases step by step (one
  * carrying two work items, some carrying none), a rollback with no series and the ticket it opened, a fix that
  * persisted and went round again, a reopened ticket, a dry run, the line stopped with a canary in flight, and a
- * canary in flight at the end. The scoreboard counts them against an invented key. Nothing in them happened: the
+ * canary in flight at the end, and a spec waiting for work in flight on the same page. The scoreboard counts them against an invented key. Nothing in them happened: the
  * console labels each as a sample.
  */
 import type { NewEvent } from '@software-factory/events';
@@ -35,6 +35,7 @@ import wishlist from './items/1319-wishlist.ts';
 import pino105 from './items/1321-pino.ts';
 import discountCodes from './items/1323-discount-codes.ts';
 import repeatedResult from './items/1325-repeated-result.ts';
+import searchPages from './items/1327-search-pages.ts';
 import releases from './items/line.ts';
 import { scoreEvents } from './score.ts';
 
@@ -63,6 +64,7 @@ export const ITEMS = [
   pino105,
   discountCodes,
   repeatedResult,
+  searchPages,
 ];
 
 /** The line, running at Guarded autonomy from before the first sample. */

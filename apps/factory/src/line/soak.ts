@@ -75,7 +75,7 @@ export interface SoakFacts {
  */
 export type SpendLimit = { kind: 'capped'; profile: string; workItemUsd: number } | { kind: 'none' };
 
-const STAGES = ['plan', 'build', 'gates', 'review', 'release', 'verify', 'held'] as const;
+const STAGES = ['plan', 'build', 'waiting', 'gates', 'review', 'release', 'verify', 'held'] as const;
 type TimedStage = (typeof STAGES)[number];
 
 export interface SoakReport {

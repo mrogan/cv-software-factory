@@ -122,7 +122,7 @@ test.describe('the reel', () => {
     await page.clock.resume();
     await expect(page.locator('.reel')).not.toHaveClass(/dragging/);
     // A card and a third to the left, and half a card more for the flick.
-    await expect(page.locator('.transport .count')).toHaveText('22 of 24');
+    await expect(page.locator('.transport .count')).toHaveText('23 of 25');
     await expect(page.locator('.card[data-place="centre"]')).toHaveCount(1);
   });
 
@@ -131,7 +131,7 @@ test.describe('the reel', () => {
     await ready(page);
     await page.locator('.reel').focus();
     await page.keyboard.press('ArrowLeft');
-    await expect.poll(() => centre(page)).toBe('Discount codes refuse lower case');
+    await expect.poll(() => centre(page)).toBe('The second page of search results repeats the first’s last');
     await page.keyboard.press('Home');
     await expect.poll(() => centre(page)).toBe('pino 10.4.0, and nothing to see');
     await page.keyboard.press('End');
@@ -142,10 +142,12 @@ test.describe('the reel', () => {
   test('brings a neighbour to the centre when it is clicked, and opens the centre card', async ({ page }) => {
     await page.goto(consoleUrl());
     await ready(page);
-    await page.locator('.card[data-index="22"]').click({ position: { x: 300, y: 40 } });
-    await expect.poll(() => centre(page)).toBe('Discount codes refuse lower case');
+    await page.locator('.card[data-index="23"]').click({ position: { x: 300, y: 40 } });
+    await expect.poll(() => centre(page)).toBe('The second page of search results repeats the first’s last');
     await page.locator('.card[data-place="centre"]').click({ position: { x: 300, y: 40 } });
-    await expect(page.getByRole('dialog', { name: 'Discount codes refuse lower case' })).toBeVisible();
+    await expect(
+      page.getByRole('dialog', { name: 'The second page of search results repeats the first’s last' }),
+    ).toBeVisible();
   });
 
   test('writes the app’s version under the timeline by a commit’s first seven characters', async ({
@@ -269,14 +271,14 @@ test.describe('opening the console', () => {
     await page.goto(consoleUrl({ motion: true }));
     await ready(page);
     const count = page.locator('.transport .count');
-    await expect(count).toHaveText('24 of 24');
+    await expect(count).toHaveText('25 of 25');
     expect((await page.locator('.reel').boundingBox())?.y).toBeGreaterThan(560);
     // Nothing to play the history with.
     await expect(page.locator('.transport').getByRole('button', { name: /play|pause/i })).toHaveCount(0);
 
     await page.locator('.reel').scrollIntoViewIfNeeded();
     await page.clock.runFor(10_000);
-    await expect(count).toHaveText('24 of 24');
+    await expect(count).toHaveText('25 of 25');
   });
 });
 

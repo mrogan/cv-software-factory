@@ -231,6 +231,7 @@ export function segments(item: ItemState): Segment[] {
       case 'needs-you':
         return 'waiting';
       case 'waiting':
+      case 'waits-on-work':
       case 'merged':
         return 'queued';
       case 'closed':

@@ -2,7 +2,9 @@
  * The gates and Martin's merge, as events. GitHub never calls the factory, so the line reads each of its pull
  * requests through the GitHub worker, about once a minute, and appends what changed: the checks starting on a
  * commit (`gates.started`), each one finishing (`gate.finished`), all of them done (`gates.finished`), and the merge
- * (`pull-request.merged`). A pull request closed without a merge closes its work item.
+ * (`pull-request.merged`). A pull request closed without a merge closes its work item: as verified, when a look again
+ * found its signal cleared on a release that did not carry it and nothing since says the defect is back (as when the
+ * line closed it for that reason, or Martin did while it was held), and with no change otherwise.
  *
  * `gateEvents` is the decision, a pure function of what GitHub says and what the work item has already recorded, so
  * reading the same state again appends nothing. The gates are done when every check the ruleset requires has
@@ -12,6 +14,7 @@
 import { type EventType, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { APP_LOGIN } from '../github/current.ts';
 import type { CheckRun, PullRequestState } from '../github/reads.ts';
+import { whatClearedOnLook } from './verify.ts';
 
 /** The App, as GitHub names the app behind a check run: the factory's own runs (the reviewer's) are not gates. */
 export const APP_SLUG = 'mrogan-software-factory';
@@ -68,13 +71,15 @@ type Draft = {
 
 /**
  * The events a pull request's state calls for that the work item has not had yet, in order. `required` is the
- * checks the base branch's rulesets require, by name.
+ * checks the base branch's rulesets require, by name; `cleared` is the look again whose clearance stands on the work
+ * item's hold, if one does, and who closes a pull request under that hold: the line, for a hold of its own.
  */
 export function gateEvents(
   pr: PullRequestState,
   runs: readonly CheckRun[],
   required: readonly string[],
   record: GateRecord,
+  cleared?: { look: PayloadOf<'signal.rechecked'>; by: 'factory' | 'martin' },
 ): Draft[] {
   if (record.merged || record.closed) return [];
   if (pr.merged && pr.mergeCommit) {
@@ -85,6 +90,16 @@ export function gateEvents(
         actor: by,
         summary: `${by === 'martin' ? 'Martin' : 'The factory'} merged PR #${pr.number}`,
         payload: { number: pr.number, commit: pr.mergeCommit, by },
+      },
+    ];
+  }
+  if (pr.state === 'closed' && cleared) {
+    return [
+      {
+        type: 'work-item.closed',
+        actor: cleared.by,
+        summary: `PR #${pr.number} was closed unmerged, its signal cleared: verified`,
+        payload: { outcome: 'verified', reason: whatClearedOnLook(cleared.look).slice(0, 200) },
       },
     ];
   }

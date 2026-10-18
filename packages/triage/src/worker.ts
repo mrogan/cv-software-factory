@@ -760,9 +760,11 @@ async function verifiedTicket(sql: Sql, fingerprint: { route: string; class: Sym
       order by c.seq desc limit 1
     ) last_end
     left join lateral (
-      -- A version 1 verification has no dryRun: it was never a dry run's.
+      -- A version 1 verification has no dryRun: it was never a dry run's. Nor is a look again that cleared, which a
+      -- real sense made on a real release.
       select (v.payload->>'dryRun')::boolean as dry_run from events v
-      where v.work_item = t.work_item and v.type = 'verification.finished'
+      where v.work_item = t.work_item
+        and (v.type = 'verification.finished' or (v.type = 'signal.rechecked' and v.payload->>'outcome' = 'cleared'))
       order by v.seq desc limit 1
     ) last_check on true
     where t.type = 'ticket.opened'

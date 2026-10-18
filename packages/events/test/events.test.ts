@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { returnWords } from '../src/line.ts';
+import { returnWords, sameVersion, scopesOverlap } from '../src/line.ts';
 import { formatLog, parseLog } from '../src/log-format.ts';
 import { PUBLIC_VIEWS, publicView, redactSecrets } from '../src/public.ts';
 import { validate, validateSignal } from '../src/schemas.ts';
@@ -384,6 +384,42 @@ describe('validation', () => {
     const declined = (...suggestions: number[]) => suggestions.map((suggestion) => ({ suggestion, reason: 'No.' }));
     expect(validate({ ...answered, payload: { ...payload, declined: declined(3) } }).ok).toBe(false);
     expect(validate({ ...answered, payload: { ...payload, declined: declined(1, 1) } }).ok).toBe(false);
+  });
+
+  it('takes a wait on work in flight, naming the work items and the files their specs share', () => {
+    const waits = { ...opened, type: 'wait.started', version: 1, actor: 'factory' };
+    const payload = { on: ['1028'], files: ['src/search.ts'], reason: 'Waits for #1028, whose spec also changes it' };
+    expect(validate({ ...waits, payload })).toEqual({ ok: true });
+    expect(validate({ ...waits, payload: { ...payload, on: [] } }).ok).toBe(false);
+    expect(validate({ ...waits, payload: { ...payload, files: [] } }).ok).toBe(false);
+    expect(validate({ ...waits, work_item: null, payload }).ok).toBe(false);
+  });
+
+  it('takes a look again that says why only when it could not tell, and names the version when it could', () => {
+    const looked = { ...opened, type: 'signal.rechecked', version: 1, actor: 'probe' };
+    const payload = {
+      for: 'release',
+      outcome: 'cleared',
+      sense: 'probe',
+      check: 'search answers',
+      release: '6d8f9c7b54-3',
+      version: 'd728dbe',
+      against: 'c0ffee0',
+      carried: ['1033'],
+    };
+    expect(validate({ ...looked, payload })).toEqual({ ok: true });
+    expect(validate({ ...looked, payload: { ...payload, why: 'no reason' } }).ok).toBe(false);
+    expect(validate({ ...looked, payload: { ...payload, outcome: 'unsure' } }).ok).toBe(false);
+    expect(
+      validate({ ...looked, payload: { ...payload, outcome: 'unsure', why: 'the check could not tell' } }),
+    ).toEqual({
+      ok: true,
+    });
+    // At the end of a wait with no release of the app recorded, it looked at none.
+    const none = { for: 'wait', outcome: 'unsure', check: 'search answers', carried: [], why: 'no release' };
+    expect(validate({ ...looked, actor: 'factory', payload: none })).toEqual({ ok: true });
+    const { version: _, ...unnamed } = payload;
+    expect(validate({ ...looked, payload: unnamed }).ok).toBe(false);
   });
 });
 
@@ -905,5 +941,28 @@ describe('a return in words', () => {
     // The gates fail a run that names no check all the same.
     expect(returnWords({ from: 'gates', failed: [] })).toBe('1 check failed');
     expect(returnWords({ from: 'review' })).toBe('sent back from review');
+  });
+});
+
+describe('two scopes that share a file', () => {
+  it('share equal files, a file in a folder, and a file a pattern matches, either way round', () => {
+    expect(scopesOverlap(['src/search.ts', 'test/search.test.ts'], ['src/search.ts'])).toEqual(['src/search.ts']);
+    expect(scopesOverlap(['test/'], ['test/search.test.ts'])).toEqual(['test/']);
+    expect(scopesOverlap(['test/search.test.ts'], ['test/'])).toEqual(['test/search.test.ts']);
+    expect(scopesOverlap(['src/*.ts'], ['src/money.ts'])).toEqual(['src/*.ts']);
+    expect(scopesOverlap(['src/'], ['src/**/*.ts'])).toEqual(['src/']);
+  });
+
+  it('share nothing when no file is in both', () => {
+    expect(scopesOverlap(['src/search.ts', 'test/'], ['src/money.ts', 'docs/'])).toEqual([]);
+    expect(scopesOverlap(['src/search.ts'], ['src/search.tsx'])).toEqual([]);
+  });
+});
+
+describe('the same version', () => {
+  it('matches a commit named in full or shortened, and nothing else', () => {
+    expect(sameVersion('d728dbe', `d728dbe${'0'.repeat(33)}`)).toBe(true);
+    expect(sameVersion('v0.9.3', 'v0.9.3')).toBe(true);
+    expect(sameVersion('d728dbe', 'd728dbf')).toBe(false);
   });
 });

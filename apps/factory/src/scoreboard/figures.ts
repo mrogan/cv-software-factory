@@ -24,6 +24,7 @@ export type ScoreEvent = { ts: string; work_item: string } & (
   | { type: 'ticket.opened'; payload: Pick<PayloadOf<'ticket.opened'>, 'fingerprint'> }
   | { type: 'work-item.closed'; payload: Pick<PayloadOf<'work-item.closed'>, 'outcome'> }
   | { type: 'verification.finished'; payload: Pick<PayloadOf<'verification.finished'>, 'dryRun'> }
+  | { type: 'signal.rechecked'; payload: Pick<PayloadOf<'signal.rechecked'>, 'outcome'> }
   | { type: 'signal.received' }
   | { type: 'work-item.reopened' }
 );
@@ -34,6 +35,7 @@ export const SCORE_TYPES = [
   'work-item.closed',
   'work-item.reopened',
   'verification.finished',
+  'signal.rechecked',
 ] as const satisfies readonly ScoreEvent['type'][];
 
 /** A ticket as the figures see it. */
@@ -66,7 +68,9 @@ export function tickets(events: readonly ScoreEvent[]): Ticket[] {
     else if (event.type === 'signal.received') life.firstSignal ??= at;
     else if (event.type === 'work-item.closed') life.end = { at, verified: event.payload.outcome === 'verified' };
     else if (event.type === 'work-item.reopened') life.end = { at, verified: false };
-    else life.dryRun = event.payload.dryRun;
+    else if (event.type === 'verification.finished') life.dryRun = event.payload.dryRun;
+    // A look again that cleared is a real sense's, on a real release, whatever a dry run verified before.
+    else if (event.payload.outcome === 'cleared') life.dryRun = false;
     // Judged as each event comes, so a close is read with the verification before it.
     if (life.end?.verified && !life.dryRun) life.everVerified = true;
   }

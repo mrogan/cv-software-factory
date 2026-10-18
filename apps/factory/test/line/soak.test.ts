@@ -88,6 +88,18 @@ describe('a work item’s minutes in each stage', () => {
     expect(endOf([...merged, deploy], row('1', '22:00', { stage: 'held' }))).toBe('held: deploy');
   });
 
+  it('counts the minutes a spec waits for overlapping work', () => {
+    const waits = [
+      ...round('21:00').slice(0, 2),
+      event('22:25', 'wait.started', { on: ['1001'], files: ['src/'], reason: 'Waits for #1001' }),
+    ];
+    expect(stageMinutes(waits, Date.parse(at('22:00')), Date.parse(at('23:25')))).toEqual({
+      plan: 20,
+      build: 5,
+      waiting: 60,
+    });
+  });
+
   it('counts a work item still on the line until now', () => {
     const waiting = round('21:00').slice(0, 4);
     expect(stageMinutes(waiting, Date.parse(at('22:00')), Date.parse(at('23:00')))).toEqual({

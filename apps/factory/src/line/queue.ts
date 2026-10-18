@@ -5,7 +5,8 @@
  *
  * A ticket comes onto the line only when nothing is in Plan or waiting for Build, so the line pulls work at the
  * pace of its slowest step rather than piling up specs: the oldest open ticket of the highest severity, from the
- * real events only. One decision at a time takes it (an advisory lock), so two workers cannot take the same ticket.
+ * real events only. A spec that waits for overlapping work in flight is at a stage of its own (`waiting`, 0016), which
+ * may last until that work is verified, so it holds up no ticket. One decision at a time takes it (an advisory lock), so two workers cannot take the same ticket.
  *
  * A queue for one work item only (`only`, the line's LINE_ONLY) sees nothing else on the line, and takes that ticket
  * onto it whatever else is in Plan or Build: every other work item is left as it is, so it holds up nothing.

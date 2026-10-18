@@ -41,6 +41,8 @@ One pass runs at a time, and a wake during a pass runs one more after it (`score
 | The median from a ticket's first signal (or its `ticket.opened`, with none) to its verified close | Yes | As it changes |
 | False positives | Never | |
 
+A ticket is verified fixed while its last close is as verified on a real look: Verify's after its own fix's release, or a look again that found its signal cleared on a release that carried another's fix ([held and waiting work items](RELEASE-AND-VERIFY.md#held-and-waiting-work-items)). One a dry run verified, whose fix never shipped, is not.
+
 It never names a ticket.
 
 - **For the results,** `factory scoreboard --print` prints all four figures once, false positives too.

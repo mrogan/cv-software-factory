@@ -196,6 +196,11 @@ export interface Actions {
    * reopening one already open, or trying again after a reopening that failed, says nothing again.
    */
   reopenIssue(repo: string, number: number, comment: string): Promise<void>;
+  /**
+   * Closes a pull request unmerged, first saying why on it, without saying it twice: one already closed, merged or
+   * not, is left as it is. Only one from a branch the factory owns.
+   */
+  closePullRequest(repo: string, number: number, comment: string): Promise<void>;
   comment(repo: string, number: number, body: string): Promise<void>;
 }
 
@@ -497,6 +502,19 @@ export class LiveActions implements Actions {
     });
   }
 
+  async closePullRequest(repo: string, number: number, comment: string): Promise<void> {
+    const pull = await this.#github.read(
+      repo,
+      `/repos/${repo}/pulls/${number}`,
+      z.object({ state: z.string(), head: z.object({ ref: z.string() }) }),
+    );
+    if (pull.state !== 'open') return;
+    // Only a pull request from a branch of the factory's own, as for every change it makes to a branch.
+    guardBranch(pull.head.ref);
+    if (!(await this.#said(repo, number, comment, null))) await this.comment(repo, number, comment);
+    await this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, { state: 'closed' });
+  }
+
   /** Whether an issue's comments since a time (or ever, with none) already say this, word for word. */
   async #said(repo: string, number: number, body: string, since: string | null): Promise<boolean> {
     const after = since ? `&since=${encodeURIComponent(since)}` : '';
@@ -544,6 +562,8 @@ export interface DryRunPull {
   /** When it left draft, or opened ready; null while it is a draft. */
   readiedAt: Date | null;
   nodeId: string;
+  /** When it would have been closed unmerged, or null while it is open: then it never merges. */
+  closedAt: Date | null;
 }
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -700,6 +720,7 @@ export class DryRunActions implements Actions {
       draft: draft.draft ?? false,
       readiedAt: draft.draft ? null : this.#now(),
       nodeId,
+      closedAt: null,
     });
     return { number, url: `dry-run:${repo}#${number}`, nodeId };
   }
@@ -760,6 +781,14 @@ export class DryRunActions implements Actions {
 
   async reopenIssue(repo: string, number: number, comment: string): Promise<void> {
     await this.#record('reopenIssue', repo, { number, comment });
+  }
+
+  async closePullRequest(repo: string, number: number, comment: string): Promise<void> {
+    // One it closed already is left as it is, as GitHub's would be, and recorded once.
+    const pull = this.#pulls.get(number);
+    if (pull?.closedAt) return;
+    await this.#record('closePullRequest', repo, { number, comment });
+    if (pull) pull.closedAt = this.#now();
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {

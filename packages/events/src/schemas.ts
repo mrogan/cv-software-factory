@@ -498,6 +498,18 @@ export const PAYLOADS = {
         ),
       'each suggestion declined is one the coder was given, once',
     ),
+  /**
+   * After Plan, the work item's spec shares a file with the spec of work already in flight: it waits, before the coder
+   * starts, until each of those work items is verified or closed, and then goes on only if its own signal is still
+   * there. A wait needs nobody: it is not a hold.
+   */
+  'wait.started': z.strictObject({
+    /** The work items in flight it waits on: every one whose spec shares a file. */
+    on: z.array(workItem).min(1).max(40),
+    /** The entries of its scope that share a file with theirs. */
+    files: z.array(text(200)).min(1).max(40),
+    reason: text(300),
+  }),
 
   'gates.started': z.strictObject({ pullRequest, commit, checks: z.array(text(80)).min(1).max(40) }),
   'gate.finished': z.strictObject({
@@ -698,6 +710,38 @@ export const PAYLOADS = {
     /** A verification the dry run answers for: its release never shipped, so no sense looked. */
     dryRun: z.boolean(),
   }),
+
+  /**
+   * The sense that saw a held or waiting work item's defect looked again, as Verify does, at the version the stable
+   * Service runs, which did not carry its fix: after a release was promoted (`release`), or as the work it waited on
+   * ended (`wait`). It cleared, it persists, or the sense could not tell, and says why. A look at the end of a wait with
+   * no release of the app recorded names none.
+   */
+  'signal.rechecked': z
+    .strictObject({
+      for: z.enum(['release', 'wait']),
+      outcome: z.enum(['cleared', 'persists', 'unsure']),
+      /** The sense that looked: the one whose signal opened the ticket. */
+      sense: z.enum(V.SENSES).optional(),
+      check: text(120),
+      /** The release looked at, the version it runs, and the version before it. */
+      release: releaseId.optional(),
+      version: appVersion.optional(),
+      against: appVersion.optional(),
+      /** The work items that release carried, as its start recorded them: none for a release on the line itself. */
+      carried: z.array(workItem).max(20),
+      evidence: evidence.optional(),
+      /** Why the sense could not tell. */
+      why: text(200).optional(),
+    })
+    .refine((r) => (r.outcome === 'unsure') === (r.why !== undefined), {
+      message: 'a look that could not tell says why, and only one',
+      path: ['why'],
+    })
+    .refine((r) => r.outcome === 'unsure' || r.version !== undefined, {
+      message: 'a look that cleared or persists names the version it looked at',
+      path: ['version'],
+    }),
 
   'work.returned': z
     .strictObject({

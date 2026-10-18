@@ -29,6 +29,9 @@ The `line` table holds the work items on the line, by stage and under a lease.
 flowchart LR
   ticket([Open ticket]) --> plan[Plan]
   plan -- spec --> build[Build]
+  plan -- spec overlaps work in flight --> waits[Waits]
+  waits -- its signal still there --> build
+  waits -- its signal gone --> closed
   build -- push --> gates[Gates]
   gates -- fail --> build
   gates -- pass --> review[Review]
@@ -45,7 +48,7 @@ Each stage can also hold for Martin (see [Holds](#holds-and-martins-answers)).
 
 ### Taking work
 
-- It takes the oldest open ticket of the highest severity into Plan when nothing is in Plan or waiting for Build.
+- It takes the oldest open ticket of the highest severity into Plan when nothing is in Plan or waiting for Build. A work item that waits for overlapping work (below) is at a stage of its own, `waiting`, so the line still takes the next ticket.
 - It runs one step at a time in each of Plan, Build and Review.
 - As a ticket enters Plan, it opens the ticket's issue through the App, from the ticket's public view. The fix's pull request refers to that issue.
 - After Martin's merge, it carries the work item through Release and Verify until it closes.
@@ -58,6 +61,17 @@ Two settings narrow what it takes:
   - It says nothing of the deploy pull request.
   - It still watches the app's releases, and records one that carries that work item or none (those go on the line). A release that also carries another work item is left for the whole line. The work item stays held at Release (cause `deploy`, so Needs you lists it) until the line records that release, or finds it live.
 - **`LINE_TAKE`**, set to a number, has the line take tickets by its own rule until it has taken that many work items in all. The count comes from the `line` table, so a restart takes none more. It then takes no more, and carries those it has to their end.
+
+### A spec that overlaps
+
+Two tickets can be one defect, seen by two checks on two pages, and that shows only once the planner names the files. So after Plan, before the coder starts and before a spec that always needs Martin is held for him, the line compares the spec's scope with the latest spec of each other work item in flight: on the line, not ended or closed, in any pass, held or merged too. Every shared file counts, tests included (`scopesOverlap` in the events package, which matches scope entries as the scope fence does).
+
+- **A spec that shares a file waits** (`wait.started`, naming the work items and the files), at stage `waiting`. A wait is not a hold: it needs nobody, and Needs you does not list it.
+- **When each work item it waits on is verified or closed**, the sense that saw its defect looks again ([Verify](RELEASE-AND-VERIFY.md#held-and-waiting-work-items)). Cleared, it closes as verified. Still there, or the sense cannot tell, it goes on to Build with its spec as written: the coder starts from the current `main`, and the gates and review judge the result.
+- **While it waits**, each release is looked at as for a hold, and one that clears its signal closes it.
+- **No cycles.** A work item never waits on one that waits on it, directly or through others.
+- A spec written again before any push is checked again; one written once there is a pull request is not.
+- **With `LINE_ONLY`** there is no wait: a line of one work item sees nothing else.
 
 ### A ticket that reopens
 
@@ -117,7 +131,7 @@ flowchart TD
 - **An out-of-scope spec.** Every spec tagged `out-of-scope` that the planner wrote under the rule (its criteria name where each comes from), a rewritten one too, holds at Plan for Martin's approval before the coder starts, in every autonomy mode ([approval routing](APPROVAL-ROUTING.md)).
 - **A spec written again** once there is a pull request sends the work back to the coder, held to the new spec, and sets aside the review of the old one, so the change is reviewed again.
 - **The end of a pull request.**
-  - A pull request closed unmerged closes its work item.
+  - A pull request closed unmerged closes its work item: as verified while a look again that cleared stands on its hold (below), and with no change otherwise.
   - A work item whose pull request merges, or that closes, has its runners' volume deleted, since a later pass starts afresh from main.
 
 ## Holds and Martin's answers
@@ -139,6 +153,15 @@ Each hold names its cause, and Martin's answer does what `ANSWERS` in `line/mach
 | `deploy` | The merged fix waits for a release ([Release](RELEASE-AND-VERIFY.md#release)) | Waits: he settles it by merging the deploy pull request | Waits |
 | `verify` | The signal persisted a second time, Verify could not tell for 24 hours, or nothing can judge the fix ([Verify](RELEASE-AND-VERIFY.md#verify)) | Closes the work item as verified, with his words | Sends it back to Plan |
 | `spend` | The work item has spent its cap on models | Carries on, and holds again until the cap is raised | Carries on |
+
+### A held work item whose defect went another way
+
+A held work item's defect can go with another change: a duplicate's fix, Martin's own commit, a dependency update. After each real release is promoted, and once as a hold starts, the sense that saw it looks again at the version the stable Service runs ([Verify](RELEASE-AND-VERIFY.md#held-and-waiting-work-items)). What a look that cleared does depends on the cause (`closesWhenCleared` in `line/machine.ts`):
+
+- **The line's own holds close as verified**: `scope`, `gates`, `failures`, `spend`, and `review` when the reviewer asked for changes once too often. The line closes the issue as completed and the pull request unmerged, each saying which release cleared it.
+- **Holds that wait on Martin's judgement stay**: `spec`, `question`, `ticket-rejected`, `beyond-ticket`, `nothing-to-fix`, `merge`, `deploy`, `verify`, `tests-first`, `unknown`, and `review` when the reviewer escalated. The look is recorded, and the hold says the signal cleared on that version. While it stands, his closing the work item's pull request in GitHub closes it as verified.
+
+A signal seen since on that version or a later one, or a later look that finds it, ends the clearance. Triage's holds are never looked at: they come before a ticket reaches the line.
 
 Triage's own holds, `finding`, `suggestion`, `burst` and `environment`, are on [its page](TRIAGE.md). An answer in words to one of them settles nothing, so the hold stands and Needs you still lists it (`WORDS_LEAVE_HELD` in the events package, which the line and the console both read).
 
