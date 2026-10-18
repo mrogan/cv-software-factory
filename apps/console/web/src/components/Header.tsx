@@ -121,12 +121,12 @@ export function Header({ line, connection, theme, onTheme, motion, onMotion }: H
   return (
     <header className="top">
       <div className="wrap">
-        <a className="brand" href="#top" aria-label="Software Factory, by Martin Rogan">
+        {/* Named in the words it shows, in order, at a width that shows its byline and at one that hides it. */}
+        <a className="brand" href="#top" aria-label="Software Factory: Martin Rogan, a live CV">
           <Mark />
           <span className="rule" aria-hidden="true" />
           <span>
-            <b>Software Factory</b>
-            <small>Martin Rogan · a live CV</small>
+            <b>Software Factory</b> <small>Martin Rogan · a live CV</small>
           </span>
         </a>
         <div className="top-right">

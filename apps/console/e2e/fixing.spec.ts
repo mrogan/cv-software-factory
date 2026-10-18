@@ -129,9 +129,9 @@ test.describe('fixing', () => {
     // #1323 went back to Build and has come round to Review again: no arc, and one row with its return struck through.
     await expect(page.locator('.ret-pill')).not.toContainText('#1323');
     await page.getByRole('button', { name: /^Review:/ }).click();
-    const rows = page.getByRole('dialog', { name: 'Review' }).getByRole('button', { name: /^Open #1323,/ });
+    const rows = page.getByRole('dialog', { name: 'Review' }).getByRole('button', { name: /^#1323 / });
     await expect(rows).toHaveCount(1);
-    await expect(rows).toHaveAccessibleName(/^Open #1323, .+: earlier sent back, Review asked for changes/);
+    await expect(rows).toHaveAccessibleName(/^#1323 .+: earlier sent back · Review asked for changes.* Open$/);
     await expect(rows.locator('s')).toHaveText('sent back');
   });
 
@@ -140,9 +140,9 @@ test.describe('fixing', () => {
     await page.goto(consoleUrl({ at: Date.parse('2026-10-06T08:12:30Z') }));
     await ready(page);
     await page.getByRole('button', { name: /^Plan:/ }).click();
-    const rows = page.getByRole('dialog', { name: 'Plan' }).getByRole('button', { name: /^Open #/ });
-    await expect(rows.first()).toHaveAccessibleName(/^Open #1314, .+: working, Spec written/);
-    await expect(rows.filter({ hasText: '#1315' })).toHaveAccessibleName(/^Open #1315, .+: Waiting for the planner$/);
+    const rows = page.getByRole('dialog', { name: 'Plan' }).getByRole('button', { name: /^#\d+ / });
+    await expect(rows.first()).toHaveAccessibleName(/^#1314 .+: working, Spec written.* Open$/);
+    await expect(rows.filter({ hasText: '#1315' })).toHaveAccessibleName(/^#1315 .+: Waiting for the planner Open$/);
     // Its play icon blinks, as the reel's "In progress" does; the waiting ticket's pause icon is still.
     await expect(rows.first().locator('.sicon')).toHaveClass(/blink/);
     await expect(rows.filter({ hasText: '#1315' }).locator('.sicon')).not.toHaveClass(/blink/);
