@@ -395,6 +395,98 @@ describe('the line', () => {
     });
   });
 
+  it('sends back to the coder a change held for the merge whose gates fail on a branch brought up to date', async () => {
+    const workItem = await ticket();
+    const { pass, steps, github } = line();
+    await pass(); // the issue, and the planner
+    await pass(); // the coder
+    github.pass();
+    await pass(); // the gates pass, and the reviewer
+    await pass(); // the describer
+    await pass(); // the hold for Martin
+    expect(await stage(workItem)).toBe('held');
+
+    // GitHub brings the branch up to date with main while it waits, and a required gate fails there: GitHub would
+    // refuse the merge, so the work goes back to the coder, whose second round starts from the newer commit.
+    const pr = github.pulls.get(12);
+    if (!pr) throw new Error('No pull request #12');
+    const updated = 'd'.repeat(40);
+    pr.head.sha = updated;
+    github.pass(12, 'failure');
+    await pass();
+    const after = (await types(workItem)).slice((await types(workItem)).lastIndexOf('hold.started') + 1);
+    expect(after.slice(0, 4)).toEqual(['gates.started', 'gate.finished', 'gates.finished', 'work.returned']);
+    expect((await payloads(workItem, 'work.returned'))[0]).toMatchObject({ from: 'gates', to: 'build', round: 2 });
+    expect(steps.requests.at(-1)).toMatchObject({ agent: 'coder', round: 2, commit: updated });
+    // The pull request went back to draft with the return, so GitHub will not merge a round nobody has reviewed.
+    const actions = github.acts.map((a) => a.action);
+    expect(actions.lastIndexOf('convertToDraft')).toBeGreaterThan(actions.lastIndexOf('readyForReview'));
+    expect(pr.draft).toBe(true);
+
+    // The second round's gates pass, and it is reviewed, written up and readied again before Martin is asked.
+    github.pass();
+    await pass(); // the gates pass, and the reviewer
+    await pass(); // the describer
+    await pass(); // the hold for Martin
+    expect(steps.requests.slice(-2).map((r) => r.agent)).toEqual(['reviewer', 'describer']);
+    expect(github.acts.at(-1)?.action).toBe('readyForReview');
+    expect(pr.draft).toBe(false);
+    expect(await stage(workItem)).toBe('held');
+  });
+
+  it('sends nothing back when Martin merged the change before the line could return it, and records the merge', async () => {
+    const workItem = await ticket();
+    // GitHub is read once a minute: each pass below is a minute on, but the one where the line returns the work.
+    const { pass, github } = line(AGENTS, events, { gatesEveryMs: 60_000 });
+    const later = async () => {
+      now += 60_000;
+      await pass();
+    };
+    await later(); // the issue, and the planner
+    await later(); // the coder
+    github.pass();
+    await later(); // the gates pass, and the reviewer
+    await later(); // the describer
+    await later(); // the hold for Martin
+    expect(await stage(workItem)).toBe('held');
+    const before = await types(workItem);
+
+    // He sends it back in words, and merges it too, before the line reads GitHub again.
+    await events.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'Name the test' }, 'martin'));
+    github.merge();
+    await pass();
+    expect((await types(workItem)).slice(before.length)).toEqual(['hold.answered']);
+    expect(github.acts.map((a) => a.action)).not.toContain('convertToDraft');
+
+    // The next read records the merge, and the work item goes on to Release.
+    await later();
+    expect((await types(workItem)).slice(before.length)).toEqual([
+      'hold.answered',
+      'pull-request.merged',
+      'hold.started',
+    ]);
+    expect(await payloads(workItem, 'work.returned')).toEqual([]);
+    expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({ stage: 'release', cause: 'deploy' });
+  });
+
+  it('puts the pull request back to draft when Martin sends back a change waiting for his merge', async () => {
+    const workItem = await ticket();
+    const { pass, steps, github } = line();
+    await pass(); // the issue, and the planner
+    await pass(); // the coder
+    github.pass();
+    await pass(); // the gates pass, and the reviewer
+    await pass(); // the describer
+    await pass(); // the hold for Martin
+    expect(github.pulls.get(12)?.draft).toBe(false);
+    await events.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'Name the test' }, 'martin'));
+    await pass();
+    expect((await payloads(workItem, 'work.returned')).at(-1)).toMatchObject({ from: 'review', to: 'build' });
+    expect(github.acts.map((a) => a.action)).toContain('convertToDraft');
+    expect(github.pulls.get(12)?.draft).toBe(true);
+    expect(steps.requests.at(-1)).toMatchObject({ agent: 'coder', round: 2 });
+  });
+
   it('sends a failing change back to the coder, which resumes its session on a branch that moved on', async () => {
     const workItem = await ticket();
     const { pass, steps, github } = line();
