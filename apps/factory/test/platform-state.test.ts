@@ -40,7 +40,9 @@ interface Manifest {
   };
 }
 
-const manifests = () => deployManifests<Manifest>();
+// Read once: every test looks up a manifest or two among all of deploy/.
+let all: ReturnType<typeof deployManifests<Manifest>> | undefined;
+const manifests = () => (all ??= deployManifests<Manifest>());
 const find = async (kind: string, name: string, namespace = 'factory') =>
   (await manifests()).find(
     (m) => m.manifest.kind === kind && m.manifest.metadata?.name === name && m.namespace === namespace,

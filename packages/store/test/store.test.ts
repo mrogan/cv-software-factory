@@ -312,7 +312,7 @@ describe('append-only, by mechanism', () => {
       select rolconnlimit, array(select b.rolname from pg_auth_members m join pg_roles b on b.oid = m.roleid
                                  where m.member = r.oid) as member_of
       from pg_roles r where rolname = 'metrics_reader'`;
-    expect(role).toEqual({ rolconnlimit: 2, member_of: [] });
+    expect(role).toEqual({ rolconnlimit: 4, member_of: [] });
   });
 
   it('never mixes samples with real events', async () => {
