@@ -8,13 +8,15 @@ resources:
   - telemetry
   - pod-logs
   - postgres
+  - postgres-exporter
   - migrate
   - console
   - website
   - rollouts
 
 # Postgres has one pin, its StatefulSet's, so that Dependabot's update of it is the whole update: the factory's admission
-# policy admits the image it names, wherever else the policy is built from.
+# policy admits the image it names, wherever else the policy is built from. The same for the Postgres exporter's, its
+# Deployment's.
 replacements:
   - source:
       kind: StatefulSet
@@ -29,3 +31,16 @@ replacements:
         options:
           delimiter: "'"
           index: 1
+  - source:
+      kind: Deployment
+      name: postgres-exporter
+      fieldPath: spec.template.spec.containers.[name=postgres-exporter].image
+    targets:
+      - select:
+          kind: ImageValidatingPolicy
+          name: factory-images
+        fieldPaths:
+          - spec.variables.[name=allowed].expression
+        options:
+          delimiter: "'"
+          index: 3

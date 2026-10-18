@@ -38,6 +38,7 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@$(call secret,factory,postgres,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-writer,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-console,--from-literal=password="$$(openssl rand -hex 24)")
+	@$(call secret,factory,postgres-metrics,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(MAKE) --no-print-directory gateway-key
 	@$(MAKE) --no-print-directory github-key
 	@$(MAKE) --no-print-directory scoreboard-secrets

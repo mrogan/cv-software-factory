@@ -22,7 +22,7 @@ const listed = (expression: unknown) => [...String(expression ?? '[]').matchAll(
 
 /**
  * The third-party images a copy of the policy admits, as kustomize renders it: deploy/base/kustomization.yaml copies
- * Postgres's one pin, its StatefulSet's, into the factory's.
+ * Postgres's one pin, its StatefulSet's, and the Postgres exporter's, its Deployment's, into the factory's.
  */
 let rendered: {
   kind: string;
@@ -89,7 +89,7 @@ async function thirdParty(dirs: string[], files: string[]) {
   const images = new Set<string>();
   for (const file of files) for (const doc of parseAllDocuments(await read(file))) named(doc.toJS(), images);
   // A bare name with no digest (`factory`) is ours, pinned by the profile's kustomize `images:`; one with a digest
-  // (`postgres:<tag>@<digest>`) is Docker Hub's.
+  // (`postgres:<tag>@<digest>`) is Docker Hub's, and one with a registry (`quay.io/...`) is that registry's.
   return [...images].filter((i) => (i.includes('/') || i.includes('@')) && !i.startsWith('ghcr.io/mrogan/')).sort();
 }
 
@@ -173,7 +173,7 @@ describe('admission control', () => {
     const factory = await copy('factory');
     expect(factory.allowed).toEqual(
       await thirdParty(
-        ['base/postgres', 'base/factory', 'base/runners', 'base/migrate', 'base/console'],
+        ['base/postgres', 'base/postgres-exporter', 'base/factory', 'base/runners', 'base/migrate', 'base/console'],
         ['k3d/artifacts-copier.yaml'],
       ),
     );

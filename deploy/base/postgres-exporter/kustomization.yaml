@@ -1,0 +1,14 @@
+# The Postgres exporter: the event store's server statistics, for Prometheus. Beside Postgres in `factory`, so the
+# role's password stays in the namespace that holds the store's others, behind its fences and admission control; its
+# image is named by digest in the factory's image policy (deploy/base/admission/factory). A directory of its own, not
+# Postgres's: that one labels everything in it as Postgres, which its Service selects.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: factory
+labels:
+  - pairs:
+      app.kubernetes.io/name: postgres-exporter
+      app.kubernetes.io/part-of: software-factory
+    includeSelectors: true
+resources:
+  - deployment.yaml

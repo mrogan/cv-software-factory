@@ -1,5 +1,5 @@
-# Applies whatever migrations the store has not had, then sets the writer's, the console's and the scoreboard's
-# passwords from their Secrets. A Sync hook in wave 1: after Postgres (wave 0) is healthy, before the console (wave 2)
+# Applies whatever migrations the store has not had, then sets the writer's, the console's, the scoreboard's and the
+# Postgres exporter's passwords from their Secrets. A Sync hook in wave 1: after Postgres (wave 0) is healthy, before the console (wave 2)
 # starts. It runs the console's image, which carries the migrations, so a new image brings its migrations with it.
 apiVersion: batch/v1
 kind: Job
@@ -53,6 +53,13 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-scoreboard
+                  key: password
+                  optional: true
+            # The Postgres exporter's (deploy/base/postgres-exporter), made by `make up`. Optional for the same reason.
+            - name: METRICS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-metrics
                   key: password
                   optional: true
           resources:

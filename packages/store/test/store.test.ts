@@ -13,12 +13,13 @@ let owner: Sql; // the database's owner, as the migration Job connects
 let writer: Sql;
 let reader: Sql;
 let scoreboard: Sql;
+let metrics: Sql;
 let database: Database;
 const artifacts = new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-')));
 
 beforeAll(async () => {
   database = await freshDatabase('store');
-  ({ owner, writer, reader, scoreboard } = database);
+  ({ owner, writer, reader, scoreboard, metrics } = database);
 });
 
 afterAll(() => database?.end());
@@ -86,6 +87,7 @@ describe('migrations', () => {
       { version: 15, name: 'environment-holds' },
       { version: 16, name: 'line-waiting' },
       { version: 17, name: 'step-logs' },
+      { version: 18, name: 'metrics-reader' },
     ]);
   });
 });
@@ -283,29 +285,34 @@ describe('append-only, by mechanism', () => {
     await expect(scoreboard`create table mine (n integer)`).rejects.toThrow('permission denied');
 
     // Every privilege it holds on anything in the schema, so a grant added later must be added here too.
-    const held = await owner<{ name: string; privilege: string }[]>`
-      select c.relname as name, p.privilege from pg_class c
-      join pg_namespace n on n.oid = c.relnamespace
-      cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) p(privilege)
-      where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
-        and has_table_privilege('scoreboard_writer', c.oid, p.privilege)
-      union all
-      select c.relname, p.privilege from pg_class c
-      join pg_namespace n on n.oid = c.relnamespace
-      cross join unnest(array['USAGE', 'SELECT', 'UPDATE']) p(privilege)
-      where n.nspname = 'public' and c.relkind = 'S' and has_sequence_privilege('scoreboard_writer', c.oid, p.privilege)
-      union all
-      select a.attrelid::regclass::text, 'column ' || p.privilege from pg_attribute a
-      join pg_class c on c.oid = a.attrelid join pg_namespace n on n.oid = c.relnamespace
-      cross join unnest(array['UPDATE', 'REFERENCES']) p(privilege)
-      where n.nspname = 'public' and a.attnum > 0 and not a.attisdropped
-        and has_column_privilege('scoreboard_writer', a.attrelid, a.attnum, p.privilege)
-      order by 1, 2`;
-    expect(held).toEqual([
+    expect(await held('scoreboard_writer')).toEqual([
       { name: 'events', privilege: 'INSERT' },
       { name: 'events', privilege: 'SELECT' },
       { name: 'store', privilege: 'SELECT' },
     ]);
+  });
+
+  it('lets the Postgres exporter read the server’s statistics, and nothing of the store', async () => {
+    // What the exporter reads: connections against their ceiling, each database's size, each table's rows.
+    const [database] = await metrics<{ numbackends: number }[]>`
+      select numbackends from pg_stat_database where datname = current_database()`;
+    expect(database?.numbackends).toBeGreaterThan(0);
+    expect((await metrics`select setting from pg_settings where name = 'max_connections'`).length).toBe(1);
+    expect((await metrics`select pg_database_size(current_database())`).length).toBe(1);
+    expect((await metrics`select n_live_tup from pg_stat_user_tables where relname = 'events'`).length).toBe(1);
+    // Not the events, or any other table, view or sequence; not another session's query; no role but its own.
+    await expect(metrics`select seq from events limit 1`).rejects.toThrow('permission denied');
+    await expect(metrics`select count(*) from store`).rejects.toThrow('permission denied');
+    expect(await held('metrics_reader')).toEqual([]);
+    await writer`select 1`;
+    const others = await metrics<{ query: string | null }[]>`
+      select distinct query from pg_stat_activity where pid <> pg_backend_pid() and usesysid is not null`;
+    expect(others).toEqual([{ query: '<insufficient privilege>' }]);
+    const [role] = await owner<{ rolconnlimit: number; member_of: string[] }[]>`
+      select rolconnlimit, array(select b.rolname from pg_auth_members m join pg_roles b on b.oid = m.roleid
+                                 where m.member = r.oid) as member_of
+      from pg_roles r where rolname = 'metrics_reader'`;
+    expect(role).toEqual({ rolconnlimit: 4, member_of: [] });
   });
 
   it('never mixes samples with real events', async () => {
@@ -349,3 +356,25 @@ describe('reading', () => {
     expect(read.map(({ event }) => event.seq)).toEqual([from + 1]);
   });
 });
+
+/** Every privilege a role holds on anything in the store's schema: tables and views, sequences, columns. */
+function held(role: string) {
+  return owner<{ name: string; privilege: string }[]>`
+    select c.relname as name, p.privilege from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) p(privilege)
+    where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
+      and has_table_privilege(${role}, c.oid, p.privilege)
+    union all
+    select c.relname, p.privilege from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    cross join unnest(array['USAGE', 'SELECT', 'UPDATE']) p(privilege)
+    where n.nspname = 'public' and c.relkind = 'S' and has_sequence_privilege(${role}, c.oid, p.privilege)
+    union all
+    select a.attrelid::regclass::text, 'column ' || p.privilege from pg_attribute a
+    join pg_class c on c.oid = a.attrelid join pg_namespace n on n.oid = c.relnamespace
+    cross join unnest(array['UPDATE', 'REFERENCES']) p(privilege)
+    where n.nspname = 'public' and a.attnum > 0 and not a.attisdropped
+      and has_column_privilege(${role}, a.attrelid, a.attnum, p.privilege)
+    order by 1, 2`;
+}

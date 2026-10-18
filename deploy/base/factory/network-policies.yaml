@@ -74,7 +74,8 @@ spec:
       ports:
         - { protocol: TCP, port: 4318 }
 ---
-# Postgres takes connections from the pods that use the store, the scoreboard's among them, and sends nothing.
+# Postgres takes connections from the pods that use the store, the scoreboard's among them, and from the exporter that
+# reads its statistics, and sends nothing.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -93,7 +94,7 @@ spec:
               app.kubernetes.io/component: worker
         - podSelector:
             matchExpressions:
-              - { key: app.kubernetes.io/name, operator: In, values: [console, migrate] }
+              - { key: app.kubernetes.io/name, operator: In, values: [console, migrate, postgres-exporter] }
         # The scoreboard, from its own namespace: the namespace and the label in one peer, so both must match.
         - namespaceSelector:
             matchLabels:
@@ -116,6 +117,38 @@ spec:
     matchLabels:
       app.kubernetes.io/name: migrate
   policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - { protocol: TCP, port: 5432 }
+---
+# The Postgres exporter (deploy/base/postgres-exporter) reaches only Postgres, and only Prometheus's server, which
+# scrapes it, reaches it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-exporter
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-exporter
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/component: server
+      ports:
+        - { protocol: TCP, port: 9187 }
   egress:
     - to:
         - podSelector:
