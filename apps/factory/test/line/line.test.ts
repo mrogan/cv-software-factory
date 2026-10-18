@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type InboxSignal, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { Handback } from '../../../runner/src/step.ts';
 import { DryRunActions } from '../../src/github/actions.ts';
@@ -372,6 +372,14 @@ describe('the line', () => {
     const updated = 'd'.repeat(40);
     pr.head.sha = updated;
     github.pass();
+    // GitHub says it merged before it names the merge commit: the line waits for the next read, reading no checks.
+    Object.assign(pr, { state: 'closed', merged: true, mergedBy: 'mrogan' });
+    const before = await types(workItem);
+    const reads = vi.spyOn(github, 'read');
+    await pass();
+    expect(await types(workItem)).toEqual(before);
+    expect(reads.mock.calls.map(([read]) => read)).not.toContain('checkRuns');
+    reads.mockRestore();
     github.merge();
     await pass();
     expect((await types(workItem)).slice(-5)).toEqual([
