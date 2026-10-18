@@ -30,7 +30,7 @@ export interface JobNames {
 
 /**
  * A Kubernetes name from parts (`attempt` is the step's number within the work item): lower case, digits and dashes,
- * and short enough.
+ * and short enough. The number stays last: the line reads it back from job tokens' names (`Queue.startStep`).
  */
 export const jobName = (agent: string, workItem: string, round: number, attempt = 1) =>
   `${agent}-${workItem}-${round}-${attempt}`

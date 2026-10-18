@@ -239,12 +239,13 @@ export class Queue {
   /**
    * Counts a step started, and returns its number within the work item: it names the step's job and job token, so it
    * is one no job of the work item has had. It comes after both the row's count and the last number in a job token's
-   * name (`runners/jobs.ts`), so a work item whose row was made afresh, as by a hand edit, never reuses one.
+   * name (`runners/jobs.ts`), so a work item whose row was made afresh, as by a hand edit, never reuses one. A name
+   * that does not end in a number of up to nine digits is not one of the line's, and counts for nothing.
    */
   async startStep(workItem: string): Promise<number> {
     const [row] = await this.#sql<{ steps: number }[]>`
       update line l set steps = 1 + greatest(l.steps, coalesce(
-        (select max(substring(t.job from '-([0-9]+)$')::int) from job_tokens t where t.work_item = l.work_item), 0))
+        (select max(substring(t.job from '-([0-9]{1,9})$')::int) from job_tokens t where t.work_item = l.work_item), 0))
       where l.work_item = ${workItem} returning l.steps`;
     if (!row) throw new Error(`Work item ${workItem} is not on the line.`);
     return row.steps;

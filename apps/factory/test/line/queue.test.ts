@@ -91,8 +91,11 @@ describe("a step's number", () => {
     for (const job of ['planner-1001-1-1', 'planner-1001-1-2', 'coder-1001-1-4']) {
       await issueJobToken(database.writer, { job, workItem: '1001', agent: job.split('-')[0] as string });
     }
-    // Another work item's tokens count for nothing here.
+    // Another work item's tokens count for nothing here, nor names the line does not make.
     await issueJobToken(database.writer, { job: 'coder-1002-1-9', workItem: '1002', agent: 'coder' });
+    for (const job of ['coder-1001-by-hand', 'coder-1001-1730000000000']) {
+      await issueJobToken(database.writer, { job, workItem: '1001', agent: 'coder' });
+    }
     await database.owner`delete from line where work_item = '1001'`;
     await database.writer`insert into line (work_item, stage) values ('1001', 'plan')`;
     expect(await queue.startStep('1001')).toBe(5);
