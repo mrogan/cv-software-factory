@@ -303,7 +303,10 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
     case 'hold.started':
       return { label: { approval: 'WAITING', question: 'QUESTION', held: 'HELD' }[event.payload.kind], tone: 'attn' };
     case 'hold.answered':
-      return { label: event.payload.decision === 'rejected' ? 'REJECTED' : 'APPROVED', tone: 'signal' };
+      return {
+        label: { approved: 'APPROVED', rejected: 'REJECTED', answered: 'ANSWERED' }[event.payload.decision],
+        tone: 'signal',
+      };
     case 'pull-request.pushed':
       return { label: event.payload.attempt > 1 ? `TRY ${event.payload.attempt}` : 'PR', tone: 'signal' };
     case 'gates.finished':

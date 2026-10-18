@@ -23,8 +23,6 @@ const PATHS = {
   ring: 'M8 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 1 0 0-9',
   left: 'M10 3 5 8l5 5',
   right: 'm6 3 5 5-5 5',
-  play: 'M4.5 3 12.5 8l-8 5z',
-  pause: 'M5 3v10M11 3v10',
   arrows: 'M5.5 4.5 2 8l3.5 3.5 M10.5 4.5 14 8l-3.5 3.5',
   back: 'M13 11V8a4 4 0 0 0-4-4H3 M6 1 3 4l3 3',
   /** A laptop: a model run on Martin's own machine, where what matters is where it ran, not whose model it is. */

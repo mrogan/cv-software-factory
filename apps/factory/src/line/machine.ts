@@ -70,9 +70,18 @@
  * deadline) are each agent's (`agents/`); the bounds on the loop are `LIMITS`.
  *
  * A hold waits for Martin's answer, and what the answer does depends on why the work item is held: `ANSWERS` has a
- * rule for each cause and each answer.
+ * rule for each cause and each answer. An answer in words to one of triage's holds leaves it standing
+ * (`WORDS_LEAVE_HELD`): only his approval or his rejection settles those.
  */
-import { ALWAYS_HELD, type HoldCause, LIMITS, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
+import {
+  ALWAYS_HELD,
+  type HoldCause,
+  LIMITS,
+  type PayloadOf,
+  STAGES,
+  type Stage,
+  WORDS_LEAVE_HELD,
+} from '@software-factory/events';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 import { whoAborted } from '../release/watch.ts';
 
@@ -355,14 +364,16 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (!state.hold) break;
         const { cause, stage } = state.hold;
         const resolution = ANSWERS[cause][event.payload.decision];
-        state.answer = { cause, stage, decision: event.payload.decision, resolution, text: event.payload.answer };
         const said =
           event.payload.answer ??
           (cause === 'scope' && event.payload.decision === 'approved' ? FENCE_APPROVED : undefined);
+        // Words settle nothing for triage's holds: the hold stands, and the work item waits as it did.
+        if (event.payload.decision === 'answered' && WORDS_LEAVE_HELD.includes(cause)) break;
         if ((stage === 'plan' || resolution === 'replan') && said) {
           state.answers.push({ asked: askedOf(state.hold, state.fenced), answer: said });
         }
         state.hold = undefined;
+        state.answer = { cause, stage, decision: event.payload.decision, resolution, text: event.payload.answer };
         state.fenceRefusals = 0;
         if (resolution === 'replan') state.spec = undefined;
         if (cause === 'spec' && resolution === 'carry-on') state.specApproved = true;

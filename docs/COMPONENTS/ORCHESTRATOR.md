@@ -140,7 +140,7 @@ Each hold names its cause, and Martin's answer does what `ANSWERS` in `line/mach
 | `verify` | The signal persisted a second time, Verify could not tell for 24 hours, or nothing can judge the fix ([Verify](RELEASE-AND-VERIFY.md#verify)) | Closes the work item as verified, with his words | Sends it back to Plan |
 | `spend` | The work item has spent its cap on models | Carries on, and holds again until the cap is raised | Carries on |
 
-Triage's own holds, `finding`, `suggestion`, `burst` and `environment`, are on [its page](TRIAGE.md).
+Triage's own holds, `finding`, `suggestion`, `burst` and `environment`, are on [its page](TRIAGE.md). An answer in words to one of them settles nothing, so the hold stands and Needs you still lists it (`WORDS_LEAVE_HELD` in the events package, which the line and the console both read).
 
 ## Spend
 

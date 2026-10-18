@@ -87,6 +87,23 @@ const jev: Judge = async (request) => ({
   cassette: 'c'.repeat(64),
 });
 
+/** A store that is down for every append but one whose events `takes` all lets through, counting each it is asked. */
+function storeTaking(takes: (event: NewEvent) => boolean) {
+  const store = {
+    tried: 0,
+    append: async (made: NewEvent | NewEvent[]) => {
+      store.tried += 1;
+      const all = [made].flat();
+      if (all.length > 0 && all.every(takes)) return events.append(all);
+      throw new Error('The store is down');
+    },
+  };
+  return store as unknown as EventWriter & { tried: number };
+}
+
+/** Triage asking Martin again, unable to act on his answer to a hold. */
+const isAskedAgain = (event: NewEvent) => event.summary.startsWith('Waiting for Martin again: triage could not');
+
 const triage = (options: Partial<TriageOptions> = {}) =>
   new Triage({ sql: writer, events, judge: jev, read: async () => null, log: quiet, ...options });
 
@@ -739,19 +756,37 @@ describe('triage', () => {
     it('leaves an answer it cannot act on for the next event, and after as many tries as a signal, alone', async () => {
       const item = await park('/gift-cards');
       await answer(item, 'approved');
-      let tried = 0;
-      const broken = {
-        append: async () => {
-          tried += 1;
-          throw new Error('The store is down');
-        },
-      } as unknown as EventWriter;
+      const broken = storeTaking(() => false);
       const failing = triage({ events: broken });
-      for (let i = 0; i <= INBOX.attempts; i++) expect(await failing.settleOne()).toBe(false);
-      expect(tried).toBe(INBOX.attempts);
-      // It was not acted on, and this worker leaves it now; a fresh one, with the store back, does as he said.
+      for (let i = 0; i < INBOX.attempts; i++) expect(await failing.settleOne()).toBe(false);
+      // As many tries as a signal gets, then one to ask Martin again, which the store could not take either: so the
+      // answer is tried once more on the next event, and Martin asked again, until the store can take it.
+      expect(broken.tried).toBe(INBOX.attempts + 1);
+      expect(await failing.settleOne()).toBe(false);
+      expect(broken.tried).toBe(INBOX.attempts + 3);
+      // It was not acted on; a fresh worker, with the store back, does as he said.
       expect(await writer`select 1 from events where work_item = ${item} and type = 'ticket.opened'`).toHaveLength(0);
       expect(await triage().settleOne()).toBe(true);
+    });
+
+    it('asks again when it leaves an answer, so a restart does not try it, and acts on his next answer', async () => {
+      const item = await park('/gift-tags');
+      await answer(item, 'approved');
+      const failing = triage({ events: storeTaking(isAskedAgain) });
+      for (let i = 0; i < INBOX.attempts; i++) expect(await failing.settleOne()).toBe(false);
+      const [again] = await writer<{ payload: PayloadOf<'hold.started'>; summary: string }[]>`
+        select payload, summary from events where work_item = ${item} and type = 'hold.started' order by seq desc`;
+      expect(again).toMatchObject({
+        summary: 'Waiting for Martin again: triage could not act on his approval',
+        payload: { stage: 'triage', kind: 'held', cause: 'finding', defect: { symptom: 'wrong-result' } },
+      });
+      // A fresh worker, with the store back, has no answer to try; the same defect noticed again joins the hold.
+      expect(await triage().settleOne()).toBe(false);
+      expect(await park('/gift-tags')).toBe(item);
+      // His next answer is acted on afresh.
+      await answer(item, 'approved');
+      expect(await triage().settleOne()).toBe(true);
+      expect(await writer`select 1 from events where work_item = ${item} and type = 'ticket.opened'`).toHaveLength(1);
     });
 
     it('joins the open ticket that has it when he approves it, if one opened without closing it', async () => {
@@ -1061,6 +1096,28 @@ describe('triage', () => {
       expect(await ticketsOf('/burst/%')).toEqual([]);
       await sendSignal(writer, page(1));
       expect(await triage().takeOne()).toBe('opened');
+    });
+
+    it('asks again when it cannot act on his answer to a burst, which goes on taking the sense’s problems', async () => {
+      for (let n = 1; n <= BURST.tickets + 1; n++) await sendSignal(writer, page(n));
+      await takeAll();
+      const item = await heldIn();
+      await answer(item, 'rejected');
+      const failing = triage({ events: storeTaking(isAskedAgain) });
+      for (let i = 0; i < INBOX.attempts; i++) expect(await failing.settleOne()).toBe(false);
+      const holds = await writer<{ payload: PayloadOf<'hold.started'> }[]>`
+        select payload from events where work_item = ${item} and type = 'hold.started' order by seq`;
+      expect(holds.map((hold) => hold.payload.cause)).toEqual(['burst', 'burst']);
+      expect(holds[1]?.payload.reason).toMatch(/act on Martin's rejection/);
+      // After a restart there is no answer to try, and the sense's next new problem joins the hold.
+      expect(await triage().settleOne()).toBe(false);
+      await sendSignal(writer, page(BURST.tickets + 2));
+      expect(await triage().takeOne()).toBe('held');
+      expect(await heldIn()).toBe(item);
+      // His next answer is acted on.
+      await answer(item, 'rejected');
+      expect(await triage().settleOne()).toBe(true);
+      expect(await payloadOf(item, 'work-item.closed')).toMatchObject({ outcome: 'discarded' });
     });
 
     it('lets a held signal through after a crash, if Martin approved its burst before the inbox heard it', async () => {

@@ -63,7 +63,7 @@ Each fails the release at its second failed look.
 The journeys are the [journeys gate](CI-PIPELINE.md#journeys) aimed at the cluster. A Job on the pinned `factory-browser` runs `factory gate journeys`, with the stable Service as the base and the canary's as the change.
 
 - It fails on a check that passes on the base and fails on the change twice.
-- It writes the checks that regressed to its container's termination message, where the line reads them.
+- It writes the checks that regressed, and how many passed of how many ran on each version, to its container's termination message, where the line reads them.
 
 ## Whose requests are judged
 

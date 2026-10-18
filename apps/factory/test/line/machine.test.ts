@@ -1,4 +1,4 @@
-import { HOLD_CAUSES, type HoldCause, type PayloadOf } from '@software-factory/events';
+import { HOLD_CAUSES, type HoldCause, type PayloadOf, WORDS_LEAVE_HELD } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import {
   ANSWERS,
@@ -922,6 +922,21 @@ describe('Martin’s answer to a hold', () => {
     const approved = [held('finding', 'triage'), answer('approved'), ticket];
     expect(decide(approved, { ...facts, issue: null })).toEqual({ stage: 'plan', next: { do: 'open-issue' } });
     expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
+  });
+
+  it('keeps a hold of triage’s standing when he answers it in words, so Needs you still lists it', () => {
+    for (const cause of WORDS_LEAVE_HELD) {
+      expect(ANSWERS[cause].answered).toBe('wait');
+      const words = [held(cause, 'triage'), answer('answered', 'Leave it for a sense')];
+      expect(fold(words)).toMatchObject({ hold: { cause }, answer: undefined });
+      expect(decide(words, facts)).toEqual({ stage: 'held', next: { do: 'wait', for: 'martin' } });
+      // Words do not use up the hold: his approval after them still settles it.
+      expect(fold([...words, answer('approved')])).toMatchObject({ hold: undefined, answer: { decision: 'approved' } });
+    }
+    // Every other cause's answer in words settles the hold.
+    for (const cause of HOLD_CAUSES.filter((c) => !WORDS_LEAVE_HELD.includes(c))) {
+      expect(fold([ticket, spec, held(cause, 'build'), answer('answered', 'Go on')]).hold).toBeUndefined();
+    }
   });
 
   it('has the planner write a spec again when he answers it, and builds it when he approves', () => {
