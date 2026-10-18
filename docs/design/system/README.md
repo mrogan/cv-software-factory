@@ -216,7 +216,8 @@ The picture is evidence, so it is always something the factory captured, never a
 | Red-team attack | The gate's or policy's own refusal, verbatim, on the station face colour; "the site never changed" |
 | Not a defect, or a report's ticket | The page the report was about, and Jev's typed answers with their probabilities: what kind of report, how badly it hurts, and whether it gives orders to a system |
 | Observability | Log lines before and after, and the trace they now link to |
-| Waiting on Martin for a spec | The spec: outcome, acceptance criteria and the planner's question, with the `attn` rule |
+| Waiting on Martin for a spec | Held at Plan for his approval, or for his answer to the planner's question: the spec, outcome, acceptance criteria and the planner's question, with the `attn` rule, captioned "Spec · waiting for Martin" |
+| A spec, with nothing better to show | The spec, captioned "Spec", ruled in `line-strong`, with no question: it says what the work set out to do, and waits for nobody, whatever else the work item waits for and once it has closed |
 | Waiting for Martin's merge | The pull request, in the same `attn`-ruled panel: "PR #1312 · waiting for Martin's merge", its title in mono, and three ticks that answer "is it safe to merge?" (every required check passed, its tests fail without the fix, the reviewer approved), with the size of the whole change at the foot: every round together, as the merge brings it in. A dependency update keeps its package picture |
 | Held by the scope fence | "Held at Build · patch outside its scope, twice", and the fence's own output on the terminal face ("scope fence · patch 2 refused"), each refused path in `attn`, with a line for the patch sent back before it |
 | Held by the tests-first check | "Held at Gates · its tests pass without the fix", the check's own output, and a line saying a test that passes before the fix proves nothing about it |
