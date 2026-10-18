@@ -387,6 +387,31 @@ describe('the line', () => {
     });
   });
 
+  it('sends back to the coder a change held for the merge whose gates fail on a branch brought up to date', async () => {
+    const workItem = await ticket();
+    const { pass, steps, github } = line();
+    await pass(); // the issue, and the planner
+    await pass(); // the coder
+    github.pass();
+    await pass(); // the gates pass, and the reviewer
+    await pass(); // the describer
+    await pass(); // the hold for Martin
+    expect(await stage(workItem)).toBe('held');
+
+    // GitHub brings the branch up to date with main while it waits, and a required gate fails there: GitHub would
+    // refuse the merge, so the work goes back to the coder, whose second round starts from the newer commit.
+    const pr = github.pulls.get(12);
+    if (!pr) throw new Error('No pull request #12');
+    const updated = 'd'.repeat(40);
+    pr.head.sha = updated;
+    github.pass(12, 'failure');
+    await pass();
+    const after = (await types(workItem)).slice((await types(workItem)).lastIndexOf('hold.started') + 1);
+    expect(after.slice(0, 4)).toEqual(['gates.started', 'gate.finished', 'gates.finished', 'work.returned']);
+    expect((await payloads(workItem, 'work.returned'))[0]).toMatchObject({ from: 'gates', to: 'build', round: 2 });
+    expect(steps.requests.at(-1)).toMatchObject({ agent: 'coder', round: 2, commit: updated });
+  });
+
   it('sends a failing change back to the coder, which resumes its session on a branch that moved on', async () => {
     const workItem = await ticket();
     const { pass, steps, github } = line();

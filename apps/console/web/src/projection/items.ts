@@ -295,9 +295,10 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
   /** The latest release to carry the item. */
   let release: string | undefined;
   /**
-   * The gates of the latest push: the commit they started on, and whether they passed there. Once they have, a run
-   * on a newer commit of the same push (GitHub bringing the branch up to date with main) does not take the work item
-   * back to Gates, as the line does not: it stays where it waits, for the review or the merge.
+   * The gates of the latest push: the commit of their latest run, and whether they passed in the latest run that
+   * ended. Once they have, a run on a newer commit of the same push (GitHub bringing the branch up to date with main)
+   * does not take the work item back to Gates while it runs, or if it passes, as the line does not: it stays where it
+   * waits, for the review or the merge. If it fails, it does, and ends a wait for the merge GitHub would refuse.
    */
   const gates: { commit: string | undefined; passed: boolean } = { commit: undefined, passed: false };
   for (const event of events) {
@@ -315,14 +316,29 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         event.type === 'release.aborted') &&
       event.payload.release !== release;
     if (stale) continue;
-    const rerun =
-      gates.passed &&
-      (event.type === 'gates.started' || event.type === 'gate.finished' || event.type === 'gates.finished');
-    if (event.type === 'pull-request.pushed') Object.assign(gates, { commit: undefined, passed: false });
-    if (event.type === 'gates.started' && !gates.passed) gates.commit = event.payload.commit;
+    const passedBefore = gates.passed;
+    // A new push, or a fresh pass, starts its gates afresh, as the line's `fold` does.
+    if (
+      event.type === 'pull-request.pushed' ||
+      event.type === 'work-item.reopened' ||
+      (event.type === 'work.returned' && event.payload.to === 'plan')
+    ) {
+      Object.assign(gates, { commit: undefined, passed: false });
+    }
+    if (event.type === 'gates.started') gates.commit = event.payload.commit;
+    const failedAgain =
+      passedBefore &&
+      event.type === 'gates.finished' &&
+      event.payload.commit === gates.commit &&
+      event.payload.conclusion === 'failed';
     if (event.type === 'gates.finished' && event.payload.commit === gates.commit) {
       gates.passed = event.payload.conclusion === 'passed';
     }
+    if (failedAgain && state.hold?.cause === 'merge') state.hold = undefined;
+    const rerun =
+      passedBefore &&
+      !failedAgain &&
+      (event.type === 'gates.started' || event.type === 'gate.finished' || event.type === 'gates.finished');
     const stage = joining || rerun ? null : stageOf(event);
     if (stage) {
       if (stage !== state.stage) state.sentBack = undefined;

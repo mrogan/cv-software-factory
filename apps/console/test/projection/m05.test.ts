@@ -166,6 +166,42 @@ describe('a fix whose branch was brought up to date while it waited for the merg
   });
 });
 
+describe('a fix whose gates fail on a branch brought up to date while it waited for the merge', () => {
+  const updated = 'd'.repeat(40);
+  const story = work('1')
+    .open()
+    .add(0, 'pull-request.pushed', 'coder', {
+      number: 7,
+      title: 'fix(products): load them all',
+      branch: 'factory/1-products',
+      attempt: 1,
+      testsFirst: true,
+      files: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+      whole: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+    })
+    .add(1, 'gates.started', 'actions', payloads.gatesStarted)
+    .add(3, 'gates.finished', 'actions', payloads.gatesPassed)
+    .add(4, 'review.submitted', 'reviewer', { pullRequest: 7, verdict: 'approved', note: 'Fine', findings: [] })
+    .add(5, 'hold.started', 'factory', { stage: 'review', kind: 'approval', cause: 'merge', reason: 'Waits' })
+    .add(6, 'gates.started', 'actions', { ...payloads.gatesStarted, commit: updated })
+    .add(9, 'gates.finished', 'actions', { ...payloads.gatesFailed, commit: updated })
+    .add(9, 'work.returned', 'factory', {
+      from: 'gates',
+      to: 'build',
+      reason: 'The gates failed: Unit tests',
+      round: 2,
+      failed: ['Unit tests'],
+    });
+
+  it('stops waiting for the merge and goes back through Gates to Build, as the line sends it', () => {
+    expect(foldItem(story.events.slice(0, 7))).toMatchObject({ stage: 'review', outcome: 'needs-you' });
+    const failed = foldItem(story.events.slice(0, 8));
+    expect(failed).toMatchObject({ stage: 'gates', hold: undefined, outcome: 'in-progress' });
+    expect(failed?.failure?.stage).toBe('gates');
+    expect(foldItem(story.events)).toMatchObject({ stage: 'build', hold: undefined, outcome: 'in-progress' });
+  });
+});
+
 describe('a fix held for a human', () => {
   it('by the scope fence: its own output, and the refusal before it', () => {
     expect(card('1315')?.picture).toMatchObject({

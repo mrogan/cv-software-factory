@@ -268,11 +268,75 @@ describe('what the line does next', () => {
     expect(fold([ticket, spec, ruleset, ruleset]).fenceRefusals).toBe(0);
   });
 
-  it('judges the gates on the latest push only, and ignores a later run once they have passed', () => {
-    const later = [ticket, spec, pushed(), started(), finished('passed'), started(OTHER), finished('failed', OTHER)];
-    expect(decide(later, facts).next).toEqual({ do: 'step', agent: 'reviewer', round: 1 });
+  it('judges the gates on the latest push only, and a later run once it ends: passed gates stand while it runs', () => {
+    const passed = [ticket, spec, pushed(), started(), finished('passed')];
+    expect(decide([...passed, started(OTHER)], facts).next).toEqual({ do: 'step', agent: 'reviewer', round: 1 });
+    expect(decide([...passed, started(OTHER), finished('passed', OTHER)], facts).next).toEqual({
+      do: 'step',
+      agent: 'reviewer',
+      round: 1,
+    });
+    expect(decide([...passed, started(OTHER), finished('failed', OTHER)], facts).next).toEqual({
+      do: 'return',
+      from: 'gates',
+      to: 'build',
+      reason: 'The gates failed: test',
+      failed: ['test'],
+    });
     const stale = [ticket, spec, pushed(), started(), finished('failed', OTHER)];
     expect(decide(stale, facts).next).toEqual({ do: 'wait', for: 'gates' });
+    // A run that ended on an older commit says nothing of the newer one.
+    expect(decide([...passed, started(OTHER), finished('failed')], facts).next).toMatchObject({ agent: 'reviewer' });
+  });
+
+  it('sends back work held for the merge when its gates fail on a newer commit, and holds after the limit', () => {
+    const waiting = [ticket, spec, pushed(), started(), finished('passed'), review('approved'), summarised];
+    const mergeHold: LineEvent = {
+      type: 'hold.started',
+      payload: { stage: 'review', kind: 'approval', cause: 'merge', reason: 'Waits for Martin to merge it' },
+    };
+    expect(decide([...waiting, mergeHold, started(OTHER)], facts)).toEqual({
+      stage: 'held',
+      next: { do: 'wait', for: 'martin' },
+    });
+    expect(decide([...waiting, mergeHold, started(OTHER), finished('passed', OTHER)], facts).next).toEqual({
+      do: 'wait',
+      for: 'martin',
+    });
+    const failed = [...waiting, mergeHold, started(OTHER), finished('failed', OTHER)];
+    expect(fold(failed).hold).toBeUndefined();
+    expect(decide(failed, facts)).toEqual({
+      stage: 'build',
+      next: { do: 'return', from: 'gates', to: 'build', reason: 'The gates failed: test', failed: ['test'] },
+    });
+    expect(decide([...failed, returned('gates')], facts).next).toEqual({ do: 'step', agent: 'coder', round: 2 });
+    // Another hold stands: Martin answers it first.
+    const escalated = [...waiting.slice(0, -2), review('escalated')];
+    const reviewHold: LineEvent = {
+      type: 'hold.started',
+      payload: { stage: 'review', kind: 'held', cause: 'review', reason: 'Escalated' },
+    };
+    expect(decide([...escalated, reviewHold, started(OTHER), finished('failed', OTHER)], facts).next).toEqual({
+      do: 'wait',
+      for: 'martin',
+    });
+    let events = [ticket, spec, pushed(), started(), finished('failed')];
+    for (let round = 1; round < LIMITS.gateReturns; round++) {
+      events = [...events, returned('gates'), pushed(round + 1), started(), finished('failed')];
+    }
+    events = [...events, returned('gates'), pushed(LIMITS.gateReturns + 1), started(), finished('passed')];
+    const last = [...events, review('approved'), summarised, mergeHold, started(OTHER), finished('failed', OTHER)];
+    expect(decide(last, facts)).toMatchObject({ stage: 'held', next: { do: 'hold', hold: { cause: 'gates' } } });
+  });
+
+  it('carries merged work on to Release, whatever the round recorded with its merge said', () => {
+    const waiting = [ticket, spec, pushed(), started(), finished('passed'), review('approved'), summarised];
+    const mergeHold: LineEvent = {
+      type: 'hold.started',
+      payload: { stage: 'review', kind: 'approval', cause: 'merge', reason: 'Waits for Martin to merge it' },
+    };
+    const atMerge = [...waiting, mergeHold, started(OTHER), finished('failed', OTHER), merged];
+    expect(decide(atMerge, facts).next).toMatchObject({ do: 'hold', hold: { stage: 'release', cause: 'deploy' } });
   });
 
   it('holds a step that keeps failing, and waits on any hold until it is answered', () => {
