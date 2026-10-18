@@ -75,7 +75,7 @@ The line deletes a step's Jobs as the step ends, so it reads their pods' logs fi
 
 - **What:** each pod's last 5,000 lines, up to 4 MiB, from the Kubernetes API.
 - **Where:** the text goes in the artifact store, and its index in Postgres (`step_logs`): the job, the work item, the agent, the pod, and how the step ended (handed back, failed with its reason, stopped with the line, or errored in the line).
-- **When:** however the step ended, and before the line stops a step's agent. A log that cannot be read, such as a pod that never started, is warned of, and the Jobs are deleted all the same.
+- **When:** however the step ended, and before the line stops a step's agent. The Jobs wait no more than ten seconds for it, so stopping the line still stops every agent. A log that cannot be read, such as a pod that never started, is warned of, and the Jobs are deleted all the same.
 - **Who sees them:** no event names a log, so the console serves none. `factory line logs <work item>` prints a work item's, in the line's pod, which mounts the store.
 
 ## Trying a runner

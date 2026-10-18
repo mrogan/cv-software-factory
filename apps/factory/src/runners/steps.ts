@@ -86,6 +86,8 @@ export interface RunnersOptions {
   log: Logger;
   /** Where each pod's log is kept before its Job is deleted. Without it, none is. */
   logs?: StepLogs;
+  /** How long a step's Jobs wait for its logs to be kept (`LOG_WAIT_MS`). */
+  logWaitMs?: number;
   /** How often a Job's state is read. */
   pollMs?: number;
   /** How long a handback may follow the agent pod's end: a pod hands back, then ends. */
@@ -104,6 +106,11 @@ const PREPARE_SECONDS = 600;
  */
 const LOG_LINES = 5000;
 const LOG_BYTES = 4 * 1024 * 1024;
+/**
+ * How long a step's Jobs wait for its logs to be kept before they are deleted all the same: an API that does not
+ * answer must not keep an agent working after the line has stopped it.
+ */
+const LOG_WAIT_MS = 10_000;
 
 const PODS = z.object({
   items: z.array(
@@ -165,7 +172,7 @@ export class Runners {
       // Each of these is tried whatever the others do: a token that will not end must not leave a Job running.
       await endJobToken(sql, job).catch((error: Error) => log.error({ job, err: error }, 'could not end a job token'));
       const [ending, reason] = outcome ? endingOf(outcome) : (['errored', messageOf(thrown)] as const);
-      await this.#keepLogs(job, { workItem, agent: step.agent }, ending, reason);
+      await this.#keepLogsWithin(job, { workItem, agent: step.agent }, ending, reason);
       this.#keeping.delete(job);
       for (const part of ['prepare', 'agent']) {
         await kube
@@ -224,6 +231,24 @@ export class Runners {
     return { kind: 'failed', job, reason: `The agent pod ${first.state} without handing anything back.` };
   }
 
+  /** Keeps a step's logs, waiting no longer than `LOG_WAIT_MS` for them; they go on being kept after that. */
+  async #keepLogsWithin(
+    job: string,
+    whose: { workItem: string; agent: string },
+    ending: StepEnding,
+    reason: string | null,
+  ): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    const waited = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, this.#o.logWaitMs ?? LOG_WAIT_MS);
+    });
+    try {
+      await Promise.race([this.#keepLogs(job, whose, ending, reason), waited]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /**
    * Reads the log of each of a step's pods and keeps it (`logs.ts`), before its Jobs are deleted. Once for each step,
    * however many ask; a log that cannot be read or kept is warned of, and never stops the step's Jobs being deleted.
@@ -275,7 +300,7 @@ export class Runners {
     const whose = this.#running.get(job);
     if (!whose || this.#stopped.has(job)) return;
     this.#stopped.add(job);
-    await this.#keepLogs(job, whose, 'stopped', null);
+    await this.#keepLogsWithin(job, whose, 'stopped', null);
     const jobs = `/apis/batch/v1/namespaces/${NAMESPACE}/jobs`;
     for (const part of ['prepare', 'agent']) {
       await this.#o.kube

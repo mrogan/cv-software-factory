@@ -226,9 +226,11 @@ async function line(
   agent: Parameters<typeof fakeKube>[0],
   prepare?: 'succeeded' | 'failed',
   log: Logger = quiet,
-  { podLogs, logs }: { podLogs?: PodLogs; logs?: StepLogs } = {},
+  { podLogs, logs, hang }: { podLogs?: PodLogs; logs?: StepLogs; hang?: boolean } = {},
 ) {
   const { kube, calls } = fakeKube(agent, prepare, podLogs);
+  // An API that never gives a pod's log.
+  if (hang) kube.text = () => new Promise(() => {});
   let handbackUrl = '';
   const runners = new Runners({
     sql: database.writer,
@@ -238,6 +240,7 @@ async function line(
     handbackUrl: 'http://line/v1/handback',
     log,
     ...(logs ? { logs } : {}),
+    logWaitMs: 50,
     pollMs: 10,
     graceMs: 10,
     lookup: async () => '10.43.0.9',
@@ -492,6 +495,25 @@ describe('a step’s logs', () => {
     expect(outcome).toMatchObject({ kind: 'failed' });
     expect((await read(logs, '1023')).map(({ part }) => part)).toEqual(['prepare']);
     expect(calls).toContain('DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1023-1-1-agent');
+  });
+
+  it('stops a step’s agent even when its log never comes', async () => {
+    let token = '';
+    const { runners, calls, close } = await line(
+      (env) => {
+        token = env.ANTHROPIC_API_KEY ?? '';
+        return new Promise<void>(() => {});
+      },
+      undefined,
+      quiet,
+      { logs: kept(), podLogs: { agent: WORKED }, hang: true },
+    );
+    const running = runners.run({ ...STEP, workItem: '1024', round: 1, deadlineSeconds: 60 });
+    while (!token) await new Promise((resolve) => setTimeout(resolve, 5));
+    await runners.cancel();
+    expect(calls).toContain('DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1024-1-1-agent');
+    expect(await running).toEqual({ kind: 'stopped', job: 'coder-1024-1-1' });
+    await close();
   });
 });
 
