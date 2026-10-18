@@ -50,6 +50,7 @@ Everything is denied in and out, then each pod is allowed what it needs.
 | Crawler | The app, the canary's pods included | Nothing |
 | Line | The GitHub worker, the Kubernetes API, the probes' verify port, and Prometheus, Loki and Tempo through the read-only proxy | The runners' agent pods, with their handbacks |
 | Traffic generator | Traefik and the collector, and nothing else but DNS | |
+| Postgres exporter | Postgres | Prometheus's server, on 9187 |
 
 - Only the line may call the probes' verify port, as only triage may call their page reader.
 - Each pod that reads telemetry reaches the [read-only proxy](TELEMETRY.md#reading-it) on the ports of the backends it reads, and none of the backends: a policy allows a port, not a path, and on those ports the backends take writes too.

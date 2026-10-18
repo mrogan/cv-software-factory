@@ -10,14 +10,14 @@ One `ImageValidatingPolicy` (`deploy/base/admission/images`), in three copies, e
 
 | Copy | Namespaces | Admits |
 |---|---|---|
-| `factory-images` | `factory`, `runners` | The factory's images, and Postgres |
+| `factory-images` | `factory`, `runners` | The factory's images, Postgres and its exporter |
 | `website-images` | `website` | The app's image, and the factory's browser for the canary's analysis |
 | `scoreboard-images` | `scoreboard` | The factory's own image, which the [scoreboard](SCOREBOARD.md) runs |
 
 A pod's images, its init and debug containers' and its image volumes' included, must be by digest, and either:
 
 - **ours on GHCR,** from a repository its copy admits, signed keyless by `build.yml` on `main` of the repository that builds them (the identity compared whole; [supply chain](SUPPLY-CHAIN.md)); or
-- **named by digest in the policy, with a reason** (Postgres, in `factory`).
+- **named by digest in the policy, with a reason** (Postgres and its exporter, in `factory`).
 
 It checks the signature, not the SBOM: the deploy pull requests' checks verify that, where parsing it is cheap.
 

@@ -18,8 +18,9 @@ An append-only record of every step, with captured artifacts (spec 5.1). Part of
 |---|---|
 | The factory's writer | Append and read |
 | The console's reader | See public views only |
+| The Postgres exporter's reader | Read the statistics any role may read, and nothing of the store |
 
-The [scoreboard](SCOREBOARD.md) has a role of its own.
+The [scoreboard](SCOREBOARD.md) has a role of its own. The exporter's ([telemetry](TELEMETRY.md#the-clusters-state-and-postgres)) is granted nothing, not even `pg_read_all_stats`, which would show it other sessions' queries, the migrations' setting of the roles' passwords among them. It may hold two connections.
 
 ## Events
 

@@ -13,6 +13,7 @@ export const PASSWORDS = {
   writer: 'writer-test-password',
   console: 'console-test-password',
   scoreboard: 'scoreboard-test-password',
+  metrics: 'metrics-test-password',
 };
 const quiet = { onnotice: () => {}, max: 2 };
 
@@ -22,6 +23,7 @@ export interface Database {
   writer: Sql;
   reader: Sql;
   scoreboard: Sql;
+  metrics: Sql;
   end(): Promise<void>;
 }
 
@@ -148,14 +150,16 @@ export async function createDatabase(server: string, name: string): Promise<Data
   const writer = as('factory_writer', PASSWORDS.writer);
   const reader = as('console_reader', PASSWORDS.console);
   const scoreboard = as('scoreboard_writer', PASSWORDS.scoreboard);
+  const metrics = as('metrics_reader', PASSWORDS.metrics);
   return {
     name: database,
     owner,
     writer,
     reader,
     scoreboard,
+    metrics,
     end: async () => {
-      await Promise.all([owner.end(), writer.end(), reader.end(), scoreboard.end()]);
+      await Promise.all([owner.end(), writer.end(), reader.end(), scoreboard.end(), metrics.end()]);
     },
   };
 }

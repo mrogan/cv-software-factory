@@ -5,9 +5,9 @@
  *
  *     DATABASE_URL=postgres://factory:…@localhost:5432/factory pnpm migrate
  *
- * WRITER_PASSWORD, CONSOLE_PASSWORD and SCOREBOARD_PASSWORD, when set, become the passwords of the factory's writer,
- * the console's reader and the scoreboard's writer. It connects as the database's owner, the only role that may
- * change its schema.
+ * WRITER_PASSWORD, CONSOLE_PASSWORD, SCOREBOARD_PASSWORD and METRICS_PASSWORD, when set, become the passwords of the
+ * factory's writer, the console's reader, the scoreboard's writer and the Postgres exporter's reader. It connects as
+ * the database's owner, the only role that may change its schema.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +41,7 @@ export interface Passwords {
   writer?: string | undefined;
   console?: string | undefined;
   scoreboard?: string | undefined;
+  metrics?: string | undefined;
 }
 
 /** Applies what is pending and returns the names of the migrations it applied. */
@@ -69,6 +70,7 @@ export async function migrate(sql: Sql, passwords: Passwords = {}): Promise<stri
     ['factory_writer', passwords.writer],
     ['console_reader', passwords.console],
     ['scoreboard_writer', passwords.scoreboard],
+    ['metrics_reader', passwords.metrics],
   ] as const) {
     // A role's password cannot be a query parameter; the literal is escaped instead.
     if (password) await sql.unsafe(`alter role ${role} password '${password.replaceAll("'", "''")}'`);
@@ -84,6 +86,7 @@ if (import.meta.main) {
       writer: process.env.WRITER_PASSWORD,
       console: process.env.CONSOLE_PASSWORD,
       scoreboard: process.env.SCOREBOARD_PASSWORD,
+      metrics: process.env.METRICS_PASSWORD,
     });
     console.log(applied.length ? `Applied ${applied.join(', ')}.` : 'Nothing to apply: the schema is current.');
   } finally {
