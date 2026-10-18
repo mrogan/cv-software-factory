@@ -502,7 +502,7 @@ svg.chart {
   color: var(--text);
 }
 
-/* A spec waiting for Martin. */
+/* A spec waiting for Martin, ruled in `attn`; one that waits for nobody is ruled in the line's colour. */
 .spec {
   flex: 1;
   padding: 3cqw 3.4cqw;
@@ -514,6 +514,9 @@ svg.chart {
   flex-direction: column;
   gap: 1.6cqw;
   font-size: 2cqw;
+}
+.spec.settled {
+  border-left-color: var(--line-strong);
 }
 .spec .outcome {
   font: 400 3.2cqw / 1.1 var(--font-display);

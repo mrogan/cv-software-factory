@@ -1,6 +1,6 @@
 # The line (apps/factory/src/line): carries work items from triage's tickets through the agents, the gates and review
 # to Martin's merge. LINE_MODE is `live` here: it acts in GitHub through the GitHub worker; `off`, its default, takes no
-# tickets, and only the step API and the smoke run work. LINE_TAKE, 11 here, has it take that many work items in all,
+# tickets, and only the step API and the smoke run work. LINE_TAKE, 13 here, has it take that many work items in all,
 # by its own rule, and then no more, while it carries those on it to their end. It counts every work item the line
 # has taken, dry runs' included. LINE_ONLY, a work item's number, unset here, has it act on that work item alone,
 # leaving every other as it is.
@@ -115,11 +115,11 @@ spec:
             # the local model is given longer.
             - name: FACTORY_PROFILE
               value: local
-            # The line on Claude, over the senses' tickets: the first eleven that come onto it, and no other.
+            # The line on Claude, over the senses' tickets: the first thirteen that come onto it, and no other.
             - name: LINE_MODE
               value: live
             - name: LINE_TAKE
-              value: "11"
+              value: "13"
             # After the merge: the read-only watch of the app's releases, with each version's figures from Prometheus,
             # and Verify, which asks the probes (their verify port), Prometheus, Loki and Tempo whether a ticket's signal
             # cleared. Tempo is for the log watcher's agreement check: without it, wrong metrics wait at Verify. The

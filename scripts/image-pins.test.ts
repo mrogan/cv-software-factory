@@ -144,3 +144,42 @@ describe("Playwright's pins", () => {
     expect(releases(playwright(moved)).size).toBe(2);
   });
 });
+
+/**
+ * Node is one release on a laptop, in CI and in the dev container, which take it from mise.toml, and in the images,
+ * which pin it. Dependabot moves the images' pins and not mise.toml, which moves by hand, so a Node update fails here
+ * until mise.toml moves with it.
+ */
+const MISE_NODE = /^node = "(\d+\.\d+\.\d+)"$/m;
+
+/** mise.toml's Node, and each image's, as [file, version]. */
+function node(read = (file: string) => readFileSync(file, 'utf-8')) {
+  const images = [...pins(read)]
+    .filter(([image]) => image.startsWith('node:'))
+    .flatMap(([, where]) => where.map(([file, pin]): [string, string] => [file, pin.split(/[-@]/)[0] ?? '']));
+  return { mise: MISE_NODE.exec(read('mise.toml'))?.[1], images };
+}
+
+const behind = ({ mise, images }: ReturnType<typeof node>) => images.filter(([, version]) => version !== mise);
+
+describe("Node's release", () => {
+  const found = node();
+
+  it('is read from mise.toml and the images', () => {
+    expect(found.mise).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(found.images.map(([file]) => file)).toEqual(
+      expect.arrayContaining(['apps/console/Dockerfile', 'apps/factory/Dockerfile', 'apps/runner/Dockerfile']),
+    );
+  });
+
+  it("is mise.toml's in every image", () => {
+    expect(behind(found)).toEqual([]);
+  });
+
+  it('disagrees when the images move to a release mise.toml has not', () => {
+    const moved = (file: string) => readFileSync(file, 'utf-8').replace(/(FROM node:)\d+\.\d+\.\d+/g, '$124.99.0');
+    expect(behind(node(moved)).map(([file]) => file)).toEqual(
+      expect.arrayContaining(['apps/console/Dockerfile', 'apps/factory/Dockerfile', 'apps/runner/Dockerfile']),
+    );
+  });
+});

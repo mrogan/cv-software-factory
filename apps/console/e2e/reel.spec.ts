@@ -234,7 +234,7 @@ test.describe('the line', () => {
     await page.getByRole('button', { name: /^Plan: needs you/ }).click();
     const panel = page.getByRole('dialog', { name: 'Plan' });
     await expect(panel).toBeVisible();
-    await panel.getByRole('button', { name: /Open #1300/ }).click();
+    await panel.getByRole('button', { name: /^#1300 / }).click();
     await expect(page.getByRole('dialog', { name: 'Sort products by price' })).toBeVisible();
   });
 

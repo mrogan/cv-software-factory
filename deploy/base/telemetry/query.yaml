@@ -34,7 +34,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: query
-          image: nginxinc/nginx-unprivileged:1.31.6-alpine-slim@sha256:ac4d9c7e457c6510b95ac72dd84b27f7cc68ecb9a83fbd44f05a6460cf08aba4
+          image: nginxinc/nginx-unprivileged:1.31.7-alpine-slim@sha256:b94a56c52fd315bbd8f1f4368d64c25983351c978313e02feff2c0b35e856f2d
           # nginx itself, not the image's entrypoint, whose scripts would rewrite its configuration.
           command: [nginx, -e, stderr, -c, /etc/nginx/query/nginx.conf]
           ports:
