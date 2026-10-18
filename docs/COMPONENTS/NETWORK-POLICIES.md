@@ -61,11 +61,12 @@ Everything is denied, then:
 
 - both controllers may reach DNS and the Kubernetes API;
 - the API server may call the admission webhook;
-- the admission controller alone may reach the internet, for GHCR and Sigstore's trust root ([admission control](ADMISSION-CONTROL.md)).
+- the admission controller alone may reach the internet, for GHCR and Sigstore's trust root ([admission control](ADMISSION-CONTROL.md));
+- Prometheus may scrape both controllers' metrics, on 8000 alone ([telemetry](TELEMETRY.md#the-platforms-own-metrics)).
 
 ## `argo-rollouts`
 
-The controller reaches DNS, the Kubernetes API and Prometheus, and nothing calls it.
+The controller reaches DNS, the Kubernetes API and Prometheus, and only Prometheus calls it, to scrape its metrics on 8090 ([telemetry](TELEMETRY.md#the-platforms-own-metrics)).
 
 ## `website`
 

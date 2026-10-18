@@ -4,6 +4,12 @@ mode: deployment
 image:
   repository: otel/opentelemetry-collector-k8s
 
+# Its own metrics (what it took in, refused and failed to send, by pipeline) are served on 8888 at the pod's address,
+# where the chart's settings put them, and Prometheus scrapes them there.
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8888"
+
 resources:
   requests:
     cpu: 50m

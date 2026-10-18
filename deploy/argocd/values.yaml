@@ -34,10 +34,18 @@ configs:
   rbac:
     policy.default: role:readonly
 
+# Each component below serves its own metrics on a port of its own, and asks Prometheus to scrape it there, as the
+# platform's other components do (deploy/base/telemetry/values/prometheus.yaml). Nothing in `argocd` keeps Prometheus
+# out: the chart's network policies let anything in on those ports, and the ApplicationSet controller has none. Redis
+# serves no metrics without an exporter of its own.
+#
 # Each component's requests and memory limit, from its peak working set on the local cluster in the week to 17 October,
 # so a bad sync cannot take the memory the app, telemetry and the factory need on a node they share (the DigitalOcean
 # profile's single node). The application controller holds every resource it watches in memory, and peaked at 619Mi.
 controller:
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8082"
   resources:
     requests:
       cpu: 100m
@@ -51,6 +59,9 @@ controller:
 # It renders each Application's manifests with Kustomize and Helm, in subprocesses its limit counts, and peaked at
 # 206Mi. A new cluster's first sync renders every chart at once, so it has more room than its peak alone would give.
 repoServer:
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8084"
   resources:
     requests:
       cpu: 50m
@@ -59,6 +70,9 @@ repoServer:
       memory: 1Gi
 # Peaked at 84Mi.
 applicationSet:
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
   resources:
     requests:
       cpu: 10m
@@ -76,6 +90,9 @@ redis:
 
 # Peaked at 103Mi.
 server:
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8083"
   resources:
     requests:
       cpu: 10m

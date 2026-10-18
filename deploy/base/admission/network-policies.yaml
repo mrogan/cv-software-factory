@@ -9,6 +9,8 @@
 #   inclusion in Rekor, so Kyverno checks them offline, and never asks Rekor or Fulcio.
 #
 # The reports controller only writes what the policies said, and needs nothing outside the cluster.
+#
+# Prometheus may scrape both controllers' metrics, on 8000 alone.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -81,3 +83,29 @@ spec:
             except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 0.0.0.0/8]
       ports:
         - { protocol: TCP, port: 443 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metrics
+  namespace: kyverno
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [admission-controller, reports-controller]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/component: server
+      ports:
+        - { protocol: TCP, port: 8000 }

@@ -7,6 +7,11 @@
 
 admissionController:
   replicas: 1
+  # Both controllers serve their own metrics on 8000, for Prometheus to scrape; their fence lets it in
+  # (network-policies.yaml).
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
   initContainer:
     image:
       tag: v1.19.1@sha256:c25c47461f06f2845a48c319ae86fbbc1730a7b9ed5b701889c9dc1f9ee94b09
@@ -24,6 +29,9 @@ admissionController:
         memory: 1Gi
 
 reportsController:
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
   image:
     tag: v1.19.1@sha256:c0eee97b9b44a0dd35805d56b358fa52548480f79d4944602b9609538eccd64c
   resources:

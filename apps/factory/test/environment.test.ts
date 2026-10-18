@@ -140,6 +140,14 @@ describe('Prometheus keeps what the look reads', () => {
     metric_relabel_configs?: { source_labels?: string[]; regex?: string; action?: string }[];
   }
   const values = async (file: string) => parse(await readFile(join(DEPLOY, file), 'utf-8'));
+  // Prometheus anchors a relabelling regex at both ends.
+  const drops = (config: ScrapeConfig | undefined, name: string) =>
+    (config?.metric_relabel_configs ?? []).some(
+      (rule) =>
+        rule.action === 'drop' &&
+        rule.source_labels?.join(';') === '__name__' &&
+        new RegExp(`^(?:${rule.regex})$`).test(name),
+    );
 
   it('still scrapes the kubelet’s volume stats on k3s, with the second copy of its metrics dropped', async () => {
     const local = (await values('overlays/local/values/prometheus.yaml')) as {
@@ -148,17 +156,19 @@ describe('Prometheus keeps what the look reads', () => {
     expect(local.scrapeConfigs['kubernetes-api-servers']?.enabled).toBe(false);
     const nodes = local.scrapeConfigs['kubernetes-nodes'];
     expect(nodes?.enabled).not.toBe(false);
-    // Prometheus anchors a relabelling regex at both ends.
-    const dropped = (name: string) =>
-      (nodes?.metric_relabel_configs ?? []).some(
-        (rule) =>
-          rule.action === 'drop' &&
-          rule.source_labels?.join(';') === '__name__' &&
-          new RegExp(`^(?:${rule.regex})$`).test(name),
-      );
+    const dropped = (name: string) => drops(nodes, name);
     for (const name of volumes.match(/kubelet_volume_stats_\w+/g) ?? []) expect(dropped(name)).toBe(false);
     expect(dropped('apiserver_request_duration_seconds_bucket')).toBe(true);
     expect(dropped('apiserver_request_duration_seconds_count')).toBe(false);
+  });
+
+  it('counts only OTLP’s services in target_info: the scraped pods’ own is dropped', async () => {
+    const base = (await values('base/telemetry/values/prometheus.yaml')) as {
+      scrapeConfigs: Record<string, ScrapeConfig>;
+    };
+    const pods = base.scrapeConfigs['kubernetes-pods'];
+    expect(drops(pods, 'target_info')).toBe(true);
+    expect(drops(pods, 'otelcol_receiver_accepted_metric_points_total')).toBe(false);
   });
 
   it('is given those values on the local cluster', async () => {
