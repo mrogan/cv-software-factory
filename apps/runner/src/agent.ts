@@ -10,7 +10,9 @@
  *    gateway's cassettes replay a step run again. A step that names a skill has that one skill, from the runner's
  *    own plugin (`../plugin`), and is told to use it; a step that names none has no skills at all, and asks the model
  *    exactly what it asked before skills came in, so its cassettes still replay.
- * 3. It hands back a patch of what the agent changed and the agent's last word, and its structured result when the
+ * 3. It says what the agent does as it does it, a JSON line each (`log.ts`): each turn, each tool it calls, by name
+ *    alone, and each call that failed. Never what a tool was given or gave back.
+ * 4. It hands back a patch of what the agent changed and the agent's last word, and its structured result when the
  *    step asks for one. The patch is data: the line checks it against the spec's scope, and the GitHub worker
  *    applies it outside the sandbox. The result is data too: the line reads it through the agent's schema.
  */
@@ -18,8 +20,9 @@ import { constants } from 'node:fs';
 import { access, mkdir, open, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type SDKMessage, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
 import { git } from './git.ts';
+import { type Log, runnerLog } from './log.ts';
 import {
   type Ending,
   type Handback,
@@ -135,17 +138,60 @@ function instructions(step: Step, result: string, env: NodeJS.ProcessEnv): strin
 export interface AgentOptions {
   /** False only in tests, which run without a cluster's network policy. */
   checkFence?: boolean;
+  /** Where its JSON lines go (`log.ts`). */
   log?: (line: string) => void;
+}
+
+/**
+ * Says, of each message the Agent SDK gives, what the agent is doing: a turn as it starts, each tool it calls, and each
+ * call that failed, by the tool's name. A streamed turn comes as one message a block, all with the turn's id.
+ */
+export function narrator(log: Log): (message: SDKMessage) => void {
+  let turn = 0;
+  let current: string | undefined;
+  const tools = new Map<string, string>();
+  return (message) => {
+    if (message.type === 'system' && message.subtype === 'init') {
+      log('the agent started', { model: message.model, session: message.session_id });
+    } else if (message.type === 'assistant' && message.parent_tool_use_id === null) {
+      if (message.message.id !== current) {
+        current = message.message.id;
+        log('turn', { turn: ++turn });
+      }
+      for (const block of message.message.content) {
+        if (block.type !== 'tool_use') continue;
+        tools.set(block.id, block.name);
+        log('tool call', { turn, tool: block.name });
+      }
+    } else if (message.type === 'user' && Array.isArray(message.message.content)) {
+      for (const block of message.message.content) {
+        if (block.type === 'tool_result' && block.is_error) {
+          log('a tool call failed', { level: 'warn', turn, tool: tools.get(block.tool_use_id) ?? null });
+        }
+      }
+    } else if (message.type === 'result') {
+      log('the agent ended', {
+        ...(message.subtype === 'success' ? {} : { level: 'warn' }),
+        subtype: message.subtype,
+        turns: message.num_turns,
+        durationMs: message.duration_ms,
+      });
+    }
+  };
 }
 
 export async function runAgent(
   env = process.env,
-  { checkFence = true, log = console.log }: AgentOptions = {},
+  { checkFence = true, log: write = console.log }: AgentOptions = {},
 ): Promise<Handback> {
+  const log = runnerLog(env, 'agent', write);
   const step = stepFrom(env);
   const gateway = env.ANTHROPIC_BASE_URL;
   if (!gateway || !env.ANTHROPIC_API_KEY) throw new Error('The gateway and the job token are not set.');
-  if (checkFence) await awaitFence(gateway);
+  if (checkFence) {
+    await awaitFence(gateway);
+    log('the fence is up: the gateway in reach, and the internet out of it');
+  }
   const cwd = repoDir(env);
   // What the step started from, so a commit the agent makes is still part of its patch.
   const base = (await git(cwd, 'rev-parse', 'HEAD')).trim();
@@ -160,6 +206,7 @@ export async function runAgent(
 
   let result: SDKResultMessage | undefined;
   let error: string | undefined;
+  const narrate = narrator(log);
   try {
     for await (const message of query({
       prompt: step.prompt,
@@ -188,13 +235,15 @@ export async function runAgent(
           DISABLE_ERROR_REPORTING: '1',
           DISABLE_AUTOUPDATER: '1',
         },
-        stderr: (line) => log(`agent: ${line.trimEnd()}`),
+        stderr: (line) => log('the Agent SDK said', { level: 'warn', line: line.trimEnd() }),
       },
     })) {
+      narrate(message);
       if (message.type === 'result') result = message;
     }
   } catch (thrown) {
     error = (thrown as Error)?.message ?? String(thrown);
+    log('the Agent SDK failed', { level: 'error', error });
   }
 
   if (!error && !result) error = 'The agent ended without a result.';

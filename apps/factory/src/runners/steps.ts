@@ -4,8 +4,9 @@
  *     token → volume → prepare Job → agent Job → handback (or the job failing, or its deadline) → token ended
  *
  * The job token is made before the agent pod starts and ended when the step is over, however it ends, so the gateway
- * and the handback refuse it from then on. The Jobs are deleted afterwards; the volume stays for the next step, until
- * the work item merges or is over (`finish`).
+ * and the handback refuse it from then on. The Jobs are deleted afterwards, and their pods with them, so first each
+ * pod's log is read and kept with the step (`logs.ts`). The volume stays for the next step, until the work item merges
+ * or is over (`finish`).
  *
  * The handback (`POST /v1/handback`) takes a job's result with its token, checked with Zod at the door, and hands it
  * to the step waiting for it. A job hands back once.
@@ -30,6 +31,7 @@ export type { Handback, Step };
 
 import { agentJob, jobName, NAMESPACE, prepareJob, volume } from './jobs.ts';
 import type { Kube } from './kube.ts';
+import type { StepEnding, StepLogs } from './logs.ts';
 
 /** The most a result may be, as JSON: the runner's own bound (`apps/runner/src/step.ts`), which a test holds equal. */
 export const RESULT_BYTES = 64 * 1024;
@@ -82,6 +84,8 @@ export interface RunnersOptions {
   gatewayUrl: string;
   handbackUrl: string;
   log: Logger;
+  /** Where each pod's log is kept before its Job is deleted. Without it, none is. */
+  logs?: StepLogs;
   /** How often a Job's state is read. */
   pollMs?: number;
   /** How long a handback may follow the agent pod's end: a pod hands back, then ends. */
@@ -93,6 +97,19 @@ export interface RunnersOptions {
 }
 
 const PREPARE_SECONDS = 600;
+
+/**
+ * How much of a pod's log is kept: its last lines, which say how it ended, up to a bound on the bytes that keeps a
+ * runaway log from filling the line's memory.
+ */
+const LOG_LINES = 5000;
+const LOG_BYTES = 4 * 1024 * 1024;
+
+const PODS = z.object({
+  items: z.array(
+    z.object({ metadata: z.object({ name: z.string(), labels: z.record(z.string(), z.string()).optional() }) }),
+  ),
+});
 
 const JOB = z.object({
   status: z
@@ -106,9 +123,11 @@ const JOB = z.object({
 export class Runners {
   readonly #o: RunnersOptions;
   readonly #waiting = new Map<string, (handback: Handback) => void>();
-  /** The jobs of the steps in hand, and those of them the line has stopped. */
-  readonly #running = new Set<string>();
+  /** The jobs of the steps in hand, with whose they are, and those of them the line has stopped. */
+  readonly #running = new Map<string, { workItem: string; agent: string }>();
   readonly #stopped = new Set<string>();
+  /** Each step's logs being kept, so a step stopped as it ends keeps them once. */
+  readonly #keeping = new Map<string, Promise<void>>();
 
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #now: () => number;
@@ -127,46 +146,17 @@ export class Runners {
     const jobs = `/apis/batch/v1/namespaces/${NAMESPACE}/jobs`;
     if (signal?.aborted) return { kind: 'stopped', job };
     const token = await issueJobToken(sql, { job, workItem, agent: step.agent });
-    this.#running.add(job);
+    this.#running.set(job, { workItem, agent: step.agent });
     const stop = () => void this.#stop(job);
     signal?.addEventListener('abort', stop);
+    let outcome: StepOutcome | undefined;
+    let thrown: unknown;
     try {
-      // Stopped while the token was made: nothing has started yet.
-      if (signal?.aborted) this.#stopped.add(job);
-      if (this.#stopped.has(job)) return { kind: 'stopped', job };
-      await kube.create(`/api/v1/namespaces/${NAMESPACE}/persistentvolumeclaims`, volume(workItem));
-      await kube.create(jobs, prepareJob(names, step, { image: this.#o.image, deadlineSeconds: PREPARE_SECONDS }));
-      log.info({ job, workItem, agent: step.agent }, 'preparing');
-      const prepared = await this.#finished(`${jobs}/${job}-prepare`, PREPARE_SECONDS);
-      if (this.#stopped.has(job)) return { kind: 'stopped', job };
-      if (prepared !== 'succeeded') return { kind: 'failed', job, reason: `The prepare pod ${prepared}.` };
-
-      const handedBack = new Promise<Handback>((resolve) => this.#waiting.set(job, resolve));
-      if (this.#stopped.has(job)) return { kind: 'stopped', job };
-      await kube.create(
-        jobs,
-        agentJob(names, step, {
-          image: this.#o.image,
-          deadlineSeconds,
-          gatewayUrl: this.#o.gatewayUrl,
-          handbackUrl: this.#o.handbackUrl,
-          token,
-          hosts: await this.#hosts(),
-        }),
-      );
-      log.info({ job, workItem, agent: step.agent }, 'the agent is working');
-      // The pod ending is checked after the handback could have arrived: a pod hands back, then ends.
-      const ended = this.#finished(`${jobs}/${job}-agent`, deadlineSeconds + 60).then(async (state) => {
-        await this.#sleep(this.#o.graceMs ?? 2_000);
-        return state;
-      });
-      const first = await Promise.race([
-        handedBack.then((handback) => ({ handback })),
-        ended.then((state) => ({ state })),
-      ]);
-      if (this.#stopped.has(job)) return { kind: 'stopped', job };
-      if ('handback' in first) return { kind: 'handed-back', job, handback: first.handback };
-      return { kind: 'failed', job, reason: `The agent pod ${first.state} without handing anything back.` };
+      outcome = await this.#attempt(names, step, token, deadlineSeconds, signal);
+      return outcome;
+    } catch (error) {
+      thrown = error;
+      throw error;
     } finally {
       signal?.removeEventListener('abort', stop);
       this.#waiting.delete(job);
@@ -174,6 +164,9 @@ export class Runners {
       this.#stopped.delete(job);
       // Each of these is tried whatever the others do: a token that will not end must not leave a Job running.
       await endJobToken(sql, job).catch((error: Error) => log.error({ job, err: error }, 'could not end a job token'));
+      const [ending, reason] = outcome ? endingOf(outcome) : (['errored', messageOf(thrown)] as const);
+      await this.#keepLogs(job, { workItem, agent: step.agent }, ending, reason);
+      this.#keeping.delete(job);
       for (const part of ['prepare', 'agent']) {
         await kube
           .remove(`${jobs}/${job}-${part}`)
@@ -182,18 +175,107 @@ export class Runners {
     }
   }
 
+  /** One attempt at a step, from its prepare Job to its handback, or to the first sign it will not come. */
+  async #attempt(
+    names: { job: string; workItem: string },
+    step: Step,
+    token: string,
+    deadlineSeconds: number,
+    signal: AbortSignal | undefined,
+  ): Promise<StepOutcome> {
+    const { kube, log } = this.#o;
+    const { job, workItem } = names;
+    const jobs = `/apis/batch/v1/namespaces/${NAMESPACE}/jobs`;
+    // Stopped while the token was made: nothing has started yet.
+    if (signal?.aborted) this.#stopped.add(job);
+    if (this.#stopped.has(job)) return { kind: 'stopped', job };
+    await kube.create(`/api/v1/namespaces/${NAMESPACE}/persistentvolumeclaims`, volume(workItem));
+    await kube.create(jobs, prepareJob(names, step, { image: this.#o.image, deadlineSeconds: PREPARE_SECONDS }));
+    log.info({ job, workItem, agent: step.agent }, 'preparing');
+    const prepared = await this.#finished(`${jobs}/${job}-prepare`, PREPARE_SECONDS);
+    if (this.#stopped.has(job)) return { kind: 'stopped', job };
+    if (prepared !== 'succeeded') return { kind: 'failed', job, reason: `The prepare pod ${prepared}.` };
+
+    const handedBack = new Promise<Handback>((resolve) => this.#waiting.set(job, resolve));
+    if (this.#stopped.has(job)) return { kind: 'stopped', job };
+    await kube.create(
+      jobs,
+      agentJob(names, step, {
+        image: this.#o.image,
+        deadlineSeconds,
+        gatewayUrl: this.#o.gatewayUrl,
+        handbackUrl: this.#o.handbackUrl,
+        token,
+        hosts: await this.#hosts(),
+      }),
+    );
+    log.info({ job, workItem, agent: step.agent }, 'the agent is working');
+    // The pod ending is checked after the handback could have arrived: a pod hands back, then ends.
+    const ended = this.#finished(`${jobs}/${job}-agent`, deadlineSeconds + 60).then(async (state) => {
+      await this.#sleep(this.#o.graceMs ?? 2_000);
+      return state;
+    });
+    const first = await Promise.race([
+      handedBack.then((handback) => ({ handback })),
+      ended.then((state) => ({ state })),
+    ]);
+    if (this.#stopped.has(job)) return { kind: 'stopped', job };
+    if ('handback' in first) return { kind: 'handed-back', job, handback: first.handback };
+    return { kind: 'failed', job, reason: `The agent pod ${first.state} without handing anything back.` };
+  }
+
+  /**
+   * Reads the log of each of a step's pods and keeps it (`logs.ts`), before its Jobs are deleted. Once for each step,
+   * however many ask; a log that cannot be read or kept is warned of, and never stops the step's Jobs being deleted.
+   */
+  #keepLogs(job: string, whose: { workItem: string; agent: string }, ending: StepEnding, reason: string | null) {
+    const { logs } = this.#o;
+    if (!logs) return Promise.resolve();
+    const kept = this.#keeping.get(job);
+    if (kept) return kept;
+    const keeping = (async () => {
+      const { kube, log } = this.#o;
+      const pods = `/api/v1/namespaces/${NAMESPACE}/pods`;
+      try {
+        const selector = encodeURIComponent(`factory.mrogan.dev/job=${job}`);
+        const found = await kube.get(`${pods}?labelSelector=${selector}`, PODS);
+        for (const pod of found?.items ?? []) {
+          const { name, labels } = pod.metadata;
+          const part = labels?.['factory.mrogan.dev/runner'];
+          if (part !== 'prepare' && part !== 'agent') continue;
+          try {
+            const text = await kube.text(
+              `${pods}/${encodeURIComponent(name)}/log?tailLines=${LOG_LINES}&limitBytes=${LOG_BYTES}`,
+            );
+            if (text === undefined) continue;
+            await logs.keep({ job, ...whose, part, pod: name, ending, reason }, text);
+          } catch (error) {
+            // A pod that never started has no log to read.
+            log.warn({ job, pod: name, err: error }, 'could not keep a pod’s log');
+          }
+        }
+      } catch (error) {
+        log.warn({ job, err: error }, 'could not find a step’s pods to keep their logs');
+      }
+    })();
+    this.#keeping.set(job, keeping);
+    return keeping;
+  }
+
   /**
    * The line has stopped: deletes the Jobs of every step in hand, so no agent works on. Each of those steps ends
    * `stopped` within a poll, and ends its token as any step does.
    */
   async cancel(): Promise<void> {
-    for (const job of this.#running) await this.#stop(job);
+    for (const job of this.#running.keys()) await this.#stop(job);
   }
 
   /** Stops one step in hand: its Jobs go, and it ends `stopped`. */
   async #stop(job: string): Promise<void> {
-    if (!this.#running.has(job) || this.#stopped.has(job)) return;
+    const whose = this.#running.get(job);
+    if (!whose || this.#stopped.has(job)) return;
     this.#stopped.add(job);
+    await this.#keepLogs(job, whose, 'stopped', null);
     const jobs = `/apis/batch/v1/namespaces/${NAMESPACE}/jobs`;
     for (const part of ['prepare', 'agent']) {
       await this.#o.kube
@@ -274,6 +356,14 @@ export class Runners {
     };
   }
 }
+
+/** How a step ended, as its logs are kept with it, and why when it failed. */
+function endingOf(outcome: StepOutcome): [StepEnding, string | null] {
+  if (outcome.kind === 'failed') return ['failed', outcome.reason];
+  return [outcome.kind, null];
+}
+
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 4000);
 
 const MAX_BODY = 2 * 1024 * 1024;
 

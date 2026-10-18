@@ -1,12 +1,17 @@
+import { mkdtempSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { issueJobToken, jobForToken } from '@software-factory/store';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { text } from 'node:stream/consumers';
+import { DiskArtifacts, issueJobToken, jobForToken } from '@software-factory/store';
 import pino, { type Logger } from 'pino';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../packages/store/test/database.ts';
 import { type Handback, RESULT_BYTES as RUNNER_RESULT_BYTES, type Step } from '../../runner/src/step.ts';
 import { agentJob, prepareJob } from '../src/runners/jobs.ts';
 import type { Kube } from '../src/runners/kube.ts';
+import { StepLogs } from '../src/runners/logs.ts';
 import { fence, ownedPaths } from '../src/runners/scope.ts';
 import { RESULT_BYTES, Runners } from '../src/runners/steps.ts';
 import { quiet } from './github/fake.ts';
@@ -133,27 +138,57 @@ describe('a runner’s jobs', () => {
   });
 });
 
-/** The Kubernetes API, as far as the line uses it: Jobs that end as each test says, and a record of every call. */
+/** What each pod prints, by its part, or `refused` for a log the API will not give, as for a pod that never started. */
+type PodLogs = Partial<Record<'prepare' | 'agent', string>>;
+
+/**
+ * The Kubernetes API, as far as the line uses it: Jobs that end as each test says, each with a pod that prints what
+ * the test says, which goes with its Job, and a record of every call.
+ */
 function fakeKube(
   agent: (env: Record<string, string>) => void | Promise<void>,
   prepare: 'succeeded' | 'failed' = 'succeeded',
+  logs: PodLogs = {},
 ) {
   const calls: string[] = [];
   const jobs = new Map<string, { status: Record<string, unknown> }>();
+  const pods = new Map<string, { job: string; labels: Record<string, string>; log: string | undefined }>();
   const kube: Kube = {
     async get<T>(path: string) {
       calls.push(`GET ${path}`);
+      const selector = /\/pods\?labelSelector=(.+)$/.exec(path)?.[1];
+      if (selector) {
+        const [key, value] = decodeURIComponent(selector).split('=');
+        const items = [...pods].filter(([, pod]) => pod.labels[key ?? ''] === value);
+        return { items: items.map(([name, pod]) => ({ metadata: { name, labels: pod.labels } })) } as T;
+      }
       return jobs.get(path.split('/').at(-1) ?? '') as T | undefined;
+    },
+    async text(path: string) {
+      calls.push(`GET ${path}`);
+      const name = /\/pods\/([^/]+)\/log\?/.exec(path)?.[1] ?? '';
+      const pod = pods.get(name);
+      if (!pod) return undefined;
+      if (pod.log === 'refused') throw new Error('container "agent" in pod is waiting to start');
+      return pod.log ?? '';
     },
     async create(path: string, body: unknown) {
       const manifest = body as {
         kind: string;
         metadata: { name: string };
-        spec: { template?: { spec: { containers: { env: { name: string; value: string }[] }[] } } };
+        spec: {
+          template?: {
+            metadata: { labels: Record<string, string> };
+            spec: { containers: { env: { name: string; value: string }[] }[] };
+          };
+        };
       };
       calls.push(`POST ${path} ${manifest.kind} ${manifest.metadata.name}`);
       if (manifest.kind !== 'Job') return;
       const name = manifest.metadata.name;
+      const labels = manifest.spec.template?.metadata.labels ?? {};
+      const part = labels['factory.mrogan.dev/runner'] as 'prepare' | 'agent';
+      pods.set(`${name}-x7k2p`, { job: name, labels, log: logs[part] });
       if (name.endsWith('-prepare')) {
         jobs.set(name, {
           status: prepare === 'succeeded' ? { succeeded: 1 } : { conditions: [{ type: 'Failed', status: 'True' }] },
@@ -172,7 +207,10 @@ function fakeKube(
     },
     async remove(path: string) {
       calls.push(`DELETE ${path}`);
-      jobs.delete(path.split('/').at(-1) ?? '');
+      const name = path.split('/').at(-1) ?? '';
+      jobs.delete(name);
+      // A Job's pods go with it.
+      for (const [pod, { job }] of pods) if (job === name) pods.delete(pod);
     },
   };
   return { kube, calls };
@@ -184,8 +222,13 @@ beforeAll(async () => {
 });
 afterAll(() => database?.end());
 
-async function line(agent: Parameters<typeof fakeKube>[0], prepare?: 'succeeded' | 'failed', log: Logger = quiet) {
-  const { kube, calls } = fakeKube(agent, prepare);
+async function line(
+  agent: Parameters<typeof fakeKube>[0],
+  prepare?: 'succeeded' | 'failed',
+  log: Logger = quiet,
+  { podLogs, logs }: { podLogs?: PodLogs; logs?: StepLogs } = {},
+) {
+  const { kube, calls } = fakeKube(agent, prepare, podLogs);
   let handbackUrl = '';
   const runners = new Runners({
     sql: database.writer,
@@ -194,6 +237,7 @@ async function line(agent: Parameters<typeof fakeKube>[0], prepare?: 'succeeded'
     gatewayUrl: 'http://gateway',
     handbackUrl: 'http://line/v1/handback',
     log,
+    ...(logs ? { logs } : {}),
     pollMs: 10,
     graceMs: 10,
     lookup: async () => '10.43.0.9',
@@ -365,6 +409,89 @@ describe('a step’s attempts and results', () => {
     await close();
     expect(outcome).toEqual({ kind: 'stopped', job: 'coder-1010-1-1' });
     expect(calls).toContain('DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1010-1-1-agent');
+  });
+});
+
+describe('a step’s logs', () => {
+  const kept = () => new StepLogs(database.writer, new DiskArtifacts(mkdtempSync(join(tmpdir(), 'step-logs-'))));
+  const PREPARED = '{"msg":"installed the dependencies"}\n';
+  const WORKED = '{"msg":"tool call","turn":1,"tool":"Read"}\n';
+  const read = async (logs: StepLogs, workItem: string) =>
+    Promise.all(
+      (await logs.of(workItem)).map(async ({ job, part, ending, reason, hash, size }) => {
+        const stream = await logs.open(hash);
+        return { job, part, ending, reason, size, text: stream ? await text(stream) : null };
+      }),
+    );
+
+  it('keeps both pods’ logs with a step that handed back, before its jobs are deleted', async () => {
+    const logs = kept();
+    const { runners, calls, handbackUrl, close } = await line(
+      (env) => handBack(handbackUrl, env.ANTHROPIC_API_KEY ?? '', DONE).then(() => {}),
+      undefined,
+      quiet,
+      { logs, podLogs: { prepare: PREPARED, agent: WORKED } },
+    );
+    await runners.run({ ...STEP, workItem: '1020', round: 1, deadlineSeconds: 60 });
+    await close();
+    expect(await read(logs, '1020')).toEqual([
+      { job: 'coder-1020-1-1', part: 'prepare', ending: 'handed-back', reason: null, size: 37, text: PREPARED },
+      { job: 'coder-1020-1-1', part: 'agent', ending: 'handed-back', reason: null, size: 43, text: WORKED },
+    ]);
+    const pods = calls.findIndex((c) => c.includes('/pods?labelSelector=factory.mrogan.dev%2Fjob%3Dcoder-1020-1-1'));
+    const deleted = calls.findIndex((c) => c.startsWith('DELETE') && c.includes('-prepare'));
+    expect(pods).toBeGreaterThan(-1);
+    expect(pods).toBeLessThan(deleted);
+    expect(calls).toContain(
+      'GET /api/v1/namespaces/runners/pods/coder-1020-1-1-agent-x7k2p/log?tailLines=5000&limitBytes=4194304',
+    );
+  });
+
+  it('keeps the prepare pod’s log when it fails, with the reason, and there is no agent pod to keep', async () => {
+    const logs = kept();
+    const failed = '{"level":"error","msg":"the prepare step failed","error":"Command failed: git fetch"}\n';
+    const { runners, close } = await line(() => {}, 'failed', quiet, { logs, podLogs: { prepare: failed } });
+    await runners.run({ ...STEP, workItem: '1021', round: 1, deadlineSeconds: 60 });
+    await close();
+    expect(await read(logs, '1021')).toEqual([
+      expect.objectContaining({ part: 'prepare', ending: 'failed', reason: 'The prepare pod failed.', text: failed }),
+    ]);
+  });
+
+  it('keeps the logs of a step the line stopped, before its jobs go', async () => {
+    const logs = kept();
+    let token = '';
+    const { runners, close } = await line(
+      (env) => {
+        token = env.ANTHROPIC_API_KEY ?? '';
+        return new Promise<void>(() => {});
+      },
+      undefined,
+      quiet,
+      { logs, podLogs: { prepare: PREPARED, agent: WORKED } },
+    );
+    const running = runners.run({ ...STEP, workItem: '1022', round: 1, deadlineSeconds: 60 });
+    while (!token) await new Promise((resolve) => setTimeout(resolve, 5));
+    await runners.cancel();
+    expect(await running).toEqual({ kind: 'stopped', job: 'coder-1022-1-1' });
+    await close();
+    expect((await read(logs, '1022')).map(({ part, ending, text }) => ({ part, ending, text }))).toEqual([
+      { part: 'prepare', ending: 'stopped', text: PREPARED },
+      { part: 'agent', ending: 'stopped', text: WORKED },
+    ]);
+  });
+
+  it('still deletes the jobs when a log cannot be read, and keeps the others', async () => {
+    const logs = kept();
+    const { runners, calls, close } = await line(() => {}, undefined, quiet, {
+      logs,
+      podLogs: { prepare: PREPARED, agent: 'refused' },
+    });
+    const outcome = await runners.run({ ...STEP, workItem: '1023', round: 1, deadlineSeconds: 60 });
+    await close();
+    expect(outcome).toMatchObject({ kind: 'failed' });
+    expect((await read(logs, '1023')).map(({ part }) => part)).toEqual(['prepare']);
+    expect(calls).toContain('DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1023-1-1-agent');
   });
 });
 

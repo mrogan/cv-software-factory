@@ -29,6 +29,7 @@ import { lutimes, mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { git, gitInput, gitWith } from './git.ts';
+import { runnerLog } from './log.ts';
 import { repoDir, stepFrom } from './step.ts';
 
 const exec = promisify(execFile);
@@ -38,7 +39,9 @@ const SEED_DATE = '2026-01-01T00:00:00Z';
 /** The seed's commit message, which the agent sees among the latest commits: it says nothing of what the seed is. */
 export const SEED_MESSAGE = 'chore: the starting point';
 
-export async function prepare(env = process.env, log = (line: string) => console.log(line)): Promise<void> {
+/** Prepares the checkout, printing a JSON line as each part is done (`log.ts`) to `write`. */
+export async function prepare(env = process.env, write = (line: string) => console.log(line)): Promise<void> {
+  const log = runnerLog(env, 'prepare', write);
   const step = stepFrom(env);
   const dir = repoDir(env);
   // Only `rm`, which reads nothing it deletes, touches what the agent left.
@@ -47,15 +50,15 @@ export async function prepare(env = process.env, log = (line: string) => console
   await git(dir, 'init', '--quiet');
   await git(dir, 'fetch', '--quiet', '--depth=1', step.repository, step.commit);
   await git(dir, 'checkout', '--quiet', '--detach', step.commit);
-  log(`checked out ${step.commit.slice(0, 7)} from ${step.repository}`);
+  log('checked out the commit', { commit: step.commit, repository: step.repository });
   if (step.base) {
     await fetchBase(dir, step.repository, step.commit, step.base);
-    log(`named its base, ${step.base.slice(0, 7)}, with the commits since`);
+    log('named its base, with the commits since', { base: step.base });
   }
   for (const { message, patch } of step.commits ?? []) {
     await commitPatch(dir, patch, { message, author: 'dry-run' });
   }
-  if (step.commits?.length) log(`made the dry run's ${step.commits.length} commits on it`);
+  if (step.commits?.length) log("made the dry run's commits on it", { commits: step.commits.length });
   if (step.seed) {
     await commitPatch(dir, step.seed, { message: SEED_MESSAGE, author: 'runner' });
     log('applied the seed, and committed it as the base');

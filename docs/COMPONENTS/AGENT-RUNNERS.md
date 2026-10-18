@@ -29,6 +29,7 @@ sequenceDiagram
 - **On a volume** that lives until the work item merges or ends. `DELETE /v1/work-items/<id>` on the line ends it.
 - **Fenced:** the restricted Pod Security Standard, no service account token, a read-only root and a deadline.
 - **One image:** both run `factory-runner` (`apps/runner`: Node, git, pnpm through corepack, the Agent SDK).
+- **Logged** as JSON lines, each naming the job, the work item and the pod (`apps/runner/src/log.ts`). A step that fails says why in its last line.
 
 ### The prepare pod
 
@@ -43,7 +44,7 @@ sequenceDiagram
 `runner agent` reaches only the gateway and the line's handback, and has no DNS: the line writes their addresses into its hosts. It:
 
 1. checks its own fence;
-2. runs the agent on the Agent SDK (Claude Code), with:
+2. runs the agent on the Agent SDK (Claude Code), logging each turn, each tool call by the tool's name, and each call that failed (never a tool's input or output), with:
    - the step's turn limit;
    - no settings from the checkout;
    - a system prompt that is the same on every run;
@@ -61,11 +62,21 @@ sequenceDiagram
 
 The line (`factory line serve`):
 
-- starts the Jobs with a service account that may create Jobs and volumes in `runners`, and nothing else;
+- starts the Jobs with a service account that may create Jobs and volumes in `runners`, list their pods and read their logs, and nothing else;
+- keeps each pod's log with the step, however it ended, before it deletes the step's Jobs, since their pods go with them (below);
 - takes handbacks at `POST /v1/handback`, checked with Zod, each token once;
 - fences each patch to the spec's scope (`runners/scope.ts`), and never lets one change `.github/`, `deploy/` or a path the app's CODEOWNERS gives a person at the step's commit, which the line reads through the GitHub worker.
 
 The [GitHub worker](GITHUB-WORKER.md) applies an accepted patch, outside the sandbox (`github/patches.ts`).
+
+### A step's logs
+
+The line deletes a step's Jobs as the step ends, so it reads their pods' logs first (`runners/logs.ts`):
+
+- **What:** each pod's last 5,000 lines, up to 4 MiB, from the Kubernetes API.
+- **Where:** the text goes in the artifact store, and its index in Postgres (`step_logs`): the job, the work item, the agent, the pod, and how the step ended (handed back, failed with its reason, stopped with the line, or errored in the line).
+- **When:** however the step ended, and before the line stops a step's agent. A log that cannot be read, such as a pod that never started, is warned of, and the Jobs are deleted all the same.
+- **Who sees them:** no event names a log, so the console serves none. `factory line logs <work item>` prints a work item's, in the line's pod, which mounts the store.
 
 ## Trying a runner
 

@@ -1,5 +1,6 @@
-# The line may start runners: create, read and delete Jobs, and the volume each work item's Jobs share. Nothing else
-# here, and elsewhere only reading the app's Rollout and its runs and listing its pods
+# The line may start runners: create, read and delete Jobs, and the volume each work item's Jobs share, and list their
+# pods and read their logs, which it keeps with the step before it deletes its Jobs (apps/factory/src/runners/logs.ts).
+# Nothing else here, and elsewhere only reading the app's Rollout and its runs and listing its pods
 # (deploy/base/analysis/line-reads-release.yaml): it cannot read a Secret or exec into a pod. A Job it makes can run any
 # command, but only here, under the restricted standard the namespace enforces, within its quota (quota.yaml), and
 # fenced by its labels. Admission limits its images to the factory's own, signed, and the few others `factory-images`
@@ -16,6 +17,12 @@ rules:
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
     verbs: [create, get, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

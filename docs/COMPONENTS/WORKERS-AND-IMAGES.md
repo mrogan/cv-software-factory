@@ -10,7 +10,7 @@ What each may write:
 | Store | Workers |
 |---|---|
 | The [event store](EVENT-STORE.md), as the factory's writer | The gateway, triage, the intake, the log watcher, the line, the probes and the crawler |
-| The artifacts volume, which the console mounts read-only | Triage, the probes, the crawler, and the GitHub worker for its dry runs |
+| The artifacts volume, which the console mounts read-only | Triage, the probes, the crawler, the GitHub worker for its dry runs, and the line for its runners' logs |
 | The gateway's cassettes volume | The gateway alone |
 
 The traffic generator writes to neither, and sends only its telemetry. The GitHub worker touches no store.

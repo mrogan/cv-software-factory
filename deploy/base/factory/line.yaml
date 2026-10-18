@@ -7,7 +7,10 @@
 # It starts each step's Jobs in `runners` (apps/factory/src/runners), with its own service account, which may do that
 # (deploy/base/runners/line-access.yaml) and read the app's Rollout and its AnalysisRuns, and list its pods, in
 # `website` (deploy/base/analysis/line-reads-release.yaml), and nothing else, and takes the agent pods' handbacks on
-# :8081. Its step API on :8080 is reached only through a person's port-forward.
+# :8081. Its step API on :8080 is reached only through a person's port-forward. Before it deletes a step's Jobs, it
+# keeps each pod's log in the artifact store, which it mounts with the other workers that write there.
+#
+#   kubectl -n factory exec deploy/line -- /nodejs/bin/node src/cli.ts line logs <work item>
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -129,6 +132,9 @@ spec:
               value: http://query.telemetry:3100
             - name: TEMPO_URL
               value: http://query.telemetry:3200
+            # Where each runner pod's log is kept, as the step ends.
+            - name: ARTIFACTS_DIR
+              value: /var/lib/factory/artifacts
           # The handback's port: the step API listens on loopback only, so the kubelet cannot reach it.
           readinessProbe:
             httpGet:
@@ -146,3 +152,10 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+          volumeMounts:
+            - name: artifacts
+              mountPath: /var/lib/factory/artifacts
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: artifacts

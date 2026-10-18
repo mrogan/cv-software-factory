@@ -6,6 +6,7 @@
  *     factory line serve
  *     factory line bench [<agent> [<fixture>]] [--commit <sha>]
  *     factory line soak-check [--since <time>] [--no-spend] [--json]
+ *     factory line logs <work item>
  *
  * `serve` runs the line's server (`runners/serve.ts`): the handback for runners' agent pods, and the steps it runs in
  * the `runners` namespace. With LINE_MODE set to `live` or `dry-run`, it also runs the line itself (`line/worker.ts`):
@@ -35,9 +36,13 @@
  * TEMPO_URL, a missing log is judged on the metrics and the log alone, and wrong metrics wait. A dry run's release is
  * verified by the dry run's word.
  *
+ * Before it deletes a step's Jobs, however the step ended, the line keeps each pod's log in the artifact store at
+ * ARTIFACTS_DIR (`runners/logs.ts`); unset, it keeps none. `logs` prints a work item's, step by step, from the same
+ * store, so it runs where the store is: in the line's pod.
+ *
  * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
- * HANDBACK_PORT (8081); KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; LINE_TAKE;
+ * HANDBACK_PORT (8081); ARTIFACTS_DIR; KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; LINE_TAKE;
  * RELEASE_ROLLOUT, PROMETHEUS_URL and LINE_DRY_RUN_RELEASE_SECONDS; PROBES_URL, LOKI_URL and TEMPO_URL;
  * FACTORY_PROFILE (default local) and ALL_LOCAL, as the gateway's: the profile's cap on a work item's spend, which the
  * line holds at, and where `policy/models.ts` sends each agent's calls, so a step on a local model is given longer to
@@ -69,11 +74,13 @@ export const USAGE = `  factory line stop [--reason <why>]
   factory line start [--autonomy supervised|guarded|lights-out]
   factory line serve
   factory line bench [<agent> [<fixture>]] [--commit <sha>]
-  factory line soak-check [--since <time>] [--no-spend] [--json]`;
+  factory line soak-check [--since <time>] [--no-spend] [--json]
+  factory line logs <work item>`;
 
 export async function run(args: string[]): Promise<number> {
   if (args[0] === 'bench') return bench(args.slice(1));
   if (args[0] === 'soak-check') return soakCheck(args.slice(1));
+  if (args[0] === 'logs') return logs(args.slice(1));
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
@@ -196,6 +203,9 @@ async function serve(): Promise<number> {
   const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
   const env = process.env;
   const kube = kubeFrom(env);
+  const { StepLogs } = await import('../runners/logs.ts');
+  const artifactsDir = env.ARTIFACTS_DIR?.trim();
+  if (!artifactsDir) log.warn('ARTIFACTS_DIR is unset: no step’s pod logs are kept');
   const runners = new Runners({
     sql,
     kube,
@@ -203,6 +213,7 @@ async function serve(): Promise<number> {
     gatewayUrl: env.RUNNER_GATEWAY_URL ?? 'http://gateway.factory.svc:8080',
     handbackUrl: env.RUNNER_HANDBACK_URL ?? 'http://line.factory.svc:8081/v1/handback',
     log,
+    ...(artifactsDir ? { logs: new StepLogs(sql, new DiskArtifacts(artifactsDir)) } : {}),
   });
   // The smoke run asks for a dry run; the steps Part B runs will say what they want.
   const github = new GitHubWorker(env.GITHUB_WORKER_URL ?? 'http://github:8080', { dryRun: true });
@@ -260,6 +271,38 @@ async function serve(): Promise<number> {
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
   await Promise.all([sql.end(), shutdownTelemetry()]);
   return 0;
+}
+
+/** Prints what each of a work item's runner pods printed, step by step, as the line kept it. */
+async function logs(args: string[]): Promise<number> {
+  const [workItem] = args;
+  const { ARTIFACTS_DIR, DATABASE_URL } = process.env;
+  if (!workItem || args.length !== 1 || !ARTIFACTS_DIR) {
+    console.log(
+      `Usage:\n  factory line logs <work item>\n\nSet ARTIFACTS_DIR to the artifact store the line keeps them in.`,
+    );
+    return 2;
+  }
+  const { StepLogs } = await import('../runners/logs.ts');
+  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  try {
+    const kept = new StepLogs(sql, new DiskArtifacts(ARTIFACTS_DIR));
+    const found = await kept.of(workItem);
+    if (!found.length) console.log(`No runner's log is kept for ${workItem}.`);
+    for (const each of found) {
+      const ended = each.reason ? `${each.ending}: ${each.reason}` : each.ending;
+      console.log(`== ${each.job} ${each.part} (${each.pod}), ${ended}, ${each.keptAt.toISOString()}`);
+      const stream = await kept.open(each.hash);
+      if (!stream) {
+        console.log(`(the artifact store has no ${each.hash})`);
+        continue;
+      }
+      for await (const chunk of stream) process.stdout.write(chunk as Buffer);
+    }
+    return 0;
+  } finally {
+    await sql.end();
+  }
 }
 
 async function bench(args: string[]): Promise<number> {
