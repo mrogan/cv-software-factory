@@ -13,6 +13,9 @@
  *   recorded as it is begun and done, so none is done twice. After `LIMITS.effects` tries the work item holds.
  * - At most one step at a time in each of Plan, Build and Review, and a ticket comes onto the line only when nothing
  *   is in Plan or waiting for Build (`queue.ts`). Each work item is leased while it is acted on.
+ * - At most one step at a time on the local model, whatever its stage: LM Studio answers one prediction at a time, so
+ *   two steps on it would each take about twice as long. A step whose agent `policy/models.ts` sends there waits
+ *   while another such step runs, and the work item longest on the line goes first. Steps on Claude never wait on it.
  * - It reads its pull requests' gates and merges through the GitHub worker about once a minute (`gates.ts`).
  * - About as often, it tells the app's deploy pull request which work items it carries: those whose fixes merged
  *   between the commit the app runs and the one the pull request runs, as a release starting records them. It says
@@ -225,10 +228,13 @@ export class Line {
   readonly #o: Required<Omit<LineOptions, 'me'>>;
   readonly #queue: Queue;
   readonly #releases: Releases;
-  /** The steps in hand, by work item, with the stage each holds. */
+  /**
+   * The steps in hand, by work item, with the stage each holds, and whether it is an agent's step on the local model
+   * (not a kept handback's effects, which call no model).
+   */
   readonly #inFlight = new Map<
     string,
-    { stage: 'plan' | 'build' | 'review' | 'verify' | 'recheck'; done: Promise<void> }
+    { stage: 'plan' | 'build' | 'review' | 'verify' | 'recheck'; local?: boolean; done: Promise<void> }
   >();
   /** When each work item whose last look, at Verify or again, could not tell may be looked at again. */
   readonly #lookAgainAt = new Map<string, number>();
@@ -580,6 +586,12 @@ export class Line {
       if (next.do === 'step') {
         // One step at a time in each of Plan, Build and Review.
         if ([...this.#inFlight.values()].some((s) => s.stage === STAGE_OF[next.agent])) return;
+        // And one at a time on the local model, which answers one prediction at a time. A kept handback calls no model.
+        const local = !kept && this.#o.providerOf(next.agent) === 'local';
+        if (local && [...this.#inFlight.values()].some((s) => s.local)) {
+          this.#o.log.debug({ workItem: item.workItem, agent: next.agent }, 'a step waits for the local model');
+          return;
+        }
         if (kept && pending?.retryAt && Date.parse(pending.retryAt) > this.#o.now().getTime()) return;
         // Behind a cap the gateway refuses every call, so a step would only fail: it waits for the cap to clear.
         if (!kept) {
@@ -603,7 +615,7 @@ export class Line {
         )
           .catch((error: unknown) => this.#o.log.error({ workItem, err: error }, 'a step could not be recorded'))
           .finally(() => this.#inFlight.delete(workItem));
-        this.#inFlight.set(workItem, { stage: STAGE_OF[next.agent], done });
+        this.#inFlight.set(workItem, { stage: STAGE_OF[next.agent], local, done });
         return;
       }
       const claimed = await this.#queue.claim(item.workItem, ACTION_LEASE_SECONDS);
