@@ -393,15 +393,20 @@ export class Line {
       if (claimed.issue && claimed.issue < DRY_RUN_NUMBERS_FROM) {
         // An issue that is gone, or that the App may not change, has nothing to close.
         await this.#o.github
-          .act('closeIssue', this.#o.repo, {
-            number: claimed.issue,
-            reason: 'not_planned',
-            comment: [
-              `${reason}.`,
-              '',
-              `The factory’s work item #${workItem} is closed with no change: the next signal of this defect opens a fresh ticket.`,
-            ].join('\n'),
-          })
+          .act(
+            'closeIssue',
+            this.#o.repo,
+            {
+              number: claimed.issue,
+              reason: 'not_planned',
+              comment: [
+                `${reason}.`,
+                '',
+                `The factory’s work item #${workItem} is closed with no change: the next signal of this defect opens a fresh ticket.`,
+              ].join('\n'),
+            },
+            { workItem },
+          )
           .catch((error) => {
             if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
             this.#o.log.warn({ workItem, issue: claimed.issue, err: error }, 'the issue cannot be closed');

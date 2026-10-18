@@ -1227,6 +1227,8 @@ describe('Verify on the line', () => {
           },
         },
       ]);
+      // The close names its work item, as the line's other issue actions do.
+      expect(github.actingFor.filter((_, i) => github.acts[i]?.action === 'closeIssue')).toEqual([{ workItem: open }]);
       await pass(it);
       const stages = await Promise.all([atRelease, atVerify, open, taken].map(stage));
       expect(stages).toEqual(['ended', 'ended', 'ended', 'ended']);
