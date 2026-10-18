@@ -6,8 +6,10 @@
  */
 import type { PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
+import { attempts } from '../../web/src/projection/fixing.ts';
 import { project, projectSheet } from '../../web/src/projection/index.ts';
-import { END, MERGE_WAITING, SAMPLES, work } from './support.ts';
+import { foldItem } from '../../web/src/projection/items.ts';
+import { END, MERGE_WAITING, payloads, SAMPLES, work } from './support.ts';
 
 const view = project(SAMPLES, END);
 const card = (number: string) => view.cards.find((c) => c.number === number);
@@ -126,6 +128,41 @@ describe('a merged fix', () => {
     expect(project(held, work('1').at(6)).cards[0]?.description).toBe(
       'Waiting for Martin to judge whether the fix cleared it',
     );
+  });
+});
+
+describe('a fix whose branch was brought up to date while it waited for the merge', () => {
+  const updated = 'd'.repeat(40);
+  const story = work('1')
+    .open()
+    .add(0, 'pull-request.pushed', 'coder', {
+      number: 7,
+      title: 'fix(products): load them all',
+      branch: 'factory/1-products',
+      attempt: 1,
+      testsFirst: true,
+      files: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+      whole: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+    })
+    .add(1, 'gates.started', 'actions', payloads.gatesStarted)
+    .add(3, 'gates.finished', 'actions', payloads.gatesPassed)
+    .add(4, 'review.submitted', 'reviewer', { pullRequest: 7, verdict: 'approved', note: 'Fine', findings: [] })
+    .add(5, 'hold.started', 'factory', { stage: 'review', kind: 'approval', cause: 'merge', reason: 'Waits' })
+    .add(6, 'gates.started', 'actions', { ...payloads.gatesStarted, commit: updated })
+    .add(9, 'gates.finished', 'actions', { ...payloads.gatesPassed, commit: updated })
+    .add(10, 'pull-request.merged', 'martin', { number: 7, commit: 'c'.repeat(40), by: 'martin' });
+
+  it('waits at Review while its gates run again, as the line does, and leaves Review for Release', () => {
+    expect(foldItem(story.events.slice(0, 7))?.stage).toBe('review');
+    const merged = foldItem(story.events);
+    expect(merged?.stage).toBe('release');
+    expect(merged?.visits.gates?.leftAt).toBe(story.at(4));
+    expect(merged?.visits.review?.leftAt).toBe(story.at(10));
+  });
+
+  it('shows its round on the newer commit, with the gates that passed there', () => {
+    const item = foldItem(story.events);
+    expect(item && attempts(item)).toMatchObject([{ attempt: 1, commit: updated, gates: { state: 'passed' } }]);
   });
 });
 

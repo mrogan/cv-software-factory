@@ -115,6 +115,26 @@ describe('the gates, as events', () => {
     expect(gateEvents(pr({ state: 'closed', merged: true, mergeCommit: MERGED }), [], [], merged)).toEqual([]);
   });
 
+  it('record, with a merge, what the gates on the merged commit did since the last read, before it', () => {
+    const record = gateRecord([
+      { type: 'gates.started', payload: { commit: SHA } },
+      { type: 'gate.finished', payload: { commit: SHA, check: 'test' } },
+    ]);
+    const merged = pr({ state: 'closed', merged: true, mergeCommit: MERGED, mergedBy: 'mrogan' });
+    const runs = [run(1, 'test', 'success'), run(2, 'journeys', 'success')];
+    const drafts = gateEvents(merged, runs, ['test', 'journeys'], record);
+    expect(drafts.map((d) => d.type)).toEqual(['gate.finished', 'gates.finished', 'pull-request.merged']);
+    expect(drafts[0]?.payload).toMatchObject({ commit: SHA, check: 'journeys' });
+    expect(drafts[1]?.payload).toMatchObject({ commit: SHA, conclusion: 'passed', passed: 2 });
+    // Recorded, the merge ends what the pull request has to say.
+    const after = gateRecord([
+      ...drafts.map((d) => ({ type: d.type, payload: d.payload })),
+      { type: 'gates.started', payload: { commit: SHA } },
+      { type: 'gate.finished', payload: { commit: SHA, check: 'test' } },
+    ]);
+    expect(gateEvents(merged, runs, ['test', 'journeys'], after)).toEqual([]);
+  });
+
   it('close a work item whose pull request closed unmerged as verified while a cleared look stands on its hold', () => {
     const cleared = {
       for: 'release' as const,

@@ -2,9 +2,10 @@
  * The gates and Martin's merge, as events. GitHub never calls the factory, so the line reads each of its pull
  * requests through the GitHub worker, about once a minute, and appends what changed: the checks starting on a
  * commit (`gates.started`), each one finishing (`gate.finished`), all of them done (`gates.finished`), and the merge
- * (`pull-request.merged`). A pull request closed without a merge closes its work item: as verified, when a look again
- * found its signal cleared on a release that did not carry it and nothing since says the defect is back (as when the
- * line closed it for that reason, or Martin did while it was held), and with no change otherwise.
+ * (`pull-request.merged`), after whatever the gates on the merged commit did since the last read. A pull request
+ * closed without a merge closes its work item: as verified, when a look again found its signal cleared on a release
+ * that did not carry it and nothing since says the defect is back (as when the line closed it for that reason, or
+ * Martin did while it was held), and with no change otherwise.
  *
  * `gateEvents` is the decision, a pure function of what GitHub says and what the work item has already recorded, so
  * reading the same state again appends nothing. The gates are done when every check the ruleset requires has
@@ -84,7 +85,10 @@ export function gateEvents(
   if (record.merged || record.closed) return [];
   if (pr.merged && pr.mergeCommit) {
     const by = pr.mergedBy === APP_LOGIN ? 'factory' : 'martin';
+    // What the gates on the merged commit did since the last read comes first: a merge soon after they pass would
+    // otherwise leave their round unfinished for good, since nothing reads the pull request after it.
     return [
+      ...gateRun(pr, runs, required, record),
       {
         type: 'pull-request.merged',
         actor: by,
@@ -114,6 +118,16 @@ export function gateEvents(
     ];
   }
 
+  return gateRun(pr, runs, required, record);
+}
+
+/** The events the checks on the pull request's head call for that the work item has not had yet, in order. */
+function gateRun(
+  pr: PullRequestState,
+  runs: readonly CheckRun[],
+  required: readonly string[],
+  record: GateRecord,
+): Draft[] {
   const commit = pr.head.sha;
   // The latest run of each check, by name: a check run again replaces the run before.
   const latest = new Map<string, CheckRun>();
