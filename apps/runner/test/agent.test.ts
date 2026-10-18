@@ -5,7 +5,7 @@ import { join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PLUGIN, readResult, runAgent } from '../src/agent.ts';
 import { RESULT_BYTES, stepFrom } from '../src/step.ts';
-import { type ScriptedModel, scriptedModel, type Turn } from './model.ts';
+import { ANSWERING_MODEL, type ScriptedModel, scriptedModel, type Turn } from './model.ts';
 
 let model: ScriptedModel | undefined;
 afterEach(() => model?.close());
@@ -138,8 +138,16 @@ describe('a runner’s agent', () => {
     ]);
     // What a tool was given, and what it gave back, stay out of the log.
     expect(lines.join('\n')).not.toMatch(/cat src|count\.ts|xs\.length/);
-    // The SDK's model is not the one the gateway calls: the log leaves it to `model.called`.
-    expect(logged.find((l) => l.msg === 'the agent started')).not.toHaveProperty('model');
+    // The start line names the session, and not the SDK's model, which no call uses; each turn names the model that
+    // answered it.
+    const started = logged.find((l) => l.msg === 'the agent started');
+    expect(started).toEqual(expect.objectContaining({ session: expect.any(String) }));
+    expect(started).not.toHaveProperty('model');
+    expect(logged.filter((l) => l.msg === 'turn').map((l) => l.model)).toEqual([
+      ANSWERING_MODEL,
+      ANSWERING_MODEL,
+      ANSWERING_MODEL,
+    ]);
   });
 
   it('stops at its turn limit, and says so', async () => {

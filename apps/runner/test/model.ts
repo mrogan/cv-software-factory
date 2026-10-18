@@ -3,10 +3,14 @@
  * order, as Anthropic streams them. The runner's tests run the real Agent SDK against it, with no key and no network.
  *
  * Only the agent's own loop takes turns from the script: a request with no tools (Claude Code asks the model small
- * things of its own, such as a title) is answered with a word.
+ * things of its own, such as a title) is answered with a word. Like the gateway, it answers as a model of its own,
+ * whatever the SDK asked for.
  */
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+
+/** The model every answer names, as the gateway's name the policy's model. */
+export const ANSWERING_MODEL = 'scripted-model';
 
 export type Turn = { text: string } | { tool: string; input: Record<string, unknown> };
 
@@ -97,7 +101,7 @@ export async function scriptedModel(script: Turn[], { repeat = false } = {}): Pr
     const turn = agentTurn ? (script[repeat ? at++ % script.length : at++] ?? { text: 'Done.' }) : { text: 'Fixing' };
     if (body.stream) {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      return void res.end(sse(turn, String(body.model)));
+      return void res.end(sse(turn, ANSWERING_MODEL));
     }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(
@@ -105,7 +109,7 @@ export async function scriptedModel(script: Turn[], { repeat = false } = {}): Pr
         id: `msg_${++ids}`,
         type: 'message',
         role: 'assistant',
-        model: body.model,
+        model: ANSWERING_MODEL,
         content: [{ type: 'text', text: 'text' in turn ? turn.text : 'ok' }],
         stop_reason: 'end_turn',
         usage: { input_tokens: 10, output_tokens: 2 },

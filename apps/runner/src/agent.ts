@@ -143,8 +143,8 @@ export interface AgentOptions {
 }
 
 /**
- * Says, of each message the Agent SDK gives, what the agent is doing: a turn as it starts, each tool it calls, and each
- * call that failed, by the tool's name. A streamed turn comes as one message a block, all with the turn's id.
+ * Says, of each message the Agent SDK gives, what the agent is doing: a turn as it starts, with the model that answered
+ * it, each tool it calls, and each call that failed, by the tool's name. A streamed turn comes as one message a block, all with the turn's id.
  */
 export function narrator(log: Log): (message: SDKMessage) => void {
   let turn = 0;
@@ -152,12 +152,13 @@ export function narrator(log: Log): (message: SDKMessage) => void {
   const tools = new Map<string, string>();
   return (message) => {
     if (message.type === 'system' && message.subtype === 'init') {
-      // Not the SDK's model: the gateway sends each call to the one the policy names, and `model.called` says which.
+      // Not the SDK's model, which no call uses: the gateway sends each to the policy's, and each turn names it.
       log('the agent started', { session: message.session_id });
     } else if (message.type === 'assistant' && message.parent_tool_use_id === null) {
       if (message.message.id !== current) {
         current = message.message.id;
-        log('turn', { turn: ++turn });
+        // The model that answered, from the gateway's reply: the policy's, whatever the SDK asked for.
+        log('turn', { turn: ++turn, model: message.message.model });
       }
       for (const block of message.message.content) {
         if (block.type !== 'tool_use') continue;
