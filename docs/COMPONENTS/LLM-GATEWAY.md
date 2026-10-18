@@ -83,7 +83,7 @@ In `record`, as on the cluster, nothing is replayed from the folder: a cassette 
 - **calls for none,** such as triage judging a report before there is a ticket: two weeks after the last;
 - **a file no call names:** two weeks after it was written.
 
-A file written in the last two weeks always stays. Rows in `model_calls` are never changed, so a call may name a cassette that has gone. A gateway that replays from its folder, or has no TypeSafe key, keeps every cassette.
+A file written in the last two weeks always stays. Rows in `model_calls` are never changed, so a call may name a cassette that has gone. A gateway that replays from its folder keeps every cassette; one in `record` with no TypeSafe key replays Jev's calls from it, so it prunes only the agents' cassettes.
 
 ## Spend
 

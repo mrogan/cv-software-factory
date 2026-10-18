@@ -88,9 +88,11 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
   spend.start();
   await caps.resume();
   caps.start();
-  // Only where nothing is replayed from the folder: in `record`, with TypeSafe's key, so Jev's calls are asked too.
+  // Only in `record`, where nothing is replayed from the folder, but Jev's calls with no TypeSafe key.
   const pruner =
-    gateway.mode === 'record' && config.cassettesDir ? startPruning({ sql, dir: config.cassettesDir }, log) : undefined;
+    config.mode === 'record' && config.cassettesDir
+      ? startPruning({ sql, dir: config.cassettesDir, agentsOnly: gateway.mode !== 'record' }, log)
+      : undefined;
 
   const server = createGatewayServer({ gateway, agents, spend, log });
   await new Promise<void>((resolve) => server.listen(config.port, resolve));

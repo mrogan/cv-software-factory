@@ -15,9 +15,11 @@
  * Rows in `model_calls` stay: the ledger is never changed, and a call's cassette may name a file that has gone. Only
  * the folder the gateway records in is pruned, never the folders it reads besides, such as the committed evaluation
  * cassettes. A gateway that replays from its folder keeps everything: there a cassette is an answer to give again.
+ * One recording with no TypeSafe key replays Jev's calls from it, so it prunes only the agents' cassettes.
  */
 import { readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { lastEnd } from '@software-factory/store';
 import type { Sql } from 'postgres';
 
 /** How long a cassette is kept after the last thing it was for, in days. */
@@ -35,53 +37,85 @@ export interface PruneOptions {
   sql: Sql;
   /** The folder the gateway records cassettes in. */
   dir: string;
+  /**
+   * Only agents' cassettes: a gateway with no TypeSafe key replays Jev's calls from the folder, so it keeps theirs,
+   * and a file no call names, which could be one of them.
+   */
+  agentsOnly?: boolean;
   now?: Date;
   keepDays?: number;
 }
 
-/** Deletes the cassettes no longer kept (see the top of this file), and returns how many went. */
-export async function pruneCassettes({ sql, dir, now = new Date(), keepDays = KEEP_DAYS }: PruneOptions) {
+/** What a prune did: the files it deleted, and those it could not. */
+export interface Pruned {
+  deleted: number;
+  failed: number;
+}
+
+/** Deletes the cassettes no longer kept (see the top of this file). */
+export async function pruneCassettes({
+  sql,
+  dir,
+  agentsOnly = false,
+  now = new Date(),
+  keepDays = KEEP_DAYS,
+}: PruneOptions): Promise<Pruned> {
   const before = new Date(now.getTime() - keepDays * DAY_MS);
-  // Only a file unwritten for as long is considered: one written since a call's row was read is never deleted.
+  const unwritten = async (name: string) => {
+    const written = await stat(join(dir, name)).catch(() => undefined);
+    return written?.isFile() === true && written.mtime < before;
+  };
+  // Only a file unwritten for as long is considered, and it is looked at again just before it goes: one written since
+  // its calls were read stays.
   const old: { name: string; key: string | undefined }[] = [];
   for (const name of await readdir(dir).catch(notFound)) {
     const key = CASSETTE.exec(name)?.[1];
     if (!key && !PARTIAL.test(name)) continue;
-    const written = await stat(join(dir, name)).catch(() => undefined);
-    if (written?.isFile() && written.mtime < before) old.push({ name, key });
+    if (await unwritten(name)) old.push({ name, key });
   }
   const keys = old.flatMap(({ key }) => (key ? [key] : []));
-  const kept = new Set(keys.length ? await stillKept(sql, keys, before) : []);
-  let deleted = 0;
+  const named = keys.length ? await dueOf(sql, keys, before, agentsOnly) : new Map<string, boolean>();
+  const pruned: Pruned = { deleted: 0, failed: 0 };
   for (const { name, key } of old) {
-    if (key && kept.has(key)) continue;
-    await rm(join(dir, name), { force: true });
-    deleted++;
+    // A file no call names goes, unless it could be a judgement replayed from here.
+    const due = key && named.has(key) ? named.get(key) : !agentsOnly;
+    if (!due) continue;
+    if (!(await unwritten(name))) continue;
+    try {
+      await rm(join(dir, name), { force: true });
+      pruned.deleted++;
+    } catch {
+      // One that cannot go leaves the rest to: the next prune tries it again.
+      pruned.failed++;
+    }
   }
-  return deleted;
+  return pruned;
 }
 
-/** Of these cassettes, those some call still keeps: one made since `before`, or for a work item not closed as long. */
-async function stillKept(sql: Sql, keys: string[], before: Date): Promise<string[]> {
-  const rows = await sql<{ cassette: string }[]>`
+/**
+ * Of these cassettes, each some call names, and whether it is due to go: not with a call since `before`, nor for a
+ * work item not closed as long (its last end is not a close, as `lastEnd` has it, or its last close was appended
+ * since). With `agentsOnly`, one any judgement names is not due.
+ */
+async function dueOf(sql: Sql, keys: string[], before: Date, agentsOnly: boolean): Promise<Map<string, boolean>> {
+  const rows = await sql<{ cassette: string; due: boolean }[]>`
     with calls as (
-      select cassette, max(at) as last_call, array_agg(distinct work_item) filter (where work_item is not null) as items
+      select cassette, max(at) as last_call, bool_and(question_set = 'messages') as agents,
+             array_agg(distinct work_item) filter (where work_item is not null) as items
       from model_calls where cassette = any(${keys}::text[]) group by cassette
     ),
     items as (select distinct unnest(items) as work_item from calls),
-    ends as (
-      select items.work_item, last_end.type, last_end.appended_at
-      from items left join lateral (
-        select type, appended_at from events
-        where events.work_item = items.work_item and type in ('work-item.closed', 'work-item.reopened')
-        order by seq desc limit 1
-      ) last_end on true
+    open as (
+      select work_item from items
+      where ${lastEnd(sql, 'items.work_item')} is distinct from 'work-item.closed'
+         or (select max(appended_at) from events closed
+             where closed.work_item = items.work_item and closed.type = 'work-item.closed') >= ${before}
     )
-    select cassette from calls
-    where last_call >= ${before}
-       or exists (select 1 from ends where ends.work_item = any(calls.items)
-                  and (ends.type is distinct from 'work-item.closed' or ends.appended_at >= ${before}))`;
-  return rows.map((row) => row.cassette);
+    select cassette,
+           last_call < ${before} and (agents or not ${agentsOnly})
+             and not exists (select 1 from open where open.work_item = any(calls.items)) as due
+    from calls`;
+  return new Map(rows.map((row) => [row.cassette, row.due]));
 }
 
 const notFound = (error: NodeJS.ErrnoException): string[] => {
@@ -106,8 +140,9 @@ export function startPruning(
     if (pruning) return;
     pruning = pruneCassettes(options)
       .then(
-        (deleted) => {
+        ({ deleted, failed }) => {
           if (deleted) log.info({ deleted }, 'deleted the cassettes no longer kept');
+          if (failed) log.warn({ failed }, 'could not delete some cassettes: the next prune tries again');
         },
         // The next prune tries again; the folder only grows meanwhile.
         (error) => log.warn({ err: error }, 'could not prune the cassettes'),
