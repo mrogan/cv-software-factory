@@ -67,6 +67,10 @@ Everything is denied, then:
 
 The controller reaches DNS, the Kubernetes API and Prometheus, and nothing calls it.
 
+## `pod-logs`
+
+The pod log collector reaches Loki's intake and DNS, and nothing calls it. It reads the runners' logs from the node's files, so their fence stays shut.
+
 ## `website`
 
 The policy comes from this repository, since the app's AppProject cannot make one ([GitOps](GITOPS.md)).
@@ -88,6 +92,7 @@ It starts a pod labelled like each fenced part, and shows what each reaches and 
 - the app;
 - the Rollouts controller;
 - Kyverno's two controllers;
+- the pod log collector;
 - a pod in `telemetry` that is none of its backends, answering on their ports, which no reader of telemetry reaches.
 
 The workers' own checks (the gateway, the GitHub worker, triage, the intake, the log watcher, the line, the traffic generator, the probes, the crawler and the scoreboard) run from a short-lived probe pod made from each worker's live Deployment, never inside the worker, whose memory a second Node beside its own could exhaust. The probe pod keeps everything a network policy selects on or that decides where the pod can reach (namespace, labels, DNS, hosts, image, security contexts) and idles in place of the worker's code, with its own small memory limit and no service account token. It is never ready, so the worker's Service sends it nothing. So the checks prove the worker's fences, and not that the worker's own code keeps to them.
@@ -102,4 +107,5 @@ It has controls, which must reach what they reach:
 - the traffic generator reaches the app only through Traefik;
 - the line reaches Loki, Tempo and the probes' verify port, but not their page reader;
 - the probes reach the canary;
+- the pod log collector reaches Loki;
 - Traefik, the probes and the crawler still reach the app.

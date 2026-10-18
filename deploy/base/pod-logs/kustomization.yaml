@@ -1,0 +1,8 @@
+# Every pod's log in Loki: a second OpenTelemetry Collector, as a DaemonSet, reading each node's container logs from
+# its files, and the fences around it. In a namespace of its own: reading the node's files takes a host path, which the
+# restricted standard every other namespace of ours enforces refuses (namespaces.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - pod-logs.yaml
+  - network-policies.yaml

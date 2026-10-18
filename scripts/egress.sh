@@ -31,6 +31,10 @@
 # Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or the internet. The app is reached through Traefik
 # and by the probes, the crawler and the analysis, and not by another pod beside it.
 #
+# Then the pod log collector, which reads every pod's log from the node's files: a pod labelled like it reaches Loki's
+# intake, and nothing else: not Prometheus, Tempo, the collector in `telemetry`, Postgres, the app, the Kubernetes API
+# or the internet.
+#
 # Then the scoreboard, which holds the answer key (milestone 6): it reaches Postgres, and nothing else: not the
 # collector, the gateway, the GitHub worker, the console, the probes, Prometheus, Loki, the app, the Kubernetes API, the
 # host, the metadata address or the internet. Nothing can reach it, as it serves nothing; its fence's ingress is
@@ -44,7 +48,8 @@
 #
 # Every pod this starts runs an image the cluster already runs, pinned by digest, so nothing else is pulled and
 # admission control lets it in: the probe pods their worker's own, the pod labelled like a worker the factory image the
-# gateway runs, the runners' pods and the ones in Kyverno's and Argo Rollouts' namespaces the runner image the line
+# gateway runs, the runners' pods and the ones in Kyverno's, Argo Rollouts' and the pod log collector's namespaces the
+# runner image the line
 # pins (Node is on its PATH), and the analysis Job's and the app's the `factory-browser` image the analysis pins. Each
 # tries an address with Node's `fetch`, or, to name the app's host to Traefik, with `http.get`.
 #
@@ -92,6 +97,7 @@ cleanup() {
   kubectl --context "$context" -n website delete pod egress-journeys egress-app egress-stranger --ignore-not-found \
     --wait=false >/dev/null || true
   kubectl --context "$context" -n argo-rollouts delete pod egress-rollouts --ignore-not-found --wait=false >/dev/null || true
+  kubectl --context "$context" -n pod-logs delete pod egress-pod-logs --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n kyverno delete pod egress-admission egress-kyverno --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n telemetry delete pod egress-stranger --ignore-not-found --wait=false >/dev/null || true
   for worker in "${workers[@]}"; do
@@ -235,6 +241,7 @@ start_pod website egress-stranger "$browser_image" node "app.kubernetes.io/name:
 # The controllers' pods by the one label their policies select on, and not by all of their own: their ReplicaSets
 # must not take these pods for theirs.
 start_pod argo-rollouts egress-rollouts "$runner_image" node "app.kubernetes.io/component: rollouts-controller"
+start_pod pod-logs egress-pod-logs "$runner_image" node "app.kubernetes.io/name: opentelemetry-collector"
 start_pod kyverno egress-admission "$runner_image" node "app.kubernetes.io/component: admission-controller"
 start_pod kyverno egress-kyverno "$runner_image" node "app.kubernetes.io/component: reports-controller"
 # A pod in `telemetry` that is none of its backends, answering on their query ports, as anything new there might.
@@ -249,8 +256,8 @@ for worker in "${workers[@]}"; do
   esac
 done
 for started in factory/$pod runners/egress-agent runners/egress-prepare website/egress-journeys website/egress-app \
-  website/egress-stranger argo-rollouts/egress-rollouts kyverno/egress-admission kyverno/egress-kyverno \
-  telemetry/egress-stranger; do
+  website/egress-stranger argo-rollouts/egress-rollouts pod-logs/egress-pod-logs kyverno/egress-admission \
+  kyverno/egress-kyverno telemetry/egress-stranger; do
   kubectl --context "$context" -n "${started%%/*}" wait "pod/${started#*/}" --for=condition=Ready --timeout=2m >/dev/null
 done
 # A probe pod is never ready, so it is waited for until its Node has started.
@@ -435,6 +442,16 @@ expect "the controller cannot reach the app" argo-rollouts:egress-rollouts http:
 expect "the controller cannot reach Loki" argo-rollouts:egress-rollouts http://loki.telemetry:3100/ready blocked
 expect "the controller cannot reach Postgres" argo-rollouts:egress-rollouts "http://$postgres_ip:5432" blocked
 
+echo "A pod labelled like the pod log collector (egress-pod-logs):"
+expect "the collector reaches Loki's intake" pod-logs:egress-pod-logs http://loki.telemetry:3100/ready reached
+expect "the collector cannot reach Prometheus" pod-logs:egress-pod-logs http://prometheus-server.telemetry/-/healthy blocked
+expect "the collector cannot reach Tempo" pod-logs:egress-pod-logs http://tempo.telemetry:3200/ready blocked
+expect "the collector cannot reach the collector in telemetry" pod-logs:egress-pod-logs http://otel-collector.telemetry:4318 blocked
+expect "the collector cannot reach Postgres" pod-logs:egress-pod-logs "http://$postgres_ip:5432" blocked
+expect "the collector cannot reach the app" pod-logs:egress-pod-logs http://website.website blocked
+expect "the collector cannot reach the Kubernetes API" pod-logs:egress-pod-logs "https://$api_ip/version" blocked
+expect "the collector cannot reach a public address" pod-logs:egress-pod-logs https://1.1.1.1 blocked
+
 echo "Pods labelled like Kyverno's admission controller (egress-admission) and its reports controller (egress-kyverno):"
 expect "the admission controller reaches GHCR" kyverno:egress-admission https://ghcr.io/v2/ reached
 expect "the admission controller reaches GHCR's storage" kyverno:egress-admission https://pkg-containers.githubusercontent.com reached
@@ -470,7 +487,8 @@ expect "the scoreboard cannot reach a public address" scoreboard:egress-scoreboa
 # Who may read the scoreboard's Secrets, or reach them another way: start a pod or a workload beside them that would
 # mount them, change one that runs there, run a command in the scoreboard's pod or add a debug container to it, or
 # give itself any of these rights (a role or binding there or cluster-wide, `bind` or `escalate`, impersonation). Every
-# service account in the namespaces the factory, the app, the telemetry, Argo Rollouts and Kyverno run in is asked of
+# service account in the namespaces the factory, the app, the telemetry, the pod log collector, Argo Rollouts and Kyverno
+# run in is asked of
 # the API server, the scoreboard's own included.
 #
 # Argo Rollouts' controller runs the app's canaries from a cluster-wide install, whose role reads Secrets everywhere,
@@ -498,7 +516,7 @@ rollouts_needs=" get secrets | list secrets | watch secrets | update pods | crea
   update jobs.batch "
 echo "The scoreboard's Secrets:"
 asks=()
-for ns in factory runners website scoreboard telemetry argo-rollouts kyverno; do
+for ns in factory runners website scoreboard telemetry pod-logs argo-rollouts kyverno; do
   for account in $(kubectl --context "$context" -n "$ns" get serviceaccounts -o jsonpath='{.items[*].metadata.name}'); do
     for right in "${rights[@]}"; do
       if [ "$ns/$account" = argo-rollouts/argo-rollouts ] && [[ "$rollouts_needs" == *" $right "* ]]; then continue; fi

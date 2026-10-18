@@ -1,0 +1,131 @@
+# Every pod's log, read from the node's files and sent to Loki, so that a pod's log outlives the pod: Argo CD's, Argo
+# Rollouts', Kyverno's, the cluster's own, the telemetry stack's, Postgres's, and the runners', whose pods are deleted
+# when their step ends. One collector on each node, reading the files the kubelet writes each container's output to.
+fullnameOverride: pod-logs
+mode: daemonset
+image:
+  repository: otel/opentelemetry-collector-k8s
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# On every node, whatever its taints: a pod on a node without the collector would leave no log.
+tolerations:
+  - operator: Exists
+
+# It takes nothing over the network, so it listens on no port but its health check's, and has no Service.
+ports:
+  otlp:
+    enabled: false
+  otlp-http:
+    enabled: false
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false
+  metrics:
+    enabled: false
+
+# It reads files, and nothing of the Kubernetes API: the file's path says the namespace, pod and container.
+serviceAccount:
+  automountServiceAccountToken: false
+
+# The whole configuration, in place of the chart's default, which would open OTLP, Jaeger and Zipkin receivers.
+alternateConfig:
+  extensions:
+    # The chart's probes ask this.
+    health_check:
+      endpoint: ${env:MY_POD_IP}:13133
+    # How far it has read each file, kept on the node, so that after a restart it reads on from where it was.
+    file_storage:
+      directory: /var/lib/otelcol/pod-logs
+  receivers:
+    file_log:
+      # /var/log/pods/<namespace>_<pod>_<uid>/<container>/<restart>.log
+      include: [/var/log/pods/*/*/*.log]
+      exclude:
+        # The scoreboard sends nothing by design, its log included: it goes to `kubectl logs` alone
+        # (deploy/base/scoreboard/deployment.yaml).
+        - /var/log/pods/scoreboard_*/*/*.log
+        # Its own, as the chart leaves out by default: a line it failed to send, logged and read back, would be sent
+        # again, and a failure to reach Loki could not be kept in Loki anyway.
+        - /var/log/pods/pod-logs_*/*/*.log
+      # A file it has no mark for is read from its start: one that appeared while it was down, say, or every file on
+      # its first start. A file it has a mark for is read from the mark.
+      start_at: beginning
+      storage: file_storage
+      # Holds back when Loki or the memory limiter refuses, rather than dropping what it read.
+      retry_on_failure:
+        enabled: true
+      # The container parser reads the namespace, pod and container from the file's path.
+      include_file_path: true
+      include_file_name: false
+      operators:
+        # Each line as the container runtime wrote it, partial lines joined, its time the runtime's. Each record
+        # gains k8s.namespace.name, k8s.pod.name, k8s.pod.uid, k8s.container.name and k8s.container.restart_count.
+        - type: container
+          id: container-parser
+          max_log_size: 102400
+  processors:
+    memory_limiter:
+      check_interval: 5s
+      limit_percentage: 80
+      spike_limit_percentage: 25
+    # Every record is the `pod-logs` service's, whichever pod wrote it. Loki makes k8s.pod.name a stream label, which
+    # the senses read as the collector in `telemetry`'s stamp on the app's own records, beside service_name="website"
+    # (apps/factory/src/provenance.ts). A name of its own keeps the app's pods' output, which the app also sends over
+    # OTLP, out of what the senses count.
+    resource/service:
+      attributes:
+        - key: service.name
+          value: pod-logs
+          action: upsert
+    batch: {}
+  exporters:
+    otlp_http/loki:
+      endpoint: http://loki.telemetry:3100/otlp
+  service:
+    extensions: [health_check, file_storage]
+    pipelines:
+      logs:
+        receivers: [file_log]
+        processors: [memory_limiter, resource/service, batch]
+        exporters: [otlp_http/loki]
+
+extraVolumes:
+  - name: varlogpods
+    hostPath:
+      path: /var/log/pods
+      type: Directory
+  - name: checkpoints
+    hostPath:
+      path: /var/lib/otelcol/pod-logs
+      type: DirectoryOrCreate
+extraVolumeMounts:
+  - name: varlogpods
+    mountPath: /var/log/pods
+    readOnly: true
+  - name: checkpoints
+    mountPath: /var/lib/otelcol/pod-logs
+
+# Root, as the kubelet's log files are root's and no one else's to read, and the marks are written to a directory of
+# the node's. Nothing more: every capability dropped, so root reads and writes only what root owns, and no escalation.
+# `pod-logs` enforces the privileged standard for the host paths alone (deploy/base/namespaces.yaml).
+podSecurityContext:
+  runAsUser: 0
+  runAsGroup: 0
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]

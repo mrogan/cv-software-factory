@@ -16,7 +16,7 @@ flowchart LR
 ## Where it runs
 
 - **Alone in the `scoreboard` namespace**, on the `factory` image, which `scoreboard-images` admits there and nothing else ([admission control](ADMISSION-CONTROL.md)).
-- **No Service, no service account token, no telemetry.**
+- **No Service, no service account token, no telemetry,** and the [pod log collector](TELEMETRY.md#every-pods-log) leaves its log out.
 - **Its NetworkPolicy** lets it reach Postgres and DNS, and nothing in.
 - **Checked:** `make egress` checks where it reaches, and asks the API server that no service account of ours, or of a chart but Argo Rollouts' controller, may read its Secrets. `scoreboard-fences.test.ts` holds `deploy/` to the same, and to nothing reaching it.
 
