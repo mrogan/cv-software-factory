@@ -1,0 +1,76 @@
+# The exporter reads Postgres's statistics as `metrics_reader` (packages/store/migrations/0018_metrics-reader.sql), a
+# role granted nothing: connections against `max_connections`, transactions, locks, each table's size and dead rows,
+# the database's size. Prometheus scrapes it on 9187, where its pod asks to be (the chart's `kubernetes-pods` job).
+#
+# Two of its collectors are off: `wal` lists the WAL directory, which the role may not, and `stat_activity` counts
+# sessions by state, which a role without pg_read_all_stats sees only for its own: connections are counted from
+# `pg_stat_database_numbackends` instead.
+#
+# It answers a scrape whether or not it reached Postgres, and says which in `pg_up`, so Postgres down, or the role not
+# yet made, leaves its target up.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter
+  annotations:
+    # After Postgres (wave 0) and the migrations that make its role (wave 1), with the console.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  # The old pod goes before the new one starts, so the two never hold the role's connections at once.
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # `nobody`, the image's user.
+        runAsUser: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres-exporter
+          image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+          args:
+            - --no-collector.wal
+            - --no-collector.stat_activity
+          ports:
+            - name: metrics
+              containerPort: 9187
+          env:
+            - name: DATA_SOURCE_URI
+              value: postgres:5432/factory?sslmode=disable
+            - name: DATA_SOURCE_USER
+              value: metrics_reader
+            # Made by `make up`, and set as the role's password by the migrations. Optional, so a cluster made before
+            # the exporter still starts it: it then reports `pg_up 0`. It reads the password when it starts, so once
+            # the Secret is made and the migrations have run, restart it (`kubectl -n factory rollout restart
+            # deployment/postgres-exporter`).
+            - name: DATA_SOURCE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-metrics
+                  key: password
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

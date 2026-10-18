@@ -50,6 +50,7 @@ Everything is denied in and out, then each pod is allowed what it needs.
 | Crawler | The app, the canary's pods included | Nothing |
 | Line | The GitHub worker, the Kubernetes API, the probes' verify port, and Prometheus, Loki and Tempo through the read-only proxy | The runners' agent pods, with their handbacks |
 | Traffic generator | Traefik and the collector, and nothing else but DNS | |
+| Postgres exporter | Postgres | Prometheus's server, on 9187 |
 
 - Only the line may call the probes' verify port, as only triage may call their page reader.
 - Each pod that reads telemetry reaches the [read-only proxy](TELEMETRY.md#reading-it) on the ports of the backends it reads, and none of the backends: a policy allows a port, not a path, and on those ports the backends take writes too.
@@ -61,11 +62,16 @@ Everything is denied, then:
 
 - both controllers may reach DNS and the Kubernetes API;
 - the API server may call the admission webhook;
-- the admission controller alone may reach the internet, for GHCR and Sigstore's trust root ([admission control](ADMISSION-CONTROL.md)).
+- the admission controller alone may reach the internet, for GHCR and Sigstore's trust root ([admission control](ADMISSION-CONTROL.md));
+- Prometheus may scrape both controllers' metrics, on 8000 alone ([telemetry](TELEMETRY.md#the-platforms-own-metrics)).
 
 ## `argo-rollouts`
 
-The controller reaches DNS, the Kubernetes API and Prometheus, and nothing calls it.
+The controller reaches DNS, the Kubernetes API and Prometheus, and only Prometheus calls it, to scrape its metrics on 8090 ([telemetry](TELEMETRY.md#the-platforms-own-metrics)).
+
+## `pod-logs`
+
+The pod log collector reaches Loki's intake and DNS, and nothing calls it. It reads the runners' logs from the node's files, so their fence stays shut.
 
 ## `website`
 
@@ -88,6 +94,7 @@ It starts a pod labelled like each fenced part, and shows what each reaches and 
 - the app;
 - the Rollouts controller;
 - Kyverno's two controllers;
+- the pod log collector;
 - a pod in `telemetry` that is none of its backends, answering on their ports, which no reader of telemetry reaches.
 
 The workers' own checks (the gateway, the GitHub worker, triage, the intake, the log watcher, the line, the traffic generator, the probes, the crawler and the scoreboard) run from a short-lived probe pod made from each worker's live Deployment, never inside the worker, whose memory a second Node beside its own could exhaust. The probe pod keeps everything a network policy selects on or that decides where the pod can reach (namespace, labels, DNS, hosts, image, security contexts) and idles in place of the worker's code, with its own small memory limit and no service account token. It is never ready, so the worker's Service sends it nothing. So the checks prove the worker's fences, and not that the worker's own code keeps to them.
@@ -102,4 +109,5 @@ It has controls, which must reach what they reach:
 - the traffic generator reaches the app only through Traefik;
 - the line reaches Loki, Tempo and the probes' verify port, but not their page reader;
 - the probes reach the canary;
+- the pod log collector reaches Loki;
 - Traefik, the probes and the crawler still reach the app.

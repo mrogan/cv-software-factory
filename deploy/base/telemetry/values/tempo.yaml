@@ -50,6 +50,10 @@ tempo:
 persistence:
   enabled: true
   size: 4Gi
+# Its own metrics, on its HTTP port, for Prometheus to scrape.
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3200"
 # Pod-level, despite the chart's name for it.
 securityContext:
   runAsUser: 10001

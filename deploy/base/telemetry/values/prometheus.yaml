@@ -5,11 +5,19 @@
 # `prometheus.io/` annotations), which the chart's `kubernetes-pods` job does. The canary's analysis counts the
 # requests the traffic split sends the canary there (`traefik_service_requests_total`, release/analysis.ts).
 #
+# The platform's components ask the same way, each through its chart's settings, so their own metrics are kept too: the
+# collector, Loki, Tempo and Alertmanager here; Argo Rollouts (rollouts/values.yaml), Kyverno (admission/values) and
+# Argo CD (deploy/argocd/values.yaml). Prometheus scrapes itself in its own job.
+#
 # Alertmanager has one receiver: the factory's intake, which turns each firing alert into a signal. Until the intake
 # is deployed, deliveries fail and Alertmanager retries them. The sub-chart's defaults already meet the restricted
 # Pod Security Standard.
 alertmanager:
   enabled: true
+  # Its own metrics, among them the deliveries to the intake that failed, on its HTTP port.
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9093"
   persistence:
     size: 100Mi
   resources:
@@ -33,8 +41,33 @@ alertmanager:
           # Resolved alerts say nothing the senses need: a ticket closes when its fix is verified.
           - url: http://intake.factory.svc:8080/v1/alerts
             send_resolved: false
+# kube-state-metrics: each pod's restarts and readiness, and each Deployment's, StatefulSet's, DaemonSet's and Job's
+# replicas and outcomes, read from the Kubernetes API. It asks to be scraped as Traefik does, with
+# `prometheus.io/` annotations on its pod, rather than on the Service the chart would annotate. The scrape keeps the
+# `namespace` and `pod` its series name (the `kubernetes-pods` job honours their labels), not its own.
+#
+# Only the collectors those need, so its role may list and watch those kinds and nothing else: not Secrets or
+# ConfigMaps, whose names and labels the default collectors would read cluster-wide, the scoreboard's among them.
 kube-state-metrics:
-  enabled: false
+  enabled: true
+  prometheusScrape: false
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+  collectors:
+    - daemonsets
+    - deployments
+    - jobs
+    - nodes
+    - persistentvolumeclaims
+    - pods
+    - statefulsets
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 256Mi
 prometheus-node-exporter:
   enabled: false
 prometheus-pushgateway:
@@ -95,3 +128,19 @@ server:
       memory: 256Mi
     limits:
       memory: 1Gi
+
+# `target_info` is a service that sends metrics over OTLP, and triage counts those to see that metrics still arrive
+# (environment.ts). The collector also serves its own where it is scraped, as may any SDK's exporter, which would be
+# counted after OTLP had stopped, so each job that scrapes what asks to be scraped drops it. The rest stays.
+scrapeConfigs:
+  kubernetes-pods:
+    metric_relabel_configs: &otlp-only
+      - source_labels: [__name__]
+        regex: target_info
+        action: drop
+  kubernetes-pods-slow:
+    metric_relabel_configs: *otlp-only
+  kubernetes-service-endpoints:
+    metric_relabel_configs: *otlp-only
+  kubernetes-service-endpoints-slow:
+    metric_relabel_configs: *otlp-only

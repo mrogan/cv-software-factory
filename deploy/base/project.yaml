@@ -21,6 +21,8 @@ spec:
       namespace: factory
     - server: https://kubernetes.default.svc
       namespace: argo-rollouts
+    - server: https://kubernetes.default.svc
+      namespace: pod-logs
   clusterResourceWhitelist:
     # Argo Rollouts' kinds: Rollout, AnalysisRun and the rest.
     - group: apiextensions.k8s.io

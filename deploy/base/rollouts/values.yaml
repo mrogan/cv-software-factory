@@ -4,6 +4,11 @@ createClusterAggregateRoles: false
 
 controller:
   replicas: 1
+  # Its own metrics, among them each Rollout's and AnalysisRun's phase, on 8090, for Prometheus to scrape; its fence
+  # lets it in (network-policies.yaml).
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8090"
   image:
     tag: v1.10.0@sha256:187630ba722846bb8e079630364d3c29c8246a256be95785fd957b088f621c4e
   resources:

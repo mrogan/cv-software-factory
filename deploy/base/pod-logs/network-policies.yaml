@@ -1,0 +1,51 @@
+# The pod log collector's fences. Everything in `pod-logs` is denied, in and out, and then the collector may reach:
+#
+# - Loki's OTLP intake, on its pods' port behind the Service's 3100, where it sends what it reads;
+# - DNS, for Loki's name.
+#
+# Nothing calls it: it listens on no port but its health check's, which the kubelet probes from the node. It reads the
+# runners' logs from the node's files, so their fence stays shut (deploy/base/runners).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: pod-logs
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1" # with the namespace, before the collector starts
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: collector
+  namespace: pod-logs
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: opentelemetry-collector
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+              app.kubernetes.io/component: single-binary
+      ports:
+        - { protocol: TCP, port: 3100 }

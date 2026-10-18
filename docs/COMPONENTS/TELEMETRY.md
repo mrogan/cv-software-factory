@@ -12,6 +12,7 @@ flowchart LR
   collector --> prometheus[Prometheus]
   collector --> loki[Loki]
   collector --> tempo[Tempo]
+  pods[Every pod's log, on the node] --> podlogs[Pod log collector] --> loki
   prometheus & loki & tempo --> grafana[Grafana]
   readers[Factory workers that read] -- GET --> query[Read-only proxy]
   query --> prometheus & loki & tempo
@@ -33,9 +34,37 @@ The proxy passes a search on over whatever range it is given, so Tempo bounds wh
 
 The collector, which every worker still sends its own telemetry to, writes; Grafana and the canary's analysis read; each reaches the backends directly. Prometheus's lifecycle endpoints are off, so nothing that reaches it can stop it or have it reload: it reloads its configuration and rules itself when they change, every 30 seconds.
 
+## Every pod's log
+
+A second collector, `pod-logs`, runs on each node in a namespace of its own and reads every container's log from the files the kubelet writes them to ([`values.yaml`](../../deploy/base/pod-logs/values.yaml)). So a pod's log outlives the pod: Argo CD's, Argo Rollouts', Kyverno's, the cluster's own, the telemetry stack's, Postgres's, and the runners', whose pods go when their step ends. It reads them from the node, so the runners' fence stays shut. A file goes with its pod, so a line it had not read by then never reaches Loki: it reads a few times a second, but less when Loki is behind and its queue fills. A runner's log is not lost with it: the line keeps each runner pod's log with its step, in the artifact store ([`AGENT-RUNNERS.md`](AGENT-RUNNERS.md#a-steps-logs)).
+
+- **In Loki** as the `pod-logs` service, each stream labelled with its namespace, pod and container: `{service_name="pod-logs", k8s_namespace_name="argocd"}`. Nothing of the factory's reads them; they are for a person looking back.
+- **Left out:** the scoreboard's, which sends nothing by design, and the collector's own.
+- **After a restart** it reads on from a mark it keeps on the node for each file, and sends what it had read and Loki had yet to take, from a queue kept there too; while Loki refuses, it keeps trying. A file already there when it first starts on a node is read from its end, so that every node's backlog does not run into Loki's limit at once, which the app's records share.
+- **Its namespace** is the one of ours that does not enforce the restricted Pod Security Standard, which refuses the host path. The collector runs as root, since the log files are root's alone to read, with every capability dropped, a read-only root, the logs mounted read-only, no service account token and no port but its health check's. It reaches Loki and DNS, and nothing reaches it ([network policies](NETWORK-POLICIES.md#pod-logs)).
+
 ## Routine polling
 
 What repeats many times an hour and says nothing new each time is kept out of the way of what matters. The factory's workers leave out of their traces Kubernetes probing `/health` and the line's release watch reading the app's Rollout and AnalysisRuns every 30 seconds; their other requests are traced ([`untraced.ts`](../../apps/factory/src/untraced.ts)). A sense logs one warning a run for each route and reason its checks could not tell, naming the checks, not one for each check. Tempo's backend worker logs each empty answer to its asks for work, and backs off up to five minutes between them; Grafana's dashboard sidecar starts its watch again every ten minutes, not every minute, and logs each start.
+
+## The platform's own metrics
+
+Prometheus also scrapes the components beneath the factory, so what they took in, refused or failed to deliver is kept: a record the collector dropped, a push Loki or Tempo refused, an alert Alertmanager could not deliver to the intake. Each asks to be scraped through its chart's settings, with the `prometheus.io/` pod annotations the chart's `kubernetes-pods` job reads, as Traefik already does (CoreDNS asks the same on its Service).
+
+| Component | Port | Set in |
+|---|---|---|
+| The collector | 8888 | [`values/otel-collector.yaml`](../../deploy/base/telemetry/values/otel-collector.yaml) |
+| Loki | 3100 | [`values/loki.yaml`](../../deploy/base/telemetry/values/loki.yaml) |
+| Tempo | 3200 | [`values/tempo.yaml`](../../deploy/base/telemetry/values/tempo.yaml) |
+| Alertmanager | 9093 | [`values/prometheus.yaml`](../../deploy/base/telemetry/values/prometheus.yaml) |
+| Argo Rollouts' controller | 8090 | [`rollouts/values.yaml`](../../deploy/base/rollouts/values.yaml) |
+| Kyverno's two controllers | 8000 | [`admission/values/kyverno.yaml`](../../deploy/base/admission/values/kyverno.yaml) |
+| Argo CD's application controller, server, repo server and ApplicationSet controller | 8082, 8083, 8084, 8080 | [`deploy/argocd/values.yaml`](../../deploy/argocd/values.yaml) |
+
+Prometheus scrapes itself in its own job. Kyverno's and Argo Rollouts' fences let Prometheus in on those ports alone ([network policies](NETWORK-POLICIES.md)). Argo CD's chart is installed by `make up` with Helm, not by Argo CD, so its settings reach a cluster at the next `make up`.
+
+- **They count toward the environment.** Triage takes Prometheus as healthy when every target it scrapes is `up` ([triage](TRIAGE.md#what-a-sense-reads)), and each of these is one: a component Prometheus cannot scrape holds a sense's new problems for Martin until it can.
+- **`target_info` is OTLP's alone.** It is how Prometheus records a service that sends metrics over OTLP, and triage counts it to see that metrics still arrive. The collector also serves its own where it is scraped, so each of the chart's jobs that scrape what asks to be scraped, by pod or by Service, drops `target_info`, and a count of it still falls to nothing when OTLP stops.
 
 ## Dashboards
 
@@ -44,6 +73,21 @@ Grafana has three:
 - the app;
 - the console;
 - the factory: inbox depth, signals by sense, time from signal to ticket, and gateway spend.
+
+## The cluster's state and Postgres
+
+Two more targets ask Prometheus to scrape them, with the `prometheus.io/` pod annotations the chart's `kubernetes-pods` job reads:
+
+| Target | What it says | Where |
+|---|---|---|
+| kube-state-metrics, on 8080 | Each pod's restarts and readiness; each Deployment's, StatefulSet's and DaemonSet's ready replicas; each Job's outcome; each node's conditions; each volume claim's phase | `telemetry`, from the Prometheus chart ([`values/prometheus.yaml`](../../deploy/base/telemetry/values/prometheus.yaml)) |
+| The Postgres exporter, on 9187 | The store's connections against `max_connections`, transactions, locks, each table's size and dead rows, the database's size | `factory`, beside Postgres ([`postgres-exporter`](../../deploy/base/postgres-exporter/deployment.yaml)) |
+
+- **kube-state-metrics reads only those kinds.** Its chart grants list and watch on each collector's kind, so its role reads no Secret or ConfigMap anywhere, the scoreboard's among them, and `make egress` still finds no service account that may. The `kubernetes-pods` job honours the labels a target sends, so its series keep the `namespace` and `pod` they describe.
+- **The exporter is in `factory`,** where the store's other passwords are: its role's password is a Secret there, made by `make up` and set by the migrations, and its pod is fenced to Postgres and Prometheus alone ([network policies](NETWORK-POLICIES.md)). Its image is the Prometheus community's own build, named by digest in `factory-images` ([admission control](ADMISSION-CONTROL.md)).
+- **Its role is granted nothing** ([event store](EVENT-STORE.md#roles)), so other sessions' state is hidden from it: it counts connections from `pg_stat_database`, and its collectors of sessions by state, and of the write-ahead log's files, are off.
+- **Postgres down leaves the exporter's target up.** It answers every scrape and says in `pg_up` whether it reached Postgres. Triage counts a target down as the environment unhealthy ([triage](TRIAGE.md#what-a-sense-reads)), and these two are targets like any other: kube-state-metrics or the exporter unscraped holds a sense's new problems, but Postgres unreachable does not, since triage reads `up` and not `pg_up`.
+- **The exporter reads its password when it starts.** On a cluster made before it, run `make up` again to make its Secret, and once the migrations have set the role's password, restart it (`kubectl -n factory rollout restart deployment/postgres-exporter`).
 
 ## What the app records
 
@@ -60,4 +104,4 @@ It first deletes any `k8s.pod.*` attribute a record brings, on its resource or o
 
 ## Which records are the app's
 
-Every factory worker sends its own telemetry to the same collector, and a record's `service.name` is whatever its sender says. So the senses, the alerting rules and the app's dashboard take a record as the app's only when it carries what the collector stamped, which no sender through it can: in Loki, a stream with a `k8s_pod_name`; in Prometheus, a series with a `k8s_pod_label_rollouts_pod_template_hash`, the label Prometheus keeps of the two; in Tempo, a span whose resource has a `k8s.pod.name` ([`provenance.ts`](../../apps/factory/src/provenance.ts)). A worker that names itself `website` to the collector sends records the senses never read. The stamp says nothing of a record written to a backend directly, so no worker may be able to write to one ([network policies](NETWORK-POLICIES.md)).
+Every factory worker sends its own telemetry to the same collector, and a record's `service.name` is whatever its sender says. So the senses, the alerting rules and the app's dashboard take a record as the app's only when it carries what the collector stamped, which no sender through it can: in Loki, a stream with a `k8s_pod_name`; in Prometheus, a series with a `k8s_pod_label_rollouts_pod_template_hash`, the label Prometheus keeps of the two; in Tempo, a span whose resource has a `k8s.pod.name` ([`provenance.ts`](../../apps/factory/src/provenance.ts)). A worker that names itself `website` to the collector sends records the senses never read. The pod log collector gives every pod's log its pod's name too, but always as the `pod-logs` service, and the senses never count twice the app's pods' output, which the app also sends over OTLP. The stamp says nothing of a record written to a backend directly, so no worker may be able to write to one ([network policies](NETWORK-POLICIES.md)).

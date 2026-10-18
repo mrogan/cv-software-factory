@@ -55,6 +55,10 @@ describe('the look at what the senses read', () => {
     expect(seen.find((url) => url.pathname === '/api/v1/query')?.searchParams.get('time')).toBe(
       String(at.getTime() / 1000),
     );
+    // What the collector in `telemetry` stored, and not the pod log collector's, which arrive by another way.
+    expect(seen.find((url) => url.pathname === '/loki/api/v1/query')?.searchParams.get('query')).toContain(
+      'service_name!="pod-logs"',
+    );
     const search = seen.find((url) => url.pathname === '/api/search');
     expect(search?.searchParams.get('end')).toBe(String(at.getTime() / 1000));
   });
@@ -140,6 +144,14 @@ describe('Prometheus keeps what the look reads', () => {
     metric_relabel_configs?: { source_labels?: string[]; regex?: string; action?: string }[];
   }
   const values = async (file: string) => parse(await readFile(join(DEPLOY, file), 'utf-8'));
+  // Prometheus anchors a relabelling regex at both ends.
+  const drops = (config: ScrapeConfig | undefined, name: string) =>
+    (config?.metric_relabel_configs ?? []).some(
+      (rule) =>
+        rule.action === 'drop' &&
+        rule.source_labels?.join(';') === '__name__' &&
+        new RegExp(`^(?:${rule.regex})$`).test(name),
+    );
 
   it('still scrapes the kubelet’s volume stats on k3s, with the second copy of its metrics dropped', async () => {
     const local = (await values('overlays/local/values/prometheus.yaml')) as {
@@ -148,17 +160,24 @@ describe('Prometheus keeps what the look reads', () => {
     expect(local.scrapeConfigs['kubernetes-api-servers']?.enabled).toBe(false);
     const nodes = local.scrapeConfigs['kubernetes-nodes'];
     expect(nodes?.enabled).not.toBe(false);
-    // Prometheus anchors a relabelling regex at both ends.
-    const dropped = (name: string) =>
-      (nodes?.metric_relabel_configs ?? []).some(
-        (rule) =>
-          rule.action === 'drop' &&
-          rule.source_labels?.join(';') === '__name__' &&
-          new RegExp(`^(?:${rule.regex})$`).test(name),
-      );
+    const dropped = (name: string) => drops(nodes, name);
     for (const name of volumes.match(/kubelet_volume_stats_\w+/g) ?? []) expect(dropped(name)).toBe(false);
     expect(dropped('apiserver_request_duration_seconds_bucket')).toBe(true);
     expect(dropped('apiserver_request_duration_seconds_count')).toBe(false);
+  });
+
+  it.each([
+    'kubernetes-pods',
+    'kubernetes-pods-slow',
+    'kubernetes-service-endpoints',
+    'kubernetes-service-endpoints-slow',
+  ])('counts only OTLP’s services in target_info: %s drops what it scrapes', async (job) => {
+    const base = (await values('base/telemetry/values/prometheus.yaml')) as {
+      scrapeConfigs: Record<string, ScrapeConfig>;
+    };
+    const config = base.scrapeConfigs[job];
+    expect(drops(config, 'target_info')).toBe(true);
+    expect(drops(config, 'otelcol_receiver_accepted_metric_points_total')).toBe(false);
   });
 
   it('is given those values on the local cluster', async () => {
