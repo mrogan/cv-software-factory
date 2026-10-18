@@ -157,6 +157,14 @@ describe('acting in GitHub', () => {
     });
   });
 
+  it('puts a pull request back to draft by its node id', async () => {
+    const { github, sent } = client([{ method: 'POST', path: '/graphql', answer: () => ({ body: { data: {} } }) }]);
+    await new LiveActions(github).convertToDraft(REPO, { number: 7, url: '', nodeId: 'PR_7' });
+    const [body] = calls(sent).map((s) => s.body) as { query: string; variables: unknown }[];
+    expect(body?.query).toContain('convertPullRequestToDraft');
+    expect(body?.variables).toEqual({ id: 'PR_7' });
+  });
+
   it('replies on the open threads it began with an answered finding, each with its reply, and resolves them, once, and leaves the rest', async () => {
     const finding = '**Blocking** · criterion 2\n\nNo test shows a lowercase query.';
     const reply = `Answered in ${SHA}: the factory’s reviewer, review 2, finds this put right.`;
@@ -798,6 +806,8 @@ describe('the worker over HTTP', () => {
     expect(
       (await call('/v1/actions/addLabels', { repo: REPO, number: pullRequest.number, labels: ['factory'] })).status,
     ).toBe(200);
+    expect((await call('/v1/actions/readyForReview', { repo: REPO, pullRequest })).status).toBe(200);
+    expect((await call('/v1/actions/convertToDraft', { repo: REPO, pullRequest })).status).toBe(200);
     expect((await call('/v1/actions/readyForReview', { repo: REPO, pullRequest })).status).toBe(200);
     expect((await call('/v1/actions/comment', { repo: REPO, number: pullRequest.number, body: 'Ready.' })).status).toBe(
       200,

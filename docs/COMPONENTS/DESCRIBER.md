@@ -38,4 +38,4 @@ A refused result runs the step again, told why.
 1. It sets the pull request's title and description, with the line that refers to the ticket's issue, then takes it out of draft, each once for a handback.
 2. It appends the summary.
 
-Then the work item waits for Martin's merge.
+Then the work item waits for Martin's merge. If the work goes back to Build while it waits, the line puts the pull request back to draft, and the describer writes up the next round before Martin is asked again.

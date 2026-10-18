@@ -25,7 +25,7 @@ sequenceDiagram
 
 ## The Jobs
 
-- **Named** by the agent, the work item, the agent's round and how many steps the work item has started. `reviewer-1002-1-4` is the reviewer's first round and the work item's fourth step. So a step tried again never meets the Jobs or the token of the attempt before it.
+- **Named** by the agent, the work item, the agent's round and the step's number within the work item. `reviewer-1002-1-4` is the reviewer's first round and the work item's fourth step. The number follows both the line's count of the work item's steps and the last number among its job tokens, so a step tried again never meets the Jobs or the token of the attempt before it, even when the work item's row on the line was made afresh.
 - **On a volume** that lives until the work item merges or ends. `DELETE /v1/work-items/<id>` on the line ends it.
 - **Fenced:** the restricted Pod Security Standard, no service account token, a read-only root and a deadline. The deadline is the pod's, so a pod out of time fails and stays, with its log, until the line has kept it; the Job's own, a minute later, is a backstop.
 - **One image:** both run `factory-runner` (`apps/runner`: Node, git, pnpm through corepack, the Agent SDK).

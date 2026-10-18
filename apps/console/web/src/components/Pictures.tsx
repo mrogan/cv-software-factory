@@ -1030,11 +1030,12 @@ function AccessibilityPicture({ findings, shot, source }: Extract<PictureData, {
   );
 }
 
-function SpecPicture({ spec, question }: Extract<PictureData, { type: 'spec' }>) {
+/** A spec: with the `attn` rule and the planner's question while it holds for Martin, and otherwise plain. */
+function SpecPicture({ spec, waiting, question }: Extract<PictureData, { type: 'spec' }>) {
   return (
     <div className="pad">
-      <div className="spec">
-        <div className="cap attn">Spec · waiting for Martin</div>
+      <div className={waiting ? 'spec' : 'spec settled'}>
+        <div className={waiting ? 'cap attn' : 'cap'}>{waiting ? 'Spec · waiting for Martin' : 'Spec'}</div>
         <div className="outcome">{spec.outcome}</div>
         <div className="gwt">
           {spec.criteria.map((c) => (
