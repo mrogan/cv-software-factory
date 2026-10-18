@@ -121,19 +121,22 @@ export async function run(args: string[]): Promise<number> {
   const looks = { prometheus: PROMETHEUS_URL ?? null, loki: LOKI_URL ?? null, tempo: TEMPO_URL ?? null };
   log.info({ gateway: GATEWAY_URL, pages: PAGES_URL ?? null, ...looks }, 'triage taking signals from the inbox');
 
-  let pruning: Promise<unknown> = Promise.resolve();
-  // One prune at a time: a slow one delays the next rather than racing it.
+  let pruning: Promise<void> | undefined;
+  // One prune at a time: a tick that finds one still running leaves it be.
   const prune = () => {
-    pruning = pruning.then(async () => {
-      const before = new Date(Date.now() - INBOX.keepCountedDays * 24 * 60 * 60 * 1000);
-      try {
-        const deleted = await pruneInbox(sql, before);
-        if (deleted) log.info({ deleted, before }, 'deleted the inbox’s old repeats');
-      } catch (error) {
+    if (pruning) return;
+    const before = new Date(Date.now() - INBOX.keepCountedDays * 24 * 60 * 60 * 1000);
+    pruning = pruneInbox(sql, before)
+      .then(
+        (deleted) => {
+          if (deleted) log.info({ deleted, before }, 'deleted the inbox’s old repeats');
+        },
         // The next prune tries again; the inbox only grows meanwhile.
-        log.warn({ err: error }, 'could not delete the inbox’s old repeats');
-      }
-    });
+        (error) => log.warn({ err: error }, 'could not delete the inbox’s old repeats'),
+      )
+      .finally(() => {
+        pruning = undefined;
+      });
   };
   prune();
   const pruner = setInterval(prune, INBOX.pruneMinutes * 60 * 1000);

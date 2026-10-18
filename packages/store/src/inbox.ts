@@ -29,9 +29,11 @@ export async function sendSignal(sql: Sql, found: InboxSignal, id: string = cryp
 /**
  * Deletes the repeats triage counted before `before`, and returns how many went. A counted signal is one on a ticket
  * that already had it: nothing reads it again, as triage's burst and hold reads look only at signals that opened, are
- * held or still wait. Two kinds stay however old:
+ * held or still wait, and the store refuses the writer the delete of any of those (0020_prune-inbox.sql). Two kinds
+ * stay however old:
  *
- * - each sense's newest signal, from which a restarted watcher takes up (`lastObserved`, apps/factory/src/logs);
+ * - each sense's newest signal, as a sense that takes up from where it left off reads it (`lastObserved` in
+ *   apps/factory/src/logs; today only the reports do, and triage never counts a report);
  * - the canary's, whose ids the line derives from the analysis run: one still in the cluster when the line restarts
  *   is sent again, and its row is what makes the inbox drop it. There are a few a release.
  */
@@ -39,7 +41,6 @@ export async function pruneInbox(sql: Sql, before: Date): Promise<number> {
   const deleted = await sql`
     delete from inbox
     where outcome = 'counted' and sense <> 'canary' and received_at < ${before}
-      and id not in (select distinct on (sense) id from inbox
-                     order by sense, (signal ->> 'observedAt')::timestamptz desc nulls last, received_at desc)`;
+      and exists (select 1 from inbox newer where newer.sense = inbox.sense and newer.received_at > inbox.received_at)`;
   return deleted.count;
 }

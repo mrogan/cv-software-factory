@@ -145,6 +145,20 @@ describe('the inbox', () => {
     await expect(writer`update inbox set signal = '{}' where id = ${id}`).rejects.toThrow('permission denied');
   });
 
+  it('lets the writer delete a signal triage counted, and no other', async () => {
+    const ids = { counted: uuid(), opened: uuid(), held: uuid(), waiting: uuid() };
+    for (const [outcome, id] of Object.entries(ids)) {
+      const triaged = outcome === 'waiting' ? null : outcome;
+      await owner`insert into inbox (id, sense, fingerprint, signal, triaged_at, outcome)
+                  values (${id}, 'crawler', '/about broken-link', ${owner.json(signal)},
+                          ${triaged ? new Date() : null}, ${triaged})`;
+    }
+    const deleted = await writer`delete from inbox where id in ${writer(Object.values(ids))}`;
+    expect(deleted.count).toBe(1);
+    const left = await owner<{ id: string }[]>`select id from inbox where id in ${owner(Object.values(ids))}`;
+    expect(left.map((row) => row.id).sort()).toEqual([ids.opened, ids.held, ids.waiting].sort());
+  });
+
   describe('pruning', () => {
     const now = Date.parse('2026-10-19T12:00:00.000Z');
     const daysAgo = (days: number) => new Date(now - days * 24 * 60 * 60 * 1000);
@@ -163,7 +177,6 @@ describe('the inbox', () => {
     }
 
     beforeAll(async () => {
-      await owner`delete from inbox`;
       go = [await received('crawler', 5, 'counted'), await received('crawler', 4, 'counted')];
       keep = [
         await received('crawler', 2, 'counted'), // not old enough
@@ -178,7 +191,8 @@ describe('the inbox', () => {
 
     it('deletes the repeats triage counted before then, and nothing else', async () => {
       expect(await pruneInbox(writer, daysAgo(3))).toBe(go.length);
-      const left = await writer<{ id: string }[]>`select id from inbox`;
+      const mine = [...keep, ...go];
+      const left = await writer<{ id: string }[]>`select id from inbox where id in ${writer(mine)}`;
       expect(left.map((row) => row.id).sort()).toEqual([...keep].sort());
     });
 
