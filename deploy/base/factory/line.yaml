@@ -115,7 +115,7 @@ spec:
             # the local model is given longer.
             - name: FACTORY_PROFILE
               value: local
-            # The line on Claude, over the senses' tickets: the first eleven that come onto it, and no other.
+            # The line on Claude, over the senses' tickets: the first thirteen that come onto it, and no other.
             - name: LINE_MODE
               value: live
             - name: LINE_TAKE
