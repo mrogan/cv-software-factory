@@ -508,8 +508,18 @@ export function closingComment(
   ].join('\n');
 }
 
-/** The comment on the issue as the factory opens it again: what came back, as the sense saw it. */
+/**
+ * The comment on the issue as the factory opens it again: what came back, as the sense saw it, or that the dry run's
+ * fix it was verified on never shipped.
+ */
 export function reopeningComment(reopened: PayloadOf<'work-item.reopened'>, workItem: string): string {
+  if (reopened.dryRun) {
+    return [
+      'A dry run verified a fix for this, and that fix never shipped: the defect is still in the app.',
+      '',
+      `The factory’s work item #${workItem} is open again, and goes back to Plan for a fix that ships.`,
+    ].join('\n');
+  }
   const where =
     reopened.route !== '*' ? `\`${reopened.route}\`` : reopened.sense === 'canary' ? CANARY_ANY_ROUTE : 'every page';
   return [

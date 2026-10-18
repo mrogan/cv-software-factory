@@ -244,6 +244,7 @@ export default new Item('1306', '2026-10-05T09:05:00+01:00')
     route: '/basket',
     version: 'v0.9.12',
     reason: 'The log watcher saw it again on /basket in version v0.9.12: new error pattern',
+    dryRun: false,
   })
   .at('23:36:00', 'signal.received', 'logs', `GET /basket logged “${ERROR}” and still answered 200`, {
     sense: 'logs',

@@ -454,24 +454,31 @@ svg.chart {
   gap: 2.4cqw;
 }
 .jev {
-  display: flex;
-  flex-direction: column;
-  gap: 1.4cqw;
+  /* The rows share one grid, so the bars line up. Question and answer take the width their words need, on one line;
+     the bar takes what is left. Only if that leaves the bar too little does the question give way, with an ellipsis. */
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(6cqw, 1fr) max-content;
+  gap: 1.4cqw 2cqw;
+  align-content: start;
+  font-size: 1.9cqw;
 }
 .jev-row {
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 1fr 14cqw 15cqw;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: 2cqw;
-  font-size: 1.9cqw;
 }
 .jev .q {
   color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+/* The track is drawn in the signal's own line colour, so the empty end shows beside the fill even when it is a sliver. */
 .jev .p {
   height: 1.4cqw;
   border-radius: 0.7cqw;
-  background: var(--line);
+  background: var(--signal-line);
   position: relative;
   overflow: hidden;
 }
@@ -484,6 +491,7 @@ svg.chart {
 .jev .a {
   font-family: var(--font-mono);
   text-align: right;
+  white-space: nowrap;
 }
 .routing {
   font-size: 2cqw;

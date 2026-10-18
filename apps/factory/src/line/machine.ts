@@ -61,7 +61,8 @@
  * which no sense can look at again: approving closes it as verified, answering sends it back to Plan with his words.
  *
  * A verified ticket whose signal comes back reopens (triage decides it): the same defect regressed. The work item
- * starts a fresh pass at Plan, as after a return to Plan, and the planner is told what came back.
+ * starts a fresh pass at Plan, as after a return to Plan, and the planner is told what came back. A ticket a dry run
+ * verified reopens the same way when the line runs live (`dryRunLeft`), with nothing come back to tell.
  *
  * The events are folded into where the work item is (`fold`), and `decide` turns that into one next action. Each
  * action either appends events, which moves the work item on, or waits for something outside the line: the gates
@@ -69,9 +70,18 @@
  * deadline) are each agent's (`agents/`); the bounds on the loop are `LIMITS`.
  *
  * A hold waits for Martin's answer, and what the answer does depends on why the work item is held: `ANSWERS` has a
- * rule for each cause and each answer.
+ * rule for each cause and each answer. An answer in words to one of triage's holds leaves it standing
+ * (`WORDS_LEAVE_HELD`): only his approval or his rejection settles those.
  */
-import { ALWAYS_HELD, type HoldCause, LIMITS, type PayloadOf, STAGES, type Stage } from '@software-factory/events';
+import {
+  ALWAYS_HELD,
+  type HoldCause,
+  LIMITS,
+  type PayloadOf,
+  STAGES,
+  type Stage,
+  WORDS_LEAVE_HELD,
+} from '@software-factory/events';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 import { whoAborted } from '../release/watch.ts';
 
@@ -354,14 +364,16 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (!state.hold) break;
         const { cause, stage } = state.hold;
         const resolution = ANSWERS[cause][event.payload.decision];
-        state.answer = { cause, stage, decision: event.payload.decision, resolution, text: event.payload.answer };
         const said =
           event.payload.answer ??
           (cause === 'scope' && event.payload.decision === 'approved' ? FENCE_APPROVED : undefined);
+        // Words settle nothing for triage's holds: the hold stands, and the work item waits as it did.
+        if (event.payload.decision === 'answered' && WORDS_LEAVE_HELD.includes(cause)) break;
         if ((stage === 'plan' || resolution === 'replan') && said) {
           state.answers.push({ asked: askedOf(state.hold, state.fenced), answer: said });
         }
         state.hold = undefined;
+        state.answer = { cause, stage, decision: event.payload.decision, resolution, text: event.payload.answer };
         state.fenceRefusals = 0;
         if (resolution === 'replan') state.spec = undefined;
         if (cause === 'spec' && resolution === 'carry-on') state.specApproved = true;
@@ -691,6 +703,32 @@ function afterMerge(s: WorkItemState): Decision {
   }
   const reason = `${seen} ${on}, the release that carried the fix`.slice(0, 200);
   return { stage: 'plan', next: { do: 'return', from: 'verify', to: 'plan', reason } };
+}
+
+/**
+ * What a dry run left on a work item that a line running live must end, or undefined for none, given the work item's
+ * issue. A work item whose pull request is the dry run's, merged or not, or whose issue is, has nothing GitHub ever had
+ * to carry on from, and closes with no change. A ticket a dry run verified, whose fix never shipped, still has its
+ * defect, and reopens. The line asks only of a work item that is not waiting to come back into Plan after a
+ * reopening: taking it back forgets a dry run's issue. A
+ * work item that already ended either way, that a dry run never touched, or that Martin judged verified, which the
+ * line closes as he answered, has nothing left.
+ */
+export function dryRunLeft(
+  events: readonly LineEvent[],
+  issue: number | null,
+): { end: 'close'; why: 'merge' | 'pull-request' | 'issue' } | { end: 'reopen'; against: string } | undefined {
+  const s = fold(events);
+  if (!s.closed) {
+    if (s.answer?.resolution === 'verified') return undefined;
+    if ((s.pullRequest?.number ?? 0) >= DRY_RUN_NUMBERS_FROM) {
+      return { end: 'close', why: s.merged ? 'merge' : 'pull-request' };
+    }
+    return (issue ?? 0) >= DRY_RUN_NUMBERS_FROM ? { end: 'close', why: 'issue' } : undefined;
+  }
+  const closed = events.findLast((event) => event.type === 'work-item.closed');
+  if (closed?.type !== 'work-item.closed' || closed.payload.outcome !== 'verified') return undefined;
+  return s.verification?.dryRun ? { end: 'reopen', against: s.verification.against } : undefined;
 }
 
 /**

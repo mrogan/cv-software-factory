@@ -1,6 +1,15 @@
-import { HOLD_CAUSES, type HoldCause, type PayloadOf } from '@software-factory/events';
+import { HOLD_CAUSES, type HoldCause, type PayloadOf, WORDS_LEAVE_HELD } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
-import { ANSWERS, decide, type Facts, fold, LIMITS, type LineEvent, unchangedHold } from '../../src/line/machine.ts';
+import {
+  ANSWERS,
+  decide,
+  dryRunLeft,
+  type Facts,
+  fold,
+  LIMITS,
+  type LineEvent,
+  unchangedHold,
+} from '../../src/line/machine.ts';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
@@ -437,6 +446,49 @@ describe('after the merge', () => {
     expect(decide(live, facts).next).toMatchObject({ do: 'verified', verification: { dryRun: true } });
   });
 
+  it('leaves a live line to close a dry run’s work item, and reopen a ticket the dry run verified', () => {
+    const asDryRun = (event: LineEvent): LineEvent =>
+      event.type === 'pull-request.pushed' || event.type === 'pull-request.merged'
+        ? ({ ...event, payload: { ...event.payload, number: 1_000_000_012 } } as LineEvent)
+        : 'dryRun' in event.payload
+          ? ({ ...event, payload: { ...event.payload, dryRun: true } } as LineEvent)
+          : event;
+    const closed = (outcome: 'verified' | 'no-change'): LineEvent => ({
+      type: 'work-item.closed',
+      payload: { outcome, reason: 'Ended' },
+    });
+    const dry = done.map(asDryRun);
+    // Its pull request, open or merged, at Release or at Verify: none of it is in GitHub.
+    const merge = { end: 'close', why: 'merge' };
+    expect(dryRunLeft(approved.map(asDryRun), 3)).toEqual({ end: 'close', why: 'pull-request' });
+    expect(dryRunLeft(dry, 3)).toEqual(merge);
+    expect(dryRunLeft([...dry, ...[release(), promoted()].map(asDryRun)], 3)).toEqual(merge);
+    // Martin judged it verified at Verify, where a live line held it: the line closes it as he answered.
+    const hold: LineEvent = {
+      type: 'hold.started',
+      payload: { stage: 'verify', kind: 'approval', cause: 'verify', reason: 'The dry run no longer runs' },
+    };
+    const atVerify = [...dry, ...[release(), promoted()].map(asDryRun), hold];
+    expect(dryRunLeft(atVerify, 3)).toEqual(merge);
+    expect(dryRunLeft([...atVerify, answer('approved', 'It looks right')], 3)).toBeUndefined();
+    // Taken by the dry run, with no pull request yet: its issue is the dry run's.
+    expect(dryRunLeft([ticket, spec], 1_000_000_011)).toEqual({ end: 'close', why: 'issue' });
+    // Verified by the dry run's word: the defect it was opened on is still in the app.
+    const verifiedDry = [...dry, ...[release(), promoted(), verified('cleared')].map(asDryRun), closed('verified')];
+    expect(dryRunLeft(verifiedDry, 1_000_000_011)).toEqual({ end: 'reopen', against: 'v0.9.3' });
+    // Nothing left once it is ended either way, nor on a work item the dry run never touched.
+    expect(dryRunLeft([...dry, closed('no-change')], 3)).toBeUndefined();
+    const reopened: LineEvent = {
+      type: 'work-item.reopened',
+      payload: { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.3', reason: 'Again', dryRun: true },
+    };
+    // Reopened, and taken back into Plan with a new issue: nothing is left.
+    expect(dryRunLeft([...verifiedDry, reopened], 41)).toBeUndefined();
+    expect(dryRunLeft([...verifiedDry, reopened, ticket, spec], 41)).toBeUndefined();
+    expect(dryRunLeft(done, 3)).toBeUndefined();
+    expect(dryRunLeft([...done, release(), promoted(), verified('cleared'), closed('verified')], 3)).toBeUndefined();
+  });
+
   it('sends the work back to Plan when its signal persists, and holds for Martin the second time', () => {
     const live = [...done, deployHold(done), release(), promoted()];
     const once = [...live, verified('persists')];
@@ -502,7 +554,14 @@ describe('after the merge', () => {
     const closed: LineEvent = { type: 'work-item.closed', payload: { outcome: 'verified', reason: 'Cleared' } };
     const reopened: LineEvent = {
       type: 'work-item.reopened',
-      payload: { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.6', reason: 'It came back' },
+      payload: {
+        sense: 'probe',
+        check: 'search',
+        route: '/search',
+        version: 'v0.9.6',
+        reason: 'It came back',
+        dryRun: false,
+      },
     };
     const persisted = [...done, deployHold(done), release(), promoted(), verified('persists')];
     const back: LineEvent = { type: 'work.returned', payload: { from: 'verify', to: 'plan', reason: 'It persists' } };
@@ -534,7 +593,14 @@ describe('after the merge', () => {
     const closed: LineEvent = { type: 'work-item.closed', payload: { outcome: 'verified', reason: 'Martin said so' } };
     const reopened: LineEvent = {
       type: 'work-item.reopened',
-      payload: { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.6', reason: 'It came back' },
+      payload: {
+        sense: 'probe',
+        check: 'search',
+        route: '/search',
+        version: 'v0.9.6',
+        reason: 'It came back',
+        dryRun: false,
+      },
     };
     const live = [...done, deployHold(done), release(), promoted(), hold, answer('approved', 'It looks right')];
     expect(decide(live, facts).next).toMatchObject({ do: 'verified' });
@@ -856,6 +922,21 @@ describe('Martin’s answer to a hold', () => {
     const approved = [held('finding', 'triage'), answer('approved'), ticket];
     expect(decide(approved, { ...facts, issue: null })).toEqual({ stage: 'plan', next: { do: 'open-issue' } });
     expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
+  });
+
+  it('keeps a hold of triage’s standing when he answers it in words, so Needs you still lists it', () => {
+    for (const cause of WORDS_LEAVE_HELD) {
+      expect(ANSWERS[cause].answered).toBe('wait');
+      const words = [held(cause, 'triage'), answer('answered', 'Leave it for a sense')];
+      expect(fold(words)).toMatchObject({ hold: { cause }, answer: undefined });
+      expect(decide(words, facts)).toEqual({ stage: 'held', next: { do: 'wait', for: 'martin' } });
+      // Words do not use up the hold: his approval after them still settles it.
+      expect(fold([...words, answer('approved')])).toMatchObject({ hold: undefined, answer: { decision: 'approved' } });
+    }
+    // Every other cause's answer in words settles the hold.
+    for (const cause of HOLD_CAUSES.filter((c) => !WORDS_LEAVE_HELD.includes(c))) {
+      expect(fold([ticket, spec, held(cause, 'build'), answer('answered', 'Go on')]).hold).toBeUndefined();
+    }
   });
 
   it('has the planner write a spec again when he answers it, and builds it when he approves', () => {

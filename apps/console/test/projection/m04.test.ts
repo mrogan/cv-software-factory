@@ -316,15 +316,20 @@ describe('Triage’s panel', () => {
     if (signal) signal.artifacts = [shot];
     const picture = project(finding, AFTERNOON).cards[0]?.picture;
     expect(picture).toMatchObject({ type: 'judgement', page: shot });
-    // Once Martin has opened its ticket it waits at Plan like any ticket, pictured by what triage made of it, as a
-    // report's ticket is, until the line has evidence of its own.
-    const ticketed = work('2002', AFTERNOON - 60_000).add(0.6, 'ticket.opened', 'triage', {
-      title: 'A wrong result on /contact',
-      category: 'functional',
-      severity: 'broken',
-      fingerprint: { route: '/contact', class: 'wrong-result' },
-      traces: [],
-    }).events;
+    // His words settle nothing: the defect is still held, waiting for him to approve or reject it.
+    expect(project(finding, AFTERNOON).cards[0]?.outcome).toBe('held');
+    expect(projectSheet(finding, '2002', AFTERNOON)?.chapters.map((c) => c.label)).toContain('ANSWERED');
+    // Once Martin has approved it, and triage opened its ticket, it waits at Plan like any ticket, pictured by what
+    // triage made of it, as a report's ticket is, until the line has evidence of its own.
+    const ticketed = work('2002', AFTERNOON - 60_000)
+      .add(0.55, 'hold.answered', 'martin', { decision: 'approved' })
+      .add(0.6, 'ticket.opened', 'triage', {
+        title: 'A wrong result on /contact',
+        category: 'functional',
+        severity: 'broken',
+        fingerprint: { route: '/contact', class: 'wrong-result' },
+        traces: [],
+      }).events;
     const card = project([...finding, ...ticketed], AFTERNOON).cards[0];
     expect(card).toMatchObject({ outcome: 'waiting', picture: { type: 'judgement' } });
     expect(card?.segments.slice(0, 3)).toEqual(['passed', 'passed', 'queued']);

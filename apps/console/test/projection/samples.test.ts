@@ -248,6 +248,7 @@ describe('a sheet', () => {
       route: '/',
       version: 'v0.9.9',
       reason: 'The probes saw it again on / in version v0.9.9: home journey',
+      dryRun: false,
     });
     const reopened = [...SAMPLES, ...later.events];
     const at = later.at(11);

@@ -62,13 +62,13 @@ The same function decides what a release carries, so while a release is in its c
 | Event | When | What it holds |
 |---|---|---|
 | `release.started` | The canary's pods take traffic (or with `admitted: false` when its pods are refused), recorded only once the stable version has a record of its own | The canary's steps as the Rollout has them then: each weight set, how long it pauses there and whether a step analysis judges it (null when a pause cannot be read). The console draws the steps from the event and copies nothing of the app's Rollout |
-| `canary.stepped` | Each step's analysis ends | The analysis's own measures (each one's phase, value, limit and words), and each version's requests, error rate and p99 from Prometheus (`PROMETHEUS_URL`), by pod-template hash |
+| `canary.stepped` | Each step's analysis ends | The analysis's own measures (each one's phase, value, limit and words), each version's requests, error rate and p99 from Prometheus (`PROMETHEUS_URL`), by pod-template hash, and how many of the journeys' checks passed on each, of how many ran, from the step's journeys Job |
 | `release.promoted` | The release becomes the stable version | |
 | `release.rolled-back` | The Rollout is aborted and a run of the release's latest attempt failed | Each failed measure, how many of its run's looks failed (Argo Rollouts' count, across the run), and, for errors and latency, its series from the release's start to the failure |
 | `release.errored` | The Rollout is aborted, Argo Rollouts has acted on it (`status.abortedAt`), no run of the release's latest attempt failed, and one ended in Error in the minute before | The weight the canary had reached, the analysis's words, each measure it could not take, and when Argo Rollouts acted on it. Actor `rollouts` |
 | `release.aborted` | The Rollout is aborted, Argo Rollouts has acted on it (`status.abortedAt`), and no run of the release's latest attempt failed or ended in Error | When Argo Rollouts acted on it, and who aborted it (`by`): `stop` for Stop the line, `martin` for his own. Actor `martin` |
 
-A figure or series Prometheus did not give is left out.
+A figure or series Prometheus did not give is left out. The journeys' counts are null when the step's Job or its pod cannot be read, is gone, has not ended, or wrote no counts; the step's other figures are kept either way.
 
 - **Who aborted it.** Martin's abort terminates the runs, which fails none, and is no signal. To Argo Rollouts, Stop the line's abort (`scripts/abort-canaries.sh`) and Martin's by hand are the same patch of the Rollout's status, so the line says which: `stop` when the last `line.started` or `line.stopped` before the abort is a stop recorded within the minute before it (`make stop-the-line` records the stop, then aborts), `martin` otherwise. It is decided by time alone, so when the stop cannot be recorded (the store is down, and the make target aborts anyway) the abort reads as Martin's, and an abort he makes by hand within the minute after a stop reads as the stop's. A retry and a second abort between two reads are both recorded, by the abort's later time.
 - **Where it was.** An abort sends the Rollout back to its first step, so the event holds no weight: the console reads the canary's weight then from the release's steps, as it reads one in flight.
@@ -95,7 +95,7 @@ Each measure that failed a release the line recorded and watched start is a sign
 
 - **On an open ticket.** A rollback whose signal has an open ticket's fingerprint joins that ticket as its evidence, naming the release ([triage](TRIAGE.md#matching-an-open-ticket)); the Canary panel says triage added it to that ticket.
 - **A canary's `*`** means routes the analysis could not narrow to one, and its ticket is titled "&lt;class&gt; in a canary release". Any other sense's `*` is every page.
-- **The journeys' checks.** The journeys Job writes the checks that regressed to its container's termination message (`COMPARISON_FILE`), which the line reads from the Job's pod. When that is lost, the signal is `wrong-result` on `*`.
+- **The journeys' checks.** The journeys Job writes the checks that regressed, and how many passed of how many ran on each version, to its container's termination message (`COMPARISON_FILE`), which the line reads from the Job's pod. When that is lost, the signal is `wrong-result` on `*`.
 - **Not yet readable.** A measure whose routes or pod cannot be read yet, or whose pod's container has no status yet, waits for the next pass.
 
 ## Verify
@@ -143,7 +143,7 @@ A merge the dry run made never ships, so with `LINE_MODE=dry-run` the line relea
 3. `release.promoted`;
 4. `verification.finished`, cleared.
 
-A dry run's release on a line no longer in a dry run holds at Verify for Martin.
+A line running live closes a dry run's merge with no change as it starts ([after a dry run](ORCHESTRATOR.md#after-a-dry-run)).
 
 ## With `LINE_ONLY`
 
