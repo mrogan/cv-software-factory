@@ -106,10 +106,16 @@ server:
 
 # `target_info` is a service that sends metrics over OTLP, and triage counts those to see that metrics still arrive
 # (environment.ts). The collector also serves its own where it is scraped, as may any SDK's exporter, which would be
-# counted after OTLP had stopped, so it is dropped from what the `kubernetes-pods` job scrapes. The rest of it stays.
+# counted after OTLP had stopped, so each job that scrapes what asks to be scraped drops it. The rest stays.
 scrapeConfigs:
   kubernetes-pods:
-    metric_relabel_configs:
+    metric_relabel_configs: &otlp-only
       - source_labels: [__name__]
         regex: target_info
         action: drop
+  kubernetes-pods-slow:
+    metric_relabel_configs: *otlp-only
+  kubernetes-service-endpoints:
+    metric_relabel_configs: *otlp-only
+  kubernetes-service-endpoints-slow:
+    metric_relabel_configs: *otlp-only

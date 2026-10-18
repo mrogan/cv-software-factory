@@ -69,8 +69,9 @@ async function ingress(namespace: string) {
     .filter(({ manifest, namespace: ns }) => manifest.kind === 'NetworkPolicy' && ns === namespace)
     .flatMap(({ manifest: { spec } }) => {
       const selector = spec?.podSelector;
+      // Which components a policy selects, by their label, or every pod in the namespace.
       const components = selector?.matchExpressions?.find((e) => e.key === 'app.kubernetes.io/component')?.values ?? [
-        selector?.matchLabels?.['app.kubernetes.io/component'],
+        selector?.matchLabels?.['app.kubernetes.io/component'] ?? 'every pod',
       ];
       return (spec?.ingress ?? []).flatMap((rule) =>
         (rule.from ?? [{}]).map((peer) => ({ components, peer, ports: (rule.ports ?? []).map((p) => p.port) })),
@@ -91,7 +92,9 @@ describe('the fences around what Prometheus scrapes', () => {
       { components: ['admission-controller', 'reports-controller'], peer: PROMETHEUS, ports: [8000] },
     ]);
     // The API server, from the node's private addresses, on the webhook's port and no other.
-    for (const { components, ports } of rules.filter(({ peer }) => peer.ipBlock)) {
+    const apiServer = rules.filter(({ peer }) => peer.ipBlock);
+    expect(apiServer.length).toBeGreaterThan(0);
+    for (const { components, ports } of apiServer) {
       expect(components).toEqual(['admission-controller']);
       expect(ports).toEqual([9443]);
     }

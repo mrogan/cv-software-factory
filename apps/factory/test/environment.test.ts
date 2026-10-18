@@ -162,13 +162,18 @@ describe('Prometheus keeps what the look reads', () => {
     expect(dropped('apiserver_request_duration_seconds_count')).toBe(false);
   });
 
-  it('counts only OTLP’s services in target_info: the scraped pods’ own is dropped', async () => {
+  it.each([
+    'kubernetes-pods',
+    'kubernetes-pods-slow',
+    'kubernetes-service-endpoints',
+    'kubernetes-service-endpoints-slow',
+  ])('counts only OTLP’s services in target_info: %s drops what it scrapes', async (job) => {
     const base = (await values('base/telemetry/values/prometheus.yaml')) as {
       scrapeConfigs: Record<string, ScrapeConfig>;
     };
-    const pods = base.scrapeConfigs['kubernetes-pods'];
-    expect(drops(pods, 'target_info')).toBe(true);
-    expect(drops(pods, 'otelcol_receiver_accepted_metric_points_total')).toBe(false);
+    const config = base.scrapeConfigs[job];
+    expect(drops(config, 'target_info')).toBe(true);
+    expect(drops(config, 'otelcol_receiver_accepted_metric_points_total')).toBe(false);
   });
 
   it('is given those values on the local cluster', async () => {
