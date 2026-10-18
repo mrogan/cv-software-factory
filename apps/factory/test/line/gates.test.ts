@@ -135,6 +135,23 @@ describe('the gates, as events', () => {
     expect(gateEvents(merged, runs, ['test', 'journeys'], after)).toEqual([]);
   });
 
+  it('finish a round at a merge once its required checks have, whatever else still runs', () => {
+    const merged = pr({ state: 'closed', merged: true, mergeCommit: MERGED, mergedBy: 'mrogan' });
+    const runs = [run(1, 'test', 'success'), run(2, 'tests first', null)];
+    expect(gateEvents(merged, runs, ['test'], nothing).map((d) => d.type)).toEqual([
+      'gates.started',
+      'gate.finished',
+      'gates.finished',
+      'pull-request.merged',
+    ]);
+    // Open, the same round waits for every check.
+    expect(gateEvents(pr(), runs, ['test'], nothing).map((d) => d.type)).toEqual(['gates.started', 'gate.finished']);
+  });
+
+  it('wait for the merge commit when GitHub says a pull request merged before it names one', () => {
+    expect(gateEvents(pr({ state: 'closed', merged: true, mergeCommit: null }), [], [], nothing)).toEqual([]);
+  });
+
   it('close a work item whose pull request closed unmerged as verified while a cleared look stands on its hold', () => {
     const cleared = {
       for: 'release' as const,

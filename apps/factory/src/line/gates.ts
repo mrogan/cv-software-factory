@@ -2,7 +2,7 @@
  * The gates and Martin's merge, as events. GitHub never calls the factory, so the line reads each of its pull
  * requests through the GitHub worker, about once a minute, and appends what changed: the checks starting on a
  * commit (`gates.started`), each one finishing (`gate.finished`), all of them done (`gates.finished`), and the merge
- * (`pull-request.merged`), after whatever the gates on the merged commit did since the last read. A pull request
+ * (`pull-request.merged`), after whatever the gates on the pull request's head did since the last read. A pull request
  * closed without a merge closes its work item: as verified, when a look again found its signal cleared on a release
  * that did not carry it and nothing since says the defect is back (as when the line closed it for that reason, or
  * Martin did while it was held), and with no change otherwise.
@@ -83,12 +83,14 @@ export function gateEvents(
   cleared?: { look: PayloadOf<'signal.rechecked'>; by: 'factory' | 'martin' },
 ): Draft[] {
   if (record.merged || record.closed) return [];
+  // GitHub can say a pull request merged before it names the merge commit: the next read records the merge.
+  if (pr.merged && !pr.mergeCommit) return [];
   if (pr.merged && pr.mergeCommit) {
     const by = pr.mergedBy === APP_LOGIN ? 'factory' : 'martin';
-    // What the gates on the merged commit did since the last read comes first: a merge soon after they pass would
-    // otherwise leave their round unfinished for good, since nothing reads the pull request after it.
+    // What the gates on the pull request's head did since the last read comes first: a merge soon after they pass
+    // would otherwise leave their round unfinished for good, since nothing reads the pull request after it.
     return [
-      ...gateRun(pr, runs, required, record),
+      ...gateRun(pr, runs, required, record, true),
       {
         type: 'pull-request.merged',
         actor: by,
@@ -121,12 +123,16 @@ export function gateEvents(
   return gateRun(pr, runs, required, record);
 }
 
-/** The events the checks on the pull request's head call for that the work item has not had yet, in order. */
+/**
+ * The events the checks on the pull request's head call for that the work item has not had yet, in order. At a
+ * merge, the round is done once the required checks are: the merge passes on the rest, and nothing reads them after.
+ */
 function gateRun(
   pr: PullRequestState,
   runs: readonly CheckRun[],
   required: readonly string[],
   record: GateRecord,
+  merged = false,
 ): Draft[] {
   const commit = pr.head.sha;
   // The latest run of each check, by name: a check run again replaces the run before.
@@ -167,7 +173,8 @@ function gateRun(
 
   const all = [...latest.values()];
   const waiting =
-    required.some((name) => latest.get(name)?.status !== 'completed') || all.some((r) => r.status !== 'completed');
+    required.some((name) => latest.get(name)?.status !== 'completed') ||
+    (!(merged && required.length) && all.some((r) => r.status !== 'completed'));
   if (!waiting && !record.done.has(commit)) {
     const judged = required.length ? all.filter((run) => required.includes(run.name)) : all;
     const failed = judged.filter((run) => outcome(run.conclusion) === 'failure').map((run) => run.name.slice(0, 80));
