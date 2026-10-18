@@ -35,6 +35,11 @@
 # intake, and nothing else: not Prometheus, Tempo, the collector in `telemetry`, Postgres, the app, the Kubernetes API
 # or the internet.
 #
+# Then the platform's metrics, which Prometheus's server scrapes across the fences: a pod labelled like it reaches
+# Kyverno's two controllers on 8000, Argo Rollouts' controller on 8090 and the Postgres exporter on 9187, and the
+# stranger in `telemetry`, labelled otherwise, reaches none of them. And a pod labelled like the exporter reaches
+# Postgres, and nothing else: not the collector, the gateway, the app, the Kubernetes API or the internet.
+#
 # Then the scoreboard, which holds the answer key (milestone 6): it reaches Postgres, and nothing else: not the
 # collector, the gateway, the GitHub worker, the console, the probes, Prometheus, Loki, the app, the Kubernetes API, the
 # host, the metadata address or the internet. Nothing can reach it, as it serves nothing; its fence's ingress is
@@ -48,16 +53,17 @@
 #
 # Every pod this starts runs an image the cluster already runs, pinned by digest, so nothing else is pulled and
 # admission control lets it in: the probe pods their worker's own, the pod labelled like a worker the factory image the
-# gateway runs, the runners' pods and the ones in Kyverno's, Argo Rollouts' and the pod log collector's namespaces the
-# runner image the line pins (Node is on its PATH), and the analysis Job's and the app's the `factory-browser` image the
-# analysis pins. Each tries an address with Node's `fetch`, or, to name the app's host to Traefik, with `http.get`.
+# gateway runs, as does the pod labelled like the Postgres exporter, the runners' pods and the ones in Kyverno's, Argo
+# Rollouts', the pod log collector's and telemetry's namespaces the runner image the line pins (Node is on its PATH),
+# and the analysis Job's and the app's the `factory-browser` image the analysis pins. Each tries an address with Node's
+# `fetch`, or, to name the app's host to Traefik, with `http.get`.
 #
 # A check that must be blocked passes only when the connection is refused, reset, unreachable or never answered, as a
 # policy blocks it: any other failure, such as a name that does not resolve, proves nothing about the fence.
 #
-# A check whose `kubectl exec` fails is a FAIL naming the exit status, and the rest go on. The workers, and the proxy,
-# are rolled out before anything starts, so a run during a rollout waits for it; one Argo CD has yet to sync is not
-# waited for.
+# A check whose `kubectl exec` fails is a FAIL naming the exit status, and the rest go on. The workers, the proxy and
+# the metrics' targets are rolled out before anything starts, so a run during a rollout waits for it; one Argo CD has
+# yet to sync is not waited for.
 #
 # The controls matter: if the gateway could not reach TypeSafe either, the pod's failure would prove only that the
 # network was down.
@@ -78,10 +84,15 @@ runners=(kubectl --context "$context" -n runners)
 workers=(factory/gateway factory/github factory/triage factory/intake factory/logs factory/line factory/traffic
   factory/probes factory/crawler scoreboard/scoreboard)
 
-# The workers, and the read-only proxy the readers query, rolled out first: each probe pod is then made from the
-# template its worker runs, and not one about to replace it, and every Service a check reaches has a pod behind it,
-# as a worker replaced (by recreating it) has none for a moment. kubectl says why one that has not rolled out has not.
-for deployment in "${workers[@]}" telemetry/query; do
+# What Prometheus's server scrapes beyond `telemetry`, behind fences that let in its server alone.
+scraped=(kyverno/kyverno-admission-controller kyverno/kyverno-reports-controller argo-rollouts/argo-rollouts
+  factory/postgres-exporter)
+
+# The workers, the read-only proxy the readers query, and what Prometheus scrapes, rolled out first: each probe pod is
+# then made from the template its worker runs, and not one about to replace it, and every Service or pod a check
+# reaches is there, as a worker replaced (by recreating it) has none for a moment. kubectl says why one that has not
+# rolled out has not.
+for deployment in "${workers[@]}" telemetry/query "${scraped[@]}"; do
   if ! kubectl --context "$context" -n "${deployment%%/*}" rollout status "deployment/${deployment#*/}" \
     --timeout=3m >/dev/null; then
     echo "$deployment has not rolled out: run this again when it has." >&2
@@ -91,14 +102,15 @@ done
 cleanup() {
   rm -f "${exec_errors:-}"
   # Each delete goes on whether the one before failed, so no probe pod is left behind.
-  "${kubectl[@]}" delete pod "$pod" --ignore-not-found --wait=false >/dev/null || true
+  "${kubectl[@]}" delete pod "$pod" egress-postgres-exporter --ignore-not-found --wait=false >/dev/null || true
   "${runners[@]}" delete pod egress-agent egress-prepare --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n website delete pod egress-journeys egress-app egress-stranger --ignore-not-found \
     --wait=false >/dev/null || true
   kubectl --context "$context" -n argo-rollouts delete pod egress-rollouts --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n pod-logs delete pod egress-pod-logs --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n kyverno delete pod egress-admission egress-kyverno --ignore-not-found --wait=false >/dev/null || true
-  kubectl --context "$context" -n telemetry delete pod egress-stranger --ignore-not-found --wait=false >/dev/null || true
+  kubectl --context "$context" -n telemetry delete pod egress-stranger egress-prometheus --ignore-not-found --wait=false \
+    >/dev/null || true
   for worker in "${workers[@]}"; do
     kubectl --context "$context" -n "${worker%%/*}" delete pod "egress-${worker#*/}" --ignore-not-found --wait=false \
       >/dev/null || true
@@ -214,6 +226,14 @@ ip() { kubectl --context "$context" -n "$1" get service "$2" -o jsonpath='{.spec
 gateway_ip=$(ip factory gateway) line_ip=$(ip factory line) github_ip=$(ip factory github)
 api_ip=$(ip default kubernetes) postgres_ip=$(ip factory postgres) console_ip=$(ip factory console)
 website_ip=$(ip website website)
+# Argo Rollouts' controller and the Postgres exporter have no Service: their pods are scraped where they are. A pod a
+# ReplicaSet made has its template's hash, and the pods this starts do not.
+pod_ip() {
+  kubectl --context "$context" -n "$1" get pods -l "$2,pod-template-hash" --field-selector=status.phase=Running \
+    -o jsonpath='{.items[0].status.podIP}'
+}
+rollouts_ip=$(pod_ip argo-rollouts app.kubernetes.io/name=argo-rollouts)
+exporter_ip=$(pod_ip factory app.kubernetes.io/name=postgres-exporter)
 node_ip=$(kubectl --context "$context" get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
 
 # A worker's labels, which is what a compromised one would have.
@@ -246,6 +266,13 @@ start_pod kyverno egress-kyverno "$runner_image" node "app.kubernetes.io/compone
 # A pod in `telemetry` that is none of its backends, answering on their query ports, as anything new there might.
 start_pod telemetry egress-stranger "$runner_image" node "app.kubernetes.io/name: egress-stranger" "" \
   'for (const port of [9090, 3100, 3200]) require("node:http").createServer((q, r) => r.end("stranger")).listen(port)'
+# Prometheus's server by the two labels the fences of what it scrapes select on, and not its instance's: the
+# prometheus-server Service must not take this pod for one of its own.
+start_pod telemetry egress-prometheus "$runner_image" node "app.kubernetes.io/name: prometheus
+app.kubernetes.io/component: server"
+# The Postgres exporter by the one label its fence, and Postgres's, select on, on the factory image: the exporter's
+# own has no Node.
+start_pod factory egress-postgres-exporter "$image" /nodejs/bin/node "app.kubernetes.io/name: postgres-exporter"
 # The workers', each from its Deployment. The factory image's Node is /nodejs/bin/node; the probes' and the crawler's
 # browser image has it on its PATH.
 for worker in "${workers[@]}"; do
@@ -256,7 +283,8 @@ for worker in "${workers[@]}"; do
 done
 for started in factory/$pod runners/egress-agent runners/egress-prepare website/egress-journeys website/egress-app \
   website/egress-stranger argo-rollouts/egress-rollouts pod-logs/egress-pod-logs kyverno/egress-admission \
-  kyverno/egress-kyverno telemetry/egress-stranger; do
+  kyverno/egress-kyverno telemetry/egress-stranger telemetry/egress-prometheus factory/egress-postgres-exporter
+do
   kubectl --context "$context" -n "${started%%/*}" wait "pod/${started#*/}" --for=condition=Ready --timeout=2m >/dev/null
 done
 # A probe pod is never ready, so it is waited for until its Node has started.
@@ -465,6 +493,28 @@ expect "the reports controller cannot reach GHCR" kyverno:egress-kyverno https:/
 expect "the reports controller cannot reach a public address" kyverno:egress-kyverno https://1.1.1.1 blocked
 expect "the reports controller reaches the Kubernetes API" kyverno:egress-kyverno "https://$api_ip/version" reached
 
+# What Prometheus's server scrapes beyond its own namespace, each behind a fence that lets in its server alone: a pod
+# labelled like it reaches the target, which is the control, and the stranger in `telemetry` does not.
+# $1: what is scraped; $2: its metrics' address.
+scrapes() {
+  expect "Prometheus's server scrapes $1" telemetry:egress-prometheus "$2" "reached, HTTP 200"
+  expect "another pod in telemetry cannot reach $1" telemetry:egress-stranger "$2" blocked
+}
+
+echo "A pod labelled like Prometheus's server (egress-prometheus), and the platform's metrics:"
+scrapes "Kyverno's admission controller" http://kyverno-svc-metrics.kyverno:8000/metrics
+scrapes "Kyverno's reports controller" http://kyverno-reports-controller-metrics.kyverno:8000/metrics
+scrapes "Argo Rollouts' controller" "http://$rollouts_ip:8090/metrics"
+scrapes "the Postgres exporter" "http://$exporter_ip:9187/metrics"
+
+echo "A pod labelled like the Postgres exporter (egress-postgres-exporter):"
+expect "the exporter reaches Postgres" egress-postgres-exporter tcp://postgres:5432 reached
+expect "the exporter cannot reach the collector" egress-postgres-exporter http://otel-collector.telemetry:4318 blocked
+expect "the exporter cannot reach the gateway" egress-postgres-exporter http://gateway:8080/health blocked
+expect "the exporter cannot reach the app" egress-postgres-exporter http://website.website blocked
+expect "the exporter cannot reach the Kubernetes API" egress-postgres-exporter "https://$api_ip/version" blocked
+expect "the exporter cannot reach a public address" egress-postgres-exporter https://1.1.1.1 blocked
+
 echo "The scoreboard:"
 expect "the scoreboard reaches Postgres" scoreboard:egress-scoreboard tcp://postgres.factory:5432 reached
 expect "the scoreboard cannot reach the collector" scoreboard:egress-scoreboard http://otel-collector.telemetry:4318 blocked
@@ -538,6 +588,7 @@ fi
 
 if [ "$failed" = 0 ]; then
   echo "Only the gateway, the GitHub worker and Kyverno's admission controller leave the cluster; the readers of telemetry"
-  echo "only query the backends; the runners, the release, the traffic, the app and the scoreboard are fenced."
+  echo "only query the backends; only Prometheus's server scrapes the platform's metrics; the runners, the release, the"
+  echo "traffic, the app, the Postgres exporter and the scoreboard are fenced."
 else echo "The network policies do not hold."; fi
 exit "$failed"
