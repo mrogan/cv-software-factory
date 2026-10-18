@@ -58,7 +58,7 @@ export interface StepRequest extends Step {
   /** Which round of this agent's work this is, from 1: a coder sent back by review works a second round. */
   round: number;
   /**
-   * How many steps the work item has started, this one included, whichever agent ran them: from 1, and never used
+   * The step's number within the work item, whichever agent ran its steps (`Queue.startStep`): from 1, and never used
    * twice for one work item. With the agent and the round, it names the job.
    */
   attempt?: number;

@@ -237,10 +237,10 @@ export class Queue {
   }
 
   /**
-   * Counts a step started, and returns its number within the work item: it names the step's job and job token, so it
-   * is one no job of the work item has had. It comes after both the row's count and the last number in a job token's
-   * name (`runners/jobs.ts`), so a work item whose row was made afresh, as by a hand edit, never reuses one. A name
-   * that does not end in a number of up to nine digits is not one of the line's, and counts for nothing.
+   * Counts a step started, and returns its number within the work item, which names the step's job and job token: no
+   * earlier job of the work item has had that number. It comes after both the row's count and the last number in a
+   * job token's name (`runners/jobs.ts`), so a work item whose row was made afresh, as by a hand edit, never reuses
+   * one. A name that does not end in a number of up to nine digits is not one of the line's, and counts for nothing.
    */
   async startStep(workItem: string): Promise<number> {
     const [row] = await this.#sql<{ steps: number }[]>`
