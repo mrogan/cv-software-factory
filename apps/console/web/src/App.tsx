@@ -114,7 +114,6 @@ export function App() {
               onCentre={onCentre}
               onOpen={(index) => setOpen(view.cards[index]?.number)}
               motion={motion}
-              asked={asked !== null}
             />
           )}
         </div>
