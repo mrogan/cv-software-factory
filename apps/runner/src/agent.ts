@@ -152,7 +152,8 @@ export function narrator(log: Log): (message: SDKMessage) => void {
   const tools = new Map<string, string>();
   return (message) => {
     if (message.type === 'system' && message.subtype === 'init') {
-      log('the agent started', { model: message.model, session: message.session_id });
+      // Not the SDK's model: the gateway sends each call to the one the policy names, and `model.called` says which.
+      log('the agent started', { session: message.session_id });
     } else if (message.type === 'assistant' && message.parent_tool_use_id === null) {
       if (message.message.id !== current) {
         current = message.message.id;

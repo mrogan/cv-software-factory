@@ -138,6 +138,8 @@ describe('a runner’s agent', () => {
     ]);
     // What a tool was given, and what it gave back, stay out of the log.
     expect(lines.join('\n')).not.toMatch(/cat src|count\.ts|xs\.length/);
+    // The SDK's model is not the one the gateway calls: the log leaves it to `model.called`.
+    expect(logged.find((l) => l.msg === 'the agent started')).not.toHaveProperty('model');
   });
 
   it('stops at its turn limit, and says so', async () => {
