@@ -21,6 +21,7 @@ export const VERSIONS = {
   'spec.written': 3,
   'pull-request.pushed': 2,
   'suggestions.answered': 1,
+  'wait.started': 1,
   // Gates and review
   'gates.started': 1,
   'gate.finished': 1,
@@ -35,6 +36,7 @@ export const VERSIONS = {
   'release.aborted': 1,
   'release.errored': 1,
   'verification.finished': 3,
+  'signal.rechecked': 1,
   // Anywhere on the line
   'work.returned': 3,
   'hold.started': 7,

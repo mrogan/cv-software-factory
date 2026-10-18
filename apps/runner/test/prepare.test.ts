@@ -60,7 +60,20 @@ describe('the prepare step', () => {
         seed: 'diff --git a/seeded.ts b/seeded.ts\nnew file mode 100644\n--- /dev/null\n+++ b/seeded.ts\n@@ -0,0 +1 @@\n+export const seeded = true;\n',
       }),
     };
-    await prepare(env, () => {});
+    const lines: string[] = [];
+    await prepare({ ...env, RUNNER_JOB: 'coder-1001-1-1', RUNNER_WORK_ITEM: '1001' }, (line) => lines.push(line));
+    // A JSON line for each part done, each naming the job and its work item.
+    expect(lines.map((line) => JSON.parse(line))).toEqual([
+      expect.objectContaining({
+        job: 'coder-1001-1-1',
+        workItem: '1001',
+        pod: 'prepare',
+        msg: 'checked out the commit',
+        commit,
+      }),
+      expect.objectContaining({ job: 'coder-1001-1-1', msg: 'applied the seed, and committed it as the base' }),
+      expect.objectContaining({ job: 'coder-1001-1-1', msg: 'installed the dependencies' }),
+    ]);
     const repo = join(work, 'repo');
     expect(readFileSync(join(repo, 'seeded.ts'), 'utf-8')).toBe('export const seeded = true;\n');
     const base = () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf-8' }).trim();

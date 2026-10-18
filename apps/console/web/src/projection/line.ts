@@ -5,7 +5,7 @@
 import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-factory/events';
 import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
 import { endedSinceMerge } from './fixing.ts';
-import type { ItemState } from './items.ts';
+import { clearanceWords, type ItemState } from './items.ts';
 import { endedWords, inFlight, type Release, SIGNALLED, stopWait, stopWords } from './release.ts';
 
 export type Status = 'idle' | 'working' | 'returning' | 'passing' | 'blocked' | 'failed';
@@ -337,6 +337,13 @@ function returnOf(item: string, returned: PayloadOf<'work.returned'>, summary: s
 
 /** A row's note for an item in a stage now: what it waits for, or the last thing that happened to it there. */
 function noteOf(item: ItemState, stage: Stage): string {
+  const note = holdNote(item, stage);
+  const cleared = clearanceWords(item);
+  return cleared ? `${note}. ${cleared}` : note;
+}
+
+function holdNote(item: ItemState, stage: Stage): string {
+  if (item.waitingOn) return item.waitingOn.reason;
   if (item.queued) return item.stage === 'release' ? 'Merged · waiting for release' : 'Waiting for the planner';
   if (item.hold?.cause === 'merge') return 'Needs you · waiting for Martin’s merge';
   // A merged fix waits for a deploy pull request, again when the release that carried it rolled back; after an

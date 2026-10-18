@@ -1,4 +1,5 @@
-# Every workload meets the restricted Pod Security Standard: non-root, no privilege escalation, no capabilities.
+# Every workload but the pod log collector, which reads the node's files, meets the restricted Pod Security Standard:
+# non-root, no privilege escalation, no capabilities.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -37,6 +38,18 @@ metadata:
     argocd.argoproj.io/sync-wave: "-1"
   labels:
     pod-security.kubernetes.io/enforce: restricted
+---
+# The pod log collector (pod-logs/), one on each node, reading every container's log from the node's files: the one
+# namespace of ours that does not enforce the restricted standard, since a host path is the only way to those files.
+# The collector itself runs as root with every capability dropped, and mounts the logs read-only.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pod-logs
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
 ---
 # Runners: one Job per step of the factory's agents, each a disposable sandbox. The line creates them; nothing here is
 # deployed but their fences (deploy/base/runners), which a profile brings in with the factory's workers.

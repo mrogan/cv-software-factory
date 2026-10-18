@@ -15,6 +15,7 @@ function kubeWith(job: string, message: string | null | undefined): Kube {
       const items = message === undefined ? [] : [{ status: { containerStatuses: [{ name: 'journeys', state }] } }];
       return schema.parse({ items });
     },
+    text: () => Promise.reject(new Error('The release watch reads no log')),
     create: () => Promise.reject(new Error('The release watch changes nothing')),
     remove: () => Promise.reject(new Error('The release watch changes nothing')),
   };

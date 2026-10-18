@@ -28,10 +28,10 @@
  * (`coder.ts`), and the GitHub worker refuses every protected file a patch changes, as the last word.
  */
 import type { InboxSignal, PayloadOf } from '@software-factory/events';
-import { RISKS } from '@software-factory/events';
+import { RISKS, touches } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
-import { inScope, NEVER, pattern, plainPath } from '../../github/paths.ts';
+import { NEVER, plainPath } from '../../github/paths.ts';
 import { count, defineAgent, holdDraft, words } from './agent.ts';
 import { numbered, routeOf, type Signal, seen, ticketLines } from './evidence.ts';
 
@@ -54,20 +54,6 @@ export interface PlannerInput {
   reopened?: PayloadOf<'work-item.reopened'>[];
   /** Why the planner's last attempt failed, such as a scope its schema refused, so it does not hand that back again. */
   failure?: string | null | undefined;
-}
-
-/**
- * Whether a scope entry takes in a protected path: names one, is a folder or pattern with one in it, or is a
- * protected folder's name without its slash. A protected folder stands for a file in it, and one that matches
- * anywhere (an entry with no leading slash in CODEOWNERS) for its name at the top.
- */
-function touches(entry: string, protectedPaths: readonly string[]): boolean {
-  if (inScope(entry, protectedPaths)) return true;
-  const within = pattern(entry);
-  return protectedPaths.some((path) => {
-    const sample = path.replace(/^\*\*\//, '').replace(/\*/g, 'x');
-    return sample.endsWith('/') ? within.test(`${sample}x`) || within.test(sample.slice(0, -1)) : within.test(sample);
-  });
 }
 
 /** What is wrong with a scope entry, if anything: it must be a plain path in the repository, and keep out of the protected paths. */

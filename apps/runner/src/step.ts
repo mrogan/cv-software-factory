@@ -5,6 +5,7 @@
  *     RUNNER_STEP   the step, as JSON (`Step`)
  *     WORK          the job's volume, which lives until the work item merges or ends (default /work)
  *     PREPARE       the prepare pod's own folder, empty each time, for what it must not share with the agent
+ *     RUNNER_JOB, RUNNER_WORK_ITEM   the step's job and work item, which each line it prints names (`log.ts`)
  *
  * The agent pod also has ANTHROPIC_BASE_URL (the gateway), ANTHROPIC_API_KEY (its job token, which is not a key) and
  * HANDBACK_URL (the line's handback endpoint). The prepare pod has neither.

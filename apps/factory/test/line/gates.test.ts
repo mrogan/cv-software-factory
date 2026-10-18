@@ -114,4 +114,40 @@ describe('the gates, as events', () => {
     const merged = gateRecord([{ type: 'pull-request.merged', payload: {} }]);
     expect(gateEvents(pr({ state: 'closed', merged: true, mergeCommit: MERGED }), [], [], merged)).toEqual([]);
   });
+
+  it('close a work item whose pull request closed unmerged as verified while a cleared look stands on its hold', () => {
+    const cleared = {
+      for: 'release' as const,
+      outcome: 'cleared' as const,
+      sense: 'probe' as const,
+      check: 'search answers',
+      release: '6d8f9c7b54-3',
+      version: 'd728dbe',
+      against: 'c0ffee0',
+      carried: ['1033'],
+    };
+    expect(gateEvents(pr({ state: 'closed' }), [], [], nothing, { look: cleared, by: 'martin' })).toEqual([
+      {
+        type: 'work-item.closed',
+        actor: 'martin',
+        summary: 'PR #12 was closed unmerged, its signal cleared: verified',
+        payload: {
+          outcome: 'verified',
+          reason:
+            'The probe’s check “search answers” passed twice in a row on d728dbe, a release that carried work item #1033, not this one’s fix',
+        },
+      },
+    ]);
+    // The line's own close, caught after a crash, is the factory's.
+    expect(gateEvents(pr({ state: 'closed' }), [], [], nothing, { look: cleared, by: 'factory' })[0]?.actor).toBe(
+      'factory',
+    );
+    // A merge is a merge, whatever cleared.
+    expect(
+      gateEvents(pr({ state: 'closed', merged: true, mergeCommit: MERGED }), [], [], nothing, {
+        look: cleared,
+        by: 'martin',
+      })[0],
+    ).toMatchObject({ type: 'pull-request.merged' });
+  });
 });

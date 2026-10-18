@@ -208,6 +208,11 @@ export class FakeGitHub implements GitHubPort {
         });
         return { number, url: 'https://github.test/pull/12', nodeId: 'PR_12' };
       }
+      case 'closePullRequest': {
+        const pr = this.pulls.get(Number(args.number));
+        if (pr?.state === 'open') pr.state = 'closed';
+        return undefined;
+      }
       default:
         return undefined;
     }

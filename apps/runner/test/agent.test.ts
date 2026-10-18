@@ -31,11 +31,13 @@ interface RunOptions {
   work?: string;
   skill?: string;
   resultFiles?: Record<string, string>;
+  /** Where its JSON lines go: nowhere, unless a test reads them. */
+  lines?: string[];
 }
 
 async function run(
   script: Turn[],
-  { maxTurns = 6, repeat = false, result = false, work = volume(), skill, resultFiles }: RunOptions = {},
+  { maxTurns = 6, repeat = false, result = false, work = volume(), skill, resultFiles, lines }: RunOptions = {},
 ) {
   model = await scriptedModel(script, { repeat });
   const env = {
@@ -44,6 +46,8 @@ async function run(
     HOME: join(work, 'home'),
     ANTHROPIC_BASE_URL: model.url,
     ANTHROPIC_API_KEY: 'sfj_job-token',
+    RUNNER_JOB: 'coder-1001-1-1',
+    RUNNER_WORK_ITEM: '1001',
     RUNNER_STEP: JSON.stringify({
       agent: 'coder',
       repository: 'https://example.invalid/app',
@@ -55,7 +59,7 @@ async function run(
       ...(resultFiles ? { resultFiles } : {}),
     }),
   };
-  return runAgent(env, { checkFence: false, log: () => {} });
+  return runAgent(env, { checkFence: false, log: (line) => lines?.push(line) });
 }
 
 const bash = (command: string): Turn => ({ tool: 'Bash', input: { command, description: command } });
@@ -112,6 +116,28 @@ describe('a runner’s agent', () => {
     ]);
     expect(handback.ending).toBe('finished');
     expect(handback.patch).toContain('+++ b/.github/workflows/sneak.yml');
+  });
+
+  it('says what it does, a JSON line each naming its job: each turn, and each tool it calls by name alone', async () => {
+    const lines: string[] = [];
+    await run([bash('cat src/count.ts'), bash('exit 3'), { text: 'Looked.' }], { lines });
+    const logged = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(logged.every((l) => l.job === 'coder-1001-1-1' && l.workItem === '1001' && l.pod === 'agent')).toBe(true);
+    const said = logged
+      .filter((l) => l.msg !== 'the Agent SDK said')
+      .map(({ msg, turn, tool, subtype }) => ({ msg, turn, tool, subtype }));
+    expect(said).toEqual([
+      { msg: 'the agent started' },
+      { msg: 'turn', turn: 1 },
+      { msg: 'tool call', turn: 1, tool: 'Bash' },
+      { msg: 'turn', turn: 2 },
+      { msg: 'tool call', turn: 2, tool: 'Bash' },
+      { msg: 'a tool call failed', turn: 2, tool: 'Bash' },
+      { msg: 'turn', turn: 3 },
+      { msg: 'the agent ended', subtype: 'success' },
+    ]);
+    // What a tool was given, and what it gave back, stay out of the log.
+    expect(lines.join('\n')).not.toMatch(/cat src|count\.ts|xs\.length/);
   });
 
   it('stops at its turn limit, and says so', async () => {

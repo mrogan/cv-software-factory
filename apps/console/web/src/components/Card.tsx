@@ -42,6 +42,7 @@ export const OUTCOME: Record<Outcome, [word: string, tone: 'ok' | 'attn' | 'fain
   'no-ticket': ['Closed · no ticket', 'faint', false],
   'needs-you': ['Needs you', 'attn', true],
   waiting: ['Waiting for the planner', 'faint', false],
+  'waits-on-work': ['Waiting on overlapping work', 'faint', false],
   merged: ['Merged · waiting for release', 'faint', false],
   'in-progress': ['In progress', 'signal', false],
 };
@@ -52,7 +53,7 @@ export function OutcomeWord({ outcome }: { outcome: Outcome }) {
   const dot =
     outcome === 'in-progress'
       ? 'blink'
-      : outcome === 'waiting' || outcome === 'merged'
+      : outcome === 'waiting' || outcome === 'waits-on-work' || outcome === 'merged'
         ? 'hollow'
         : waits
           ? 'ring alarm'
@@ -109,7 +110,7 @@ export function VersionPill({
 }
 
 /** Outcomes still under way, whose duration is so far. */
-export const ONGOING = new Set<Outcome>(['in-progress', 'needs-you', 'held', 'waiting', 'merged']);
+export const ONGOING = new Set<Outcome>(['in-progress', 'needs-you', 'held', 'waiting', 'waits-on-work', 'merged']);
 
 /** What the work spent on models: "no model" when nothing was called, and "$0 · local" when the local model did it all. */
 export const spendWords = ({ calls, local, spend }: Pick<CardData, 'calls' | 'local' | 'spend'>) =>

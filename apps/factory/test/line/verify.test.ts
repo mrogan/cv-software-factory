@@ -8,6 +8,7 @@ import { Loki } from '../../src/clients/loki.ts';
 import { Prometheus } from '../../src/clients/prometheus.ts';
 import {
   closingComment,
+  closingPullComment,
   type FirstSignal,
   judgeObjective,
   type LookOptions,
@@ -16,6 +17,7 @@ import {
   reopeningComment,
   type Target,
   whatCleared,
+  whatClearedOnLook,
 } from '../../src/line/verify.ts';
 import { FakeProbes } from './fakes.ts';
 
@@ -579,6 +581,38 @@ describe('what cleared a work item, on its issue', () => {
         '',
         'The factory’s work item #1001 is closed as verified.',
       ].join('\n'),
+    );
+  });
+
+  it('says what a look again found cleared, on a release that did not carry the fix, and what it carried', () => {
+    const looked = {
+      for: 'release' as const,
+      outcome: 'cleared' as const,
+      sense: 'probe' as const,
+      check: 'search answers',
+      release: 'r2',
+      version: VERSION,
+      against: BEFORE,
+      carried: ['1033'],
+    };
+    expect(whatClearedOnLook(looked)).toBe(
+      'The probe’s check “search answers” passed twice in a row on bbbbbbb, a release that carried work item #1033, not this one’s fix',
+    );
+    expect(whatClearedOnLook({ ...looked, sense: 'metrics', check: 'latency p95', carried: ['1033', '1040'] })).toBe(
+      'The latency p95 of bbbbbbb’s requests stayed inside its objective for 30 minutes, on a release that carried work items #1033 and #1040, not this one’s fix',
+    );
+    expect(whatClearedOnLook({ ...looked, carried: [] })).toMatch(
+      /, a release that carried none of the factory’s fixes$/,
+    );
+    expect(closingComment(undefined, '1028', undefined, looked)).toBe(
+      [
+        `Verified in production. ${whatClearedOnLook(looked)}.`,
+        '',
+        'The factory’s work item #1028 is closed as verified.',
+      ].join('\n'),
+    );
+    expect(closingPullComment(looked, '1028').split('\n')[0]).toBe(
+      `Closed unmerged: the defect this fixes is gone from production. ${whatClearedOnLook(looked)}.`,
     );
   });
 

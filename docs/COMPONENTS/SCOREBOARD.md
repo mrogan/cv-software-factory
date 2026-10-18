@@ -16,7 +16,7 @@ flowchart LR
 ## Where it runs
 
 - **Alone in the `scoreboard` namespace**, on the `factory` image, which `scoreboard-images` admits there and nothing else ([admission control](ADMISSION-CONTROL.md)).
-- **No Service, no service account token, no telemetry.**
+- **No Service, no service account token, no telemetry,** and the [pod log collector](TELEMETRY.md#every-pods-log) leaves its log out.
 - **Its NetworkPolicy** lets it reach Postgres and DNS, and nothing in.
 - **Checked:** `make egress` checks where it reaches, and asks the API server that no service account of ours, or of a chart but Argo Rollouts' controller, may read its Secrets. `scoreboard-fences.test.ts` holds `deploy/` to the same, and to nothing reaching it.
 
@@ -40,6 +40,8 @@ One pass runs at a time, and a wake during a pass runs one more after it (`score
 | Verified fixed | Yes | As it changes |
 | The median from a ticket's first signal (or its `ticket.opened`, with none) to its verified close | Yes | As it changes |
 | False positives | Never | |
+
+A ticket is verified fixed while its last close is as verified on a real look: Verify's after its own fix's release, or a look again that found its signal cleared on a release that carried another's fix ([held and waiting work items](RELEASE-AND-VERIFY.md#held-and-waiting-work-items)). One a dry run verified, whose fix never shipped, is not.
 
 It never names a ticket.
 

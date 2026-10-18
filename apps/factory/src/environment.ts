@@ -81,10 +81,16 @@ async function scraping(prometheus: Prometheus, at: Date): Promise<Omit<Reading,
   };
 }
 
-/** Loki stored a record from anything within the last few minutes. */
+/**
+ * Loki stored a record sent over OTLP within the last few minutes. Not the pod log collector's, which reach Loki by a
+ * way of their own (deploy/base/pod-logs) and would keep it looking healthy when nothing else arrives.
+ */
 async function storingLogs(loki: Loki, at: Date): Promise<Omit<Reading, 'name'>> {
   const minutes = ENVIRONMENT.lokiMinutes;
-  const [stored] = await loki.instant(`sum(count_over_time({service_name=~".+"}[${minutes}m]))`, at);
+  const [stored] = await loki.instant(
+    `sum(count_over_time({service_name=~".+", service_name!="pod-logs"}[${minutes}m]))`,
+    at,
+  );
   const records = stored?.value ?? 0;
   return records > 0
     ? { healthy: true, saw: `${records} records stored in the ${minutes} minutes before` }

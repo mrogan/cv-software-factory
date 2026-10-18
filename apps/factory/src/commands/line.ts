@@ -35,9 +35,13 @@
  * TEMPO_URL, a missing log is judged on the metrics and the log alone, and wrong metrics wait. A dry run's release is
  * verified by the dry run's word.
  *
+ * Before it deletes a step's Jobs, however the step ended, the line keeps each pod's log in the artifact store at
+ * ARTIFACTS_DIR (`runners/logs.ts`); unset, it keeps none. Its step API serves a work item's, step by step, at
+ * `GET /v1/work-items/<id>/logs`, through a person's port-forward (`runners/serve.ts`).
+ *
  * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
- * HANDBACK_PORT (8081); KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; LINE_TAKE;
+ * HANDBACK_PORT (8081); ARTIFACTS_DIR; KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; LINE_TAKE;
  * RELEASE_ROLLOUT, PROMETHEUS_URL and LINE_DRY_RUN_RELEASE_SECONDS; PROBES_URL, LOKI_URL and TEMPO_URL;
  * FACTORY_PROFILE (default local) and ALL_LOCAL, as the gateway's: the profile's cap on a work item's spend, which the
  * line holds at, and where `policy/models.ts` sends each agent's calls, so a step on a local model is given longer to
@@ -196,6 +200,10 @@ async function serve(): Promise<number> {
   const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
   const env = process.env;
   const kube = kubeFrom(env);
+  const { StepLogs } = await import('../runners/logs.ts');
+  const artifactsDir = env.ARTIFACTS_DIR?.trim();
+  if (!artifactsDir) log.warn('ARTIFACTS_DIR is unset: no step’s pod logs are kept');
+  const stepLogs = artifactsDir ? new StepLogs(sql, new DiskArtifacts(artifactsDir)) : undefined;
   const runners = new Runners({
     sql,
     kube,
@@ -203,10 +211,11 @@ async function serve(): Promise<number> {
     gatewayUrl: env.RUNNER_GATEWAY_URL ?? 'http://gateway.factory.svc:8080',
     handbackUrl: env.RUNNER_HANDBACK_URL ?? 'http://line.factory.svc:8081/v1/handback',
     log,
+    ...(stepLogs ? { logs: stepLogs } : {}),
   });
   // The smoke run asks for a dry run; the steps Part B runs will say what they want.
   const github = new GitHubWorker(env.GITHUB_WORKER_URL ?? 'http://github:8080', { dryRun: true });
-  const { api, handback } = lineServers({ runners, github, log });
+  const { api, handback } = lineServers({ runners, github, log, ...(stepLogs ? { logs: stepLogs } : {}) });
   const port = Number(env.PORT ?? 8080);
   const handbackPort = Number(env.HANDBACK_PORT ?? 8081);
   // The step API on loopback only: a port-forward reaches it, and no pod can. Agent pods call the handback.

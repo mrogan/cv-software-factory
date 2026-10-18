@@ -40,4 +40,6 @@ Everything it draws is the design system's (`docs/design/system`):
   - the latest summary's story, ended, once the work item closes after it, with how it closed: a summary says nothing of where the work item stands. A story triage wrote before it stopped saying so loses the fixed words it ended with; the describer's own words stay as they are;
   - for a ticket, each sense that saw it, and the later versions it saw it in again;
   - a Release and Verify section, one block per release that carried the work item;
-  - a scrubber with a chapter per release, and each pass after the first folded to one.
+  - a scrubber with a chapter per release, and each pass after the first folded to one;
+  - a spec waiting for overlapping work (`wait.started`) as a chapter of its own (`WAITS`), ending at a ring that says what it waits for: its card reads "Waiting on overlapping work", at Build, and the line's row says which work item it waits for and why;
+  - a look again at a held or waiting work item (`signal.rechecked`) as a chapter: `CLEARED`, `STILL SEEN`, or at the end of a wait `UNSURE`. None moves the work item to Verify or draws a Release and Verify block. While a clearance stands on a hold for Martin, the hold's words on the sheet and the line say the signal cleared, on which version and release, and that closing its pull request closes it as verified.

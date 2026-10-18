@@ -118,6 +118,18 @@ describe('a queue with a limit', () => {
   });
 });
 
+describe('a spec waiting for overlapping work', () => {
+  it('waits at a stage of its own, which leaves room for the next ticket', async () => {
+    const first = await ticket('broken', '/search');
+    const queue = new Queue(database.writer, 'test');
+    expect(await queue.admit()).toBe(first);
+    const next = await ticket('degraded', '/products');
+    expect(await queue.admit()).toBeUndefined();
+    await database.writer`update line set stage = 'waiting' where work_item = ${first}`;
+    expect(await queue.admit()).toBe(next);
+  });
+});
+
 describe('work at Release and Verify', () => {
   it('waits there on the line, handed out as any other, and leaves room for the next ticket', async () => {
     await database.writer`insert into line (work_item, stage) values ('1001', 'release'), ('1002', 'verify')`;

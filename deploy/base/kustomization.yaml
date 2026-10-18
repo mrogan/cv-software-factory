@@ -6,6 +6,7 @@ resources:
   - namespaces.yaml
   - project.yaml
   - telemetry
+  - pod-logs
   - postgres
   - migrate
   - console

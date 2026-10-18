@@ -173,11 +173,14 @@ export class DryRunReads implements Reads {
 
   #state(pull: DryRunPull): PullRequestState {
     const sha = this.#made.branchMade(pull.repo, pull.head) ?? shaFor(`${pull.repo}#${pull.number} head`);
+    // A pull request the dry run closed unmerged never merges.
     const merged =
-      pull.readiedAt !== null && this.#now().getTime() - pull.readiedAt.getTime() >= this.#times.mergeAfterMs;
+      pull.closedAt === null &&
+      pull.readiedAt !== null &&
+      this.#now().getTime() - pull.readiedAt.getTime() >= this.#times.mergeAfterMs;
     return {
       number: pull.number,
-      state: merged ? 'closed' : 'open',
+      state: merged || pull.closedAt !== null ? 'closed' : 'open',
       merged,
       mergeCommit: merged ? shaFor(`${pull.repo}#${pull.number} merged`) : null,
       // The dry run stands in for the merge, so it is the App's, never Martin's.

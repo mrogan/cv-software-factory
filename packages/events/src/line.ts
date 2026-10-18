@@ -1,7 +1,7 @@
 /**
  * What the line decides by and the console draws with: the bounds on a work item's loop, how a spec's scope matches a
- * path, and a return's few words. One copy, here, because the console's image holds the events package and not the
- * factory's code, and two copies of a rule drift apart. Plain values, so the browser can import them.
+ * path and another spec's scope, when two versions are the same, and a return's few words. One copy, here, because the
+ * console's image holds the events package and not the factory's code, and two copies of a rule drift apart. Plain values, so the browser can import them.
  */
 import type { HoldCause, Stage } from './vocabulary.ts';
 
@@ -55,6 +55,46 @@ export const pattern = (entry: string) =>
 
 /** Whether any entry of a scope matches a path: the scope fence's rule, and the GitHub worker's. */
 export const inScope = (path: string, scope: readonly string[]) => scope.some((entry) => pattern(entry).test(path));
+
+/**
+ * Whether a scope entry takes in any of the paths, which may be folders or patterns too: names one, is a folder or
+ * pattern with one in it, or is a folder's name without its slash. A folder stands for a file in it, and a pattern
+ * that matches anywhere (one under any folder) for its name at the top. The planner keeps its scope out of the protected
+ * paths by it, and the line tells two specs that share a file by it.
+ */
+export function touches(entry: string, paths: readonly string[]): boolean {
+  if (inScope(entry, paths)) return true;
+  const within = pattern(entry);
+  return paths.some((path) => {
+    const sample = path.replace(/^\*\*\//, '').replace(/\*/g, 'x');
+    return sample.endsWith('/') ? within.test(`${sample}x`) || within.test(sample.slice(0, -1)) : within.test(sample);
+  });
+}
+
+/** The entries of one scope that share a file with another's: in either direction, as `touches` reads them. */
+export const scopesOverlap = (a: readonly string[], b: readonly string[]): string[] =>
+  a.filter((entry) => b.some((other) => touches(entry, [other]) || touches(other, [entry])));
+
+/** Work items in words: "work item #1033", "work items #1033 and #1040", or `none` for none. */
+export function workItemsWords(items: readonly string[], none: string): string {
+  const named = items.map((n) => `#${n}`);
+  if (!named.length) return none;
+  const listed = named.length > 1 ? `${named.slice(0, -1).join(', ')} and ${named.at(-1)}` : named[0];
+  return `work item${named.length > 1 ? 's' : ''} ${listed}`;
+}
+
+/**
+ * The release a look again found a held or waiting work item's signal cleared on, in words: what it carried, and that
+ * it was not this one's fix. The line's comments and closes, and the console, say it the same way.
+ */
+export const clearedOnWords = (carried: readonly string[]) =>
+  carried.length
+    ? `a release that carried ${workItemsWords(carried, '')}, not this one’s fix`
+    : 'a release that carried none of the factory’s fixes';
+
+/** The same version of the app, whether either names its commit in full or shortened. */
+export const sameVersion = (a: string, b: string) =>
+  a === b || (/^[0-9a-f]{7,40}$/.test(a) && /^[0-9a-f]{7,40}$/.test(b) && (a.startsWith(b) || b.startsWith(a)));
 
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 

@@ -61,12 +61,13 @@ datasources:
         url: http://tempo:3200
         jsonData:
           # A record's trace id is structured metadata in Loki, not part of its text, so a line filter on it finds
-          # nothing: the query filters on the field, in every service's streams, as a trace crosses services. `0*`
-          # still matches an id given without its leading zeros.
+          # nothing: the query filters on the field, in every service's streams, as a trace crosses services, but the
+          # pod log collector's, whose records have no such field. `0*` still matches an id given without its leading
+          # zeros.
           tracesToLogsV2:
             datasourceUid: loki
             customQuery: true
-            query: '{service_name=~".+"} | trace_id=~"0*$${__span.traceId}"'
+            query: '{service_name=~".+", service_name!="pod-logs"} | trace_id=~"0*$${__span.traceId}"'
             spanStartTimeShift: -5m
             spanEndTimeShift: 5m
           serviceMap:
