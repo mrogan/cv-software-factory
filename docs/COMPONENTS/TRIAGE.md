@@ -68,7 +68,7 @@ And to problems held for the environment.
 |---|---|
 | Approve | Makes of each problem what it would have made without the burst, in the order the sense sent them: a ticket, as a rule, which the line takes in its turn, or evidence on a ticket opened since. Closes the burst, naming the tickets |
 | Reject | Closes it with no ticket. A problem the sense still sees is found again, and counts toward a burst afresh |
-| Answer in words | Leaves it waiting |
+| Answer in words | Leaves it waiting: it is still held, and Needs you lists it, until he approves or rejects it |
 
 Triage does as he answered once an event is appended, as for a finding.
 
@@ -98,7 +98,7 @@ A planner's finding is trusted no more than a report, since a visitor can read t
 |---|---|
 | Approve | Opens its ticket on its own work item, with the category and severity `policy/triage.ts` gives its symptom, as a sense's would be, or joins it to an open ticket that has it |
 | Reject | Closes it |
-| Answer in words | Leaves it waiting |
+| Answer in words | Leaves it waiting: it is still held, and Needs you lists it, until he approves or rejects it |
 
 An answer settles only the findings that reached the hold before it, in the store's order, however it was written. If one joined after it, triage acts on none of them: the hold starts again on the same work item, and waits for an answer that has read them all.
 
