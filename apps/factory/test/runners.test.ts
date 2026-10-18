@@ -576,6 +576,34 @@ describe('a step’s logs', () => {
     expect((await serve(false, '/v1/work-items/1026/logs')).status).toBe(404);
   });
 
+  it('ends the connection when a kept log fails partway through serving it', async () => {
+    const found = [{ job: 'coder-1026-1-1', part: 'agent', pod: 'coder-1026-1-1-agent-x7k2p' }];
+    const logs = {
+      of: async () => found,
+      print: async (_found: unknown, write: (chunk: string) => void) => {
+        write('== coder-1026-1-1 agent\n');
+        // As a stream read from the store would: the heading goes out before the failure.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        throw new Error('the artifact store lost the rest');
+      },
+    } as unknown as StepLogs;
+    const github = {} as Parameters<typeof lineServers>[0]['github'];
+    const { api } = lineServers({
+      runners: { handback: () => () => {} } as unknown as Runners,
+      github,
+      log: quiet,
+      logs,
+    });
+    await new Promise<void>((resolve) => api.listen(0, '127.0.0.1', resolve));
+    try {
+      const answer = await fetch(`http://127.0.0.1:${(api.address() as AddressInfo).port}/v1/work-items/1026/logs`);
+      expect(answer.status).toBe(200);
+      await expect(answer.text()).rejects.toThrow();
+    } finally {
+      await new Promise((resolve) => api.close(resolve));
+    }
+  });
+
   it('stops a step’s agent even when its log never comes', async () => {
     let token = '';
     const { runners, calls, close } = await line(

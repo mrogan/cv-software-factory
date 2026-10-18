@@ -117,7 +117,8 @@ export function lineServers({
       send(res, 404, { error: 'not found' });
     })().catch((error: unknown) => {
       log.error({ err: error }, 'a line request failed');
-      if (res.headersSent) return;
+      // Half a log has gone out under a 200: end the connection, so the client sees it cut rather than wait on it.
+      if (res.headersSent) return void res.destroy();
       if (error instanceof RangeError || error instanceof SyntaxError)
         send(res, 400, { error: (error as Error).message });
       else send(res, 500, { error: (error as Error)?.message ?? 'failed' });
