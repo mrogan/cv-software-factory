@@ -1144,6 +1144,7 @@ export class Line {
     if (said === this.#described) return;
     let changed: boolean;
     try {
+      // It names no work item: a deploy carries many.
       changed = await github.act('describeDeploy', repo, deploy);
     } catch (error) {
       // Merged or moved on since the watch last looked: its next pass says which pull request is open.
