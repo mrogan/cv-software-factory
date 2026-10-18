@@ -147,6 +147,10 @@ class FakeKube implements Kube {
     throw new Error(`The line may not read ${path}`);
   }
 
+  async text(path: string): Promise<string | undefined> {
+    throw new Error(`The line may not read ${path}`);
+  }
+
   async create(): Promise<void> {
     throw new Error('The release watch changes nothing');
   }

@@ -1,6 +1,6 @@
 /**
  * The Kubernetes API, as much of it as the line needs to run jobs in the `runners` namespace: create, read and delete
- * a Job, and create a work item's volume. In the cluster it uses the pod's service account; on a host, the address
+ * a Job, create a work item's volume, and read a Job's pods and their logs. In the cluster it uses the pod's service account; on a host, the address
  * `kubectl proxy` serves (KUBE_API_URL), which carries the person's own credentials.
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -12,6 +12,8 @@ const ACCOUNT = '/var/run/secrets/kubernetes.io/serviceaccount';
 export interface Kube {
   /** An object read through its schema, or undefined if there is none. */
   get<T>(path: string, schema: z.ZodType<T>): Promise<T | undefined>;
+  /** Something read as text, such as a pod's log, or undefined if there is none. */
+  text(path: string): Promise<string | undefined>;
   create(path: string, body: unknown): Promise<void>;
   remove(path: string): Promise<void>;
 }
@@ -56,6 +58,12 @@ export function client(send: Send): Kube {
       if (!parsed.success) throw new KubeError(0, `GET ${path} answered with something else`);
       return parsed.data;
     },
+    async text(path: string) {
+      const answer = await send('GET', path);
+      if (answer.status === 404) return undefined;
+      check('GET', path, answer);
+      return answer.text;
+    },
     async create(path: string, body: unknown) {
       const answer = await send('POST', path, body);
       // Made already, by an earlier attempt: the same name is the same thing.
@@ -80,6 +88,7 @@ export function kubeFrom(env = process.env): Kube {
         method,
         headers: { 'content-type': 'application/json' },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(30_000),
       });
       return { status: response.status, text: await response.text() };
     });

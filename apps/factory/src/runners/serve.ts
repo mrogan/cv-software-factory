@@ -7,6 +7,7 @@
  *     :8081  POST /v1/handback      a job's result, with its token (agent pods)
  *     :8080  POST /v1/steps         run one step (`StepRequest`) and answer with how it went
  *            DELETE /v1/work-items/<id>  the work item merged or is over: delete its volume
+ *            GET  /v1/work-items/<id>/logs  what its runners' pods printed, as the line kept them (`logs.ts`)
  *            POST /v1/smoke         the smoke run, from a commit of the app (`smoke.ts`)
  *            GET  /health
  */
@@ -14,6 +15,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import type { GitHubWorker } from '../github/worker-client.ts';
+import type { StepLogs } from './logs.ts';
 import { smoke } from './smoke.ts';
 import type { Runners, StepRequest } from './steps.ts';
 
@@ -49,7 +51,18 @@ async function json(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
 }
 
-export function lineServers({ runners, github, log }: { runners: Runners; github: GitHubWorker; log: Logger }): {
+export function lineServers({
+  runners,
+  github,
+  log,
+  logs,
+}: {
+  runners: Runners;
+  github: GitHubWorker;
+  log: Logger;
+  /** Where the steps' logs are kept; without it the line keeps none, and serves none. */
+  logs?: StepLogs;
+}): {
   api: Server;
   handback: Server;
 } {
@@ -63,6 +76,17 @@ export function lineServers({ runners, github, log }: { runners: Runners; github
       if (ended?.[1] && req.method === 'DELETE') {
         await runners.finish(ended[1]);
         return send(res, 200, { finished: ended[1] });
+      }
+      const logged = /^\/v1\/work-items\/([1-9]\d{0,8})\/logs$/.exec(pathname);
+      if (logged?.[1] && req.method === 'GET') {
+        if (!logs) return send(res, 404, { error: 'The line keeps no logs: ARTIFACTS_DIR is unset.' });
+        const workItem = logged[1];
+        // Read before the answer starts, so a store that fails answers 500 rather than half a log.
+        const found = await logs.of(workItem);
+        // Text that is never run: a browser sniffing it as a page would run what an agent printed.
+        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'x-content-type-options': 'nosniff' });
+        await logs.print(workItem, found, (chunk) => res.write(chunk));
+        return void res.end();
       }
       if (req.method !== 'POST') return send(res, 404, { error: 'not found' });
       if (!/^application\/json(;|$)/i.test(req.headers['content-type'] ?? '')) {

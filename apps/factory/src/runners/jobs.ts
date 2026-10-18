@@ -11,7 +11,7 @@
  * - The volume goes when the work item merges, or is over unmerged (`Runners.finish`).
  *
  * Both run the `factory-runner` image under the restricted Pod Security Standard, with no service account token and
- * a read-only root file system, and each has a deadline.
+ * a read-only root file system, and each pod has a deadline.
  */
 import type { Step } from '../../../runner/src/step.ts';
 
@@ -67,6 +67,9 @@ export interface AgentSettings extends JobSettings {
   hosts: { ip: string; hostnames: string[] }[];
 }
 
+/** How long a Job outlasts its pod's deadline. */
+export const JOB_GRACE_SECONDS = 60;
+
 const env = (values: Record<string, string>) => Object.entries(values).map(([name, value]) => ({ name, value }));
 
 function job(
@@ -89,12 +92,15 @@ function job(
     metadata: { name: `${names.job}-${part}`, namespace: NAMESPACE, labels },
     spec: {
       backoffLimit: 0,
-      activeDeadlineSeconds: settings.deadlineSeconds,
+      // The deadline is the pod's, so a pod out of time fails and stays, with its log, until the line has kept it.
+      // The Job's own, a minute later, is a backstop: a Job past it has its pods deleted.
+      activeDeadlineSeconds: settings.deadlineSeconds + JOB_GRACE_SECONDS,
       ttlSecondsAfterFinished: 3600,
       template: {
         metadata: { labels },
         spec: {
           restartPolicy: 'Never',
+          activeDeadlineSeconds: settings.deadlineSeconds,
           automountServiceAccountToken: false,
           enableServiceLinks: false,
           ...pod,
@@ -112,6 +118,9 @@ function job(
               args: [part],
               env: env({
                 WORK: '/work',
+                // Named on each line the pod prints (apps/runner/src/log.ts).
+                RUNNER_JOB: names.job,
+                RUNNER_WORK_ITEM: names.workItem,
                 // pnpm, at the version the image holds, read-only: neither pod can change the pnpm the other runs.
                 COREPACK_HOME: '/opt/corepack',
                 ...(part === 'prepare'
