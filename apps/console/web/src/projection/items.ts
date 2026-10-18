@@ -165,11 +165,13 @@ export function stageOf(event: PublicEvent): Stage | null {
       return 'release';
     case 'release.started':
     case 'canary.stepped':
-    case 'release.promoted':
     case 'release.rolled-back':
     case 'release.errored':
     case 'release.aborted':
       return 'release';
+    // The line moves the work a release carries to Verify as it promotes, and records nothing more until a sense has
+    // looked, which can take the log watcher half an hour.
+    case 'release.promoted':
     case 'verification.finished':
       return 'verify';
     // A verified ticket whose defect came back goes back to Plan, for a fresh pass.
