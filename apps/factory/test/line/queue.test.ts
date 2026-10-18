@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type NewEvent, VERSIONS } from '@software-factory/events';
-import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
+import { DiskArtifacts, EventWriter, issueJobToken, nextWorkItem } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import { type Pending, Queue } from '../../src/line/queue.ts';
@@ -78,6 +78,26 @@ describe('a kept handback', () => {
     await queue.done('1001', 'review', null);
     const kept = (await queue.get('1001'))?.effects;
     expect(kept).toMatchObject({ begun: ['check-run', 'review'], done: { 'check-run': 42, review: null } });
+  });
+});
+
+describe("a step's number", () => {
+  it('counts on from the last, and from the job tokens of a row made afresh, so no job name comes round again', async () => {
+    const queue = new Queue(database.writer, 'test');
+    await database.writer`insert into line (work_item, stage) values ('1001', 'plan')`;
+    expect(await queue.startStep('1001')).toBe(1);
+    expect(await queue.startStep('1001')).toBe(2);
+    // The row taken away by hand (only the owner may), and made again: its job tokens stay, the fourth the last.
+    for (const job of ['planner-1001-1-1', 'planner-1001-1-2', 'coder-1001-1-4']) {
+      await issueJobToken(database.writer, { job, workItem: '1001', agent: job.split('-')[0] as string });
+    }
+    // Another work item's tokens count for nothing here.
+    await issueJobToken(database.writer, { job: 'coder-1002-1-9', workItem: '1002', agent: 'coder' });
+    await database.owner`delete from line where work_item = '1001'`;
+    await database.writer`insert into line (work_item, stage) values ('1001', 'plan')`;
+    expect(await queue.startStep('1001')).toBe(5);
+    expect(await queue.startStep('1001')).toBe(6);
+    await expect(queue.startStep('1003')).rejects.toThrow('not on the line');
   });
 });
 

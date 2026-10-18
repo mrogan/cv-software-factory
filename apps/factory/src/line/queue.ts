@@ -50,7 +50,7 @@ export interface Pending {
 export interface QueueItem {
   workItem: string;
   stage: QueueStage;
-  /** Every step started for it so far. */
+  /** The number of its last step started: how many it has started, unless its row was made afresh. */
   steps: number;
   failures: number;
   failure: string | null;
@@ -236,10 +236,16 @@ export class Queue {
       where work_item = ${workItem} and held_by = ${this.#me}`;
   }
 
-  /** Counts a step started, and returns its number within the work item: it names the step's job. */
+  /**
+   * Counts a step started, and returns its number within the work item: it names the step's job and job token, so it
+   * is one no job of the work item has had. It comes after both the row's count and the last number in a job token's
+   * name (`runners/jobs.ts`), so a work item whose row was made afresh, as by a hand edit, never reuses one.
+   */
   async startStep(workItem: string): Promise<number> {
     const [row] = await this.#sql<{ steps: number }[]>`
-      update line set steps = steps + 1 where work_item = ${workItem} returning steps`;
+      update line l set steps = 1 + greatest(l.steps, coalesce(
+        (select max(substring(t.job from '-([0-9]+)$')::int) from job_tokens t where t.work_item = l.work_item), 0))
+      where l.work_item = ${workItem} returning l.steps`;
     if (!row) throw new Error(`Work item ${workItem} is not on the line.`);
     return row.steps;
   }

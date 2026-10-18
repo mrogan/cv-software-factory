@@ -20,17 +20,17 @@ const LABEL = 'factory.mrogan.dev';
 
 export interface JobNames {
   /**
-   * The step's job, such as `reviewer-1002-1-4`: the agent, the work item, the agent's round, and how many steps the
-   * work item has started, whichever agent ran them. That one is the reviewer's first round and the work item's
-   * fourth step. The count makes each job's name unique.
+   * The step's job, such as `reviewer-1002-1-4`: the agent, the work item, the agent's round, and the step's number
+   * within the work item, whichever agent ran its steps (`Queue.startStep`). That one is the reviewer's first round and
+   * the work item's fourth step. The number makes each job's name unique.
    */
   job: string;
   workItem: string;
 }
 
 /**
- * A Kubernetes name from parts (`attempt` is the work item's count of steps): lower case, digits and dashes, and
- * short enough.
+ * A Kubernetes name from parts (`attempt` is the step's number within the work item): lower case, digits and dashes,
+ * and short enough.
  */
 export const jobName = (agent: string, workItem: string, round: number, attempt = 1) =>
   `${agent}-${workItem}-${round}-${attempt}`
