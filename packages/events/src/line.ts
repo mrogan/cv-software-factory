@@ -33,11 +33,11 @@ export const LIMITS = {
 } as const;
 
 /**
- * The causes of a hold that an answer in words leaves standing: triage's, which wait for Martin to approve or reject
- * what they hold, and a deploy's, which waits for his merge of a deploy pull request. His words settle none of them,
- * so the work item stays held, and Needs you lists it, until he does. The line's `ANSWERS` has each wait for an answer.
+ * Triage's causes of a hold, which an answer in words leaves standing: triage acts only on Martin's approval or
+ * rejection of what they hold, so his words settle nothing, and the work item stays held, and Needs you lists it,
+ * until he gives one. The line's `ANSWERS` has each wait for an answer in words.
  */
-export const WORDS_LEAVE_HELD: readonly HoldCause[] = ['suggestion', 'finding', 'burst', 'environment', 'deploy'];
+export const WORDS_LEAVE_HELD: readonly HoldCause[] = ['suggestion', 'finding', 'burst', 'environment'];
 
 /**
  * A scope entry as a pattern: a file (`src/money.ts`), a folder ending in `/` (`test/`), or a pattern with `*` (one

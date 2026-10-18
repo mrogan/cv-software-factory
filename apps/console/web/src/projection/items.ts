@@ -358,7 +358,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         };
         break;
       case 'hold.answered':
-        // Words settle nothing for a hold of triage's or a deploy's, as the line reads them: it still waits for Martin.
+        // Words settle nothing for a hold of triage's, as the line reads them: it still waits for Martin.
         if (event.payload.decision === 'answered' && state.hold && WORDS_LEAVE_HELD.includes(state.hold.cause)) break;
         state.hold = undefined;
         break;

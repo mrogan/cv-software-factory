@@ -69,8 +69,8 @@
  * deadline) are each agent's (`agents/`); the bounds on the loop are `LIMITS`.
  *
  * A hold waits for Martin's answer, and what the answer does depends on why the work item is held: `ANSWERS` has a
- * rule for each cause and each answer. An answer in words to triage's holds, or a deploy's, leaves the hold standing
- * (`WORDS_LEAVE_HELD`): only his approval, his rejection or a release settles those.
+ * rule for each cause and each answer. An answer in words to one of triage's holds leaves it standing
+ * (`WORDS_LEAVE_HELD`): only his approval or his rejection settles those.
  */
 import {
   ALWAYS_HELD,
@@ -366,11 +366,11 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         const said =
           event.payload.answer ??
           (cause === 'scope' && event.payload.decision === 'approved' ? FENCE_APPROVED : undefined);
+        // Words settle nothing for triage's holds: the hold stands, and the work item waits as it did.
+        if (event.payload.decision === 'answered' && WORDS_LEAVE_HELD.includes(cause)) break;
         if ((stage === 'plan' || resolution === 'replan') && said) {
           state.answers.push({ asked: askedOf(state.hold, state.fenced), answer: said });
         }
-        // Words settle nothing for these: the hold stands, and the work item waits as it did.
-        if (event.payload.decision === 'answered' && WORDS_LEAVE_HELD.includes(cause)) break;
         state.hold = undefined;
         state.answer = { cause, stage, decision: event.payload.decision, resolution, text: event.payload.answer };
         state.fenceRefusals = 0;

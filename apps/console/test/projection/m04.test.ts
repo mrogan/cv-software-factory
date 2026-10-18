@@ -318,6 +318,7 @@ describe('Triage’s panel', () => {
     expect(picture).toMatchObject({ type: 'judgement', page: shot });
     // His words settle nothing: the defect is still held, waiting for him to approve or reject it.
     expect(project(finding, AFTERNOON).cards[0]?.outcome).toBe('held');
+    expect(projectSheet(finding, '2002', AFTERNOON)?.chapters.map((c) => c.label)).toContain('ANSWERED');
     // Once Martin has approved it, and triage opened its ticket, it waits at Plan like any ticket, pictured by what
     // triage made of it, as a report's ticket is, until the line has evidence of its own.
     const ticketed = work('2002', AFTERNOON - 60_000)

@@ -858,7 +858,7 @@ describe('Martin’s answer to a hold', () => {
     expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
   });
 
-  it('keeps a hold of triage’s, or a deploy’s, standing when he answers it in words, so Needs you still lists it', () => {
+  it('keeps a hold of triage’s standing when he answers it in words, so Needs you still lists it', () => {
     for (const cause of WORDS_LEAVE_HELD) {
       expect(ANSWERS[cause].answered).toBe('wait');
       const words = [held(cause, 'triage'), answer('answered', 'Leave it for a sense')];
@@ -867,9 +867,8 @@ describe('Martin’s answer to a hold', () => {
       // Words do not use up the hold: his approval after them still settles it.
       expect(fold([...words, answer('approved')])).toMatchObject({ hold: undefined, answer: { decision: 'approved' } });
     }
-    // Every other cause's answer in words does something, and settles the hold.
+    // Every other cause's answer in words settles the hold.
     for (const cause of HOLD_CAUSES.filter((c) => !WORDS_LEAVE_HELD.includes(c))) {
-      expect(ANSWERS[cause].answered).not.toBe('wait');
       expect(fold([ticket, spec, held(cause, 'build'), answer('answered', 'Go on')]).hold).toBeUndefined();
     }
   });

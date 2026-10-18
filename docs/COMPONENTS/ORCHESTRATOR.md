@@ -127,11 +127,11 @@ Each hold names its cause, and Martin's answer does what `ANSWERS` in `line/mach
 | `review` | Still blocking after two reviews, or after the round for an approval's suggestions, an escalation whose findings do not cite the ticket, or the coder changed nothing after a review | Stands in for the reviewer's approval | Sends the work back to the coder, with his words |
 | `beyond-ticket` | The reviewer escalates a spec that goes beyond its ticket | Stands in for the reviewer's approval | Sends the spec back to the planner |
 | `merge` | The fix has passed its gates and review | Waits for his merge | Sends the work back to the coder |
-| `deploy` | The merged fix waits for a release ([Release](RELEASE-AND-VERIFY.md#release)) | Waits: he settles it by merging the deploy pull request | Waits, still held |
+| `deploy` | The merged fix waits for a release ([Release](RELEASE-AND-VERIFY.md#release)) | Waits: he settles it by merging the deploy pull request | Waits |
 | `verify` | The signal persisted a second time, Verify could not tell for 24 hours, or nothing can judge the fix ([Verify](RELEASE-AND-VERIFY.md#verify)) | Closes the work item as verified, with his words | Sends it back to Plan |
 | `spend` | The work item has spent its cap on models | Carries on, and holds again until the cap is raised | Carries on |
 
-Triage's own holds, `finding`, `suggestion`, `burst` and `environment`, are on [its page](TRIAGE.md). An answer in words to one of them, or to a `deploy`, settles nothing, so the hold stands and Needs you still lists it (`WORDS_LEAVE_HELD` in the events package, which the line and the console both read).
+Triage's own holds, `finding`, `suggestion`, `burst` and `environment`, are on [its page](TRIAGE.md). An answer in words to one of them settles nothing, so the hold stands and Needs you still lists it (`WORDS_LEAVE_HELD` in the events package, which the line and the console both read).
 
 ## Spend
 
