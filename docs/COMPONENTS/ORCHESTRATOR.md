@@ -50,6 +50,7 @@ Each stage can also hold for Martin (see [Holds](#holds-and-martins-answers)).
 
 - It takes the oldest open ticket of the highest severity into Plan when nothing is in Plan or waiting for Build. A work item that waits for overlapping work (below) is at a stage of its own, `waiting`, so the line still takes the next ticket.
 - It runs one step at a time in each of Plan, Build and Review.
+- It runs one step at a time on the local model, whatever its stage, since LM Studio answers one prediction at a time. A step whose agent `policy/models.ts` sends there (every agent, under `ALL_LOCAL`) waits while another such step runs, and the line tries again on its next pass. A step on Claude never waits for one on the local model, so a mixed profile keeps its pace.
 - As a ticket enters Plan, it opens the ticket's issue through the App, from the ticket's public view. The fix's pull request refers to that issue.
 - After Martin's merge, it carries the work item through Release and Verify until it closes.
 

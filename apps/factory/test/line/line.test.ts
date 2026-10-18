@@ -711,6 +711,44 @@ describe('the line', () => {
     expect(claude.steps.requests[0]).toMatchObject({ agent: 'planner', maxTurns: 30, deadlineSeconds: 15 * 60 });
   });
 
+  it('runs one step at a time on the local model, whatever its stage, and holds no step on Claude back for it', async () => {
+    /** A ticket carried to its describer, which works on; then a second ticket, and a pass that may start its planner. */
+    const twoAtOnce = async (providerOf: NonNullable<LineOptions['providerOf']>) => {
+      const first = await ticket('broken', '/search');
+      const it = line({ ...AGENTS, describer: () => 'works on' }, events, { providerOf });
+      await it.pass(); // the first's planner
+      await it.pass(); // the first's coder
+      it.github.pass();
+      await it.pass(); // the gates, and the first's reviewer
+      // Only now, so that its planner cannot start while nothing else is in hand.
+      const second = await ticket('broken', '/products');
+      await it.line.tick(); // the first's describer starts, and the second comes into Plan
+      for (let tries = 0; it.steps.working === 0 && tries < 200; tries++) await new Promise((r) => setTimeout(r, 5));
+      expect(it.steps.working).toBe(1);
+      // Whatever else the pass started ends of itself; the describer works on until it is stopped.
+      await it.steps.cancel();
+      await it.line.idle();
+      // Sorted: two steps at once reach the runners in either order.
+      const started = it.steps.requests
+        .slice(3)
+        .map((r) => `${r.workItem === first ? 'first' : 'second'} ${r.agent}`)
+        .sort();
+      const waiting = await stage(second);
+      await database.writer`update line set stage = 'ended' where work_item in (${first}, ${second})`;
+      return { started, second: waiting };
+    };
+
+    // On the local model the second's planner waits in Plan for the describer, although they are at different stages.
+    expect(await twoAtOnce(() => 'local')).toEqual({ started: ['first describer'], second: 'plan' });
+    // On a mixed profile, or on Claude, neither waits for the other.
+    for (const providerOf of [
+      (agent: string) => (agent === 'describer' ? 'local' : 'anthropic'),
+      () => 'anthropic',
+    ] as NonNullable<LineOptions['providerOf']>[]) {
+      expect((await twoAtOnce(providerOf)).started).toEqual(['first describer', 'second planner']);
+    }
+  });
+
   it('runs a failed step again as a new job, and holds the work item when it keeps failing', async () => {
     const workItem = await ticket();
     const { pass, steps } = line({ ...AGENTS, planner: () => handback({ verdict: 'maybe' }) });
