@@ -13,4 +13,6 @@ create policy inbox_writer_triages on inbox for update to factory_writer using (
 create policy inbox_writer_prunes on inbox for delete to factory_writer using (outcome = 'counted');
 grant delete on inbox to factory_writer;
 
+-- The prune finds the old repeats by the first, and whether a sense has a newer signal by the second.
 create index inbox_counted on inbox (received_at) where outcome = 'counted';
+create index inbox_sense on inbox (sense, received_at);
