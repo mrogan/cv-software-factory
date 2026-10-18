@@ -309,16 +309,34 @@ describe('a held work item looked at again after a release', () => {
   });
 
   it('looks at one work item at a time across the line', async () => {
-    const probes = new FakeProbes({ outcome: 'persists', version: NEW, runs: ['failed', 'failed'] });
-    const { line: it, github } = line(probes);
+    // The probes answer only when the test lets them, so the first look is still in hand as the line goes on.
+    let answer = () => {};
+    const asked: string[] = [];
+    const probes = {
+      verify: async (request: { route: string }): Promise<VerifyAnswer> => {
+        asked.push(request.route);
+        await new Promise<void>((resolve) => {
+          answer = resolve;
+        });
+        return { outcome: 'persists', version: NEW, runs: ['failed', 'failed'] };
+      },
+    };
+    const { line: it, github } = line(probes as unknown as FakeProbes);
     const first = await held('gates', github, 12);
     const second = await held('gates', github, 14);
     await promoted(null);
-    await pass(it);
+    await it.tick();
+    await expect.poll(() => asked.length).toBe(1);
+    await it.tick();
+    expect(asked).toHaveLength(1);
+    answer();
+    await it.idle();
+    await it.tick();
+    await expect.poll(() => asked.length).toBe(2);
+    answer();
+    await it.idle();
     const looked = async () =>
       (await payloads(first, 'signal.rechecked')).length + (await payloads(second, 'signal.rechecked')).length;
-    expect(await looked()).toBe(1);
-    await pass(it);
     expect(await looked()).toBe(2);
     // A signal that persists leaves both held.
     expect([await stage(first), await stage(second)]).toEqual(['held', 'held']);
