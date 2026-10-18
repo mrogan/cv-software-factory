@@ -161,7 +161,7 @@ A held work item's defect can go with another change: a duplicate's fix, Martin'
 - **The line's own holds close as verified**: `scope`, `gates`, `failures`, `spend`, and `review` when the reviewer asked for changes once too often. The line closes the issue as completed and the pull request unmerged, each saying which release cleared it.
 - **Holds that wait on Martin's judgement stay**: `spec`, `question`, `ticket-rejected`, `beyond-ticket`, `nothing-to-fix`, `merge`, `deploy`, `verify`, `tests-first`, `unknown`, and `review` when the reviewer escalated. The look is recorded, and the hold says the signal cleared on that version. While it stands, his closing the work item's pull request in GitHub closes it as verified.
 
-A signal on that version, or a later look that finds it, ends the clearance. Triage's holds are never looked at: they come before a ticket reaches the line.
+A signal seen since on that version or a later one, or a later look that finds it, ends the clearance. Triage's holds are never looked at: they come before a ticket reaches the line.
 
 Triage's own holds, `finding`, `suggestion`, `burst` and `environment`, are on [its page](TRIAGE.md). An answer in words to one of them settles nothing, so the hold stands and Needs you still lists it (`WORDS_LEAVE_HELD` in the events package, which the line and the console both read).
 

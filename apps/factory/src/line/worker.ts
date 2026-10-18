@@ -59,7 +59,7 @@
  */
 import { hostname } from 'node:os';
 import type { Evidence, PayloadOf, RawEvent, SignalSource, SymptomClass } from '@software-factory/events';
-import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD } from '@software-factory/events';
+import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD, workItemsWords } from '@software-factory/events';
 import { type EventWriter, sendSignal } from '@software-factory/store';
 import { lineStopped, uuidFrom } from '@software-factory/triage';
 import type { Logger } from 'pino';
@@ -96,6 +96,7 @@ import { AGENTS, type Agents } from './agents/index.ts';
 import { capOn, capsInForce, lastSeq } from './caps.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
 import {
+  closesWhenCleared,
   decide,
   dryRunLeft,
   type Facts,
@@ -1313,7 +1314,18 @@ export class Line {
         required ??= await github.read('requiredChecks', repo, { branch: 'main' });
         // A clearance that stands on the hold makes a close unmerged a verified one, and its issue closes completed.
         const cleared = state.hold ? state.cleared : undefined;
-        const drafts = gateEvents(pr, runs, required, gateRecord(raw), cleared);
+        // The line closes the pull request of a hold of its own itself: one closed under such a hold was its close,
+        // caught here after a crash; any other is Martin's.
+        const drafts = gateEvents(
+          pr,
+          runs,
+          required,
+          gateRecord(raw),
+          cleared && {
+            look: cleared,
+            by: closesWhenCleared(state) ? 'factory' : 'martin',
+          },
+        );
         const verified = drafts.some((d) => d.type === 'work-item.closed' && d.payload.outcome === 'verified');
         if (cleared && verified && item.issue) {
           await github.act(
@@ -1418,7 +1430,11 @@ export class Line {
     if (s.closed) return facts;
     const waits = !s.hold && s.waiting !== undefined && !s.waiting.ended;
     if ((s.hold && !WORDS_LEAVE_HELD.includes(s.hold.cause)) || waits) {
-      this.#promotion ??= this.#latestPromotion();
+      this.#promotion ??= this.#latestPromotion().catch((error: unknown) => {
+        // A read that failed is read again, not kept for the pass.
+        this.#promotion = undefined;
+        throw error;
+      });
       const promotion = await this.#promotion;
       if (promotion) {
         const [started] = await this.#o.sql<{ ts: Date }[]>`
@@ -1430,7 +1446,9 @@ export class Line {
       }
     }
     if (waits) facts.waitedOn = await this.#closedAt(s.waiting?.on ?? []);
-    const atCheck = !s.hold && !s.merged && s.spec && !s.waiting && !s.pullRequest && !s.rebuild;
+    // Once, before the coder's first round: not after a coder's step has failed, or handed back work not yet done.
+    const started = item.failures > 0 || item.effects !== null;
+    const atCheck = !s.hold && !s.merged && s.spec && !s.waiting && !s.pullRequest && !s.rebuild && !started;
     if (atCheck && s.spec && this.#o.only === null) facts.overlaps = await this.#overlaps(item.workItem, s.spec.scope);
     return facts;
   }
@@ -1472,14 +1490,12 @@ export class Line {
 
   async #readFlight(): Promise<InFlight[]> {
     const rows = (await this.#queue.all()).filter((row) => row.stage !== 'ended' && !row.waiting);
-    const flight: InFlight[] = [];
-    for (const row of rows) {
-      const s = fold((await this.#events(row.workItem)).events);
-      if (s.closed) continue;
-      const waitsOn = s.waiting && !s.waiting.ended ? s.waiting.on : [];
-      flight.push({ workItem: row.workItem, scope: s.latestScope, waitsOn });
-    }
-    return flight;
+    const folded = await Promise.all(
+      rows.map(async (row) => ({ workItem: row.workItem, s: fold((await this.#events(row.workItem)).events) })),
+    );
+    return folded.flatMap(({ workItem, s }) =>
+      s.closed ? [] : [{ workItem, scope: s.latestScope, waitsOn: s.waiting && !s.waiting.ended ? s.waiting.on : [] }],
+    );
   }
 
   async #events(workItem: string): Promise<{ events: LineEvent[]; last: number }> {
@@ -1513,8 +1529,7 @@ interface InFlight {
 
 /** Why a work item waits, in a line: "Waits for #1028, whose spec also changes src/example.ts". */
 export function waitReason(on: readonly string[], files: readonly string[]): string {
-  const items = on.map((w) => `#${w}`);
-  const who = items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0];
+  const who = workItemsWords(on, '').replace(/^work items? /, '');
   const what = files.length > 2 ? `${files.slice(0, 2).join(', ')} and ${files.length - 2} more` : files.join(' and ');
   return `Waits for ${who}, whose spec${on.length > 1 ? 's also change' : ' also changes'} ${what}`.slice(0, 300);
 }

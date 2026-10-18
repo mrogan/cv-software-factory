@@ -12,7 +12,7 @@ import type {
   SignalSource,
   SymptomClass,
 } from '@software-factory/events';
-import { inScope, LIMITS, SENSES } from '@software-factory/events';
+import { clearedOnWords, inScope, LIMITS, SENSES } from '@software-factory/events';
 import { clock, shortVersion } from '../format.ts';
 import { type Attempt, attempts, deployPicture, reviewThread, startsPass, type ThreadReview } from './fixing.ts';
 import { type Capture, clearanceWords, type Hold, type ItemState, summaryOf } from './items.ts';
@@ -256,15 +256,13 @@ function closing(item: ItemState): string | undefined {
       (event) => event.type === 'verification.finished' || event.type === 'signal.rechecked',
     );
     const verification = after[last];
-    // A look again that cleared, on a release that did not carry the fix, closed it, by itself or with Martin's close.
-    if (verification?.type === 'signal.rechecked' && verification.payload.outcome === 'cleared') {
+    // A look again that cleared, on a release that did not carry the fix, closed it, by itself or with Martin's close
+    // of its pull request; not when he answered the hold since, whose words the close's reason gives.
+    const answered = after.slice(last + 1).some((event) => event.type === 'hold.answered');
+    if (verification?.type === 'signal.rechecked' && verification.payload.outcome === 'cleared' && !answered) {
       const { sense, check, version, carried } = verification.payload;
       const on = version ? ` on ${shortVersion(version)}` : '';
-      const items = carried.map((n) => `#${n}`);
-      const release = items.length
-        ? `a release that carried ${items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0]} and not its own fix`
-        : 'a release that carried none of the factory’s fixes';
-      return `It was verified${on} by ${sense ? CHECK_OF[sense] : 'the check'} “${check}”, on ${release}, and closed.`;
+      return `It was verified${on} by ${sense ? CHECK_OF[sense] : 'the check'} “${check}”, on ${clearedOnWords(carried)}, and closed.`;
     }
     const held = after.slice(last + 1).some((event) => event.type === 'hold.started');
     if (verification?.type !== 'verification.finished' || verification.payload.outcome !== 'cleared' || held) {

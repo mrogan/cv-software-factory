@@ -12,7 +12,7 @@ import type {
   Screenshot,
   Stage,
 } from '@software-factory/events';
-import { SENSES, STAGES, sameVersion, WORDS_LEAVE_HELD } from '@software-factory/events';
+import { clearedOnWords, SENSES, STAGES, sameVersion, WORDS_LEAVE_HELD } from '@software-factory/events';
 import { shortVersion } from '../format.ts';
 import type { StoppedBy } from './release.ts';
 
@@ -340,7 +340,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.versions.live = true;
         break;
       case 'signal.received':
-        if (state.cleared?.version && sameVersion(state.cleared.version, event.payload.version)) {
+        // A signal on any version but the one before the look says the defect is there after all.
+        if (state.cleared?.against && !sameVersion(state.cleared.against, event.payload.version)) {
           state.cleared = undefined;
         }
         state.evidence.signal ??= event.payload.evidence?.[0];
@@ -371,8 +372,11 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       case 'signal.rechecked':
         if (event.payload.outcome === 'cleared') state.cleared = event.payload;
         else if (event.payload.outcome === 'persists') state.cleared = undefined;
-        // At the end of a wait, a signal still there sends the work on to Build.
-        if (event.payload.for === 'wait') state.waitingOn = undefined;
+        // At the end of a wait, a signal still there sends the work on to Build: no longer queued for anything.
+        if (event.payload.for === 'wait') {
+          state.waitingOn = undefined;
+          state.queued = false;
+        }
         break;
       case 'hold.started':
         state.sentBack = undefined;
@@ -508,14 +512,6 @@ function fixedOf(event: Extract<PublicEvent, { type: 'verification.finished' }>)
   return first?.kind === 'screenshot' && first.boxes.length ? 0 : undefined;
 }
 
-/** The work items a release carried, in words: "work item #1033", "work items #1033 and #1040". */
-const carriedWords = (carried: readonly string[]) => {
-  const items = carried.map((n) => `#${n}`);
-  if (!items.length) return 'none of the factory’s fixes';
-  const listed = items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0];
-  return `work item${items.length > 1 ? 's' : ''} ${listed}`;
-};
-
 /**
  * What a hold that waits on Martin's judgement says once a look again found its signal cleared: on which version, on
  * a release that carried what, and by which check. Closing its open pull request then closes it as verified.
@@ -525,7 +521,7 @@ export function clearanceWords(item: ItemState): string | undefined {
   if (!cleared || !item.hold) return undefined;
   const sense = SENSES.find((one) => one === cleared.sense);
   const by = sense ? `the ${sense} saw “${cleared.check}” pass there` : `“${cleared.check}” cleared there`;
-  const on = `Its signal cleared on ${shortVersion(cleared.version ?? '')}, a release that carried ${carriedWords(cleared.carried)}: ${by}.`;
+  const on = `Its signal cleared on ${shortVersion(cleared.version ?? '')}, ${clearedOnWords(cleared.carried)}: ${by}.`;
   const open = item.pullRequest !== undefined && !item.events.some((e) => e.type === 'pull-request.merged');
   return open ? `${on} Closing its pull request closes it as verified.` : on;
 }

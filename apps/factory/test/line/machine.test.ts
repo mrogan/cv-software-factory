@@ -1346,7 +1346,9 @@ describe('a held work item looked at again', () => {
     expect(decide(merge, { ...facts, stable }).next).toEqual({ do: 'wait', for: 'martin' });
     expect(fold(merge).cleared?.version).toBe('d728dbe');
     expect(fold([...merge, signal('d728dbe')]).cleared).toBeUndefined();
-    expect(fold([...merge, signal('e'.repeat(7))]).cleared).toBeDefined();
+    // A signal late from the version before the look says nothing of it; one from a later version ends it too.
+    expect(fold([...merge, signal('c'.repeat(7))]).cleared).toBeDefined();
+    expect(fold([...merge, signal('e'.repeat(7))]).cleared).toBeUndefined();
     expect(fold([...merge, look('persists', 'r3')]).cleared).toBeUndefined();
   });
 

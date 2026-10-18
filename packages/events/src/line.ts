@@ -75,6 +75,23 @@ export function touches(entry: string, paths: readonly string[]): boolean {
 export const scopesOverlap = (a: readonly string[], b: readonly string[]): string[] =>
   a.filter((entry) => b.some((other) => touches(entry, [other]) || touches(other, [entry])));
 
+/** Work items in words: "work item #1033", "work items #1033 and #1040", or `none` for none. */
+export function workItemsWords(items: readonly string[], none: string): string {
+  const named = items.map((n) => `#${n}`);
+  if (!named.length) return none;
+  const listed = named.length > 1 ? `${named.slice(0, -1).join(', ')} and ${named.at(-1)}` : named[0];
+  return `work item${named.length > 1 ? 's' : ''} ${listed}`;
+}
+
+/**
+ * The release a look again found a held or waiting work item's signal cleared on, in words: what it carried, and that
+ * it was not this one's fix. The line's comments and closes, and the console, say it the same way.
+ */
+export const clearedOnWords = (carried: readonly string[]) =>
+  carried.length
+    ? `a release that carried ${workItemsWords(carried, '')}, not this one’s fix`
+    : 'a release that carried none of the factory’s fixes';
+
 /** The same version of the app, whether either names its commit in full or shortened. */
 export const sameVersion = (a: string, b: string) =>
   a === b || (/^[0-9a-f]{7,40}$/.test(a) && /^[0-9a-f]{7,40}$/.test(b) && (a.startsWith(b) || b.startsWith(a)));

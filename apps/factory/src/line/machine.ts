@@ -78,7 +78,7 @@
  * the stable Service runs (`lookDue`), unless a signal on that version already says the defect is there. A hold the
  * line made because its steps, gates or cap stopped the work (`closesWhenCleared`) closes as verified when the signal
  * has cleared; one that waits on Martin's judgement stays, and says the signal cleared, and his closing its pull request
- * then closes it as verified. A signal on that version, or a later look that finds it, ends the clearance.
+ * then closes it as verified. A signal since, or a later look that finds it, ends the clearance.
  *
  * Two tickets can be one defect, which shows only once the planner names the files. After Plan, a work item whose
  * spec's scope shares a file with the spec of work in flight waits (`wait.started`), before the coder starts and before
@@ -410,8 +410,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
       case 'signal.received':
         state.firstSense ??= event.payload.sense;
         state.seenOn.push(event.payload.version);
-        // The defect is there on the version it cleared on, after all.
-        if (state.cleared?.version && sameVersion(state.cleared.version, event.payload.version)) {
+        // Seen since on the version it cleared on, or a later one: the defect is there after all. Triage records a
+        // signal late only on the version before the look, which says nothing of it.
+        if (state.cleared?.against && !sameVersion(state.cleared.against, event.payload.version)) {
           state.cleared = undefined;
         }
         break;

@@ -198,7 +198,7 @@ export interface Actions {
   reopenIssue(repo: string, number: number, comment: string): Promise<void>;
   /**
    * Closes a pull request unmerged, first saying why on it, without saying it twice: one already closed, merged or
-   * not, is left as it is.
+   * not, is left as it is. Only one from a branch the factory owns.
    */
   closePullRequest(repo: string, number: number, comment: string): Promise<void>;
   comment(repo: string, number: number, body: string): Promise<void>;
@@ -503,8 +503,14 @@ export class LiveActions implements Actions {
   }
 
   async closePullRequest(repo: string, number: number, comment: string): Promise<void> {
-    const pull = await this.#github.read(repo, `/repos/${repo}/pulls/${number}`, z.object({ state: z.string() }));
+    const pull = await this.#github.read(
+      repo,
+      `/repos/${repo}/pulls/${number}`,
+      z.object({ state: z.string(), head: z.object({ ref: z.string() }) }),
+    );
     if (pull.state !== 'open') return;
+    // Only a pull request from a branch of the factory's own, as for every change it makes to a branch.
+    guardBranch(pull.head.ref);
     if (!(await this.#said(repo, number, comment, null))) await this.comment(repo, number, comment);
     await this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, { state: 'closed' });
   }

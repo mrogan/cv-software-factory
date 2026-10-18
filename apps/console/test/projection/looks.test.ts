@@ -75,7 +75,7 @@ describe('a held work item looked at again', () => {
   it('says on a hold for Martin that its signal cleared, and that closing its pull request verifies it', () => {
     const item = foldItem(held('merge').add(40, 'signal.rechecked', 'probe', look('cleared')).events);
     expect(item && clearanceWords(item)).toBe(
-      'Its signal cleared on d728dbe, a release that carried work item #1033: the probe saw “products journey” pass there. Closing its pull request closes it as verified.',
+      'Its signal cleared on d728dbe, a release that carried work item #1033, not this one’s fix: the probe saw “products journey” pass there. Closing its pull request closes it as verified.',
     );
     const sheet = projectSheet(item?.events ?? [], '1', Date.parse('2026-10-03T10:00:00Z'));
     expect(sheet?.chapters.map((c) => c.label)).toContain('CLEARED');
@@ -101,7 +101,7 @@ describe('a held work item looked at again', () => {
       .add(41, 'work-item.closed', 'factory', { outcome: 'verified', reason: 'Cleared on a release' }).events;
     const sheet = projectSheet(events, '1', Date.parse('2026-10-03T10:00:00Z'));
     expect(sheet?.closing).toBe(
-      'It was verified on d728dbe by the probe’s check “products journey”, on a release that carried #1033 and not its own fix, and closed.',
+      'It was verified on d728dbe by the probe’s check “products journey”, on a release that carried work item #1033, not this one’s fix, and closed.',
     );
   });
 });

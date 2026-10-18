@@ -126,7 +126,7 @@ describe('the gates, as events', () => {
       against: 'c0ffee0',
       carried: ['1033'],
     };
-    expect(gateEvents(pr({ state: 'closed' }), [], [], nothing, cleared)).toEqual([
+    expect(gateEvents(pr({ state: 'closed' }), [], [], nothing, { look: cleared, by: 'martin' })).toEqual([
       {
         type: 'work-item.closed',
         actor: 'martin',
@@ -138,9 +138,16 @@ describe('the gates, as events', () => {
         },
       },
     ]);
+    // The line's own close, caught after a crash, is the factory's.
+    expect(gateEvents(pr({ state: 'closed' }), [], [], nothing, { look: cleared, by: 'factory' })[0]?.actor).toBe(
+      'factory',
+    );
     // A merge is a merge, whatever cleared.
     expect(
-      gateEvents(pr({ state: 'closed', merged: true, mergeCommit: MERGED }), [], [], nothing, cleared)[0],
+      gateEvents(pr({ state: 'closed', merged: true, mergeCommit: MERGED }), [], [], nothing, {
+        look: cleared,
+        by: 'martin',
+      })[0],
     ).toMatchObject({ type: 'pull-request.merged' });
   });
 });

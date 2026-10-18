@@ -72,14 +72,14 @@ type Draft = {
 /**
  * The events a pull request's state calls for that the work item has not had yet, in order. `required` is the
  * checks the base branch's rulesets require, by name; `cleared` is the look again whose clearance stands on the work
- * item's hold, if one does.
+ * item's hold, if one does, and who closes a pull request under that hold: the line, for a hold of its own.
  */
 export function gateEvents(
   pr: PullRequestState,
   runs: readonly CheckRun[],
   required: readonly string[],
   record: GateRecord,
-  cleared?: PayloadOf<'signal.rechecked'>,
+  cleared?: { look: PayloadOf<'signal.rechecked'>; by: 'factory' | 'martin' },
 ): Draft[] {
   if (record.merged || record.closed) return [];
   if (pr.merged && pr.mergeCommit) {
@@ -97,9 +97,9 @@ export function gateEvents(
     return [
       {
         type: 'work-item.closed',
-        actor: 'martin',
+        actor: cleared.by,
         summary: `PR #${pr.number} was closed unmerged, its signal cleared: verified`,
-        payload: { outcome: 'verified', reason: whatClearedOnLook(cleared).slice(0, 200) },
+        payload: { outcome: 'verified', reason: whatClearedOnLook(cleared.look).slice(0, 200) },
       },
     ];
   }

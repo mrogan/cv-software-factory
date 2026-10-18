@@ -540,7 +540,7 @@ describe('resolving threads in a dry run', () => {
 
 describe('closing a pull request', () => {
   it('says why on it once, closes it unmerged, and leaves one already closed', async () => {
-    let pull = { state: 'open' };
+    let pull = { state: 'open', head: { ref: 'factory/1028-search' } };
     let failClose = 1;
     const comments: { body: string }[] = [];
     const { github, sent } = client([
@@ -559,7 +559,7 @@ describe('closing a pull request', () => {
         path: `/repos/${REPO}/pulls/66`,
         answer: () => {
           if (failClose-- > 0) return { status: 422, body: { message: 'Validation Failed' } };
-          pull = { state: 'closed' };
+          pull = { state: 'closed', head: pull.head };
           return { body: {} };
         },
       },
@@ -577,6 +577,18 @@ describe('closing a pull request', () => {
       ['PATCH', { state: 'closed' }],
       ['PATCH', { state: 'closed' }],
     ]);
+  });
+
+  it('closes only a pull request from a branch the factory owns', async () => {
+    const { github, sent } = client([
+      {
+        method: 'GET',
+        path: `/repos/${REPO}/pulls/67`,
+        answer: () => ({ body: { state: 'open', head: { ref: 'dependabot/npm_and_yarn/pino-10.4.0' } } }),
+      },
+    ]);
+    await expect(new LiveActions(github).closePullRequest(REPO, 67, 'Closed unmerged.')).rejects.toThrow();
+    expect(calls(sent).filter((s) => s.method !== 'GET')).toEqual([]);
   });
 
   it('records the pull request a dry run would have closed, with what it would have said', async () => {

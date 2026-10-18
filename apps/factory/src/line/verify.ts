@@ -30,7 +30,7 @@
  * The windows, counts and runs are `policy/release.ts`'s `verify`.
  */
 import type { Evidence, PayloadOf, Sense, SignalSource, SymptomClass } from '@software-factory/events';
-import { SENSES, sameVersion } from '@software-factory/events';
+import { clearedOnWords, SENSES, sameVersion } from '@software-factory/events';
 import { evidence as evidenceSchema } from '@software-factory/events/schemas';
 import { CANARY_ANY_ROUTE } from '@software-factory/triage';
 import { z } from 'zod';
@@ -476,12 +476,7 @@ export function whatClearedOnLook(
   rechecked: PayloadOf<'signal.rechecked'>,
   policy: Release['verify'] = RELEASE.verify,
 ): string {
-  const items = rechecked.carried.map((workItem) => `#${workItem}`);
-  const listed = items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0];
-  const release = listed
-    ? `a release that carried work item${items.length > 1 ? 's' : ''} ${listed}, not this one’s fix`
-    : 'a release that carried none of the factory’s fixes';
-  return clearedBy(rechecked, release, policy);
+  return clearedBy(rechecked, clearedOnWords(rechecked.carried), policy);
 }
 
 /**
