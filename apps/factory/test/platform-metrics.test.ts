@@ -100,3 +100,95 @@ describe('the fences around what Prometheus scrapes', () => {
     }
   });
 });
+
+/**
+ * Prometheus looks for what asks to be scraped only in the namespaces the platform runs in (#437), so a pod in the
+ * app's namespace, which the line changes, cannot become a target.
+ */
+interface ScrapeJob {
+  enabled?: boolean;
+  kubernetes_sd_configs?: { role: string; namespaces?: { names?: string[] } }[];
+}
+
+/** An Application, or a workload with a pod template: what a component's namespace and annotations are read from. */
+interface Workload {
+  kind?: string;
+  metadata?: { name?: string; namespace?: string };
+  spec?: {
+    destination?: { namespace?: string };
+    sources?: { helm?: { valueFiles?: string[] } }[];
+    template?: { metadata?: { annotations?: Record<string, string> } };
+  };
+}
+
+/** The scrape jobs the Prometheus chart is given, as its values file sets them over the chart's own. */
+async function scrapeJobs(): Promise<Record<string, ScrapeJob>> {
+  const values = parse(await readFile(join(DEPLOY, 'base/telemetry/values/prometheus.yaml'), 'utf-8')) as {
+    scrapeConfigs: Record<string, ScrapeJob>;
+  };
+  return values.scrapeConfigs;
+}
+
+/** The chart's jobs that scrape whatever asks with `prometheus.io/` annotations, by pod or by Service (#437). */
+const ASKING = {
+  'kubernetes-pods': 'pod',
+  'kubernetes-pods-slow': 'pod',
+  'kubernetes-service-endpoints': 'endpointslice',
+  'kubernetes-service-endpoints-slow': 'endpointslice',
+};
+
+/** Where each job looks for what asks, or every namespace when it names none. */
+async function asked(): Promise<Record<string, string[] | 'every namespace'>> {
+  const jobs = await scrapeJobs();
+  return Object.fromEntries(
+    Object.entries(ASKING).map(([job, role]) => {
+      const discovery = jobs[job]?.kubernetes_sd_configs;
+      expect(
+        discovery?.map((d) => d.role),
+        job,
+      ).toEqual([role]);
+      return [job, discovery?.[0]?.namespaces?.names ?? 'every namespace'];
+    }),
+  );
+}
+
+describe('what Prometheus scrapes because it asks', () => {
+  it('is looked for in the same namespaces by every job that reads the annotations', async () => {
+    const namespaces = new Set(Object.values(await asked()).map((names) => JSON.stringify(names)));
+    expect(namespaces.size).toBe(1);
+  });
+
+  it('is never looked for in the app’s namespace, the runners’ or the scoreboard’s', async () => {
+    for (const [job, names] of Object.entries(await asked())) {
+      expect(names, job).not.toBe('every namespace');
+      for (const namespace of ['website', 'runners', 'scoreboard']) expect(names, job).not.toContain(namespace);
+    }
+  });
+
+  it('is looked for in every namespace a platform component asks from', async () => {
+    const pods = (await asked())['kubernetes-pods'];
+    // Each component's namespace: where the Application that reads its values file installs it. Argo CD's chart is
+    // installed by `make up`, in `argocd`; Traefik and CoreDNS by k3s, in kube-system.
+    const applications = (await deployManifests<Workload>()).filter(({ manifest }) => manifest.kind === 'Application');
+    const namespaceOf = (file: string) =>
+      file === 'argocd/values.yaml'
+        ? 'argocd'
+        : applications.find(({ manifest }) =>
+            manifest.spec?.sources?.some((source) => source.helm?.valueFiles?.includes(`$values/deploy/${file}`)),
+          )?.manifest.spec?.destination?.namespace;
+    for (const { name, file } of COMPONENTS) expect(pods, name).toContain(namespaceOf(file));
+    expect(pods).toContain('kube-system');
+    // Pods deploy/ declares itself, such as the Postgres exporter's, as well as the charts'.
+    const declared = (await deployManifests<Workload>()).filter(
+      ({ manifest }) => manifest.spec?.template?.metadata?.annotations?.['prometheus.io/scrape'] === 'true',
+    );
+    expect(declared.length).toBeGreaterThan(0);
+    for (const { file, namespace } of declared) expect(pods, file).toContain(namespace);
+  });
+
+  it('is never probed through a blackbox exporter or a Pushgateway, neither of which runs here', async () => {
+    const jobs = await scrapeJobs();
+    expect(jobs['kubernetes-services']?.enabled).toBe(false);
+    expect(jobs['prometheus-pushgateway']?.enabled).toBe(false);
+  });
+});
