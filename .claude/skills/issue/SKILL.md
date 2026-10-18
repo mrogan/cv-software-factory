@@ -24,7 +24,7 @@ An idea is stated as what is missing: `Nothing reads what the line learns`, not 
 
 - **Evidence**, when there is some: what was seen, where, with a permalink to the code at a commit (`https://github.com/mrogan/cv-software-factory/blob/<sha>/path#L10-L20`), a work item number, a log line, a figure. Trim logs to the lines that matter; put anything long in `<details>`.
 - **Why it matters**, if that is not obvious from the first line.
-- **What might fix it**, as candidates, not a plan. Say which one you would pick if you would.
+- **What might fix it**, not a plan. Where there is a real choice, the candidates, and which one you would pick if you would. Where the fix has parts that all need doing, they are its scope: say so, and list them as such, not as candidates.
 - **When it matters**: the milestone or the trigger it waits for ("before the Agent SDK is next updated", "when a soak shows it"). This is what lets an issue wait without being forgotten.
 
 Headings only when an issue is long enough to need finding your way around. No checklists of fields, no "Steps to reproduce" for something that has none, no "Expected / Actual" when one sentence says both.
