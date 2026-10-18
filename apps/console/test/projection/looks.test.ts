@@ -105,3 +105,31 @@ describe('a held work item looked at again', () => {
     );
   });
 });
+
+describe('a spec on a card', () => {
+  const spec = {
+    outcome: 'Every product loads',
+    criteria: [{ given: 'the products page', when: 'it opens', expect: 'every product is there' }],
+    scope: ['src/products.ts'],
+    risks: [],
+    rollout: 'A normal release.',
+  } satisfies PayloadOf<'spec.written'>;
+  const planned = () => work('2').open().add(1, 'spec.written', 'planner', spec);
+  const pictureOf = (events: ReturnType<typeof work>) => project(events.events, events.at(60)).cards[0]?.picture;
+
+  it('waits for Martin, with the planner’s question, while it holds for his answer', () => {
+    const held = planned().add(2, 'hold.started', 'factory', {
+      stage: 'plan',
+      kind: 'approval',
+      cause: 'spec',
+      reason: 'The spec waits for Martin',
+      question: 'Should sold-out products show?',
+    });
+    expect(pictureOf(held)).toMatchObject({ type: 'spec', waiting: true, question: 'Should sold-out products show?' });
+  });
+
+  it('waits for nobody once the work item closes with nothing better to show', () => {
+    const closed = planned().add(2, 'work-item.closed', 'factory', { outcome: 'no-change', reason: 'Nothing to fix' });
+    expect(pictureOf(closed)).toMatchObject({ type: 'spec', waiting: false, question: undefined });
+  });
+});
