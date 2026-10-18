@@ -135,7 +135,8 @@ server:
 # repository, which the line changes, nor `runners`, where agents run, nor `scoreboard`. A pod there that asked would
 # be a target behind a fence Prometheus cannot pass, down for as long as it asked; and one Prometheus could reach would
 # keep the labels it sent (`honor_labels`, the chart's default), the one that marks the app's own metrics among them
-# (provenance.ts). A namespace the platform starts to run a target in is a name here.
+# (provenance.ts). A namespace the platform starts to run a target in is a name here. And whatever is scraped, that
+# label is dropped from it: only the collector stamps it, on what arrives over OTLP.
 #
 # `target_info` is a service that sends metrics over OTLP, and triage counts those to see that metrics still arrive
 # (environment.ts). The collector also serves its own where it is scraped, as may any SDK's exporter, which would be
@@ -150,28 +151,30 @@ scrapeConfigs:
       - role: pod
         namespaces:
           names: &platform [argo-rollouts, argocd, factory, kube-system, kyverno, pod-logs, telemetry]
-    metric_relabel_configs: &otlp-only
+    metric_relabel_configs: &scraped
       - source_labels: [__name__]
         regex: target_info
         action: drop
+      - regex: k8s_pod_label_rollouts_pod_template_hash
+        action: labeldrop
   kubernetes-pods-slow:
     kubernetes_sd_configs:
       - role: pod
         namespaces:
           names: *platform
-    metric_relabel_configs: *otlp-only
+    metric_relabel_configs: *scraped
   kubernetes-service-endpoints:
     kubernetes_sd_configs:
       - role: endpointslice
         namespaces:
           names: *platform
-    metric_relabel_configs: *otlp-only
+    metric_relabel_configs: *scraped
   kubernetes-service-endpoints-slow:
     kubernetes_sd_configs:
       - role: endpointslice
         namespaces:
           names: *platform
-    metric_relabel_configs: *otlp-only
+    metric_relabel_configs: *scraped
   kubernetes-services:
     enabled: false
   prometheus-pushgateway:
