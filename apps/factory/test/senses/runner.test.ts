@@ -1,6 +1,6 @@
 import type { Evidence, InboxSignal } from '@software-factory/events';
 import { validateSignal } from '@software-factory/events/schemas';
-import { pino } from 'pino';
+import { type Logger, pino } from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SenseRunner } from '../../src/senses/runner.ts';
 import type { Finding, Observation, Sense } from '../../src/senses/types.ts';
@@ -33,7 +33,7 @@ function scripted(...results: Array<Finding | null | 'trouble'>) {
 }
 
 /** A runner with a clock and a version that the test moves, and an inbox that is a list. */
-function setup(sense: Sense, options: { every?: number } = {}) {
+function setup(sense: Sense, options: { every?: number; log?: Logger } = {}) {
   const state = { now: Date.parse('2026-10-03T12:00:00Z'), version: V1 };
   const sent: InboxSignal[] = [];
   const runner = new SenseRunner({
@@ -172,6 +172,46 @@ describe('a check that could not tell', () => {
     expect(sent).toEqual([]);
     await after(5 * MINUTE);
     expect(sent).toHaveLength(1);
+  });
+
+  it('is one warning a run for each route and reason, naming every check it holds', async () => {
+    const missing = 'No page was opened at /gone: it answered 404.';
+    const observation = (check: string, route: string, trouble: string): Observation => ({
+      check,
+      route,
+      finding: null,
+      artifacts: [],
+      trouble,
+    });
+    const sense: Sense = {
+      name: 'crawler',
+      async pass() {
+        return [
+          observation('missing-alt@/gone', '/gone', missing),
+          observation('broken-link@/gone', '/gone', missing),
+          observation('slow@/gone', '/gone', missing),
+          observation('broken-link@/', '/', '/gone, from /, gave no answer.'),
+        ];
+      },
+    };
+    const lines: Array<Record<string, unknown>> = [];
+    const log = pino({ level: 'warn' }, { write: (line: string) => void lines.push(JSON.parse(line)) });
+    const { runner } = setup(sense, { log });
+    expect(await runner.tick()).toMatchObject({ checks: 4, failed: 0 });
+    expect(lines.map(({ msg, route, checks, trouble }) => ({ msg, route, checks, trouble }))).toEqual([
+      {
+        msg: 'checks could not tell',
+        route: '/gone',
+        checks: ['missing-alt@/gone', 'broken-link@/gone', 'slow@/gone'],
+        trouble: missing,
+      },
+      {
+        msg: 'checks could not tell',
+        route: '/',
+        checks: ['broken-link@/'],
+        trouble: '/gone, from /, gave no answer.',
+      },
+    ]);
   });
 });
 
