@@ -63,7 +63,7 @@ Prometheus also scrapes the components beneath the factory, so what they took in
 
 Prometheus scrapes itself in its own job. Kyverno's and Argo Rollouts' fences let Prometheus in on those ports alone ([network policies](NETWORK-POLICIES.md)). Argo CD's chart is installed by `make up` with Helm, not by Argo CD, so its settings reach a cluster at the next `make up`.
 
-- **They count toward the environment.** Triage takes Prometheus as healthy when every target it scrapes is `up` ([triage](TRIAGE.md#what-a-sense-reads)), and each of these is one: a component Prometheus cannot scrape holds a sense's new problems for Martin until it can.
+- **They do not count toward the environment.** Triage takes Prometheus as healthy when the targets the senses read are `up`, Traefik and each node's kubelet ([triage](TRIAGE.md#what-a-sense-reads)), and none of these is one: a component Prometheus cannot scrape, even one crash-looping, holds nothing, and a healthy reading counts how many of the rest are down.
 - **`target_info` is OTLP's alone.** It is how Prometheus records a service that sends metrics over OTLP, and triage counts it to see that metrics still arrive. The collector also serves its own where it is scraped, so each of the chart's jobs that scrape what asks to be scraped, by pod or by Service, drops `target_info`, and a count of it still falls to nothing when OTLP stops.
 
 ## Dashboards
@@ -86,7 +86,7 @@ Two more targets ask Prometheus to scrape them, with the `prometheus.io/` pod an
 - **kube-state-metrics reads only those kinds.** Its chart grants list and watch on each collector's kind, so its role reads no Secret or ConfigMap anywhere, the scoreboard's among them, and `make egress` still finds no service account that may. The `kubernetes-pods` job honours the labels a target sends, so its series keep the `namespace` and `pod` they describe.
 - **The exporter is in `factory`,** where the store's other passwords are: its role's password is a Secret there, made by `make up` and set by the migrations, and its pod is fenced to Postgres and Prometheus alone ([network policies](NETWORK-POLICIES.md)). Its image is the Prometheus community's own build, named by digest in `factory-images` ([admission control](ADMISSION-CONTROL.md)).
 - **Its role is granted nothing** ([event store](EVENT-STORE.md#roles)), so other sessions' state is hidden from it: it counts connections from `pg_stat_database`, and its collectors of sessions by state, and of the write-ahead log's files, are off.
-- **Postgres down leaves the exporter's target up.** It answers every scrape and says in `pg_up` whether it reached Postgres. Triage counts a target down as the environment unhealthy ([triage](TRIAGE.md#what-a-sense-reads)), and these two are targets like any other: kube-state-metrics or the exporter unscraped holds a sense's new problems, but Postgres unreachable does not, since triage reads `up` and not `pg_up`.
+- **Postgres down leaves the exporter's target up.** It answers every scrape and says in `pg_up` whether it reached Postgres. Neither target is one the senses read, so neither unscraped holds a sense's new problems ([triage](TRIAGE.md#what-a-sense-reads)), and nor does Postgres unreachable.
 - **The exporter reads its password when it starts.** On a cluster made before it, run `make up` again to make its Secret, and once the migrations have set the role's password, restart it (`kubectl -n factory rollout restart deployment/postgres-exporter`).
 
 ## What the app records
