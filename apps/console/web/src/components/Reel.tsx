@@ -17,13 +17,10 @@ import { renders } from '../renders.ts';
 import { Card, OUTCOME } from './Card.tsx';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 
-const PLAY_EVERY_MS = 2500;
 /** The least room a work item's mark has along the timeline: a mark is 26px across, and 32px at the centre. */
 const MARK_ROOM = 40;
 /** Room at each end of the timeline's window, so the first and last marks, and their version labels, are drawn whole. */
 const EDGE = 26;
-/** On first view the reel plays this many of the latest work items once. */
-const AUTOPLAY = 8;
 
 interface ReelProps {
   view: View;
@@ -32,8 +29,6 @@ interface ReelProps {
   onCentre: (index: number) => void;
   onOpen: (index: number) => void;
   motion: boolean;
-  /** Set when the viewer asked for a particular item, so the reel does not play itself. */
-  asked: boolean;
 }
 
 const phone = () => innerWidth <= 720;
@@ -70,7 +65,7 @@ interface Drag {
   v: number;
 }
 
-export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProps) {
+export function Reel({ view, centre, onCentre, onOpen, motion }: ReelProps) {
   renders.reel++;
   const { cards, timeline } = view;
   /** The version the app is on: the last mark not struck through. */
@@ -87,18 +82,6 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
   const elements = useRef<(HTMLElement | null)[]>([]);
   /** Where the reel is, in cards: a whole number at rest, anything between while moving. */
   const position = useRef(centre);
-  const [playing, setPlaying] = useState(false);
-  /**
-   * What playing was last set to, rendered yet or not. Every drag stops the history on its first move, and setting
-   * state to the value it already holds can still render the reel, now and then: `play` skips that update, and the
-   * render it can cause, when playing would not change.
-   */
-  const playingSet = useRef(false);
-  const play = useCallback((on: boolean) => {
-    if (playingSet.current === on) return;
-    playingSet.current = on;
-    setPlaying(on);
-  }, []);
   const [announcement, setAnnouncement] = useState('');
   /** Set while a finger or pointer is moving the reel or the timeline: nothing else moves it then. */
   const drag = useRef<Drag | undefined>(undefined);
@@ -257,51 +240,6 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     [centre, layout, n, onCentre],
   );
 
-  // On first view the reel plays the latest work items once, when it comes into sight. Never with motion off, and
-  // not once the viewer has moved it themselves.
-  const autoplay = useRef<'not yet' | 'waiting' | 'starting' | 'done'>('not yet');
-  const stop = useCallback(() => {
-    autoplay.current = 'done';
-    play(false);
-  }, [play]);
-
-  // Play the history: a card every two and a half seconds, ending at now.
-  useEffect(() => {
-    if (!playing) return;
-    if (!motion || centre >= n - 1) {
-      play(false);
-      return;
-    }
-    const timer = setTimeout(() => onCentre(centre + 1), PLAY_EVERY_MS);
-    return () => clearTimeout(timer);
-  }, [playing, motion, centre, n, onCentre, play]);
-
-  // The reel waits where the history starts, and the watch for it coming into sight outlives new work arriving
-  // (and development's second mount): only playing, or the viewer taking over, ends it.
-  useEffect(() => {
-    if (autoplay.current === 'done' || autoplay.current === 'starting') return;
-    if (asked || !motion || n < 2 || !('IntersectionObserver' in window)) return;
-    if (autoplay.current === 'not yet') {
-      autoplay.current = 'waiting';
-      onCentre(Math.max(0, n - AUTOPLAY));
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry?.isIntersecting || autoplay.current !== 'waiting') return;
-        observer.disconnect();
-        autoplay.current = 'starting';
-        setTimeout(() => {
-          if (autoplay.current !== 'starting') return;
-          autoplay.current = 'done';
-          play(true);
-        }, 600);
-      },
-      { threshold: 0.6 },
-    );
-    if (reel.current) observer.observe(reel.current);
-    return () => observer.disconnect();
-  }, [asked, motion, n, onCentre, play]);
-
   // Dragging the cards: a click on the centre card opens it, on a neighbour brings it to the centre.
   const onPointerDown = (event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0 || (event.target as Element).closest('.handle')) return;
@@ -325,7 +263,6 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     if (!d.moved) {
       d.moved = true;
       reel.current.classList.add('dragging');
-      stop();
     }
     const now = performance.now();
     d.v = (event.clientX - d.lx) / Math.max(1, now - d.lt);
@@ -342,7 +279,6 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     if (!d) return;
     if (!d.moved) {
       if (d.card === undefined) return;
-      stop();
       if (d.card === centre) onOpen(d.card);
       else onCentre(d.card);
       return;
@@ -370,10 +306,8 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
     const to = step !== undefined ? centre + step : event.key === 'Home' ? 0 : event.key === 'End' ? n - 1 : undefined;
     if (to !== undefined) {
       event.preventDefault();
-      stop();
       onCentre(Math.max(0, Math.min(n - 1, to)));
     } else if (event.key === 'Enter' && event.currentTarget === reel.current) {
-      stop();
       onOpen(centre);
     }
   };
@@ -393,31 +327,10 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
         <div className="transport">
           <button
             type="button"
-            className="btn"
-            aria-label={playing ? 'Pause' : 'Play the history'}
-            onClick={() => {
-              if (playing) stop();
-              else {
-                autoplay.current = 'done';
-                if (centre >= n - 1) onCentre(0);
-                play(true);
-              }
-            }}
-            disabled={!motion}
-            title={motion ? undefined : 'Motion is off'}
-          >
-            <Glyph name={playing ? 'pause' : 'play'} />
-            <span className="play-label">{playing ? 'Pause' : 'Play the history'}</span>
-          </button>
-          <button
-            type="button"
             className="icon-btn"
             aria-label="Previous work item"
             disabled={centre === 0}
-            onClick={() => {
-              stop();
-              onCentre(centre - 1);
-            }}
+            onClick={() => onCentre(centre - 1)}
           >
             <Glyph name="left" />
           </button>
@@ -429,22 +342,11 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
             className="icon-btn"
             aria-label="Next work item"
             disabled={centre >= n - 1}
-            onClick={() => {
-              stop();
-              onCentre(centre + 1);
-            }}
+            onClick={() => onCentre(centre + 1)}
           >
             <Glyph name="right" />
           </button>
-          <button
-            type="button"
-            className="now-btn"
-            aria-pressed={centre === n - 1}
-            onClick={() => {
-              stop();
-              onCentre(n - 1);
-            }}
-          >
+          <button type="button" className="now-btn" aria-pressed={centre === n - 1} onClick={() => onCentre(n - 1)}>
             <span className="dot tone-signal blink" aria-hidden="true" />
             NOW
           </button>
@@ -495,7 +397,6 @@ export function Reel({ view, centre, onCentre, onOpen, motion, asked }: ReelProp
         onPointerDown={(event) => {
           scrubbing.current = true;
           event.currentTarget.setPointerCapture(event.pointerId);
-          stop();
           hold();
           fromRail(event);
         }}
