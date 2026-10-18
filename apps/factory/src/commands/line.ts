@@ -297,7 +297,14 @@ async function logs(args: string[]): Promise<number> {
         console.log(`(the artifact store has no ${each.hash})`);
         continue;
       }
-      for await (const chunk of stream) process.stdout.write(chunk as Buffer);
+      let last = '\n';
+      for await (const chunk of stream) {
+        const bytes = chunk as Buffer;
+        if (bytes.length) last = String.fromCharCode(bytes[bytes.length - 1] ?? 10);
+        process.stdout.write(bytes);
+      }
+      // A log cut mid-line still ends before the next one's heading.
+      if (last !== '\n') process.stdout.write('\n');
     }
     return 0;
   } finally {

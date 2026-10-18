@@ -27,7 +27,7 @@ sequenceDiagram
 
 - **Named** by the agent, the work item, the agent's round and how many steps the work item has started. `reviewer-1002-1-4` is the reviewer's first round and the work item's fourth step. So a step tried again never meets the Jobs or the token of the attempt before it.
 - **On a volume** that lives until the work item merges or ends. `DELETE /v1/work-items/<id>` on the line ends it.
-- **Fenced:** the restricted Pod Security Standard, no service account token, a read-only root and a deadline.
+- **Fenced:** the restricted Pod Security Standard, no service account token, a read-only root and a deadline. The deadline is the pod's, so a pod out of time fails and stays, with its log, until the line has kept it; the Job's own, a minute later, is a backstop.
 - **One image:** both run `factory-runner` (`apps/runner`: Node, git, pnpm through corepack, the Agent SDK).
 - **Logged** as JSON lines, each naming the job, the work item and the pod (`apps/runner/src/log.ts`). A step that fails says why in its last line.
 
@@ -73,7 +73,7 @@ The [GitHub worker](GITHUB-WORKER.md) applies an accepted patch, outside the san
 
 The line deletes a step's Jobs as the step ends, so it reads their pods' logs first (`runners/logs.ts`):
 
-- **What:** each pod's last 5,000 lines, up to 4 MiB, from the Kubernetes API.
+- **What:** each pod's last 2,000 lines, from the Kubernetes API, once the agent pod has ended after its handback (or two seconds on). The runner keeps its lines short, so those lines hold how the step ended.
 - **Where:** the text goes in the artifact store, and its index in Postgres (`step_logs`): the job, the work item, the agent, the pod, and how the step ended (handed back, failed with its reason, stopped with the line, or errored in the line).
 - **When:** however the step ended, and before the line stops a step's agent. The Jobs wait no more than ten seconds for it, so stopping the line still stops every agent. A log that cannot be read, such as a pod that never started, is warned of, and the Jobs are deleted all the same.
 - **Who sees them:** no event names a log, so the console serves none. `factory line logs <work item>` prints a work item's, in the line's pod, which mounts the store.

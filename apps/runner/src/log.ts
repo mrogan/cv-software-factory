@@ -20,6 +20,11 @@ export function runnerLog(env: NodeJS.ProcessEnv, pod: Pod, write: (line: string
     write(JSON.stringify({ time: new Date().toISOString(), level: 'info', ...names, msg, ...fields }));
 }
 
-/** An error's own words, as a line's `error`: never longer than a handback's. */
-export const errorText = (error: unknown): string =>
-  (error instanceof Error ? error.message : String(error)).slice(0, 4000);
+/**
+ * Free text on a line, cut to a bound: the line keeps a pod's last lines, so each must be short for those lines to
+ * fit. The same bound as a handback's error.
+ */
+export const bounded = (text: string): string => text.slice(0, 4000);
+
+/** An error's own words, as a line's `error`. */
+export const errorText = (error: unknown): string => bounded(error instanceof Error ? error.message : String(error));

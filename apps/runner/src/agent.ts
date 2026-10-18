@@ -22,7 +22,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query, type SDKMessage, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
 import { git } from './git.ts';
-import { type Log, runnerLog } from './log.ts';
+import { bounded, type Log, runnerLog } from './log.ts';
 import {
   type Ending,
   type Handback,
@@ -163,7 +163,11 @@ export function narrator(log: Log): (message: SDKMessage) => void {
         tools.set(block.id, block.name);
         log('tool call', { turn, tool: block.name });
       }
-    } else if (message.type === 'user' && Array.isArray(message.message.content)) {
+    } else if (
+      message.type === 'user' &&
+      message.parent_tool_use_id === null &&
+      Array.isArray(message.message.content)
+    ) {
       for (const block of message.message.content) {
         if (block.type === 'tool_result' && block.is_error) {
           log('a tool call failed', { level: 'warn', turn, tool: tools.get(block.tool_use_id) ?? null });
@@ -235,7 +239,7 @@ export async function runAgent(
           DISABLE_ERROR_REPORTING: '1',
           DISABLE_AUTOUPDATER: '1',
         },
-        stderr: (line) => log('the Agent SDK said', { level: 'warn', line: line.trimEnd() }),
+        stderr: (line) => log('the Agent SDK said', { level: 'warn', line: bounded(line.trimEnd()) }),
       },
     })) {
       narrate(message);

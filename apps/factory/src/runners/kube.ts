@@ -88,6 +88,7 @@ export function kubeFrom(env = process.env): Kube {
         method,
         headers: { 'content-type': 'application/json' },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(30_000),
       });
       return { status: response.status, text: await response.text() };
     });

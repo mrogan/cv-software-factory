@@ -101,11 +101,10 @@ export interface RunnersOptions {
 const PREPARE_SECONDS = 600;
 
 /**
- * How much of a pod's log is kept: its last lines, which say how it ended, up to a bound on the bytes that keeps a
- * runaway log from filling the line's memory.
+ * How much of a pod's log is kept: its last lines, which say how it ended. A byte limit would be taken from the start
+ * of those lines and cut the end, so the runner bounds its own lines instead (`apps/runner/src/log.ts`).
  */
-const LOG_LINES = 5000;
-const LOG_BYTES = 4 * 1024 * 1024;
+const LOG_LINES = 2000;
 /**
  * How long a step's Jobs wait for its logs to be kept before they are deleted all the same: an API that does not
  * answer must not keep an agent working after the line has stopped it.
@@ -114,7 +113,10 @@ const LOG_WAIT_MS = 10_000;
 
 const PODS = z.object({
   items: z.array(
-    z.object({ metadata: z.object({ name: z.string(), labels: z.record(z.string(), z.string()).optional() }) }),
+    z.object({
+      metadata: z.object({ name: z.string(), labels: z.record(z.string(), z.string()).optional() }),
+      status: z.object({ reason: z.string().optional() }).optional(),
+    }),
   ),
 });
 
@@ -227,7 +229,12 @@ export class Runners {
       ended.then((state) => ({ state })),
     ]);
     if (this.#stopped.has(job)) return { kind: 'stopped', job };
-    if ('handback' in first) return { kind: 'handed-back', job, handback: first.handback };
+    if ('handback' in first) {
+      // A pod hands back, then ends: its log is kept whole once it has, or after the grace.
+      await Promise.race([ended, this.#sleep(this.#o.graceMs ?? 2_000)]);
+      if (this.#stopped.has(job)) return { kind: 'stopped', job };
+      return { kind: 'handed-back', job, handback: first.handback };
+    }
     return { kind: 'failed', job, reason: `The agent pod ${first.state} without handing anything back.` };
   }
 
@@ -269,10 +276,11 @@ export class Runners {
           const part = labels?.['factory.mrogan.dev/runner'];
           if (part !== 'prepare' && part !== 'agent') continue;
           try {
-            const text = await kube.text(
-              `${pods}/${encodeURIComponent(name)}/log?tailLines=${LOG_LINES}&limitBytes=${LOG_BYTES}`,
-            );
-            if (text === undefined) continue;
+            const text = await kube.text(`${pods}/${encodeURIComponent(name)}/log?tailLines=${LOG_LINES}`);
+            if (text === undefined) {
+              log.warn({ job, pod: name }, 'a pod’s log was gone before it could be kept');
+              continue;
+            }
             await logs.keep({ job, ...whose, part, pod: name, ending, reason }, text);
           } catch (error) {
             // A pod that never started has no log to read.
@@ -292,7 +300,7 @@ export class Runners {
    * `stopped` within a poll, and ends its token as any step does.
    */
   async cancel(): Promise<void> {
-    for (const job of this.#running.keys()) await this.#stop(job);
+    await Promise.all([...this.#running.keys()].map((job) => this.#stop(job)));
   }
 
   /** Stops one step in hand: its Jobs go, and it ends `stopped`. */
@@ -338,10 +346,24 @@ export class Runners {
       if (!job) return 'vanished';
       if (job.status?.succeeded) return 'succeeded';
       const failed = job.status?.conditions?.find((c) => c.type === 'Failed' && c.status === 'True');
-      if (failed) return failed.reason === 'DeadlineExceeded' ? 'ran out of time' : 'failed';
+      if (failed)
+        return failed.reason === 'DeadlineExceeded' || (await this.#podOutOfTime(path)) ? 'ran out of time' : 'failed';
       await this.#sleep(this.#o.pollMs ?? 2_000);
     }
     return 'ran out of time';
+  }
+
+  /** Whether a failed Job's pod failed at its own deadline, which is how a step runs out of time. */
+  async #podOutOfTime(path: string): Promise<boolean> {
+    const name = path.split('/').at(-1) ?? '';
+    const selector = encodeURIComponent(`job-name=${name}`);
+    try {
+      const pods = await this.#o.kube.get(`/api/v1/namespaces/${NAMESPACE}/pods?labelSelector=${selector}`, PODS);
+      return (pods?.items ?? []).some((pod) => pod.status?.reason === 'DeadlineExceeded');
+    } catch (error) {
+      this.#o.log.warn({ job: name, err: error }, 'could not read why a job’s pod failed');
+      return false;
+    }
   }
 
   /** `POST /v1/handback`, for agent pods. */

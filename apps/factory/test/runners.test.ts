@@ -91,7 +91,9 @@ describe('a runner’s jobs', () => {
     const job = prepareJob(names, STEP, { image: 'runner@sha256:abc', deadlineSeconds: 600 });
     const pod = job.spec.template.spec;
     expect(job.metadata).toMatchObject({ name: 'coder-1001-1-1-prepare', namespace: 'runners' });
-    expect(job.spec).toMatchObject({ backoffLimit: 0, activeDeadlineSeconds: 600 });
+    expect(job.spec).toMatchObject({ backoffLimit: 0, activeDeadlineSeconds: 660 });
+    // The pod's deadline, so a pod out of time stays, with its log, for the line to keep.
+    expect(pod).toMatchObject({ activeDeadlineSeconds: 600 });
     expect(pod).toMatchObject({ automountServiceAccountToken: false, securityContext: { runAsNonRoot: true } });
     expect(pod.containers[0]?.securityContext).toEqual({
       allowPrivilegeEscalation: false,
@@ -149,10 +151,15 @@ function fakeKube(
   agent: (env: Record<string, string>) => void | Promise<void>,
   prepare: 'succeeded' | 'failed' = 'succeeded',
   logs: PodLogs = {},
+  /** Whether a failed prepare pod failed at its own deadline. */
+  outOfTime = false,
 ) {
   const calls: string[] = [];
   const jobs = new Map<string, { status: Record<string, unknown> }>();
-  const pods = new Map<string, { job: string; labels: Record<string, string>; log: string | undefined }>();
+  const pods = new Map<
+    string,
+    { job: string; labels: Record<string, string>; log: string | undefined; reason: string | undefined }
+  >();
   const kube: Kube = {
     async get<T>(path: string) {
       calls.push(`GET ${path}`);
@@ -160,7 +167,12 @@ function fakeKube(
       if (selector) {
         const [key, value] = decodeURIComponent(selector).split('=');
         const items = [...pods].filter(([, pod]) => pod.labels[key ?? ''] === value);
-        return { items: items.map(([name, pod]) => ({ metadata: { name, labels: pod.labels } })) } as T;
+        return {
+          items: items.map(([name, pod]) => ({
+            metadata: { name, labels: pod.labels },
+            status: { reason: pod.reason },
+          })),
+        } as T;
       }
       return jobs.get(path.split('/').at(-1) ?? '') as T | undefined;
     },
@@ -188,7 +200,8 @@ function fakeKube(
       const name = manifest.metadata.name;
       const labels = manifest.spec.template?.metadata.labels ?? {};
       const part = labels['factory.mrogan.dev/runner'] as 'prepare' | 'agent';
-      pods.set(`${name}-x7k2p`, { job: name, labels, log: logs[part] });
+      const reason = outOfTime && part === 'prepare' ? 'DeadlineExceeded' : undefined;
+      pods.set(`${name}-x7k2p`, { job: name, labels: { ...labels, 'job-name': name }, log: logs[part], reason });
       if (name.endsWith('-prepare')) {
         jobs.set(name, {
           status: prepare === 'succeeded' ? { succeeded: 1 } : { conditions: [{ type: 'Failed', status: 'True' }] },
@@ -226,9 +239,9 @@ async function line(
   agent: Parameters<typeof fakeKube>[0],
   prepare?: 'succeeded' | 'failed',
   log: Logger = quiet,
-  { podLogs, logs, hang }: { podLogs?: PodLogs; logs?: StepLogs; hang?: boolean } = {},
+  { podLogs, logs, hang, outOfTime }: { podLogs?: PodLogs; logs?: StepLogs; hang?: boolean; outOfTime?: boolean } = {},
 ) {
-  const { kube, calls } = fakeKube(agent, prepare, podLogs);
+  const { kube, calls } = fakeKube(agent, prepare, podLogs, outOfTime);
   // An API that never gives a pod's log.
   if (hang) kube.text = () => new Promise(() => {});
   let handbackUrl = '';
@@ -307,6 +320,13 @@ describe('running a step', () => {
     await close();
     expect(outcome).toEqual({ kind: 'failed', job: 'coder-1002-1-1', reason: 'The prepare pod failed.' });
     expect(calls.some((c) => c.includes('agent') && c.startsWith('POST'))).toBe(false);
+  });
+
+  it('says a step ran out of time when its pod failed at its own deadline', async () => {
+    const { runners, close } = await line(() => {}, 'failed', quiet, { outOfTime: true });
+    const outcome = await runners.run({ ...STEP, workItem: '1025', round: 1, deadlineSeconds: 60 });
+    await close();
+    expect(outcome).toEqual({ kind: 'failed', job: 'coder-1025-1-1', reason: 'The prepare pod ran out of time.' });
   });
 
   it('says so when the agent pod ends without handing anything back', async () => {
@@ -445,9 +465,7 @@ describe('a step’s logs', () => {
     const deleted = calls.findIndex((c) => c.startsWith('DELETE') && c.includes('-prepare'));
     expect(pods).toBeGreaterThan(-1);
     expect(pods).toBeLessThan(deleted);
-    expect(calls).toContain(
-      'GET /api/v1/namespaces/runners/pods/coder-1020-1-1-agent-x7k2p/log?tailLines=5000&limitBytes=4194304',
-    );
+    expect(calls).toContain('GET /api/v1/namespaces/runners/pods/coder-1020-1-1-agent-x7k2p/log?tailLines=2000');
   });
 
   it('keeps the prepare pod’s log when it fails, with the reason, and there is no agent pod to keep', async () => {
