@@ -70,7 +70,10 @@ afterAll(() => {
   return new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-/** Reads an event stream until it has seen `count` events, then hangs up. */
+/**
+ * Reads an event stream until it has seen `count` events, then hangs up, with the first `count`: the server writes a
+ * backlog in one go, and how much of it one chunk holds is up to the socket.
+ */
 function readStream(path: string, headers: Record<string, string>, count: number): Promise<string[]> {
   return new Promise((resolve, reject) => {
     const ids: string[] = [];
@@ -81,11 +84,11 @@ function readStream(path: string, headers: Record<string, string>, count: number
         for (const [, id] of buffer.matchAll(/^id: (\d+)$/gm)) if (id && !ids.includes(id)) ids.push(id);
         if (ids.length >= count) {
           req.destroy();
-          resolve(ids);
+          resolve(ids.slice(0, count));
         }
       });
     });
-    req.on('error', (error) => (ids.length >= count ? resolve(ids) : reject(error)));
+    req.on('error', (error) => (ids.length >= count ? resolve(ids.slice(0, count)) : reject(error)));
     req.end();
   });
 }
