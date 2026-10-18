@@ -48,6 +48,14 @@ export const INBOX = {
   attempts: 5,
   /** How long a taken signal is held before another worker may try it, in seconds. */
   leaseSeconds: 120,
+  /**
+   * How long a repeat (`counted`, a signal on a ticket that already has it) stays in the inbox, in days. Nothing reads
+   * one after triage has counted it, so it goes then, but for each sense's newest, from which a restarted watcher
+   * takes up. Signals that opened, held or still wait for a ticket stay: triage reads them again.
+   */
+  keepCountedDays: 3,
+  /** How often triage deletes the repeats past `keepCountedDays`, in minutes. Once as it starts, too. */
+  pruneMinutes: 60,
 } as const;
 
 /**
