@@ -7,7 +7,15 @@ import type { Sql } from 'postgres';
 import type { Handback } from '../../../runner/src/step.ts';
 import type { DeployProposal } from '../../src/github/deploys.ts';
 import type { CheckRun, Comparison, PullRequestState } from '../../src/github/reads.ts';
-import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../src/github/server.ts';
+import type {
+  ActingFor,
+  ActionArgs,
+  ActionName,
+  ActionResult,
+  ReadArgs,
+  ReadName,
+  ReadResult,
+} from '../../src/github/server.ts';
 import { GitHubWorkerError } from '../../src/github/worker-client.ts';
 import type { ProbesPort } from '../../src/line/verify.ts';
 import type { GitHubPort, Steps } from '../../src/line/worker.ts';
@@ -93,6 +101,8 @@ export class FakeSteps implements Steps {
 /** The app's repository in memory, as the GitHub worker would read and change it. */
 export class FakeGitHub implements GitHubPort {
   readonly acts: { action: string; args: Record<string, unknown> }[] = [];
+  /** What each of `acts` was said to be for, in the same order. */
+  readonly actingFor: (ActingFor | undefined)[] = [];
   /** Actions that fail, as GitHub failing does, and how many times each will. */
   readonly failing = new Map<ActionName, number>();
   /** Actions GitHub refuses once, with the GitHub worker's own error. */
@@ -127,7 +137,12 @@ export class FakeGitHub implements GitHubPort {
   history: string[] | undefined;
   #commits = 0;
 
-  async act<K extends ActionName>(action: K, _repo: string, given: ActionArgs[K]): Promise<ActionResult<K>> {
+  async act<K extends ActionName>(
+    action: K,
+    _repo: string,
+    given: ActionArgs[K],
+    on?: ActingFor,
+  ): Promise<ActionResult<K>> {
     const args = given as Record<string, unknown>;
     const refusal = this.refusing.get(action);
     if (refusal) {
@@ -140,6 +155,7 @@ export class FakeGitHub implements GitHubPort {
       throw new Error(`GitHub failed: ${action} (502)`);
     }
     this.acts.push({ action, args });
+    this.actingFor.push(on);
     const result = this.#act(action, args) as ActionResult<K>;
     if (this.crashAfter === action) {
       this.crashAfter = undefined;
