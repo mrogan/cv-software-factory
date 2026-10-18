@@ -9,7 +9,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-/** The model every answer names, as the gateway's name the policy's model. */
+/** The model every answer names, whatever the SDK asked for, as each of the gateway's answers names the policy's. */
 export const ANSWERING_MODEL = 'scripted-model';
 
 export type Turn = { text: string } | { tool: string; input: Record<string, unknown> };
