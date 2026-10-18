@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type InboxSignal, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { Handback } from '../../../runner/src/step.ts';
 import { DryRunActions } from '../../src/github/actions.ts';
@@ -352,6 +352,47 @@ describe('the line', () => {
     // Nothing more to do: the next pass starts nothing.
     await pass();
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'reviewer', 'describer']);
+  });
+
+  it('records, with a merge soon after the gates pass on a branch brought up to date, the round they finished', async () => {
+    const workItem = await ticket();
+    const { pass, github } = line();
+    await pass(); // the issue, and the planner
+    await pass(); // the coder
+    github.pass();
+    await pass(); // the gates pass, and the reviewer
+    await pass(); // the describer
+    await pass(); // the hold for Martin
+    expect(await stage(workItem)).toBe('held');
+
+    // GitHub brings the branch up to date with main while it waits, its gates run again and pass, and Martin merges
+    // before the line reads them.
+    const pr = github.pulls.get(12);
+    if (!pr) throw new Error('No pull request #12');
+    const updated = 'd'.repeat(40);
+    pr.head.sha = updated;
+    github.pass();
+    // GitHub says it merged before it names the merge commit: the line waits for the next read, reading no checks.
+    Object.assign(pr, { state: 'closed', merged: true, mergedBy: 'mrogan' });
+    const before = await types(workItem);
+    const reads = vi.spyOn(github, 'read');
+    await pass();
+    expect(await types(workItem)).toEqual(before);
+    expect(reads.mock.calls.map(([read]) => read)).not.toContain('checkRuns');
+    reads.mockRestore();
+    github.merge();
+    await pass();
+    expect((await types(workItem)).slice(-5)).toEqual([
+      'gates.started',
+      'gate.finished',
+      'gates.finished',
+      'pull-request.merged',
+      'hold.started',
+    ]);
+    expect((await payloads(workItem, 'gates.finished')).at(-1)).toMatchObject({
+      commit: updated,
+      conclusion: 'passed',
+    });
   });
 
   it('sends a failing change back to the coder, which resumes its session on a branch that moved on', async () => {

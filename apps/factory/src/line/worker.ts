@@ -1338,7 +1338,10 @@ export class Line {
         // Once merged, the pull request has nothing more to say: the release carries the work item on.
         if (!state.pullRequest || state.merged) continue;
         const pr = await github.read('pullRequest', repo, { number: state.pullRequest.number });
-        const runs = pr.state === 'open' ? await github.read('checkRuns', repo, { sha: pr.head.sha }) : [];
+        // A merged pull request's checks too, on its head, once GitHub names the merge commit: what they did since the
+        // last read is recorded with the merge, which waits for that commit.
+        const runs =
+          pr.state === 'open' || pr.mergeCommit ? await github.read('checkRuns', repo, { sha: pr.head.sha }) : [];
         required ??= await github.read('requiredChecks', repo, { branch: 'main' });
         // A clearance that stands on the hold makes a close unmerged a verified one, and its issue closes completed.
         const cleared = state.hold ? state.cleared : undefined;
