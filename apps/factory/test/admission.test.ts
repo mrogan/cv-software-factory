@@ -131,7 +131,7 @@ describe('admission control', () => {
     expect(source).not.toMatch(/verifyAttestationSignatures/);
   });
 
-  it('guards every namespace the factory and the app run in; telemetry and Argo Rollouts run only their charts', async () => {
+  it('guards every namespace the factory and the app run in; the rest run only upstream charts', async () => {
     const namespaces = parseAllDocuments(await read('base/namespaces.yaml')).map(
       (d) => (d.toJS() as { metadata: { name: string } }).metadata.name,
     );
@@ -140,7 +140,7 @@ describe('admission control', () => {
       ...(await copy('website')).namespaces,
       ...(await copy('scoreboard')).namespaces,
     ];
-    const charts = ['telemetry', 'argo-rollouts'];
+    const charts = ['telemetry', 'pod-logs', 'argo-rollouts'];
     expect(guarded.sort()).toEqual(namespaces.filter((n) => !charts.includes(n)).sort());
   });
 

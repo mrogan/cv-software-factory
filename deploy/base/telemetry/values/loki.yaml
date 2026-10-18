@@ -38,6 +38,10 @@ rbac:
 
 singleBinary:
   replicas: 1
+  # Its own metrics, on its HTTP port, for Prometheus to scrape.
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3100"
   persistence:
     size: 4Gi
   resources:

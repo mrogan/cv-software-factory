@@ -1,12 +1,13 @@
-# Argo Rollouts' fences. Everything in `argo-rollouts` is denied, in and out, and then the controller may reach:
+# Argo Rollouts' fences. Everything in `argo-rollouts` is denied, in and out, and then Prometheus may scrape the
+# controller's metrics, on 8090 alone, and the controller may reach:
 #
 # - the API server (6443 on a private address, as for the line: deploy/base/factory), through which it does all its
 #   work: the app's ReplicaSets, the TraefikService's weights, the AnalysisRuns and their Jobs;
 # - Prometheus, for the canary's analysis (deploy/base/analysis), on its pods' port behind the Service's 80;
 # - DNS, for Prometheus's name.
 #
-# Nothing on the internet: its Traefik router is built in, so it fetches no plugin. Nothing calls it: there is no
-# dashboard, and nothing scrapes its metrics.
+# Nothing on the internet: its Traefik router is built in, so it fetches no plugin. Nothing else calls it: there is no
+# dashboard.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -29,7 +30,18 @@ spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/component: rollouts-controller
-  policyTypes: [Egress]
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/component: server
+      ports:
+        - { protocol: TCP, port: 8090 }
   egress:
     - to:
         - namespaceSelector:

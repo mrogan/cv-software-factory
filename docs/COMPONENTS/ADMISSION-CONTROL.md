@@ -25,7 +25,7 @@ It checks the signature, not the SBOM: the deploy pull requests' checks verify t
 
 - **A refusal** names the policy, the check and the images.
 - **It fails closed.**
-- **Outside it:** Kyverno's namespace, Argo CD's and the system's. Telemetry's and Argo Rollouts' are not guarded, since they run only upstream charts.
+- **Outside it:** Kyverno's namespace, Argo CD's and the system's. Telemetry's, the pod log collector's and Argo Rollouts' are not guarded, since they run only upstream charts.
 - **Every copy enforces.**
 - **Its verdicts are cached in memory,** so after a restart it verifies everything again.
 
