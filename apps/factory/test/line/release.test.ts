@@ -49,15 +49,25 @@ const event = <K extends NewEvent['type']>(
     artifacts: [],
   }) as NewEvent;
 
-/**
- * A work item whose fix merged in pull request `number`, as `commit`, and which the line holds at Release. Its ticket
- * came from a probe, which the line here has no way to ask at Verify: there it waits.
- */
-async function merged(
-  number: number,
-  commit: string,
-  sense: 'probe' | 'report' | 'canary' | 'logs' = 'probe',
-): Promise<string> {
+/** The coder's push of pull request `number`. */
+const pushed = (workItem: string, number: number) =>
+  event(
+    workItem,
+    'pull-request.pushed',
+    {
+      number,
+      title: 'fix(departments): stop the redirect loop',
+      branch: `factory/${workItem}-a-redirect-loop`,
+      attempt: 1,
+      testsFirst: true,
+      files: [{ path: 'src/departments.ts', added: 1, removed: 1 }],
+      whole: [{ path: 'src/departments.ts', added: 1, removed: 1 }],
+    },
+    'coder',
+  );
+
+/** A ticket's first events, as triage appends them: its signal came from `sense`. */
+async function opened(sense: 'probe' | 'report' | 'canary' | 'logs' = 'probe'): Promise<string> {
   const workItem = await nextWorkItem(database.writer);
   await events.append([
     event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'A redirect loop', sample: false }, 'triage'),
@@ -85,6 +95,23 @@ async function merged(
       },
       sense === 'report' ? 'widget' : sense,
     ),
+  ]);
+  return workItem;
+}
+
+/**
+ * A work item whose fix merged in pull request `number`, as `commit`, and which the line holds at Release. Its ticket
+ * came from a probe, which the line here has no way to ask at Verify: there it waits. A dry run's, from a billion up,
+ * was pushed as the dry run's too, with an issue GitHub never had.
+ */
+async function merged(
+  number: number,
+  commit: string,
+  sense: 'probe' | 'report' | 'canary' | 'logs' = 'probe',
+): Promise<string> {
+  const workItem = await opened(sense);
+  await events.append([
+    ...(number >= 1_000_000_000 ? [pushed(workItem, number)] : []),
     event(workItem, 'pull-request.merged', { number, commit, by: 'martin' }, 'martin'),
   ]);
   await database.writer`insert into line (work_item, stage, issue) values (${workItem}, 'release', ${number - 1})`;
@@ -1052,6 +1079,7 @@ describe('Verify on the line', () => {
       route: '/departments/:department',
       version: later,
       reason: 'The probes saw it again',
+      dryRun: false,
     };
     await events.append([event(workItem, 'work-item.reopened', reopened, 'triage')]);
     await database.writer`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${workItem}`;
@@ -1095,6 +1123,7 @@ describe('Verify on the line', () => {
       route: '/departments/:department',
       version: 'e'.repeat(40),
       reason: 'The probes saw it again',
+      dryRun: false,
     };
     await events.append([event(workItem, 'work-item.reopened', reopened, 'triage')]);
     await database.writer`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${workItem}`;
@@ -1106,14 +1135,14 @@ describe('Verify on the line', () => {
     expect(row).toEqual({ stage: 'plan', issue: 41 });
   });
 
-  it('verifies a dry run’s work item by the dry run’s word, and closes it, only in a dry run; outside one it holds', async () => {
-    // A line no longer in a dry run has nothing to verify it by: Martin judges.
+  it('verifies a dry run’s work item by the dry run’s word, and closes it, only in a dry run', async () => {
+    // A line no longer in a dry run has nothing to verify it by: it closes it with no change (below).
     const left = await merged(1_000_000_002, 'e'.repeat(40));
     await promote(left, 'dry-run-eeeeeeeeeeee', 'e'.repeat(40), true);
     const live = line({ release: null });
     await pass(live.line);
     expect(await types(left)).not.toContain('verification.finished');
-    expect((await payloads(left, 'hold.started')).at(-1)).toMatchObject({ stage: 'verify', cause: 'verify' });
+    expect(await payloads(left, 'work-item.closed')).toMatchObject([{ outcome: 'no-change' }]);
 
     const workItem = await merged(1_000_000_001, 'd'.repeat(40));
     await promote(workItem, 'dry-run-dddddddddddd', 'd'.repeat(40), true);
@@ -1129,6 +1158,122 @@ describe('Verify on the line', () => {
       { outcome: 'verified', reason: 'The dry run’s word: its release never shipped, so no sense looked' },
     ]);
     expect(await stage(workItem)).toBe('ended');
+  });
+
+  describe('what a dry run left, as the line runs live', () => {
+    it('closes each work item whose pull request or issue was the dry run’s with no change, and a real issue', async () => {
+      const atRelease = await merged(1_000_000_001, 'd'.repeat(40));
+      const atVerify = await merged(1_000_000_002, 'e'.repeat(40));
+      await promote(atVerify, 'dry-run-eeeeeeeeeeee', 'e'.repeat(40), true);
+      const gone = await opened();
+      await events.append([pushed(gone, 1_000_000_004)]);
+      await database.writer`insert into line (work_item, stage, issue) values (${gone}, 'gates', 8)`;
+      // Its pull request open still, on a ticket the line took before the dry run, with an issue GitHub has.
+      const open = await opened();
+      await events.append([pushed(open, 1_000_000_003)]);
+      await database.writer`insert into line (work_item, stage, issue) values (${open}, 'gates', 7)`;
+      // Taken by the dry run, with no pull request yet: its issue is the dry run's.
+      const taken = await opened();
+      await database.writer`insert into line (work_item, stage, issue) values (${taken}, 'plan', 1000000005)`;
+      // Reopened by triage, and waiting to come back into Plan, which forgets its issue: it is left to that.
+      const back = await opened();
+      await events.append([
+        event(back, 'work-item.closed', { outcome: 'verified', reason: 'Cleared' }, 'factory'),
+        event(
+          back,
+          'work-item.reopened',
+          {
+            sense: 'probe',
+            check: 'departments',
+            route: '/',
+            version: commitOf(STABLE),
+            reason: 'Back',
+            dryRun: false,
+          },
+          'triage',
+        ),
+      ]);
+      await database.writer`insert into line (work_item, stage, issue) values (${back}, 'ended', 1000000006)`;
+      const real = await merged(30, FIX_3);
+      const { line: it, github } = line({ release: null, gatesEveryMs: 0 });
+      // GitHub fails once: that one is tried again on the next pass. One whose issue is gone closes all the same.
+      github.refusing.set('closeIssue', new GitHubWorkerError(404, 'not-found', 'Not Found'));
+      github.failing.set('closeIssue', 1);
+      await pass(it);
+      await pass(it);
+      const merge = 'A dry run merged its fix, which never shipped: the line, running live, closed it';
+      expect(await payloads(atRelease, 'work-item.closed')).toEqual([{ outcome: 'no-change', reason: merge }]);
+      expect(await payloads(atVerify, 'work-item.closed')).toEqual([{ outcome: 'no-change', reason: merge }]);
+      const unmerged = 'Its pull request was a dry run’s, which GitHub never had: the line, running live, closed it';
+      expect(await payloads(open, 'work-item.closed')).toEqual([{ outcome: 'no-change', reason: unmerged }]);
+      expect(await payloads(taken, 'work-item.closed')).toEqual([
+        {
+          outcome: 'no-change',
+          reason: 'Its issue was a dry run’s, which GitHub never had: the line, running live, closed it',
+        },
+      ]);
+      expect(await payloads(gone, 'work-item.closed')).toEqual([{ outcome: 'no-change', reason: unmerged }]);
+      expect(github.acts.filter((a) => a.action !== 'describeDeploy')).toEqual([
+        {
+          action: 'closeIssue',
+          args: {
+            number: 7,
+            reason: 'not_planned',
+            comment: [
+              `${unmerged}.`,
+              '',
+              `The factory’s work item #${open} is closed with no change: the next signal of this defect opens a fresh ticket.`,
+            ].join('\n'),
+          },
+        },
+      ]);
+      await pass(it);
+      const stages = await Promise.all([atRelease, atVerify, open, taken].map(stage));
+      expect(stages).toEqual(['ended', 'ended', 'ended', 'ended']);
+      // The real merge waits for a real release, and nothing is closed twice.
+      expect(await payloads(real, 'work-item.closed')).toEqual([]);
+      expect(await payloads(back, 'work-item.closed')).toHaveLength(1);
+      expect(await payloads(atRelease, 'work-item.closed')).toHaveLength(1);
+    });
+
+    it('reopens a ticket the dry run verified, and takes it back into Plan with a new issue', async () => {
+      const workItem = await merged(1_000_000_001, 'd'.repeat(40));
+      await promote(workItem, 'dry-run-dddddddddddd', 'd'.repeat(40), true);
+      const dry = line({ release: null, dryRun: true });
+      await pass(dry.line);
+      await pass(dry.line);
+      expect(await stage(workItem)).toBe('ended');
+      await database.writer`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${workItem}`;
+
+      const steps = new FakeSteps(database.writer, { planner: () => 'fails' });
+      const { line: it, github } = line({ release: null, steps });
+      await pass(it);
+      expect(await payloads(workItem, 'work-item.reopened')).toEqual([
+        {
+          sense: 'probe',
+          check: 'departments',
+          route: '/departments/:department',
+          version: commitOf(STABLE),
+          reason: 'A dry run verified it, and its fix never shipped: the line, running live, takes it again',
+          dryRun: true,
+        },
+      ]);
+      // Its issue was the dry run's, which GitHub never had: the line opens one, and the planner starts afresh, told
+      // of no fix that came back.
+      expect(github.acts.map((a) => a.action)).toEqual(['openIssue']);
+      expect(await stage(workItem)).toBe('plan');
+      expect(steps.requests.at(-1)).toMatchObject({ agent: 'planner', workItem, round: 1 });
+      expect(steps.requests.at(-1)?.prompt).not.toContain('came back');
+      await pass(it);
+      expect(await payloads(workItem, 'work-item.reopened')).toHaveLength(1);
+    });
+
+    it('ends nothing for a line that is still in a dry run', async () => {
+      const workItem = await merged(1_000_000_001, 'd'.repeat(40));
+      const { line: it } = line({ release: null, dryRun: true });
+      await pass(it);
+      expect(await payloads(workItem, 'work-item.closed')).toEqual([]);
+    });
   });
 
   describe('with the pictures taken while its release ran as a canary', () => {

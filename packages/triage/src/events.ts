@@ -206,6 +206,7 @@ export function senseReopened(signal: Seen, signalId: string, workItem: string, 
     route: signal.route,
     version: signal.version,
     reason: reason.slice(0, 200),
+    dryRun: false,
   });
   return signalEvent(writer, signal).events;
 }

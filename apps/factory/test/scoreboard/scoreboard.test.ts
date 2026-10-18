@@ -142,6 +142,7 @@ describe('the scoreboard', () => {
         route: '/a',
         version: 'v0.9.4',
         reason: 'It came back',
+        dryRun: false,
       }),
     );
     await scoreboard().pass();

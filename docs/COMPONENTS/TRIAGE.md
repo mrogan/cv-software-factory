@@ -48,7 +48,7 @@ A sense's signal that no open ticket has, on the exact fingerprint of a ticket c
 It counts as a repeat on that ticket instead when:
 
 - the sense saw it before that close: it is of the version the fix replaced;
-- the ticket's last verification was a dry run's, whose fix never shipped.
+- the ticket's last verification was a dry run's, whose fix never shipped. The line reopens that ticket when it runs live ([after a dry run](ORCHESTRATOR.md#after-a-dry-run)).
 
 A report or a planner's finding never reopens a ticket.
 
