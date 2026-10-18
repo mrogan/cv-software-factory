@@ -636,11 +636,16 @@ export class Line {
       }
       const claimed = await this.#queue.claim(item.workItem, ACTION_LEASE_SECONDS);
       if (!claimed) return;
+      let acted: boolean | undefined;
       try {
-        await this.#act(claimed, next, fold(events));
+        acted = await this.#act(claimed, next, fold(events));
       } catch (error) {
         await this.#release(item.workItem);
         throw error;
+      }
+      if (acted === false) {
+        await this.#release(item.workItem);
+        return;
       }
       if (next.do === 'finish') {
         await this.#queue.release(item.workItem, 'ended');
@@ -677,12 +682,15 @@ export class Line {
     await this.#queue.release(workItem, stage === 'ended' ? item.stage : stage);
   }
 
-  /** An action that is not a step: quick, and done before the next. */
+  /**
+   * An action that is not a step: quick, and done before the next. Gives back false when it did nothing, and the
+   * work item waits for the line's next read of GitHub.
+   */
   async #act(
     item: QueueItem,
     next: Exclude<Next, { do: 'step' | 'wait' | 'verify' | 'recheck' }>,
     state: WorkItemState,
-  ): Promise<void> {
+  ): Promise<boolean | undefined> {
     const { workItem } = item;
     switch (next.do) {
       case 'open-issue': {
@@ -694,12 +702,15 @@ export class Line {
       case 'return': {
         const { do: _, ...returned } = next;
         // A pull request ready for review (the describer readied it) goes back to draft before the work goes back to
-        // Build, so that GitHub will not merge a round the reviewer has not seen. One merged or closed since is left
-        // as it is. GitHub says whether it is ready, not the events: whoever readied it, it goes back.
+        // Build, so that GitHub will not merge a round the reviewer has not seen. GitHub says whether it is ready, not
+        // the events: whoever readied it, it goes back.
         if (next.to === 'build' && state.pullRequest) {
           const { number } = state.pullRequest;
           const pr = await this.#o.github.read('pullRequest', this.#o.repo, { number });
-          if (pr.state === 'open' && !pr.draft) {
+          // Merged or closed since the line last read it: there is nothing to send back. The next read of GitHub
+          // records the merge, and the work item goes on to Release, or the close, which ends it.
+          if (pr.state !== 'open') return false;
+          if (!pr.draft) {
             await this.#o.github.act(
               'convertToDraft',
               this.#o.repo,

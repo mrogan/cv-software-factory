@@ -434,6 +434,41 @@ describe('the line', () => {
     expect(await stage(workItem)).toBe('held');
   });
 
+  it('sends nothing back when Martin merged the change before the line could return it, and records the merge', async () => {
+    const workItem = await ticket();
+    // GitHub is read once a minute: each pass below is a minute on, but the one where the line returns the work.
+    const { pass, github } = line(AGENTS, events, { gatesEveryMs: 60_000 });
+    const later = async () => {
+      now += 60_000;
+      await pass();
+    };
+    await later(); // the issue, and the planner
+    await later(); // the coder
+    github.pass();
+    await later(); // the gates pass, and the reviewer
+    await later(); // the describer
+    await later(); // the hold for Martin
+    expect(await stage(workItem)).toBe('held');
+    const before = await types(workItem);
+
+    // He sends it back in words, and merges it too, before the line reads GitHub again.
+    await events.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'Name the test' }, 'martin'));
+    github.merge();
+    await pass();
+    expect((await types(workItem)).slice(before.length)).toEqual(['hold.answered']);
+    expect(github.acts.map((a) => a.action)).not.toContain('convertToDraft');
+
+    // The next read records the merge, and the work item goes on to Release.
+    await later();
+    expect((await types(workItem)).slice(before.length)).toEqual([
+      'hold.answered',
+      'pull-request.merged',
+      'hold.started',
+    ]);
+    expect(await payloads(workItem, 'work.returned')).toEqual([]);
+    expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({ stage: 'release', cause: 'deploy' });
+  });
+
   it('puts the pull request back to draft when Martin sends back a change waiting for his merge', async () => {
     const workItem = await ticket();
     const { pass, steps, github } = line();
