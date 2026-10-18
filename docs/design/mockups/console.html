@@ -180,7 +180,6 @@ button.srow:hover { background: var(--surface); }
 .history-head h2 { margin: 0; font: 400 40px/1 var(--font-display); letter-spacing: -0.4px; }
 .history-head p { margin: 8px 0 0; font-size: 13px; color: var(--text-muted); max-width: 640px; }
 .transport { display: flex; align-items: center; gap: 8px; }
-.transport .btn { min-height: 40px; padding: 0 16px; }
 .count { font: 12px/1 var(--font-mono); color: var(--text-muted); min-width: 64px; text-align: center; }
 .now-btn { min-height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: transparent; font: 12px/1 var(--font-mono); letter-spacing: 1px; cursor: pointer; }
 .now-btn[aria-pressed="true"] { background: var(--raised); border-color: var(--text-muted); }
@@ -611,7 +610,6 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
 
   .history { margin-top: 44px; }
   .history-head h2 { font-size: 32px; }
-  .play-label { display: none; }
   .card { padding: 10px 10px 12px; }
   .card h3 { font-size: 23px; }
   .card .kind, .meta .opt { display: none; }
@@ -720,7 +718,6 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
         <p>Every work item, oldest on the left. Drag the cards or the timeline to watch the app change; open one to see how it was done.</p>
       </div>
       <div class="transport">
-        <button type="button" class="btn" id="play"></button>
         <button type="button" class="icon-btn" id="prev" aria-label="Previous work item"><svg class="glyph" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></button>
         <span class="count" id="count"></span>
         <button type="button" class="icon-btn" id="next" aria-label="Next work item"><svg class="glyph" viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></button>
@@ -1359,7 +1356,7 @@ const S = {
   visitor: q.get('mode') === 'visitor', previewing: false,
   stage: null, stopped: false, autonomy: 'guarded',
   switches: { agents: true, automerge: true, rollback: true },
-  P: asked >= 0 ? asked : n - 1, playing: false, sheet: null, at: null, sheetPlay: false,
+  P: asked >= 0 ? asked : n - 1, sheet: null, at: null, sheetPlay: false,
 };
 const cur = () => Math.round(Math.min(n - 1, Math.max(0, S.P)));
 const still = () => document.body.classList.contains('still');
@@ -1722,7 +1719,6 @@ function renderRail() {
   $('count').textContent = `${c + 1} of ${n}`;
   $('prev').disabled = c === 0; $('next').disabled = c === n - 1;
   $('now').setAttribute('aria-pressed', String(c === n - 1));
-  $('play').innerHTML = S.playing ? '<svg class="glyph" viewBox="0 0 16 16"><path d="M5 3v10M11 3v10"/></svg><span class="play-label">Pause</span>' : '<svg class="glyph" viewBox="0 0 16 16"><path d="M4.5 3 12.5 8l-8 5z"/></svg><span class="play-label">Play the history</span>';
 }
 
 function go(i, { animate = true, announce = true } = {}) {
@@ -1748,7 +1744,7 @@ reel.addEventListener('pointermove', (e) => {
   if (!drag) return;
   const dx = e.clientX - drag.x;
   if (!drag.moved && Math.abs(dx) < 6) return;
-  if (!drag.moved) { drag.moved = true; reel.classList.add('dragging'); reel.classList.remove('anim'); stopPlay(); }
+  if (!drag.moved) { drag.moved = true; reel.classList.add('dragging'); reel.classList.remove('anim'); }
   const now = performance.now();
   drag.v = (e.clientX - drag.lx) / Math.max(1, now - drag.lt); drag.lx = e.clientX; drag.lt = now;
   S.P = Math.max(-0.35, Math.min(n - 0.65, drag.P0 - dx / stepW()));
@@ -1759,7 +1755,6 @@ reel.addEventListener('pointerup', () => {
   const d = drag; drag = null; reel.classList.remove('dragging');
   if (!d.moved) {
     if (!d.card) return;
-    stopPlay();
     const i = +d.card.dataset.i;
     return i === cur() ? openSheet(i) : go(i);
   }
@@ -1769,47 +1764,26 @@ reel.addEventListener('pointercancel', () => { if (drag) { drag = null; reel.cla
 
 let railDrag = false;
 const railP = (e) => { const r = rail.getBoundingClientRect(); return pFromF(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))); };
-rail.addEventListener('pointerdown', (e) => { railDrag = true; capture(rail, e); stopPlay(); reel.classList.remove('anim'); S.P = railP(e); layout(); movePlayhead(); });
+rail.addEventListener('pointerdown', (e) => { railDrag = true; capture(rail, e); reel.classList.remove('anim'); S.P = railP(e); layout(); movePlayhead(); });
 rail.addEventListener('pointermove', (e) => { if (!railDrag) return; S.P = railP(e); layout(); movePlayhead(); });
 rail.addEventListener('pointerup', () => { if (!railDrag) return; railDrag = false; go(Math.round(S.P)); });
 
 function keys(e) {
   const k = { ArrowLeft: -1, ArrowRight: 1, PageUp: -3, PageDown: 3 }[e.key];
-  if (k) { e.preventDefault(); stopPlay(); return go(cur() + k); }
-  if (e.key === 'Home') { e.preventDefault(); stopPlay(); return go(0); }
-  if (e.key === 'End') { e.preventDefault(); stopPlay(); return go(n - 1); }
-  if (e.key === 'Enter' && e.currentTarget === reel) { stopPlay(); openSheet(cur()); }
+  if (k) { e.preventDefault(); return go(cur() + k); }
+  if (e.key === 'Home') { e.preventDefault(); return go(0); }
+  if (e.key === 'End') { e.preventDefault(); return go(n - 1); }
+  if (e.key === 'Enter' && e.currentTarget === reel) openSheet(cur());
 }
 reel.addEventListener('keydown', keys);
 rail.addEventListener('keydown', keys);
-
-/* Play the history: a card every two and a half seconds, ending at now. */
-let playTimer = null;
-function stopPlay() { if (!S.playing) return; S.playing = false; clearInterval(playTimer); renderRail(); }
-function startPlay(from) {
-  S.playing = true;
-  go(from ?? (cur() === n - 1 ? 0 : cur()), { announce: false });
-  playTimer = setInterval(() => { if (cur() >= n - 1) return stopPlay(); go(cur() + 1); }, 2500);
-}
-// The landing view: the reel plays the recent history once, the first time it is seen. Never with motion off.
-function autoplayWhenSeen() {
-  if (asked >= 0 || still() || !('IntersectionObserver' in window)) return;
-  const from = Math.max(0, n - 8);
-  go(from, { animate: false, announce: false });
-  const io = new IntersectionObserver(([e]) => {
-    if (!e.isIntersecting) return;
-    io.disconnect();
-    if (!still() && cur() === from && S.sheet === null) setTimeout(() => startPlay(from), 600);
-  }, { threshold: 0.6 });
-  io.observe(reel);
-}
 
 /* The wipe between before and after: drag its handle, or use the arrow keys on it. */
 let wipeDrag = null;
 document.addEventListener('pointerdown', (e) => {
   const h = e.target.closest('.handle'); if (!h) return;
   e.stopPropagation(); e.preventDefault();
-  wipeDrag = h.closest('.wipe'); document.body.classList.add('wiping'); stopPlay();
+  wipeDrag = h.closest('.wipe'); document.body.classList.add('wiping');
   capture(h, e);
 }, true);
 document.addEventListener('pointermove', (e) => {
@@ -1840,7 +1814,6 @@ function openSheet(i, focus = true) {
   renderSheet();
   if (first) {
     opener = document.activeElement;
-    stopPlay();
     if (S.stage !== null) openStage(S.stage);
     $('sheet').hidden = false; $('scrim').hidden = false; document.body.classList.add('locked');
     requestAnimationFrame(() => requestAnimationFrame(() => { $('sheet').classList.add('open'); $('scrim').classList.add('open'); }));
@@ -2079,10 +2052,9 @@ document.addEventListener('click', (e) => {
   if ('add' in d) return;   // opens the improvement form (not drawn in this mockup)
   if ('closeStage' in d) return openStage(S.stage);
   if (d.open) { if (S.stage !== null) openStage(S.stage); return openSheet(indexOf(d.open)); }
-  if (t.id === 'prev') { stopPlay(); return go(cur() - 1); }
-  if (t.id === 'next') { stopPlay(); return go(cur() + 1); }
-  if (t.id === 'now') { stopPlay(); return go(n - 1); }
-  if (t.id === 'play') return S.playing ? stopPlay() : startPlay();
+  if (t.id === 'prev') return go(cur() - 1);
+  if (t.id === 'next') return go(cur() + 1);
+  if (t.id === 'now') return go(n - 1);
   if ('close' in d) return closeSheet();
   if (d.sheetGo) return openSheet(Math.max(0, Math.min(n - 1, S.sheet + +d.sheetGo)));
   if (d.at) { S.at = +d.at; S.sheetPlay = false; clearInterval(sheetTimer); return renderSheetReplay(); }
@@ -2126,7 +2098,6 @@ function setTheme(t) {
 }
 function setMotion(on) {
   document.body.classList.toggle('still', !on);
-  if (!on) stopPlay();
   if ($('stations').children.length) cycleReturns();
   document.querySelectorAll('sf-station').forEach((s) => on ? s.removeAttribute('motion') : s.setAttribute('motion', 'off'));
   document.querySelectorAll('[data-motion]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.motion === 'on') === on)));
@@ -2139,7 +2110,6 @@ renderChrome(); renderLine(); renderStagePanel(); renderControls(); renderScore(
 reel.innerHTML = ITEMS.map(card).join('');
 buildRail(); layout(); renderRail(); fitHeight();
 document.fonts?.ready.then(fitHeight);
-autoplayWhenSeen();
 if (q.has('sheet')) openSheet(cur());
 })();
 </script>

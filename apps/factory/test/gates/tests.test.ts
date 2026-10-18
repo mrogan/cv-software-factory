@@ -4,6 +4,7 @@ import { compare } from '../../src/gates/integrity.ts';
 import {
   type Comparison,
   compareJourneys,
+  comparisonIn,
   comparisonMessage,
   regressionsIn,
   type Seen,
@@ -204,6 +205,8 @@ describe('journeys', () => {
     expect(c.unsure.map((s) => s.check)).toEqual(['unsure']);
     expect(c.unchanged.map((s) => s.check)).toEqual(['broken']);
     expect(c.fixed.map((s) => s.check)).toEqual(['fixed']);
+    // What passed of what ran on each: on the change, the check that failed once and then passed counts as passing.
+    expect(c.counts).toEqual({ base: { passed: 3, ran: 6 }, change: { passed: 3, ran: 7 } });
     expect(summary(c)).toMatch(/^## Journeys\n\n2 checks that pass on the base fail on this change, twice\./);
   });
 
@@ -300,7 +303,7 @@ describe('journeys, as the canary’s analysis Job reports them', () => {
     unchanged: [],
     flaky: [],
     unsure: [],
-    checks: 40,
+    counts: { base: { passed: 31, ran: 40 }, change: { passed: 30, ran: 40 } },
   });
   const regressed: Seen = {
     sense: 'probe',
@@ -311,7 +314,7 @@ describe('journeys, as the canary’s analysis Job reports them', () => {
     message: 'The browser’s console logged an error',
   };
 
-  it('writes the checks that regressed for the line to read back, and nothing else of what they saw', () => {
+  it('writes the counts and the checks that regressed for the line to read back, and nothing else they saw', () => {
     const message = comparisonMessage(comparison([{ ...regressed, evidence: [] }]));
     expect(JSON.parse(message)).toEqual({
       regressions: [
@@ -323,8 +326,15 @@ describe('journeys, as the canary’s analysis Job reports them', () => {
           message: 'The browser’s console logged an error',
         },
       ],
+      counts: { base: { passed: 31, ran: 40 }, change: { passed: 30, ran: 40 } },
     });
+    expect(comparisonIn(message)).toEqual(JSON.parse(message));
     expect(regressionsIn(message)).toEqual(JSON.parse(message).regressions);
+    // Nothing regressed: the counts are still there to read.
+    expect(comparisonIn(comparisonMessage(comparison([])))).toEqual({
+      regressions: [],
+      counts: { base: { passed: 31, ran: 40 }, change: { passed: 30, ran: 40 } },
+    });
     // One that could not finish on the change has no class of its own: its trouble is its words.
     const { symptom: _, message: __, ...rest } = regressed;
     const stuck: Seen = { ...rest, failed: false, trouble: 'Timed out' };
@@ -345,11 +355,21 @@ describe('journeys, as the canary’s analysis Job reports them', () => {
     expect(read.regressions.length).toBeGreaterThan(0);
     expect(read.regressions.length + read.more).toBe(20);
     expect(regressionsIn(message)).toHaveLength(read.regressions.length);
+    expect(comparisonIn(message)?.counts).toEqual({ base: { passed: 31, ran: 40 }, change: { passed: 30, ran: 40 } });
+  });
+
+  it('reads the regressions of a message with no counts, as an older gate wrote, or with bad ones', () => {
+    const regressions = [{ sense: 'probe', check: 'checkout/console', route: '/checkout' }];
+    expect(comparisonIn(JSON.stringify({ regressions }))).toEqual({ regressions });
+    for (const counts of [{ base: { passed: 3, ran: 2 }, change: { passed: 1, ran: 2 } }, { base: 'all' }, 7]) {
+      expect(comparisonIn(JSON.stringify({ regressions, counts }))).toEqual({ regressions });
+    }
   });
 
   it('reads nothing from a message that is missing, not JSON, or not what the gate writes', () => {
     for (const text of [undefined, '', '  ', 'Error: Chromium crashed', '{"regressions":[{"sense":"probe"}]}', '[]']) {
       expect(regressionsIn(text)).toBeUndefined();
+      expect(comparisonIn(text)).toBeUndefined();
     }
   });
 });
@@ -401,7 +421,16 @@ describe('journeys, when a check cannot finish on the change', () => {
     const c = await compareJourneys(async () => runs.shift() ?? [], 'base', 'change');
     expect(c.regressions.map((s) => [s.check, s.trouble])).toEqual([['buy', 'the button to click is not there']]);
     expect(c.flaky.map((s) => s.check)).toEqual(['search']);
+    // One that could not finish did not pass.
+    expect(c.counts).toEqual({ base: { passed: 2, ran: 2 }, change: { passed: 1, ran: 2 } });
     expect(summary(c)).toContain('the button to click is not there');
+  });
+
+  it('does not count as passing a check the second run left out', async () => {
+    const runs: Seen[][] = [[seen('buy', false)], [seen('buy', true)], []];
+    const c = await compareJourneys(async () => runs.shift() ?? [], 'base', 'change');
+    expect(c.flaky.map((s) => s.check)).toEqual(['buy']);
+    expect(c.counts.change).toEqual({ passed: 0, ran: 1 });
   });
 });
 
