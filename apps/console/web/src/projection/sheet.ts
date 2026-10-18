@@ -806,13 +806,14 @@ const afterVerify = (item: ItemState, event: PublicEvent) =>
         (e.type === 'hold.started' && e.payload.cause === 'verify'),
     );
 
-/** What Verify found, from its event and the line's next word on it: a close, a return or a hold. */
-function verified(
-  item: ItemState,
-  event: PublicEvent<'verification.finished'>,
-  shots: Map<string, Screenshot>,
-): Verified {
+/**
+ * What Verify found, from its event and the line's next word on it: a close, a return or a hold. Each page's screenshot
+ * is the one the verification carries: a page the same in two versions is the same picture, with the same hash, and
+ * names the version this verification took it on, not a later one's.
+ */
+function verified(item: ItemState, event: PublicEvent<'verification.finished'>): Verified {
   const p = event.payload;
+  const shots = new Map(event.artifacts.flatMap((a) => (a.kind === 'screenshot' ? [[a.hash, a]] : [])));
   const next = afterVerify(item, event);
   const marked = !PAGELESS.has(p.sense);
   const order = (page: PageComparison) => (page.intended ? 0 : page.intendedFor || page.changed > 0 ? 1 : 2);
@@ -937,11 +938,6 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
   const report = item.events.find((event) => event.type === 'signal.received' && event.payload.report);
   const spec = [...item.events].reverse().find((event) => event.type === 'spec.written');
   const pushed = [...item.events].reverse().find((event) => event.type === 'pull-request.pushed');
-  const shots = new Map(
-    item.events.flatMap((event) =>
-      event.artifacts.flatMap((artifact) => (artifact.kind === 'screenshot' ? [[artifact.hash, artifact]] : [])),
-    ),
-  );
   const humanLines = item.events
     .filter((event) => event.type === 'pull-request.pushed' && event.actor === 'martin')
     .reduce(
@@ -963,7 +959,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
   let latest: string | undefined;
   for (const event of item.events) {
     if (event.type === 'release.started') latest = event.payload.release;
-    if (event.type === 'verification.finished' && latest) checked.set(latest, verified(item, event, shots));
+    if (event.type === 'verification.finished' && latest) checked.set(latest, verified(item, event));
   }
   return {
     card: card(item, events, t),
