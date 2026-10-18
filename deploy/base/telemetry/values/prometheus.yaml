@@ -6,8 +6,9 @@
 # requests the traffic split sends the canary there (`traefik_service_requests_total`, release/analysis.ts).
 #
 # The platform's components ask the same way, each through its chart's settings, so their own metrics are kept too: the
-# collector, Loki, Tempo and Alertmanager here; Argo Rollouts (rollouts/values.yaml), Kyverno (admission/values) and
-# Argo CD (deploy/argocd/values.yaml). Prometheus scrapes itself in its own job.
+# collector, Loki, Tempo and Alertmanager here; the pod log collector (pod-logs/values.yaml), Argo Rollouts
+# (rollouts/values.yaml), Kyverno (admission/values) and Argo CD (deploy/argocd/values.yaml). Prometheus scrapes itself
+# in its own job.
 #
 # Alertmanager has one receiver: the factory's intake, which turns each firing alert into a signal. Until the intake
 # is deployed, deliveries fail and Alertmanager retries them. The sub-chart's defaults already meet the restricted

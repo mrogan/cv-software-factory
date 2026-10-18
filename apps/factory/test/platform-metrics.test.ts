@@ -7,13 +7,15 @@ import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 /**
  * The platform's own metrics as deploy/ declares them (#385): each component asks Prometheus, through its chart's
  * settings, to scrape it on its metrics port, and the fences around those in Kyverno's and Argo Rollouts' namespaces
- * let Prometheus in on that port and nothing else in.
+ * let Prometheus in on that port and nothing else in. The pod log collector's fence is held with the rest of it, in
+ * pod-logs.test.ts.
  */
 type Annotations = Record<string, string> | undefined;
 
 /** Each component: its values file, where in it its pods' annotations are, and the port its metrics are served on. */
 const COMPONENTS: { name: string; file: string; path: string[]; port: number }[] = [
   { name: 'the collector', file: 'base/telemetry/values/otel-collector.yaml', path: [], port: 8888 },
+  { name: 'the pod log collector', file: 'base/pod-logs/values.yaml', path: [], port: 8888 },
   { name: 'Loki', file: 'base/telemetry/values/loki.yaml', path: ['singleBinary'], port: 3100 },
   { name: 'Tempo', file: 'base/telemetry/values/tempo.yaml', path: [], port: 3200 },
   { name: 'Alertmanager', file: 'base/telemetry/values/prometheus.yaml', path: ['alertmanager'], port: 9093 },

@@ -71,7 +71,7 @@ The controller reaches DNS, the Kubernetes API and Prometheus, and only Promethe
 
 ## `pod-logs`
 
-The pod log collector reaches Loki's intake and DNS, and nothing calls it. It reads the runners' logs from the node's files, so their fence stays shut.
+The pod log collector reaches Loki's intake and DNS, and only Prometheus calls it, to scrape its metrics on 8888 ([telemetry](TELEMETRY.md#the-platforms-own-metrics)). It reads the runners' logs from the node's files, so their fence stays shut.
 
 ## `website`
 
@@ -95,7 +95,7 @@ It starts a pod labelled like each fenced part, and shows what each reaches and 
 - the Rollouts controller;
 - Kyverno's two controllers;
 - the pod log collector;
-- Prometheus's server, which reaches the platform's metrics beyond `telemetry`: Kyverno's two controllers on 8000, Argo Rollouts' controller on 8090 and the Postgres exporter on 9187;
+- Prometheus's server, which reaches the platform's metrics beyond `telemetry`: Kyverno's two controllers on 8000, Argo Rollouts' controller on 8090, the Postgres exporter on 9187 and the pod log collector on 8888;
 - the Postgres exporter, which reaches Postgres and nothing else;
 - a pod in `telemetry` that is none of its backends, answering on their ports, which no reader of telemetry reaches, and which itself reaches none of the platform's metrics.
 
@@ -112,5 +112,5 @@ It has controls, which must reach what they reach:
 - the line reaches Loki, Tempo and the probes' verify port, but not their page reader;
 - the probes reach the canary;
 - the pod log collector reaches Loki;
-- Prometheus's server reaches the metrics of Kyverno, Argo Rollouts and the Postgres exporter;
+- Prometheus's server reaches the metrics of Kyverno, Argo Rollouts, the Postgres exporter and the pod log collector;
 - Traefik, the probes and the crawler still reach the app.
