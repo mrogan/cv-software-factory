@@ -374,10 +374,14 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
           // Gates that pass answer the failure that sent the work back, whoever moved the branch: GitHub's update
           // with main, or a check run again. The coder has nothing left to put right.
           if (state.gatesPassed && state.rebuild?.from === 'gates') state.rebuild = undefined;
-          // Gates that fail after they passed end the wait for Martin's merge, which GitHub would refuse: the failure
-          // sends the work back to Build, as on the push's first run. A round recorded with the merge comes before
-          // it, and the merge carries the work item on to Release whatever the round said.
-          if (!state.gatesPassed && state.hold?.cause === 'merge') state.hold = undefined;
+          // Gates that fail after they passed end the wait for Martin's merge, which GitHub would refuse, whether the
+          // hold still stands or he answered it to wait: the failure sends the work back to Build, as on the push's
+          // first run. A round recorded with the merge comes before it, and the merge carries the work item on to
+          // Release whatever the round said.
+          if (!state.gatesPassed && (state.hold?.cause === 'merge' || state.answer?.cause === 'merge')) {
+            Object.assign(state, { hold: undefined, answer: undefined });
+            forgetLook(state);
+          }
         }
         break;
       case 'review.submitted':

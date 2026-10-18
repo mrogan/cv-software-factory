@@ -301,6 +301,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
    * waits, for the review or the merge. If it fails, it does, and ends a wait for the merge GitHub would refuse.
    */
   const gates: { commit: string | undefined; passed: boolean } = { commit: undefined, passed: false };
+  /** Whether the work went back to Build and the coder has not pushed since: gates then leave it at Build. */
+  let rebuilding = false;
   for (const event of events) {
     const time = at(event);
     state.lastAt = time;
@@ -325,6 +327,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     ) {
       Object.assign(gates, { commit: undefined, passed: false });
     }
+    if (event.type === 'pull-request.pushed') rebuilding = false;
+    if (event.type === 'work.returned') rebuilding = event.payload.to === 'build';
     if (event.type === 'gates.started') gates.commit = event.payload.commit;
     const failed =
       event.type === 'gates.finished' && event.payload.commit === gates.commit && event.payload.conclusion === 'failed';
@@ -334,7 +338,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     if (failed && state.hold?.cause === 'merge') state.hold = undefined;
     const rerun =
       passedBefore &&
-      !failed &&
+      (!failed || rebuilding) &&
       (event.type === 'gates.started' || event.type === 'gate.finished' || event.type === 'gates.finished');
     const stage = joining || rerun ? null : stageOf(event);
     if (stage) {

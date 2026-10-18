@@ -201,6 +201,17 @@ describe('a fix whose gates fail on a branch brought up to date while it waited 
     expect(foldItem(story.events)).toMatchObject({ stage: 'build', hold: undefined, outcome: 'in-progress' });
   });
 
+  it('stays at Build when the work already went back there before the run failed', () => {
+    const returned = work('1').add(7, 'work.returned', 'reviewer', {
+      from: 'review',
+      to: 'build',
+      reason: 'Martin sent it back: Name the test',
+      round: 2,
+    }).events;
+    const item = foldItem([...story.events.slice(0, 5), ...returned, ...story.events.slice(6, 8)]);
+    expect(item).toMatchObject({ stage: 'build' });
+  });
+
   it('leaves Review for Release when Martin merged over the failure, recorded with the merge', () => {
     const merged = foldItem([
       ...story.events.slice(0, 8),

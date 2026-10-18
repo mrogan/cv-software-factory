@@ -693,9 +693,10 @@ export class Line {
       }
       case 'return': {
         const { do: _, ...returned } = next;
-        // A change the describer readied goes back to draft before the work goes back to Build, so that GitHub will
-        // not merge a round the reviewer has not seen. One merged or closed since is left as it is.
-        if (next.to === 'build' && state.described && state.pullRequest) {
+        // A pull request ready for review (the describer readied it) goes back to draft before the work goes back to
+        // Build, so that GitHub will not merge a round the reviewer has not seen. One merged or closed since is left
+        // as it is. GitHub says whether it is ready, not the events: whoever readied it, it goes back.
+        if (next.to === 'build' && state.pullRequest) {
           const { number } = state.pullRequest;
           const pr = await this.#o.github.read('pullRequest', this.#o.repo, { number });
           if (pr.state === 'open' && !pr.draft) {

@@ -313,6 +313,13 @@ describe('what the line does next', () => {
     // The next round is a different change: once it passes its gates and review, the describer writes it up again.
     const again = [...failed, returned('gates'), pushed(2), started(), finished('passed'), review('approved')];
     expect(decide(again, facts).next).toEqual({ do: 'step', agent: 'describer', round: 2 });
+    // Answered to wait for the merge, the same: the answer said nothing of gates that fail since.
+    const answeredToWait = [...waiting, mergeHold, answer('approved'), started(OTHER)];
+    expect(decide(answeredToWait, facts).next).toEqual({ do: 'wait', for: 'martin' });
+    expect(decide([...answeredToWait, finished('failed', OTHER)], facts).next).toMatchObject({
+      do: 'return',
+      from: 'gates',
+    });
     // Another hold stands: Martin answers it first.
     const escalated = [...waiting.slice(0, -2), review('escalated')];
     const reviewHold: LineEvent = {
