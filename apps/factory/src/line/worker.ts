@@ -15,7 +15,7 @@
  *   is in Plan or waiting for Build (`queue.ts`). Each work item is leased while it is acted on.
  * - At most one step at a time on the local model, whatever its stage: LM Studio answers one prediction at a time, so
  *   two steps on it would each take about twice as long. A step whose agent `policy/models.ts` sends there waits
- *   while another such step runs, and the work item longest on the line goes first. Steps on Claude never wait on it.
+ *   while another such step runs, and the next pass tries again. Steps on Claude never wait on it.
  * - It reads its pull requests' gates and merges through the GitHub worker about once a minute (`gates.ts`).
  * - About as often, it tells the app's deploy pull request which work items it carries: those whose fixes merged
  *   between the commit the app runs and the one the pull request runs, as a release starting records them. It says
@@ -587,15 +587,16 @@ export class Line {
         // One step at a time in each of Plan, Build and Review.
         if ([...this.#inFlight.values()].some((s) => s.stage === STAGE_OF[next.agent])) return;
         // And one at a time on the local model, which answers one prediction at a time. A kept handback calls no model.
-        const local = !kept && this.#o.providerOf(next.agent) === 'local';
-        if (local && [...this.#inFlight.values()].some((s) => s.local)) {
+        const provider = this.#o.providerOf(next.agent);
+        const localBusy = () => provider === 'local' && [...this.#inFlight.values()].some((s) => s.local);
+        if (!kept && localBusy()) {
           this.#o.log.debug({ workItem: item.workItem, agent: next.agent }, 'a step waits for the local model');
           return;
         }
         if (kept && pending?.retryAt && Date.parse(pending.retryAt) > this.#o.now().getTime()) return;
         // Behind a cap the gateway refuses every call, so a step would only fail: it waits for the cap to clear.
         if (!kept) {
-          const cap = capOn(await capsInForce(this.#o.sql), this.#o.providerOf(next.agent));
+          const cap = capOn(await capsInForce(this.#o.sql), provider);
           if (cap) {
             this.#o.log.debug({ workItem: item.workItem, agent: next.agent, cap: cap.reason }, 'a step waits at a cap');
             return;
@@ -604,13 +605,20 @@ export class Line {
         const seconds = kept ? EFFECTS_LEASE_SECONDS : leaseFor(this.#bounds(next.agent).deadlineSeconds);
         const claimed = await this.#queue.claim(item.workItem, seconds);
         if (!claimed) return;
-        await this.#queue.move(item.workItem, stage);
         const workItem = item.workItem;
+        // A kept handback dropped since it was read leaves the agent's step to run again, on its model.
+        const effects = kept ? claimed.effects : null;
+        if (!effects && localBusy()) {
+          await this.#queue.release(workItem, item.stage);
+          return;
+        }
+        const local = !effects && provider === 'local';
+        await this.#queue.move(workItem, stage);
         this.#volumeGone.delete(workItem);
         const state = fold(events);
         const done = (
-          kept && claimed.effects
-            ? this.#effects(claimed, state, claimed.effects).finally(() => this.#release(workItem))
+          effects
+            ? this.#effects(claimed, state, effects).finally(() => this.#release(workItem))
             : this.#step(claimed, next.agent, next.round, state, last, this.#halt.signal)
         )
           .catch((error: unknown) => this.#o.log.error({ workItem, err: error }, 'a step could not be recorded'))

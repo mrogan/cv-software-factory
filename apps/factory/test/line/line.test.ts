@@ -721,7 +721,8 @@ describe('the line', () => {
       it.github.pass();
       await it.pass(); // the gates, and the first's reviewer
       await it.line.tick(); // the first's describer starts, and the second comes into Plan
-      while (it.steps.working === 0) await new Promise((resolve) => setTimeout(resolve, 5));
+      for (let tries = 0; it.steps.working === 0 && tries < 200; tries++) await new Promise((r) => setTimeout(r, 5));
+      expect(it.steps.working).toBe(1);
       // Whatever else the pass started ends of itself; the describer works on until it is stopped.
       await it.steps.cancel();
       await it.line.idle();
