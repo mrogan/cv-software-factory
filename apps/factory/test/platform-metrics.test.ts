@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { DEPLOY, manifests as deployManifests } from './deploy.ts';
+import { DEPLOY, manifests as deployManifests, PROMETHEUS } from './deploy.ts';
 
 /**
  * The platform's own metrics as deploy/ declares them (#385): each component asks Prometheus, through its chart's
@@ -59,11 +59,6 @@ interface Policy {
     ingress?: { from?: Peer[]; ports?: { protocol: string; port: number }[] }[];
   };
 }
-
-const PROMETHEUS = {
-  namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'telemetry' } },
-  podSelector: { matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } },
-};
 
 /** Every ingress rule's peers in a namespace, each with the components its policy selects and the rule's ports. */
 async function ingress(namespace: string) {

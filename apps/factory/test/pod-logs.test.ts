@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { objectives } from '../../../policy/objectives.ts';
-import { DEPLOY, manifests } from './deploy.ts';
+import { DEPLOY, manifests, PROMETHEUS } from './deploy.ts';
 
 /**
  * The pod log collector as deploy/ declares it (#385): one on each node, in `pod-logs`, reading every container's log
@@ -179,8 +179,7 @@ describe('the pod log collector', () => {
       (p.spec?.ingress ?? []).flatMap((rule) =>
         (rule.from ?? [{}]).map((peer) => ({
           to: p.spec?.podSelector?.matchLabels,
-          namespace: peer.namespaceSelector?.matchLabels?.['kubernetes.io/metadata.name'],
-          pods: peer.podSelector?.matchLabels,
+          peer,
           ports: (rule.ports ?? []).map((port) => `${port.protocol}/${port.port}`),
         })),
       ),
@@ -188,8 +187,7 @@ describe('the pod log collector', () => {
     expect(reachedBy).toEqual([
       {
         to: { 'app.kubernetes.io/name': 'opentelemetry-collector' },
-        namespace: 'telemetry',
-        pods: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' },
+        peer: PROMETHEUS,
         ports: ['TCP/8888'],
       },
     ]);

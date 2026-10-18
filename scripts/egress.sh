@@ -234,11 +234,13 @@ api_ip=$(ip default kubernetes) postgres_ip=$(ip factory postgres) console_ip=$(
 website_ip=$(ip website website)
 # Argo Rollouts' controller, the Postgres exporter and the pod log collector have no Service: their pods are scraped
 # where they are. A pod a ReplicaSet made has its template's hash ($3, by default), one a DaemonSet made its revision's,
-# and the pods this starts have neither; one shutting down is passed over. With none, the address is empty, and each
-# check of it FAILs ("failed", which proves nothing either way) while the rest go on.
+# and the pods this starts have neither; one shutting down is passed over, and a ready one is taken before one that is
+# not, such as a pod restarting. With none, the address is empty, and each check of it FAILs ("failed", which proves
+# nothing either way) while the rest go on.
 pod_ip() {
   kubectl --context "$context" -n "$1" get pods -l "$2,${3:-pod-template-hash}" -o json | jq -r '
-    [.items[] | select(.status.phase == "Running" and .metadata.deletionTimestamp == null)][0].status.podIP // ""'
+    [.items[] | select(.status.phase == "Running" and .metadata.deletionTimestamp == null)]
+    | sort_by(any(.status.conditions[]?; .type == "Ready" and .status == "True") | not)[0].status.podIP // ""'
 }
 rollouts_ip=$(pod_ip argo-rollouts app.kubernetes.io/name=argo-rollouts)
 exporter_ip=$(pod_ip factory app.kubernetes.io/name=postgres-exporter)
