@@ -88,6 +88,7 @@ describe('migrations', () => {
       { version: 16, name: 'line-waiting' },
       { version: 17, name: 'step-logs' },
       { version: 18, name: 'metrics-reader' },
+      { version: 19, name: 'job-tokens-by-work-item' },
     ]);
   });
 });
