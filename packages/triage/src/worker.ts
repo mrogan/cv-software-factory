@@ -25,6 +25,9 @@
  *   fingerprint closes it into that ticket; Martin approving it opens its ticket, by the policy's table as a sense's
  *   would be, or joins it to an open ticket that has it; his rejection closes it (`settleOne`). Nothing else opens a
  *   ticket from a finding.
+ * - An answer of Martin's to one of these holds that triage cannot act on, in as many tries as a signal gets, is left:
+ *   the hold starts again, with its cause, saying so (`askedAgain`). Needs you asks him again, a restart finds nothing
+ *   answered to try, and his next answer is tried afresh.
  *
  * One worker decides at a time (it holds an advisory lock), so two signals with the same new fingerprint cannot
  * open two tickets. It takes nothing while the line is stopped, and no report while the gateway waits on a spend cap.
@@ -41,7 +44,9 @@ import { type EventWriter, fingerprintOf, lastEnd, nextWorkItem } from '@softwar
 import type { Sql } from 'postgres';
 import { BURST, ENVIRONMENT, INBOX, SYMPTOMS } from '../../../policy/triage.ts';
 import {
+  type AskedAgain,
   approvedFinding,
+  askedAgain,
   burstEvents,
   closedFinding,
   closedHeld,
@@ -118,7 +123,10 @@ export class Triage {
   #reportsWaitUntil = 0;
   /** Whether an event has been appended since the held findings were last settled: only an answer can settle one. */
   #settleDue = true;
-  /** How often settling each held finding has failed, so one that keeps failing is left, not tried for ever. */
+  /**
+   * How often acting on each of Martin's answers to a hold has failed (`settleKey`), so one that keeps failing is left,
+   * not tried for ever. Leaving it starts the hold again in the store, so a restart has nothing answered to try.
+   */
   readonly #settleFailures = new Map<string, number>();
 
   constructor(options: TriageOptions) {
@@ -217,11 +225,8 @@ export class Triage {
     const now = this.#o.now();
     if (await lineStopped(sql)) return false;
     if (await this.#settleHeld()) return true;
-    const failures = this.#settleFailures;
-    const answered = (await parkedFindings(sql)).find(
-      (parked) => parked.decision !== null && (failures.get(parked.workItem) ?? 0) < INBOX.attempts,
-    );
-    if (!answered) return false;
+    const answered = (await parkedFindings(sql)).find((parked) => parked.decision !== null);
+    if (!answered?.decision) return false;
     const { workItem, defect, decision, late } = answered;
     const seed = `finding:${workItem}:${decision}`;
     try {
@@ -244,13 +249,10 @@ export class Triage {
       }
     } catch (error) {
       // Not the line's to stop for: it is tried again on the next event, as often as a signal is, then left.
-      const tries = (failures.get(workItem) ?? 0) + 1;
-      failures.set(workItem, tries);
-      const last = tries >= INBOX.attempts;
-      log.warn({ workItem, decision, err: error, last }, 'could not settle a defect the planner noticed');
+      await this.#failedToSettle(answered, { cause: 'finding', defect }, decision, error);
       return false;
     }
-    failures.delete(workItem);
+    this.#settleFailures.delete(settleKey(answered));
     log.info({ workItem, decision }, 'settled a defect the planner noticed, as Martin answered');
     return true;
   }
@@ -264,11 +266,8 @@ export class Triage {
   async #settleHeld(): Promise<boolean> {
     const { sql, events, log } = this.#o;
     const now = this.#o.now();
-    const failures = this.#settleFailures;
-    const answered = (await heldSignals(sql)).find(
-      (held) => held.decision !== null && (failures.get(held.workItem) ?? 0) < INBOX.attempts,
-    );
-    if (!answered) return false;
+    const answered = (await heldSignals(sql)).find((held) => held.decision !== null);
+    if (!answered?.decision) return false;
     const { workItem, cause, decision } = answered;
     try {
       if (decision === 'rejected') {
@@ -305,17 +304,41 @@ export class Triage {
         await events.append([...made, ...closedHeld(workItem, cause, { opened }, now)]);
       }
     } catch (error) {
-      const tries = (failures.get(workItem) ?? 0) + 1;
-      failures.set(workItem, tries);
-      log.warn(
-        { workItem, cause, decision, err: error, last: tries >= INBOX.attempts },
-        'could not settle held signals',
-      );
+      await this.#failedToSettle(answered, { cause }, decision, error);
       return false;
     }
-    failures.delete(workItem);
+    this.#settleFailures.delete(settleKey(answered));
     log.info({ workItem, cause, decision }, 'settled held signals, as Martin answered');
     return true;
+  }
+
+  /**
+   * Counts a failure to act on Martin's answer to a hold. The last of as many as a signal gets leaves his answer: the
+   * hold starts again, saying so, which asks him again in Needs you, and a restart finds nothing answered to try. If the
+   * store cannot take that either, the answer is tried once more on the next event, and so on until it can.
+   */
+  async #failedToSettle(
+    hold: Answerable,
+    held: AskedAgain,
+    decision: 'approved' | 'rejected',
+    error: unknown,
+  ): Promise<void> {
+    const { events, log } = this.#o;
+    const { workItem, answered } = hold;
+    const key = settleKey(hold);
+    const tries = (this.#settleFailures.get(key) ?? 0) + 1;
+    this.#settleFailures.set(key, tries);
+    const last = tries >= INBOX.attempts;
+    log.warn({ workItem, cause: held.cause, decision, err: error, last }, 'could not do as Martin answered a hold');
+    if (!last || !answered) return;
+    try {
+      await events.append(askedAgain(workItem, held, decision, answered, tries, this.#o.now()));
+      this.#settleFailures.delete(key);
+      log.warn({ workItem, cause: held.cause, decision }, 'left an answer it could not act on, and asked Martin again');
+    } catch (failure) {
+      this.#settleFailures.set(key, tries - 1);
+      log.warn({ workItem, cause: held.cause, err: failure }, 'could not ask Martin again');
+    }
   }
 
   /**
@@ -445,10 +468,8 @@ export class Triage {
         defect &&
         !same &&
         fingerprint &&
-        (await parkedFindings(sql)).find(
-          (parked) =>
-            (this.#settleFailures.get(parked.workItem) ?? 0) < INBOX.attempts &&
-            sameFingerprint(parked.defect.fingerprint, fingerprint, { open: 'planner', found: 'planner' }),
+        (await parkedFindings(sql)).find((parked) =>
+          sameFingerprint(parked.defect.fingerprint, fingerprint, { open: 'planner', found: 'planner' }),
         );
       const joins = same || twin;
       if (defect && joins) {
@@ -547,10 +568,7 @@ export class Triage {
     const unhealthy = !healthy(signal.environment);
     if (reopens && !unhealthy) return undefined;
     const fingerprint = fingerprintOf(signal);
-    // A hold that could not be settled as Martin answered is left, as a finding is; it takes no more problems.
-    const waiting = (await heldSignals(sql)).find(
-      (held) => held.sense === taken.sense && (this.#settleFailures.get(held.workItem) ?? 0) < INBOX.attempts,
-    );
+    const waiting = (await heldSignals(sql)).find((held) => held.sense === taken.sense);
     if (waiting) {
       const [seen] = await sql`select 1 from inbox where work_item = ${waiting.workItem} and outcome = 'held'
                                and fingerprint = ${fingerprint} limit 1`;
@@ -591,14 +609,21 @@ export class Triage {
   }
 }
 
-/** A defect the planner noticed, parked for a sense or Martin: held, with no ticket and not closed. */
-interface Parked {
+/** A hold of triage's that Martin may have answered. */
+interface Answerable {
   workItem: string;
-  defect: ParkedDefect;
   /** Martin's answer, when he has approved or rejected it and triage has yet to do as he said. */
   decision: 'approved' | 'rejected' | null;
   /** Where his last answer since it was held is in the store, if he has answered. */
   answered: string | null;
+}
+
+/** Acting on one of Martin's answers to a hold: a new answer is tried afresh. */
+const settleKey = (hold: Answerable) => `${hold.workItem}:${hold.answered ?? ''}`;
+
+/** A defect the planner noticed, parked for a sense or Martin: held, with no ticket and not closed. */
+interface Parked extends Answerable {
+  defect: ParkedDefect;
   /** Whether a finding reached the hold after that answer, in the store's order: words he answered without reading. */
   late: boolean;
 }
@@ -630,21 +655,21 @@ async function parkedFindings(sql: Sql): Promise<Parked[]> {
   return rows.map((row) => ({
     workItem: row.work_item,
     defect: row.defect,
-    decision: row.decision === 'approved' || row.decision === 'rejected' ? row.decision : null,
+    decision: decisionOf(row.decision),
     answered: row.answered,
     late: row.late,
   }));
 }
 
+const decisionOf = (decision: string | null) => (decision === 'approved' || decision === 'rejected' ? decision : null);
+
 /**
  * Signals triage holds for Martin, a burst or a sense's problems seen while what it reads was not healthy: the sense
  * whose signals it holds, and his answer, when triage has yet to act on it.
  */
-interface Held {
-  workItem: string;
+interface Held extends Answerable {
   cause: 'burst' | 'environment';
   sense: string;
-  decision: 'approved' | 'rejected' | null;
 }
 
 /**
@@ -652,22 +677,37 @@ interface Held {
  * index of their own (0015).
  */
 async function heldSignals(sql: Sql): Promise<Held[]> {
-  const rows = await sql<{ work_item: string; cause: Held['cause']; sense: string; decision: string | null }[]>`
+  const rows = await sql<
+    {
+      work_item: string;
+      cause: Held['cause'];
+      sense: string;
+      decision: string | null;
+      answered: string | null;
+    }[]
+  >`
     select h.work_item, h.payload->>'cause' as cause,
            (select s.payload->>'sense' from events s
             where s.work_item = h.work_item and s.type = 'signal.received' order by s.seq limit 1) as sense,
-           (select a.payload->>'decision' from events a
-            where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq
-            order by a.seq desc limit 1) as decision
+           a.decision, a.seq as answered
     from events h
+    left join lateral (
+      select a.payload->>'decision' as decision, a.seq from events a
+      where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq
+      order by a.seq desc limit 1
+    ) a on true
     where h.type = 'hold.started' and h.payload->>'cause' in ('burst', 'environment')
       and not exists (select 1 from events e where e.work_item = h.work_item and e.type = 'work-item.closed')
+      -- A hold started again, when triage could not do as he answered, is its question now: the answers after it.
+      and not exists (select 1 from events n where n.work_item = h.work_item and n.type = 'hold.started'
+                      and n.seq > h.seq)
     order by h.seq`;
   return rows.map((row) => ({
     workItem: row.work_item,
     cause: row.cause,
     sense: row.sense,
-    decision: row.decision === 'approved' || row.decision === 'rejected' ? row.decision : null,
+    decision: decisionOf(row.decision),
+    answered: row.answered,
   }));
 }
 
