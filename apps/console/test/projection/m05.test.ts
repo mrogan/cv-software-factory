@@ -200,6 +200,15 @@ describe('a fix whose gates fail on a branch brought up to date while it waited 
     expect(failed?.failure?.stage).toBe('gates');
     expect(foldItem(story.events)).toMatchObject({ stage: 'build', hold: undefined, outcome: 'in-progress' });
   });
+
+  it('leaves Review for Release when Martin merged over the failure, recorded with the merge', () => {
+    const merged = foldItem([
+      ...story.events.slice(0, 8),
+      ...work('1').add(9, 'pull-request.merged', 'martin', { number: 7, commit: 'c'.repeat(40), by: 'martin' }).events,
+    ]);
+    expect(merged).toMatchObject({ stage: 'release', hold: undefined });
+    expect(merged?.visits.review?.leftAt).toBe(story.at(9));
+  });
 });
 
 describe('a fix held for a human', () => {

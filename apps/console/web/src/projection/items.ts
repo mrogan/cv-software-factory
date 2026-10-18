@@ -326,18 +326,15 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       Object.assign(gates, { commit: undefined, passed: false });
     }
     if (event.type === 'gates.started') gates.commit = event.payload.commit;
-    const failedAgain =
-      passedBefore &&
-      event.type === 'gates.finished' &&
-      event.payload.commit === gates.commit &&
-      event.payload.conclusion === 'failed';
+    const failed =
+      event.type === 'gates.finished' && event.payload.commit === gates.commit && event.payload.conclusion === 'failed';
     if (event.type === 'gates.finished' && event.payload.commit === gates.commit) {
       gates.passed = event.payload.conclusion === 'passed';
     }
-    if (failedAgain && state.hold?.cause === 'merge') state.hold = undefined;
+    if (failed && state.hold?.cause === 'merge') state.hold = undefined;
     const rerun =
       passedBefore &&
-      !failedAgain &&
+      !failed &&
       (event.type === 'gates.started' || event.type === 'gate.finished' || event.type === 'gates.finished');
     const stage = joining || rerun ? null : stageOf(event);
     if (stage) {
@@ -392,6 +389,11 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       case 'pull-request.merged':
         // The merge is Martin's answer to a wait for it: the line writes no other.
         state.hold = undefined;
+        // And it leaves Review, even when a round recorded with it, which failed after the gates had passed, took the
+        // work item back to Gates first.
+        if (state.visits.review && state.visits.review.leftAt === undefined) {
+          state.visits.review = { ...state.visits.review, leftAt: time };
+        }
         state.queued = true;
         break;
       case 'wait.started':
