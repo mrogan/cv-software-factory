@@ -360,8 +360,12 @@ function holdNote(item: ItemState, stage: Stage): string {
     return 'Needs you · parked for Martin';
   if (item.hold) return item.hold.reason;
   // Promoted, it is at Verify while the sense that saw it looks again: the promotion is Release's news, not Verify's.
-  if (item.latest[stage]?.type === 'release.promoted') return 'Promoted · verifying';
-  return item.latest[stage]?.summary ?? '';
+  const latest = item.latest[stage];
+  if (latest?.type === 'release.promoted') {
+    const { dryRun, watched } = latest.payload;
+    return `${dryRun ? 'Promoted in a dry run' : watched ? 'Promoted' : 'Found live'} · verifying`;
+  }
+  return latest?.summary ?? '';
 }
 
 /** Where a return went, and why, as a row's note: "Sent back to Build · round 2 · 2 blocking". */

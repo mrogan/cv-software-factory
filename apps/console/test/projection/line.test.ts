@@ -240,7 +240,7 @@ describe('a promoted release', () => {
   const stationAt = (events: PublicEvent[], t: number, stage: 'release' | 'verify') =>
     project(events, t).stations.find((s) => s.stage === stage);
 
-  // #450: the log watcher takes half an hour to look, and the work sat at Release beside an idle Canary panel.
+  // A sense can take a while to look: the log watcher waits out a window of half an hour.
   it('puts the work it carries at Verify while the sense looks, and Release has nothing in hand', () => {
     const item = promoted();
     const t = item.at(4) + PASSING_MS + 60_000;
@@ -264,7 +264,19 @@ describe('a promoted release', () => {
       pages: [],
       dryRun: false,
     });
-    expect(project(item.events, item.at(41)).panels.verify.rows).toMatchObject([{ item: '1', state: 'in-hand' }]);
+    expect(project(item.events, item.at(41)).panels.verify.rows).toMatchObject([
+      { item: '1', note: 'verification.finished', state: 'in-hand' },
+    ]);
+  });
+
+  it.each([
+    ['a dry run’s', { dryRun: true, watched: true }, 'Promoted in a dry run · verifying'],
+    ['a release found live', { dryRun: false, watched: false }, 'Found live · verifying'],
+  ])('says so at Verify for %s', (_, flags, note) => {
+    const item = promoted();
+    const last = item.events.at(-1) as PublicEvent<'release.promoted'>;
+    last.payload = { ...last.payload, ...flags };
+    expect(project(item.events, item.at(5)).panels.verify.rows).toMatchObject([{ item: '1', note }]);
   });
 });
 

@@ -29,7 +29,7 @@ Neither the factory's code nor the app's repository.
 
 Everything it draws is the design system's (`docs/design/system`):
 
-- **The line.** A work item a release carries moves to Verify as the release promotes, as the line moves it, and Verify's row for it reads "Promoted · verifying" until a sense has looked, which can take the log watcher half an hour.
+- **The line**, with each work item at the stage its events place it in. The line writes no event as it starts to verify, so a release's promotion places the work it carries at Verify, where the line puts it then; its row there says so ("Promoted · verifying", or in a dry run, or found live) until a sense has looked.
 - **The Canary panel**, full width under the line:
   - draws the newest release from its events, one to a `release` id;
   - shows the steps `release.started` recorded, each step's measures against the baseline, and how it ended: promoted, rolled back, stopped by an analysis error (`release.errored`, with the analysis's words), stopped with the line or aborted by Martin (`release.aborted`; a history from before the line recorded aborts has only `line.stopped` after a release with no end, read as Stop the line's);
