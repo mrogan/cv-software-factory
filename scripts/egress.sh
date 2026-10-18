@@ -227,10 +227,11 @@ gateway_ip=$(ip factory gateway) line_ip=$(ip factory line) github_ip=$(ip facto
 api_ip=$(ip default kubernetes) postgres_ip=$(ip factory postgres) console_ip=$(ip factory console)
 website_ip=$(ip website website)
 # Argo Rollouts' controller and the Postgres exporter have no Service: their pods are scraped where they are. A pod a
-# ReplicaSet made has its template's hash, and the pods this starts do not.
+# ReplicaSet made has its template's hash, and the pods this starts do not; one shutting down is passed over. With none,
+# the address is empty, and each check of it FAILs ("failed", which proves nothing either way) while the rest go on.
 pod_ip() {
-  kubectl --context "$context" -n "$1" get pods -l "$2,pod-template-hash" --field-selector=status.phase=Running \
-    -o jsonpath='{.items[0].status.podIP}'
+  kubectl --context "$context" -n "$1" get pods -l "$2,pod-template-hash" -o json | jq -r '
+    [.items[] | select(.status.phase == "Running" and .metadata.deletionTimestamp == null)][0].status.podIP // ""'
 }
 rollouts_ip=$(pod_ip argo-rollouts app.kubernetes.io/name=argo-rollouts)
 exporter_ip=$(pod_ip factory app.kubernetes.io/name=postgres-exporter)
@@ -506,6 +507,7 @@ scrapes "Kyverno's admission controller" http://kyverno-svc-metrics.kyverno:8000
 scrapes "Kyverno's reports controller" http://kyverno-reports-controller-metrics.kyverno:8000/metrics
 scrapes "Argo Rollouts' controller" "http://$rollouts_ip:8090/metrics"
 scrapes "the Postgres exporter" "http://$exporter_ip:9187/metrics"
+expect "a worker beside the exporter cannot reach it" "$pod" "http://$exporter_ip:9187/metrics" blocked
 
 echo "A pod labelled like the Postgres exporter (egress-postgres-exporter):"
 expect "the exporter reaches Postgres" egress-postgres-exporter tcp://postgres:5432 reached
