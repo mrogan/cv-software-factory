@@ -84,6 +84,7 @@ describe('migrations', () => {
       { version: 13, name: 'forget-pictures' },
       { version: 14, name: 'burst' },
       { version: 15, name: 'environment-holds' },
+      { version: 16, name: 'line-waiting' },
     ]);
   });
 });

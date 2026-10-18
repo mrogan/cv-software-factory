@@ -15,7 +15,7 @@ import type {
 import { inScope, LIMITS, SENSES } from '@software-factory/events';
 import { clock, shortVersion } from '../format.ts';
 import { type Attempt, attempts, deployPicture, reviewThread, startsPass, type ThreadReview } from './fixing.ts';
-import { type Capture, type Hold, type ItemState, summaryOf } from './items.ts';
+import { type Capture, clearanceWords, type Hold, type ItemState, summaryOf } from './items.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
 import { endedWords, type Release, releases, type StoppedBy, stoppedBy } from './release.ts';
 
@@ -252,8 +252,20 @@ function closing(item: ItemState): string | undefined {
     // otherwise judged it himself, and the close's reason says so.
     const since = item.events.findLastIndex((event) => event.type === 'work-item.reopened');
     const after = item.events.slice(since + 1, at);
-    const last = after.findLastIndex((event) => event.type === 'verification.finished');
+    const last = after.findLastIndex(
+      (event) => event.type === 'verification.finished' || event.type === 'signal.rechecked',
+    );
     const verification = after[last];
+    // A look again that cleared, on a release that did not carry the fix, closed it, by itself or with Martin's close.
+    if (verification?.type === 'signal.rechecked' && verification.payload.outcome === 'cleared') {
+      const { sense, check, version, carried } = verification.payload;
+      const on = version ? ` on ${shortVersion(version)}` : '';
+      const items = carried.map((n) => `#${n}`);
+      const release = items.length
+        ? `a release that carried ${items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0]} and not its own fix`
+        : 'a release that carried none of the factory’s fixes';
+      return `It was verified${on} by ${sense ? CHECK_OF[sense] : 'the check'} “${check}”, on ${release}, and closed.`;
+    }
     const held = after.slice(last + 1).some((event) => event.type === 'hold.started');
     if (verification?.type !== 'verification.finished' || verification.payload.outcome !== 'cleared' || held) {
       return reason;
@@ -300,6 +312,14 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
       return { label: 'TICKET', tone: 'signal' };
     case 'spec.written':
       return { label: 'SPEC', tone: 'signal' };
+    case 'wait.started':
+      return { label: 'WAITS', tone: 'faint' };
+    // A look again moves the work item nowhere: it cleared, it is still seen, or, at the end of a wait, it could not
+    // tell, and the work went on.
+    case 'signal.rechecked':
+      if (event.payload.outcome === 'cleared') return { label: 'CLEARED', tone: 'ok' };
+      if (event.payload.outcome === 'persists') return { label: 'STILL SEEN', tone: 'faint' };
+      return event.payload.for === 'wait' ? { label: 'UNSURE', tone: 'faint' } : undefined;
     case 'hold.started':
       return { label: { approval: 'WAITING', question: 'QUESTION', held: 'HELD' }[event.payload.kind], tone: 'attn' };
     case 'hold.answered':
@@ -568,16 +588,20 @@ function afterRounds(item: ItemState, hold: Hold | undefined, described: boolean
     };
   }
   if (!hold || (item.outcome !== 'needs-you' && item.outcome !== 'held')) return undefined;
+  const cleared = clearanceWords(item);
+  const and = (text: string) => (cleared ? `${text.replace(/\.$/, '')}. ${cleared}` : text);
   if (hold.cause === 'merge') {
     const since = clock(hold.since);
     return {
       outcome: item.outcome,
-      text: described
-        ? `Described, ready, and waiting for Martin’s merge since ${since}`
-        : `Waiting for Martin’s merge since ${since}`,
+      text: and(
+        described
+          ? `Described, ready, and waiting for Martin’s merge since ${since}`
+          : `Waiting for Martin’s merge since ${since}`,
+      ),
     };
   }
-  return { outcome: item.outcome, text: hold.reason };
+  return { outcome: item.outcome, text: and(hold.reason) };
 }
 
 /** How each sense is named in a sighting. */
@@ -878,9 +902,11 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
   const merged = item.outcome === 'merged';
   if (item.closedAt === undefined && !waits && !merged) {
     marks.push(
-      item.queued
-        ? { event: undefined, label: 'WAITING · PLAN', tone: 'faint', pass }
-        : { event: undefined, label: 'NOW', tone: 'signal', pass },
+      item.waitingOn
+        ? { event: undefined, label: 'WAITING · BUILD', tone: 'faint', text: item.waitingOn.reason, pass }
+        : item.queued
+          ? { event: undefined, label: 'WAITING · PLAN', tone: 'faint', pass }
+          : { event: undefined, label: 'NOW', tone: 'signal', pass },
     );
   }
   const times = marks.map((m) => m.at ?? (m.event ? Date.parse(m.event.ts) : t));

@@ -30,7 +30,7 @@
  * The windows, counts and runs are `policy/release.ts`'s `verify`.
  */
 import type { Evidence, PayloadOf, Sense, SignalSource, SymptomClass } from '@software-factory/events';
-import { SENSES } from '@software-factory/events';
+import { SENSES, sameVersion } from '@software-factory/events';
 import { evidence as evidenceSchema } from '@software-factory/events/schemas';
 import { CANARY_ANY_ROUTE } from '@software-factory/triage';
 import { z } from 'zod';
@@ -237,10 +237,6 @@ async function byAnalysis(signal: FirstSignal, target: Target): Promise<Look> {
     measure,
   });
 }
-
-/** The same version, whether either names its commit in full or shortened. */
-const sameVersion = (a: string, b: string) =>
-  a === b || (/^[0-9a-f]{7,40}$/.test(a) && /^[0-9a-f]{7,40}$/.test(b) && (a.startsWith(b) || b.startsWith(a)));
 
 /** One point a minute: as the intake draws an alert's series. */
 const STEP_SECONDS = 60;
@@ -468,41 +464,83 @@ export function whatCleared(
   policy: Release['verify'] = RELEASE.verify,
 ): string {
   if (!verification) return `Martin judged it cleared${answer ? `, saying: ${answer}` : ''}`;
-  const { sense, check, evidence, dryRun } = verification;
-  const version = short(verification.version ?? '');
-  if (dryRun) return 'The dry run’s word: its release never shipped, so no sense looked';
+  if (verification.dryRun) return 'The dry run’s word: its release never shipped, so no sense looked';
+  return clearedBy(verification, undefined, policy);
+}
+
+/**
+ * What a look again found cleared, in a sentence for the work item's issue, its pull request and its closing: as
+ * Verify says it, on a release that did not carry the work item's fix, and what that release carried instead.
+ */
+export function whatClearedOnLook(
+  rechecked: PayloadOf<'signal.rechecked'>,
+  policy: Release['verify'] = RELEASE.verify,
+): string {
+  const items = rechecked.carried.map((workItem) => `#${workItem}`);
+  const listed = items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0];
+  const release = listed
+    ? `a release that carried work item${items.length > 1 ? 's' : ''} ${listed}, not this one’s fix`
+    : 'a release that carried none of the factory’s fixes';
+  return clearedBy(rechecked, release, policy);
+}
+
+/**
+ * What a sense saw clear, in its own terms: on the release that carries the fix (`release` undefined), or on the
+ * release the words name.
+ */
+function clearedBy(
+  seen: Pick<PayloadOf<'signal.rechecked'>, 'sense' | 'check' | 'evidence' | 'version' | 'against'>,
+  release: string | undefined,
+  policy: Release['verify'],
+): string {
+  const { sense, check, evidence } = seen;
+  const version = short(seen.version ?? '');
+  const on = release ? `, on ${release}` : '';
   switch (sense) {
     case 'probe':
     case 'crawler':
-      return `The ${sense}’s check “${check}” passed ${times(policy.checks.inARow)} in a row on ${version}, which carries the fix`;
+      return `The ${sense}’s check “${check}” passed ${times(policy.checks.inARow)} in a row on ${version}, ${release ?? 'which carries the fix'}`;
     case 'metrics':
-      return `The ${check} of ${version}’s requests stayed inside its objective for ${policy.metrics.windowMinutes} minutes`;
+      return `The ${check} of ${version}’s requests stayed inside its objective for ${policy.metrics.windowMinutes} minutes${on}`;
     case 'logs': {
       const minutes = policy.logs.windowMinutes;
       if (check === AGREEMENT_CHECK['missing-log']) {
-        return `The log of ${version} recorded the requests counted elsewhere, for ${minutes} minutes`;
+        return `The log of ${version} recorded the requests counted elsewhere, for ${minutes} minutes${on}`;
       }
       if (check === AGREEMENT_CHECK['wrong-metric']) {
-        return `The metrics of ${version} counted the requests its log and traces did, for ${minutes} minutes`;
+        return `The metrics of ${version} counted the requests its log and traces did, for ${minutes} minutes${on}`;
       }
       const served = evidence?.kind === 'logs' ? `, over ${evidence.requests} requests` : '';
-      return `No error like the one the log watcher saw came from ${version} in ${minutes} minutes${served}`;
+      return `No error like the one the log watcher saw came from ${version} in ${minutes} minutes${served}${on}`;
     }
-    case 'canary':
-      return `The canary’s ${check} passed against ${short(evidence?.kind === 'canary' ? evidence.against : verification.against)} as ${version} was released, and it was promoted`;
+    case 'canary': {
+      const against = short(evidence?.kind === 'canary' ? evidence.against : (seen.against ?? ''));
+      return `The canary’s ${check} passed against ${against} as ${version} was released, and it was promoted${on}`;
+    }
     default:
-      return `Verify found “${check}” cleared on ${version}`;
+      return `Verify found “${check}” cleared on ${version}${on}`;
   }
 }
 
-/** The comment on the issue as the factory closes it. */
+/** The comment on the issue as the factory closes it, as verified by Verify, by Martin, or by a look again. */
 export function closingComment(
   verification: PayloadOf<'verification.finished'> | undefined,
   workItem: string,
   answer?: string,
+  rechecked?: PayloadOf<'signal.rechecked'>,
 ): string {
+  const cleared = rechecked ? whatClearedOnLook(rechecked) : whatCleared(verification, answer);
   return [
-    `Verified in production. ${whatCleared(verification, answer)}.`,
+    `Verified in production. ${cleared}.`,
+    '',
+    `The factory’s work item #${workItem} is closed as verified.`,
+  ].join('\n');
+}
+
+/** The comment on a held or waiting work item's pull request as the factory closes it unmerged, its defect gone. */
+export function closingPullComment(rechecked: PayloadOf<'signal.rechecked'>, workItem: string): string {
+  return [
+    `Closed unmerged: the defect this fixes is gone from production. ${whatClearedOnLook(rechecked)}.`,
     '',
     `The factory’s work item #${workItem} is closed as verified.`,
   ].join('\n');

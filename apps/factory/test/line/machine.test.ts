@@ -2,6 +2,7 @@ import { HOLD_CAUSES, type HoldCause, type PayloadOf, WORDS_LEAVE_HELD } from '@
 import { describe, expect, it } from 'vitest';
 import {
   ANSWERS,
+  closesWhenCleared,
   decide,
   dryRunLeft,
   type Facts,
@@ -1224,5 +1225,205 @@ describe('a coder that changes nothing, and says why', () => {
     expect(fold(answered).answers).toEqual([
       { asked: `The coder found nothing to fix: ${why}`, answer: 'It breaks on a basket of one' },
     ]);
+  });
+});
+
+const signal = (version = 'c'.repeat(7)): LineEvent => ({
+  type: 'signal.received',
+  payload: { sense: 'probe', check: 'search answers', route: '/search', version },
+});
+const look = (
+  outcome: PayloadOf<'signal.rechecked'>['outcome'],
+  release = 'r2',
+  occasion: 'release' | 'wait' = 'release',
+): LineEvent => ({
+  type: 'signal.rechecked',
+  payload: {
+    for: occasion,
+    outcome,
+    sense: 'probe',
+    check: 'search answers',
+    release,
+    version: 'd728dbe',
+    against: 'c'.repeat(7),
+    carried: ['1033'],
+    ...(outcome === 'unsure' ? { why: 'the check could not tell' } : {}),
+  },
+});
+const holdOf = (cause: HoldCause, stage: PayloadOf<'hold.started'>['stage'] = 'build') => held(cause, stage);
+const stable = { release: 'r2', version: 'd728dbe', due: true };
+
+describe('a held work item looked at again', () => {
+  const opened = [ticket, signal()];
+
+  it('closes by itself only for a hold the line made because its steps, gates or cap stopped the work', () => {
+    const closes = (cause: HoldCause, events: LineEvent[] = []) =>
+      closesWhenCleared(fold([...opened, spec, ...events, holdOf(cause)]));
+    const self = HOLD_CAUSES.filter((cause) => closes(cause));
+    expect(new Set(self)).toEqual(new Set(['scope', 'failures', 'gates', 'spend']));
+    // A review hold is the line's when the reviewer asked for changes once too often, and Martin's when it escalated.
+    const reviewed = (verdict: 'changes-requested' | 'escalated') => [
+      pushed(),
+      started(),
+      finished('passed'),
+      review(verdict),
+    ];
+    expect(closes('review', reviewed('changes-requested'))).toBe(true);
+    expect(closes('review', reviewed('escalated'))).toBe(false);
+    expect(closes('review')).toBe(false);
+  });
+
+  it('looks again once at each release, not at one a signal was seen on, and not past the window', () => {
+    const events = [...opened, spec, holdOf('gates', 'gates')];
+    expect(decide(events, { ...facts, stable })).toEqual({ stage: 'held', next: { do: 'recheck', for: 'release' } });
+    expect(decide(events, facts).next).toEqual({ do: 'wait', for: 'martin' });
+    expect(decide(events, { ...facts, stable: { ...stable, due: false } }).next).toEqual({ do: 'wait', for: 'martin' });
+    expect(decide([...events, signal('d728dbe')], { ...facts, stable }).next).toEqual({ do: 'wait', for: 'martin' });
+    expect(decide([...events, look('persists')], { ...facts, stable }).next).toEqual({ do: 'wait', for: 'martin' });
+    expect(decide([...events, look('unsure')], { ...facts, stable }).next).toEqual({ do: 'wait', for: 'martin' });
+    // A later release is looked at again, and a new hold looks at the same one again.
+    expect(decide([...events, look('persists')], { ...facts, stable: { ...stable, release: 'r3' } }).next).toEqual({
+      do: 'recheck',
+      for: 'release',
+    });
+    expect(decide([...events, look('persists'), holdOf('gates', 'gates')], { ...facts, stable }).next).toMatchObject({
+      do: 'recheck',
+    });
+  });
+
+  it('never looks again once a release of its own fix is out: that is Verify’s look', () => {
+    const merged: LineEvent = { type: 'pull-request.merged', payload: { number: 12, commit: OTHER, by: 'martin' } };
+    const release = { release: 'r1', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: false };
+    const events = [...opened, spec, pushed(), merged, holdOf('deploy', 'release')];
+    expect(decide(events, { ...facts, stable }).next).toEqual({ do: 'recheck', for: 'release' });
+    const shipped = [
+      ...opened,
+      spec,
+      pushed(),
+      merged,
+      { type: 'release.started', payload: { ...release, steps: null, image: undefined } } as unknown as LineEvent,
+      { type: 'release.promoted', payload: release } as LineEvent,
+      holdOf('verify', 'verify'),
+    ];
+    expect(decide(shipped, { ...facts, stable }).next).toEqual({ do: 'wait', for: 'martin' });
+  });
+
+  it('never looks again at a ticket no sense can look at, nor at one of triage’s holds', () => {
+    const report: LineEvent = {
+      type: 'signal.received',
+      payload: { sense: 'report', check: 'a visitor’s report', route: '/search', version: 'c'.repeat(7) },
+    };
+    expect(decide([ticket, report, spec, holdOf('gates')], { ...facts, stable }).next).toEqual({
+      do: 'wait',
+      for: 'martin',
+    });
+    for (const cause of WORDS_LEAVE_HELD) {
+      expect(decide([...opened, holdOf(cause, 'triage')], { ...facts, stable }).next).toEqual({
+        do: 'wait',
+        for: 'martin',
+      });
+    }
+  });
+
+  it('closes a hold of the line’s own as verified when the signal cleared, saying what cleared it', () => {
+    const events = [
+      ...opened,
+      spec,
+      pushed(),
+      started(),
+      finished('failed'),
+      holdOf('gates', 'gates'),
+      look('cleared'),
+    ];
+    const decision = decide(events, { ...facts, stable });
+    expect(decision).toMatchObject({ stage: 'held', next: { do: 'verified', verification: undefined } });
+    expect(decision.next.do === 'verified' && decision.next.rechecked?.carried).toEqual(['1033']);
+  });
+
+  it('only records the clearance on a hold that waits on Martin’s judgement, until a signal on that version ends it', () => {
+    const events = [...opened, spec, pushed(), started(), finished('passed'), review('approved'), summarised];
+    const merge = [...events, holdOf('merge', 'review'), look('cleared')];
+    expect(decide(merge, { ...facts, stable }).next).toEqual({ do: 'wait', for: 'martin' });
+    expect(fold(merge).cleared?.version).toBe('d728dbe');
+    expect(fold([...merge, signal('d728dbe')]).cleared).toBeUndefined();
+    expect(fold([...merge, signal('e'.repeat(7))]).cleared).toBeDefined();
+    expect(fold([...merge, look('persists', 'r3')]).cleared).toBeUndefined();
+  });
+
+  it('forgets a look once the hold is answered, or another starts', () => {
+    const events = [...opened, spec, holdOf('spec', 'plan'), look('cleared')];
+    expect(fold([...events, { type: 'hold.answered', payload: { decision: 'approved' } }]).cleared).toBeUndefined();
+    expect(fold([...events, holdOf('question', 'plan')]).rechecked).toBeUndefined();
+  });
+});
+
+describe('a spec that overlaps work in flight', () => {
+  const opened = [ticket, signal()];
+  const overlaps = [{ workItem: '1028', files: ['src/search.ts'] }];
+  const waits: LineEvent = {
+    type: 'wait.started',
+    payload: {
+      on: ['1028'],
+      files: ['src/search.ts'],
+      reason: 'Waits for #1028, whose spec also changes src/search.ts',
+    },
+  };
+
+  it('waits after Plan, before the coder and before a spec that needs Martin is held for him', () => {
+    expect(decide([...opened, spec], { ...facts, overlaps })).toEqual({
+      stage: 'waiting',
+      next: { do: 'wait-on', on: ['1028'], files: ['src/search.ts'] },
+    });
+    const risky: LineEvent = {
+      type: 'spec.written',
+      payload: { ...(spec.payload as PayloadOf<'spec.written'>), risks: ['out-of-scope'] },
+    };
+    expect(decide([...opened, risky], { ...facts, overlaps }).next).toMatchObject({ do: 'wait-on' });
+    expect(decide([...opened, spec], facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
+  });
+
+  it('does not wait once there is a pull request, or the coder is sent back', () => {
+    expect(decide([...opened, spec, pushed()], { ...facts, overlaps }).next).toEqual({ do: 'wait', for: 'gates' });
+  });
+
+  it('waits until every work item it waits on has closed, then looks again', () => {
+    const events = [...opened, spec, waits];
+    expect(decide(events, { ...facts, overlaps })).toEqual({ stage: 'waiting', next: { do: 'wait', for: 'overlap' } });
+    expect(decide(events, { ...facts, waitedOn: { '1028': null } }).next).toEqual({ do: 'wait', for: 'overlap' });
+    // With nothing known of the work it waits on, it waits on.
+    expect(decide(events, facts).next).toEqual({ do: 'wait', for: 'overlap' });
+    const closed = { '1028': { closedAt: '2026-10-17T13:30:00Z' } };
+    expect(decide(events, { ...facts, waitedOn: closed })).toEqual({
+      stage: 'waiting',
+      next: { do: 'recheck', for: 'wait' },
+    });
+    // A release while it waits is looked at as for a hold.
+    expect(decide(events, { ...facts, waitedOn: { '1028': null }, stable }).next).toEqual({
+      do: 'recheck',
+      for: 'release',
+    });
+  });
+
+  it('closes as verified on a look that clears, and goes on to Build on one that persists or cannot tell', () => {
+    const events = [...opened, spec, waits];
+    expect(decide([...events, look('cleared', 'r2', 'wait')], facts)).toMatchObject({
+      stage: 'waiting',
+      next: { do: 'verified' },
+    });
+    expect(decide([...events, look('cleared')], facts).next).toMatchObject({ do: 'verified' });
+    for (const outcome of ['persists', 'unsure'] as const) {
+      expect(decide([...events, look(outcome, 'r2', 'wait')], { ...facts, overlaps }).next).toEqual({
+        do: 'step',
+        agent: 'coder',
+        round: 1,
+      });
+    }
+    // A release's look that persists does not end the wait.
+    expect(decide([...events, look('persists')], facts).next).toEqual({ do: 'wait', for: 'overlap' });
+  });
+
+  it('checks a spec written again before a push again', () => {
+    const events = [...opened, spec, waits, look('persists', 'r2', 'wait'), spec];
+    expect(decide(events, { ...facts, overlaps }).next).toMatchObject({ do: 'wait-on' });
   });
 });

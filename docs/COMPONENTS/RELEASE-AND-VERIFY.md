@@ -124,6 +124,16 @@ The windows and counts are `policy/release.ts`'s `verify`.
 - **Persists** appends `verification.finished` too, and sends the work item back to Plan once, for a fresh pass whose planner is told what persisted. A second persisting holds (cause `verify`).
 - **Martin's answer to a Verify hold:** approving closes the work item as verified, with his words; answering sends it back to Plan; rejecting closes it.
 
+### Held and waiting work items
+
+A work item held before its merge, or waiting for overlapping work ([a spec that overlaps](ORCHESTRATOR.md#a-spec-that-overlaps)), is carried by no release, so Verify never looks at it. The line looks at it the same way instead (`signal.rechecked`), at the version the stable Service runs, which did not carry its fix:
+
+- **When.** After each real release is promoted, once a release: the latest real promotion on any work item or on the line, so a release that carries none of the line's work (Martin's own commit, a dependency update) counts too. Once as a hold or a wait starts, too, so a release just before it is not missed. And once as the work a waiting work item waits on is verified or closed.
+- **Not when** a signal of the ticket has been seen on that version (triage records each sense's first in each version), which says the defect is there already; nor for a ticket only a visitor's report or the planner saw, which no sense can look at; nor for triage's holds; nor once a release of the work item's own fix is out, which is Verify's to look at; nor later than 24 hours after the release, or the start of the hold or wait, whichever is later.
+- **One at a time** across the line, beside Verify's looks, under Verify's lease. It takes no pictures: there is no fix to compare.
+- **It records** what it found (`cleared`, `persists`, or `unsure` with why), the release, its version and the version before, and the work items that release carried. A sense that cannot tell is asked again every 5 minutes, and after 24 hours nothing is recorded for that release; at the end of a wait, it is recorded as `unsure`, and the work item goes on to Build, as it does when no release of the app has been recorded. A look during which another release promoted counts for nothing.
+- **Cleared**, a hold the line made itself, or a waiting work item, closes as verified: the issue as completed, and an open pull request unmerged, each with a comment saying what cleared it and what that release carried instead, then `work-item.closed`. A hold that waits on Martin's judgement only records the look, and closing its pull request then closes it as verified ([holds](ORCHESTRATOR.md#a-held-work-item-whose-defect-went-another-way)).
+
 ### Pictures
 
 The verification, and either Verify hold, names up to twelve pages the probes worker compared while the release ran as a canary ([pictures](PROBES-AND-CRAWLER.md#pictures)):
@@ -145,6 +155,8 @@ A merge the dry run made never ships, so with `LINE_MODE=dry-run` the line relea
 
 A line running live closes a dry run's merge with no change as it starts ([after a dry run](ORCHESTRATOR.md#after-a-dry-run)).
 
+A dry run's release never shipped, so it sets off no look again at a held or waiting work item: only a real promotion does, which with `RELEASE_ROLLOUT` the line records in a dry run too. Its closes are then the GitHub worker's records. Without it, held work items are never looked at, and a waiting one goes on to Build as `unsure`.
+
 ## With `LINE_ONLY`
 
-The watch records only a release that carries that work item or none. One that also carries another is left for the whole line, and that work item stays held at Release. The line says nothing of the deploy pull request.
+The watch records only a release that carries that work item or none. One that also carries another is left for the whole line, and that work item stays held at Release. The line says nothing of the deploy pull request. Its spec waits for no other work item, and the stable version a look again reads may lag the app's, since a release that carries others goes unrecorded.

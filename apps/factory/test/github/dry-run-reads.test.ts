@@ -147,6 +147,19 @@ describe('a dry run’s reads', () => {
     expect(await reads.pullRequestFrom(REPO, BRANCH)).toBeNull();
   });
 
+  it('read a pull request it closed as closed and unmerged, which never merges', async () => {
+    const { made, reads, number, later } = await dryRun();
+    await made.readyForReview(REPO, { number, url: '', nodeId: `dry-run-${number}` });
+    await made.closePullRequest(REPO, number, 'Closed unmerged: the defect this fixes is gone from production.');
+    later(TIMES.mergeAfterMs * 3);
+    const pr = await reads.pullRequest(REPO, number);
+    expect(pr).toMatchObject({ state: 'closed', merged: false, mergeCommit: null });
+    expect(gateEvents(pr, [], REQUIRED, gateRecord([]))).toMatchObject([
+      { type: 'work-item.closed', payload: { outcome: 'no-change' } },
+    ]);
+    expect(await reads.pullRequestFrom(REPO, BRANCH)).toBeNull();
+  });
+
   it('compare its commit with main as GitHub would: from the real commit it went on, with each file’s hunks', async () => {
     const { reads, commit } = await dryRun();
     const compared = await reads.comparison(REPO, 'main', commit);

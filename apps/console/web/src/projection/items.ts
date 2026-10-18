@@ -12,13 +12,15 @@ import type {
   Screenshot,
   Stage,
 } from '@software-factory/events';
-import { STAGES, WORDS_LEAVE_HELD } from '@software-factory/events';
+import { SENSES, STAGES, sameVersion, WORDS_LEAVE_HELD } from '@software-factory/events';
+import { shortVersion } from '../format.ts';
 import type { StoppedBy } from './release.ts';
 
 /**
  * How a work item stands. Besides the line's own: `waiting`, a ticket queued for the planner, with nothing being
- * done to it yet; `merged`, a fix Martin merged, queued at Release for a release to take it; `quarantined`, a report
- * that gave orders to the system; `no-ticket`, a report that described nothing wrong.
+ * done to it yet; `waits-on-work`, a spec queued before Build while work in flight whose spec shares its files is
+ * verified or closed; `merged`, a fix Martin merged, queued at Release for a release to take it; `quarantined`, a
+ * report that gave orders to the system; `no-ticket`, a report that described nothing wrong.
  */
 export type Outcome =
   | 'verified'
@@ -29,6 +31,7 @@ export type Outcome =
   | 'held'
   | 'needs-you'
   | 'waiting'
+  | 'waits-on-work'
   | 'merged'
   | 'in-progress';
 
@@ -126,6 +129,13 @@ export interface ItemState {
   sentBack: number | undefined;
   /** While a verified ticket is open again: when, and what the sense saw, on which version. */
   reopened: (PayloadOf<'work-item.reopened'> & { at: number }) | undefined;
+  /** While its spec waits for work in flight whose spec shares its files: which, and the files. */
+  waitingOn: PayloadOf<'wait.started'> | undefined;
+  /**
+   * A look again under its hold that found the signal cleared, on a release that did not carry its fix, while nothing
+   * since says the defect is back.
+   */
+  cleared: PayloadOf<'signal.rechecked'> | undefined;
 }
 
 /** The stage an event moves its item to, if any. */
@@ -138,6 +148,9 @@ export function stageOf(event: PublicEvent): Stage | null {
       return 'triage';
     case 'spec.written':
       return 'plan';
+    // A spec that overlaps work in flight waits before Build.
+    case 'wait.started':
+      return 'build';
     case 'pull-request.pushed':
       // Dependabot's pull requests are built outside the factory: they reach the line at Gates.
       return event.actor === 'dependabot' ? null : 'build';
@@ -263,6 +276,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     reportPage: undefined,
     sentBack: undefined,
     reopened: undefined,
+    waitingOn: undefined,
+    cleared: undefined,
   };
   /** Moves the item into a stage: leaving the one it was in, if this is further along the line. */
   const enter = (stage: Stage, time: number) => {
@@ -325,6 +340,9 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.versions.live = true;
         break;
       case 'signal.received':
+        if (state.cleared?.version && sameVersion(state.cleared.version, event.payload.version)) {
+          state.cleared = undefined;
+        }
         state.evidence.signal ??= event.payload.evidence?.[0];
         state.seenOn ??= event.payload.version;
         if (event.payload.report) state.reportPage ??= event.payload.report.page;
@@ -345,8 +363,20 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.hold = undefined;
         state.queued = true;
         break;
+      case 'wait.started':
+        state.waitingOn = event.payload;
+        state.queued = true;
+        state.cleared = undefined;
+        break;
+      case 'signal.rechecked':
+        if (event.payload.outcome === 'cleared') state.cleared = event.payload;
+        else if (event.payload.outcome === 'persists') state.cleared = undefined;
+        // At the end of a wait, a signal still there sends the work on to Build.
+        if (event.payload.for === 'wait') state.waitingOn = undefined;
+        break;
       case 'hold.started':
         state.sentBack = undefined;
+        state.cleared = undefined;
         state.hold = {
           stage: event.payload.stage,
           kind: event.payload.kind,
@@ -361,6 +391,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         // Words settle nothing for a hold of triage's, as the line reads them: it still waits for Martin.
         if (event.payload.decision === 'answered' && state.hold && WORDS_LEAVE_HELD.includes(state.hold.cause)) break;
         state.hold = undefined;
+        state.cleared = undefined;
         break;
       case 'release.started':
         // A release that carries the fix is the answer to its wait for a deploy, as the line reads it.
@@ -401,6 +432,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       case 'work-item.closed':
         state.closedAt = time;
         state.hold = undefined;
+        state.waitingOn = undefined;
         state.sentBack = undefined;
         state.reopened = undefined;
         state.queued = false;
@@ -433,7 +465,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
 
   if (!state.closedAt) {
     if (state.hold) state.outcome = state.hold.kind === 'held' ? 'held' : 'needs-you';
-    else if (state.queued) state.outcome = state.stage === 'release' ? 'merged' : 'waiting';
+    else if (state.queued)
+      state.outcome = state.waitingOn ? 'waits-on-work' : state.stage === 'release' ? 'merged' : 'waiting';
     else state.outcome = 'in-progress';
   }
   return state;
@@ -473,6 +506,28 @@ function fixedOf(event: Extract<PublicEvent, { type: 'verification.finished' }>)
   }
   const first = artifacts[0];
   return first?.kind === 'screenshot' && first.boxes.length ? 0 : undefined;
+}
+
+/** The work items a release carried, in words: "work item #1033", "work items #1033 and #1040". */
+const carriedWords = (carried: readonly string[]) => {
+  const items = carried.map((n) => `#${n}`);
+  if (!items.length) return 'none of the factory’s fixes';
+  const listed = items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0];
+  return `work item${items.length > 1 ? 's' : ''} ${listed}`;
+};
+
+/**
+ * What a hold that waits on Martin's judgement says once a look again found its signal cleared: on which version, on
+ * a release that carried what, and by which check. Closing its open pull request then closes it as verified.
+ */
+export function clearanceWords(item: ItemState): string | undefined {
+  const { cleared } = item;
+  if (!cleared || !item.hold) return undefined;
+  const sense = SENSES.find((one) => one === cleared.sense);
+  const by = sense ? `the ${sense} saw “${cleared.check}” pass there` : `“${cleared.check}” cleared there`;
+  const on = `Its signal cleared on ${shortVersion(cleared.version ?? '')}, a release that carried ${carriedWords(cleared.carried)}: ${by}.`;
+  const open = item.pullRequest !== undefined && !item.events.some((e) => e.type === 'pull-request.merged');
+  return open ? `${on} Closing its pull request closes it as verified.` : on;
 }
 
 /** The words for a hold at Release or Verify that its summary may lack, by cause. */

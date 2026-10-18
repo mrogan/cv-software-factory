@@ -25,6 +25,7 @@ Workers ask for actions over HTTP, `POST /v1/actions/<action>`, each body checke
 - branches;
 - signed commits through GraphQL's `createCommitOnBranch`, never `git push`;
 - opening, updating, labelling and readying pull requests, and updating a branch;
+- closing a pull request unmerged with a comment once (`closePullRequest`), as the line does for a held or waiting work item whose defect went with another change; one already closed is left as it is;
 - comment reviews anchored to lines, and resolving their threads (`resolveThreads`): on each open thread the App began with a finding now answered (matched by path, line and words), the reply it is given, made once, then the thread resolved. The reply names the commit when a later review finds the finding put right or the suggestion taken, and gives the coder's reason when it declines a suggestion;
 - check runs;
 - issues and comments:
@@ -144,6 +145,7 @@ A dry run's reads answer for what it would have made (`github/dry-run-reads.ts`)
 - a comparison is taken from the real commit its first commit went on;
 - a step that starts from one of its commits is told the real commit under it, and the dry run's commits as patches (`checkout`), which the runner's prepare step makes on it, so the reviewer, the describer and a later round see the change;
 - the pull request is merged, as the App, `GITHUB_DRY_RUN_MERGE_SECONDS` after it is readied (1200), never while it is a draft, so a line in `dry-run` goes round.
+- one it closed (`closePullRequest`) is closed and unmerged, and never merges.
 
 Everything else it reads from GitHub.
 

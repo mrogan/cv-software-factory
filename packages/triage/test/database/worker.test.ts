@@ -339,6 +339,54 @@ describe('triage', () => {
       expect(await types(item)).not.toContain('work-item.reopened');
     });
 
+    it('reopens a ticket a dry run verified once a look again cleared it on a release that shipped', async () => {
+      const item = await ticketFor(found({ route: '/looked' }), 'verified', { dryRun: true });
+      // Reopened by the live line, held, and closed as verified by a look on a real release.
+      await events.append([
+        {
+          id: crypto.randomUUID(),
+          ts: at,
+          work_item: item,
+          type: 'work-item.reopened',
+          version: 3,
+          actor: 'factory',
+          summary: 'Reopened: the dry run’s fix never shipped',
+          payload: {
+            sense: 'crawler',
+            check: 'links lead somewhere',
+            route: '/looked',
+            version: 'c0ffee1',
+            reason: 'A dry run verified it, and its fix never shipped',
+            dryRun: true,
+          },
+          artifacts: [],
+        },
+        {
+          id: crypto.randomUUID(),
+          ts: at,
+          work_item: item,
+          type: 'signal.rechecked',
+          version: 1,
+          actor: 'crawler',
+          summary: 'Cleared',
+          payload: {
+            for: 'release',
+            outcome: 'cleared',
+            sense: 'crawler',
+            check: 'links lead somewhere',
+            release: 'f00dfeed01-3',
+            version: 'c0ffee2',
+            against: 'c0ffee1',
+            carried: [],
+          },
+          artifacts: [],
+        },
+        closed(item, 'verified'),
+      ]);
+      await sendSignal(writer, again({ route: '/looked' }));
+      expect(await triage().takeOne()).toBe('reopened');
+    });
+
     it('reopens a ticket verified on a release that shipped', async () => {
       const item = await ticketFor(found({ route: '/shipped' }), 'verified', { dryRun: false });
       await sendSignal(writer, again({ route: '/shipped' }));

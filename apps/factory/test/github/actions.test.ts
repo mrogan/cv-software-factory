@@ -538,6 +538,63 @@ describe('resolving threads in a dry run', () => {
   });
 });
 
+describe('closing a pull request', () => {
+  it('says why on it once, closes it unmerged, and leaves one already closed', async () => {
+    let pull = { state: 'open' };
+    let failClose = 1;
+    const comments: { body: string }[] = [];
+    const { github, sent } = client([
+      { method: 'GET', path: `/repos/${REPO}/pulls/66`, answer: () => ({ body: pull }) },
+      { method: 'GET', path: /^\/repos\/.+\/issues\/66\/comments/, answer: () => ({ body: comments }) },
+      {
+        method: 'POST',
+        path: `/repos/${REPO}/issues/66/comments`,
+        answer: ({ body }) => {
+          comments.push(body as { body: string });
+          return { status: 201, body: {} };
+        },
+      },
+      {
+        method: 'PATCH',
+        path: `/repos/${REPO}/pulls/66`,
+        answer: () => {
+          if (failClose-- > 0) return { status: 422, body: { message: 'Validation Failed' } };
+          pull = { state: 'closed' };
+          return { body: {} };
+        },
+      },
+    ]);
+    const actions = new LiveActions(github);
+    await expect(actions.closePullRequest(REPO, 66, 'Closed unmerged.')).rejects.toThrow();
+    await actions.closePullRequest(REPO, 66, 'Closed unmerged.');
+    await actions.closePullRequest(REPO, 66, 'Closed unmerged.');
+    expect(
+      calls(sent)
+        .filter((s) => s.method !== 'GET')
+        .map((s) => [s.method, s.body]),
+    ).toEqual([
+      ['POST', { body: 'Closed unmerged.' }],
+      ['PATCH', { state: 'closed' }],
+      ['PATCH', { state: 'closed' }],
+    ]);
+  });
+
+  it('records the pull request a dry run would have closed, with what it would have said', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    await actions.closePullRequest(REPO, 66, 'Closed unmerged.');
+    const [record] = await Promise.all(
+      (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+    );
+    expect(record).toEqual({
+      action: 'closePullRequest',
+      repo: REPO,
+      at: '2026-10-04T12:00:00.000Z',
+      args: { number: 66, comment: 'Closed unmerged.' },
+    });
+  });
+});
+
 describe('reopening an issue in a dry run', () => {
   it('records the issue it would have reopened, with what it would have said on it', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));

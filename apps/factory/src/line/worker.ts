@@ -25,6 +25,16 @@
  *   look at a time for each work item, beside the steps. A look that cannot tell yet is tried again a few minutes
  *   later. A cleared signal closes the work item as verified, and its issue as completed with what cleared it; one
  *   that persists sends the work back to Plan, and the coder starts afresh, not from its old session.
+ * - After each real release is promoted, and once as a hold or a wait starts, it asks the sense that saw each held or
+ *   waiting work item's defect to look again at the version the stable Service runs (`lookDue`), one such look at a
+ *   time across the line, beside Verify's, and takes no pictures: there is no fix to compare. A look that cannot tell
+ *   is tried again a few minutes later, until the policy's wait. A cleared signal on a hold the line made itself, or on
+ *   a waiting work item, closes it as verified: its issue as completed, and its pull request, if it has one open,
+ *   unmerged, each saying what cleared it and on which release. A hold that waits on Martin's judgement records the
+ *   look and stays; his closing its pull request while the clearance stands closes it as verified.
+ * - After Plan, a work item whose spec's scope shares a file with the spec of another in flight waits, at its own
+ *   stage, until each it waits on is verified or closed; then its sense looks again, and it closes as verified or goes
+ *   on to Build. It holds up no other ticket. Not with `only`: a queue of one sees nothing else.
  * - A verified work item whose ticket triage reopened, because its signal came back, comes back into Plan for a fresh
  *   pass once its issue is open again, with a comment saying what came back.
  * - As it starts live, it ends what a dry run left on real tickets (`dryRunLeft`), which it could not carry on from:
@@ -49,7 +59,7 @@
  */
 import { hostname } from 'node:os';
 import type { Evidence, PayloadOf, RawEvent, SignalSource, SymptomClass } from '@software-factory/events';
-import { returnWords, upcast } from '@software-factory/events';
+import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD } from '@software-factory/events';
 import { type EventWriter, sendSignal } from '@software-factory/store';
 import { lineStopped, uuidFrom } from '@software-factory/triage';
 import type { Logger } from 'pino';
@@ -103,6 +113,7 @@ import { type Pending, Queue, type QueueItem } from './queue.ts';
 import { carried, Releases, type ReleaseWatchOptions } from './release.ts';
 import {
   closingComment,
+  closingPullComment,
   type FirstSignal,
   type Look,
   look,
@@ -110,6 +121,7 @@ import {
   type Target,
   type VerifyClients,
   whatCleared,
+  whatClearedOnLook,
 } from './verify.ts';
 
 /** The runners, as the line uses them (`runners/steps.ts`). */
@@ -213,9 +225,16 @@ export class Line {
   readonly #queue: Queue;
   readonly #releases: Releases;
   /** The steps in hand, by work item, with the stage each holds. */
-  readonly #inFlight = new Map<string, { stage: 'plan' | 'build' | 'review' | 'verify'; done: Promise<void> }>();
-  /** When each work item at Verify whose last look could not tell may be looked at again. */
+  readonly #inFlight = new Map<
+    string,
+    { stage: 'plan' | 'build' | 'review' | 'verify' | 'recheck'; done: Promise<void> }
+  >();
+  /** When each work item whose last look, at Verify or again, could not tell may be looked at again. */
   readonly #lookAgainAt = new Map<string, number>();
+  /** The latest real promotion, read once a pass; undefined until it is read. */
+  #promotion: Promise<Promotion | undefined> | undefined;
+  /** The work items in flight, with their specs' scopes and what each waits on, read once a pass, or after a wait. */
+  #flight: Promise<InFlight[]> | undefined;
   #stopped = false;
   /** Aborted when the line stops, which stops every step started before, wherever it is. */
   #halt = new AbortController();
@@ -294,6 +313,8 @@ export class Line {
     }
     this.#stopped = false;
     if (!this.#o.takesWork) return;
+    this.#promotion = undefined;
+    this.#flight = undefined;
     if (!this.#dryRunsEnded) {
       await this.#endDryRuns();
       // Without knowing what a dry run left, the line would carry on from it.
@@ -498,7 +519,7 @@ export class Line {
     // A few quick actions in a row (open the issue, then start the planner), never a loop without end.
     for (let actions = 0; item && actions < 5; actions++) {
       const { events, last } = await this.#events(item.workItem);
-      const { stage, next } = decide(events, await this.#facts(item));
+      const { stage, next } = decide(events, await this.#facts(item, events));
       if (fold(events).merged) await this.#dropVolume(item.workItem);
       // A kept handback is for the step the work item still needs, with nothing appended since; any other is over.
       const pending = item.effects;
@@ -508,7 +529,12 @@ export class Line {
         await this.#queue.drop(item.workItem);
         item = { ...item, effects: null };
       }
-      if (next.do === 'wait' || (next.do === 'verify' && !this.#lookDue(item.workItem))) {
+      const rechecking = [...this.#inFlight.values()].some((s) => s.stage === 'recheck');
+      if (
+        next.do === 'wait' ||
+        (next.do === 'verify' && !this.#lookDue(item.workItem)) ||
+        (next.do === 'recheck' && (rechecking || !this.#lookDue(item.workItem)))
+      ) {
         if (stage !== item.stage && (await this.#queue.claim(item.workItem, ACTION_LEASE_SECONDS))) {
           await this.#queue.release(item.workItem, stage);
         }
@@ -530,6 +556,24 @@ export class Line {
           )
           .finally(() => this.#inFlight.delete(workItem));
         this.#inFlight.set(workItem, { stage: 'verify', done });
+        return;
+      }
+      if (next.do === 'recheck') {
+        const claimed = await this.#queue.claim(item.workItem, VERIFY_LEASE_SECONDS);
+        if (!claimed) return;
+        await this.#queue.move(item.workItem, stage);
+        const workItem = item.workItem;
+        const done = this.#recheck(workItem, next.for, fold(events), this.#halt.signal)
+          .catch((error: unknown) => {
+            this.#lookAgainAt.set(workItem, this.#o.now().getTime() + this.#o.verifyEveryMs);
+            this.#o.log.warn({ workItem, err: error }, 'could not look again: it looks again later');
+          })
+          .then(() => this.#release(workItem))
+          .catch((error: unknown) =>
+            this.#o.log.error({ workItem, err: error }, 'could not let go of a work item after a look'),
+          )
+          .finally(() => this.#inFlight.delete(workItem));
+        this.#inFlight.set(workItem, { stage: 'recheck', done });
         return;
       }
       if (next.do === 'step') {
@@ -599,14 +643,15 @@ export class Line {
   async #release(workItem: string): Promise<void> {
     const item = await this.#queue.get(workItem);
     if (!item) return;
-    const { stage } = decide((await this.#events(workItem)).events, await this.#facts(item));
+    const { events } = await this.#events(workItem);
+    const { stage } = decide(events, await this.#facts(item, events));
     await this.#queue.release(workItem, stage === 'ended' ? item.stage : stage);
   }
 
   /** An action that is not a step: quick, and done before the next. */
   async #act(
     item: QueueItem,
-    next: Exclude<Next, { do: 'step' | 'wait' | 'verify' }>,
+    next: Exclude<Next, { do: 'step' | 'wait' | 'verify' | 'recheck' }>,
     state: WorkItemState,
   ): Promise<void> {
     const { workItem } = item;
@@ -639,6 +684,22 @@ export class Line {
         await this.#append(workItem, [holdDraft('factory', next.hold)]);
         await this.#queue.moved(workItem);
         return;
+      case 'wait-on': {
+        const reason = waitReason(next.on, next.files);
+        await this.#append(workItem, [
+          {
+            type: 'wait.started',
+            actor: 'factory',
+            summary: reason,
+            payload: { on: next.on, files: next.files, reason },
+          },
+        ]);
+        // Another work item checked after this one, in this pass, must see that this one waits.
+        this.#flight = undefined;
+        await this.#queue.moved(workItem);
+        this.#o.log.info({ workItem, on: next.on, files: next.files }, 'a spec that overlaps waits');
+        return;
+      }
       case 'close':
         // The issue goes with it; closing one already closed changes nothing.
         if (item.issue) {
@@ -660,7 +721,8 @@ export class Line {
         return;
       case 'verified': {
         // The issue first, with what cleared it: closing one already closed changes nothing, and says nothing again.
-        const reason = whatCleared(next.verification, next.answer);
+        const { rechecked } = next;
+        const reason = rechecked ? whatClearedOnLook(rechecked) : whatCleared(next.verification, next.answer);
         if (item.issue) {
           await this.#o.github.act(
             'closeIssue',
@@ -668,16 +730,32 @@ export class Line {
             {
               number: item.issue,
               reason: 'completed',
-              comment: closingComment(next.verification, workItem, next.answer),
+              comment: closingComment(next.verification, workItem, next.answer, rechecked),
             },
             { workItem },
           );
         }
+        // A pull request for a defect that went another way is left for nobody to merge. Once it is closed, a crash
+        // before the close below is caught as the gates are read: the pull request reads as closed unmerged, and the
+        // clearance that stands closes the work item as verified.
+        if (rechecked && state.pullRequest && !state.merged) {
+          await this.#o.github.act(
+            'closePullRequest',
+            this.#o.repo,
+            { number: state.pullRequest.number, comment: closingPullComment(rechecked, workItem) },
+            { workItem },
+          );
+        }
+        const summary = rechecked
+          ? 'Verified on a release that did not carry its fix, and closed'
+          : next.verification?.dryRun
+            ? 'Verified by the dry run’s word, and closed'
+            : 'Verified, and closed';
         await this.#append(workItem, [
           {
             type: 'work-item.closed',
             actor: 'factory',
-            summary: next.verification?.dryRun ? 'Verified by the dry run’s word, and closed' : 'Verified, and closed',
+            summary,
             payload: { outcome: 'verified', reason: reason.slice(0, 200) },
           },
         ]);
@@ -792,31 +870,153 @@ export class Line {
       select seq, ts from events
       where work_item = ${workItem} and type = 'release.promoted' and payload->>'release' = ${promoted.release}
       order by seq desc limit 1`;
-    const base = { against: promoted.previous, dryRun: promoted.dryRun };
     if (!own) throw new Error(`Work item ${workItem} has no promotion of ${promoted.release}`);
-    if (promoted.dryRun) return { ...base, version: promoted.version, at: new Date(own.ts) };
-    const [latest] = await sql<{ version: string; release: string; previous: string; watched: boolean; ts: Date }[]>`
+    if (promoted.dryRun) {
+      return { against: promoted.previous, dryRun: true, version: promoted.version, at: new Date(own.ts) };
+    }
+    const latest = await this.#latestPromotion(own.seq);
+    return this.#stableTarget(
+      latest ?? { ...promoted, at: new Date(own.ts), seq: own.seq },
+      // The version before the fix: what the release that carried it replaced.
+      promoted.previous,
+    );
+  }
+
+  /** The latest real promotion, on any work item or the line, at or after `from` if given: what the stable Service runs. */
+  async #latestPromotion(from?: string): Promise<Promotion | undefined> {
+    const [latest] = await this.#o.sql<(Omit<Promotion, 'at'> & { at: Date })[]>`
       select payload->>'version' as version, payload->>'release' as release, payload->>'previous' as previous,
-             (payload->>'watched')::boolean is not false as watched, ts from events
-      where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true and seq >= ${own.seq}
+             (payload->>'watched')::boolean is not false as watched, ts as at, seq from events
+      where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true
+        ${from === undefined ? this.#o.sql`` : this.#o.sql`and seq >= ${from}`}
       order by seq desc limit 1`;
-    const release = latest?.release ?? promoted.release;
-    const watched = latest?.watched ?? promoted.watched;
-    // The analysis of its last step, on whichever work item (or the line) has it: a release found live has none.
+    return latest && { ...latest, at: new Date(latest.at) };
+  }
+
+  /**
+   * A real release as a sense looks at it, with the canary's analysis of its last step, on whichever work item (or
+   * the line) has it: a release found live has none. `against` is the version the look compares with.
+   */
+  async #stableTarget(promotion: Promotion, against: string): Promise<Target> {
+    const { release, watched } = promotion;
     const [step] = watched
-      ? await sql<{ measures: PayloadOf<'canary.stepped'>['analysis']['measures'] }[]>`
+      ? await this.#o.sql<{ measures: PayloadOf<'canary.stepped'>['analysis']['measures'] }[]>`
           select payload->'analysis'->'measures' as measures from events
           where type = 'canary.stepped' and payload->>'release' = ${release}
           order by seq desc limit 1`
       : [];
     return {
-      ...base,
-      version: latest?.version ?? promoted.version,
-      at: new Date(latest?.ts ?? own.ts),
-      ...(watched
-        ? { analysis: { release, against: latest?.previous ?? promoted.previous, measures: step?.measures ?? [] } }
-        : {}),
+      against,
+      dryRun: false,
+      version: promotion.version,
+      at: promotion.at,
+      ...(watched ? { analysis: { release, against: promotion.previous, measures: step?.measures ?? [] } } : {}),
     };
+  }
+
+  /**
+   * One look again at a held or waiting work item's signal, by the sense of the ticket's first signal, at the version
+   * the stable Service runs, which did not carry its fix (`look`, as at Verify, with no pictures). What it found is
+   * appended, unless the line stopped meanwhile or a release came between. A look that cannot tell is tried again
+   * later; at the end of a wait, after the policy's wait it is recorded as unsure, and the work item goes on to Build.
+   */
+  async #recheck(
+    workItem: string,
+    occasion: 'release' | 'wait',
+    state: WorkItemState,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const now = this.#o.now();
+    const first = await this.#firstSignal(workItem);
+    const sense = SENSES.find((one) => one === first?.sense);
+    const base = {
+      for: occasion,
+      ...(sense ? { sense } : {}),
+      check: (first?.check ?? 'the ticket’s signal').slice(0, 120),
+    };
+    const promotion = await this.#latestPromotion();
+    if (!promotion) {
+      if (occasion === 'release') return;
+      const why = 'no release of the app has been recorded';
+      return this.#rechecked(workItem, { ...base, outcome: 'unsure', carried: [], why });
+    }
+    const target = await this.#stableTarget(promotion, promotion.previous);
+    let found: Look;
+    try {
+      found = await look(first, target, { ...this.#o.verify, now, dryRun: this.#o.dryRun, signal });
+    } catch (error) {
+      found = { kind: 'wait', why: `the sense could not be asked: ${messageOf(error)}` };
+    }
+    if (signal.aborted) return;
+    // A release promoted while the sense looked: what it saw was of a version no longer stable. Look again.
+    if (found.kind === 'finished' && (await this.#latestPromotion())?.release !== promotion.release) {
+      this.#o.log.info({ workItem, looked: promotion.version }, 'a release came between');
+      return;
+    }
+    const looked = {
+      release: promotion.release,
+      version: promotion.version,
+      against: promotion.previous,
+      carried: await this.#carriedBy(promotion.release, workItem),
+    };
+    switch (found.kind) {
+      case 'finished': {
+        const { outcome, evidence } = found.verification;
+        if (outcome === 'cleared' || outcome === 'persists') {
+          return this.#rechecked(workItem, { ...base, ...looked, outcome, ...(evidence ? { evidence } : {}) });
+        }
+        return;
+      }
+      case 'hold':
+        return this.#rechecked(workItem, { ...base, ...looked, outcome: 'unsure', why: found.reason.slice(0, 200) });
+      case 'wait': {
+        // A wait goes on for no longer than the policy's after the work it waited on ended; a hold's look stops there.
+        const ended = occasion === 'wait' ? await this.#waitEnded(state) : undefined;
+        if (ended === undefined || now.getTime() - ended < this.#o.verifyWaitMs) {
+          this.#lookAgainAt.set(workItem, now.getTime() + this.#o.verifyEveryMs);
+          this.#o.log.info({ workItem, version: target.version, why: found.why }, 'a look again cannot tell yet');
+          return;
+        }
+        const hours = this.#o.verifyWaitMs / 3_600_000;
+        const said = `the sense could not tell in ${hours} hours: ${found.why}`.slice(0, 200);
+        return this.#rechecked(workItem, { ...base, ...looked, outcome: 'unsure', why: said });
+      }
+    }
+  }
+
+  /** Appends a look again, and lets the work item move on from it. */
+  async #rechecked(workItem: string, payload: PayloadOf<'signal.rechecked'>): Promise<void> {
+    await this.#append(workItem, [
+      {
+        type: 'signal.rechecked',
+        actor: payload.sense && payload.sense !== 'report' ? payload.sense : 'factory',
+        summary: recheckedLine(payload),
+        payload,
+      },
+    ]);
+    this.#lookAgainAt.delete(workItem);
+    await this.#queue.moved(workItem);
+    this.#o.log.info(
+      { workItem, for: payload.for, outcome: payload.outcome, version: payload.version },
+      'looked again at a signal',
+    );
+  }
+
+  /** The work items a release carried, as its start recorded them, but this one. */
+  async #carriedBy(release: string, workItem: string): Promise<string[]> {
+    const rows = await this.#o.sql<{ work_item: string }[]>`
+      select distinct work_item from events
+      where type = 'release.started' and payload->>'release' = ${release} and work_item is not null
+        and work_item <> ${workItem}
+      order by work_item limit 20`;
+    return rows.map((row) => row.work_item);
+  }
+
+  /** When the last of the work items a work item waited on closed, or undefined while one is open. */
+  async #waitEnded(state: WorkItemState): Promise<number | undefined> {
+    const closed = await this.#closedAt(state.waiting?.on ?? []);
+    const times = Object.values(closed).map((c) => (c ? Date.parse(c.closedAt) : Number.NaN));
+    return times.length && times.every((t) => !Number.isNaN(t)) ? Math.max(...times) : undefined;
   }
 
   /**
@@ -1111,7 +1311,22 @@ export class Line {
         const pr = await github.read('pullRequest', repo, { number: state.pullRequest.number });
         const runs = pr.state === 'open' ? await github.read('checkRuns', repo, { sha: pr.head.sha }) : [];
         required ??= await github.read('requiredChecks', repo, { branch: 'main' });
-        const drafts = gateEvents(pr, runs, required, gateRecord(raw));
+        // A clearance that stands on the hold makes a close unmerged a verified one, and its issue closes completed.
+        const cleared = state.hold ? state.cleared : undefined;
+        const drafts = gateEvents(pr, runs, required, gateRecord(raw), cleared);
+        const verified = drafts.some((d) => d.type === 'work-item.closed' && d.payload.outcome === 'verified');
+        if (cleared && verified && item.issue) {
+          await github.act(
+            'closeIssue',
+            repo,
+            {
+              number: item.issue,
+              reason: 'completed',
+              comment: closingComment(undefined, item.workItem, undefined, cleared),
+            },
+            { workItem: item.workItem },
+          );
+        }
         if (drafts.length) await this.#append(item.workItem, drafts);
       } catch (error) {
         log.warn({ workItem: item.workItem, err: error }, 'could not read a pull request’s gates');
@@ -1191,11 +1406,80 @@ export class Line {
     return { raw, last: Number(rows.at(-1)?.seq ?? 0) };
   }
 
-  /** What the line knows of a work item beside its events: its row in the queue, and its spend against the cap. */
-  async #facts(item: QueueItem): Promise<Facts> {
+  /**
+   * What the line knows of a work item beside its events: its row in the queue, its spend against the cap, and for a
+   * held or waiting one, or one at the point after Plan where its spec is checked, what the rest of the line says.
+   */
+  async #facts(item: QueueItem, events: readonly LineEvent[]): Promise<Facts> {
+    const facts: Facts = { ...item };
     const limitUsd = this.#o.workItemLimitUsd;
-    if (limitUsd === null) return item;
-    return { ...item, spend: { spentUsd: await workItemSpend(this.#o.sql, item.workItem), limitUsd } };
+    if (limitUsd !== null) facts.spend = { spentUsd: await workItemSpend(this.#o.sql, item.workItem), limitUsd };
+    const s = fold(events);
+    if (s.closed) return facts;
+    const waits = !s.hold && s.waiting !== undefined && !s.waiting.ended;
+    if ((s.hold && !WORDS_LEAVE_HELD.includes(s.hold.cause)) || waits) {
+      this.#promotion ??= this.#latestPromotion();
+      const promotion = await this.#promotion;
+      if (promotion) {
+        const [started] = await this.#o.sql<{ ts: Date }[]>`
+          select ts from events where work_item = ${item.workItem} and type = ${s.hold ? 'hold.started' : 'wait.started'}
+          order by seq desc limit 1`;
+        const from = Math.max(promotion.at.getTime(), started ? new Date(started.ts).getTime() : 0);
+        const due = this.#o.now().getTime() - from < this.#o.verifyWaitMs;
+        facts.stable = { release: promotion.release, version: promotion.version, due };
+      }
+    }
+    if (waits) facts.waitedOn = await this.#closedAt(s.waiting?.on ?? []);
+    const atCheck = !s.hold && !s.merged && s.spec && !s.waiting && !s.pullRequest && !s.rebuild;
+    if (atCheck && s.spec && this.#o.only === null) facts.overlaps = await this.#overlaps(item.workItem, s.spec.scope);
+    return facts;
+  }
+
+  /** For each work item, when it last closed, or null while it is open, or reopened since. */
+  async #closedAt(workItems: readonly string[]): Promise<Record<string, { closedAt: string } | null>> {
+    const rows = await this.#o.sql<{ work_item: string; type: string; ts: Date }[]>`
+      select distinct on (work_item) work_item, type, ts from events
+      where work_item = any(${workItems as string[]}) and type in ('work-item.closed', 'work-item.reopened')
+      order by work_item, seq desc`;
+    const closed: Record<string, { closedAt: string } | null> = Object.fromEntries(workItems.map((w) => [w, null]));
+    for (const row of rows) {
+      if (row.type === 'work-item.closed') closed[row.work_item] = { closedAt: new Date(row.ts).toISOString() };
+    }
+    return closed;
+  }
+
+  /**
+   * The work items in flight whose latest specs share files with this scope, each with the entries of it they share:
+   * every other on the line that has not ended or closed and has a spec, in any pass, but those that wait on this one,
+   * directly or through others.
+   */
+  async #overlaps(workItem: string, scope: readonly string[]): Promise<{ workItem: string; files: string[] }[]> {
+    this.#flight ??= this.#readFlight();
+    const flight = await this.#flight;
+    const waitsOn = new Map(flight.map((f) => [f.workItem, f.waitsOn]));
+    const reaches = (from: string, seen = new Set<string>()): boolean => {
+      if (from === workItem) return true;
+      if (seen.has(from)) return false;
+      seen.add(from);
+      return (waitsOn.get(from) ?? []).some((next) => reaches(next, seen));
+    };
+    return flight.flatMap((other) => {
+      if (other.workItem === workItem || !other.scope || reaches(other.workItem)) return [];
+      const files = scopesOverlap(scope, other.scope);
+      return files.length ? [{ workItem: other.workItem, files }] : [];
+    });
+  }
+
+  async #readFlight(): Promise<InFlight[]> {
+    const rows = (await this.#queue.all()).filter((row) => row.stage !== 'ended' && !row.waiting);
+    const flight: InFlight[] = [];
+    for (const row of rows) {
+      const s = fold((await this.#events(row.workItem)).events);
+      if (s.closed) continue;
+      const waitsOn = s.waiting && !s.waiting.ended ? s.waiting.on : [];
+      flight.push({ workItem: row.workItem, scope: s.latestScope, waitsOn });
+    }
+    return flight;
   }
 
   async #events(workItem: string): Promise<{ events: LineEvent[]; last: number }> {
@@ -1208,6 +1492,45 @@ export class Line {
     const ts = this.#o.now().toISOString();
     await this.#o.events.append(drafts.map((draft) => asEvent(workItem, draft, ts)));
   }
+}
+
+/** A real release's promotion, as a look reads it: the latest is what the stable Service runs. */
+interface Promotion {
+  release: string;
+  version: string;
+  previous: string;
+  watched: boolean;
+  at: Date;
+  seq: string;
+}
+
+/** A work item in flight, as a spec after Plan is checked against it. */
+interface InFlight {
+  workItem: string;
+  scope: string[] | undefined;
+  waitsOn: string[];
+}
+
+/** Why a work item waits, in a line: "Waits for #1028, whose spec also changes src/example.ts". */
+export function waitReason(on: readonly string[], files: readonly string[]): string {
+  const items = on.map((w) => `#${w}`);
+  const who = items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0];
+  const what = files.length > 2 ? `${files.slice(0, 2).join(', ')} and ${files.length - 2} more` : files.join(' and ');
+  return `Waits for ${who}, whose spec${on.length > 1 ? 's also change' : ' also changes'} ${what}`.slice(0, 300);
+}
+
+/** A look again, in a line, as its event's summary says it. */
+function recheckedLine(r: PayloadOf<'signal.rechecked'>): string {
+  const on = r.version ? ` on ${r.version.slice(0, 7)}` : '';
+  const by = r.sense ? `, by the ${r.sense}` : '';
+  if (r.for === 'wait') {
+    if (r.outcome === 'cleared') return `Its wait over, cleared${on}${by}`;
+    if (r.outcome === 'persists') return `Its wait over, still seen${on}${by}: on to Build`;
+    return `Its wait over, the sense could not tell${on}: on to Build`;
+  }
+  if (r.outcome === 'cleared') return `Cleared${on} on a release that did not carry its fix${by}`;
+  if (r.outcome === 'persists') return `Still seen${on}${by}`;
+  return `The sense could not tell${on}`;
 }
 
 /** The inbox id of a signal the line leaves for a work item: the same key always gives the same id. */
