@@ -540,7 +540,7 @@ describe('a step’s logs', () => {
     }
   });
 
-  it('serves a work item’s kept logs as text on the step API, and none when it keeps none', async () => {
+  it('serves a work item’s kept logs as text on the step API, and 404 when it kept none', async () => {
     const logs = kept();
     const { runners, handbackUrl, close } = await line(
       (env) => handBack(handbackUrl, env.ANTHROPIC_API_KEY ?? '', DONE).then(() => {}),
@@ -568,7 +568,11 @@ describe('a step’s logs', () => {
     expect(lines[1]).toBe('{"msg":"installed the dependencies"}');
     expect(lines[2]).toMatch(/^== coder-1026-1-1 agent /);
     expect(lines.slice(3)).toEqual(['{"msg":"cut mid-line"', '']);
-    expect((await serve(true, '/v1/work-items/9999/logs')).text).toBe("No runner's log is kept for 9999.\n");
+    expect(await serve(true, '/v1/work-items/9999/logs')).toMatchObject({
+      status: 404,
+      type: 'application/json',
+      text: JSON.stringify({ error: "No runner's log is kept for 9999." }),
+    });
     expect((await serve(false, '/v1/work-items/1026/logs')).status).toBe(404);
   });
 
