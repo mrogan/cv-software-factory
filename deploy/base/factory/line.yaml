@@ -8,9 +8,11 @@
 # (deploy/base/runners/line-access.yaml) and read the app's Rollout and its AnalysisRuns, and list its pods, in
 # `website` (deploy/base/analysis/line-reads-release.yaml), and nothing else, and takes the agent pods' handbacks on
 # :8081. Its step API on :8080 is reached only through a person's port-forward. Before it deletes a step's Jobs, it
-# keeps each pod's log in the artifact store, which it mounts with the other workers that write there.
+# keeps each pod's log in the artifact store, which it mounts with the other workers that write there. The step API
+# serves a work item's logs, read from the line's own process (a second Node process in this pod would pass its memory
+# limit and restart the line):
 #
-#   kubectl -n factory exec deploy/line -- /nodejs/bin/node src/cli.ts line logs <work item>
+#   kubectl -n factory port-forward svc/line 8092:8080 & curl localhost:8092/v1/work-items/<id>/logs
 apiVersion: v1
 kind: ServiceAccount
 metadata:

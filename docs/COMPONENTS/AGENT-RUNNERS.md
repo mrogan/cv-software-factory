@@ -76,7 +76,8 @@ The line deletes a step's Jobs as the step ends, so it reads their pods' logs fi
 - **What:** each pod's last 2,000 lines, from the Kubernetes API, once the agent pod has ended after its handback (or two seconds on). The runner keeps its lines short, so those lines hold how the step ended.
 - **Where:** the text goes in the artifact store, and its index in Postgres (`step_logs`): the job, the work item, the agent, the pod, and how the step ended (handed back, failed with its reason, stopped with the line, or errored in the line).
 - **When:** however the step ended, and before the line stops a step's agent. The Jobs wait no more than ten seconds for it, so stopping the line still stops every agent. A log that cannot be read, such as a pod that never started, is warned of, and the Jobs are deleted all the same.
-- **Who sees them:** no event names a log, so the console serves none. `factory line logs <work item>` prints a work item's, in the line's pod, which mounts the store.
+- **Who sees them:** no event names a log, so the console serves none. The line's step API serves a work item's as plain text, step by step, at `GET /v1/work-items/<id>/logs`, to a person's port-forward (`kubectl -n factory port-forward svc/line 8092:8080`): it listens on loopback only, and reading there starts no second process in the line's pod.
+- **If the store cannot take them** (before migration 0017 has run, or with no volume at `ARTIFACTS_DIR`), the line warns and the step goes on as ever. Without `ARTIFACTS_DIR` it keeps none, and says so when it starts.
 
 ## Trying a runner
 

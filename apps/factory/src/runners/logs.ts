@@ -5,7 +5,10 @@
  * record of why a step failed that outlives its pods.
  *
  * No event names a log, so the console serves none: what a pod printed is the runner's own words, not a public view.
- * `factory line logs <work item>` prints a work item's, in the line's pod, which mounts the artifact store.
+ * The line's step API serves a work item's (`GET /v1/work-items/<id>/logs`, `serve.ts`), to a person's port-forward.
+ *
+ * Keeping a log is never the step's to fail: a store that cannot take it (no table yet, before its migration has run,
+ * or no volume) makes `keep` throw, and the line warns and goes on (`Runners`).
  */
 import type { Readable } from 'node:stream';
 import type { ArtifactStore } from '@software-factory/store';
@@ -85,5 +88,29 @@ export class StepLogs {
   /** A kept log's text, or null if the artifact store has lost it. */
   open(hash: string): Promise<Readable | null> {
     return this.#artifacts.open(hash);
+  }
+
+  /**
+   * Writes a work item's kept logs (`of`) as text, step by step, each under a heading that names its job, pod and
+   * ending. A log cut mid-line still ends before the next heading.
+   */
+  async print(workItem: string, found: KeptLog[], write: (chunk: string | Uint8Array) => void): Promise<void> {
+    if (!found.length) write(`No runner's log is kept for ${workItem}.\n`);
+    for (const each of found) {
+      const ended = each.reason ? `${each.ending}: ${each.reason}` : each.ending;
+      write(`== ${each.job} ${each.part} (${each.pod}), ${ended}, ${each.keptAt.toISOString()}\n`);
+      const stream = await this.open(each.hash);
+      if (!stream) {
+        write(`(the artifact store has no ${each.hash})\n`);
+        continue;
+      }
+      let last = 10;
+      for await (const chunk of stream) {
+        const bytes = chunk as Buffer;
+        if (bytes.length) last = bytes[bytes.length - 1] ?? 10;
+        write(bytes);
+      }
+      if (last !== 10) write('\n');
+    }
   }
 }

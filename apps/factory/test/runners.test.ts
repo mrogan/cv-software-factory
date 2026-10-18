@@ -13,6 +13,7 @@ import { agentJob, prepareJob } from '../src/runners/jobs.ts';
 import type { Kube } from '../src/runners/kube.ts';
 import { StepLogs } from '../src/runners/logs.ts';
 import { fence, ownedPaths } from '../src/runners/scope.ts';
+import { lineServers } from '../src/runners/serve.ts';
 import { RESULT_BYTES, Runners } from '../src/runners/steps.ts';
 import { quiet } from './github/fake.ts';
 
@@ -513,6 +514,62 @@ describe('a step’s logs', () => {
     expect(outcome).toMatchObject({ kind: 'failed' });
     expect((await read(logs, '1023')).map(({ part }) => part)).toEqual(['prepare']);
     expect(calls).toContain('DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1023-1-1-agent');
+  });
+
+  it('goes on as ever when the store cannot keep a log: no table yet, or no volume', async () => {
+    // Before migration 0017 has run, as when the factory's image is pinned before the console's, which migrates.
+    const noTable = new StepLogs(database.writer, new DiskArtifacts(mkdtempSync(join(tmpdir(), 'step-logs-'))));
+    noTable.keep = () => Promise.reject(new Error('relation "step_logs" does not exist'));
+    // ARTIFACTS_DIR set, but no volume mounted there: the read-only root refuses the folder.
+    const noVolume = new StepLogs(database.writer, new DiskArtifacts('/nonexistent/artifacts'));
+    for (const [i, logs] of [noTable, noVolume].entries()) {
+      const workItem = `${1030 + i}`;
+      const warned: Record<string, unknown>[] = [];
+      const log = pino({ level: 'warn' }, { write: (line: string) => void warned.push(JSON.parse(line)) });
+      const { runners, calls, handbackUrl, close } = await line(
+        (env) => handBack(handbackUrl, env.ANTHROPIC_API_KEY ?? '', DONE).then(() => {}),
+        undefined,
+        log,
+        { logs, podLogs: { prepare: PREPARED, agent: WORKED } },
+      );
+      const outcome = await runners.run({ ...STEP, workItem, round: 1, deadlineSeconds: 60 });
+      await close();
+      expect(outcome).toEqual({ kind: 'handed-back', job: `coder-${workItem}-1-1`, handback: DONE });
+      expect(calls).toContain(`DELETE /apis/batch/v1/namespaces/runners/jobs/coder-${workItem}-1-1-agent`);
+      expect(warned.filter((w) => w.msg === 'could not keep a pod’s log')).toHaveLength(2);
+    }
+  });
+
+  it('serves a work item’s kept logs as text on the step API, and none when it keeps none', async () => {
+    const logs = kept();
+    const { runners, handbackUrl, close } = await line(
+      (env) => handBack(handbackUrl, env.ANTHROPIC_API_KEY ?? '', DONE).then(() => {}),
+      undefined,
+      quiet,
+      { logs, podLogs: { prepare: PREPARED, agent: '{"msg":"cut mid-line"' } },
+    );
+    await runners.run({ ...STEP, workItem: '1026', round: 1, deadlineSeconds: 60 });
+    await close();
+    const github = {} as Parameters<typeof lineServers>[0]['github'];
+    const serve = async (withLogs: boolean, path: string) => {
+      const { api } = lineServers({ runners, github, log: quiet, ...(withLogs ? { logs } : {}) });
+      await new Promise<void>((resolve) => api.listen(0, '127.0.0.1', resolve));
+      try {
+        const answer = await fetch(`http://127.0.0.1:${(api.address() as AddressInfo).port}${path}`);
+        return { status: answer.status, type: answer.headers.get('content-type'), text: await answer.text() };
+      } finally {
+        await new Promise((resolve) => api.close(resolve));
+      }
+    };
+    const served = await serve(true, '/v1/work-items/1026/logs');
+    expect(served).toMatchObject({ status: 200, type: 'text/plain; charset=utf-8' });
+    const lines = served.text.split('\n');
+    expect(lines[0]).toMatch(/^== coder-1026-1-1 prepare \(coder-1026-1-1-prepare-x7k2p\), handed-back, \d{4}-/);
+    expect(lines[1]).toBe('{"msg":"installed the dependencies"}');
+    expect(lines[2]).toMatch(/^== coder-1026-1-1 agent /);
+    expect(lines.slice(3)).toEqual(['{"msg":"cut mid-line"', '']);
+    expect((await serve(true, '/v1/work-items/9999/logs')).text).toBe("No runner's log is kept for 9999.\n");
+    expect((await serve(false, '/v1/work-items/1026/logs')).status).toBe(404);
   });
 
   it('stops a step’s agent even when its log never comes', async () => {
