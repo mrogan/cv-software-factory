@@ -91,6 +91,8 @@ export interface PageComparison {
   screenshot: Screenshot | undefined;
   changed: number;
   intended: boolean;
+  /** Another work item the release carried, whose own page this is: the change is its fix's. */
+  intendedFor: string | undefined;
 }
 
 /** What Verify found after a release: the sense that saw the problem, asked again. */
@@ -106,7 +108,10 @@ export interface Verified {
   /** The line's words on what it found: why it closed, sent the work back, or held it. */
   words: string;
   dryRun: boolean;
-  /** Up to four pages, the intended first, then any that changed, then the same; marked only by a sense that looks at pages. */
+  /**
+   * Up to four pages, the intended first, then any that changed or another work item the release carried intended,
+   * then the same; marked only by a sense that looks at pages.
+   */
   pages: PageComparison[];
   /** Whether the sense looks at a page, so that its check can be marked on one. */
   marked: boolean;
@@ -810,7 +815,7 @@ function verified(
   const p = event.payload;
   const next = afterVerify(item, event);
   const marked = !PAGELESS.has(p.sense);
-  const order = (page: PageComparison) => (page.intended ? 0 : page.changed > 0 ? 1 : 2);
+  const order = (page: PageComparison) => (page.intended ? 0 : page.intendedFor || page.changed > 0 ? 1 : 2);
   const pages = p.pages
     .map((page): PageComparison => {
       const shot = shots.get(page.screenshot);
@@ -819,6 +824,7 @@ function verified(
         screenshot: shot && !marked ? { ...shot, boxes: [] } : shot,
         changed: page.changed,
         intended: page.intended,
+        intendedFor: page.intendedFor,
       };
     })
     .sort((a, b) => order(a) - order(b));

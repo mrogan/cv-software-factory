@@ -308,6 +308,16 @@ describe('a sheet', () => {
     expect(verification?.pages[0]).toMatchObject({ page: 'Products', intended: true });
     expect(verification?.pages.find((p) => p.page === 'Contact')).toMatchObject({ changed: 0, intended: false });
   });
+
+  it('names the other work item the release carried on a page that is its own, before the pages the same', () => {
+    const shared = projectSheet(SAMPLES, '1306', END)?.shipped.find((s) => s.release.version === 'v0.9.8');
+    expect(shared?.verification?.pages.map((p) => [p.page, p.intended, p.intendedFor])).toEqual([
+      ['Contact', false, '1304'],
+      ['Home', false, undefined],
+      ['Products', false, undefined],
+      ['Search', false, undefined],
+    ]);
+  });
 });
 
 describe('replay', () => {

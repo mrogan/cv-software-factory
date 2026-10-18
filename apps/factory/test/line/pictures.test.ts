@@ -50,6 +50,21 @@ describe('the pages a verification names', () => {
     expect(everywhere.pages.map((p) => p.intended)).toEqual([false, false, false]);
   });
 
+  it('names the other work item the release carried on its own page, the ticket’s own named by none', () => {
+    const pages = [picture('/', '/', 0, 1), picture('/about', '/about', 0.2, 2), picture('/cart', '/cart', 0.1, 3)];
+    const shown = pagesFor(pages, { path: '/', route: '/' }, [
+      { workItem: '1073', own: { route: '/about' } },
+      { workItem: '1074', own: { path: '/about', route: '/about' } },
+      { workItem: '1075', own: { route: '/' } },
+    ]);
+    expect(shown.pages.map((p) => [p.page, p.intended, p.intendedFor])).toEqual([
+      ['/', true, undefined],
+      ['/about', false, '1073'],
+      ['/cart', false, undefined],
+    ]);
+    expect(shown.pages[2]).not.toHaveProperty('intendedFor');
+  });
+
   describe('the boxes on their screenshots', () => {
     /** A page boxed by two checks: the price's heading, and the cards another finding was about. */
     const boxed = (n: number): Shot => ({

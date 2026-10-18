@@ -112,7 +112,7 @@ import {
   type WorkItemState,
 } from './machine.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
-import { pagesFor } from './pictures.ts';
+import { type Own, pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem } from './queue.ts';
 import { carried, Releases, type ReleaseWatchOptions } from './release.ts';
 import {
@@ -859,7 +859,7 @@ export class Line {
       }
     }
     // Read only when something is appended: a look that cannot tell yet comes round every few minutes.
-    const shown = () => this.#pictures(promoted, first);
+    const shown = () => this.#pictures(workItem, promoted, first);
     switch (found.kind) {
       case 'wait': {
         const hours = this.#o.verifyWaitMs / 3_600_000;
@@ -1076,19 +1076,30 @@ export class Line {
 
   /**
    * The pages pictured while the release that carried the fix ran as a canary beside the version before, with the
-   * ticket's own marked (`pictures.ts`). A dry run's release never ran, and has none.
+   * ticket's own marked, and each other work item's the release carried named (`pictures.ts`). A dry run's release
+   * never ran, and has none.
    */
-  async #pictures(promoted: PayloadOf<'release.promoted'>, first: FirstSignal | undefined) {
+  async #pictures(workItem: string, promoted: PayloadOf<'release.promoted'>, first: FirstSignal | undefined) {
     const { pictures } = this.#o;
     if (!pictures || promoted.dryRun) return { pages: [], artifacts: [] };
+    // The ticket's own page: where its sense last boxed its check, with the elements it boxed, and its route.
+    const ownOf = async (signal: FirstSignal | undefined): Promise<Own> => {
+      const look = signal && (await pictures.lookOf(signal.sense, signal.check, signal.route));
+      return {
+        route: signal?.route ?? '*',
+        ...(look && { path: look.path, selectors: look.elements.map((e) => e.selector) }),
+      };
+    };
     try {
       const taken = await pictures.of(promoted.version, promoted.previous);
       if (!taken.length) return { pages: [], artifacts: [] };
-      const look = first && (await pictures.lookOf(first.sense, first.check, first.route));
-      const shown = pagesFor(taken, {
-        route: first?.route ?? '*',
-        ...(look && { path: look.path, selectors: look.elements.map((e) => e.selector) }),
-      });
+      const others = await Promise.all(
+        (await this.#carriedBy(promoted.release, workItem)).map(async (other) => ({
+          workItem: other,
+          own: await ownOf(await this.#firstSignal(other)),
+        })),
+      );
+      const shown = pagesFor(taken, await ownOf(first), others);
       if (first && !shown.pages.some((p) => p.intended)) {
         this.#o.log.info({ release: promoted.release, route: first.route }, 'no page pictured is the ticket’s own');
       }
