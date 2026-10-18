@@ -214,6 +214,72 @@ describe('a station’s figure', () => {
   });
 });
 
+describe('a promoted release', () => {
+  const RELEASE = '7c9d5f8b6d';
+  /** Merged at minute 1, released at 2, promoted at 4: the line moves it to Verify then, and a sense looks later. */
+  const promoted = () =>
+    work('1')
+      .open()
+      .add(1, 'pull-request.merged', 'factory', { number: 7, commit: 'c'.repeat(40), by: 'martin' })
+      .add(2, 'release.started', 'rollouts', {
+        release: RELEASE,
+        version: 'v1.0.1',
+        previous: 'v1.0.0',
+        image: { digest: `sha256:${'b'.repeat(64)}`, signed: true, admitted: true },
+        watched: true,
+        steps: null,
+        dryRun: false,
+      })
+      .add(4, 'release.promoted', 'rollouts', {
+        release: RELEASE,
+        version: 'v1.0.1',
+        previous: 'v1.0.0',
+        watched: true,
+        dryRun: false,
+      });
+  const stationAt = (events: PublicEvent[], t: number, stage: 'release' | 'verify') =>
+    project(events, t).stations.find((s) => s.stage === stage);
+
+  // A sense can take a while to look: the log watcher waits out a window of half an hour.
+  it('puts the work it carries at Verify while the sense looks, and Release has nothing in hand', () => {
+    const item = promoted();
+    const t = item.at(4) + PASSING_MS + 60_000;
+    const view = project(item.events, t);
+    expect(view.canary.state).toBe('idle');
+    expect(stationAt(item.events, t, 'release')).toMatchObject({ status: 'idle', figure: '1 today' });
+    expect(view.panels.release.rows).toMatchObject([{ item: '1', note: 'passed on to verify', state: 'passed' }]);
+    expect(stationAt(item.events, t, 'verify')).toMatchObject({ status: 'working', figure: '1 check' });
+    expect(view.panels.verify.rows).toMatchObject([{ item: '1', note: 'Promoted · verifying', state: 'in-hand' }]);
+  });
+
+  it('leaves the work at Release while the canary is in flight, and at Verify once a sense has looked', () => {
+    const item = promoted();
+    expect(project(item.events, item.at(3)).panels.release.rows).toMatchObject([{ item: '1', state: 'in-hand' }]);
+    item.add(40, 'verification.finished', 'factory', {
+      outcome: 'cleared',
+      sense: 'logs',
+      check: 'server-error on /',
+      version: 'v1.0.1',
+      against: 'v1.0.0',
+      pages: [],
+      dryRun: false,
+    });
+    expect(project(item.events, item.at(41)).panels.verify.rows).toMatchObject([
+      { item: '1', note: 'verification.finished', state: 'in-hand' },
+    ]);
+  });
+
+  it.each([
+    ['a dry run’s', { dryRun: true, watched: true }, 'Promoted in a dry run · verifying'],
+    ['a release found live', { dryRun: false, watched: false }, 'Found live · verifying'],
+  ])('says so at Verify for %s', (_, flags, note) => {
+    const item = promoted();
+    const last = item.events.at(-1) as PublicEvent<'release.promoted'>;
+    last.payload = { ...last.payload, ...flags };
+    expect(project(item.events, item.at(5)).panels.verify.rows).toMatchObject([{ item: '1', note }]);
+  });
+});
+
 describe('a return', () => {
   const PUSHED = {
     number: 7,

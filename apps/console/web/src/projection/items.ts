@@ -165,11 +165,13 @@ export function stageOf(event: PublicEvent): Stage | null {
       return 'release';
     case 'release.started':
     case 'canary.stepped':
-    case 'release.promoted':
     case 'release.rolled-back':
     case 'release.errored':
     case 'release.aborted':
       return 'release';
+    // The line moves the work a release carries to Verify as it promotes, and records nothing more until a sense has
+    // looked, which can take the log watcher half an hour.
+    case 'release.promoted':
     case 'verification.finished':
       return 'verify';
     // A verified ticket whose defect came back goes back to Plan, for a fresh pass.
@@ -294,6 +296,12 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
   };
   /** The latest release to carry the item. */
   let release: string | undefined;
+  /**
+   * The gates of the latest push: the commit they started on, and whether they passed there. Once they have, a run
+   * on a newer commit of the same push (GitHub bringing the branch up to date with main) does not take the work item
+   * back to Gates, as the line does not: it stays where it waits, for the review or the merge.
+   */
+  const gates: { commit: string | undefined; passed: boolean } = { commit: undefined, passed: false };
   for (const event of events) {
     const time = at(event);
     state.lastAt = time;
@@ -309,7 +317,15 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         event.type === 'release.aborted') &&
       event.payload.release !== release;
     if (stale) continue;
-    const stage = joining ? null : stageOf(event);
+    const rerun =
+      gates.passed &&
+      (event.type === 'gates.started' || event.type === 'gate.finished' || event.type === 'gates.finished');
+    if (event.type === 'pull-request.pushed') Object.assign(gates, { commit: undefined, passed: false });
+    if (event.type === 'gates.started' && !gates.passed) gates.commit = event.payload.commit;
+    if (event.type === 'gates.finished' && event.payload.commit === gates.commit) {
+      gates.passed = event.payload.conclusion === 'passed';
+    }
+    const stage = joining || rerun ? null : stageOf(event);
     if (stage) {
       if (stage !== state.stage) state.sentBack = undefined;
       enter(stage, time);
