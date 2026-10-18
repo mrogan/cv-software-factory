@@ -40,6 +40,13 @@ tempo:
       max_result_limit: 1000
     metrics:
       max_duration: 24h
+  # The backend worker asks the scheduler for compaction and retention jobs, waits 15 seconds for one, and logs each
+  # empty answer as a warning and again as an error, backing off between asks. Backing off up to five minutes, not
+  # Tempo's one, takes an idle hour's asks from about 80 to about 15; a job waits up to that much longer to start,
+  # which compaction and a 72-hour retention bear. After a job the worker asks again at once.
+  backendWorker:
+    backoff:
+      max_period: 5m
 persistence:
   enabled: true
   size: 4Gi
