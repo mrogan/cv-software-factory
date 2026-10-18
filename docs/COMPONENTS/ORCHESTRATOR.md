@@ -50,6 +50,7 @@ Each stage can also hold for Martin (see [Holds](#holds-and-martins-answers)).
 
 - It takes the oldest open ticket of the highest severity into Plan when nothing is in Plan or waiting for Build. A work item that waits for overlapping work (below) is at a stage of its own, `waiting`, so the line still takes the next ticket.
 - It runs one step at a time in each of Plan, Build and Review.
+- It runs one step at a time on the local model, whatever its stage, since LM Studio answers one prediction at a time. A step whose agent `policy/models.ts` sends there (every agent, under `ALL_LOCAL`) waits while another such step runs, and the line tries again on its next pass. A step on Claude never waits for one on the local model, so a mixed profile keeps its pace.
 - As a ticket enters Plan, it opens the ticket's issue through the App, from the ticket's public view. The fix's pull request refers to that issue.
 - After Martin's merge, it carries the work item through Release and Verify until it closes.
 
@@ -122,9 +123,9 @@ flowchart TD
 
 ## Build, gates and review
 
-- **The pull request.** The coder's first push opens the fix's pull request as a draft, with the ticket's issue and the spec. It is readied only once the [describer](DESCRIBER.md) has written its description.
+- **The pull request.** The coder's first push opens the fix's pull request as a draft, with the ticket's issue and the spec. It is readied only once the [describer](DESCRIBER.md) has written its description. Work sent back to Build after that (a gate that fails on a newer commit, or Martin's words on the hold for his merge) puts it back to draft first, so GitHub will not merge a round nobody has reviewed, and the describer writes up the next round again before Martin is asked.
 - **Each push** records its own files and the pull request's whole change, as GitHub compares its head with main.
-- **Reading GitHub.** Once a minute the line reads its pull requests' check runs and merges through the GitHub worker, and appends `gates.started`, `gate.finished`, `gates.finished` and `pull-request.merged`. It leaves out the factory's own check runs.
+- **Reading GitHub.** Once a minute the line reads its pull requests' check runs and merges through the GitHub worker, and appends `gates.started`, `gate.finished`, `gates.finished` and `pull-request.merged`. It leaves out the factory's own check runs. A merge comes after what the gates on the pull request's head did since the last read, so a merge soon after they pass still finishes their round; at a merge, the round ends with it, judged on the checks that have finished. Once gates have passed on a push, a run on a newer commit of it (GitHub bringing the branch up to date with main) leaves the work item where it waits while it runs, and replaces them when it ends: if it passes, nothing moves; if it fails, the work goes back to the coder as a failure on the push's first run would, and a wait for Martin's merge, which GitHub would refuse, ends.
 - **Failing gates** send the work back to the coder twice.
 - **A review's blocking findings** go back to the coder's session, with its suggestions, and a fresh reviewer is told them in the next round. What still blocks after two reviews holds, as does a review the reviewer escalates.
 - **An approval's suggestions** go back to the coder once in a pass, before the describer writes the change up, so that every review thread is answered before Martin's merge. The coder takes each or declines it with a reason (`suggestions.answered`). If it takes any, the gates and a fresh reviewer run again, and that review goes on whatever it suggests: suggestions alone never send the work round twice. It counts toward the two reviews like any other, and is at least the second, so if it blocks it holds for Martin. If it declines them all, it changes nothing and the approval stands. Martin's approval of a held review sends the change on with no such round.
