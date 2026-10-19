@@ -78,6 +78,7 @@ import type { Kube } from '../runners/kube.ts';
 import { ATTRIBUTES as A, inSpan } from '../spans.ts';
 import { asEvent, type Draft } from './gates.ts';
 import { fold, type LineEvent } from './machine.ts';
+import { type Counted, countReleaseEnd, type Ending, endingsIn } from './metrics.ts';
 import type { GitHubPort } from './worker.ts';
 
 /** Where the line reads the app's releases. */
@@ -440,6 +441,27 @@ export class Releases {
     return this.#write(drafts, items, release);
   }
 
+  /**
+   * The releases' ends among events about to be appended that the store has not recorded yet, on any work item or the
+   * line: a release carried by a work item recorded on a later pass than the rest ended once, and is counted once.
+   */
+  async #newEndings(events: readonly Counted[]): Promise<Ending[]> {
+    const endings = endingsIn(events);
+    if (!endings.length) return [];
+    const sql = this.#o.sql;
+    // Only the count depends on it: a read that fails counts each end as new, and records the release all the same.
+    const recorded = await sql<{ type: string; release: string }[]>`
+      select distinct type, payload->>'release' as release from events
+      where type in ${sql(endings.map((e) => e.type))} and payload->>'release' in ${sql(endings.map((e) => e.release))}`.catch(
+      (error: unknown) => {
+        this.#o.log.warn({ err: error }, 'could not read which release ends are recorded: counting them all');
+        return [];
+      },
+    );
+    const seen = new Set(recorded.map((row) => `${row.type} ${row.release}`));
+    return endings.filter((e) => !seen.has(`${e.type} ${e.release}`));
+  }
+
   async #write(drafts: Map<Target, Draft[]>, items: string[], release?: string): Promise<void> {
     trace.getActiveSpan()?.setAttribute(
       A.workItems,
@@ -447,7 +469,9 @@ export class Releases {
     );
     const ts = this.#o.now().toISOString();
     const events = [...drafts].flatMap(([target, list]) => list.map((draft) => asEvent(target, draft, ts)));
+    const endings = await this.#newEndings(events);
     await this.#o.events.append(events);
+    for (const ending of endings) countReleaseEnd(ending);
     this.#o.log.info(
       {
         release,

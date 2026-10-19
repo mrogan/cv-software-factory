@@ -1,0 +1,413 @@
+/**
+ * The line's metrics as an OpenTelemetry SDK collects them: a meter provider installed for this file before the line's
+ * modules are loaded, as `telemetry.ts` is before a worker's, and read as each test goes. Vitest gives each file its
+ * own globals, and the counters add up across this file's tests, so each test reads what it changed.
+ */
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { metrics as api } from '@opentelemetry/api';
+import { metrics } from '@opentelemetry/sdk-node';
+import { type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
+import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
+import type { Handback } from '../../../runner/src/step.ts';
+import type { LineOptions } from '../../src/line/worker.ts';
+import { quiet } from '../github/fake.ts';
+import { type Agent, FakeGitHub, FakeProbes, FakeSteps } from './fakes.ts';
+
+const reader = new metrics.PeriodicExportingMetricReader({
+  exporter: new metrics.InMemoryMetricExporter(metrics.AggregationTemporality.CUMULATIVE),
+  exportIntervalMillis: 3_600_000,
+});
+const meterProvider = new metrics.MeterProvider({ readers: [reader] });
+api.setGlobalMeterProvider(meterProvider);
+// Only now: each module takes its meter as it loads.
+const { Line } = await import('../../src/line/worker.ts');
+const { endingsIn, observeStages, OPEN_STAGES } = await import('../../src/line/metrics.ts');
+
+afterAll(async () => {
+  await meterProvider.shutdown();
+  api.disable();
+});
+
+let database: Database;
+let events: EventWriter;
+beforeEach(async () => {
+  database = await freshDatabase('line_metrics');
+  events = new EventWriter(database.writer, {
+    kind: 'real',
+    artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
+  });
+});
+afterEach(() => database?.end());
+
+interface Point {
+  attributes: Record<string, unknown>;
+  value: number;
+  count?: number;
+}
+
+/** Every point of the metric named, as the reader collects it now: a histogram's with its count. */
+async function points(name: string): Promise<Point[]> {
+  const { resourceMetrics } = await reader.collect();
+  const metric = resourceMetrics.scopeMetrics.flatMap((scope) => scope.metrics).find((m) => m.descriptor.name === name);
+  return (metric?.dataPoints ?? []).map((p) =>
+    typeof p.value === 'number'
+      ? { attributes: p.attributes, value: p.value }
+      : {
+          attributes: p.attributes,
+          value: (p.value as { sum: number }).sum,
+          count: (p.value as { count: number }).count,
+        },
+  );
+}
+
+/** The value at a series, matched on the attributes given, summed across any others: a histogram's count. */
+const at = (all: Point[], attributes: Record<string, unknown>) =>
+  all
+    .filter((p) => Object.entries(attributes).every(([k, v]) => p.attributes[k] === v))
+    .reduce((sum, p) => sum + (p.count ?? p.value), 0);
+
+/** What a metric reads at each of the series given, now. */
+async function read(name: string, ...series: Record<string, unknown>[]): Promise<number[]> {
+  const all = await points(name);
+  return series.map((attributes) => at(all, attributes));
+}
+
+let now = Date.parse('2026-10-06T09:00:00Z');
+
+const event = <K extends NewEvent['type']>(
+  workItem: string | null,
+  type: K,
+  payload: PayloadOf<K>,
+  actor: NewEvent['actor'] = 'factory',
+): NewEvent =>
+  ({
+    id: crypto.randomUUID(),
+    ts: new Date(now).toISOString(),
+    work_item: workItem,
+    type,
+    version: VERSIONS[type],
+    actor,
+    summary: `${type} for the test`,
+    payload,
+    artifacts: [],
+  }) as NewEvent;
+
+/** A ticket as triage opens one, with the probe's signal it was opened on. */
+async function ticket(): Promise<string> {
+  const workItem = await nextWorkItem(database.writer);
+  await events.append([
+    event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'Server errors', sample: false }, 'triage'),
+    event(
+      workItem,
+      'ticket.opened',
+      {
+        title: 'Server errors on /search',
+        category: 'errors',
+        severity: 'broken',
+        fingerprint: { route: '/search', class: 'server-error' },
+        traces: [],
+      },
+      'triage',
+    ),
+    event(
+      workItem,
+      'signal.received',
+      { sense: 'probe', check: 'search', route: '/search', version: 'v0.9.3' },
+      'probe',
+    ),
+  ]);
+  return workItem;
+}
+
+const handback = (result: unknown, patch = ''): Handback => ({
+  ending: 'finished',
+  patch,
+  note: 'Escaped the query before it reaches the database.',
+  turns: 6,
+  session: 'session-1',
+  result,
+});
+
+const PATCH = `diff --git a/src/search.ts b/src/search.ts
+--- a/src/search.ts
++++ b/src/search.ts
+@@ -1 +1 @@
+-old
++new
+diff --git a/test/search.test.ts b/test/search.test.ts
+new file mode 100644
+--- /dev/null
++++ b/test/search.test.ts
+@@ -0,0 +1,2 @@
++it('finds a quote', () => {});
++expect(1).toBe(1);
+`;
+
+const SPEC = {
+  outcome: 'Search answers a query with a quote in it.',
+  criteria: [
+    {
+      given: 'a query with a quote',
+      when: 'it is searched',
+      expect: 'the page lists matches',
+      from: 'the ticket',
+      quote: 'Server errors',
+    },
+  ],
+  scope: ['src/search.ts', 'test/'],
+  risks: [],
+  rollout: 'Ships as it is.',
+};
+
+const AGENTS: Record<string, Agent> = {
+  planner: () => handback({ verdict: 'spec', spec: SPEC }),
+  coder: () =>
+    handback(
+      {
+        title: 'fix(search): escape the query',
+        note: 'Search passed the query to the database as it was. A test searches for a quote; it is escaped now.',
+      },
+      PATCH,
+    ),
+  reviewer: () => handback({ verdict: 'approved', note: 'It does what the spec says.', findings: [] }),
+  describer: () =>
+    handback({
+      title: 'fix(search): escape the query',
+      body: 'Search escaped nothing, so a quote broke the query.',
+      summary: { title: 'Search with a quote', description: 'Fixed.', story: 'The factory fixed search.' },
+    }),
+};
+
+function line(agents: Partial<Record<string, Agent>> = AGENTS, options: Partial<LineOptions> = {}) {
+  const steps = new FakeSteps(database.writer, agents);
+  const github = new FakeGitHub();
+  const it = new Line({
+    sql: database.writer,
+    events,
+    steps,
+    github,
+    log: quiet,
+    gatesEveryMs: 0,
+    releaseEveryMs: 0,
+    me: 'test',
+    now: () => new Date(now),
+    ...options,
+  });
+  const pass = async () => {
+    await it.tick();
+    await it.idle();
+  };
+  return { line: it, github, pass };
+}
+
+/** Moves the line's rows' clock back, as though each had been where it is for `seconds` longer. */
+const age = (seconds: number) =>
+  database.writer`update line set moved_at = moved_at - make_interval(secs => ${seconds})`;
+
+/** Every attribute any of the line's series carries. */
+async function labels(): Promise<string[]> {
+  const { resourceMetrics } = await reader.collect();
+  const line = resourceMetrics.scopeMetrics.filter((scope) => scope.scope.name === 'factory-line');
+  return [
+    ...new Set(line.flatMap((s) => s.metrics.flatMap((m) => m.dataPoints.flatMap((p) => Object.keys(p.attributes))))),
+  ].sort();
+}
+
+describe('the line’s metrics', () => {
+  it('count each step by agent and how it ended, each hold by cause, each verification, and the time at each stage', async () => {
+    const workItem = await ticket();
+    const probes = new FakeProbes({ outcome: 'cleared', version: 'v0.9.4', runs: ['passed', 'passed'] });
+    const { pass, github } = line(AGENTS, { verify: { probes } });
+    // The provider the step's calls went to, as its `model.called` says: the fake runners' calls are local.
+    const done = (agent: string) => ({ agent, provider: 'local', outcome: 'done' });
+    const before = await read('line.steps', ...['planner', 'coder', 'reviewer', 'describer'].map(done));
+
+    await pass(); // the issue, and the planner
+    await age(120); // in Build, before the coder
+    await pass(); // the coder
+    github.pass();
+    await pass(); // the gates pass, and the reviewer
+    await pass(); // the describer
+    await pass(); // the hold for Martin's merge
+    github.merge();
+    await pass(); // the merge, and the hold at Release for a deploy to carry it
+    const release = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: false };
+    const image = { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true };
+    await events.append(event(workItem, 'release.started', { ...release, image, steps: null }, 'rollouts'));
+    await pass();
+    await events.append(event(workItem, 'release.promoted', release, 'rollouts'));
+    await pass(); // the probe looks again, and it has cleared
+    await pass(); // it closes as verified
+
+    const after = await read('line.steps', ...['planner', 'coder', 'reviewer', 'describer'].map(done));
+    expect(after.map((n, i) => n - (before[i] ?? 0))).toEqual([1, 1, 1, 1]);
+    expect(
+      await read('line.holds', { cause: 'merge', stage: 'review' }, { cause: 'deploy', stage: 'release' }),
+    ).toEqual([1, 1]);
+    expect(await read('line.verifications', { sense: 'probe', outcome: 'cleared', dry_run: false })).toEqual([1]);
+    // Each stage it left, once, Build after the two minutes it was made to wait there; never its end. Held for the
+    // merge and then for a deploy is one stay at `held`, as the store has it.
+    const stages = await points('line.stage.duration');
+    expect(
+      ['plan', 'build', 'gates', 'review', 'held', 'release', 'verify'].map((stage) => at(stages, { stage })),
+    ).toEqual([1, 1, 1, 1, 1, 1, 1]);
+    expect(stages.find((p) => p.attributes.stage === 'build')?.value).toBeGreaterThanOrEqual(120);
+    expect(at(stages, { stage: 'ended' })).toBe(0);
+  });
+
+  it('count a step that failed, one out of turns, and the hold for failures', async () => {
+    await ticket();
+    let tries = 0;
+    const { pass } = line({
+      planner: () =>
+        tries++ === 0 ? 'fails' : { ...handback({ verdict: 'spec', spec: SPEC }), ending: 'max-turns' as const },
+    });
+    const series = [
+      { agent: 'planner', outcome: 'failed' },
+      { agent: 'planner', outcome: 'max-turns' },
+    ];
+    const before = await read('line.steps', ...series);
+    const held = (await read('line.holds', { cause: 'failures', stage: 'plan' }))[0] ?? 0;
+
+    await pass(); // the issue, and the planner, which fails
+    await pass(); // the planner, which runs out of turns
+    await pass(); // the hold
+
+    const after = await read('line.steps', ...series);
+    expect(after.map((n, i) => n - (before[i] ?? 0))).toEqual([1, 1]);
+    expect(await read('line.holds', { cause: 'failures', stage: 'plan' })).toEqual([held + 1]);
+  });
+
+  it('count a step that something outside the agent broke as errored', async () => {
+    await ticket();
+    const { pass } = line({
+      planner: () => {
+        throw new Error('The runners could not make the Job.');
+      },
+    });
+    const [before = 0] = await read('line.steps', { agent: 'planner', outcome: 'errored' });
+    await pass(); // the issue, and the planner, whose Job is never made
+    expect(await read('line.steps', { agent: 'planner', outcome: 'errored' })).toEqual([before + 1]);
+  });
+
+  it('count a dry run’s release once as it ends, and its verification by the dry run’s word', async () => {
+    const workItem = await nextWorkItem(database.writer);
+    await events.append([
+      event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'A redirect loop', sample: false }, 'triage'),
+      event(
+        workItem,
+        'ticket.opened',
+        {
+          title: 'A redirect loop on /departments/:department',
+          category: 'errors',
+          severity: 'broken',
+          fingerprint: { route: '/departments/:department', class: 'redirect-loop' },
+          traces: [],
+        },
+        'triage',
+      ),
+      event(
+        workItem,
+        'signal.received',
+        { sense: 'probe', check: 'departments', route: '/departments/:department', version: 'v0.9.3' },
+        'probe',
+      ),
+      event(
+        workItem,
+        'pull-request.pushed',
+        {
+          number: 1_000_000_001,
+          title: 'fix(departments): stop the redirect loop',
+          branch: `factory/${workItem}-a-redirect-loop`,
+          attempt: 1,
+          testsFirst: true,
+          files: [{ path: 'src/departments.ts', added: 1, removed: 1 }],
+          whole: [{ path: 'src/departments.ts', added: 1, removed: 1 }],
+        },
+        'coder',
+      ),
+      event(workItem, 'pull-request.merged', { number: 1_000_000_001, commit: 'd'.repeat(40), by: 'martin' }, 'martin'),
+    ]);
+    await database.writer`insert into line (work_item, stage, issue) values (${workItem}, 'release', 1000000000)`;
+    const { line: it } = line({}, { release: null, dryRun: true, dryRunReleaseMs: 60_000 });
+    const series = { outcome: 'promoted', dry_run: true };
+    const [promoted = 0] = await read('line.releases', series);
+    const [verified = 0] = await read('line.verifications', { sense: 'probe', outcome: 'cleared', dry_run: true });
+
+    for (let minute = 0; minute <= 6; minute++) {
+      now += 60_000;
+      await it.tick();
+      await it.idle();
+    }
+
+    expect(await read('line.releases', series)).toEqual([promoted + 1]);
+    expect(await read('line.verifications', { sense: 'probe', outcome: 'cleared', dry_run: true })).toEqual([
+      verified + 1,
+    ]);
+  });
+
+  it('count a release’s end once, however many work items it is recorded on', () => {
+    const promoted = { release: 'f00dfeed01', dryRun: false };
+    expect(
+      endingsIn([
+        { type: 'release.started', payload: promoted },
+        { type: 'release.promoted', payload: promoted },
+        { type: 'release.promoted', payload: promoted },
+        { type: 'release.rolled-back', payload: { release: 'beefcafe02' } },
+      ]),
+    ).toEqual([
+      { type: 'release.promoted', release: 'f00dfeed01', dryRun: false },
+      { type: 'release.rolled-back', release: 'beefcafe02', dryRun: false },
+    ]);
+  });
+
+  it('read the work items at each stage, and the oldest’s time there, from the store, every stage reported', async () => {
+    const [first, second, third] = [await ticket(), await ticket(), await ticket()];
+    await database.writer`
+      insert into line (work_item, stage, moved_at) values
+        (${first}, 'held', clock_timestamp() - interval '2 hours'),
+        (${second}, 'held', clock_timestamp() - interval '5 minutes'),
+        (${third}, 'ended', clock_timestamp() - interval '3 days')`;
+    const stop = observeStages(database.writer);
+    try {
+      const counts = await points('line.work_items');
+      expect(counts.map((p) => p.attributes.stage).sort()).toEqual([...OPEN_STAGES].sort());
+      expect(at(counts, { stage: 'held' })).toBe(2);
+      expect(at(counts, { stage: 'plan' })).toBe(0);
+      const oldest = await points('line.stage.oldest');
+      expect(at(oldest, { stage: 'held' })).toBeGreaterThanOrEqual(7200);
+      expect(at(oldest, { stage: 'held' })).toBeLessThan(7300);
+      expect(at(oldest, { stage: 'plan' })).toBe(0);
+    } finally {
+      stop();
+    }
+    // Once stopped it reads the store no more: the SDK keeps the last figure it had.
+    await database.writer`update line set stage = 'plan'`;
+    expect(at(await points('line.work_items'), { stage: 'held' })).toBe(2);
+  });
+
+  it('report the stages while the line runs, and read them no more once it stops', async () => {
+    const workItem = await ticket();
+    await database.writer`insert into line (work_item, stage) values (${workItem}, 'review')`;
+    // A line for another work item leaves this one where it is; the figures are the whole store's.
+    const { line: it } = line({}, { only: 'none' });
+    const abort = new AbortController();
+    const running = it.run(abort.signal);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(at(await points('line.work_items'), { stage: 'review' })).toBe(1);
+    abort.abort();
+    await running;
+    await database.writer`update line set stage = 'verify'`;
+    const after = await points('line.work_items');
+    expect([at(after, { stage: 'review' }), at(after, { stage: 'verify' })]).toEqual([1, 0]);
+  });
+
+  it('label every series with a closed set, never a work item, a job or a release', async () => {
+    // After the tests before it, which made a series of each.
+    expect(await labels()).toEqual(['agent', 'cause', 'dry_run', 'outcome', 'provider', 'sense', 'stage']);
+  });
+});

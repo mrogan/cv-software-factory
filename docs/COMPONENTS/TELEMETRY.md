@@ -68,6 +68,33 @@ Prometheus scrapes itself in its own job. Kyverno's, Argo Rollouts' and the pod 
 - **`target_info` is OTLP's alone.** It is how Prometheus records a service that sends metrics over OTLP, and triage counts it to see that metrics still arrive. The collector also serves its own where it is scraped, so each of the chart's jobs that scrape what asks to be scraped, by pod or by Service, drops `target_info`, and a count of it still falls to nothing when OTLP stops.
 - **Only the platform's namespaces are looked in.** The jobs that scrape what asks, by pod or by Service, look for it in `argo-rollouts`, `argocd`, `factory`, `kube-system`, `kyverno`, `pod-logs` and `telemetry`, and nowhere else ([`values/prometheus.yaml`](../../deploy/base/telemetry/values/prometheus.yaml)). Not `website`, whose pods come from the app's repository, which the line changes, nor `runners` or `scoreboard`. A pod there that asked would be a target behind a fence Prometheus cannot pass, down for as long as it asked; one Prometheus could reach would keep the labels it sent, since the job honours them, and could stamp its series as [the app's](#which-records-are-the-apps). Whatever they do scrape has the label that marks [the app's](#which-records-are-the-apps) metrics dropped, since only the collector stamps it, on what arrives over OTLP. A namespace the platform starts to run a target in is a name added there: a test fails until it is, for a chart whose values ask and for a pod or Service deploy/ declares. The chart's jobs for Services that ask to be probed, through a blackbox exporter or a Pushgateway, are off, since neither runs.
 
+## Naming the factory's series
+
+The workers and the console send their metrics over OTLP, and Prometheus's OTLP receiver names each series from its instrument: dots become underscores, a counter's name ends `_total`, a histogram's series `_bucket`, `_sum` and `_count`, and a unit it knows goes on the name, `s` as `_seconds`, `ms` as `_milliseconds`, `By` as `_bytes`.
+
+- **A unit is the instrument's, never in its name:** `line.stage.duration`, in `s`, is `line_stage_duration_seconds`. A time is in seconds, as OpenTelemetry's own are; the one in milliseconds is the gateway's call duration (`gateway_call_duration_milliseconds`), whose name is kept.
+- **Dollars are in the name, with no unit given** (`factory_gateway_spend_usd_total`, `gateway_cap_spent_usd`): a currency is no unit Prometheus translates.
+- **A count has none:** `1` on a gauge would add `_ratio`.
+
+## The line's metrics
+
+The line sends what an alert needs to say it is stuck: how work items move through it, and through Release and Verify ([`line/metrics.ts`](../../apps/factory/src/line/metrics.ts)). The [event store](EVENT-STORE.md) holds the same facts for the console; these put them where Prometheus can read them. Every label is from a closed list, never a work item, a job or a release, which would make a series of each.
+
+| Series | Labels | What it counts |
+|---|---|---|
+| `line_work_items` | `stage` | Work items at each stage now: `plan`, `build`, `waiting`, `gates`, `review`, `release`, `verify`, `held` |
+| `line_stage_oldest_seconds` | `stage` | How long the work item longest at each stage has been there; 0 with none |
+| `line_stage_duration_seconds` | `stage` | A histogram of how long a work item was at a stage, recorded as it left it, in buckets from a minute to a week |
+| `line_steps_total` | `agent`, `provider`, `outcome` | Each agent's step as it ended, by the provider its calls went to: `done`, `failed`, `max-turns` (it ran out of turns), `capped` (a spend cap ended it), `stopped` (the line stopped), `stale` (out of date, runs again), `effects-failed` (its result could not be put in GitHub, and the work item holds) or `errored` (something outside the agent failed, such as a read of GitHub or the runners, and the next pass tries again) |
+| `line_holds_total` | `cause`, `stage` | Each hold for Martin the line started, by [cause](ORCHESTRATOR.md#holds-and-martins-answers) and the stage held at |
+| `line_releases_total` | `outcome`, `dry_run` | Each release the line recorded the end of: `promoted`, `rolled-back`, `aborted` or `errored` |
+| `line_verifications_total` | `sense`, `outcome`, `dry_run` | Each verification after a release, by the sense that looked and whether the signal `cleared` or `persists` |
+
+- **The stages are read from the store, not counted.** Each collection reads the `line` table (a count and the oldest `moved_at` for each stage), so a line that restarts reports what is there, not what it has seen since it started, and every stage is reported, an empty one as 0. Two replicas would each report the whole store's figures: read them with `max by (stage)`, never `sum`. Only a line that takes work (`LINE_MODE` not `off`) reports them.
+- **The rest is counted where the line records it,** after the store has taken the event, so a series and the events cannot disagree: a hold or a verification as the line appends it, a release's end as the release watch does. A release recorded on every work item it carries is one release, and one the store already has an end for is not counted again; the line runs as one replica, and two recording the same end at once could each count it. Holds triage makes (a suggestion, a burst, a finding) are triage's, not the line's.
+- **A step is counted once, as it ends.** A result whose effects failed and wait to be tried again has not ended; it is counted when they end, by whichever start of the line tries them. `failed` and `max-turns` count against the step, which runs again until the line holds the work item for failures.
+- **Held for the merge and then for a deploy is one stay at `held`,** as the `line` table has it: the cause is in `line_holds_total`.
+
 ## Dashboards
 
 Grafana has three:
