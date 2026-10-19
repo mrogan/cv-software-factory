@@ -308,6 +308,27 @@ describe('a sheet', () => {
     expect(verification?.pages[0]).toMatchObject({ page: 'Products', intended: true });
     expect(verification?.pages.find((p) => p.page === 'Contact')).toMatchObject({ changed: 0, intended: false });
   });
+
+  it('shows each page as the verification took it, though a later one took the same picture', () => {
+    // #1306's pages are the same to the pixel on v0.9.8 and v0.9.10: one picture, one hash, in both verifications.
+    const versions = projectSheet(SAMPLES, '1306', END)?.shipped.flatMap((s) =>
+      s.verification ? [[s.release.version, s.verification.pages.map((p) => p.screenshot?.version)]] : [],
+    );
+    expect(versions).toEqual([
+      ['v0.9.10', ['v0.9.10', 'v0.9.10', 'v0.9.10', 'v0.9.10']],
+      ['v0.9.8', ['v0.9.8', 'v0.9.8', 'v0.9.8', 'v0.9.8']],
+    ]);
+  });
+
+  it('names the other work item the release carried on a page that is its own, before the pages the same', () => {
+    const shared = projectSheet(SAMPLES, '1306', END)?.shipped.find((s) => s.release.version === 'v0.9.8');
+    expect(shared?.verification?.pages.map((p) => [p.page, p.intended, p.intendedFor])).toEqual([
+      ['Contact', false, '1304'],
+      ['Home', false, undefined],
+      ['Products', false, undefined],
+      ['Search', false, undefined],
+    ]);
+  });
 });
 
 describe('replay', () => {

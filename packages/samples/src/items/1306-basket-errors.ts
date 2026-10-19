@@ -141,6 +141,8 @@ export default new Item('1306', '2026-10-05T09:05:00+01:00')
     against: 'v0.9.7',
     version: 'v0.9.8',
     evidence: PERSISTS,
+    // The release carried #1304's fix to the contact form too: its page is #1304's own.
+    theirs: { '/contact': '1304' },
   })
   .at('2:02:31', 'work.returned', 'factory', '#1306 · to Plan · sent back from verify', {
     from: 'verify',

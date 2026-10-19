@@ -1,5 +1,7 @@
-# The gateway's recordings of what Jev answered. Recordings of real reports live here and nowhere else: only the
-# gateway mounts this volume, and nothing commits or publishes it. Deleting it loses nothing but the saved answers.
+# The gateway's cassettes: what each call to Jev or an agent's model sent and got back. Recordings of real reports and
+# work live here and nowhere else: only the gateway mounts this volume, and nothing commits or publishes it. The
+# gateway deletes each two weeks after the last thing it was for (gateway/pruning.ts). Deleting it all loses nothing
+# but the recordings, and the answers a gateway with no TypeSafe key replays.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

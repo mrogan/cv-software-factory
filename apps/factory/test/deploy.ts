@@ -9,6 +9,12 @@ import { parse, parseAllDocuments } from 'yaml';
  */
 export const DEPLOY = fileURLToPath(new URL('../../../deploy/', import.meta.url));
 
+/** Prometheus's server, as a network policy's peer: the one pod every fence around what it scrapes lets in. */
+export const PROMETHEUS = {
+  namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'telemetry' } },
+  podSelector: { matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } },
+};
+
 /** What every manifest has; each test names the rest of what it reads. */
 export interface Manifest {
   kind?: string;

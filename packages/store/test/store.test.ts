@@ -89,6 +89,7 @@ describe('migrations', () => {
       { version: 17, name: 'step-logs' },
       { version: 18, name: 'metrics-reader' },
       { version: 19, name: 'job-tokens-by-work-item' },
+      { version: 20, name: 'prune-inbox' },
     ]);
   });
 });
