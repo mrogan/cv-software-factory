@@ -16,8 +16,10 @@ import { JOURNEY_FALLBACK } from '../../src/release/signals.ts';
 import type { Kube } from '../../src/runners/kube.ts';
 import { quiet } from '../github/fake.ts';
 import { CANARY, commitOf, digestOf, releaseOf, rollout, run, STABLE } from '../release/fixtures.ts';
+import { recordSpans } from '../tracing.ts';
 import { FakeGitHub, FakeProbes, FakeSteps } from './fakes.ts';
 
+const { spans } = recordSpans();
 let database: Database;
 let events: EventWriter;
 beforeEach(async () => {
@@ -350,6 +352,14 @@ describe('the line’s watch of the app’s release', () => {
       ]);
       expect(await stage(workItem)).toBe('verify');
     }
+    // A span for each pass that read or recorded something of a release, naming what it carried; none for the pass
+    // that found nothing new.
+    const release = releaseOf(CANARY);
+    expect(spans('release').map((span) => span.attributes)).toEqual([
+      { release: releaseOf(STABLE), dry_run: false, work_items: [shipped] },
+      { release, dry_run: false, work_items: carried },
+      { release, dry_run: false, work_items: carried },
+    ]);
   });
 
   it('carries a work item by its latest merge, and leaves one closed while its release runs', async () => {
@@ -841,6 +851,10 @@ describe('a dry run’s release', () => {
     expect(await stage(workItem)).toBe('verify');
     // A real merge waits for a real release.
     expect(await typesOf(real)).toEqual([]);
+    // A span for each pass that recorded something, and none for those that had nothing due.
+    expect(spans('release').map((span) => span.attributes)).toEqual(
+      Array(4).fill({ dry_run: true, work_items: [workItem] }),
+    );
   });
 
   it('is not answered for outside a dry run', async () => {
@@ -1162,6 +1176,9 @@ describe('Verify on the line', () => {
       { outcome: 'verified', reason: 'The dry run’s word: its release never shipped, so no sense looked' },
     ]);
     expect(await stage(workItem)).toBe('ended');
+    expect(spans('verify').map((span) => span.attributes)).toEqual([
+      { work_item: workItem, release: 'dry-run-dddddddddddd', outcome: 'cleared' },
+    ]);
   });
 
   describe('what a dry run left, as the line runs live', () => {

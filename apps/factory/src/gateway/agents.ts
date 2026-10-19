@@ -15,7 +15,8 @@
  * 4. Answers from a cassette, keyed as `agent-cassettes.ts` says, when its mode replays; otherwise checks the spend
  *    caps, asks the provider, relays the answer as it arrives, and records a cassette.
  * 5. Writes one audit row in `model_calls` for every call, answered or not, with its tokens, cache use and cost. A
- *    stream that breaks off is audited at what it had cost by then: the provider bills what it generated.
+ *    stream that breaks off is audited at what it had cost by then: the provider bills what it generated. The same
+ *    figures go on the call's `model call` span, a child of the step's span the job token keeps (`spans.ts`).
  *
  * Prompt caching passes through untouched: the runner's `cache_control` markers reach the provider as sent.
  *
@@ -23,12 +24,14 @@
  * would Anthropic's: it retries a 429 after `retry-after`, and gives up on a 4xx.
  */
 
+import { context, propagation, ROOT_CONTEXT, type Span, SpanStatusCode, trace } from '@opentelemetry/api';
 import { jobForToken } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { MODEL_AGENTS, type ModelAgent, modelFor } from '../../../../policy/models.ts';
 import type { Profile } from '../../../../policy/spend.ts';
 import type { Logger } from '../log.ts';
+import { ATTRIBUTES as A, tracer } from '../spans.ts';
 import { type AgentCassettes, agentCassetteKey, keyedRequest } from './agent-cassettes.ts';
 import { SpendCapped } from './errors.ts';
 import type { Mode } from './gateway.ts';
@@ -156,8 +159,10 @@ export class AgentCalls {
    */
   async messages(headers: Headers, read: () => Promise<string>, gone?: AbortSignal): Promise<Reply> {
     const started = performance.now();
-    const who = await this.#authorise(headers);
-    if ('status' in who) return who;
+    const startTime = new Date();
+    const authorised = await this.#authorise(headers);
+    if ('status' in authorised) return authorised;
+    const { traceparent, ...who } = authorised;
     const betas = (header(headers, 'anthropic-beta') ?? '')
       .split(',')
       .map((b) => b.trim())
@@ -181,9 +186,44 @@ export class AgentCalls {
       if (error instanceof SyntaxError) return apiError(400, 'invalid_request_error', 'The body is not JSON.');
       throw error;
     }
+    // The call's span, under its step's when the job's token keeps one, and linked to the request that carried it.
+    const step = traceparent ? propagation.extract(ROOT_CONTEXT, { traceparent }) : context.active();
+    const request = trace.getActiveSpan()?.spanContext();
+    const span = tracer.startSpan(
+      'model call',
+      {
+        startTime,
+        attributes: { [A.workItem]: who.workItem, [A.job]: who.job, [A.agent]: who.agent },
+        ...(request ? { links: [{ context: request }] } : {}),
+      },
+      step,
+    );
+    try {
+      return await context.with(trace.setSpan(step, span), () => this.#call(who, body, headers, span, started, gone));
+    } catch (error) {
+      // Audited calls end their span; one that threw before it was audited ends it here.
+      if (span.isRecording()) {
+        span.recordException(error as Error);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: (error as Error)?.message });
+        span.end();
+      }
+      throw error;
+    }
+  }
+
+  /** A call whose request the gateway takes, inside its span, which its audit ends. */
+  async #call(
+    who: Pick<Call, 'job' | 'workItem' | 'agent'>,
+    body: z.infer<typeof REQUEST>,
+    headers: Headers,
+    span: Span,
+    started: number,
+    gone?: AbortSignal,
+  ): Promise<Reply> {
     const chosen = modelFor(this.#o.profile, who.agent, this.#o.allLocal);
     const provider = chosen.provider === 'local' ? 'local' : 'anthropic';
     const call: Call = { ...who, provider, model: chosen.model };
+    span.setAttributes({ [A.provider]: provider, [A.model]: chosen.model });
     priceOf(chosen.model);
     // The policy's model and effort, whatever the runner asked for. The local model takes no effort (LM Studio's own
     // setting decides), so none is sent, and none reaches its cassettes' keys.
@@ -196,7 +236,7 @@ export class AgentCalls {
     const key = agentCassetteKey(provider, keyed);
     const { cassettes, spend, caps, mode, providers, log } = this.#o;
     const audit = (outcome: Outcome, usage: Usage = NO_USAGE, reason?: string) =>
-      this.#audit(call, key, outcome, usage, performance.now() - started, reason);
+      this.#audit(call, span, key, outcome, usage, performance.now() - started, reason);
 
     const replaying = mode === 'replay' || mode === 'replay-record';
     const stored = replaying ? cassettes.find(key) : undefined;
@@ -331,7 +371,9 @@ export class AgentCalls {
     return json(200, { input_tokens: Math.ceil((await read()).length / 4) });
   }
 
-  async #authorise(headers: Headers): Promise<Pick<Call, 'job' | 'workItem' | 'agent'> | Reply> {
+  async #authorise(
+    headers: Headers,
+  ): Promise<(Pick<Call, 'job' | 'workItem' | 'agent'> & { traceparent?: string }) | Reply> {
     const token = header(headers, 'x-api-key') ?? header(headers, 'authorization')?.replace(/^Bearer\s+/i, '');
     const job = token ? await jobForToken(this.#o.sql, token) : undefined;
     if (!job) return apiError(401, 'authentication_error', 'This is not the token of a job that is running.');
@@ -341,7 +383,12 @@ export class AgentCalls {
     if (await this.#lineStopped()) {
       return apiError(403, 'permission_error', 'The line is stopped: agents take no new calls until it starts again.');
     }
-    return { job: job.job, workItem: job.workItem, agent: job.agent as ModelAgent };
+    return {
+      job: job.job,
+      workItem: job.workItem,
+      agent: job.agent as ModelAgent,
+      ...(job.traceparent ? { traceparent: job.traceparent } : {}),
+    };
   }
 
   async #lineStopped(): Promise<boolean> {
@@ -353,12 +400,31 @@ export class AgentCalls {
     return this.#line.stopped;
   }
 
-  async #audit(call: Call, key: string, outcome: Outcome, usage: Usage, ms: number, reason?: string): Promise<void> {
+  async #audit(
+    call: Call,
+    span: Span,
+    key: string,
+    outcome: Outcome,
+    usage: Usage,
+    ms: number,
+    reason?: string,
+  ): Promise<void> {
     const { sql, log } = this.#o;
     // A replay costs nothing; anything the provider generated is billed, whether or not the stream got through.
     const costUsd = outcome === 'answered' || outcome === 'failed' ? costOf(call.model, usage) : 0;
     const durationMs = Math.round(ms);
     const cacheWrite = (usage.cacheWriteTokens ?? 0) + (usage.cacheWriteHourTokens ?? 0);
+    span.setAttributes({
+      [A.outcome]: outcome,
+      [A.inputTokens]: usage.inputTokens,
+      [A.outputTokens]: usage.outputTokens,
+      [A.cacheReadTokens]: usage.cacheReadTokens ?? 0,
+      [A.cacheWriteTokens]: cacheWrite,
+      [A.costUsd]: costUsd,
+      ...(reason ? { [A.reason]: reason } : {}),
+    });
+    if (outcome === 'failed') span.setStatus({ code: SpanStatusCode.ERROR, ...(reason ? { message: reason } : {}) });
+    span.end();
     await sql`
       insert into model_calls (id, at, agent, work_item, provider, model, question_set, input_tokens, output_tokens,
                                cache_read_tokens, cache_write_tokens, cost_usd, duration_ms, cassette, outcome, job)
@@ -370,9 +436,12 @@ export class AgentCalls {
     instruments.latency.record(durationMs, attributes);
     if (costUsd > 0) instruments.spend.add(costUsd, { agent: call.agent, provider: call.provider, model: call.model });
     const level = outcome === 'failed' ? 'error' : outcome === 'refused' ? 'warn' : 'info';
-    log[level](
-      { ...call, ...usage, costUsd, durationMs, cassette: key, outcome, ...(reason ? { reason } : {}) },
-      'model call',
+    // In the call's span, so the line names the step's trace: a stream ends outside it.
+    context.with(trace.setSpan(context.active(), span), () =>
+      log[level](
+        { ...call, ...usage, costUsd, durationMs, cassette: key, outcome, ...(reason ? { reason } : {}) },
+        'model call',
+      ),
     );
   }
 }

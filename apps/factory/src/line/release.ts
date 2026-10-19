@@ -33,6 +33,8 @@
  * It changes nothing in Kubernetes: the line may read the Rollout, its runs and the journeys Jobs' pods, and nothing
  * else there.
  */
+
+import { trace } from '@opentelemetry/api';
 import { type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
 import { lastEnd, sendSignal } from '@software-factory/store';
 import type { Logger } from 'pino';
@@ -73,6 +75,7 @@ import {
   type Target,
 } from '../release/watch.ts';
 import type { Kube } from '../runners/kube.ts';
+import { ATTRIBUTES as A, inSpan } from '../spans.ts';
 import { asEvent, type Draft } from './gates.ts';
 import { fold, type LineEvent } from './machine.ts';
 import type { GitHubPort } from './worker.ts';
@@ -135,8 +138,9 @@ export class Releases {
     }
   }
 
-  async #watch({ kube, rollout, prometheus }: ReleaseWatchOptions): Promise<void> {
-    const { log, only } = this.#o;
+  async #watch(watch: ReleaseWatchOptions): Promise<void> {
+    const { log } = this.#o;
+    const { kube, rollout } = watch;
     const read = await readRollout(kube, rollout);
     if (!read) {
       log.debug(rollout, 'no Rollout to watch');
@@ -148,6 +152,24 @@ export class Releases {
     const last = await this.#lastPromoted();
     const lastRelease = last?.release;
     const needs = releaseNeeds(o, recorded, lastRelease);
+    // A pass with something to read for a release is its span; one with only something to record has one for that.
+    const reads = Boolean(needs.start) || needs.steps.length > 0 || needs.failures.length > 0 || needs.aborted;
+    if (!reads) return this.#record(o, recorded, last, needs, watch, false);
+    const release = namedReleases(o, recorded, lastRelease).current;
+    await inSpan('release', releaseAttributes(release), () => this.#record(o, recorded, last, needs, watch, true));
+  }
+
+  /** Reads what a pass needs, and records what it found: inside a span already when `traced`, or in one of its own. */
+  async #record(
+    o: Observed,
+    recorded: Recorded,
+    last: { release: string | undefined; version: string } | undefined,
+    needs: Needs,
+    { kube, rollout, prometheus }: ReleaseWatchOptions,
+    traced: boolean,
+  ): Promise<void> {
+    const { log, only } = this.#o;
+    const lastRelease = last?.release;
     const start = needs.start && (await this.#start(needs.start));
     const lastPromoted = needs.start && last?.version;
     const abortedBy = needs.aborted && o.abortedAt ? await this.#abortedBy(o.abortedAt) : undefined;
@@ -207,7 +229,9 @@ export class Releases {
       const release = namedReleases(o, recorded, lastRelease).current;
       log.info({ release, only, others }, 'the release carries other work items: left for the whole line');
     } else {
-      await this.#append(drafts, namedReleases(o, recorded, lastRelease).current);
+      const release = namedReleases(o, recorded, lastRelease).current;
+      const append = () => this.#append(drafts, release);
+      await (traced || !drafts.size ? append() : inSpan('release', releaseAttributes(release), append));
     }
     await this.#signal(o, recorded, series, { kube, rollout, prometheus });
   }
@@ -320,7 +344,7 @@ export class Releases {
       const due = dryRunEvents(item, previous, record, now(), dryRunEveryMs);
       if (due.length) drafts.set(item.workItem, due);
     }
-    await this.#append(drafts);
+    if (drafts.size) await inSpan('release', releaseAttributes(undefined, true), () => this.#append(drafts));
   }
 
   /** Every merged work item no closing has ended, with its latest merge and whether a release carries it. */
@@ -407,6 +431,10 @@ export class Releases {
       : [];
     for (const { work_item } of closed) drafts.delete(work_item);
     if (!drafts.size) return;
+    trace.getActiveSpan()?.setAttribute(
+      A.workItems,
+      items.filter((item) => drafts.has(item)),
+    );
     const ts = this.#o.now().toISOString();
     const events = [...drafts].flatMap(([target, list]) => list.map((draft) => asEvent(target, draft, ts)));
     await this.#o.events.append(events);
@@ -419,6 +447,12 @@ export class Releases {
     );
   }
 }
+
+/** A release span's attributes: which release, when the Rollout names one, and whether it is a dry run's. */
+const releaseAttributes = (release: string | undefined, dryRun = false) => ({
+  ...(release ? { [A.release]: release } : {}),
+  [A.dryRun]: dryRun,
+});
 
 /** A merged work item a range of the app's commits carries, as a deploy pull request names it. */
 export interface Carried {

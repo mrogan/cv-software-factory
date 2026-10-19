@@ -10,6 +10,11 @@ export interface JobToken {
   job: string;
   workItem: string;
   agent: string;
+  /**
+   * The step's span, as a W3C `traceparent`, which the gateway starts the job's model calls under: absent when the
+   * token was made with no span in hand.
+   */
+  traceparent?: string;
 }
 
 /**
@@ -21,17 +26,25 @@ const hashOf = (token: string) => createHash('sha256').update(token).digest('hex
 /** Makes a job's token. It is shown once, here: give it to the job's pod and keep it nowhere else. */
 export async function issueJobToken(sql: Sql, job: JobToken): Promise<string> {
   const token = `sfj_${randomBytes(32).toString('base64url')}`;
-  await sql`insert into job_tokens (token_sha256, job, work_item, agent)
-            values (${hashOf(token)}, ${job.job}, ${job.workItem}, ${job.agent})`;
+  await sql`insert into job_tokens (token_sha256, job, work_item, agent, traceparent)
+            values (${hashOf(token)}, ${job.job}, ${job.workItem}, ${job.agent}, ${job.traceparent ?? null})`;
   return token;
 }
 
 /** The job a token is for, while the job has not ended; otherwise undefined. */
 export async function jobForToken(sql: Sql, token: string): Promise<JobToken | undefined> {
   if (!token.startsWith('sfj_')) return undefined;
-  const [row] = await sql<{ job: string; work_item: string; agent: string }[]>`
-    select job, work_item, agent from job_tokens where token_sha256 = ${hashOf(token)} and ended_at is null`;
-  return row && { job: row.job, workItem: row.work_item, agent: row.agent };
+  const [row] = await sql<{ job: string; work_item: string; agent: string; traceparent: string | null }[]>`
+    select job, work_item, agent, traceparent from job_tokens
+    where token_sha256 = ${hashOf(token)} and ended_at is null`;
+  return (
+    row && {
+      job: row.job,
+      workItem: row.work_item,
+      agent: row.agent,
+      ...(row.traceparent ? { traceparent: row.traceparent } : {}),
+    }
+  );
 }
 
 /** Ends a job's token, so neither the gateway nor the handback accepts it again. Ending one twice does nothing. */

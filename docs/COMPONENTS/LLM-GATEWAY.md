@@ -31,7 +31,7 @@ See [`TYPESAFE.md`](../TYPESAFE.md).
 
 `POST /v1/messages` is Anthropic's Messages API, with streaming, for [runners](AGENT-RUNNERS.md) (`gateway/agents.ts`).
 
-- **The job token** (`packages/store`, `job_tokens`, kept as a hash) stands where the API key would be, and names the work item and agent. The gateway refuses it once its job has ended, and refuses every agent call while the line is stopped.
+- **The job token** (`packages/store`, `job_tokens`, kept as a hash) stands where the API key would be, and names the work item and agent, and the step's span the call's span goes under. The gateway refuses it once its job has ended, and refuses every agent call while the line is stopped.
 - **Routing is the gateway's.** The provider, the pinned model and, for Claude, the effort come from `policy/models.ts`, whatever the runner asked.
 - **Prompt caching** passes through untouched.
 - **What gets through** is only the request fields, betas and tools the Agent SDK sends (`REQUEST`, `BETAS`). A server tool, such as web search, would be a way past the runners' fence, and is refused.
@@ -95,4 +95,5 @@ A file written in the last two weeks always stays. Rows in `model_calls` are nev
 ## Logging and telemetry
 
 - It never logs a state, a prompt or a provider's body.
+- Each agent call is a `model call` span under its step's, with the agent, model, tokens, cost and outcome ([telemetry](TELEMETRY.md#the-factorys-own-traces)).
 - Metrics for calls, spend and latency go over OpenTelemetry.
