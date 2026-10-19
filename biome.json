@@ -6,6 +6,30 @@
   },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
   "javascript": { "formatter": { "quoteStyle": "single" } },
-  "linter": { "domains": { "react": "recommended" }, "rules": { "preset": "recommended" } },
+  "linter": {
+    "domains": { "react": "recommended" },
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "postgres": {
+                "allowImportNames": ["JSONValue", "Sql", "TransactionSql"],
+                "message": "Make the store's client with connect() from @software-factory/store, which counts its queries and connections. Only postgres.js's types may be imported, by name: add a type here if one is needed."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["packages/store/src/client.ts", "**/test/**"],
+      "linter": { "rules": { "style": { "noRestrictedImports": "off" } } }
+    }
+  ],
   "assist": { "actions": { "source": { "organizeImports": "on" } } }
 }

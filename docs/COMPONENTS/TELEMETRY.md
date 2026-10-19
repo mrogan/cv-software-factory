@@ -91,12 +91,41 @@ Two more targets ask Prometheus to scrape them, with the `prometheus.io/` pod an
 - **Postgres down leaves the exporter's target up.** It answers every scrape and says in `pg_up` whether it reached Postgres. Neither target is one the senses read, so neither of them unscraped holds a sense's new problems ([triage](TRIAGE.md#what-a-sense-reads)), and Postgres unreachable holds nothing either.
 - **The exporter reads its password when it starts.** On a cluster made before it, run `make up` again to make its Secret, and once the migrations have set the role's password, restart it (`kubectl -n factory rollout restart deployment/postgres-exporter`).
 
+### What each client of the store sees
+
+The exporter counts the store's connections as Postgres sees them, all clients together. Each worker and the console also says how the store answers it: the client is postgres.js, which OpenTelemetry's `pg` instrumentation does not cover, so the store makes it with instruments of its own ([`client.ts`](../../packages/store/src/client.ts)). Every client is made by its `connect()`, and outside the tests the linter refuses any import of postgres.js but the types it names (`biome.json`), so no client is made without it. In Prometheus, by `job`:
+
+| Series | Says | Labels |
+|---|---|---|
+| `store_query_duration_seconds` (histogram) | How long each query took, from when it was asked for to its answer, so a wait for a free connection counts too | `operation`: the statement's first word (`select`, `insert`, `update`, `delete`, `with`, `begin`, `commit`, `listen`, …) or `other`; `outcome`: `ok` or `error`; `code`, for an error: Postgres's SQLSTATE, such as `23505` or `40001`, or the client's own, such as `CONNECTION_CLOSED`, `CONNECT_TIMEOUT` or `ECONNREFUSED` |
+| `store_connections` | The connections the client holds open now, its `LISTEN` included | none |
+| `store_connection_attempts_total` | The connections it tried to open | `outcome`: `connected`, or `failed` for one that closed before it opened, refused, timed out, or ended by the client as it stopped |
+
+- **Never a work item, a row or a statement's text.** A statement's first word is kept only if it is one of a fixed few, and a code only if it has a code's shape, so no query can make a series of its own, and no text a visitor wrote, in a statement or its parameters, reaches a label. Each operation and outcome a worker meets makes 17 series of the histogram, its 15 buckets, sum and count: about 100 to 200 a worker that writes.
+- **A transaction's queries are timed one by one,** its `begin` and `commit` with them, and a cursor from its first batch to its last; a fragment nested in a query is part of it, never a query of its own. postgres.js's own lookup of the server's types, as it first connects, counts as a `select`.
+- **The scoreboard's client counts too, and sends nothing,** since the scoreboard starts no telemetry. Nor do one-off commands run without `telemetry.ts`, such as the migrations.
+
 ## What the app records
 
 | Record | Carries |
 |---|---|
 | Request metrics | `http_route` (the path asked for, such as `/products/glove-left`), the status and `service_version` |
 | Request log records | `route` (the template, `/products/:slug`), `path`, `status`, `ms` and the trace id |
+
+## The factory's own health
+
+Each worker that sends telemetry, and the console, reports its own runtime over OTLP ([`telemetry.ts`](../../apps/factory/src/telemetry.ts), the OpenTelemetry runtime instrumentation): the series an alert or a dashboard would need to see one running out of memory or stalling before Kubernetes restarts it, though none reads them yet. The scoreboard and the runners send nothing, so report none. In Prometheus, by `job` (`software-factory/<worker>`):
+
+| Series | Says | Labels |
+|---|---|---|
+| `v8js_memory_heap_used_bytes`, `v8js_memory_heap_space_size_bytes`, `…_physical_size_bytes`, `…_available_size_bytes` | The heap, by space | `v8js_heap_space_name` |
+| `v8js_gc_duration_seconds` (histogram) | Each garbage collection's pause | `v8js_gc_type`: `major`, `minor`, `incremental`, `weakcb` |
+| `nodejs_eventloop_delay_{min,max,mean,stddev,p50,p90,p99}_seconds` | How late the event loop ran what was due | none |
+| `nodejs_eventloop_utilization_ratio` | How busy the event loop has been since the last export | none |
+| `nodejs_eventloop_time_seconds_total` | The event loop's time, busy and idle | `nodejs_eventloop_state`: `active`, `idle` |
+| `v8js_resource_active` | What keeps the process alive: sockets, servers, timers | `v8js_resource_type` |
+
+Every label is the runtime's own, with a handful of values, so a process makes about 120 to 150 series. A pod's memory against its limit is still cAdvisor's (`container_memory_working_set_bytes`): the heap is only part of it.
 
 ## The factory's own traces
 

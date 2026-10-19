@@ -3,8 +3,7 @@
  * `GatewayConfig`. `factory gateway` is the entry point, and loads `telemetry.ts` before this module.
  */
 import { tmpdir } from 'node:os';
-import { DiskArtifacts, EventWriter } from '@software-factory/store';
-import postgres from 'postgres';
+import { connect, DiskArtifacts, EventWriter } from '@software-factory/store';
 import { MODELS } from '../../../../policy/models.ts';
 import { SPEND } from '../../../../policy/spend.ts';
 import { log } from '../log.ts';
@@ -22,8 +21,7 @@ import { Spend } from './spend.ts';
 import { TypeSafe } from './typesafe.ts';
 
 export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv = process.env) {
-  const options = { onnotice: () => {}, max: 4 };
-  const sql = env.DATABASE_URL ? postgres(env.DATABASE_URL, options) : postgres(options);
+  const sql = connect(env.DATABASE_URL, { max: 4 });
   // The line events the gateway appends have no artifacts, so the store it is given is never read.
   const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts(tmpdir()) });
   const spend = new Spend({ sql, events, profile: config.profile, policy: SPEND[config.profile], log });

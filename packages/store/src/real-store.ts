@@ -9,7 +9,8 @@
  * belong to the server, not the database, so they survive.
  */
 import { parseArgs } from 'node:util';
-import postgres, { type Sql } from 'postgres';
+import type { Sql } from 'postgres';
+import { connect } from './client.ts';
 import { migrate } from './migrate.ts';
 
 export async function realStore(sql: Sql, { force = false } = {}): Promise<{ dropped: number }> {
@@ -39,7 +40,7 @@ export async function realStore(sql: Sql, { force = false } = {}): Promise<{ dro
 if (import.meta.main) {
   const { values } = parseArgs({ options: { force: { type: 'boolean' } } });
   const url = process.env.DATABASE_URL;
-  const sql = url ? postgres(url, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  const sql = connect(url);
   try {
     const { dropped } = await realStore(sql, { force: values.force });
     console.log(`The store is empty, and takes real events only. ${dropped} events were deleted.`);
