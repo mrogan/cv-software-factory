@@ -33,7 +33,8 @@ export type TokenKind = 'input' | 'output' | 'cache_read' | 'cache_write';
 
 /**
  * Tokens, as the audit row counts them: an answered call's, a failed call's that the provider billed (a stream that
- * broke off), and a replay's as its cassette recorded them, which cost nothing. `outcome` tells them apart.
+ * broke off), and a replay's as its cassette recorded them, which cost nothing. `outcome` tells them apart. A kind
+ * a call used none of is not counted.
  */
 export const tokens = meter.createCounter('gateway.tokens', {
   description:
@@ -44,7 +45,8 @@ export const tokens = meter.createCounter('gateway.tokens', {
  * A provider that answered with an error, or not at all: `status` is the HTTP status it answered (`429`, `529`, a
  * refusal for spent credit's `400`), or what happened instead: `network` (it could not be reached), `timeout`,
  * `malformed` (it answered with something other than an answer), or `broken` (a stream that reported an error or
- * broke off). A runner that goes away is not the provider's error, and is not counted.
+ * broke off). Each failed attempt counts, TypeSafe's retried ones included. A runner that goes away is not the
+ * provider's error, nor a cassette that no longer reads, and neither is counted.
  */
 export const providerErrors = meter.createCounter('gateway.provider.errors', {
   description: 'Errors from a model provider, by agent, provider, model and status',

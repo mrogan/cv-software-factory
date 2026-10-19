@@ -166,6 +166,8 @@ describe("the gateway's metrics", () => {
     expect(at(tokens, { ...CODER, outcome: 'answered', kind: 'cache_write' })).toBe(500);
     expect(at(tokens, { ...CODER, outcome: 'replayed', kind: 'input' })).toBe(100);
     expect(at(tokens, { outcome: 'refused' })).toBe(0);
+    // A failed call that used nothing makes no series of tokens.
+    expect(tokens.filter((p) => p.attributes.outcome === 'failed')).toEqual([]);
 
     const errors = await points('gateway.provider.errors');
     expect(at(errors, { ...CODER, status: '529' })).toBe(1);
@@ -184,11 +186,13 @@ describe("the gateway's metrics", () => {
     await expectNoWorkItems();
   });
 
-  it("counts a judgement's tokens, TypeSafe's error statuses, and a day's cap", async () => {
+  it("counts a judgement's tokens, each of TypeSafe's error statuses, retried or not, and a day's cap", async () => {
     const { gateway } = await harness({ dayUsd: 0.00001, monthUsd: 100, workItemUsd: 1 }, scripted('anthropic'));
     typesafe.script({ status: 422 });
     await expect(gateway.judge(request())).rejects.toMatchObject({ name: 'ProviderError', status: 422 });
     typesafe.inputTokens = 1000;
+    // A rate limit TypeSafe's client retries is still the provider's error.
+    typesafe.script({ status: 429 });
     await gateway.judge(request());
     await expect(gateway.judge(request({ questionSet: 'triage/v2' }))).rejects.toMatchObject({ cap: 'day' });
 
@@ -197,6 +201,7 @@ describe("the gateway's metrics", () => {
     expect(at(tokens, { ...triage, outcome: 'answered', kind: 'input' })).toBe(1000);
     expect(at(tokens, { ...triage, outcome: 'answered', kind: 'output' })).toBe(12);
     expect(at(await points('gateway.provider.errors'), { ...triage, status: '422' })).toBe(1);
+    expect(at(await points('gateway.provider.errors'), { ...triage, status: '429' })).toBe(1);
     expect(at(await points('gateway.cap.refusals'), { ...triage, cap: 'day' })).toBe(1);
     expect(at(await points('gateway.cap.limit_usd'), { cap: 'month' })).toBe(100);
     await expectNoWorkItems();

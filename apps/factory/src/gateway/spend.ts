@@ -64,7 +64,7 @@ export class Spend {
   readonly #marked = new Set<Cap>();
   #queue: Promise<void> = Promise.resolve();
   #timer: NodeJS.Timeout | undefined;
-  /** The day's and month's spend as last counted, for the metrics: a minute old at most once started. */
+  /** The day's and month's spend as the last reconcile counted it, for the metrics: a minute old at most once started. */
   #counted: { day: number; month: number } | undefined;
   #unobserve: (() => void) | undefined;
 
@@ -85,8 +85,7 @@ export class Spend {
              coalesce(sum(cost_usd), 0)::float8 as month
       from model_calls
       where at >= ${month.start.toISOString()}::timestamptz and at < ${month.end.toISOString()}::timestamptz`;
-    this.#counted = row ?? { day: 0, month: 0 };
-    return this.#counted;
+    return row ?? { day: 0, month: 0 };
   }
 
   async #workItem(workItem: string): Promise<number> {
@@ -109,8 +108,8 @@ export class Spend {
   }
 
   /** The day and month caps now reached, the day's first. */
-  async #reached(): Promise<SpendCapped[]> {
-    const totals = await this.#totals();
+  async #reached(totals?: { day: number; month: number }): Promise<SpendCapped[]> {
+    totals ??= await this.#totals();
     const { day, month } = windowsAt(this.#clock());
     const reached: SpendCapped[] = [];
     if (totals.day >= this.#policy.dayUsd) {
@@ -149,7 +148,10 @@ export class Spend {
   }
 
   async #reconcile(): Promise<void> {
-    const reached = new Map((await this.#reached()).map((cap) => [cap.cap as Cap, cap]));
+    // Counted here alone, one reconcile at a time, so the metrics never go back to an older count.
+    const totals = await this.#totals();
+    this.#counted = totals;
+    const reached = new Map((await this.#reached(totals)).map((cap) => [cap.cap as Cap, cap]));
     for (const [cap, refusal] of reached) {
       if (this.#marked.has(cap)) continue;
       const event: NewEvent<'spend.capped'> = {

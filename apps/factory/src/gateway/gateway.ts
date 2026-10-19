@@ -140,7 +140,16 @@ export class Gateway {
       if (mode === 'replay' || !typesafe) throw new CassetteMissing(key);
 
       await spend.check(workItem);
-      const { response, body } = await typesafe.judge(sent);
+      // Each failed attempt is the provider's error, the ones TypeSafe retried included; a cassette that no longer
+      // reads is not.
+      const { response, body } = await typesafe.judge(sent, (error) =>
+        instruments.providerErrors.add(1, {
+          agent,
+          provider: PROVIDER,
+          model: call.model,
+          status: error.status ? String(error.status) : error.kind,
+        }),
+      );
       const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens };
       const judgement = await this.#finish(
         call,
@@ -233,12 +242,10 @@ export class Gateway {
     instruments.latency.record(call.durationMs, attributes);
     const series = { agent: call.agent, provider: PROVIDER, model: call.model };
     if (call.costUsd > 0) instruments.spend.add(call.costUsd, series);
-    if (call.outcome === 'answered' || call.outcome === 'replayed') {
+    if (call.inputTokens > 0)
       instruments.tokens.add(call.inputTokens, { ...series, outcome: call.outcome, kind: 'input' });
+    if (call.outputTokens > 0)
       instruments.tokens.add(call.outputTokens, { ...series, outcome: call.outcome, kind: 'output' });
-    }
-    if (error instanceof ProviderError)
-      instruments.providerErrors.add(1, { ...series, status: error.status ? String(error.status) : error.kind });
     if (error instanceof SpendCapped) instruments.capRefusals.add(1, { ...series, cap: error.cap });
     const level = call.outcome === 'failed' ? 'error' : call.outcome === 'refused' ? 'warn' : 'info';
     log[level](
