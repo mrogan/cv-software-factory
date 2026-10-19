@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { objectives } from '../../../policy/objectives.ts';
-import { DEPLOY, manifests } from './deploy.ts';
+import { DEPLOY, manifests, PROMETHEUS } from './deploy.ts';
 
 /**
  * The pod log collector as deploy/ declares it (#385): one on each node, in `pod-logs`, reading every container's log
@@ -12,7 +12,8 @@ import { DEPLOY, manifests } from './deploy.ts';
  */
 interface Values {
   mode: string;
-  ports: Record<string, { enabled: boolean }>;
+  podAnnotations: Record<string, string>;
+  ports: Record<string, { enabled: boolean; containerPort?: number }>;
   serviceAccount: { automountServiceAccountToken: boolean };
   alternateConfig: {
     receivers: Record<
@@ -24,8 +25,13 @@ interface Values {
       string,
       { endpoint: string; sending_queue?: { storage?: string }; retry_on_failure?: { max_elapsed_time?: number } }
     >;
-    extensions: Record<string, { directory?: string }>;
-    service: { pipelines: Record<string, { receivers: string[]; processors: string[]; exporters: string[] }> };
+    extensions: Record<string, { directory?: string; endpoint?: string }>;
+    service: {
+      telemetry?: {
+        metrics?: { readers?: { pull?: { exporter?: { prometheus?: { host: string; port: number } } } }[] };
+      };
+      pipelines: Record<string, { receivers: string[]; processors: string[]; exporters: string[] }>;
+    };
   };
   extraVolumes: { name: string; hostPath?: { path: string } }[];
   extraVolumeMounts: { name: string; mountPath: string; readOnly?: boolean }[];
@@ -44,7 +50,7 @@ interface Manifest {
     sources?: { chart?: string; targetRevision?: string }[];
     podSelector?: { matchLabels?: Record<string, string> };
     policyTypes?: string[];
-    ingress?: unknown[];
+    ingress?: { from?: Peer[]; ports?: { protocol: string; port: number }[] }[];
     egress?: { to?: Peer[]; ports?: { protocol: string; port: number }[] }[];
   };
 }
@@ -112,9 +118,23 @@ describe('the pod log collector', () => {
     expect(alternateConfig.receivers.file_log?.retry_on_failure?.max_elapsed_time).toBe(0);
   });
 
-  it('runs as root with every capability dropped, listens on nothing, and has no token', async () => {
+  it('serves its own metrics on 8888 at its pod’s address, and asks Prometheus to scrape them there', async () => {
+    const { ports, podAnnotations, alternateConfig } = await values();
+    // Its whole configuration replaces the chart's, which would serve them, so it serves them itself, at the pod's own
+    // address as its health check is: the collector's own default is localhost, where nothing can scrape them (#446).
+    const podAddress = alternateConfig.extensions.health_check?.endpoint?.replace(/:13133$/, '');
+    expect(podAddress).toMatch(/MY_POD_IP/);
+    expect(alternateConfig.service.telemetry?.metrics?.readers).toEqual([
+      { pull: { exporter: { prometheus: { host: podAddress, port: 8888 } } } },
+    ]);
+    expect(podAnnotations).toEqual({ 'prometheus.io/scrape': 'true', 'prometheus.io/port': '8888' });
+    expect(ports.metrics?.containerPort).toBe(8888);
+  });
+
+  it('runs as root with every capability dropped, listens on its metrics and health check alone, and has no token', async () => {
     const { ports, serviceAccount, podSecurityContext, securityContext } = await values();
-    expect(Object.entries(ports).filter(([, port]) => port.enabled)).toEqual([]);
+    // Its health check's port is the chart's own, outside `ports`, and the kubelet probes it from the node.
+    expect(Object.keys(ports).filter((name) => ports[name]?.enabled)).toEqual(['metrics']);
     expect(serviceAccount.automountServiceAccountToken).toBe(false);
     expect(podSecurityContext).toMatchObject({ runAsUser: 0, seccompProfile: { type: 'RuntimeDefault' } });
     expect(securityContext).toEqual({
@@ -149,13 +169,28 @@ describe('the pod log collector', () => {
     });
   });
 
-  it('is fenced: nothing reaches it, and it reaches Loki and DNS alone', async () => {
+  it('is fenced: only Prometheus reaches it, on its metrics, and it reaches Loki and DNS alone', async () => {
     const policies = (await manifests<Manifest>())
       .filter(({ manifest, namespace }) => manifest.kind === 'NetworkPolicy' && namespace === 'pod-logs')
       .map(({ manifest }) => manifest);
     const deny = policies.find((p) => p.metadata?.name === 'default-deny');
     expect(deny?.spec).toEqual({ podSelector: {}, policyTypes: ['Ingress', 'Egress'] });
-    expect(policies.flatMap((p) => p.spec?.ingress ?? [])).toEqual([]);
+    const reachedBy = policies.flatMap((p) =>
+      (p.spec?.ingress ?? []).flatMap((rule) =>
+        (rule.from ?? [{}]).map((peer) => ({
+          to: p.spec?.podSelector?.matchLabels,
+          peer,
+          ports: (rule.ports ?? []).map((port) => `${port.protocol}/${port.port}`),
+        })),
+      ),
+    );
+    expect(reachedBy).toEqual([
+      {
+        to: { 'app.kubernetes.io/name': 'opentelemetry-collector' },
+        peer: PROMETHEUS,
+        ports: ['TCP/8888'],
+      },
+    ]);
     const egress = policies.flatMap((p) => p.spec?.egress ?? []);
     const reaches = egress.flatMap((rule) =>
       (rule.to ?? [{}]).map((peer) => ({

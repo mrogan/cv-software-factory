@@ -36,9 +36,10 @@
 # or the internet.
 #
 # Then the platform's metrics, which Prometheus's server scrapes across the fences: a pod labelled like it reaches
-# Kyverno's two controllers on 8000, Argo Rollouts' controller on 8090 and the Postgres exporter on 9187, and the
-# stranger in `telemetry`, labelled otherwise, reaches none of them. And a pod labelled like the exporter reaches
-# Postgres, and nothing else: not the collector, the gateway, the app, the Kubernetes API or the internet.
+# Kyverno's two controllers on 8000, Argo Rollouts' controller on 8090, the Postgres exporter on 9187 and the pod log
+# collector on 8888, and the stranger in `telemetry`, labelled otherwise, reaches none of them. And a pod labelled like
+# the exporter reaches Postgres, and nothing else: not the collector, the gateway, the app, the Kubernetes API or the
+# internet.
 #
 # Then the scoreboard, which holds the answer key (milestone 6): it reaches Postgres, and nothing else: not the
 # collector, the gateway, the GitHub worker, the console, the probes, Prometheus, Loki, the app, the Kubernetes API, the
@@ -99,6 +100,11 @@ for deployment in "${workers[@]}" telemetry/query "${scraped[@]}"; do
     exit 1
   fi
 done
+# The pod log collector, which Prometheus scrapes too, is a DaemonSet.
+if ! kubectl --context "$context" -n pod-logs rollout status daemonset/pod-logs --timeout=3m >/dev/null; then
+  echo "pod-logs/pod-logs has not rolled out: run this again when it has." >&2
+  exit 1
+fi
 cleanup() {
   rm -f "${exec_errors:-}"
   # Each delete goes on whether the one before failed, so no probe pod is left behind.
@@ -226,15 +232,19 @@ ip() { kubectl --context "$context" -n "$1" get service "$2" -o jsonpath='{.spec
 gateway_ip=$(ip factory gateway) line_ip=$(ip factory line) github_ip=$(ip factory github)
 api_ip=$(ip default kubernetes) postgres_ip=$(ip factory postgres) console_ip=$(ip factory console)
 website_ip=$(ip website website)
-# Argo Rollouts' controller and the Postgres exporter have no Service: their pods are scraped where they are. A pod a
-# ReplicaSet made has its template's hash, and the pods this starts do not; one shutting down is passed over. With none,
-# the address is empty, and each check of it FAILs ("failed", which proves nothing either way) while the rest go on.
+# Argo Rollouts' controller, the Postgres exporter and the pod log collector have no Service: their pods are scraped
+# where they are. A pod a ReplicaSet made has its template's hash ($3, by default), one a DaemonSet made its revision's,
+# and the pods this starts have neither; one shutting down is passed over, and a ready one is taken before one that is
+# not, such as a pod restarting. With none, the address is empty, and each check of it FAILs ("failed", which proves
+# nothing either way) while the rest go on.
 pod_ip() {
-  kubectl --context "$context" -n "$1" get pods -l "$2,pod-template-hash" -o json | jq -r '
-    [.items[] | select(.status.phase == "Running" and .metadata.deletionTimestamp == null)][0].status.podIP // ""'
+  kubectl --context "$context" -n "$1" get pods -l "$2,${3:-pod-template-hash}" -o json | jq -r '
+    [.items[] | select(.status.phase == "Running" and .metadata.deletionTimestamp == null)]
+    | sort_by(any(.status.conditions[]?; .type == "Ready" and .status == "True") | not)[0].status.podIP // ""'
 }
 rollouts_ip=$(pod_ip argo-rollouts app.kubernetes.io/name=argo-rollouts)
 exporter_ip=$(pod_ip factory app.kubernetes.io/name=postgres-exporter)
+pod_logs_ip=$(pod_ip pod-logs app.kubernetes.io/name=opentelemetry-collector controller-revision-hash)
 node_ip=$(kubectl --context "$context" get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
 
 # A worker's labels, which is what a compromised one would have.
@@ -507,6 +517,7 @@ scrapes "Kyverno's admission controller" http://kyverno-svc-metrics.kyverno:8000
 scrapes "Kyverno's reports controller" http://kyverno-reports-controller-metrics.kyverno:8000/metrics
 scrapes "Argo Rollouts' controller" "http://$rollouts_ip:8090/metrics"
 scrapes "the Postgres exporter" "http://$exporter_ip:9187/metrics"
+scrapes "the pod log collector" "http://$pod_logs_ip:8888/metrics"
 expect "a worker beside the exporter cannot reach it" "$pod" "http://$exporter_ip:9187/metrics" blocked
 
 echo "A pod labelled like the Postgres exporter (egress-postgres-exporter):"
