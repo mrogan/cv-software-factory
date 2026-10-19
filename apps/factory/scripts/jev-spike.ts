@@ -11,9 +11,8 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DiskArtifacts, EventWriter, migrate } from '@software-factory/store';
+import { connect, DiskArtifacts, EventWriter, migrate } from '@software-factory/store';
 import { pino } from 'pino';
-import postgres from 'postgres';
 import { SPEND } from '../../../policy/spend.ts';
 import { Cassettes } from '../src/gateway/cassettes.ts';
 import { Gateway } from '../src/gateway/gateway.ts';
@@ -30,7 +29,7 @@ if (!DATABASE_URL || !TYPESAFE_API_KEY || !out) {
 }
 
 const log = pino(logOptions('warn'));
-const sql = postgres(DATABASE_URL, { onnotice: () => {} });
+const sql = connect(DATABASE_URL);
 await migrate(sql);
 const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts(tmpdir()) });
 const gateway = new Gateway({

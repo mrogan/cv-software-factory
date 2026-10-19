@@ -170,9 +170,13 @@ export class TypeSafe {
   /**
    * Asks the questions. Returns the answers, checked, and the body exactly as it came, which is what a cassette
    * keeps. Retries a rate limit, an overload, a server error, a timeout and a dropped connection, with
-   * exponential backoff and jitter, and waits as long as `Retry-After` asks (up to 30 seconds).
+   * exponential backoff and jitter, and waits as long as `Retry-After` asks (up to 30 seconds). `failed` hears of
+   * every attempt that failed, the ones retried included.
    */
-  async judge(input: unknown): Promise<{ response: TypeSafeResponse; body: string }> {
+  async judge(
+    input: unknown,
+    failed?: (error: ProviderError) => void,
+  ): Promise<{ response: TypeSafeResponse; body: string }> {
     const checked = request.safeParse(input);
     if (!checked.success)
       throw new BadRequest(`TypeSafe would refuse this request (${problemsOf(checked.error).join('; ')}).`);
@@ -183,6 +187,7 @@ export class TypeSafe {
         const body = await this.#attempt(sent);
         return { response: parseResponse(sent, body), body };
       } catch (error) {
+        if (error instanceof ProviderError) failed?.(error);
         if (!(error instanceof ProviderError) || !retryable(error) || attempt >= maxRetries) throw error;
         const ceiling = Math.min(MAX_WAIT_MS, BACKOFF_MS * 2 ** attempt);
         const waitMs = Math.min(MAX_WAIT_MS, error.retryAfterMs ?? ceiling / 2 + (random() * ceiling) / 2);

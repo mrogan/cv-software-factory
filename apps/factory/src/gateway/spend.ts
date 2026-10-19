@@ -16,6 +16,7 @@ import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import type { Profile, SpendPolicy } from '../../../../policy/spend.ts';
 import { SpendCapped } from './errors.ts';
+import { observeCaps } from './metrics.ts';
 
 type Cap = 'day' | 'month';
 
@@ -63,6 +64,9 @@ export class Spend {
   readonly #marked = new Set<Cap>();
   #queue: Promise<void> = Promise.resolve();
   #timer: NodeJS.Timeout | undefined;
+  /** The day's and month's spend as the last reconcile counted it, for the metrics: a minute old at most once started. */
+  #counted: { day: number; month: number } | undefined;
+  #unobserve: (() => void) | undefined;
 
   constructor({ sql, events, profile, policy, log, clock = () => new Date() }: SpendOptions) {
     this.#sql = sql;
@@ -104,8 +108,8 @@ export class Spend {
   }
 
   /** The day and month caps now reached, the day's first. */
-  async #reached(): Promise<SpendCapped[]> {
-    const totals = await this.#totals();
+  async #reached(totals?: { day: number; month: number }): Promise<SpendCapped[]> {
+    totals ??= await this.#totals();
     const { day, month } = windowsAt(this.#clock());
     const reached: SpendCapped[] = [];
     if (totals.day >= this.#policy.dayUsd) {
@@ -144,7 +148,10 @@ export class Spend {
   }
 
   async #reconcile(): Promise<void> {
-    const reached = new Map((await this.#reached()).map((cap) => [cap.cap as Cap, cap]));
+    // Counted here alone, one reconcile at a time, so the metrics never go back to an older count.
+    const totals = await this.#totals();
+    this.#counted = totals;
+    const reached = new Map((await this.#reached(totals)).map((cap) => [cap.cap as Cap, cap]));
     for (const [cap, refusal] of reached) {
       if (this.#marked.has(cap)) continue;
       const event: NewEvent<'spend.capped'> = {
@@ -199,14 +206,33 @@ export class Spend {
     await this.reconcile();
   }
 
-  /** Looks for a window that has reset about once a minute, so the line hears that calls can resume. */
+  /**
+   * Looks for a window that has reset about once a minute, so the line hears that calls can resume, and reports the
+   * spend against the caps as it last counted it.
+   */
   start(everyMs = 60_000): void {
     this.#timer = setInterval(() => void this.reconcile(), everyMs);
     this.#timer.unref();
+    this.#unobserve ??= observeCaps(() =>
+      this.#counted
+        ? {
+            profile: this.#profile,
+            dayUsd: this.#counted.day,
+            monthUsd: this.#counted.month,
+            limits: {
+              dayUsd: this.#policy.dayUsd,
+              monthUsd: this.#policy.monthUsd,
+              workItemUsd: this.#policy.workItemUsd,
+            },
+          }
+        : undefined,
+    );
   }
 
   async stop(): Promise<void> {
     clearInterval(this.#timer);
+    this.#unobserve?.();
+    this.#unobserve = undefined;
     await this.#queue;
   }
 }

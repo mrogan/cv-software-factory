@@ -9,7 +9,7 @@
  */
 import { createServer } from 'node:http';
 import { parseArgs } from 'node:util';
-import postgres from 'postgres';
+import { connect } from '@software-factory/store';
 import { objectives } from '../../../../policy/objectives.ts';
 import { telemetryFrom } from '../clients/env.ts';
 import { createIntake } from '../intake/server.ts';
@@ -21,11 +21,7 @@ export const USAGE = '  factory intake [--dry-run]';
 export async function run(args: string[]): Promise<number> {
   const { values } = parseArgs({ args, options: { 'dry-run': { type: 'boolean', default: false } } });
   const { DATABASE_URL, PORT } = process.env;
-  const sql = values['dry-run']
-    ? undefined
-    : DATABASE_URL
-      ? postgres(DATABASE_URL, { onnotice: () => {} })
-      : postgres({ onnotice: () => {} });
+  const sql = values['dry-run'] ? undefined : connect(DATABASE_URL);
   const { prometheus, loki } = telemetryFrom();
   const outbox = sql ? inbox(sql) : printing((line) => console.log(line));
 

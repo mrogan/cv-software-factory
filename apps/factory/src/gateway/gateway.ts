@@ -140,7 +140,16 @@ export class Gateway {
       if (mode === 'replay' || !typesafe) throw new CassetteMissing(key);
 
       await spend.check(workItem);
-      const { response, body } = await typesafe.judge(sent);
+      // Each failed attempt is the provider's error, the ones TypeSafe retried included; a cassette that no longer
+      // reads is not.
+      const { response, body } = await typesafe.judge(sent, (error) =>
+        instruments.providerErrors.add(1, {
+          agent,
+          provider: PROVIDER,
+          model: call.model,
+          status: error.status ? String(error.status) : error.kind,
+        }),
+      );
       const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens };
       const judgement = await this.#finish(
         call,
@@ -222,6 +231,9 @@ export class Gateway {
   /** The audit row, the log line and the metrics for one call. */
   async #record(call: Call, error?: unknown): Promise<void> {
     const { sql, log } = this.#options;
+    const series = { agent: call.agent, provider: PROVIDER, model: call.model };
+    // Before the audit row, as for agents: a lost database does not lose the refusal.
+    if (error instanceof SpendCapped) instruments.capRefusals.add(1, { ...series, cap: error.cap });
     await sql`
       insert into model_calls (id, at, agent, work_item, provider, model, question_set, input_tokens, output_tokens,
                                cost_usd, duration_ms, cassette, outcome)
@@ -231,8 +243,11 @@ export class Gateway {
     const attributes = { agent: call.agent, provider: PROVIDER, model: call.model, outcome: call.outcome };
     instruments.calls.add(1, attributes);
     instruments.latency.record(call.durationMs, attributes);
-    if (call.costUsd > 0)
-      instruments.spend.add(call.costUsd, { agent: call.agent, provider: PROVIDER, model: call.model });
+    if (call.costUsd > 0) instruments.spend.add(call.costUsd, series);
+    if (call.inputTokens > 0)
+      instruments.tokens.add(call.inputTokens, { ...series, outcome: call.outcome, kind: 'input' });
+    if (call.outputTokens > 0)
+      instruments.tokens.add(call.outputTokens, { ...series, outcome: call.outcome, kind: 'output' });
     const level = call.outcome === 'failed' ? 'error' : call.outcome === 'refused' ? 'warn' : 'info';
     log[level](
       {

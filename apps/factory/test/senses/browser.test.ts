@@ -77,3 +77,67 @@ describe('the browser a sense uses', () => {
     expect(browser.closed).toBe(true);
   });
 });
+
+/** A page that answers what a finding's proof asks of it, and whose screenshot fails as many times as it is told. */
+function pageWith(failures: number) {
+  const page = {
+    screenshots: 0,
+    setDefaultTimeout: () => {},
+    on: () => {},
+    off: () => {},
+    url: () => 'http://shop.test/',
+    viewportSize: () => ({ width: 1280, height: 800 }),
+    close: async () => {},
+    // An element the check boxed that is not on the page.
+    locator: () => ({ first: () => ({ scrollIntoViewIfNeeded: async () => {}, boundingBox: async () => null }) }),
+    screenshot: async () => {
+      if (page.screenshots++ < failures) throw new Error('Unable to capture screenshot');
+      return new Uint8Array([1]);
+    },
+  };
+  return page;
+}
+
+async function proofOf(page: ReturnType<typeof pageWith>, look: Array<{ selector: string; kind: 'problem' }>) {
+  const warnings: string[] = [];
+  const sense = new BrowserSense({
+    name: 'probe',
+    app: 'http://shop.test',
+    checks: [
+      {
+        id: 'home',
+        route: '/',
+        run: async () => ({ symptom: 'server-error', message: 'The home page answered 500.', evidence: [], look }),
+      },
+    ],
+    store: { put: async () => 'f'.repeat(64) } as never,
+    shared: () => ({}),
+    log: { warn: (_fields, message) => warnings.push(message) },
+    launch: async () =>
+      ({
+        isConnected: () => true,
+        newContext: async () => ({ newPage: async () => page, close: async () => {} }),
+      }) as unknown as Browser,
+  });
+  const [observation] = await sense.pass('a'.repeat(40));
+  return { observation, warnings };
+}
+
+describe("a finding's screenshot", () => {
+  it('is taken once, when the finding asked for no boxes, and a failure says there is none', async () => {
+    const page = pageWith(1);
+    const { observation, warnings } = await proofOf(page, []);
+    expect(observation?.finding?.symptom).toBe('server-error');
+    expect(observation?.artifacts).toEqual([]);
+    expect(page.screenshots).toBe(1);
+    expect(warnings).toEqual(['no screenshot of a finding']);
+  });
+
+  it('is taken again without its boxes when they do not fit', async () => {
+    const page = pageWith(0);
+    const { observation, warnings } = await proofOf(page, [{ selector: 'main', kind: 'problem' }]);
+    expect(observation?.artifacts).toMatchObject([{ kind: 'screenshot', boxes: [] }]);
+    expect(page.screenshots).toBe(1);
+    expect(warnings).toEqual(['the boxes did not fit the screenshot; taking it without']);
+  });
+});

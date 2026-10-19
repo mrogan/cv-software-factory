@@ -26,8 +26,7 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DiskArtifacts } from '@software-factory/store';
-import postgres from 'postgres';
+import { connect, DiskArtifacts } from '@software-factory/store';
 import { capturePage } from '../capture.ts';
 import { log } from '../log.ts';
 import { inbox } from '../outbox.ts';
@@ -97,9 +96,7 @@ async function once(sense: ReturnType<typeof probes>, app: string): Promise<numb
 }
 
 async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskArtifacts): Promise<number> {
-  const sql = process.env.DATABASE_URL
-    ? postgres(process.env.DATABASE_URL, { onnotice: () => {} })
-    : postgres({ onnotice: () => {} });
+  const sql = connect(process.env.DATABASE_URL);
   const index = new PictureIndex(sql);
   const runner = new SenseRunner({
     sense,
