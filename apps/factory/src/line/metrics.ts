@@ -37,7 +37,7 @@ export const OPEN_STAGES = Object.keys(EVERY_STAGE) as OpenStage[];
 /**
  * How a step ended, as the line counts it:
  * - `done`: its result was acted on, and recorded;
- * - `failed` or `out-of-turns`: it counts against the step (it handed back nothing, ended failing, its result was
+ * - `failed` or `max-turns`: it counts against the step (it handed back nothing, ended failing, its result was
  *   refused, or it ran out of turns), and it runs again up to a limit;
  * - `capped`: it ended at a spend cap set while it ran, and runs again when the cap clears;
  * - `stopped`: the line stopped it, and it runs again when the line starts;
@@ -52,7 +52,7 @@ export const OPEN_STAGES = Object.keys(EVERY_STAGE) as OpenStage[];
 export type StepEnding =
   | 'done'
   | 'failed'
-  | 'out-of-turns'
+  | 'max-turns'
   | 'capped'
   | 'stopped'
   | 'stale'
@@ -84,11 +84,10 @@ const verifications = meter.createCounter('line.verifications', {
     'Verifications after a release, by sense, whether the signal cleared or persists, and whether a dry run’s',
 });
 
-// In seconds, named so with no unit given, as the gateway's dollars are: Prometheus's OTLP receiver then adds nothing
-// to the name but its histogram's and counters' own suffixes. A stage can last a minute or a week (a hold over a
-// weekend), so the buckets run from a minute to a week.
-const stageDuration = meter.createHistogram('line.stage.duration.seconds', {
-  description: 'How long a work item was at a stage, in seconds, recorded as it left it',
+// A stage can last a minute or a week (a hold over a weekend), so the buckets run from a minute to a week.
+const stageDuration = meter.createHistogram('line.stage.duration', {
+  description: 'How long a work item was at a stage, recorded as it left it',
+  unit: 's',
   advice: { explicitBucketBoundaries: [60, 300, 900, 1800, 3600, 7200, 14_400, 28_800, 86_400, 172_800, 604_800] },
 });
 
@@ -96,8 +95,9 @@ const workItems = meter.createObservableGauge('line.work_items', {
   description: 'Work items at each stage of the line, as the store has them',
 });
 
-const oldest = meter.createObservableGauge('line.stage.oldest.seconds', {
-  description: 'How long the work item longest at each stage has been there, in seconds; 0 with none',
+const oldest = meter.createObservableGauge('line.stage.oldest', {
+  description: 'How long the work item longest at each stage has been there; 0 with none',
+  unit: 's',
 });
 
 export function countStep(agent: LineAgent, provider: string, outcome: StepEnding): void {

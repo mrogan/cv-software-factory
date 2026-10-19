@@ -1254,8 +1254,7 @@ export class Line {
       if (handback.ending !== 'finished') {
         const ended = handback.ending === 'max-turns' ? 'ran out of turns' : 'failed';
         const why = handback.error ? `: ${handback.error}` : '';
-        const counted = handback.ending === 'max-turns' ? 'out-of-turns' : 'failed';
-        return await this.#failed(workItem, agent, outcome.job, called, `The ${agent} ${ended}${why}`, counted);
+        return await this.#failed(workItem, agent, outcome.job, called, `The ${agent} ${ended}${why}`, handback.ending);
       }
       const pending: Pending = {
         agent,
@@ -1341,7 +1340,7 @@ export class Line {
 
   /**
    * A failed attempt at a step: its calls are recorded, and it counts towards holding the work item. `counted` says
-   * how it failed, for the line's count of steps: out of turns, or any other way.
+   * how it failed, for the line's count of steps: out of turns (`max-turns`), or any other way.
    */
   async #failed(
     workItem: string,
@@ -1349,7 +1348,7 @@ export class Line {
     job: string | null,
     called: Draft[],
     reason: string,
-    counted: Extract<StepEnding, 'failed' | 'out-of-turns'> = 'failed',
+    counted: Extract<StepEnding, 'failed' | 'max-turns'> = 'failed',
   ) {
     // However its agent ended, a step that counts as failed is one on its span.
     trace.getActiveSpan()?.setAttribute(A.outcome, 'failed');

@@ -251,7 +251,7 @@ describe('the line’s metrics', () => {
     expect(await read('line.verifications', { sense: 'probe', outcome: 'cleared', dry_run: false })).toEqual([1]);
     // Each stage it left, once, Build after the two minutes it was made to wait there; never its end. Held for the
     // merge and then for a deploy is one stay at `held`, as the store has it.
-    const stages = await points('line.stage.duration.seconds');
+    const stages = await points('line.stage.duration');
     expect(
       ['plan', 'build', 'gates', 'review', 'held', 'release', 'verify'].map((stage) => at(stages, { stage })),
     ).toEqual([1, 1, 1, 1, 1, 1, 1]);
@@ -268,7 +268,7 @@ describe('the line’s metrics', () => {
     });
     const series = [
       { agent: 'planner', outcome: 'failed' },
-      { agent: 'planner', outcome: 'out-of-turns' },
+      { agent: 'planner', outcome: 'max-turns' },
     ];
     const before = await read('line.steps', ...series);
     const held = (await read('line.holds', { cause: 'failures', stage: 'plan' }))[0] ?? 0;
@@ -378,7 +378,7 @@ describe('the line’s metrics', () => {
       expect(counts.map((p) => p.attributes.stage).sort()).toEqual([...OPEN_STAGES].sort());
       expect(at(counts, { stage: 'held' })).toBe(2);
       expect(at(counts, { stage: 'plan' })).toBe(0);
-      const oldest = await points('line.stage.oldest.seconds');
+      const oldest = await points('line.stage.oldest');
       expect(at(oldest, { stage: 'held' })).toBeGreaterThanOrEqual(7200);
       expect(at(oldest, { stage: 'held' })).toBeLessThan(7300);
       expect(at(oldest, { stage: 'plan' })).toBe(0);
