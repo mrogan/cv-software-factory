@@ -1,5 +1,6 @@
 /**
- * OpenTelemetry for the console: traces, metrics and logs, sent over OTLP to the collector.
+ * OpenTelemetry for the console: traces, metrics and logs, sent over OTLP to the collector, its runtime's health
+ * among the metrics.
  *
  * Preloaded with `node --import ./src/telemetry.ts`, so the instrumentation is in place before the server imports
  * the modules it patches. Configured by the standard OTEL_* environment variables; the endpoint defaults to
@@ -8,6 +9,7 @@
 import { register } from 'node:module';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { PinoInstrumentation } from '@opentelemetry/instrumentation-pino';
+import { RuntimeNodeInstrumentation } from '@opentelemetry/instrumentation-runtime-node';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 
 // ES modules are patched through a loader hook, which has to be registered before they are imported.
@@ -23,6 +25,8 @@ const sdk = new NodeSDK({
       ignoreIncomingRequestHook: (req) => req.url === '/health' || Boolean(req.url?.startsWith('/api/events/stream')),
     }),
     new PinoInstrumentation(),
+    // Its heap, its event loop's delay and use, and its garbage collection, as the factory's workers report theirs.
+    new RuntimeNodeInstrumentation(),
   ],
 });
 sdk.start();
