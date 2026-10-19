@@ -45,7 +45,7 @@ A second collector, `pod-logs`, runs on each node in a namespace of its own and 
 
 ## Routine polling
 
-What repeats many times an hour and says nothing new each time is kept out of the way of what matters. The factory's workers leave out of their traces Kubernetes probing `/health` and the line's release watch reading the app's Rollout and AnalysisRuns every 30 seconds ([`untraced.ts`](../../apps/factory/src/untraced.ts)). A request out made outside any span makes no span, so the polling workers' own rounds (the probes', the crawler's, the log watcher's, traffic's, the line's loop) send nothing to Tempo of what they ask ([the factory's own traces](#the-factorys-own-traces)). A sense logs one warning a run for each route and reason its checks could not tell, naming the checks, not one for each check. Tempo's backend worker logs each empty answer to its asks for work, and backs off up to five minutes between them; Grafana's dashboard sidecar starts its watch again every ten minutes, not every minute, and logs each start.
+What repeats many times an hour and says nothing new each time is kept out of the way of what matters. The factory's workers leave out of their traces Kubernetes probing `/health` and the line's release watch reading the app's Rollout and AnalysisRuns every 30 seconds ([`untraced.ts`](../../apps/factory/src/untraced.ts)). A request out made outside any span makes no span, so the polling workers' own rounds (the probes', the crawler's, the log watcher's, traffic's, and the line's loop outside the spans it starts for a step, a release or a look) send nothing to Tempo of what they ask ([the factory's own traces](#the-factorys-own-traces)). A sense logs one warning a run for each route and reason its checks could not tell, naming the checks, not one for each check. Tempo's backend worker logs each empty answer to its asks for work, and backs off up to five minutes between them; Grafana's dashboard sidecar starts its watch again every ten minutes, not every minute, and logs each start.
 
 ## The platform's own metrics
 
@@ -101,6 +101,20 @@ Two more targets ask Prometheus to scrape them, with the `prometheus.io/` pod an
 ## The factory's own traces
 
 Each worker traces what it is asked over HTTP, and what it asks through `node:http` and `fetch` ([`instrumentations.ts`](../../apps/factory/src/instrumentations.ts)). A request out makes a client span, and sends `traceparent` on, only inside a span, so a call joins the trace of whatever made it: the gateway's calls to its providers sit under the request that asked for them, and the GitHub worker's calls to GitHub under the action that made them. Anthropic, LM Studio and GitHub are sent `traceparent` too: random ids, which name neither the caller nor the work. Outside a span a request out makes no span and sends no trace, only its point in the client's request duration histogram, so the polling workers' rounds stay out of Tempo, and nothing samples: every trace is kept. A Verify rerun the probes are asked for runs as their own round, outside the request that asked for it.
+
+The line and the gateway start spans of their own, so one trace follows a work item from the line through its runner's calls to the gateway and the GitHub worker ([`spans.ts`](../../apps/factory/src/spans.ts)):
+
+| Span | Started by | Attributes | Under it |
+|---|---|---|---|
+| `step` | the line, for each agent's step | `work_item`, `agent`, `job`, `outcome` | its reads and writes in GitHub, its Kubernetes calls (not its polls of its Jobs), and each `model call` of its job |
+| `step effects` | the line, trying a kept handback's effects again | `work_item`, `agent`, `job` | its writes in GitHub |
+| `release` | the line, for each pass of its release watch that reads or records something of a release, and each recording of a dry run's | `release`, `dry_run`, `work_items` | a watched release's reads through the GitHub worker, of Prometheus and of the journeys' pods, and the failed measures it sends triage |
+| `verify`, `recheck` | the line, for each look by a sense | `work_item`, `release` (Verify's), `outcome` | its first ask of the probes (not its polls for the answer) and the telemetry it reads |
+| `model call` | the gateway, for each call it takes from a runner | `work_item`, `job`, `agent`, `provider`, `model`, `outcome`, `reason`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cost_usd` | the provider's call |
+
+- **A model call joins its step through the job token.** The line keeps the step's span context with the token as it makes it (`job_tokens.traceparent`), and the gateway starts the call's span as that span's child, linked to the request that carried it; its `model call` log line names the step's trace. The runner needs nothing, which suits a pod that cannot reach the collector. A token made with no span in hand (the bench's) puts the call under the request instead.
+- **The names are those the gateway's metrics, its log line and the store already use,** in snake case, so a dashboard reads a span, a series and a row alike. A metric takes only the few-valued ones (`agent`, `provider`, `model`, `outcome`); a work item or a job would make a series of each.
+- **A step's span ends with the step,** up to its deadline, so Tempo shows its calls first and the step once it is over. A line that restarts mid-step never sends that step's span, and its calls' spans point to a parent Tempo does not have.
 
 ## Telling a canary from its baseline
 

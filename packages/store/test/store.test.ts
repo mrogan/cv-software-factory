@@ -90,6 +90,7 @@ describe('migrations', () => {
       { version: 18, name: 'metrics-reader' },
       { version: 19, name: 'job-tokens-by-work-item' },
       { version: 20, name: 'prune-inbox' },
+      { version: 21, name: 'job-token-trace' },
     ]);
   });
 });

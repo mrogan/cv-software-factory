@@ -29,6 +29,7 @@
  *
  * The windows, counts and runs are `policy/release.ts`'s `verify`.
  */
+import { context, ROOT_CONTEXT } from '@opentelemetry/api';
 import type { Evidence, PayloadOf, Sense, SignalSource, SymptomClass } from '@software-factory/events';
 import { clearedOnWords, SENSES, sameVersion } from '@software-factory/events';
 import { evidence as evidenceSchema } from '@software-factory/events/schemas';
@@ -576,6 +577,7 @@ const verifyAnswer = z.object({
 /**
  * The probes worker over HTTP. Asking starts the verification, and asking again collects its answer: a crawl run four
  * times takes longer than a request may wait. It asks every `pollMs` until there is an answer, or `deadlineMs` passes.
+ * Only the first ask is traced, inside the look's span: asking again is polling, and a span for each would bury it.
  */
 export class ProbesClient implements ProbesPort {
   readonly #url: string;
@@ -592,13 +594,15 @@ export class ProbesClient implements ProbesPort {
 
   async verify(request: VerifyRequest, signal?: AbortSignal): Promise<VerifyAnswer> {
     const deadline = Date.now() + this.#deadlineMs;
-    for (;;) {
-      const response = await this.#fetch(`${this.#url}/v1/verify`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(request),
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
-      });
+    for (let asked = context.active(); ; asked = ROOT_CONTEXT) {
+      const response = await context.with(asked, () =>
+        this.#fetch(`${this.#url}/v1/verify`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(request),
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+        }),
+      );
       if (response.status === 200) return verifyAnswer.parse(await response.json());
       if (response.status !== 202) throw new Error(`The probes answered a verification with ${response.status}`);
       await response.body?.cancel();

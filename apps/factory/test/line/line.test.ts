@@ -1,6 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { trace } from '@opentelemetry/api';
 import { type InboxSignal, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,8 +15,10 @@ import { GitHubWorker, GitHubWorkerError } from '../../src/github/worker-client.
 import { commentOf } from '../../src/line/review.ts';
 import { APP_REPOSITORY, Line, type LineOptions, signalId } from '../../src/line/worker.ts';
 import { quiet } from '../github/fake.ts';
+import { recordSpans } from '../tracing.ts';
 import { type Agent, FakeGitHub, FakeProbes, FakeSteps, MAIN } from './fakes.ts';
 
+const { spans } = recordSpans();
 let database: Database;
 let events: EventWriter;
 beforeEach(async () => {
@@ -174,6 +177,45 @@ const stage = async (workItem: string) =>
   (await database.writer<{ stage: string }[]>`select stage from line where work_item = ${workItem}`)[0]?.stage;
 
 describe('the line', () => {
+  it('runs each step in a span named for its work item, agent and job, with what the step writes in GitHub inside it', async () => {
+    const workItem = await ticket();
+    const { pass, github, steps } = line();
+    const inside: { action: string; span: string | undefined }[] = [];
+    const act = github.act.bind(github);
+    github.act = ((action, repo, args, on) => {
+      inside.push({ action, span: trace.getActiveSpan()?.spanContext().spanId });
+      return act(action, repo, args, on);
+    }) as typeof github.act;
+    const ran: (string | undefined)[] = [];
+    const run = steps.run.bind(steps);
+    steps.run = (request) => {
+      ran.push(trace.getActiveSpan()?.spanContext().spanId);
+      return run(request);
+    };
+
+    await pass(); // the issue, and the planner
+    await pass(); // the coder
+
+    const [planner, coder] = spans('step');
+    expect(planner?.attributes).toEqual({
+      work_item: workItem,
+      agent: 'planner',
+      job: `planner-${workItem}-1-1`,
+      outcome: 'finished',
+    });
+    expect(coder?.attributes).toMatchObject({ agent: 'coder', job: `coder-${workItem}-1-2`, outcome: 'finished' });
+    // The runner is asked inside the step's span, which it keeps with the job's token for the gateway.
+    expect(ran).toEqual([planner?.spanContext().spanId, coder?.spanContext().spanId]);
+    // Opening the issue is the line's own; the coder's writes are its step's.
+    expect(inside).toEqual([
+      { action: 'openIssue', span: undefined },
+      ...['setBranch', 'applyPatch', 'openPullRequest'].map((action) => ({
+        action,
+        span: coder?.spanContext().spanId,
+      })),
+    ]);
+  });
+
   it('carries a ticket through plan, build, gates, review and description to Martin’s merge', async () => {
     const workItem = await ticket();
     const probes = new FakeProbes({ outcome: 'cleared', version: 'v0.9.4', runs: ['passed', 'passed'] });

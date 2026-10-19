@@ -4,7 +4,8 @@
  *     token → volume → prepare Job → agent Job → handback (or the job failing, or its deadline) → token ended
  *
  * The job token is made before the agent pod starts and ended when the step is over, however it ends, so the gateway
- * and the handback refuse it from then on. The Jobs are deleted afterwards, and their pods with them, so first each
+ * and the handback refuse it from then on. It keeps the step's span, the one active as `run` is called, so the
+ * gateway's spans for the job's calls join the work item's trace (`spans.ts`). The Jobs are deleted afterwards, and their pods with them, so first each
  * pod's log is read and kept with the step (`logs.ts`). The volume stays for the next step, until the work item merges
  * or is over (`finish`).
  *
@@ -20,6 +21,7 @@
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage, RequestListener } from 'node:http';
 import { isIP } from 'node:net';
+import { type Context, context, propagation, ROOT_CONTEXT } from '@opentelemetry/api';
 import { endJobToken, issueJobToken, jobForToken } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
@@ -154,7 +156,14 @@ export class Runners {
     const names = { job, workItem };
     const jobs = `/apis/batch/v1/namespaces/${NAMESPACE}/jobs`;
     if (signal?.aborted) return { kind: 'stopped', job };
-    const token = await issueJobToken(sql, { job, workItem, agent: step.agent });
+    // The step's span, if one is active, goes with the token, so the gateway starts the job's calls under it.
+    const { traceparent } = traceOf(context.active());
+    const token = await issueJobToken(sql, {
+      job,
+      workItem,
+      agent: step.agent,
+      ...(traceparent ? { traceparent } : {}),
+    });
     this.#running.set(job, { workItem, agent: step.agent });
     const stop = () => void this.#stop(job);
     signal?.addEventListener('abort', stop);
@@ -346,7 +355,8 @@ export class Runners {
   ): Promise<'succeeded' | 'failed' | 'ran out of time' | 'vanished'> {
     const until = this.#now() + withinSeconds * 1000;
     while (this.#now() < until) {
-      const job = await this.#o.kube.get(path, JOB);
+      // Outside the step's span: a read every poll, for as long as the step runs, would bury the step's calls.
+      const job = await context.with(ROOT_CONTEXT, () => this.#o.kube.get(path, JOB));
       if (!job) return 'vanished';
       if (job.status?.succeeded) return 'succeeded';
       const failed = job.status?.conditions?.find((c) => c.type === 'Failed' && c.status === 'True');
@@ -406,6 +416,13 @@ export class Runners {
       }
     };
   }
+}
+
+/** A context's span, as the W3C headers would carry it: none when no span is active or telemetry is off. */
+function traceOf(active: Context): { traceparent?: string } {
+  const carrier: { traceparent?: string } = {};
+  propagation.inject(active, carrier);
+  return carrier;
 }
 
 /** How a step ended, as its logs are kept with it, and why when it failed. */

@@ -61,6 +61,7 @@
  * It acts in GitHub only through the GitHub worker, and every agent's model through the gateway: it holds no key.
  */
 import { hostname } from 'node:os';
+import { trace } from '@opentelemetry/api';
 import type { Evidence, PayloadOf, RawEvent, SignalSource, SymptomClass } from '@software-factory/events';
 import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD, workItemsWords } from '@software-factory/events';
 import { type EventWriter, sendSignal } from '@software-factory/store';
@@ -82,6 +83,7 @@ import type {
 import { GitHubWorkerError } from '../github/worker-client.ts';
 import type { PictureIndex } from '../pictures/index.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
+import { ATTRIBUTES as A, inSpan } from '../spans.ts';
 import {
   type Bounds,
   boundsOn,
@@ -552,7 +554,8 @@ export class Line {
         if (!claimed) return;
         await this.#queue.move(item.workItem, stage);
         const workItem = item.workItem;
-        const done = this.#look(workItem, next.release, this.#halt.signal)
+        const look = { [A.workItem]: workItem, [A.release]: next.release.release };
+        const done = inSpan('verify', look, () => this.#look(workItem, next.release, this.#halt.signal))
           .catch((error: unknown) => {
             this.#lookAgainAt.set(workItem, this.#o.now().getTime() + this.#o.verifyEveryMs);
             this.#o.log.warn({ workItem, err: error }, 'Verify could not look: it looks again later');
@@ -570,7 +573,10 @@ export class Line {
         if (!claimed) return;
         await this.#queue.move(item.workItem, stage);
         const workItem = item.workItem;
-        const done = this.#recheck(workItem, next.for, fold(events), this.#halt.signal)
+        const { for: occasion } = next;
+        const done = inSpan('recheck', { [A.workItem]: workItem }, () =>
+          this.#recheck(workItem, occasion, fold(events), this.#halt.signal),
+        )
           .catch((error: unknown) => {
             this.#lookAgainAt.set(workItem, this.#o.now().getTime() + this.#o.verifyEveryMs);
             this.#o.log.warn({ workItem, err: error }, 'could not look again: it looks again later');
@@ -624,10 +630,15 @@ export class Line {
         await this.#queue.move(workItem, stage);
         this.#volumeGone.delete(workItem);
         const state = fold(events);
+        const { agent, round } = next;
         const done = (
           effects
-            ? this.#effects(claimed, state, effects).finally(() => this.#release(workItem))
-            : this.#step(claimed, next.agent, next.round, state, last, this.#halt.signal)
+            ? inSpan('step effects', { [A.workItem]: workItem, [A.agent]: agent, [A.job]: effects.job }, () =>
+                this.#effects(claimed, state, effects),
+              ).finally(() => this.#release(workItem))
+            : inSpan('step', { [A.workItem]: workItem, [A.agent]: agent }, () =>
+                this.#step(claimed, agent, round, state, last, this.#halt.signal),
+              )
         )
           .catch((error: unknown) => this.#o.log.error({ workItem, err: error }, 'a step could not be recorded'))
           .finally(() => this.#inFlight.delete(workItem));
@@ -849,6 +860,7 @@ export class Line {
     } catch (error) {
       found = { kind: 'wait', why: `the sense could not be asked: ${messageOf(error)}` };
     }
+    trace.getActiveSpan()?.setAttribute(A.outcome, found.kind === 'finished' ? found.verification.outcome : found.kind);
     if (signal.aborted) return;
     // A release promoted while the sense looked: what it saw was of a version no longer stable. Look again at once.
     if (found.kind === 'finished' && !target.dryRun) {
@@ -1003,6 +1015,7 @@ export class Line {
     } catch (error) {
       found = { kind: 'wait', why: `the sense could not be asked: ${messageOf(error)}` };
     }
+    trace.getActiveSpan()?.setAttribute(A.outcome, found.kind === 'finished' ? found.verification.outcome : found.kind);
     if (signal.aborted) return;
     // A release promoted while the sense looked: what it saw was of a version no longer stable. Look again.
     if (found.kind === 'finished' && (await this.#latestPromotion())?.release !== promotion.release) {
@@ -1203,6 +1216,10 @@ export class Line {
         deadlineSeconds: bounds.deadlineSeconds,
         signal,
       });
+      trace.getActiveSpan()?.setAttributes({
+        [A.job]: outcome.job,
+        [A.outcome]: outcome.kind === 'handed-back' ? outcome.handback.ending : outcome.kind,
+      });
       if (outcome.kind === 'stopped') {
         this.#o.log.info({ workItem, agent, job: outcome.job }, 'a step stopped with the line; it runs again on start');
         return;
@@ -1307,6 +1324,8 @@ export class Line {
 
   /** A failed attempt at a step: its calls are recorded, and it counts towards holding the work item. */
   async #failed(workItem: string, agent: LineAgent, job: string | null, called: Draft[], reason: string) {
+    // However its agent ended, a step that counts as failed is one on its span.
+    trace.getActiveSpan()?.setAttribute(A.outcome, 'failed');
     await this.#append(workItem, called);
     await this.#queue.failed(workItem, reason);
     this.#o.log.warn({ workItem, agent, job, reason }, 'a step failed');
