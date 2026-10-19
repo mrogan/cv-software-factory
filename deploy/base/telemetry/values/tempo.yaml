@@ -14,8 +14,7 @@ tempo:
     allowPrivilegeEscalation: false
     capabilities:
       drop: [ALL]
-  # Searches took it to 900Mi of the 1Gi it had before the metrics generator, which holds each edge's series and the
-  # spans it waits to pair.
+  # Searches take it to 900Mi or so, and the metrics generator holds each edge's series and the spans it waits to pair.
   resources:
     requests:
       cpu: 50m
@@ -52,13 +51,19 @@ tempo:
   # The metrics generator, for the service graph alone: each pair of a client span and the server span under it, across
   # services, is an edge from one to the other, counted with its latency and failures, and written to Prometheus as
   # `traces_service_graph_*`, which Grafana's Tempo data source draws (values/grafana.yaml). Span metrics, a series for
-  # each span name and its attributes, are off. The edges carry each side's `service.name` and nothing else of a span,
-  # so a series is never a work item or a route; and only these series are written, and only by Tempo
-  # (prometheus-fence.yaml). Nothing the senses, the alerts or the canary's analysis read is named `traces_`.
+  # each span name and its attributes, are off. A node is a service's `service.name`, or, for a call out that no
+  # service of ours answered, the host it called (`server.address`) or the database system (`db.system`): never
+  # Tempo's defaults, `peer.service` and `db.name`, which a span may set to anything. Only these series are written,
+  # and only Tempo writes them (prometheus-fence.yaml). Nothing the senses, the alerts or the canary's analysis read is
+  # named `traces_`: any sender names its own service, so an edge is a picture, not evidence.
   #
   # Each minute, as Prometheus scrapes, it writes what it has counted; what it could not write yet waits on the volume.
   metricsGenerator:
     enabled: true
+    processor:
+      service_graphs:
+        peer_attributes: [server.address]
+        database_name_attributes: [db.system]
     registry:
       collection_interval: 1m
     storage:

@@ -219,7 +219,7 @@ describe('the service graph', () => {
     tempo: {
       metricsGenerator: {
         enabled: boolean;
-        processor?: unknown;
+        processor: { service_graphs: Record<string, unknown> };
         storage: { remote_write: { url: string; write_relabel_configs: unknown[] }[] };
       };
       overrides: { defaults: { metrics_generator: { processors: string[] } } };
@@ -229,9 +229,12 @@ describe('the service graph', () => {
   it('is all Tempo’s metrics generator makes, and all it writes, to Prometheus', async () => {
     const { tempo } = parse(await readFile(join(DEPLOY, 'base/telemetry/values/tempo.yaml'), 'utf-8')) as TempoValues;
     expect(tempo.metricsGenerator.enabled).toBe(true);
-    // Span metrics off; the service graph with Tempo's own labels alone, each side's service, never a span's attribute.
+    // Span metrics off. A node is a service, or the host or database system a call out reached: not Tempo's defaults,
+    // `peer.service` and `db.name`, which a span may set to anything; and no span attribute is a label of its own.
     expect(tempo.overrides.defaults.metrics_generator.processors).toEqual(['service-graphs']);
-    expect(tempo.metricsGenerator.processor).toBeUndefined();
+    expect(tempo.metricsGenerator.processor).toEqual({
+      service_graphs: { peer_attributes: ['server.address'], database_name_attributes: ['db.system'] },
+    });
     expect(tempo.metricsGenerator.storage.remote_write).toEqual([
       {
         url: 'http://prometheus-server.telemetry/api/v1/write',

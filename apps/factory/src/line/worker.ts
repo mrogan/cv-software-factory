@@ -219,7 +219,7 @@ const ISSUE_GONE = [403, 404, 410];
 /** How long a work item stays leased for an action that is not a step. */
 const ACTION_LEASE_SECONDS = 300;
 /** A step's lease: its deadline, ten minutes to prepare, and some to spare. */
-const leaseFor = (deadlineSeconds: number) => deadlineSeconds + 900;
+export const leaseFor = (deadlineSeconds: number) => deadlineSeconds + 900;
 /** The lease for a handback's effects, renewed before them: a few writes in GitHub, each up to two minutes. */
 const EFFECTS_LEASE_SECONDS = 900;
 /** The lease for a look at Verify: the probes' half hour for a crawl run up to four times, and some to spare. */

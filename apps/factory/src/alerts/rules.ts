@@ -69,7 +69,12 @@ interface Recording {
   record: string;
   expr: string;
   labels?: Record<string, string>;
+  /** Over hours or days: evaluated every `SLOW_INTERVAL`, not every minute, as it barely moves in one. */
+  slow?: true;
 }
+
+/** How often the rules over hours or days are evaluated. */
+export const SLOW_INTERVAL = '5m';
 
 /** The windows the share of bad requests is recorded over: two for how fast the budget burns, and the budget's own. */
 export const BUDGET_WINDOWS = ['1h', '6h', '7d'] as const;
@@ -112,17 +117,24 @@ export function budgetRulesFor(o: Objectives): Recording[] {
       expr: allowed(1 - o.latency.percentile),
       labels: { objective: OBJECTIVES.latency },
     },
-    ...BUDGET_WINDOWS.map((w) => ({
-      record: `website:requests_bad:ratio_rate${w}`,
-      expr: `sum_over_time(website:requests_bad:rate5m[${w}]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[${w}]) > 0)`,
-    })),
-    ...BUDGET_WINDOWS.filter((w) => w !== '7d').map((w) => ({
-      record: `website:error_budget_burn:rate${w}`,
-      expr: `website:requests_bad:ratio_rate${w} / on (objective) website:error_budget:ratio`,
-    })),
+    ...BUDGET_WINDOWS.flatMap((w) => {
+      const slow = w === '1h' ? {} : { slow: true as const };
+      const ratio = {
+        record: `website:requests_bad:ratio_rate${w}`,
+        expr: `sum_over_time(website:requests_bad:rate5m[${w}]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[${w}]) > 0)`,
+        ...slow,
+      };
+      const burn = {
+        record: `website:error_budget_burn:rate${w}`,
+        expr: `website:requests_bad:ratio_rate${w} / on (objective) website:error_budget:ratio`,
+        ...slow,
+      };
+      return w === '7d' ? [ratio] : [ratio, burn];
+    }),
     {
       record: 'website:error_budget_remaining:ratio7d',
       expr: '1 - website:requests_bad:ratio_rate7d / on (objective) website:error_budget:ratio',
+      slow: true,
     },
   ];
 }
@@ -165,6 +177,7 @@ ${map(rule.labels, '              ')}
 ${map(rule.annotations, '              ')}`,
     )
     .join('\n');
+  const budget = budgetRulesFor(o);
   const recordings = (group: Recording[]) =>
     group
       .map(
@@ -184,7 +197,11 @@ ${rules}
     groups:
       - name: error-budget
         rules:
-${recordings(budgetRulesFor(o))}
+${recordings(budget.filter((rule) => !rule.slow))}
+      - name: error-budget-over-hours
+        interval: ${SLOW_INTERVAL}
+        rules:
+${recordings(budget.filter((rule) => rule.slow))}
       - name: line
         rules:
 ${recordings(stuckRulesFor(stuck))}

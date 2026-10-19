@@ -13,9 +13,15 @@ import {
   RULES_FILE,
   render,
   rulesFor,
+  SLOW_INTERVAL,
   stuckRulesFor,
 } from '../src/alerts/rules.ts';
+import { coder } from '../src/line/agents/coder.ts';
+import { describer } from '../src/line/agents/describer.ts';
+import { planner } from '../src/line/agents/planner.ts';
+import { reviewer } from '../src/line/agents/reviewer.ts';
 import { OPEN_STAGES } from '../src/line/metrics.ts';
+import { leaseFor } from '../src/line/worker.ts';
 
 describe('alerting rules', () => {
   it('judge every route alike, and only one with enough requests', () => {
@@ -91,6 +97,17 @@ describe('the error budget’s recording rules', () => {
     expect(named('website:error_budget_remaining:ratio7d')[0]?.expr).toContain('website:requests_bad:ratio_rate7d');
   });
 
+  it('read hours or days only every few minutes, and the last hour every minute', () => {
+    const slow = rules.filter((rule) => rule.slow).map((rule) => rule.record);
+    expect(slow).toEqual([
+      'website:requests_bad:ratio_rate6h',
+      'website:error_budget_burn:rate6h',
+      'website:requests_bad:ratio_rate7d',
+      'website:error_budget_remaining:ratio7d',
+    ]);
+    expect(render(objectives)).toContain(`- name: error-budget-over-hours\n        interval: ${SLOW_INTERVAL}\n`);
+  });
+
   it('refuse a latency objective that is not a bound of the app’s buckets, which no series could count', () => {
     expect(() => budgetRulesFor({ ...objectives, latency: { percentile: 0.95, maxSeconds: 0.8 } })).toThrow(
       /not a bound/,
@@ -101,6 +118,17 @@ describe('the error budget’s recording rules', () => {
 describe('the line’s recording rules', () => {
   it('give every stage the line reports a limit or none, and no other', () => {
     expect(Object.keys(STUCK).sort()).toEqual([...OPEN_STAGES].sort());
+  });
+
+  it('leave a step and its one retry, to the end of their leases, half an hour to spare', () => {
+    // A runner that dies is noticed only when its lease runs out; a step that fails runs once more.
+    const lease = (agent: { deadlineSeconds: number }) => leaseFor(agent.deadlineSeconds) / 60;
+    const spare = 30;
+    expect(STUCK.plan.minutes).toBeGreaterThanOrEqual(2 * lease(planner) + spare);
+    expect(STUCK.build.minutes).toBeGreaterThanOrEqual(2 * lease(coder) + spare);
+    expect(STUCK.review.minutes).toBeGreaterThanOrEqual(
+      lease(reviewer) + lease(describer) + Math.max(lease(reviewer), lease(describer)) + spare,
+    );
   });
 
   it('record a limit for each stage that has one, in seconds', () => {

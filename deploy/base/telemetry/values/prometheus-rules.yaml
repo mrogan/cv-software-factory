@@ -51,24 +51,27 @@ serverFiles:
               objective: "latency"
           - record: website:requests_bad:ratio_rate1h
             expr: "sum_over_time(website:requests_bad:rate5m[1h]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[1h]) > 0)"
-          - record: website:requests_bad:ratio_rate6h
-            expr: "sum_over_time(website:requests_bad:rate5m[6h]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[6h]) > 0)"
-          - record: website:requests_bad:ratio_rate7d
-            expr: "sum_over_time(website:requests_bad:rate5m[7d]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[7d]) > 0)"
           - record: website:error_budget_burn:rate1h
             expr: "website:requests_bad:ratio_rate1h / on (objective) website:error_budget:ratio"
+      - name: error-budget-over-hours
+        interval: 5m
+        rules:
+          - record: website:requests_bad:ratio_rate6h
+            expr: "sum_over_time(website:requests_bad:rate5m[6h]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[6h]) > 0)"
           - record: website:error_budget_burn:rate6h
             expr: "website:requests_bad:ratio_rate6h / on (objective) website:error_budget:ratio"
+          - record: website:requests_bad:ratio_rate7d
+            expr: "sum_over_time(website:requests_bad:rate5m[7d]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[7d]) > 0)"
           - record: website:error_budget_remaining:ratio7d
             expr: "1 - website:requests_bad:ratio_rate7d / on (objective) website:error_budget:ratio"
       - name: line
         rules:
           - record: line:stage_limit_seconds
-            expr: "vector(3600)"
+            expr: "vector(5400)"
             labels:
               stage: "plan"
           - record: line:stage_limit_seconds
-            expr: "vector(5400)"
+            expr: "vector(7200)"
             labels:
               stage: "build"
           - record: line:stage_limit_seconds
@@ -76,7 +79,7 @@ serverFiles:
             labels:
               stage: "gates"
           - record: line:stage_limit_seconds
-            expr: "vector(5400)"
+            expr: "vector(7200)"
             labels:
               stage: "review"
           - record: line:stage_limit_seconds

@@ -73,7 +73,7 @@ Prometheus scrapes itself in its own job. Kyverno's, Argo Rollouts' and the pod 
 
 Seven days, or less when they would outgrow its volume: past 3 GiB of blocks and write-ahead log, it deletes its oldest blocks ([`values/prometheus.yaml`](../../deploy/base/telemetry/values/prometheus.yaml)). Two kinds of series are dropped as they are scraped, since nothing reads them and they were much of what it kept:
 
-- **The nodes' histogram buckets.** The kubelet's endpoint serves the control plane's latency histograms, one series for each bucket of each operation (about 6,800 of 46,000 head series on 19 October). Their `_count` and `_sum` stay, enough for rates and mean latencies; no dashboard draws the control plane.
+- **The nodes' histogram buckets.** The kubelet's endpoint serves its own latency histograms and, on k3s, the control plane's, one series for each bucket of each operation (about 6,800 of 46,000 head series on 19 October). Every bucket of them goes; their `_count` and `_sum` stay, enough for rates and mean latencies, and no dashboard draws a quantile of them.
 - **Postgres's settings,** `pg_settings_*` from the exporter: 284 constants, of which only `pg_settings_max_connections` is kept, read against the connections in use.
 
 ## Recording rules
@@ -97,14 +97,14 @@ The longer windows sum the five-minute rates, so each reads one series however l
 
 ### The line's stuck limits
 
-How long a work item may stay at a stage before the line counts as stuck there ([`policy/stuck.ts`](../../policy/stuck.ts)): the longest the line's own bounds should let it stay on Claude, with some to spare. Past a limit, something the line should have done has not happened: a step that should have ended, a hold that should have started, a release that should have ended. On the local model a step may take four times as long, so a night on Qwen can pass the limits at Plan and Build with nothing wrong.
+How long a work item may stay at a stage before the line counts as stuck there ([`policy/stuck.ts`](../../policy/stuck.ts)): the longest the line's own bounds should let it stay on Claude, and half an hour more. A step holds its work item for its lease, its agent's deadline and fifteen minutes, and one that fails runs once more. Past a limit, something the line should have done has not happened: a step that should have ended, a hold that should have started, a release that should have ended. Two waits pass the limits by design: on the local model a step may take four times as long, so a night on Qwen can pass them at Plan and Build; and while the day's or the month's spend cap is reached the line starts no step, and the gateway's cap refusals say why.
 
 | Stage | Limit | Because |
 |---|---|---|
-| `plan` | 1 hour | The planner's step, a 15-minute deadline and its preparing, twice |
-| `build` | 1.5 hours | The coder's step, a 30-minute deadline and its preparing, twice |
+| `plan` | 1.5 hours | The planner's step, a 15-minute deadline and its lease's fifteen, twice |
+| `build` | 2 hours | The coder's step, a 30-minute deadline and its lease's fifteen, twice |
 | `gates` | 1 hour | The app's checks on the pull request |
-| `review` | 1.5 hours | The reviewer's step and then the describer's, and one of them again |
+| `review` | 2 hours | The reviewer's step and then the describer's, 30 minutes each, and one of them again |
 | `release` | 1 hour | A canary's steps take minutes |
 | `verify` | 25 hours | Verify holds for Martin after 24 hours of a sense not telling |
 | `waiting`, `held` | none | Waits on other work, or on Martin |
@@ -120,9 +120,9 @@ How long a work item may stay at a stage before the line counts as stuck there (
 
 Tempo's metrics generator turns the traces into a graph of the services and the calls between them, which Grafana's Tempo data source draws ([`values/tempo.yaml`](../../deploy/base/telemetry/values/tempo.yaml)). Each pair of a client span and the server span under it, in two services, is an edge from one to the other, counted with its latency and failures, and written to Prometheus over remote write each minute as `traces_service_graph_*`: about two dozen series an edge.
 
-- **The service graph alone.** Span metrics, a series for each span name and its attributes, are off, and an edge carries each side's `service.name` and nothing else of a span, so a series is never a work item or a route. Tempo writes only these, and only Tempo reaches Prometheus's remote-write receiver ([network policies](NETWORK-POLICIES.md#telemetry)).
+- **The service graph alone.** Span metrics, a series for each span name and its attributes, are off. A node is a service's `service.name`, or, for a call out no service of ours answered, the host it called (`server.address`) or the database system (`db.system`), never Tempo's defaults, `peer.service` and `db.name`, which a span may set to anything. The factory's code calls a handful of hosts, so the nodes are few. Tempo writes only these series, and only Tempo reaches Prometheus's remote-write receiver ([network policies](NETWORK-POLICIES.md#telemetry)).
 - **Read by nothing that judges.** No sense, alert or canary analysis reads a `traces_` series: any worker may name its spans' service as it likes, so the edges say what services claimed to be, which is enough for a picture and not for a judgement.
-- **Its cost.** Tempo holds each edge's series and the spans it waits to pair, so it has half as much memory again as it had before: 1.5 GiB.
+- **Its cost.** Tempo holds each edge's series and the spans it waits to pair, beside the searches that take it to about 900 MiB, so it may use 1.5 GiB.
 
 ## Naming the factory's series
 
