@@ -7,7 +7,7 @@
  *     :8081  POST /v1/handback      a job's result, with its token (agent pods)
  *     :8080  POST /v1/steps         run one step (`StepRequest`) and answer with how it went
  *            DELETE /v1/work-items/<id>  the work item merged or is over: delete its volume
- *            GET  /v1/work-items/<id>/logs  what its runners' pods printed, as the line kept them (`logs.ts`)
+ *            GET  /v1/work-items/<id>/logs  what its runners' pods printed, as the line kept them (`logs.ts`); 404 if none
  *            POST /v1/smoke         the smoke run, from a commit of the app (`smoke.ts`)
  *            GET  /health
  */
@@ -83,9 +83,12 @@ export function lineServers({
         const workItem = logged[1];
         // Read before the answer starts, so a store that fails answers 500 rather than half a log.
         const found = await logs.of(workItem);
+        // None kept: a mistyped number, one never on the line, or one whose first step has not ended. None of them is a
+        // work item with no steps, so none answers as one.
+        if (!found.length) return send(res, 404, { error: `No runner's log is kept for ${workItem}.` });
         // Text that is never run: a browser sniffing it as a page would run what an agent printed.
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'x-content-type-options': 'nosniff' });
-        await logs.print(workItem, found, (chunk) => res.write(chunk));
+        await logs.print(found, (chunk) => res.write(chunk));
         return void res.end();
       }
       if (req.method !== 'POST') return send(res, 404, { error: 'not found' });
@@ -114,7 +117,8 @@ export function lineServers({
       send(res, 404, { error: 'not found' });
     })().catch((error: unknown) => {
       log.error({ err: error }, 'a line request failed');
-      if (res.headersSent) return;
+      // Half a log has gone out under a 200: end the connection, so the client sees it cut rather than wait on it.
+      if (res.headersSent) return void res.destroy();
       if (error instanceof RangeError || error instanceof SyntaxError)
         send(res, 400, { error: (error as Error).message });
       else send(res, 500, { error: (error as Error)?.message ?? 'failed' });

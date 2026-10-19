@@ -112,7 +112,7 @@ import {
   type WorkItemState,
 } from './machine.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
-import { pagesFor } from './pictures.ts';
+import { type Own, pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem } from './queue.ts';
 import { carried, Releases, type ReleaseWatchOptions } from './release.ts';
 import {
@@ -858,8 +858,9 @@ export class Line {
         return;
       }
     }
-    // Read only when something is appended: a look that cannot tell yet comes round every few minutes.
-    const shown = () => this.#pictures(promoted, first);
+    // Read only when something is appended: a look that cannot tell yet comes round every few minutes. A hold
+    // carries the screenshots alone, so only a verification names the other work items the release carried.
+    const shown = (named = false) => this.#pictures(workItem, promoted, first, named);
     switch (found.kind) {
       case 'wait': {
         const hours = this.#o.verifyWaitMs / 3_600_000;
@@ -895,7 +896,7 @@ export class Line {
         await this.#queue.moved(workItem);
         return;
       case 'finished': {
-        const { pages, artifacts } = await shown();
+        const { pages, artifacts } = await shown(true);
         const v = { ...found.verification, pages };
         const said = v.dryRun ? 'by the dry run’s word' : `by the ${v.sense ?? 'sense'}`;
         await this.#append(workItem, [
@@ -1057,13 +1058,13 @@ export class Line {
     );
   }
 
-  /** The work items a release carried, as its start recorded them, but this one. */
+  /** The work items a release carried, as its start recorded them, but this one, oldest first. */
   async #carriedBy(release: string, workItem: string): Promise<string[]> {
     const rows = await this.#o.sql<{ work_item: string }[]>`
-      select distinct work_item from events
+      select distinct work_item, work_item::bigint as number from events
       where type = 'release.started' and payload->>'release' = ${release} and work_item is not null
         and work_item <> ${workItem}
-      order by work_item limit 20`;
+      order by number limit 20`;
     return rows.map((row) => row.work_item);
   }
 
@@ -1076,19 +1077,30 @@ export class Line {
 
   /**
    * The pages pictured while the release that carried the fix ran as a canary beside the version before, with the
-   * ticket's own marked (`pictures.ts`). A dry run's release never ran, and has none.
+   * ticket's own marked, and, when `named`, each other work item's the release carried named (`pictures.ts`). A dry
+   * run's release never ran, and has none.
    */
-  async #pictures(promoted: PayloadOf<'release.promoted'>, first: FirstSignal | undefined) {
+  async #pictures(
+    workItem: string,
+    promoted: PayloadOf<'release.promoted'>,
+    first: FirstSignal | undefined,
+    named: boolean,
+  ) {
     const { pictures } = this.#o;
     if (!pictures || promoted.dryRun) return { pages: [], artifacts: [] };
+    // The ticket's own page: where its sense last boxed its check, with the elements it boxed, and its route.
+    const ownOf = async (signal: FirstSignal | undefined): Promise<Own> => {
+      const look = signal && (await pictures.lookOf(signal.sense, signal.check, signal.route));
+      return {
+        route: signal?.route ?? '*',
+        ...(look && { path: look.path, selectors: look.elements.map((e) => e.selector) }),
+      };
+    };
     try {
       const taken = await pictures.of(promoted.version, promoted.previous);
       if (!taken.length) return { pages: [], artifacts: [] };
-      const look = first && (await pictures.lookOf(first.sense, first.check, first.route));
-      const shown = pagesFor(taken, {
-        route: first?.route ?? '*',
-        ...(look && { path: look.path, selectors: look.elements.map((e) => e.selector) }),
-      });
+      const others = named ? await this.#othersOwn(promoted.release, workItem, ownOf) : [];
+      const shown = pagesFor(taken, await ownOf(first), others);
       if (first && !shown.pages.some((p) => p.intended)) {
         this.#o.log.info({ release: promoted.release, route: first.route }, 'no page pictured is the ticket’s own');
       }
@@ -1096,6 +1108,24 @@ export class Line {
     } catch (error) {
       this.#o.log.warn({ release: promoted.release, err: error }, 'the release’s pictures could not be read');
       return { pages: [], artifacts: [] };
+    }
+  }
+
+  /**
+   * The other work items a release carried, each with its own page, to name on the pages a verification compares.
+   * Only a label: one that cannot be read leaves every page unnamed, and the ticket's own pages as they are.
+   */
+  async #othersOwn(release: string, workItem: string, ownOf: (signal: FirstSignal | undefined) => Promise<Own>) {
+    try {
+      return await Promise.all(
+        (await this.#carriedBy(release, workItem)).map(async (other) => ({
+          workItem: other,
+          own: await ownOf(await this.#firstSignal(other)),
+        })),
+      );
+    } catch (error) {
+      this.#o.log.warn({ release, err: error }, 'the other work items the release carried could not be read');
+      return [];
     }
   }
 

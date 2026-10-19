@@ -1403,6 +1403,42 @@ describe('Verify on the line', () => {
       for (const a of await screenshotsOf(workItem, 'verification.finished')) expect(a).not.toHaveProperty('selectors');
     });
 
+    it('names the other work item the release carried on a page that is its own, and not the ticket’s', async () => {
+      const workItem = await merged(30, FIX_3);
+      await promote(workItem);
+      // The release carried another work item too, whose sense boxes nothing: its own pages are its route's.
+      const other = await opened('logs');
+      const payload = { release: 'f00dfeed01', version: commitOf(CANARY), previous: commitOf(STABLE) };
+      await events.append([
+        event(
+          other,
+          'release.started',
+          { ...payload, commit: payload.version, watched: true, dryRun: false, steps: null, image: IMAGE },
+          'rollouts',
+        ),
+      ]);
+      await new PictureIndex(database.writer).remember(
+        {
+          sense: 'probe',
+          check: 'departments',
+          route: '/departments/:department',
+          path: '/departments/garden',
+          elements: [{ selector: 'main h1', kind: 'problem' }],
+        },
+        new Date(now),
+      );
+      const probes = new FakeProbes({ outcome: 'cleared', version: commitOf(CANARY), runs: ['passed', 'passed'] });
+      const { line: it } = await lineWithPictures({ verify: { probes } });
+      await pass(it);
+      const pages = (await payloads(workItem, 'verification.finished'))[0]?.pages;
+      expect(pages?.map((p) => [p.page, p.intended, p.intendedFor])).toEqual([
+        ['/departments/garden', true, undefined],
+        ['/about', false, undefined],
+        ['/departments/home', false, other],
+        ['/', false, undefined],
+      ]);
+    });
+
     it('holds a visitor’s report for Martin with every page before and after, its route’s pages intended', async () => {
       const workItem = await merged(30, FIX_3, 'report');
       await promote(workItem);

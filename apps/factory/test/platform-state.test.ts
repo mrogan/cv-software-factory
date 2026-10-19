@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { DEPLOY, manifests as deployManifests } from './deploy.ts';
+import { DEPLOY, manifests as deployManifests, PROMETHEUS } from './deploy.ts';
 
 /**
  * The cluster's state and Postgres's statistics as deploy/ declares them (#385): kube-state-metrics, from the
@@ -48,10 +48,6 @@ const find = async (kind: string, name: string, namespace = 'factory') =>
     (m) => m.manifest.kind === kind && m.manifest.metadata?.name === name && m.namespace === namespace,
   );
 
-const PROMETHEUS: Peer = {
-  namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'telemetry' } },
-  podSelector: { matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } },
-};
 const SCRAPE = (port: number) => ({ 'prometheus.io/scrape': 'true', 'prometheus.io/port': String(port) });
 
 describe('kube-state-metrics', () => {
