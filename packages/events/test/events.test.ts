@@ -124,11 +124,17 @@ describe('validation', () => {
     const verified = {
       ...started,
       type: 'verification.finished',
-      version: 3,
+      version: 4,
       actor: 'factory',
       payload: { outcome: 'cleared', sense: 'probe', check: 'search', against: 'v0.9.3', pages: [], dryRun: false },
     };
     expect(validate(verified)).toEqual({ ok: true });
+    // A page names another work item the release carried only when it is not this one's own.
+    const page = { page: '/about', route: '/about', screenshot: 'a'.repeat(64), changed: 0.2 };
+    const withPage = (p: Record<string, unknown>) =>
+      validate({ ...verified, payload: { ...verified.payload, pages: [p] } });
+    expect(withPage({ ...page, intended: false, intendedFor: '1073' })).toEqual({ ok: true });
+    expect(withPage({ ...page, intended: true, intendedFor: '1073' }).ok).toBe(false);
     expect(validate({ ...verified, work_item: null })).toEqual({
       ok: false,
       problems: ['verification.finished needs a work item'],
@@ -859,7 +865,7 @@ describe('upcasting the real catalogue', () => {
   it('reads version 1 of verification.finished as a verification that ran, by a sense it never named', () => {
     const v1 = { outcome: 'cleared', check: 'Every page', against: 'v0.9.0', pages: [] };
     const read = upcast({ type: 'verification.finished', version: 1, payload: v1 });
-    expect(read).toMatchObject({ event: { version: 3, payload: { ...v1, dryRun: false } } });
+    expect(read).toMatchObject({ event: { version: 4, payload: { ...v1, dryRun: false } } });
     expect(read.ok && validate(asNew(read.event))).toEqual({ ok: true });
   });
 

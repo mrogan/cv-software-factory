@@ -11,6 +11,9 @@
  * PROMETHEUS_URL, LOKI_URL and TEMPO_URL are what the senses read besides the app, which triage looks at before it
  * trusts a sense's new problem (`ENVIRONMENT` in policy/triage.ts); the disk is read through Prometheus. Triage looks
  * only at those it has an address for, and with none it looks at nothing and holds nothing for the environment.
+ *
+ * As it starts, and every `INBOX.pruneMinutes` after, it deletes the inbox's repeats older than
+ * `INBOX.keepCountedDays` (`pruneInbox` in packages/store).
  */
 import type { Screenshot } from '@software-factory/events';
 import { type Judge, type PageReader, Triage } from '@software-factory/triage';
@@ -29,7 +32,7 @@ export async function run(args: string[]): Promise<number> {
   const { log } = await import('../log.ts');
   const { metrics } = await import('@opentelemetry/api');
   const { default: postgres } = await import('postgres');
-  const { DiskArtifacts, EventWriter } = await import('@software-factory/store');
+  const { DiskArtifacts, EventWriter, pruneInbox } = await import('@software-factory/store');
   const { GatewayClient } = await import('../gateway/client.ts');
   const { waitingFor } = await import('../gateway/waiting.ts');
   const { environmentLook } = await import('../environment.ts');
@@ -117,10 +120,32 @@ export async function run(args: string[]): Promise<number> {
   }
   const looks = { prometheus: PROMETHEUS_URL ?? null, loki: LOKI_URL ?? null, tempo: TEMPO_URL ?? null };
   log.info({ gateway: GATEWAY_URL, pages: PAGES_URL ?? null, ...looks }, 'triage taking signals from the inbox');
+
+  let pruning: Promise<void> | undefined;
+  // One prune at a time: a tick that finds one still running leaves it be.
+  const prune = () => {
+    if (pruning) return;
+    const before = new Date(Date.now() - INBOX.keepCountedDays * 24 * 60 * 60 * 1000);
+    pruning = pruneInbox(sql, before)
+      .then(
+        (deleted) => {
+          if (deleted) log.info({ deleted, before }, 'deleted the inbox’s old repeats');
+        },
+        // The next prune tries again; the inbox only grows meanwhile.
+        (error) => log.warn({ err: error }, 'could not delete the inbox’s old repeats'),
+      )
+      .finally(() => {
+        pruning = undefined;
+      });
+  };
+  prune();
+  const pruner = setInterval(prune, INBOX.pruneMinutes * 60 * 1000);
   try {
     await triage.run(abort.signal);
     return 0;
   } finally {
+    clearInterval(pruner);
+    await pruning;
     await Promise.all([sql.end(), shutdownTelemetry()]);
   }
 }

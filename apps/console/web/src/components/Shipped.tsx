@@ -252,14 +252,21 @@ function Verify({ v }: { v: Verified }) {
           <span className="label">Every page against {shortVersion(v.against)}, the version before</span>
           <div className="row">
             {v.pages.map((page) => {
-              const kind = page.intended ? 'intended' : page.changed > 0 ? 'changed' : 'same';
+              // A page another work item the release carried meant to change says whose change it is.
+              const kind = page.intended
+                ? 'intended'
+                : page.intendedFor
+                  ? 'theirs'
+                  : page.changed > 0
+                    ? 'changed'
+                    : 'same';
               return (
                 <figure key={page.page}>
                   <div className="vis">{page.screenshot && <Shot shot={page.screenshot} />}</div>
                   <figcaption>
                     <span>{page.page}</span>
                     <span className={`mono change ${kind}`}>
-                      {percent(page.changed)} · {kind}
+                      {percent(page.changed)} · {kind === 'theirs' ? `intended for #${page.intendedFor}` : kind}
                     </span>
                   </figcaption>
                 </figure>

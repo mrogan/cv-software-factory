@@ -16,7 +16,7 @@ An append-only record of every step, with captured artifacts (spec 5.1). Part of
 
 | Role | May |
 |---|---|
-| The factory's writer | Append and read |
+| The factory's writer | Append and read; delete the pictures no release needs, and the inbox's old repeats ([triage](TRIAGE.md#matching-an-open-ticket)) but no other signal, which row security refuses |
 | The console's reader | See public views only |
 | The Postgres exporter's reader | Read the statistics any role may read, and nothing of the store |
 
