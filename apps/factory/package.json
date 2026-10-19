@@ -23,6 +23,7 @@
     "@opentelemetry/instrumentation": "^0.223.0",
     "@opentelemetry/instrumentation-http": "^0.223.0",
     "@opentelemetry/instrumentation-pino": "^0.69.0",
+    "@opentelemetry/instrumentation-undici": "^0.33.0",
     "@opentelemetry/sdk-node": "^0.223.0",
     "@sigstore/bundle": "^5.0.0",
     "@sigstore/protobuf-specs": "^0.5.2",

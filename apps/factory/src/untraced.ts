@@ -9,8 +9,8 @@ export const untracedIncoming = (request: { url?: string | undefined }): boolean
 /**
  * The line's release watch reads the app's Rollout and its AnalysisRuns every 30 seconds (`release/read.ts`): each
  * read would be a root span of its own, and while the line is idle they would be all of its spans. Whatever else it
- * asks of Kubernetes (a runner's Job, the journeys' pods) is traced. In the cluster, that is: on a host the line reaches
- * Kubernetes through `kubectl proxy` with `fetch`, which this instrumentation does not trace at all.
+ * asks of Kubernetes (a runner's Job, the journeys' pods) is traced. On a host the line reaches Kubernetes through
+ * `kubectl proxy` with `fetch`, whose requests are left out the same way.
  */
 export const untracedOutgoing = (request: {
   method?: string | null | undefined;
