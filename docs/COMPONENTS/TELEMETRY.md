@@ -93,7 +93,7 @@ Two more targets ask Prometheus to scrape them, with the `prometheus.io/` pod an
 
 ### What each client of the store sees
 
-The exporter counts the store's connections as Postgres sees them, all clients together. Each worker and the console also says how the store answers it: the client is postgres.js, which OpenTelemetry's `pg` instrumentation does not cover, so the store makes it with instruments of its own ([`client.ts`](../../packages/store/src/client.ts)). Every client is made by its `connect()`, and outside the tests the linter refuses postgres.js's own `postgres()` (`biome.json`). In Prometheus, by `job`:
+The exporter counts the store's connections as Postgres sees them, all clients together. Each worker and the console also says how the store answers it: the client is postgres.js, which OpenTelemetry's `pg` instrumentation does not cover, so the store makes it with instruments of its own ([`client.ts`](../../packages/store/src/client.ts)). Every client is made by its `connect()`, and outside the tests the linter refuses any import of postgres.js but the types it names (`biome.json`), so no client is made without it. In Prometheus, by `job`:
 
 | Series | Says | Labels |
 |---|---|---|

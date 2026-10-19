@@ -26,9 +26,12 @@ export function connect(url?: string, options: Options = {}): Sql {
   const settings = { onnotice: () => {}, ...options };
   const sql = url ? postgres(url, settings) : postgres(settings);
   timeQueries(sql);
-  // One address, by host or by Unix socket, is all the factory uses: more, and postgres.js rotates through them
-  // itself, and its connections go uncounted.
-  if (sql.options.host.length === 1 && !('socket' in options)) Object.assign(sql.options, { socket: countedSocket });
+  // One address, by host or by Unix socket, is all the factory uses: more hosts or ports, and postgres.js rotates
+  // through them itself, by its ports, and its connections go uncounted.
+  const { host, port } = sql.options;
+  if (host.length === 1 && port.length === 1 && !('socket' in options)) {
+    Object.assign(sql.options, { socket: countedSocket });
+  }
   return sql;
 }
 

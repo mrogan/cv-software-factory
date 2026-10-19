@@ -96,4 +96,19 @@ describe("the store's client", () => {
       await sql.end();
     }
   });
+
+  it('leaves postgres.js its own sockets for more than one address, which it rotates through by port', async () => {
+    const one = connect('postgres://nobody@127.0.0.1:5432/none');
+    const hosts = connect('postgres://nobody@127.0.0.1:5432,127.0.0.2:5432/none');
+    const ports = connect(undefined, { host: '127.0.0.1', port: [5432, 5433] as unknown as number });
+    // postgres.js's types leave the socket out of the options it parsed.
+    const socket = (sql: typeof one) => (sql.options as { socket?: unknown }).socket;
+    try {
+      expect(socket(one)).toBeTypeOf('function');
+      expect(socket(hosts)).toBeFalsy();
+      expect(socket(ports)).toBeFalsy();
+    } finally {
+      await Promise.all([one.end(), hosts.end(), ports.end()]);
+    }
+  });
 });
