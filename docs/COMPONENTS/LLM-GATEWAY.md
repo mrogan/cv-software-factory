@@ -77,7 +77,7 @@ So a step run again replays up to its first changed call.
 
 ### Keeping them
 
-In `record`, as on the cluster, nothing is replayed from the folder: a cassette is the record of what a call sent and got back, for looking into a run. The gateway deletes one two weeks after the last thing it was for (`gateway/pruning.ts`), as it starts and every six hours:
+In `record`, as on the cluster, nothing is replayed from the folder: a cassette is the record of what a call sent and got back, for looking into a run. The gateway deletes one two weeks after the last thing it was for, as it starts and every six hours (`CASSETTES` in `policy/cassettes.ts`, human-owned; `gateway/pruning.ts` applies it):
 
 - **calls for work items:** once every work item they name has been closed two weeks;
 - **calls for none,** such as triage judging a report before there is a ticket: two weeks after the last;

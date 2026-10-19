@@ -1,7 +1,8 @@
 /**
  * Pruning the cassettes a recording gateway keeps. On the cluster the gateway records every call and replays none
  * (`record`), so a cassette there is the record of what a call sent and got back, for looking into a run, and it is
- * kept while a run might still be looked into: two weeks after the work items its calls name have closed.
+ * kept while a run might still be looked into: two weeks (`CASSETTES` in policy/cassettes.ts) after the work items its
+ * calls name have closed.
  *
  * A cassette is deleted once it has gone two weeks unwritten and
  *
@@ -21,12 +22,7 @@ import { readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { lastEnd } from '@software-factory/store';
 import type { Sql } from 'postgres';
-
-/** How long a cassette is kept after the last thing it was for, in days. */
-export const KEEP_DAYS = 14;
-
-/** How often the gateway prunes, in hours. Once as it starts, too. */
-export const PRUNE_HOURS = 6;
+import { CASSETTES } from '../../../../policy/cassettes.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CASSETTE = /^([0-9a-f]{64})\.json$/;
@@ -58,7 +54,7 @@ export async function pruneCassettes({
   dir,
   agentsOnly = false,
   now = new Date(),
-  keepDays = KEEP_DAYS,
+  keepDays = CASSETTES.keepDays,
 }: PruneOptions): Promise<Pruned> {
   const before = new Date(now.getTime() - keepDays * DAY_MS);
   const unwritten = async (name: string) => {
@@ -128,11 +124,11 @@ export interface Pruner {
   stop(): Promise<void>;
 }
 
-/** Prunes now and every `PRUNE_HOURS`, logging what went and what failed, until stopped. */
+/** Prunes now and every `CASSETTES.pruneHours`, logging what went and what failed, until stopped. */
 export function startPruning(
   options: Omit<PruneOptions, 'now'>,
   log: { info(fields: object, message: string): void; warn(fields: object, message: string): void },
-  everyMs = PRUNE_HOURS * 60 * 60 * 1000,
+  everyMs = CASSETTES.pruneHours * 60 * 60 * 1000,
 ): Pruner {
   let pruning: Promise<void> | undefined;
   // One prune at a time: a tick that finds one still running leaves it be.
