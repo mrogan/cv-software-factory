@@ -40,8 +40,8 @@ async function freePort(): Promise<number> {
 
 /**
  * The runtime's series every process reports, as the SDK's exporter names them: Prometheus's OTLP receiver adds the
- * unit (`v8js_memory_heap_used_bytes`), as TELEMETRY.md lists them. A collection's pause is a histogram, recorded only
- * once one has happened, which an idle process may not have.
+ * unit (`v8js_memory_heap_used_bytes`), as TELEMETRY.md lists them. A collection's pause is recorded only once one has
+ * happened, so the process collects as it starts.
  */
 const RUNTIME_SERIES = [
   'v8js_memory_heap_used',
@@ -51,6 +51,7 @@ const RUNTIME_SERIES = [
   'nodejs_eventloop_utilization',
   'nodejs_eventloop_time_total',
   'v8js_resource_active',
+  'v8js_gc_duration_count',
 ];
 
 /**
@@ -59,7 +60,7 @@ const RUNTIME_SERIES = [
  */
 async function metricsOf(module: string): Promise<string> {
   const port = await freePort();
-  child = spawn(process.execPath, ['--import', module, '-e', 'setInterval(() => {}, 1000)'], {
+  child = spawn(process.execPath, ['--expose-gc', '--import', module, '-e', 'gc(); setInterval(() => {}, 1000)'], {
     env: {
       ...process.env,
       OTEL_METRICS_EXPORTER: 'prometheus',
@@ -106,7 +107,7 @@ describe.each(Object.entries(telemetry))('the %s’s telemetry', (_, module) => 
 
     for (const name of RUNTIME_SERIES) expect(names, name).toContain(name);
     const labels = new Set(all.flatMap((each) => each.labels));
-    for (const label of ['v8js_heap_space_name', 'nodejs_eventloop_state', 'v8js_resource_type']) {
+    for (const label of ['v8js_heap_space_name', 'v8js_gc_type', 'nodejs_eventloop_state', 'v8js_resource_type']) {
       expect(labels, label).toContain(label);
     }
     expect(all.flatMap((each) => each.labels).filter((label) => !RUNTIME_LABELS.has(label))).toEqual([]);
