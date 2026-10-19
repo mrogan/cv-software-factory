@@ -37,9 +37,17 @@ describe('job tokens', () => {
     await expect(database.owner`update job_tokens set traceparent = null where job = 'coder-1003-1'`).rejects.toThrow(
       /only be ended, once/,
     );
-    await expect(
-      issueJobToken(writer, { job: 'coder-1004-1', workItem: '1004', agent: 'coder', traceparent: 'not a trace' }),
-    ).rejects.toThrow();
+    const invalid = [
+      'not a trace',
+      `00-${'0'.repeat(32)}-${'b'.repeat(16)}-01`,
+      `00-${'a'.repeat(32)}-${'0'.repeat(16)}-01`,
+      `ff-${'a'.repeat(32)}-${'b'.repeat(16)}-01`,
+    ];
+    for (const [i, bad] of invalid.entries()) {
+      await expect(
+        issueJobToken(writer, { job: `coder-1004-${i}`, workItem: '1004', agent: 'coder', traceparent: bad }),
+      ).rejects.toThrow();
+    }
   });
 
   it('can be ended and nothing else', async () => {
@@ -51,5 +59,22 @@ describe('job tokens', () => {
       /only be ended, once/,
     );
     expect(await jobForToken(writer, token)).toBeUndefined();
+  });
+});
+
+describe('job tokens in a store not yet migrated to keep their trace', () => {
+  it('are made and read without it, as the console’s image may migrate the store after the factory’s deploys', async () => {
+    const old = await freshDatabase('job_tokens_before_0021');
+    try {
+      await old.owner`alter table job_tokens drop column traceparent`;
+      const job = { job: 'coder-1005-1', workItem: '1005', agent: 'coder' };
+      const token = await issueJobToken(old.writer, {
+        ...job,
+        traceparent: `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01`,
+      });
+      expect(await jobForToken(old.writer, token)).toEqual(job);
+    } finally {
+      await old.end();
+    }
   });
 });

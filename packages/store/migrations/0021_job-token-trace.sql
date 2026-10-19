@@ -1,9 +1,14 @@
 -- The trace of the step a job token was made for, as a W3C `traceparent`: the gateway starts each of the job's model
 -- calls as a child of the step's span, so a work item's trace runs from the line through its runner's calls. Null for
--- a token made with no span in hand (the bench, or a line with no telemetry). Nullable and read by nothing before this
--- version, so code from before it goes on working beside it.
+-- a token made with no span in hand (the bench, or a line with no telemetry). Only a valid one: version 00, and
+-- neither id all zeros, which a reader would ignore. Nullable and read by nothing before this version, so code from
+-- before it goes on working beside it; the factory's code from this version works without it too, since the console's
+-- image carries the migrations and may be deployed after the factory's (`packages/store/src/job-tokens.ts`).
 alter table job_tokens
-  add column traceparent text check (traceparent ~ '^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$');
+  add column traceparent text check (
+    traceparent ~ '^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'
+    and traceparent !~ '^00-0{32}-' and traceparent !~ '^00-[0-9a-f]{32}-0{16}-'
+  );
 
 -- Still only ended, once: the trace is set as the token is made, like the rest.
 create or replace function job_tokens_only_end() returns trigger language plpgsql as $$
