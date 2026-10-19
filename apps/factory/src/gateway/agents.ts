@@ -238,6 +238,8 @@ export class AgentCalls {
     const { cassettes, spend, caps, mode, providers, log } = this.#o;
     const audit = (outcome: Outcome, usage: Usage = NO_USAGE, reason?: string) =>
       this.#audit(call, span, key, outcome, usage, performance.now() - started, reason);
+    const series = { agent: call.agent, provider, model: call.model };
+    const providerError = (status: string) => instruments.providerErrors.add(1, { ...series, status });
 
     const replaying = mode === 'replay' || mode === 'replay-record';
     const stored = replaying ? cassettes.find(key) : undefined;
@@ -257,6 +259,7 @@ export class AgentCalls {
     const held = caps.heldFor(provider);
     if (held) {
       await audit('refused', undefined, held.reason);
+      instruments.capRefusals.add(1, { ...series, cap: 'provider' });
       return apiError(429, 'rate_limit_error', `${provider} refuses calls for now (${held.reason}): ${held.message}`, {
         'retry-after': '300',
       });
@@ -266,6 +269,7 @@ export class AgentCalls {
     } catch (error) {
       if (!(error instanceof SpendCapped)) throw error;
       await audit('refused', undefined, error.message);
+      instruments.capRefusals.add(1, { ...series, cap: error.cap });
       // A day's or month's cap resets; a work item's does not, and holds the work item for Martin.
       return error.resets
         ? apiError(429, 'rate_limit_error', error.message, {
@@ -285,6 +289,8 @@ export class AgentCalls {
     } catch (error) {
       const message = `${provider} could not be reached (${causeOf(error)})`.slice(0, 300);
       await audit('failed', undefined, message);
+      // A runner that went away is not the provider's error.
+      if (!gone?.aborted) providerError(signal.aborted ? 'timeout' : 'network');
       // Nothing listening on the local model is a cap: it waits for Martin to start LM Studio.
       if (provider === 'local' && !signal.aborted) await caps.cap('local', { reason: 'unreachable', message });
       return provider === 'local'
@@ -295,6 +301,7 @@ export class AgentCalls {
       const errorBody = await response.text();
       const refusal = capOf(response.status, errorBody);
       await audit('failed', undefined, `${provider} answered ${response.status}`);
+      providerError(String(response.status));
       if (refusal) {
         await caps.cap(provider, refusal);
         return apiError(
@@ -341,6 +348,7 @@ export class AgentCalls {
       const usage = usageOf(raw, false);
       if (!usage) {
         await audit('failed', undefined, `${provider} answered 200 with something other than a message`);
+        providerError('malformed');
         return apiError(502, 'api_error', `${provider} answered with something other than a message.`);
       }
       await audit('answered', usage);
@@ -356,7 +364,10 @@ export class AgentCalls {
         if (whole) {
           await audit('answered', usage);
           record(raw);
-        } else await audit('failed', usage, 'the stream broke off');
+        } else {
+          await audit('failed', usage, 'the stream broke off');
+          if (!gone?.aborted) providerError('broken');
+        }
         await spend.reconcile();
       }),
     };
@@ -435,7 +446,17 @@ export class AgentCalls {
     const attributes = { agent: call.agent, provider: call.provider, model: call.model, outcome };
     instruments.calls.add(1, attributes);
     instruments.latency.record(durationMs, attributes);
-    if (costUsd > 0) instruments.spend.add(costUsd, { agent: call.agent, provider: call.provider, model: call.model });
+    const series = { agent: call.agent, provider: call.provider, model: call.model };
+    if (costUsd > 0) instruments.spend.add(costUsd, series);
+    if (outcome !== 'refused') {
+      const kinds: Record<instruments.TokenKind, number> = {
+        input: usage.inputTokens,
+        output: usage.outputTokens,
+        cache_read: usage.cacheReadTokens ?? 0,
+        cache_write: cacheWrite,
+      };
+      for (const [kind, n] of Object.entries(kinds)) instruments.tokens.add(n, { ...series, outcome, kind });
+    }
     const level = outcome === 'failed' ? 'error' : outcome === 'refused' ? 'warn' : 'info';
     // In the call's span, so the line names the step's trace: a stream ends outside it.
     context.with(trace.setSpan(context.active(), span), () =>

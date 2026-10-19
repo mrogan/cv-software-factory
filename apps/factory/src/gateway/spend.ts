@@ -16,6 +16,7 @@ import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import type { Profile, SpendPolicy } from '../../../../policy/spend.ts';
 import { SpendCapped } from './errors.ts';
+import { observeCaps } from './metrics.ts';
 
 type Cap = 'day' | 'month';
 
@@ -63,6 +64,9 @@ export class Spend {
   readonly #marked = new Set<Cap>();
   #queue: Promise<void> = Promise.resolve();
   #timer: NodeJS.Timeout | undefined;
+  /** The day's and month's spend as last counted, for the metrics: a minute old at most once started. */
+  #counted: { day: number; month: number } | undefined;
+  #unobserve: (() => void) | undefined;
 
   constructor({ sql, events, profile, policy, log, clock = () => new Date() }: SpendOptions) {
     this.#sql = sql;
@@ -81,7 +85,8 @@ export class Spend {
              coalesce(sum(cost_usd), 0)::float8 as month
       from model_calls
       where at >= ${month.start.toISOString()}::timestamptz and at < ${month.end.toISOString()}::timestamptz`;
-    return row ?? { day: 0, month: 0 };
+    this.#counted = row ?? { day: 0, month: 0 };
+    return this.#counted;
   }
 
   async #workItem(workItem: string): Promise<number> {
@@ -199,14 +204,33 @@ export class Spend {
     await this.reconcile();
   }
 
-  /** Looks for a window that has reset about once a minute, so the line hears that calls can resume. */
+  /**
+   * Looks for a window that has reset about once a minute, so the line hears that calls can resume, and reports the
+   * spend against the caps as it last counted it.
+   */
   start(everyMs = 60_000): void {
     this.#timer = setInterval(() => void this.reconcile(), everyMs);
     this.#timer.unref();
+    this.#unobserve ??= observeCaps(() =>
+      this.#counted
+        ? {
+            profile: this.#profile,
+            dayUsd: this.#counted.day,
+            monthUsd: this.#counted.month,
+            limits: {
+              dayUsd: this.#policy.dayUsd,
+              monthUsd: this.#policy.monthUsd,
+              workItemUsd: this.#policy.workItemUsd,
+            },
+          }
+        : undefined,
+    );
   }
 
   async stop(): Promise<void> {
     clearInterval(this.#timer);
+    this.#unobserve?.();
+    this.#unobserve = undefined;
     await this.#queue;
   }
 }

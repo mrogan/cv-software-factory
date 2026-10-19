@@ -231,8 +231,15 @@ export class Gateway {
     const attributes = { agent: call.agent, provider: PROVIDER, model: call.model, outcome: call.outcome };
     instruments.calls.add(1, attributes);
     instruments.latency.record(call.durationMs, attributes);
-    if (call.costUsd > 0)
-      instruments.spend.add(call.costUsd, { agent: call.agent, provider: PROVIDER, model: call.model });
+    const series = { agent: call.agent, provider: PROVIDER, model: call.model };
+    if (call.costUsd > 0) instruments.spend.add(call.costUsd, series);
+    if (call.outcome === 'answered' || call.outcome === 'replayed') {
+      instruments.tokens.add(call.inputTokens, { ...series, outcome: call.outcome, kind: 'input' });
+      instruments.tokens.add(call.outputTokens, { ...series, outcome: call.outcome, kind: 'output' });
+    }
+    if (error instanceof ProviderError)
+      instruments.providerErrors.add(1, { ...series, status: error.status ? String(error.status) : error.kind });
+    if (error instanceof SpendCapped) instruments.capRefusals.add(1, { ...series, cap: error.cap });
     const level = call.outcome === 'failed' ? 'error' : call.outcome === 'refused' ? 'warn' : 'info';
     log[level](
       {
