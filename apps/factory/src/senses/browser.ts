@@ -222,6 +222,8 @@ export class BrowserSense<Shared> implements Sense {
           .scrollIntoViewIfNeeded({ timeout: 2_000 })
           .catch(() => {});
       const shot = await capture(page, store, { route, version, checks: elements }).catch((error) => {
+        // Without boxes there is nothing different to try: the screenshot itself failed.
+        if (!elements.length) throw error;
         this.options.log.warn({ err: String(error), route }, 'the boxes did not fit the screenshot; taking it without');
         return capture(page, store, { route, version });
       });
