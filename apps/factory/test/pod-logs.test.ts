@@ -11,6 +11,7 @@ import { DEPLOY, manifests, PROMETHEUS } from './deploy.ts';
  * names its records, and where it may reach are held here.
  */
 interface Values {
+  fullnameOverride: string;
   mode: string;
   podAnnotations: Record<string, string>;
   ports: Record<string, { enabled: boolean; containerPort?: number }>;
@@ -207,5 +208,13 @@ describe('the pod log collector', () => {
         ports: ['TCP/3100'],
       },
     ]);
+  });
+
+  it('is waited for by `make egress` under the name the chart gives a DaemonSet', async () => {
+    const { fullnameOverride, mode } = await values();
+    // In daemonset mode the chart adds `-agent` to the name it is given.
+    expect(mode).toBe('daemonset');
+    const egress = await readFile(join(DEPLOY, '../scripts/egress.sh'), 'utf-8');
+    expect(egress).toContain(`-n pod-logs rollout status daemonset/${fullnameOverride}-agent `);
   });
 });
