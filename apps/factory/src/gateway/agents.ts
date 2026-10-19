@@ -298,9 +298,10 @@ export class AgentCalls {
         : apiError(502, 'api_error', message);
     }
     if (!response.ok) {
+      // Counted before the body is read, which can break off too.
+      providerError(String(response.status));
       const errorBody = await response.text();
       const refusal = capOf(response.status, errorBody);
-      providerError(String(response.status));
       await audit('failed', undefined, `${provider} answered ${response.status}`);
       if (refusal) {
         await caps.cap(provider, refusal);
@@ -344,7 +345,10 @@ export class AgentCalls {
       }
     };
     if (!stream || !response.body) {
-      const raw = await response.text();
+      const raw = await response.text().catch((error: unknown) => {
+        if (!gone?.aborted) providerError(signal.aborted ? 'timeout' : 'broken');
+        throw error;
+      });
       const usage = usageOf(raw, false);
       if (!usage) {
         providerError('malformed');
