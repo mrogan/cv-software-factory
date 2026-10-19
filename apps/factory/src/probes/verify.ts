@@ -18,6 +18,7 @@
  * (`Verifications`). Only one verification runs at a time, and asking again joins the one running for that check.
  */
 import { createServer, type Server } from 'node:http';
+import { context, ROOT_CONTEXT } from '@opentelemetry/api';
 import type { Evidence } from '@software-factory/events';
 import { z } from 'zod';
 import { release } from '../../../../policy/release.ts';
@@ -126,10 +127,13 @@ export class Verifications {
     if (!job) {
       const started: { answer?: VerifyAnswer; error?: unknown; doneAt?: number } = {};
       this.#jobs.set(key, started);
-      this.#run(request).then(
-        (answer) => Object.assign(started, { answer, doneAt: this.#now() }),
-        (error: unknown) => Object.assign(started, { error, doneAt: this.#now() }),
-      );
+      // Outside the request that asked for it, which has answered by then: a rerun is the probes' own round, untraced.
+      context
+        .with(ROOT_CONTEXT, () => this.#run(request))
+        .then(
+          (answer) => Object.assign(started, { answer, doneAt: this.#now() }),
+          (error: unknown) => Object.assign(started, { error, doneAt: this.#now() }),
+        );
       return { state: 'running' };
     }
     if (job.doneAt === undefined) return { state: 'running' };
