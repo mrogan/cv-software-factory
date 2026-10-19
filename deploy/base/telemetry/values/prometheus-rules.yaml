@@ -1,5 +1,5 @@
-# Generated from policy/objectives.ts by apps/factory/src/alerts/rules.ts. Do not edit it: change the policy, then
-# run `node apps/factory/src/alerts/rules.ts`. `make check` fails when this file is out of date.
+# Generated from policy/objectives.ts and policy/stuck.ts by apps/factory/src/alerts/rules.ts. Do not edit it: change
+# the policy, then run `node apps/factory/src/alerts/rules.ts`. `make check` fails when this file is out of date.
 serverFiles:
   alerting_rules.yml:
     groups:
@@ -27,3 +27,69 @@ serverFiles:
               summary: "{{ $labels.http_route }}: p95 latency above 1 s"
               description: "Over 15 minutes, with at least 20 requests."
               threshold: "1"
+  recording_rules.yml:
+    groups:
+      - name: error-budget
+        rules:
+          - record: website:requests:rate5m
+            expr: "sum(rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[5m]))"
+          - record: website:requests_bad:rate5m
+            expr: "sum(rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_response_status_code=~\"5..\"}[5m])) or vector(0)"
+            labels:
+              objective: "error-ratio"
+          - record: website:requests_bad:rate5m
+            expr: "sum(rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[5m])) - sum(rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", le=\"1\"}[5m]))"
+            labels:
+              objective: "latency"
+          - record: website:error_budget:ratio
+            expr: "vector(0.05)"
+            labels:
+              objective: "error-ratio"
+          - record: website:error_budget:ratio
+            expr: "vector(0.05)"
+            labels:
+              objective: "latency"
+          - record: website:requests_bad:ratio_rate1h
+            expr: "sum_over_time(website:requests_bad:rate5m[1h]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[1h]) > 0)"
+          - record: website:requests_bad:ratio_rate6h
+            expr: "sum_over_time(website:requests_bad:rate5m[6h]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[6h]) > 0)"
+          - record: website:requests_bad:ratio_rate7d
+            expr: "sum_over_time(website:requests_bad:rate5m[7d]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[7d]) > 0)"
+          - record: website:error_budget_burn:rate1h
+            expr: "website:requests_bad:ratio_rate1h / on (objective) website:error_budget:ratio"
+          - record: website:error_budget_burn:rate6h
+            expr: "website:requests_bad:ratio_rate6h / on (objective) website:error_budget:ratio"
+          - record: website:error_budget_remaining:ratio7d
+            expr: "1 - website:requests_bad:ratio_rate7d / on (objective) website:error_budget:ratio"
+      - name: line
+        rules:
+          - record: line:stage_limit_seconds
+            expr: "vector(3600)"
+            labels:
+              stage: "plan"
+          - record: line:stage_limit_seconds
+            expr: "vector(5400)"
+            labels:
+              stage: "build"
+          - record: line:stage_limit_seconds
+            expr: "vector(3600)"
+            labels:
+              stage: "gates"
+          - record: line:stage_limit_seconds
+            expr: "vector(5400)"
+            labels:
+              stage: "review"
+          - record: line:stage_limit_seconds
+            expr: "vector(3600)"
+            labels:
+              stage: "release"
+          - record: line:stage_limit_seconds
+            expr: "vector(90000)"
+            labels:
+              stage: "verify"
+          - record: line:work_items:max
+            expr: "max by (stage) (line_work_items)"
+          - record: line:stage_oldest_seconds:max
+            expr: "max by (stage) (line_stage_oldest_seconds)"
+          - record: line:stage_oldest:ratio_to_limit
+            expr: "line:stage_oldest_seconds:max / on (stage) line:stage_limit_seconds"

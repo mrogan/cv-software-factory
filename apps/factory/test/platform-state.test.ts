@@ -120,6 +120,49 @@ describe('the Postgres exporter', () => {
     ]);
   });
 
+  it('has its settings dropped as they are scraped, but for max_connections', async () => {
+    interface Relabel {
+      source_labels?: string[];
+      regex?: string;
+      action?: string;
+      target_label?: string;
+      replacement?: string;
+    }
+    const { scrapeConfigs } = parse(await readFile(join(DEPLOY, 'base/telemetry/values/prometheus.yaml'), 'utf-8')) as {
+      scrapeConfigs: Record<string, { metric_relabel_configs?: Relabel[] }>;
+    };
+    // What Prometheus's metric relabelling makes of a series, for the actions these rules use: undefined if dropped.
+    const relabel = (rules: Relabel[], series: Record<string, string>) => {
+      let labels: Record<string, string> | undefined = { ...series };
+      for (const rule of rules) {
+        if (!labels) break;
+        const current: Record<string, string> = labels;
+        const regex = new RegExp(`^(?:${rule.regex ?? '(.*)'})$`);
+        const value = (rule.source_labels ?? []).map((label) => current[label] ?? '').join(';');
+        const action = rule.action ?? 'replace';
+        if (action === 'drop' && regex.test(value)) labels = undefined;
+        else if (action === 'labeldrop')
+          labels = Object.fromEntries(Object.entries(current).filter(([label]) => !regex.test(label)));
+        else if (action === 'replace' && regex.test(value) && rule.target_label)
+          labels = { ...current, [rule.target_label]: rule.replacement ?? '$1' };
+        else expect(['drop', 'labeldrop', 'replace']).toContain(action);
+      }
+      return labels;
+    };
+    const rules = scrapeConfigs['kubernetes-pods']?.metric_relabel_configs ?? [];
+    const exporter = { job: 'kubernetes-pods', namespace: 'factory' };
+    expect(relabel(rules, { __name__: 'pg_settings_max_connections', ...exporter })).toEqual({
+      __name__: 'pg_settings_max_connections',
+      ...exporter,
+    });
+    expect(relabel(rules, { __name__: 'pg_settings_shared_buffers_bytes', ...exporter })).toBeUndefined();
+    expect(relabel(rules, { __name__: 'pg_settings_max_wal_size_bytes', ...exporter })).toBeUndefined();
+    expect(relabel(rules, { __name__: 'pg_stat_database_numbackends', ...exporter })).toEqual({
+      __name__: 'pg_stat_database_numbackends',
+      ...exporter,
+    });
+  });
+
   it('is let into Postgres', async () => {
     const policy = (await find('NetworkPolicy', 'postgres'))?.manifest.spec;
     const names = (policy?.ingress ?? [])

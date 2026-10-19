@@ -1,5 +1,6 @@
-# Prometheus takes the collector's metrics over OTLP, and still scrapes the cluster itself. Its alerting rules are
-# generated from policy/objectives.ts into prometheus-rules.yaml, which the Application loads after this file.
+# Prometheus takes the collector's metrics over OTLP and Tempo's service graph over remote write, and still scrapes the
+# cluster itself. Its alerting and recording rules are generated from policy/objectives.ts and policy/stuck.ts into
+# prometheus-rules.yaml, which the Application loads after this file.
 #
 # Among what it scrapes is Traefik, k3s's ingress: its pod asks to be scraped on its metrics port alone (9100, with
 # `prometheus.io/` annotations), which the chart's `kubernetes-pods` job does. The canary's analysis counts the
@@ -95,11 +96,13 @@ server:
     readOnlyRootFilesystem: true
     capabilities:
       drop: [ALL]
-  # The collector writes metrics to the OTLP receiver. The factory's workers reach Prometheus only through the
-  # read-only proxy (query.yaml), which passes no write.
+  # The collector writes metrics to the OTLP receiver, and Tempo its service graph to the remote-write receiver. The
+  # factory's workers reach Prometheus only through the read-only proxy (query.yaml), which passes no write, and only
+  # the platform's own pods reach it at all (prometheus-fence.yaml).
   extraFlags:
     - config.auto-reload
     - web.enable-otlp-receiver
+    - web.enable-remote-write-receiver
   # The chart's `retention` and `retentionSize` pass flags Prometheus has deprecated for the configuration file's
   # `storage.tsdb.retention`; empty, the chart passes no flag.
   retention: ""
@@ -143,6 +146,12 @@ server:
 # (environment.ts). The collector also serves its own where it is scraped, as may any SDK's exporter, which would be
 # counted after OTLP had stopped, so each job that scrapes what asks to be scraped drops it. The rest stays.
 #
+# Two kinds of series are dropped as they are scraped, since nothing reads them and they are much of what Prometheus
+# keeps: the histogram buckets the nodes' endpoint serves, one series for each bucket of each of the control plane's
+# operations (about 6,800 of 46,000 head series on 19 October; their `_count` and `_sum` stay, enough for rates and
+# mean latencies), and the Postgres exporter's `pg_settings_*`, Postgres's configuration, constant and 284 series, of
+# which only `max_connections` is read, against the connections in use.
+#
 # The chart's two jobs for Services that ask to be probed (`kubernetes-services`, through a blackbox exporter, and
 # `prometheus-pushgateway`) are off: neither a blackbox exporter nor a Pushgateway runs here, so a Service that asked
 # would only be a target down.
@@ -157,6 +166,16 @@ scrapeConfigs:
         regex: target_info
         action: drop
       - regex: k8s_pod_label_rollouts_pod_template_hash
+        action: labeldrop
+      # Every `pg_settings_*` but `max_connections`: marked, dropped unless marked, and the mark taken off.
+      - source_labels: [__name__]
+        regex: pg_settings_max_connections
+        target_label: keep_setting
+        replacement: "true"
+      - source_labels: [__name__, keep_setting]
+        regex: pg_settings_.+;
+        action: drop
+      - regex: keep_setting
         action: labeldrop
   kubernetes-pods-slow:
     kubernetes_sd_configs:
@@ -176,6 +195,11 @@ scrapeConfigs:
         namespaces:
           names: *platform
     metric_relabel_configs: *scraped
+  kubernetes-nodes:
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: .+_bucket
+        action: drop
   kubernetes-services:
     enabled: false
   prometheus-pushgateway:

@@ -3,8 +3,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { objectives } from '../../../policy/objectives.ts';
+import { STUCK } from '../../../policy/stuck.ts';
 import * as query from '../src/alerts/queries.ts';
-import { outOfDate, RULES_FILE, render, rulesFor } from '../src/alerts/rules.ts';
+import {
+  BUDGET_WINDOWS,
+  budgetRulesFor,
+  OBJECTIVES,
+  outOfDate,
+  RULES_FILE,
+  render,
+  rulesFor,
+  stuckRulesFor,
+} from '../src/alerts/rules.ts';
+import { OPEN_STAGES } from '../src/line/metrics.ts';
 
 describe('alerting rules', () => {
   it('judge every route alike, and only one with enough requests', () => {
@@ -47,6 +58,70 @@ describe('alerting rules', () => {
     expect(outOfDate(objectives, file)).toBe(false);
     writeFileSync(file, `${render(objectives)}# edited\n`);
     expect(outOfDate(objectives, file)).toBe(true);
+  });
+});
+
+describe('the error budget’s recording rules', () => {
+  const rules = budgetRulesFor(objectives);
+  const named = (record: string) => rules.filter((rule) => rule.record === record);
+
+  it('count a request as bad by each objective’s own measure', () => {
+    const [errors, latency] = named('website:requests_bad:rate5m');
+    expect(errors?.labels).toEqual({ objective: OBJECTIVES.errorRatio });
+    expect(errors?.expr).toContain('http_response_status_code=~"5.."');
+    expect(latency?.labels).toEqual({ objective: OBJECTIVES.latency });
+    expect(latency?.expr).toContain(`le="${objectives.latency.maxSeconds}"`);
+  });
+
+  it('allow each objective the share of requests it lets be bad', () => {
+    const budgets = named('website:error_budget:ratio').map((rule) => [rule.labels?.objective, rule.expr]);
+    expect(budgets).toEqual([
+      [OBJECTIVES.errorRatio, `vector(${objectives.errorRatio.max})`],
+      [OBJECTIVES.latency, `vector(${Number((1 - objectives.latency.percentile).toFixed(6))})`],
+    ]);
+  });
+
+  it('record the share bad over an hour, six and the budget’s seven days, and the burn over the first two', () => {
+    expect(BUDGET_WINDOWS).toEqual(['1h', '6h', '7d']);
+    for (const w of BUDGET_WINDOWS) expect(named(`website:requests_bad:ratio_rate${w}`)).toHaveLength(1);
+    expect(rules.filter((rule) => rule.record.startsWith('website:error_budget_burn:')).map((r) => r.record)).toEqual([
+      'website:error_budget_burn:rate1h',
+      'website:error_budget_burn:rate6h',
+    ]);
+    expect(named('website:error_budget_remaining:ratio7d')[0]?.expr).toContain('website:requests_bad:ratio_rate7d');
+  });
+
+  it('refuse a latency objective that is not a bound of the app’s buckets, which no series could count', () => {
+    expect(() => budgetRulesFor({ ...objectives, latency: { percentile: 0.95, maxSeconds: 0.8 } })).toThrow(
+      /not a bound/,
+    );
+  });
+});
+
+describe('the line’s recording rules', () => {
+  it('give every stage the line reports a limit or none, and no other', () => {
+    expect(Object.keys(STUCK).sort()).toEqual([...OPEN_STAGES].sort());
+  });
+
+  it('record a limit for each stage that has one, in seconds', () => {
+    const limits = stuckRulesFor(STUCK).filter((rule) => rule.record === 'line:stage_limit_seconds');
+    const expected = Object.entries(STUCK).flatMap(([stage, { minutes }]) =>
+      minutes === null ? [] : [[stage, `vector(${minutes * 60})`]],
+    );
+    expect(limits.map((rule) => [rule.labels?.stage, rule.expr])).toEqual(expected);
+    expect(limits.map((rule) => rule.labels?.stage)).not.toContain('held');
+  });
+
+  it('read the line’s gauges with max, which two replicas would otherwise count twice', () => {
+    for (const rule of stuckRulesFor(STUCK).filter((r) => r.record !== 'line:stage_limit_seconds')) {
+      expect(rule.expr).not.toMatch(/\bsum\b/);
+    }
+  });
+
+  it('follow the policy', () => {
+    const stricter = { ...STUCK, build: { minutes: 30 } };
+    expect(render(objectives, stricter)).toContain('vector(1800)');
+    expect(render(objectives, stricter)).not.toBe(render(objectives));
   });
 });
 

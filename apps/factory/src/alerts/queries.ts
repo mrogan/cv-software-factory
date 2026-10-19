@@ -9,7 +9,13 @@
 import type { Objectives } from '../../../../policy/objectives.ts';
 import { METRICS_FROM_THE_APP } from '../provenance.ts';
 
-const REQUESTS = 'http_server_request_duration_seconds';
+export const REQUESTS = 'http_server_request_duration_seconds';
+
+/**
+ * The bounds of the app's request duration buckets, in seconds: OpenTelemetry's for `http.server.request.duration`,
+ * which the app keeps. A request is slower than the latency objective when it is outside the bucket at its bound.
+ */
+export const LATENCY_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10] as const;
 
 /**
  * What a query covers: every route that has one, or the one route; or every path a route template serves, as one, such
@@ -32,7 +38,8 @@ export function appSeries(o: Objectives): string {
   return `job=${quoted(o.app.metricsJob)}, ${METRICS_FROM_THE_APP}`;
 }
 
-function matchers(o: Objectives, scope: Scope, extra: string[] = []): string {
+/** The selector of the app's request series in a scope, with any further matchers. */
+export function matchers(o: Objectives, scope: Scope, extra: string[] = []): string {
   const route =
     scope.template !== undefined
       ? `http_route=~${quoted(templatePattern(scope.template))}`

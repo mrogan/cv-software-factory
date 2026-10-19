@@ -115,8 +115,8 @@ cleanup() {
   kubectl --context "$context" -n argo-rollouts delete pod egress-rollouts --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n pod-logs delete pod egress-pod-logs --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n kyverno delete pod egress-admission egress-kyverno --ignore-not-found --wait=false >/dev/null || true
-  kubectl --context "$context" -n telemetry delete pod egress-stranger egress-prometheus --ignore-not-found --wait=false \
-    >/dev/null || true
+  kubectl --context "$context" -n telemetry delete pod egress-stranger egress-prometheus egress-tempo --ignore-not-found \
+    --wait=false >/dev/null || true
   for worker in "${workers[@]}"; do
     kubectl --context "$context" -n "${worker%%/*}" delete pod "egress-${worker#*/}" --ignore-not-found --wait=false \
       >/dev/null || true
@@ -281,6 +281,9 @@ start_pod telemetry egress-stranger "$runner_image" node "app.kubernetes.io/name
 # prometheus-server Service must not take this pod for one of its own.
 start_pod telemetry egress-prometheus "$runner_image" node "app.kubernetes.io/name: prometheus
 app.kubernetes.io/component: server"
+# Tempo by the one label Prometheus's fence selects on, and not its instance's: the tempo Service and StatefulSet must not
+# take this pod for one of theirs.
+start_pod telemetry egress-tempo "$runner_image" node "app.kubernetes.io/name: tempo"
 # The Postgres exporter by the one label its fence, and Postgres's, select on, on the factory image: the exporter's
 # own has no Node.
 start_pod factory egress-postgres-exporter "$image" /nodejs/bin/node "app.kubernetes.io/name: postgres-exporter"
@@ -294,7 +297,8 @@ for worker in "${workers[@]}"; do
 done
 for started in factory/$pod runners/egress-agent runners/egress-prepare website/egress-journeys website/egress-app \
   website/egress-stranger argo-rollouts/egress-rollouts pod-logs/egress-pod-logs kyverno/egress-admission \
-  kyverno/egress-kyverno telemetry/egress-stranger telemetry/egress-prometheus factory/egress-postgres-exporter
+  kyverno/egress-kyverno telemetry/egress-stranger telemetry/egress-prometheus telemetry/egress-tempo \
+  factory/egress-postgres-exporter
 do
   kubectl --context "$context" -n "${started%%/*}" wait "pod/${started#*/}" --for=condition=Ready --timeout=2m >/dev/null
 done
@@ -405,8 +409,13 @@ echo "The readers of telemetry, through the read-only proxy, and Prometheus itse
 for port in 9090 3100 3200; do
   expect "the stranger in telemetry answers on $port" telemetry:egress-stranger "http://$stranger_ip:$port" reached
 done
-expect "Prometheus, asked directly, will not reload" telemetry:egress-stranger \
+expect "the stranger in telemetry cannot reach Prometheus" telemetry:egress-stranger \
+  http://prometheus-server.telemetry/-/healthy blocked
+expect "Prometheus, asked directly, will not reload" argo-rollouts:egress-rollouts \
   "POST http://prometheus-server.telemetry/-/reload" "reached, HTTP 403"
+# An empty write: Prometheus refuses it as malformed, so nothing is written, and that it answers shows the way is open.
+expect "Tempo reaches Prometheus's remote-write receiver" telemetry:egress-tempo \
+  "POST http://prometheus-server.telemetry/api/v1/write" "reached, HTTP 400"
 reads_telemetry triage egress-triage tempo
 reads_telemetry "the intake" egress-intake
 reads_telemetry "the log watcher" egress-logs tempo

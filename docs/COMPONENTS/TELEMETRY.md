@@ -12,6 +12,7 @@ flowchart LR
   collector --> prometheus[Prometheus]
   collector --> loki[Loki]
   collector --> tempo[Tempo]
+  tempo -- service graph --> prometheus
   pods[Every pod's log, on the node] --> podlogs[Pod log collector] --> loki
   prometheus & loki & tempo --> grafana[Grafana]
   readers[Factory workers that read] -- GET --> query[Read-only proxy]
@@ -32,7 +33,7 @@ Any other method is answered 405 and any other path 403, before it reaches a bac
 
 The proxy passes a search on over whatever range it is given, so Tempo bounds what one may take ([`values/tempo.yaml`](../../deploy/base/telemetry/values/tempo.yaml)): a search or a TraceQL metrics query covers a day at most, a search may ask for 1,000 traces at most, the querier runs eight of their jobs at once across every query, and Go collects hard before the pod's memory limit (`GOMEMLIMIT`, at 90% of it). Wider asks are refused. The factory's widest read covers ten minutes; in Grafana, a dashboard's trace table over more than a day errors, and a longer look is several searches.
 
-The collector, which every worker still sends its own telemetry to, writes; Grafana and the canary's analysis read; each reaches the backends directly. Prometheus's lifecycle endpoints are off, so nothing that reaches it can stop it or have it reload: it reloads its configuration and rules itself when they change, every 30 seconds.
+The collector, which every worker still sends its own telemetry to, writes, and so does Tempo, its [service graph](#the-service-graph) to Prometheus; Grafana and the canary's analysis read; each reaches the backends directly. Prometheus's port takes writes as well as queries, so only these reach it, and nothing else in `telemetry` ([network policies](NETWORK-POLICIES.md#telemetry)). Its lifecycle endpoints are off, so nothing that reaches it can stop it or have it reload: it reloads its configuration and rules itself when they change, every 30 seconds.
 
 ## Every pod's log
 
@@ -67,6 +68,61 @@ Prometheus scrapes itself in its own job. Kyverno's, Argo Rollouts' and the pod 
 - **They do not count toward the environment.** Triage takes Prometheus as healthy when the targets the senses read are `up`, Traefik and each node's kubelet ([triage](TRIAGE.md#what-a-sense-reads)), and none of these is one: a component Prometheus cannot scrape, even one crash-looping, holds nothing, and a healthy reading counts how many of the rest are down.
 - **`target_info` is OTLP's alone.** It is how Prometheus records a service that sends metrics over OTLP, and triage counts it to see that metrics still arrive. The collector also serves its own where it is scraped, so each of the chart's jobs that scrape what asks to be scraped, by pod or by Service, drops `target_info`, and a count of it still falls to nothing when OTLP stops.
 - **Only the platform's namespaces are looked in.** The jobs that scrape what asks, by pod or by Service, look for it in `argo-rollouts`, `argocd`, `factory`, `kube-system`, `kyverno`, `pod-logs` and `telemetry`, and nowhere else ([`values/prometheus.yaml`](../../deploy/base/telemetry/values/prometheus.yaml)). Not `website`, whose pods come from the app's repository, which the line changes, nor `runners` or `scoreboard`. A pod there that asked would be a target behind a fence Prometheus cannot pass, down for as long as it asked; one Prometheus could reach would keep the labels it sent, since the job honours them, and could stamp its series as [the app's](#which-records-are-the-apps). Whatever they do scrape has the label that marks [the app's](#which-records-are-the-apps) metrics dropped, since only the collector stamps it, on what arrives over OTLP. A namespace the platform starts to run a target in is a name added there: a test fails until it is, for a chart whose values ask and for a pod or Service deploy/ declares. The chart's jobs for Services that ask to be probed, through a blackbox exporter or a Pushgateway, are off, since neither runs.
+
+## What Prometheus keeps
+
+Seven days, or less when they would outgrow its volume: past 3 GiB of blocks and write-ahead log, it deletes its oldest blocks ([`values/prometheus.yaml`](../../deploy/base/telemetry/values/prometheus.yaml)). Two kinds of series are dropped as they are scraped, since nothing reads them and they were much of what it kept:
+
+- **The nodes' histogram buckets.** The kubelet's endpoint serves the control plane's latency histograms, one series for each bucket of each operation (about 6,800 of 46,000 head series on 19 October). Their `_count` and `_sum` stay, enough for rates and mean latencies; no dashboard draws the control plane.
+- **Postgres's settings,** `pg_settings_*` from the exporter: 284 constants, of which only `pg_settings_max_connections` is kept, read against the connections in use.
+
+## Recording rules
+
+Prometheus records a few figures that dashboards read, and alerts may, so each is defined once ([`prometheus-rules.yaml`](../../deploy/base/telemetry/values/prometheus-rules.yaml)). They are generated with the alerting rules from the policy, by [`alerts/rules.ts`](../../apps/factory/src/alerts/rules.ts), and `make check` fails when the file is out of date.
+
+### The app's error budget
+
+Each of the app's [objectives](../../policy/objectives.ts) gives a share of its requests that may be bad, over every route together: 5% that answer with a 5xx status (`objective="error-ratio"`), and the 5% slower than 1 s that a p95 of 1 s allows (`objective="latency"`). The budget is that share of the last seven days' requests: as many days as Prometheus keeps, and fewer for a while after it starts, or when its volume holds less.
+
+| Series | Says |
+|---|---|
+| `website:requests:rate5m` | The app's requests a second, to a route, over five minutes: the alerting rules' requests, the app's own by [their stamp](#which-records-are-the-apps) |
+| `website:requests_bad:rate5m` | Of those, the bad ones a second, by `objective` |
+| `website:error_budget:ratio` | The share each `objective` allows to be bad: 0.05 for both |
+| `website:requests_bad:ratio_rate1h`, `…_rate6h`, `…_rate7d` | The share of requests that were bad over the last hour, six hours and seven days, by `objective`; none with no requests |
+| `website:error_budget_burn:rate1h`, `…_rate6h` | How fast the budget burns: the share bad over the window against the share allowed, so 1 spends it in exactly seven days, and 14 in half a day |
+| `website:error_budget_remaining:ratio7d` | How much of the budget the last seven days left: 1 is all of it, 0 none, and below 0 overspent |
+
+The longer windows sum the five-minute rates, so each reads one series however long it is. The app is broken on purpose, so its budget is overspent while its faults stand: the figure says how far.
+
+### The line's stuck limits
+
+How long a work item may stay at a stage before the line counts as stuck there ([`policy/stuck.ts`](../../policy/stuck.ts)): the longest the line's own bounds should let it stay on Claude, with some to spare. Past a limit, something the line should have done has not happened: a step that should have ended, a hold that should have started, a release that should have ended. On the local model a step may take four times as long, so a night on Qwen can pass the limits at Plan and Build with nothing wrong.
+
+| Stage | Limit | Because |
+|---|---|---|
+| `plan` | 1 hour | The planner's step, a 15-minute deadline and its preparing, twice |
+| `build` | 1.5 hours | The coder's step, a 30-minute deadline and its preparing, twice |
+| `gates` | 1 hour | The app's checks on the pull request |
+| `review` | 1.5 hours | The reviewer's step and then the describer's, and one of them again |
+| `release` | 1 hour | A canary's steps take minutes |
+| `verify` | 25 hours | Verify holds for Martin after 24 hours of a sense not telling |
+| `waiting`, `held` | none | Waits on other work, or on Martin |
+
+| Series | Says |
+|---|---|
+| `line:stage_limit_seconds` | Each stage's limit, by `stage`; no series for a stage with none |
+| `line:work_items:max` | Work items at each stage now, by `stage`: [`line_work_items`](#the-lines-metrics) read with `max`, as two replicas would each report the whole store |
+| `line:stage_oldest_seconds:max` | How long the work item longest at each stage has been there, by `stage`; 0 with none |
+| `line:stage_oldest:ratio_to_limit` | That against the stage's limit: above 1 is stuck; none for a stage with no limit |
+
+## The service graph
+
+Tempo's metrics generator turns the traces into a graph of the services and the calls between them, which Grafana's Tempo data source draws ([`values/tempo.yaml`](../../deploy/base/telemetry/values/tempo.yaml)). Each pair of a client span and the server span under it, in two services, is an edge from one to the other, counted with its latency and failures, and written to Prometheus over remote write each minute as `traces_service_graph_*`: about two dozen series an edge.
+
+- **The service graph alone.** Span metrics, a series for each span name and its attributes, are off, and an edge carries each side's `service.name` and nothing else of a span, so a series is never a work item or a route. Tempo writes only these, and only Tempo reaches Prometheus's remote-write receiver ([network policies](NETWORK-POLICIES.md#telemetry)).
+- **Read by nothing that judges.** No sense, alert or canary analysis reads a `traces_` series: any worker may name its spans' service as it likes, so the edges say what services claimed to be, which is enough for a picture and not for a judgement.
+- **Its cost.** Tempo holds each edge's series and the spans it waits to pair, so it has half as much memory again as it had before: 1.5 GiB.
 
 ## Naming the factory's series
 

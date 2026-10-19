@@ -1,5 +1,7 @@
 /**
- * Prometheus's alerting rules, generated from the app's objectives (policy/objectives.ts).
+ * Prometheus's rules, generated from the policy: the alerting rules from the app's objectives
+ * (policy/objectives.ts), and the recording rules that dashboards and alerts read the objectives' error budget and the
+ * line's stuck limits from (policy/stuck.ts).
  *
  *     node apps/factory/src/alerts/rules.ts            # write the rules
  *     node apps/factory/src/alerts/rules.ts --check    # fail if they are out of date (make check, CI)
@@ -11,6 +13,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { type Objectives, objectives } from '../../../../policy/objectives.ts';
+import { STUCK, type StuckStage } from '../../../../policy/stuck.ts';
 import * as query from './queries.ts';
 
 export const RULES_FILE = join(import.meta.dirname, '../../../../deploy/base/telemetry/values/prometheus-rules.yaml');
@@ -62,8 +65,91 @@ export function rulesFor(o: Objectives): Rule[] {
 
 const percent = (share: number) => `${Number((share * 100).toFixed(2))}%`;
 
+interface Recording {
+  record: string;
+  expr: string;
+  labels?: Record<string, string>;
+}
+
+/** The windows the share of bad requests is recorded over: two for how fast the budget burns, and the budget's own. */
+export const BUDGET_WINDOWS = ['1h', '6h', '7d'] as const;
+
+/**
+ * The app's error budget, one for each objective, over every route together: the share of its requests each objective
+ * allows to be bad, and how much of that the last seven days have left. A request is bad for the error ratio when it
+ * answers with a 5xx status, and for latency when it is slower than the objective's bound, which the percentile allows
+ * that share of. The requests are the alerting rules' (the app's own, to a route), counted every five minutes, so a
+ * longer window is a sum of those and costs one series to read.
+ */
+export function budgetRulesFor(o: Objectives): Recording[] {
+  const { maxSeconds } = o.latency;
+  if (!(query.LATENCY_BUCKETS as readonly number[]).includes(maxSeconds)) {
+    throw new Error(`The latency objective, ${maxSeconds} s, is not a bound of the app's buckets`);
+  }
+  const rate = (extra: string[] = [], series = 'count') =>
+    `sum(rate(${query.REQUESTS}_${series}${query.matchers(o, {}, extra)}[5m]))`;
+  const allowed = (share: number) => `vector(${Number(share.toFixed(6))})`;
+  return [
+    { record: 'website:requests:rate5m', expr: rate() },
+    {
+      record: 'website:requests_bad:rate5m',
+      // A version that has answered no 5xx has no such series: none is none bad, not no figure.
+      expr: `${rate(['http_response_status_code=~"5.."'])} or vector(0)`,
+      labels: { objective: OBJECTIVES.errorRatio },
+    },
+    {
+      record: 'website:requests_bad:rate5m',
+      expr: `${rate()} - ${rate([`le="${maxSeconds}"`], 'bucket')}`,
+      labels: { objective: OBJECTIVES.latency },
+    },
+    {
+      record: 'website:error_budget:ratio',
+      expr: allowed(o.errorRatio.max),
+      labels: { objective: OBJECTIVES.errorRatio },
+    },
+    {
+      record: 'website:error_budget:ratio',
+      expr: allowed(1 - o.latency.percentile),
+      labels: { objective: OBJECTIVES.latency },
+    },
+    ...BUDGET_WINDOWS.map((w) => ({
+      record: `website:requests_bad:ratio_rate${w}`,
+      expr: `sum_over_time(website:requests_bad:rate5m[${w}]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[${w}]) > 0)`,
+    })),
+    ...BUDGET_WINDOWS.filter((w) => w !== '7d').map((w) => ({
+      record: `website:error_budget_burn:rate${w}`,
+      expr: `website:requests_bad:ratio_rate${w} / on (objective) website:error_budget:ratio`,
+    })),
+    {
+      record: 'website:error_budget_remaining:ratio7d',
+      expr: '1 - website:requests_bad:ratio_rate7d / on (objective) website:error_budget:ratio',
+    },
+  ];
+}
+
+/**
+ * The line's stuck limits, a series for each stage that has one, and what each stage's figures say against them.
+ * Two replicas of the line would each report the whole store's figures, so a stage's are read with `max`, never `sum`.
+ */
+export function stuckRulesFor(stuck: Record<StuckStage, { minutes: number | null }>): Recording[] {
+  const limits = Object.entries(stuck).flatMap(([stage, { minutes }]) =>
+    minutes === null
+      ? []
+      : [{ record: 'line:stage_limit_seconds', expr: `vector(${minutes * 60})`, labels: { stage } }],
+  );
+  return [
+    ...limits,
+    { record: 'line:work_items:max', expr: 'max by (stage) (line_work_items)' },
+    { record: 'line:stage_oldest_seconds:max', expr: 'max by (stage) (line_stage_oldest_seconds)' },
+    {
+      record: 'line:stage_oldest:ratio_to_limit',
+      expr: 'line:stage_oldest_seconds:max / on (stage) line:stage_limit_seconds',
+    },
+  ];
+}
+
 /** The values file's text. Strings are JSON strings, which YAML reads as written. */
-export function render(o: Objectives): string {
+export function render(o: Objectives, stuck = STUCK): string {
   const map = (values: Record<string, string>, indent: string) =>
     Object.entries(values)
       .map(([key, value]) => `${indent}${key}: ${JSON.stringify(value)}`)
@@ -79,14 +165,29 @@ ${map(rule.labels, '              ')}
 ${map(rule.annotations, '              ')}`,
     )
     .join('\n');
-  return `# Generated from policy/objectives.ts by apps/factory/src/alerts/rules.ts. Do not edit it: change the policy, then
-# run \`node apps/factory/src/alerts/rules.ts\`. \`make check\` fails when this file is out of date.
+  const recordings = (group: Recording[]) =>
+    group
+      .map(
+        (rule) => `          - record: ${rule.record}
+            expr: ${JSON.stringify(rule.expr)}${rule.labels ? `\n            labels:\n${map(rule.labels, '              ')}` : ''}`,
+      )
+      .join('\n');
+  return `# Generated from policy/objectives.ts and policy/stuck.ts by apps/factory/src/alerts/rules.ts. Do not edit it: change
+# the policy, then run \`node apps/factory/src/alerts/rules.ts\`. \`make check\` fails when this file is out of date.
 serverFiles:
   alerting_rules.yml:
     groups:
       - name: objectives
         rules:
 ${rules}
+  recording_rules.yml:
+    groups:
+      - name: error-budget
+        rules:
+${recordings(budgetRulesFor(o))}
+      - name: line
+        rules:
+${recordings(stuckRulesFor(stuck))}
 `;
 }
 
@@ -103,7 +204,7 @@ if (import.meta.main) {
   const where = relative(process.cwd(), RULES_FILE);
   if (process.argv.includes('--check')) {
     if (outOfDate(objectives)) {
-      console.error(`${where} is out of date with policy/objectives.ts. Run: node apps/factory/src/alerts/rules.ts`);
+      console.error(`${where} is out of date with the policy. Run: node apps/factory/src/alerts/rules.ts`);
       process.exit(1);
     }
     console.log(`${where} is current.`);

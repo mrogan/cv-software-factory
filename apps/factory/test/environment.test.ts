@@ -189,17 +189,24 @@ describe('Prometheus keeps what the look reads', () => {
         new RegExp(`^(?:${rule.regex})$`).test(name),
     );
 
-  it('still scrapes the kubelet’s volume stats on k3s, with the second copy of its metrics dropped', async () => {
+  it('still scrapes the kubelet’s volume stats, with its buckets dropped and on k3s its second copy off', async () => {
     const local = (await values('overlays/local/values/prometheus.yaml')) as {
       scrapeConfigs: Record<string, ScrapeConfig>;
     };
     expect(local.scrapeConfigs['kubernetes-api-servers']?.enabled).toBe(false);
-    const nodes = local.scrapeConfigs['kubernetes-nodes'];
+    // The local overlay's own rules for the job would take the place of the base's.
+    expect(local.scrapeConfigs['kubernetes-nodes']).toBeUndefined();
+    const base = (await values('base/telemetry/values/prometheus.yaml')) as {
+      scrapeConfigs: Record<string, ScrapeConfig>;
+    };
+    const nodes = base.scrapeConfigs['kubernetes-nodes'];
     expect(nodes?.enabled).not.toBe(false);
     const dropped = (name: string) => drops(nodes, name);
     for (const name of volumes.match(/kubelet_volume_stats_\w+/g) ?? []) expect(dropped(name)).toBe(false);
     expect(dropped('apiserver_request_duration_seconds_bucket')).toBe(true);
+    expect(dropped('workqueue_work_duration_seconds_bucket')).toBe(true);
     expect(dropped('apiserver_request_duration_seconds_count')).toBe(false);
+    expect(dropped('kubelet_running_pods')).toBe(false);
   });
 
   it.each([
