@@ -1,7 +1,7 @@
 {
   "uid": "console",
   "title": "Console",
-  "description": "The console's requests, latency, event stream, logs and traces.",
+  "description": "The console’s requests, latency, event stream, logs and traces.",
   "tags": ["software-factory"],
   "timezone": "browser",
   "schemaVersion": 41,
@@ -20,13 +20,17 @@
           "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"software-factory/console\"}[$__rate_interval]))"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 2 }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "decimals": 2, "noValue": "No requests in this range" },
+        "overrides": []
+      },
+      "description": "Requests the console answered a second. It serves Martin and anyone watching the line, so a few a minute is normal."
     },
     {
       "id": 2,
       "type": "stat",
       "title": "Server errors",
-      "description": "Share of responses with a 5xx status.",
+      "description": "The share of the console’s responses with a 5xx status. Good is none.",
       "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -35,7 +39,10 @@
           "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"software-factory/console\", http_response_status_code=~\"5..\"}[$__rate_interval])) / sum(rate(http_server_request_duration_seconds_count{job=\"software-factory/console\"}[$__rate_interval])) or vector(0)"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 1 }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "decimals": 1, "noValue": "No requests in this range" },
+        "overrides": []
+      }
     },
     {
       "id": 3,
@@ -49,7 +56,11 @@
           "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"software-factory/console\"}[$__rate_interval])))"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3 }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": { "unit": "s", "decimals": 3, "noValue": "No requests in this range" },
+        "overrides": []
+      },
+      "description": "How long the slowest 5% of the console’s responses took. Good is well under a second."
     },
     {
       "id": 4,
@@ -64,7 +75,8 @@
           "legendFormat": "{{http_response_status_code}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+      "fieldConfig": { "defaults": { "unit": "reqps", "noValue": "No requests in this range" }, "overrides": [] },
+      "description": "The console’s requests a second, by the status it answered with. Anything in the 5xx range is a fault."
     },
     {
       "id": 5,
@@ -84,7 +96,8 @@
           "legendFormat": "95th percentile"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      "fieldConfig": { "defaults": { "unit": "s", "noValue": "No requests in this range" }, "overrides": [] },
+      "description": "How long the console took to answer: the median and the 95th percentile."
     },
     {
       "id": 8,
@@ -94,13 +107,16 @@
       "gridPos": { "x": 0, "y": 12, "w": 6, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [{ "refId": "A", "expr": "sum(console_stream_clients{job=\"software-factory/console\"})" }],
-      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "noValue": "The console is not reporting" },
+        "overrides": []
+      }
     },
     {
       "id": 9,
       "type": "timeseries",
       "title": "Events sent to browsers",
-      "description": "Events written to event streams, backlogs included.",
+      "description": "Events written to event streams a second, backlogs included.",
       "gridPos": { "x": 6, "y": 12, "w": 9, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -110,7 +126,7 @@
           "legendFormat": "events"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      "fieldConfig": { "defaults": { "unit": "ops", "noValue": "No events sent in this range" }, "overrides": [] }
     },
     {
       "id": 10,
@@ -131,7 +147,7 @@
           "legendFormat": "95th percentile"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      "fieldConfig": { "defaults": { "unit": "s", "noValue": "No events sent in this range" }, "overrides": [] }
     },
     {
       "id": 6,
@@ -140,7 +156,8 @@
       "gridPos": { "x": 0, "y": 20, "w": 24, "h": 10 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [{ "refId": "A", "expr": "{service_name=\"console\"}" }],
-      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true },
+      "description": "What the console said about itself, newest first; a line with a trace opens it."
     },
     {
       "id": 7,
@@ -156,7 +173,9 @@
           "limit": 20,
           "tableType": "traces"
         }
-      ]
+      ],
+      "description": "The console’s latest traces, newest first; select one to open its spans. Tempo searches a day at most.",
+      "fieldConfig": { "defaults": { "noValue": "No traces in this range" }, "overrides": [] }
     }
   ]
 }

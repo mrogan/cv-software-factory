@@ -18,12 +18,36 @@ configMapGenerator:
     namespace: telemetry
     files:
       - query/nginx.conf
-  # Picked up by Grafana's dashboard sidecar, which watches for the grafana_dashboard label.
-  - name: dashboards
+  # Picked up by Grafana's dashboard sidecar, which watches for the grafana_dashboard label. One ConfigMap a dashboard:
+  # Argo CD applies each with a copy of it in an annotation, which holds 256 KiB at most, and the dashboards together
+  # are near half that.
+  - name: dashboard-console
     namespace: telemetry
     files:
       - dashboards/console.json
-      - dashboards/factory.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: dashboard-line
+    namespace: telemetry
+    files:
+      - dashboards/line.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: dashboard-overview
+    namespace: telemetry
+    files:
+      - dashboards/overview.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: dashboard-website
+    namespace: telemetry
+    files:
       - dashboards/website.json
     options:
       disableNameSuffixHash: true

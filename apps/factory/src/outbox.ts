@@ -1,6 +1,7 @@
 /**
  * Where a sense leaves its signals: the inbox, or, for a dry run, the terminal. Either way each signal is counted
- * as `factory_signals_total{sense}`, which the factory's dashboard shows.
+ * as `factory_signals_total{sense}`. The dashboards count signals as triage takes them instead
+ * (`factory_triage_signals_total`), which has the canary's and the planner's too.
  */
 import { metrics } from '@opentelemetry/api';
 import type { InboxSignal } from '@software-factory/events';

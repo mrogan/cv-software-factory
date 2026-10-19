@@ -247,7 +247,7 @@ describe('agents through the gateway', () => {
     expect(readdirSync(cassettesDir).filter((f) => f.endsWith('.json'))).toHaveLength(1);
   });
 
-  it('adds each priced call to the spend the factory’s dashboard reads, at what the audit log says it cost', async () => {
+  it('adds each priced call to the spend the dashboards read, at what the audit log says it cost', async () => {
     // Without an OpenTelemetry SDK every instrument is the same no-op, so the spy sees every instrument's records.
     const added = vi.spyOn(instruments.spend, 'add');
     try {

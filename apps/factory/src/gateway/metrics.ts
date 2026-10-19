@@ -15,7 +15,7 @@ export const calls = meter.createCounter('gateway.calls', {
 
 /**
  * Every priced call's cost, a judgement's or an agent's, as the gateway counts it, whatever event records it: the
- * factory's dashboard reads it as `factory_gateway_spend_usd_total` (`deploy/base/telemetry/dashboards/factory.json`).
+ * line's dashboard reads it as `factory_gateway_spend_usd_total` (`deploy/base/telemetry/dashboards/line.json`).
  */
 export const SPEND_METRIC = 'factory_gateway_spend_usd';
 
