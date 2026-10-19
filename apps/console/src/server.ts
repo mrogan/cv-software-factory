@@ -18,8 +18,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ARTIFACTS_DIR } from '@software-factory/events';
-import { DiskArtifacts } from '@software-factory/store';
-import postgres from 'postgres';
+import { connect, DiskArtifacts } from '@software-factory/store';
 import { createApp } from './app.ts';
 import { Feed, logFeed, storeFeed } from './feed.ts';
 import { log } from './log.ts';
@@ -31,8 +30,7 @@ const commit = process.env.GIT_COMMIT ?? 'dev';
 const { DATABASE_URL, PGHOST, EVENT_LOG, EVENT_LOG_NOW } = process.env;
 const logNow = () => (EVENT_LOG_NOW ? Date.parse(EVENT_LOG_NOW) : Date.now());
 
-const options = { onnotice: () => {}, max: 4 };
-const sql = DATABASE_URL ? postgres(DATABASE_URL, options) : PGHOST ? postgres(options) : undefined;
+const sql = DATABASE_URL || PGHOST ? connect(DATABASE_URL, { max: 4 }) : undefined;
 const source = sql
   ? { feed: await storeFeed(sql), artifacts: process.env.ARTIFACTS_DIR }
   : EVENT_LOG

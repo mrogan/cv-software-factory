@@ -14,8 +14,7 @@
  * ARTIFACTS_DIR.
  */
 import { parseArgs } from 'node:util';
-import { DiskArtifacts } from '@software-factory/store';
-import postgres from 'postgres';
+import { connect, DiskArtifacts } from '@software-factory/store';
 import { exportItem, load, play } from '../events.ts';
 
 export const USAGE = `  factory events load <log> [--only <items>] [--except <items>]
@@ -43,7 +42,7 @@ export async function run(args: string[]): Promise<number> {
     console.error('Set ARTIFACTS_DIR to the artifact store’s folder.');
     return 2;
   }
-  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  const sql = connect(DATABASE_URL);
   const store = new DiskArtifacts(ARTIFACTS_DIR);
 
   try {

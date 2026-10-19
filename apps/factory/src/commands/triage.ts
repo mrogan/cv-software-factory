@@ -31,8 +31,7 @@ export async function run(args: string[]): Promise<number> {
   const { shutdownTelemetry } = await import('../telemetry.ts');
   const { log } = await import('../log.ts');
   const { metrics } = await import('@opentelemetry/api');
-  const { default: postgres } = await import('postgres');
-  const { DiskArtifacts, EventWriter, pruneInbox } = await import('@software-factory/store');
+  const { connect, DiskArtifacts, EventWriter, pruneInbox } = await import('@software-factory/store');
   const { GatewayClient } = await import('../gateway/client.ts');
   const { waitingFor } = await import('../gateway/waiting.ts');
   const { environmentLook } = await import('../environment.ts');
@@ -40,7 +39,7 @@ export async function run(args: string[]): Promise<number> {
   const { Loki } = await import('../clients/loki.ts');
   const { Tempo } = await import('../clients/tempo.ts');
 
-  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  const sql = connect(DATABASE_URL);
   const gateway = new GatewayClient({ url: GATEWAY_URL });
 
   const judge: Judge = async (request) => {

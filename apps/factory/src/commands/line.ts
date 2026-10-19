@@ -66,8 +66,7 @@
  */
 import { parseArgs } from 'node:util';
 import { AUTONOMY, type Autonomy, type NewEvent, VERSIONS } from '@software-factory/events';
-import { DiskArtifacts, EventWriter } from '@software-factory/store';
-import postgres from 'postgres';
+import { connect, DiskArtifacts, EventWriter } from '@software-factory/store';
 
 export const USAGE = `  factory line stop [--reason <why>]
   factory line start [--autonomy supervised|guarded|lights-out]
@@ -94,7 +93,7 @@ export async function run(args: string[]): Promise<number> {
     return 2;
   }
   const { DATABASE_URL } = process.env;
-  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  const sql = connect(DATABASE_URL);
   // Line events carry no artifacts, so the writer never looks in the artifact store.
   const writer = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts('/nonexistent') });
   const event = (type: 'line.stopped' | 'line.started', summary: string, payload: object) =>
@@ -197,7 +196,7 @@ async function serve(): Promise<number> {
   const { telemetryFrom } = await import('../clients/env.ts');
   const { lineServers } = await import('../runners/serve.ts');
   const { GitHubWorker } = await import('../github/worker-client.ts');
-  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  const sql = connect(DATABASE_URL);
   const env = process.env;
   const kube = kubeFrom(env);
   const { StepLogs } = await import('../runners/logs.ts');
@@ -289,7 +288,7 @@ async function bench(args: string[]): Promise<number> {
   const { runAgent } = await import('../../../runner/src/agent.ts');
   const { bench: run, lastStep } = await import('../line/bench/bench.ts');
   const { DATABASE_URL, GATEWAY_URL } = process.env;
-  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  const sql = connect(DATABASE_URL);
   try {
     const benched = await run({
       agent: agent as keyof typeof FIXTURES,
@@ -328,7 +327,7 @@ async function soakCheck(args: string[]): Promise<number> {
   const { soakFacts, soakReport, soakText } = await import('../line/soak.ts');
   const { kubeFrom } = await import('../runners/kube.ts');
   const { DATABASE_URL } = process.env;
-  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  const sql = connect(DATABASE_URL);
   try {
     const report = soakReport(
       await soakFacts({ sql, kube: () => kubeFrom(process.env), now, since }),

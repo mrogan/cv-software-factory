@@ -11,7 +11,8 @@
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import postgres, { type Sql } from 'postgres';
+import type { Sql } from 'postgres';
+import { connect } from './client.ts';
 
 const MIGRATIONS = fileURLToPath(new URL('../migrations/', import.meta.url));
 
@@ -80,7 +81,7 @@ export async function migrate(sql: Sql, passwords: Passwords = {}): Promise<stri
 
 if (import.meta.main) {
   const url = process.env.DATABASE_URL;
-  const sql = url ? postgres(url, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  const sql = connect(url);
   try {
     const applied = await migrate(sql, {
       writer: process.env.WRITER_PASSWORD,

@@ -11,7 +11,7 @@
 import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import { type PayloadOf, type RawEvent, upcast } from '@software-factory/events';
-import postgres from 'postgres';
+import { connect } from '@software-factory/store';
 import { countRules, rulesIn, rulesTable } from '../line/rules.ts';
 
 export const USAGE = '  factory reviews rules [--rules <docs/REVIEWERS.md>]';
@@ -28,7 +28,7 @@ export async function run(args: string[]): Promise<number> {
     return 2;
   }
   const { DATABASE_URL } = process.env;
-  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  const sql = connect(DATABASE_URL);
   try {
     const rows = await sql<RawEvent[]>`
       select type, version, payload from events where type = 'review.submitted' order by seq`;

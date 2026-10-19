@@ -11,9 +11,8 @@
 import { readdirSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { DiskArtifacts, EventWriter, migrate } from '@software-factory/store';
+import { connect, DiskArtifacts, EventWriter, migrate } from '@software-factory/store';
 import { pino } from 'pino';
-import postgres from 'postgres';
 // The store's tests start a Postgres in Docker the same way.
 import { startPostgres } from '../../../packages/store/test/postgres.ts';
 import { SPEND } from '../../../policy/spend.ts';
@@ -39,7 +38,7 @@ if (!key) {
 
 const log = pino(logOptions('warn'));
 const database = await startPostgres();
-const sql = postgres(database.url, { onnotice: () => {} });
+const sql = connect(database.url);
 try {
   await migrate(sql);
   const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts(CASSETTES) });
