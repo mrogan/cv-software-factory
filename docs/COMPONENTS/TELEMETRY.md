@@ -93,16 +93,16 @@ Two more targets ask Prometheus to scrape them, with the `prometheus.io/` pod an
 
 ### What each client of the store sees
 
-The exporter counts the store's connections as Postgres sees them, all clients together. Each worker and the console also says how the store answers it: the client is postgres.js, which OpenTelemetry's `pg` instrumentation does not cover, so the store makes it with instruments of its own ([`client.ts`](../../packages/store/src/client.ts)). Every client is made by its `connect()`, and outside the tests the linter refuses any other (`biome.json`). In Prometheus, by `job`:
+The exporter counts the store's connections as Postgres sees them, all clients together. Each worker and the console also says how the store answers it: the client is postgres.js, which OpenTelemetry's `pg` instrumentation does not cover, so the store makes it with instruments of its own ([`client.ts`](../../packages/store/src/client.ts)). Every client is made by its `connect()`, and outside the tests the linter refuses postgres.js's own `postgres()` (`biome.json`). In Prometheus, by `job`:
 
 | Series | Says | Labels |
 |---|---|---|
 | `store_query_duration_milliseconds` (histogram) | How long each query took, from when it was asked for to its answer, so a wait for a free connection counts too | `operation`: the statement's first word (`select`, `insert`, `update`, `delete`, `with`, `begin`, `commit`, `listen`, …) or `other`; `outcome`: `ok` or `error`; `code`, for an error: Postgres's SQLSTATE, such as `23505` or `40001`, or the client's own, such as `CONNECTION_CLOSED`, `CONNECT_TIMEOUT` or `ECONNREFUSED` |
 | `store_connections` | The connections the client holds open now, its `LISTEN` included | none |
-| `store_connection_attempts_total` | The connections it tried to open | `outcome`: `connected` or `failed` |
+| `store_connection_attempts_total` | The connections it tried to open | `outcome`: `connected`, or `failed` for one that closed before it opened, refused, timed out, or ended by the client as it stopped |
 
 - **Never a work item, a row or a statement's text.** A statement's first word is kept only if it is one of a fixed few, and a code only if it has a code's shape, so no query can make a series of its own, and no text a visitor wrote, in a statement or its parameters, reaches a label. Each operation and outcome a worker meets makes 17 series of the histogram, its 15 buckets, sum and count: about 100 to 200 a worker that writes.
-- **A transaction's queries are timed one by one,** its `begin` and `commit` with them; a fragment nested in a query is part of it, never a query of its own. postgres.js's own lookup of the server's types, as it first connects, counts as a `select`.
+- **A transaction's queries are timed one by one,** its `begin` and `commit` with them, and a cursor from its first batch to its last; a fragment nested in a query is part of it, never a query of its own. postgres.js's own lookup of the server's types, as it first connects, counts as a `select`.
 - **The scoreboard's client counts too, and sends nothing,** since the scoreboard starts no telemetry. Nor do one-off commands run without `telemetry.ts`, such as the migrations.
 
 ## What the app records

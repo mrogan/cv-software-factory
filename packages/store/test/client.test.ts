@@ -36,13 +36,17 @@ describe("the store's client", () => {
       await sql`select ${secret}::text as said`;
       await sql`select ${sql`1`} as fragment`;
       await sql.begin((tx) => tx`select 1`);
+      // A cursor settles the query through what it puts in place of the query's own answer.
+      const batches = [];
+      for await (const rows of sql`select generate_series(1, 5)`.cursor(2)) batches.push(rows.length);
+      expect(batches).toEqual([2, 2, 1]);
       await expect(sql`select 1 / 0`).rejects.toThrow(/division by zero/);
       await expect(sql.unsafe('selec nothing')).rejects.toThrow();
 
       const points = await series('store.query.duration');
-      // Three selects, the transaction's included, and postgres.js's own of the server's array types as it first
+      // Four selects, the transaction's and the cursor's included, and postgres.js's own of the server's array types as it first
       // connects; a fragment inside another query is never a query of its own.
-      expect(count(find(points, { operation: 'select', outcome: 'ok' }))).toBe(4);
+      expect(count(find(points, { operation: 'select', outcome: 'ok' }))).toBe(5);
       expect(count(find(points, { operation: 'begin', outcome: 'ok' }))).toBe(1);
       expect(count(find(points, { operation: 'commit', outcome: 'ok' }))).toBe(1);
       expect(count(find(points, { operation: 'select', outcome: 'error', code: '22012' }))).toBe(1);
@@ -58,10 +62,13 @@ describe("the store's client", () => {
   it('counts the connections it holds open, and each it opened', async () => {
     const before = count(find(await series('store.connection.attempts'), { outcome: 'connected' }));
     const sql = connect(inject('databaseUrl'), { max: 2 });
-    await Promise.all([sql`select pg_sleep(0.05)`, sql`select pg_sleep(0.05)`]);
-    expect(count((await series('store.connections'))[0])).toBe(2);
-    expect(count(find(await series('store.connection.attempts'), { outcome: 'connected' }))).toBe(before + 2);
-    await sql.end();
+    try {
+      await Promise.all([sql`select pg_sleep(0.05)`, sql`select pg_sleep(0.05)`]);
+      expect(count((await series('store.connections'))[0])).toBe(2);
+      expect(count(find(await series('store.connection.attempts'), { outcome: 'connected' }))).toBe(before + 2);
+    } finally {
+      await sql.end();
+    }
     expect(count((await series('store.connections'))[0])).toBe(0);
   });
 

@@ -7,7 +7,7 @@
  *   `23505`, or the client's own, such as `CONNECTION_CLOSED` or `ECONNREFUSED`. It runs from when the query is asked
  *   for to its answer, so a wait for a free connection counts too.
  * - `store.connections`: the connections the client holds open now.
- * - `store.connection.attempts`, by `outcome` (`connected` or `failed`).
+ * - `store.connection.attempts`, by `outcome`: `connected`, or `failed` for one that closed before it opened.
  *
  * Never a work item, a row or the statement's text: they would make a series of each, and a statement's text or
  * parameters can hold what a visitor wrote. Until `telemetry.ts` starts an SDK, the instruments are no-ops.
@@ -20,7 +20,7 @@ type Options = NonNullable<Parameters<typeof postgres>[1]>;
 
 /**
  * A client of the store, by URL, or by the standard PG* variables without one, with its notices kept off the log. The
- * options are postgres.js's own.
+ * options are postgres.js's own; given its own `socket`, a client's connections go uncounted.
  */
 export function connect(url?: string, options: Options = {}): Sql {
   const settings = { onnotice: () => {}, ...options };
@@ -28,7 +28,7 @@ export function connect(url?: string, options: Options = {}): Sql {
   timeQueries(sql);
   // One address, by host or by Unix socket, is all the factory uses: more, and postgres.js rotates through them
   // itself, and its connections go uncounted.
-  if (sql.options.host.length === 1) Object.assign(sql.options, { socket: countedSocket });
+  if (sql.options.host.length === 1 && !('socket' in options)) Object.assign(sql.options, { socket: countedSocket });
   return sql;
 }
 
@@ -95,39 +95,59 @@ const code = (error: unknown) => {
   return typeof value === 'string' && /^[A-Z0-9_]{1,40}$/.test(value) ? value : 'unknown';
 };
 
-interface Query extends Promise<unknown> {
+interface Query {
   strings?: readonly string[];
   executed: boolean;
   handle(): Promise<void>;
+  resolve(value: unknown): void;
+  reject(error: unknown): void;
 }
 
 const TIMED = Symbol('store.timed');
 
 /**
- * Times every query postgres.js runs in this process, a transaction's too. A query is a lazy promise that runs when it
- * is first awaited, through its `handle`: that is where the clock starts. Its answer is watched through the native
- * `then`, which, unlike the query's own, does not run it; a fragment nested in another query never runs, and is never
- * timed. The class is postgres.js's and is not exported, so it is found from a query made and never run.
+ * Times every query postgres.js runs in this process, a transaction's and a cursor's too. A query is a lazy promise
+ * that runs when it is first awaited, through its `handle`: that is where the clock starts. It ends when postgres.js
+ * settles the query through its `resolve` or `reject`, which a cursor replaces as it goes, so each replacement is
+ * watched too. Nothing is attached to the promise, so a failed query nobody awaits fails as loudly as ever; a fragment
+ * nested in another query never runs, and is never timed. The class is postgres.js's and is not exported, so it is
+ * found from a query made and never run. Should a release of postgres.js change any of this, the client's tests fail.
  */
 function timeQueries(sql: Sql) {
   const prototype = Object.getPrototypeOf(sql`select 1`) as Query & { [TIMED]?: true };
-  if (prototype[TIMED]) return;
   const handle = prototype.handle;
+  if (prototype[TIMED] || typeof handle !== 'function') return;
   prototype.handle = function (this: Query) {
-    if (!this.executed) {
-      const started = performance.now();
-      const attributes = { operation: operation(this.strings) };
-      const record = (extra: Record<string, string>) =>
-        instruments().duration.record(performance.now() - started, { ...attributes, ...extra });
-      Promise.prototype.then.call(
-        this,
-        () => record({ outcome: 'ok' }),
-        (error: unknown) => record({ outcome: 'error', code: code(error) }),
-      );
-    }
+    if (!this.executed) timeQuery(this);
     return handle.call(this);
   };
   prototype[TIMED] = true;
+}
+
+function timeQuery(query: Query) {
+  const started = performance.now();
+  const attributes = { operation: operation(query.strings) };
+  let settled = false;
+  const record = (extra: Record<string, string>) => {
+    if (settled) return;
+    settled = true;
+    instruments().duration.record(performance.now() - started, { ...attributes, ...extra });
+  };
+  for (const key of ['resolve', 'reject'] as const) {
+    let current = query[key];
+    const settle = (value: unknown) => {
+      record(key === 'resolve' ? { outcome: 'ok' } : { outcome: 'error', code: code(value) });
+      return current.call(query, value);
+    };
+    Object.defineProperty(query, key, {
+      configurable: true,
+      enumerable: true,
+      get: () => settle,
+      set: (replacement: typeof current) => {
+        current = replacement;
+      },
+    });
+  }
 }
 
 /**
