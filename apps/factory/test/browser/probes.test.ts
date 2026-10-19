@@ -7,6 +7,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Screenshot } from '@software-factory/events';
 import { validateSignal } from '@software-factory/events/schemas';
 import { DiskArtifacts } from '@software-factory/store';
 import { type Browser, chromium } from 'playwright';
@@ -109,13 +110,12 @@ describe.each(CASES)('%s', (check, fault, symptom) => {
     // The proof it keeps: a screenshot, with at most four boxes, and the sentence that says what was expected and
     // seen goes in the signal's summary. A screenshot the sense could not take is a warning, not an error, so a
     // missing one is told apart from too many boxes, with what the sense warned of.
-    const screenshot = found?.artifacts.find((a) => a.kind === 'screenshot');
+    const screenshot = found?.artifacts.find((a): a is Screenshot => a.kind === 'screenshot');
     expect(
       screenshot,
       `no screenshot of the finding; the sense warned: ${warnings.join(' | ') || 'nothing'}`,
     ).toBeDefined();
-    const boxes = screenshot?.kind === 'screenshot' ? screenshot.boxes.length : 0;
-    expect(boxes, 'boxes on the screenshot').toBeLessThanOrEqual(4);
+    expect(screenshot?.boxes.length, 'boxes on the screenshot').toBeLessThanOrEqual(4);
     // And the signal the runner would send is one the inbox takes.
     expect(
       validateSignal({
