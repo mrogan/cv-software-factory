@@ -6,6 +6,13 @@ mode: daemonset
 image:
   repository: otel/opentelemetry-collector-k8s
 
+# Its own metrics (what it read, and what Loki took, refused or it failed to send) are served on 8888 at the pod's
+# address, as the collector in `telemetry` serves its own, and Prometheus scrapes them there: its server alone may
+# reach them (network-policies.yaml).
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8888"
+
 resources:
   requests:
     cpu: 50m
@@ -17,7 +24,8 @@ resources:
 tolerations:
   - operator: Exists
 
-# It takes nothing over the network, so it listens on no port but its health check's, and has no Service.
+# It takes nothing over the network, so it listens on no port but its health check's and its metrics', and has no
+# Service.
 ports:
   otlp:
     enabled: false
@@ -32,7 +40,8 @@ ports:
   zipkin:
     enabled: false
   metrics:
-    enabled: false
+    enabled: true
+    containerPort: 8888
 
 # It reads files, and nothing of the Kubernetes API: the file's path says the namespace, pod and container.
 serviceAccount:
@@ -103,6 +112,16 @@ alternateConfig:
       retry_on_failure:
         max_elapsed_time: 0
   service:
+    # The chart's default configuration serves these; this one replaces it, so it says so itself. The collector's own
+    # default would serve them on localhost alone, where nothing can scrape them.
+    telemetry:
+      metrics:
+        readers:
+          - pull:
+              exporter:
+                prometheus:
+                  host: ${env:MY_POD_IP}
+                  port: 8888
     extensions: [health_check, file_storage]
     pipelines:
       logs:

@@ -1,10 +1,11 @@
-# The pod log collector's fences. Everything in `pod-logs` is denied, in and out, and then the collector may reach:
+# The pod log collector's fences. Everything in `pod-logs` is denied, in and out, and then Prometheus may scrape the
+# collector's own metrics, on 8888 alone, and the collector may reach:
 #
 # - Loki's OTLP intake, on its pods' port behind the Service's 3100, where it sends what it reads;
 # - DNS, for Loki's name.
 #
-# Nothing calls it: it listens on no port but its health check's, which the kubelet probes from the node. It reads the
-# runners' logs from the node's files, so their fence stays shut (deploy/base/runners).
+# Nothing else calls it: besides its metrics, it listens only on its health check's port, which the kubelet probes from
+# the node. It reads the runners' logs from the node's files, so their fence stays shut (deploy/base/runners).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -27,7 +28,18 @@ spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: opentelemetry-collector
-  policyTypes: [Egress]
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/component: server
+      ports:
+        - { protocol: TCP, port: 8888 }
   egress:
     - to:
         - namespaceSelector:
