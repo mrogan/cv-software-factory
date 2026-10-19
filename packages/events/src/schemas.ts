@@ -697,14 +697,25 @@ export const PAYLOADS = {
     /** The pages compared, if any were: a sense that does not look at pages compares none. */
     pages: z
       .array(
-        z.strictObject({
-          page: text(60),
-          route,
-          screenshot: sha256,
-          /** The share of pixels that differ from the same page on `against`. */
-          changed: z.number().min(0).max(1),
-          intended: z.boolean(),
-        }),
+        z
+          .strictObject({
+            page: text(60),
+            route,
+            screenshot: sha256,
+            /** The share of pixels that differ from the same page on `against`. */
+            changed: z.number().min(0).max(1),
+            /** Whether the page is the work item's own: the one its fix was meant to change. */
+            intended: z.boolean(),
+            /**
+             * Another work item the release carried, whose own page this is: its fix was meant to change it. Only on a
+             * page that is not this work item's own. A version 3 verification never said.
+             */
+            intendedFor: workItem.optional(),
+          })
+          .refine((page) => !(page.intended && page.intendedFor), {
+            message: 'a page that is the work item’s own names no other',
+            path: ['intendedFor'],
+          }),
       )
       .max(12),
     /** A verification the dry run answers for: its release never shipped, so no sense looked. */
