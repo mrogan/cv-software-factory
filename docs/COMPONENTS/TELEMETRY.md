@@ -100,14 +100,15 @@ Two more targets ask Prometheus to scrape them, with the `prometheus.io/` pod an
 
 ## The factory's own health
 
-Each worker, and the console, reports its own runtime over OTLP ([`telemetry.ts`](../../apps/factory/src/telemetry.ts), the OpenTelemetry runtime instrumentation), so an alert or a dashboard can see one running out of memory or stalling before Kubernetes restarts it. In Prometheus, by `job` (`software-factory/<worker>`):
+Each worker that sends telemetry, and the console, reports its own runtime over OTLP ([`telemetry.ts`](../../apps/factory/src/telemetry.ts), the OpenTelemetry runtime instrumentation): the series an alert or a dashboard would need to see one running out of memory or stalling before Kubernetes restarts it, though none reads them yet. The scoreboard and the runners send nothing, so report none. In Prometheus, by `job` (`software-factory/<worker>`):
 
 | Series | Says | Labels |
 |---|---|---|
 | `v8js_memory_heap_used_bytes`, `v8js_memory_heap_space_size_bytes`, `…_physical_size_bytes`, `…_available_size_bytes` | The heap, by space | `v8js_heap_space_name` |
 | `v8js_gc_duration_seconds` (histogram) | Each garbage collection's pause | `v8js_gc_type`: `major`, `minor`, `incremental`, `weakcb` |
 | `nodejs_eventloop_delay_{min,max,mean,stddev,p50,p90,p99}_seconds` | How late the event loop ran what was due | none |
-| `nodejs_eventloop_utilization_ratio`, `nodejs_eventloop_time_seconds_total` | How busy the event loop is | `nodejs_eventloop_state`: `active`, `idle` |
+| `nodejs_eventloop_utilization_ratio` | How busy the event loop has been since the last export | none |
+| `nodejs_eventloop_time_seconds_total` | The event loop's time, busy and idle | `nodejs_eventloop_state`: `active`, `idle` |
 | `v8js_resource_active` | What keeps the process alive: sockets, servers, timers | `v8js_resource_type` |
 
 Every label is the runtime's own, with a handful of values, so a process makes about 120 to 150 series. A pod's memory against its limit is still cAdvisor's (`container_memory_working_set_bytes`): the heap is only part of it.

@@ -38,7 +38,11 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/** The runtime's series every process reports. A collection's pause is a histogram, recorded only once one has. */
+/**
+ * The runtime's series every process reports, as the SDK's exporter names them: Prometheus's OTLP receiver adds the
+ * unit (`v8js_memory_heap_used_bytes`), as TELEMETRY.md lists them. A collection's pause is a histogram, recorded only
+ * once one has happened, which an idle process may not have.
+ */
 const RUNTIME_SERIES = [
   'v8js_memory_heap_used',
   'v8js_memory_heap_space_size',
@@ -46,6 +50,7 @@ const RUNTIME_SERIES = [
   'nodejs_eventloop_delay_p99',
   'nodejs_eventloop_utilization',
   'nodejs_eventloop_time_total',
+  'v8js_resource_active',
 ];
 
 /**
@@ -63,11 +68,16 @@ async function metricsOf(module: string): Promise<string> {
       OTEL_TRACES_EXPORTER: 'none',
       OTEL_LOGS_EXPORTER: 'none',
     },
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let stderr = '';
+  child.stderr?.on('data', (chunk) => {
+    stderr += chunk;
   });
   const deadline = Date.now() + 15_000;
   let text = '';
   while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`${module} exited ${child.exitCode}: ${stderr}`);
     text = await fetch(`http://127.0.0.1:${port}/metrics`)
       .then((response) => response.text())
       .catch(() => '');
@@ -95,6 +105,10 @@ describe.each(Object.entries(telemetry))('the %s’s telemetry', (_, module) => 
     const names = new Set(all.map((each) => each.name));
 
     for (const name of RUNTIME_SERIES) expect(names, name).toContain(name);
+    const labels = new Set(all.flatMap((each) => each.labels));
+    for (const label of ['v8js_heap_space_name', 'nodejs_eventloop_state', 'v8js_resource_type']) {
+      expect(labels, label).toContain(label);
+    }
     expect(all.flatMap((each) => each.labels).filter((label) => !RUNTIME_LABELS.has(label))).toEqual([]);
   }, 20_000);
 });
