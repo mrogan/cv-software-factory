@@ -254,7 +254,8 @@ async function line(
     handbackUrl: 'http://line/v1/handback',
     log,
     ...(logs ? { logs } : {}),
-    logWaitMs: 50,
+    // A step waits only as long as its logs take to keep, so the wait is short only where they are never given.
+    logWaitMs: hang ? 50 : 2_000,
     pollMs: 10,
     graceMs: 10,
     lookup: async () => '10.43.0.9',
