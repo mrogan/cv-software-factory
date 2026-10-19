@@ -75,6 +75,16 @@ A cassette is named by a SHA-256:
 
 So a step run again replays up to its first changed call.
 
+### Keeping them
+
+In `record`, as on the cluster, nothing is replayed from the folder: a cassette is the record of what a call sent and got back, for looking into a run. The gateway deletes one two weeks after the last thing it was for, as it starts and every six hours (`CASSETTES` in `policy/cassettes.ts`, human-owned; `gateway/pruning.ts` applies it):
+
+- **calls for work items:** once every work item they name has been closed two weeks;
+- **calls for none,** such as triage judging a report before there is a ticket: two weeks after the last;
+- **a file no call names:** two weeks after it was written.
+
+A file written in the last two weeks always stays. Rows in `model_calls` are never changed, so a call may name a cassette that has gone. A gateway that replays from its folder keeps every cassette; one in `record` with no TypeSafe key replays Jev's calls from it, so it prunes only the agents' cassettes.
+
 ## Spend
 
 - **One cap across every provider** (`policy/spend.ts`), counted from the `model_calls` table: the audit log of every call, with its tokens, cache reads and writes, cost and job.

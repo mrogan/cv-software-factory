@@ -16,6 +16,7 @@ import { Gateway } from './gateway.ts';
 import { costOf } from './prices.ts';
 import { ProviderCaps } from './provider-caps.ts';
 import { Anthropic, LocalModels, type MessagesProvider, type ProviderName } from './providers.ts';
+import { startPruning } from './pruning.ts';
 import { createGatewayServer } from './server.ts';
 import { Spend } from './spend.ts';
 import { TypeSafe } from './typesafe.ts';
@@ -87,6 +88,11 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
   spend.start();
   await caps.resume();
   caps.start();
+  // Only in `record`, where nothing is replayed from the folder, but Jev's calls with no TypeSafe key.
+  const pruner =
+    config.mode === 'record' && config.cassettesDir
+      ? startPruning({ sql, dir: config.cassettesDir, agentsOnly: gateway.mode !== 'record' }, log)
+      : undefined;
 
   const server = createGatewayServer({ gateway, agents, spend, log });
   await new Promise<void>((resolve) => server.listen(config.port, resolve));
@@ -109,6 +115,7 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
     });
     await spend.stop();
     await caps.stop();
+    await pruner?.stop();
     await sql.end();
   };
   return { server, stop };
