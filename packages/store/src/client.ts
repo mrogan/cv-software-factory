@@ -2,7 +2,7 @@
  * The store's client: postgres.js, with metrics of its own, since OpenTelemetry's `pg` instrumentation does not cover
  * it. Every worker, the console and the store's own commands make their client here, so the series cover each once.
  *
- * - `store.query.duration`, in milliseconds, by `operation` (the statement's first word: `select`, `insert`, `begin`,
+ * - `store.query.duration`, in seconds, by `operation` (the statement's first word: `select`, `insert`, `begin`,
  *   or `other`) and `outcome` (`ok` or `error`), with the error's `code` when it failed: Postgres's SQLSTATE, such as
  *   `23505`, or the client's own, such as `CONNECTION_CLOSED` or `ECONNREFUSED`. It runs from when the query is asked
  *   for to its answer, so a wait for a free connection counts too.
@@ -45,9 +45,11 @@ function make() {
   return {
     duration: meter.createHistogram('store.query.duration', {
       description: 'How long a query to the store took, a wait for a connection included',
-      unit: 'ms',
-      // Most of the store's queries take a few milliseconds; the default buckets start at five.
-      advice: { explicitBucketBoundaries: [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000] },
+      unit: 's',
+      // Most of the store's queries take a few milliseconds; the default buckets start at five seconds.
+      advice: {
+        explicitBucketBoundaries: [0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
+      },
     }),
     connections: meter.createUpDownCounter('store.connections', {
       description: 'Connections to the store the client holds open',
@@ -131,7 +133,7 @@ function timeQuery(query: Query) {
   const record = (extra: Record<string, string>) => {
     if (settled) return;
     settled = true;
-    instruments().duration.record(performance.now() - started, { ...attributes, ...extra });
+    instruments().duration.record((performance.now() - started) / 1000, { ...attributes, ...extra });
   };
   for (const key of ['resolve', 'reject'] as const) {
     let current = query[key];
