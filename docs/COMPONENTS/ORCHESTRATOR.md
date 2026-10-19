@@ -91,6 +91,10 @@ A dry run works on real tickets, so a line that starts `live` on the same store 
 
 What it cannot end on one pass, because GitHub or the store failed, it tries again on the next, and until then it reads no gates and starts nothing for that work item. A reopened work item waiting to come back into Plan is left to that, which forgets a dry run's issue. With `LINE_ONLY`, it ends only that work item's.
 
+### Its metrics
+
+The line reports the work items at each stage and how long the oldest has been there, read from the `line` table, how long each stayed at a stage, each step by agent and how it ended, each hold by cause, each release's end and each verification by sense and outcome ([the line's metrics](TELEMETRY.md#the-lines-metrics)).
+
 ## Steps
 
 - **State is derived.** What a work item does next is a pure function of its events (`line/machine.ts`), so after a stop or a crash the line carries on from the last event.

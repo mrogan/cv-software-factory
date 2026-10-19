@@ -25,6 +25,7 @@ import type { JSONValue, Sql } from 'postgres';
 import type { Handback } from '../runners/steps.ts';
 import type { Draft } from './gates.ts';
 import type { LineAgent, QueueStage } from './machine.ts';
+import { leftStage } from './metrics.ts';
 
 /** A handback whose effects are not all done yet, kept so they can be tried again without the agent. */
 export interface Pending {
@@ -82,6 +83,20 @@ const item = (row: Row): QueueItem => ({
 });
 
 const COLUMNS = ['work_item', 'stage', 'steps', 'failures', 'failure', 'issue', 'session', 'effects'];
+
+/** Where a moved row was, and for how long, as the update that moved it saw it before (`was`). */
+interface Left {
+  was: QueueStage;
+  seconds: number;
+}
+
+const LEFT = (sql: Sql) =>
+  sql`was.stage as was, extract(epoch from clock_timestamp() - was.moved_at)::float8 as seconds`;
+
+/** Records the time at the stage a row left, if the update moved it to another. */
+function left(to: QueueStage, rows: readonly Left[]): void {
+  for (const row of rows) leftStage(row.was, to, row.seconds);
+}
 
 /** A row (`l`) whose work item reopened since the line last took it back, and is open still. */
 const reopenedSince = (sql: Sql) =>
@@ -167,13 +182,16 @@ export class Queue {
    */
   async revive(workItem: string, { forgetIssue = false } = {}): Promise<boolean> {
     const sql = this.#sql;
-    const rows = await sql`
+    const rows = await sql<Left[]>`
+      with was as (select work_item, stage, moved_at from line where work_item = ${workItem})
       update line l set stage = 'plan', moved_at = clock_timestamp(), failures = 0, failure = null, effects = null,
                         session = null, ${forgetIssue ? sql`issue = null,` : sql``}
                         reopened = (select max(r.seq) from events r
                                     where r.work_item = l.work_item and r.type = 'work-item.reopened')
-      where l.work_item = ${workItem} and ${reopenedSince(sql)} and ${unheld(sql)}
-      returning l.work_item`;
+      from was
+      where l.work_item = was.work_item and ${reopenedSince(sql)} and ${unheld(sql)}
+      returning ${LEFT(sql)}`;
+    left('plan', rows);
     return rows.length > 0;
   }
 
@@ -223,17 +241,30 @@ export class Queue {
 
   /** Records where a work item this worker holds now is, keeping hold of it. */
   async move(workItem: string, stage: QueueStage): Promise<void> {
-    await this.#sql`
-      update line set stage = ${stage}, moved_at = case when stage = ${stage} then moved_at else clock_timestamp() end
-      where work_item = ${workItem} and held_by = ${this.#me}`;
+    const sql = this.#sql;
+    left(
+      stage,
+      await sql<Left[]>`
+        with was as (select work_item, stage, moved_at from line where work_item = ${workItem})
+        update line l set stage = ${stage},
+                          moved_at = case when l.stage = ${stage} then l.moved_at else clock_timestamp() end
+        from was where l.work_item = was.work_item and l.held_by = ${this.#me}
+        returning ${LEFT(sql)}`,
+    );
   }
 
   /** Lets go of a work item, recording where it now is. */
   async release(workItem: string, stage: QueueStage): Promise<void> {
-    await this.#sql`
-      update line set held_by = null, held_until = null, stage = ${stage},
-                      moved_at = case when stage = ${stage} then moved_at else clock_timestamp() end
-      where work_item = ${workItem} and held_by = ${this.#me}`;
+    const sql = this.#sql;
+    left(
+      stage,
+      await sql<Left[]>`
+        with was as (select work_item, stage, moved_at from line where work_item = ${workItem})
+        update line l set held_by = null, held_until = null, stage = ${stage},
+                          moved_at = case when l.stage = ${stage} then l.moved_at else clock_timestamp() end
+        from was where l.work_item = was.work_item and l.held_by = ${this.#me}
+        returning ${LEFT(sql)}`,
+    );
   }
 
   /**

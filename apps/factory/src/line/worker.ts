@@ -113,6 +113,7 @@ import {
   STAGE_OF,
   type WorkItemState,
 } from './machine.ts';
+import { countRecorded, countStep, observeStages, type StepEnding } from './metrics.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Own, pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem } from './queue.ts';
@@ -503,6 +504,8 @@ export class Line {
     const nudge = () => wake.resolve();
     const listening = await this.#o.sql.listen('events', nudge);
     abort.addEventListener('abort', nudge);
+    // The stages as the store has them, while the line runs: with LINE_MODE off, nothing moves them.
+    const unobserve = this.#o.takesWork ? observeStages(this.#o.sql) : () => {};
     try {
       while (!abort.aborted) {
         await this.tick().catch((error: unknown) => this.#o.log.error({ err: error }, 'a pass of the line failed'));
@@ -512,6 +515,7 @@ export class Line {
         wake = Promise.withResolvers<void>();
       }
     } finally {
+      unobserve();
       await listening.unlisten();
       if (this.#o.takesWork) {
         this.#halt.abort();
@@ -1221,6 +1225,7 @@ export class Line {
         [A.outcome]: outcome.kind === 'handed-back' ? outcome.handback.ending : outcome.kind,
       });
       if (outcome.kind === 'stopped') {
+        countStep(agent, this.#o.providerOf(agent), 'stopped');
         this.#o.log.info({ workItem, agent, job: outcome.job }, 'a step stopped with the line; it runs again on start');
         return;
       }
@@ -1233,6 +1238,7 @@ export class Line {
       const cap = unfinished && capOn(await capsInForce(this.#o.sql, from), this.#o.providerOf(agent));
       if (cap) {
         await this.#append(workItem, called);
+        countStep(agent, this.#o.providerOf(agent), 'capped');
         this.#o.log.info(
           { workItem, agent, job: outcome.job, cap: cap.reason },
           'a step ended at a cap; it runs again when the cap clears',
@@ -1245,7 +1251,8 @@ export class Line {
       if (handback.ending !== 'finished') {
         const ended = handback.ending === 'max-turns' ? 'ran out of turns' : 'failed';
         const why = handback.error ? `: ${handback.error}` : '';
-        return await this.#failed(workItem, agent, outcome.job, called, `The ${agent} ${ended}${why}`);
+        const counted = handback.ending === 'max-turns' ? 'out-of-turns' : 'failed';
+        return await this.#failed(workItem, agent, outcome.job, called, `The ${agent} ${ended}${why}`, counted);
       }
       const pending: Pending = {
         agent,
@@ -1290,6 +1297,7 @@ export class Line {
       if (error instanceof StepStale) {
         await this.#append(workItem, pending.called);
         await this.#queue.drop(workItem);
+        countStep(agent, this.#o.providerOf(agent), 'stale');
         this.#o.log.info({ workItem, agent, job: pending.job, reason: error.message }, 'a step is out of date: again');
         return;
       }
@@ -1304,6 +1312,7 @@ export class Line {
         });
         await this.#append(workItem, [...pending.called, hold]);
         await this.#queue.moved(workItem);
+        countStep(agent, this.#o.providerOf(agent), 'effects-failed');
         this.#o.log.warn({ workItem, agent, job: pending.job, reason }, 'a step’s effects kept failing: held');
         return;
       }
@@ -1314,6 +1323,7 @@ export class Line {
     }
     await this.#append(workItem, [...pending.called, ...drafts]);
     await this.#queue.moved(workItem);
+    countStep(agent, this.#o.providerOf(agent), 'done');
     this.#o.log.info({ workItem, agent, job: pending.job, events: drafts.map((d) => d.type) }, 'a step is done');
   }
 
@@ -1322,12 +1332,23 @@ export class Line {
     return boundsOn(this.#o.agents[agent], this.#o.providerOf(agent));
   }
 
-  /** A failed attempt at a step: its calls are recorded, and it counts towards holding the work item. */
-  async #failed(workItem: string, agent: LineAgent, job: string | null, called: Draft[], reason: string) {
+  /**
+   * A failed attempt at a step: its calls are recorded, and it counts towards holding the work item. `counted` says
+   * how it failed, for the line's count of steps: out of turns, or any other way.
+   */
+  async #failed(
+    workItem: string,
+    agent: LineAgent,
+    job: string | null,
+    called: Draft[],
+    reason: string,
+    counted: Extract<StepEnding, 'failed' | 'out-of-turns'> = 'failed',
+  ) {
     // However its agent ended, a step that counts as failed is one on its span.
     trace.getActiveSpan()?.setAttribute(A.outcome, 'failed');
     await this.#append(workItem, called);
     await this.#queue.failed(workItem, reason);
+    countStep(agent, this.#o.providerOf(agent), counted);
     this.#o.log.warn({ workItem, agent, job, reason }, 'a step failed');
   }
 
@@ -1613,6 +1634,7 @@ export class Line {
     if (!drafts.length) return;
     const ts = this.#o.now().toISOString();
     await this.#o.events.append(drafts.map((draft) => asEvent(workItem, draft, ts)));
+    countRecorded(drafts);
   }
 }
 

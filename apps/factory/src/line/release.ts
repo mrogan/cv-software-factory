@@ -78,6 +78,7 @@ import type { Kube } from '../runners/kube.ts';
 import { ATTRIBUTES as A, inSpan } from '../spans.ts';
 import { asEvent, type Draft } from './gates.ts';
 import { fold, type LineEvent } from './machine.ts';
+import { countReleaseEnd, RELEASE_ENDINGS } from './metrics.ts';
 import type { GitHubPort } from './worker.ts';
 
 /** Where the line reads the app's releases. */
@@ -440,6 +441,21 @@ export class Releases {
     return this.#write(drafts, items, release);
   }
 
+  /**
+   * The releases' ends among events about to be appended that the store has not recorded yet, on any work item or the
+   * line: a release carried by a work item recorded on a later pass than the rest ended once, and is counted once.
+   */
+  async #newEndings(events: readonly Appended[]): Promise<Ending[]> {
+    const endings = endingsIn(events);
+    if (!endings.length) return [];
+    const sql = this.#o.sql;
+    const recorded = await sql<{ type: string; release: string }[]>`
+      select distinct type, payload->>'release' as release from events
+      where type in ${sql(endings.map((e) => e.type))} and payload->>'release' in ${sql(endings.map((e) => e.release))}`;
+    const seen = new Set(recorded.map((row) => `${row.type} ${row.release}`));
+    return endings.filter((e) => !seen.has(`${e.type} ${e.release}`));
+  }
+
   async #write(drafts: Map<Target, Draft[]>, items: string[], release?: string): Promise<void> {
     trace.getActiveSpan()?.setAttribute(
       A.workItems,
@@ -447,7 +463,9 @@ export class Releases {
     );
     const ts = this.#o.now().toISOString();
     const events = [...drafts].flatMap(([target, list]) => list.map((draft) => asEvent(target, draft, ts)));
+    const endings = await this.#newEndings(events);
     await this.#o.events.append(events);
+    for (const { type, dryRun } of endings) countReleaseEnd(type, dryRun);
     this.#o.log.info(
       {
         release,
@@ -456,6 +474,30 @@ export class Releases {
       'recorded the app’s release',
     );
   }
+}
+
+/** An event as the release watch appends it, as far as counting its end goes. */
+interface Appended {
+  type: string;
+  payload: unknown;
+}
+
+/** A release's end, once. */
+interface Ending {
+  type: keyof typeof RELEASE_ENDINGS;
+  release: string;
+  dryRun: boolean;
+}
+
+/** Each release's end among events, once however many work items they record it on. */
+export function endingsIn(events: readonly Appended[]): Ending[] {
+  const endings = new Map<string, Ending>();
+  for (const { type, payload } of events) {
+    if (!Object.hasOwn(RELEASE_ENDINGS, type)) continue;
+    const { release, dryRun } = payload as { release: string; dryRun?: boolean };
+    endings.set(`${type} ${release}`, { type: type as Ending['type'], release, dryRun: dryRun === true });
+  }
+  return [...endings.values()];
 }
 
 /** A release span's attributes: which release, when the Rollout names one, and whether it is a dry run's. */
