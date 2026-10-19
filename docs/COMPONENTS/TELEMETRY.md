@@ -142,8 +142,28 @@ The line and the gateway start spans of their own, so one trace follows a work i
 | `model call` | the gateway, for each call it takes from a runner | `work_item`, `job`, `agent`, `provider`, `model`, `outcome`, `reason`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cost_usd` | the provider's call |
 
 - **A model call joins its step through the job token.** The line keeps the step's span context with the token as it makes it (`job_tokens.traceparent`), and the gateway starts the call's span as that span's child, linked to the request that carried it; its `model call` log line names the step's trace. The runner needs nothing, which suits a pod that cannot reach the collector. A token made with no span in hand (the bench's) puts the call under the request instead.
-- **The names are those the gateway's metrics, its log line and the store already use,** in snake case, so a dashboard reads a span, a series and a row alike. A metric takes only the few-valued ones (`agent`, `provider`, `model`, `outcome`); a work item or a job would make a series of each.
+- **The names are those the gateway's metrics, its log line and the store already use,** in snake case, so a dashboard reads a span, a series and a row alike. A metric takes only the few-valued ones (`agent`, `provider`, `model`, `outcome`, and [the gateway's](#the-gateways-metrics) closed sets beside them); a work item or a job would make a series of each.
 - **A step's span ends with the step,** up to its deadline, so Tempo shows its calls first and the step once it is over. A line that restarts mid-step never sends that step's span, and its calls' spans point to a parent Tempo does not have.
+
+## The gateway's metrics
+
+The gateway counts every call it takes, a judgement's or an agent's, over OTLP ([`gateway/metrics.ts`](../../apps/factory/src/gateway/metrics.ts)). Each series is labelled with the `agent`, `provider` and `model` the `model call` span names, and at most one closed set beside them:
+
+| Series | Kind | Labelled also with |
+|---|---|---|
+| `gateway_calls_total` | counter | `outcome`: `answered`, `replayed`, `refused` or `failed` |
+| `gateway_call_duration_milliseconds` | histogram | `outcome` |
+| `factory_gateway_spend_usd_total` | counter, in US dollars | nothing more |
+| `gateway_tokens_total` | counter | `outcome`, and `kind`: `input`, `output`, `cache_read` or `cache_write` |
+| `gateway_provider_errors_total` | counter | `status`: the HTTP status the provider answered, or `network`, `timeout`, `malformed` or `broken` (a stream that reported an error or broke off); each failed attempt, the ones TypeSafe retries included |
+| `gateway_cap_refusals_total` | counter | `cap`: `day`, `month`, `work-item`, or `provider` (one the factory does not own) |
+| `gateway_cap_spent_usd` | gauge | `cap` (`day`, `month`) and `profile` |
+| `gateway_cap_limit_usd` | gauge | `cap` (`day`, `month`, `work-item`) and `profile` |
+
+- **Never a work item or a job,** which would make a series of each. A work item's spend against its cap is the audit log's (`model_calls`); the gauge gives the cap alone, and a refusal at it is counted.
+- **Spend against a cap is two gauges,** what the day's or the month's window has spent and the profile's cap, so `gateway_cap_spent_usd / on (cap, profile) gateway_cap_limit_usd` is how near each is. They are what the gateway last counted from the store, which it does after each paid call and once a minute, one count at a time, so a window that has just reset reads its old spend for up to a minute, and a restarted gateway carries on from the store. A profile with no monthly cap has no `month` limit.
+- **A replay's tokens are its cassette's,** counted under `outcome="replayed"` and costing nothing; a stream that broke off counts what the provider billed, under `failed`. A kind a call used none of is not counted.
+- **A refusal with nothing sent for want of a cassette, or of a request the gateway will not send,** is only an `outcome`, as is a cassette that no longer reads; a runner that goes away mid-call is not the provider's error.
 
 ## Telling a canary from its baseline
 

@@ -96,4 +96,4 @@ A file written in the last two weeks always stays. Rows in `model_calls` are nev
 
 - It never logs a state, a prompt or a provider's body.
 - Each agent call is a `model call` span under its step's, with the agent, model, tokens, cost and outcome ([telemetry](TELEMETRY.md#the-factorys-own-traces)).
-- Metrics for calls, spend and latency go over OpenTelemetry.
+- Metrics go over OpenTelemetry: calls, latency and spend, tokens by kind, the providers' errors by status, refusals by cap, and spend against the profile's caps ([telemetry](TELEMETRY.md#the-gateways-metrics)).
