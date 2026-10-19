@@ -638,7 +638,10 @@ export class Line {
         const done = (
           effects
             ? inSpan('step effects', { [A.workItem]: workItem, [A.agent]: agent, [A.job]: effects.job }, () =>
-                this.#effects(claimed, state, effects),
+                this.#effects(claimed, state, effects).catch((error: unknown) => {
+                  countStep(agent, providerOfStep(effects.called) ?? provider, 'errored');
+                  throw error;
+                }),
               ).finally(() => this.#release(workItem))
             : inSpan('step', { [A.workItem]: workItem, [A.agent]: agent }, () =>
                 this.#step(claimed, agent, round, state, last, this.#halt.signal),
@@ -1238,7 +1241,7 @@ export class Line {
       const cap = unfinished && capOn(await capsInForce(this.#o.sql, from), this.#o.providerOf(agent));
       if (cap) {
         await this.#append(workItem, called);
-        countStep(agent, this.#o.providerOf(agent), 'capped');
+        countStep(agent, providerOfStep(called) ?? this.#o.providerOf(agent), 'capped');
         this.#o.log.info(
           { workItem, agent, job: outcome.job, cap: cap.reason },
           'a step ended at a cap; it runs again when the cap clears',
@@ -1271,6 +1274,9 @@ export class Line {
       };
       await this.#queue.keep(workItem, pending);
       await this.#effects(item, state, pending);
+    } catch (error) {
+      countStep(agent, this.#o.providerOf(agent), 'errored');
+      throw error;
     } finally {
       await this.#release(workItem);
     }
@@ -1284,6 +1290,7 @@ export class Line {
   async #effects(item: QueueItem, state: WorkItemState, pending: Pending): Promise<void> {
     const { workItem } = item;
     const { agent } = pending;
+    const provider = providerOfStep(pending.called) ?? this.#o.providerOf(agent);
     // The lease outlasts the writes, however long the agent took.
     await this.#queue.claim(workItem, EFFECTS_LEASE_SECONDS);
     let drafts: Draft[];
@@ -1297,7 +1304,7 @@ export class Line {
       if (error instanceof StepStale) {
         await this.#append(workItem, pending.called);
         await this.#queue.drop(workItem);
-        countStep(agent, this.#o.providerOf(agent), 'stale');
+        countStep(agent, provider, 'stale');
         this.#o.log.info({ workItem, agent, job: pending.job, reason: error.message }, 'a step is out of date: again');
         return;
       }
@@ -1312,7 +1319,7 @@ export class Line {
         });
         await this.#append(workItem, [...pending.called, hold]);
         await this.#queue.moved(workItem);
-        countStep(agent, this.#o.providerOf(agent), 'effects-failed');
+        countStep(agent, provider, 'effects-failed');
         this.#o.log.warn({ workItem, agent, job: pending.job, reason }, 'a step’s effects kept failing: held');
         return;
       }
@@ -1323,7 +1330,7 @@ export class Line {
     }
     await this.#append(workItem, [...pending.called, ...drafts]);
     await this.#queue.moved(workItem);
-    countStep(agent, this.#o.providerOf(agent), 'done');
+    countStep(agent, provider, 'done');
     this.#o.log.info({ workItem, agent, job: pending.job, events: drafts.map((d) => d.type) }, 'a step is done');
   }
 
@@ -1348,7 +1355,7 @@ export class Line {
     trace.getActiveSpan()?.setAttribute(A.outcome, 'failed');
     await this.#append(workItem, called);
     await this.#queue.failed(workItem, reason);
-    countStep(agent, this.#o.providerOf(agent), counted);
+    countStep(agent, providerOfStep(called) ?? this.#o.providerOf(agent), counted);
     this.#o.log.warn({ workItem, agent, job, reason }, 'a step failed');
   }
 
@@ -1674,6 +1681,12 @@ function recheckedLine(r: PayloadOf<'signal.rechecked'>): string {
   if (r.outcome === 'cleared') return `Cleared${on} on a release that did not carry its fix${by}`;
   if (r.outcome === 'persists') return `Still seen${on}${by}`;
   return `The sense could not tell${on}`;
+}
+
+/** The provider a step's calls went to, as its `model.called` says, if it made any. */
+function providerOfStep(called: readonly Draft[]): 'anthropic' | 'bedrock' | 'local' | undefined {
+  const calls = called.find((draft) => draft.type === 'model.called');
+  return calls ? (calls.payload as PayloadOf<'model.called'>).provider : undefined;
 }
 
 /** The inbox id of a signal the line leaves for a work item: the same key always gives the same id. */

@@ -78,7 +78,7 @@ import type { Kube } from '../runners/kube.ts';
 import { ATTRIBUTES as A, inSpan } from '../spans.ts';
 import { asEvent, type Draft } from './gates.ts';
 import { fold, type LineEvent } from './machine.ts';
-import { countReleaseEnd, RELEASE_ENDINGS } from './metrics.ts';
+import { type Counted, countReleaseEnd, type Ending, endingsIn } from './metrics.ts';
 import type { GitHubPort } from './worker.ts';
 
 /** Where the line reads the app's releases. */
@@ -445,13 +445,19 @@ export class Releases {
    * The releases' ends among events about to be appended that the store has not recorded yet, on any work item or the
    * line: a release carried by a work item recorded on a later pass than the rest ended once, and is counted once.
    */
-  async #newEndings(events: readonly Appended[]): Promise<Ending[]> {
+  async #newEndings(events: readonly Counted[]): Promise<Ending[]> {
     const endings = endingsIn(events);
     if (!endings.length) return [];
     const sql = this.#o.sql;
+    // Only the count depends on it: a read that fails counts each end as new, and records the release all the same.
     const recorded = await sql<{ type: string; release: string }[]>`
       select distinct type, payload->>'release' as release from events
-      where type in ${sql(endings.map((e) => e.type))} and payload->>'release' in ${sql(endings.map((e) => e.release))}`;
+      where type in ${sql(endings.map((e) => e.type))} and payload->>'release' in ${sql(endings.map((e) => e.release))}`.catch(
+      (error: unknown) => {
+        this.#o.log.warn({ err: error }, 'could not read which release ends are recorded: counting them all');
+        return [];
+      },
+    );
     const seen = new Set(recorded.map((row) => `${row.type} ${row.release}`));
     return endings.filter((e) => !seen.has(`${e.type} ${e.release}`));
   }
@@ -465,7 +471,7 @@ export class Releases {
     const events = [...drafts].flatMap(([target, list]) => list.map((draft) => asEvent(target, draft, ts)));
     const endings = await this.#newEndings(events);
     await this.#o.events.append(events);
-    for (const { type, dryRun } of endings) countReleaseEnd(type, dryRun);
+    for (const ending of endings) countReleaseEnd(ending);
     this.#o.log.info(
       {
         release,
@@ -474,30 +480,6 @@ export class Releases {
       'recorded the app’s release',
     );
   }
-}
-
-/** An event as the release watch appends it, as far as counting its end goes. */
-interface Appended {
-  type: string;
-  payload: unknown;
-}
-
-/** A release's end, once. */
-interface Ending {
-  type: keyof typeof RELEASE_ENDINGS;
-  release: string;
-  dryRun: boolean;
-}
-
-/** Each release's end among events, once however many work items they record it on. */
-export function endingsIn(events: readonly Appended[]): Ending[] {
-  const endings = new Map<string, Ending>();
-  for (const { type, payload } of events) {
-    if (!Object.hasOwn(RELEASE_ENDINGS, type)) continue;
-    const { release, dryRun } = payload as { release: string; dryRun?: boolean };
-    endings.set(`${type} ${release}`, { type: type as Ending['type'], release, dryRun: dryRun === true });
-  }
-  return [...endings.values()];
 }
 
 /** A release span's attributes: which release, when the Rollout names one, and whether it is a dry run's. */

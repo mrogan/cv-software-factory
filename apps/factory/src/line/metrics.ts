@@ -17,9 +17,22 @@ import type { LineAgent, QueueStage } from './machine.ts';
 
 const meter = metrics.getMeter('factory-line');
 
+export type OpenStage = Exclude<QueueStage, 'ended'>;
+
+/** Every stage but `ended`: a record, so a stage added to the queue's and left out here fails to type-check. */
+const EVERY_STAGE: Record<OpenStage, true> = {
+  plan: true,
+  build: true,
+  waiting: true,
+  gates: true,
+  review: true,
+  release: true,
+  verify: true,
+  held: true,
+};
+
 /** The stages a work item waits at on the line: every one the `line` table allows but `ended`. */
-export const OPEN_STAGES = ['plan', 'build', 'waiting', 'gates', 'review', 'release', 'verify', 'held'] as const;
-export type OpenStage = (typeof OPEN_STAGES)[number];
+export const OPEN_STAGES = Object.keys(EVERY_STAGE) as OpenStage[];
 
 /**
  * How a step ended, as the line counts it:
@@ -30,11 +43,21 @@ export type OpenStage = (typeof OPEN_STAGES)[number];
  * - `stopped`: the line stopped it, and it runs again when the line starts;
  * - `stale`: something was recorded meanwhile that made its result out of date, and it runs again;
  * - `effects-failed`: its result could not be put in GitHub or the store as often as the line tries, and the work item
- *   holds.
+ *   holds;
+ * - `errored`: something outside the agent failed (a read of GitHub, the runners, the store), the line logs it, and the
+ *   next pass tries the step again.
  *
  * A result whose effects failed and wait to be tried again has not ended yet: it is counted when they end.
  */
-export type StepEnding = 'done' | 'failed' | 'out-of-turns' | 'capped' | 'stopped' | 'stale' | 'effects-failed';
+export type StepEnding =
+  | 'done'
+  | 'failed'
+  | 'out-of-turns'
+  | 'capped'
+  | 'stopped'
+  | 'stale'
+  | 'effects-failed'
+  | 'errored';
 
 /** How a release ended: each of the release events that ends one. */
 export const RELEASE_ENDINGS = {
@@ -81,14 +104,17 @@ export function countStep(agent: LineAgent, provider: string, outcome: StepEndin
   steps.add(1, { agent, provider, outcome });
 }
 
-/** A work item left `from` after `seconds` there. Its end is no stage, and a move to the same stage is none. */
-export function leftStage(from: QueueStage, to: QueueStage, seconds: number): void {
-  if (from === to || from === 'ended') return;
+/**
+ * A work item left `from` after `seconds` there. Its end is no stage, and a move to the same stage is none, unless it
+ * starts its time there afresh (`again`), as a reopened work item taken back into Plan does.
+ */
+export function leftStage(from: QueueStage, to: QueueStage, seconds: number, again = false): void {
+  if ((from === to && !again) || from === 'ended') return;
   stageDuration.record(Math.max(0, seconds), { stage: from });
 }
 
 /** An event the line drafted, as far as counting it goes. */
-interface Counted {
+export interface Counted {
   type: string;
   payload: unknown;
 }
@@ -106,8 +132,26 @@ export function countRecorded(events: readonly Counted[]): void {
   }
 }
 
+/** A release's end, once. */
+export interface Ending {
+  type: keyof typeof RELEASE_ENDINGS;
+  release: string;
+  dryRun: boolean;
+}
+
+/** Each release's end among events, once however many work items they record it on. */
+export function endingsIn(events: readonly Counted[]): Ending[] {
+  const endings = new Map<string, Ending>();
+  for (const { type, payload } of events) {
+    if (!Object.hasOwn(RELEASE_ENDINGS, type)) continue;
+    const { release, dryRun } = payload as { release: string; dryRun?: boolean };
+    endings.set(`${type} ${release}`, { type: type as Ending['type'], release, dryRun: dryRun === true });
+  }
+  return [...endings.values()];
+}
+
 /** A release's end, the first time the store records it: on however many work items it carried, it is one. */
-export function countReleaseEnd(type: keyof typeof RELEASE_ENDINGS, dryRun: boolean): void {
+export function countReleaseEnd({ type, dryRun }: Ending): void {
   releases.add(1, { outcome: RELEASE_ENDINGS[type], dry_run: dryRun });
 }
 

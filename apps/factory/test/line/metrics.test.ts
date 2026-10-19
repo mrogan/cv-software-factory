@@ -25,8 +25,7 @@ const meterProvider = new metrics.MeterProvider({ readers: [reader] });
 api.setGlobalMeterProvider(meterProvider);
 // Only now: each module takes its meter as it loads.
 const { Line } = await import('../../src/line/worker.ts');
-const { endingsIn } = await import('../../src/line/release.ts');
-const { observeStages, OPEN_STAGES } = await import('../../src/line/metrics.ts');
+const { endingsIn, observeStages, OPEN_STAGES } = await import('../../src/line/metrics.ts');
 
 afterAll(async () => {
   await meterProvider.shutdown();
@@ -223,7 +222,8 @@ describe('the line’s metrics', () => {
     const workItem = await ticket();
     const probes = new FakeProbes({ outcome: 'cleared', version: 'v0.9.4', runs: ['passed', 'passed'] });
     const { pass, github } = line(AGENTS, { verify: { probes } });
-    const done = (agent: string) => ({ agent, provider: 'anthropic', outcome: 'done' });
+    // The provider the step's calls went to, as its `model.called` says: the fake runners' calls are local.
+    const done = (agent: string) => ({ agent, provider: 'local', outcome: 'done' });
     const before = await read('line.steps', ...['planner', 'coder', 'reviewer', 'describer'].map(done));
 
     await pass(); // the issue, and the planner
@@ -280,6 +280,18 @@ describe('the line’s metrics', () => {
     const after = await read('line.steps', ...series);
     expect(after.map((n, i) => n - (before[i] ?? 0))).toEqual([1, 1]);
     expect(await read('line.holds', { cause: 'failures', stage: 'plan' })).toEqual([held + 1]);
+  });
+
+  it('count a step that something outside the agent broke as errored', async () => {
+    await ticket();
+    const { pass } = line({
+      planner: () => {
+        throw new Error('The runners could not make the Job.');
+      },
+    });
+    const [before = 0] = await read('line.steps', { agent: 'planner', outcome: 'errored' });
+    await pass(); // the issue, and the planner, whose Job is never made
+    expect(await read('line.steps', { agent: 'planner', outcome: 'errored' })).toEqual([before + 1]);
   });
 
   it('count a dry run’s release once as it ends, and its verification by the dry run’s word', async () => {
