@@ -10,7 +10,7 @@
  * PG* variables, as the factory's writer. Prometheus, Loki and Tempo are found as `clients/env.ts` says.
  */
 import { parseArgs } from 'node:util';
-import postgres from 'postgres';
+import { connect } from '@software-factory/store';
 import { objectives } from '../../../../policy/objectives.ts';
 import { telemetryFrom } from '../clients/env.ts';
 import { log } from '../log.ts';
@@ -37,11 +37,7 @@ export async function run(args: string[]): Promise<number> {
   });
   const { DATABASE_URL } = process.env;
   const dryRun = values['dry-run'];
-  const sql = dryRun
-    ? undefined
-    : DATABASE_URL
-      ? postgres(DATABASE_URL, { onnotice: () => {} })
-      : postgres({ onnotice: () => {} });
+  const sql = dryRun ? undefined : connect(DATABASE_URL);
   const outbox = sql ? inbox(sql) : printing((line) => console.log(line));
   const now = () => new Date();
   const backends = { objectives, ...telemetryFrom(), outbox, log };

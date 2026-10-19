@@ -14,8 +14,8 @@
  * the events and append them and do nothing else. It sends no telemetry: its pod reaches Postgres alone.
  */
 import { parseArgs } from 'node:util';
-import { DiskArtifacts, EventWriter, listen, storeKind } from '@software-factory/store';
-import postgres from 'postgres';
+import { connect, DiskArtifacts, EventWriter, listen, storeKind } from '@software-factory/store';
+import type { Sql } from 'postgres';
 import { log } from '../log.ts';
 import { figures, tickets } from '../scoreboard/figures.ts';
 import { loadKey } from '../scoreboard/key.ts';
@@ -30,7 +30,7 @@ export async function run(args: string[]): Promise<number> {
   const { values } = parseArgs({ args, options: { print: { type: 'boolean', default: false } } });
   const { ANSWER_KEY_FILE, DATABASE_URL } = process.env;
   const key = ANSWER_KEY_FILE ? await loadKey(ANSWER_KEY_FILE) : null;
-  const sql = DATABASE_URL ? postgres(DATABASE_URL, { onnotice: () => {} }) : postgres({ onnotice: () => {} });
+  const sql = connect(DATABASE_URL);
   try {
     return values.print ? await print(sql, key) : await serve(sql, key);
   } finally {
@@ -38,7 +38,7 @@ export async function run(args: string[]): Promise<number> {
   }
 }
 
-async function print(sql: postgres.Sql, key: Awaited<ReturnType<typeof loadKey>>): Promise<number> {
+async function print(sql: Sql, key: Awaited<ReturnType<typeof loadKey>>): Promise<number> {
   if (!key) {
     console.error('There is no answer key: set ANSWER_KEY_FILE to its file.');
     return 2;
@@ -61,7 +61,7 @@ async function print(sql: postgres.Sql, key: Awaited<ReturnType<typeof loadKey>>
   return 0;
 }
 
-async function serve(sql: postgres.Sql, key: Awaited<ReturnType<typeof loadKey>>): Promise<number> {
+async function serve(sql: Sql, key: Awaited<ReturnType<typeof loadKey>>): Promise<number> {
   // Line events carry no artifacts, so the writer never looks in the artifact store.
   const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts('/nonexistent') });
   const scoreboard = new Scoreboard({ sql, events, key });

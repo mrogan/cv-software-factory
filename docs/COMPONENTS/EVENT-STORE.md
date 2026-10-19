@@ -12,6 +12,20 @@ An append-only record of every step, with captured artifacts (spec 5.1). Part of
 - **Idempotent appends.** An event appended again with the same `id` and content is stored once, so a worker can retry. The same `id` with different content is refused.
 - **Samples or real.** The store records once whether it holds [samples](SAMPLES.md) or real events, and numbers real work items from 1000.
 
+## The client
+
+Every worker and the console reach the store through [postgres.js](https://github.com/porsager/postgres), made by the store's `connect()` ([`client.ts`](../../packages/store/src/client.ts)). It is chosen over node-postgres (`pg`) for what the factory leans on:
+
+- **Queries as tagged templates.** Each value in ``sql`… ${x}` `` is sent as a bound parameter, so no query can be written that splices a value into its text.
+- **Transactions** (`sql.begin`), which the event store's appends and the line's queue run in.
+- **`LISTEN`**, on a connection postgres.js keeps open and reconnects itself, which wakes the line and triage when an event lands.
+- **No dependencies of its own.**
+
+What it lacks is telemetry: OpenTelemetry instruments `pg` and not postgres.js, which offers no hooks. So `connect()` times each query by wrapping the method all of postgres.js's queries run through, and counts connections by giving the client a socket of its own ([telemetry](TELEMETRY.md#what-each-client-of-the-store-sees)). Both rely on postgres.js's internals:
+
+- **It is on a caret range, not pinned,** so its fixes arrive through Dependabot's pull requests like any other dependency's.
+- **A release that changes those internals fails `make check`,** and so its pull request. The client's tests run against the Postgres image the cluster runs, and require every query, transaction, cursor and connection to be counted.
+
 ## Roles
 
 | Role | May |

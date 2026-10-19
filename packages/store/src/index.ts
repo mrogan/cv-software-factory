@@ -3,6 +3,7 @@
  * the tokens runners' jobs hold.
  */
 export * from './artifacts.ts';
+export * from './client.ts';
 export * from './events.ts';
 export * from './inbox.ts';
 export * from './job-tokens.ts';
