@@ -21,7 +21,7 @@
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage, RequestListener } from 'node:http';
 import { isIP } from 'node:net';
-import { type Context, context, propagation } from '@opentelemetry/api';
+import { type Context, context, propagation, ROOT_CONTEXT } from '@opentelemetry/api';
 import { endJobToken, issueJobToken, jobForToken } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
@@ -355,7 +355,8 @@ export class Runners {
   ): Promise<'succeeded' | 'failed' | 'ran out of time' | 'vanished'> {
     const until = this.#now() + withinSeconds * 1000;
     while (this.#now() < until) {
-      const job = await this.#o.kube.get(path, JOB);
+      // Outside the step's span: a read every poll, for as long as the step runs, would bury the step's calls.
+      const job = await context.with(ROOT_CONTEXT, () => this.#o.kube.get(path, JOB));
       if (!job) return 'vanished';
       if (job.status?.succeeded) return 'succeeded';
       const failed = job.status?.conditions?.find((c) => c.type === 'Failed' && c.status === 'True');

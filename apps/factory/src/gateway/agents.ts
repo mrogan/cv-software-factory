@@ -186,7 +186,8 @@ export class AgentCalls {
       if (error instanceof SyntaxError) return apiError(400, 'invalid_request_error', 'The body is not JSON.');
       throw error;
     }
-    // The call's span, under its step's when the job's token keeps one, and linked to the request that carried it.
+    // The call's span: under its step's when the job's token keeps one, and linked to the request that carried it;
+    // otherwise under the request.
     const step = traceparent ? propagation.extract(ROOT_CONTEXT, { traceparent }) : context.active();
     const request = trace.getActiveSpan()?.spanContext();
     const span = tracer.startSpan(
@@ -194,7 +195,7 @@ export class AgentCalls {
       {
         startTime,
         attributes: { [A.workItem]: who.workItem, [A.job]: who.job, [A.agent]: who.agent },
-        ...(request ? { links: [{ context: request }] } : {}),
+        ...(traceparent && request ? { links: [{ context: request }] } : {}),
       },
       step,
     );

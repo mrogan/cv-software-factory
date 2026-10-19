@@ -82,7 +82,6 @@ import type {
 } from '../github/server.ts';
 import { GitHubWorkerError } from '../github/worker-client.ts';
 import type { PictureIndex } from '../pictures/index.ts';
-import { jobName } from '../runners/jobs.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
 import { ATTRIBUTES as A, inSpan } from '../spans.ts';
 import {
@@ -1178,8 +1177,6 @@ export class Line {
       // A cap set after this, while the step runs, ends it without a result: that is the cap's, not the step's.
       const from = await lastSeq(this.#o.sql);
       const attempt = await this.#queue.startStep(workItem);
-      const span = trace.getActiveSpan();
-      span?.setAttribute(A.job, jobName(agent, workItem, round, attempt));
       // Before a pull request, a step starts from main; after, from the pull request's head, and its diff is taken
       // against the pull request's base. A step that reads the change measures it from where the pull request's
       // branch left its base, as GitHub's diff does: main may have moved on since.
@@ -1219,7 +1216,10 @@ export class Line {
         deadlineSeconds: bounds.deadlineSeconds,
         signal,
       });
-      span?.setAttribute(A.outcome, outcome.kind === 'handed-back' ? outcome.handback.ending : outcome.kind);
+      trace.getActiveSpan()?.setAttributes({
+        [A.job]: outcome.job,
+        [A.outcome]: outcome.kind === 'handed-back' ? outcome.handback.ending : outcome.kind,
+      });
       if (outcome.kind === 'stopped') {
         this.#o.log.info({ workItem, agent, job: outcome.job }, 'a step stopped with the line; it runs again on start');
         return;
@@ -1324,6 +1324,8 @@ export class Line {
 
   /** A failed attempt at a step: its calls are recorded, and it counts towards holding the work item. */
   async #failed(workItem: string, agent: LineAgent, job: string | null, called: Draft[], reason: string) {
+    // However its agent ended, a step that counts as failed is one on its span.
+    trace.getActiveSpan()?.setAttribute(A.outcome, 'failed');
     await this.#append(workItem, called);
     await this.#queue.failed(workItem, reason);
     this.#o.log.warn({ workItem, agent, job, reason }, 'a step failed');

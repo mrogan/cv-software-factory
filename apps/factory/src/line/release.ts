@@ -34,7 +34,7 @@
  * else there.
  */
 
-import { trace } from '@opentelemetry/api';
+import { type Attributes, trace } from '@opentelemetry/api';
 import { type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
 import { lastEnd, sendSignal } from '@software-factory/store';
 import type { Logger } from 'pino';
@@ -152,14 +152,17 @@ export class Releases {
     const last = await this.#lastPromoted();
     const lastRelease = last?.release;
     const needs = releaseNeeds(o, recorded, lastRelease);
-    // A pass with something to read for a release is its span; one with only something to record has one for that.
-    const reads = Boolean(needs.start) || needs.steps.length > 0 || needs.failures.length > 0 || needs.aborted;
+    // A pass with something to read for a release, or a failed measure to send triage, is the release's span; one with
+    // only something to record has a span for the recording (`#append`), and an idle pass none.
+    const unsent = failedMeasures(o, recorded).some((failed) => !this.#signalled.has(keyOf(failed)));
+    const reads =
+      Boolean(needs.start) || needs.steps.length > 0 || needs.failures.length > 0 || needs.aborted || unsent;
     if (!reads) return this.#record(o, recorded, last, needs, watch, false);
     const release = namedReleases(o, recorded, lastRelease).current;
     await inSpan('release', releaseAttributes(release), () => this.#record(o, recorded, last, needs, watch, true));
   }
 
-  /** Reads what a pass needs, and records what it found: inside a span already when `traced`, or in one of its own. */
+  /** Reads what a pass needs, and records what it found: inside the release's span when `traced`. */
   async #record(
     o: Observed,
     recorded: Recorded,
@@ -230,8 +233,7 @@ export class Releases {
       log.info({ release, only, others }, 'the release carries other work items: left for the whole line');
     } else {
       const release = namedReleases(o, recorded, lastRelease).current;
-      const append = () => this.#append(drafts, release);
-      await (traced || !drafts.size ? append() : inSpan('release', releaseAttributes(release), append));
+      await this.#append(drafts, release, traced ? undefined : releaseAttributes(release));
     }
     await this.#signal(o, recorded, series, { kube, rollout, prometheus });
   }
@@ -344,7 +346,7 @@ export class Releases {
       const due = dryRunEvents(item, previous, record, now(), dryRunEveryMs);
       if (due.length) drafts.set(item.workItem, due);
     }
-    if (drafts.size) await inSpan('release', releaseAttributes(undefined, true), () => this.#append(drafts));
+    await this.#append(drafts, undefined, releaseAttributes(undefined, true));
   }
 
   /** Every merged work item no closing has ended, with its latest merge and whether a release carries it. */
@@ -418,8 +420,11 @@ export class Releases {
     return last?.type === 'line.stopped' && just ? 'stop' : 'martin';
   }
 
-  /** Appends every target's drafts at once: a release's events reach all of its work items, or none. */
-  async #append(drafts: Map<Target, Draft[]>, release?: string): Promise<void> {
+  /**
+   * Appends every target's drafts at once: a release's events reach all of its work items, or none. With `span`, in a
+   * release span of its own, when anything is left to append.
+   */
+  async #append(drafts: Map<Target, Draft[]>, release?: string, span?: Attributes): Promise<void> {
     if (!drafts.size) return;
     // A work item closed while its release ran (Martin closed it at Release) takes no more events: the store refuses
     // them, and would refuse the rest of the release's with them.
@@ -431,6 +436,11 @@ export class Releases {
       : [];
     for (const { work_item } of closed) drafts.delete(work_item);
     if (!drafts.size) return;
+    if (span) return inSpan('release', span, () => this.#write(drafts, items, release));
+    return this.#write(drafts, items, release);
+  }
+
+  async #write(drafts: Map<Target, Draft[]>, items: string[], release?: string): Promise<void> {
     trace.getActiveSpan()?.setAttribute(
       A.workItems,
       items.filter((item) => drafts.has(item)),

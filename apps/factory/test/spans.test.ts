@@ -22,6 +22,7 @@ import { ProviderCaps } from '../src/gateway/provider-caps.ts';
 import { Anthropic } from '../src/gateway/providers.ts';
 import { createGatewayServer } from '../src/gateway/server.ts';
 import { Spend } from '../src/gateway/spend.ts';
+import { ProbesClient } from '../src/line/verify.ts';
 import type { Kube } from '../src/runners/kube.ts';
 import { Runners } from '../src/runners/steps.ts';
 import { ATTRIBUTES as A, inSpan } from '../src/spans.ts';
@@ -239,6 +240,32 @@ describe('a work item’s trace', () => {
     expect(underStep?.parentSpanContext?.spanId).toBe(step.spanContext().spanId);
     expect(underStep?.links.map((link) => link.context.spanId)).toEqual([first.spanId]);
     expect(underRequest?.parentSpanContext?.spanId).toBe(second.spanId);
+    expect(underRequest?.links).toEqual([]);
     expect(underRequest?.attributes).toMatchObject({ work_item: '1003', job: 'coder-1003-1-1', outcome: 'answered' });
+  });
+
+  it('traces a look’s first ask of the probes, and none of its polls for the answer', async () => {
+    const heard: (string | undefined)[] = [];
+    const probes = createServer(async (req, res) => {
+      for await (const _ of req);
+      heard.push(req.headers.traceparent as string | undefined);
+      if (heard.length < 3) return void res.writeHead(202).end('{"state":"running"}');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ outcome: 'cleared', version: 'b'.repeat(40), runs: ['passed', 'passed'] }));
+    });
+    await new Promise<void>((resolve) => probes.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(probes.address() as AddressInfo).port}`;
+    const asked = { sense: 'probe', check: 'search', route: '/search', version: 'b'.repeat(40) };
+    const look = await inSpan('verify', {}, async (span) => {
+      await new ProbesClient(base, { pollMs: 5 }).verify(asked as never);
+      return span.spanContext();
+    });
+    probes.closeAllConnections();
+    await new Promise<void>((resolve) => probes.close(() => resolve()));
+
+    expect(heard).toHaveLength(3);
+    expect(heard[0]).toContain(look.traceId);
+    expect(heard.slice(1)).toEqual([undefined, undefined]);
+    expect(spans().filter((span) => span.kind === SpanKind.CLIENT)).toHaveLength(1);
   });
 });
