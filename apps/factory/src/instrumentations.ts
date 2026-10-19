@@ -7,19 +7,21 @@ import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici';
 import { untracedIncoming, untracedOutgoing } from './untraced.ts';
 
 /**
- * Requests in and out through `node:http`, `fetch` out, and pino's records stamped with the trace they were written in.
- * Routine polling, in and out, is left out: a span for each would bury the requests that matter.
+ * Requests in through `node:http`, requests out through `node:http` and `fetch`, and pino's records stamped with the
+ * trace they were written in. Routine polling is left out: a span for each would bury the requests that matter.
  *
- * A `fetch` makes a client span, and sends `traceparent`, only inside a span: the gateway's calls to its providers and
- * the GitHub worker's to GitHub, inside the request that asked for them, join its trace. The polling workers (the
- * probes, the crawler, the log watcher, traffic) fetch outside any span, so they make no trace at all, and nothing
- * needs sampling.
+ * A request out makes a client span, and sends `traceparent`, only inside a span, whichever way it is made: the
+ * gateway's calls to its providers and the GitHub worker's to GitHub, inside the request that asked for them, join its
+ * trace. The polling workers' rounds (the probes', the crawler's, the log watcher's, traffic's, the line's loop) run
+ * outside any span, so their requests out make no span and send no trace, and nothing needs sampling. Each still adds
+ * to the client's request duration histogram, as every request does.
  */
 export function instrumentations() {
   return [
     new HttpInstrumentation({
       ignoreIncomingRequestHook: untracedIncoming,
       ignoreOutgoingRequestHook: untracedOutgoing,
+      requireParentforOutgoingSpans: true,
     }),
     new UndiciInstrumentation({ requireParentforSpans: true, ignoreRequestHook: untracedOutgoing }),
     new PinoInstrumentation(),

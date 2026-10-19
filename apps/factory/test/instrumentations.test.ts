@@ -1,19 +1,16 @@
 /**
- * The workers' `fetch` instrumentation, as `telemetry.ts` installs it, with an in-memory exporter in place of the
- * collector and a server that says what headers it was sent.
+ * The workers' instrumentation of requests out, as `telemetry.ts` installs it, with an in-memory exporter in place of
+ * the collector and a server that says what headers it was sent.
  */
 import { createServer, type IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { context, propagation, SpanKind, trace } from '@opentelemetry/api';
-import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici';
-import { node, tracing } from '@opentelemetry/sdk-node';
+import { SpanKind } from '@opentelemetry/api';
+import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { instrumentations } from '../src/instrumentations.ts';
+import { recordSpans } from './tracing.ts';
 
-const exporter = new tracing.InMemorySpanExporter();
-const provider = new node.NodeTracerProvider({ spanProcessors: [new tracing.SimpleSpanProcessor(exporter)] });
-const undici = instrumentations().find((each) => each instanceof UndiciInstrumentation);
-const tracer = provider.getTracer('test');
+const { tracer, spans } = recordSpans();
 
 let heard: IncomingHttpHeaders[] = [];
 const server = createServer((req, res) => {
@@ -23,33 +20,29 @@ const server = createServer((req, res) => {
 let base = '';
 
 beforeAll(async () => {
-  provider.register();
-  undici?.setTracerProvider(provider);
-  undici?.enable();
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
-afterAll(async () => {
-  undici?.disable();
+afterAll(() => {
   server.closeAllConnections();
   server.close();
-  await provider.shutdown();
-  trace.disable();
-  context.disable();
-  propagation.disable();
 });
 beforeEach(() => {
-  exporter.reset();
   heard = [];
 });
 
-const clientSpans = () => exporter.getFinishedSpans().filter((span) => span.kind === SpanKind.CLIENT);
+const clientSpans = () => spans().filter((span) => span.kind === SpanKind.CLIENT);
+
+describe('a worker’s requests out through node:http', () => {
+  it('make a span only inside one, as fetch does', () => {
+    const all = instrumentations();
+    for (const each of all) each.disable();
+    const http = all.find((each) => each instanceof HttpInstrumentation);
+    expect(http?.getConfig()).toMatchObject({ requireParentforOutgoingSpans: true });
+  });
+});
 
 describe('a worker’s fetch', () => {
-  it('is installed', () => {
-    expect(undici).toBeDefined();
-  });
-
   it('inside a span, makes a client span under it and sends its trace on', async () => {
     const parent = await tracer.startActiveSpan('request', async (span) => {
       await (await fetch(`${base}/v1/messages`, { method: 'POST', body: '{}' })).text();
@@ -69,7 +62,7 @@ describe('a worker’s fetch', () => {
   it('outside any span, makes no span and sends no trace', async () => {
     await (await fetch(`${base}/health`)).text();
 
-    expect(exporter.getFinishedSpans()).toEqual([]);
+    expect(spans()).toEqual([]);
     expect(heard).toHaveLength(1);
     expect(heard[0]?.traceparent).toBeUndefined();
   });
