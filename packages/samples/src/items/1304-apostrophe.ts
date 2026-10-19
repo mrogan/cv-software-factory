@@ -117,6 +117,7 @@ export default new Item('1304', '2026-10-04T21:40:00+01:00')
     check: 'the contact form sends',
     against: 'v0.9.7',
     version: 'v0.9.8',
+    own: '/contact',
   })
   .at('13:01:01', 'work-item.closed', 'factory', 'Verified, and closed', {
     outcome: 'verified',

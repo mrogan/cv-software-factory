@@ -139,6 +139,7 @@ A work item held before its merge, or waiting for overlapping work ([a spec that
 The verification, and either Verify hold, names up to twelve pages the probes worker compared while the release ran as a canary ([pictures](PROBES-AND-CRAWLER.md#pictures)):
 
 - the ticket's own page first, then those that changed most;
+- each page that is not the ticket's own but another work item's the release carried naming that work item, so a change meant for another reads as its;
 - with their screenshots as the event's artifacts;
 - each keeping only the boxes of the ticket's own check on its own page, so a ticket whose sense boxes nothing (the logs, the metrics, the canary) has none.
 
