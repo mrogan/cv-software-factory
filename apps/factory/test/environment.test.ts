@@ -13,12 +13,24 @@ const at = new Date('2026-10-13T19:47:57.000Z');
 const query = (text: string) => (url: URL) => url.searchParams.get('query') === text;
 const volumes = 'bottomk(1, kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes)';
 
+/** The targets the senses read, as the local cluster's `up` labels them, and one of the platform's that they do not. */
+const PROMETHEUS = { job: 'prometheus', instance: 'localhost:9090' };
+const TRAEFIK = {
+  job: 'kubernetes-pods',
+  namespace: 'kube-system',
+  pod: 'traefik-77b898c5c8-jns7z',
+  app_kubernetes_io_name: 'traefik',
+};
+const KUBELET = { job: 'kubernetes-nodes', instance: 'k3d-software-factory-server-0' };
+const KYVERNO = { job: 'kubernetes-pods', namespace: 'kyverno', pod: 'kyverno-reports-controller-5dcbd84b4f-frdpn' };
+const allUp = () => vector([PROMETHEUS, 1], [TRAEFIK, 1], [KUBELET, 1], [KYVERNO, 1]);
+
 /** A cluster's backends, each answering as told. */
 function backends(answers: { up?: unknown; otlp?: unknown; free?: unknown; records?: unknown; traces?: unknown[] }) {
   const seen: URL[] = [];
   const fetcher = fakeFetch(
     [
-      { path: '/api/v1/query', when: query('up'), answer: () => answers.up ?? vector([{ job: 'prometheus' }, 1]) },
+      { path: '/api/v1/query', when: query('up'), answer: () => answers.up ?? allUp() },
       { path: '/api/v1/query', when: query('count(target_info)'), answer: () => answers.otlp ?? vector([{}, 10]) },
       {
         path: '/api/v1/query',
@@ -47,7 +59,10 @@ describe('the look at what the senses read', () => {
   it('finds each healthy, as of the time asked, saying what it saw', async () => {
     const { look, seen } = backends({});
     expect(await byName(look(at))).toEqual({
-      prometheus: { healthy: true, saw: 'all 1 targets up, and metrics arriving over OTLP from 10 services' },
+      prometheus: {
+        healthy: true,
+        saw: 'the 2 targets the senses read up, and metrics arriving over OTLP from 10 services',
+      },
       disk: { healthy: true, saw: 'the fullest volume (telemetry/storage-loki-0) 94% free' },
       loki: { healthy: true, saw: '1530 records stored in the 5 minutes before' },
       tempo: { healthy: true, saw: 'traces stored in the 10 minutes before' },
@@ -78,16 +93,37 @@ describe('the look at what the senses read', () => {
     });
   });
 
-  it('finds Prometheus unhealthy with a target down, no scrape at all, or no metrics over OTLP', async () => {
-    const down = vector([{ job: 'prometheus' }, 1], [{ job: 'kubernetes-pods' }, 0]);
-    expect((await byName(backends({ up: down }).look(at))).prometheus).toEqual({
+  it('finds Prometheus unhealthy with a target the senses read down, naming where, or missing', async () => {
+    const traefikDown = vector([PROMETHEUS, 1], [TRAEFIK, 0], [KUBELET, 0], [KYVERNO, 1]);
+    expect((await byName(backends({ up: traefikDown }).look(at))).prometheus).toEqual({
       healthy: false,
-      saw: '1 of 2 targets down: kubernetes-pods',
+      saw: 'down: traefik kube-system/traefik-77b898c5c8-jns7z, kubelet k3d-software-factory-server-0; metrics arriving over OTLP from 10 services',
     });
+    const noTraefik = vector([PROMETHEUS, 1], [KUBELET, 1]);
+    expect((await byName(backends({ up: noTraefik }).look(at))).prometheus).toEqual({
+      healthy: false,
+      saw: 'no traefik target; metrics arriving over OTLP from 10 services',
+    });
+    const both = backends({ up: vector([PROMETHEUS, 1], [KUBELET, 0], [KYVERNO, 0]), otlp: vector() });
+    expect((await byName(both.look(at))).prometheus).toEqual({
+      healthy: false,
+      saw: 'no traefik target; down: kubelet k3d-software-factory-server-0; no metrics arriving over OTLP (1 of the rest down)',
+    });
+  });
+
+  it('holds nothing for a target the senses do not read, such as a crash-looping platform controller', async () => {
+    const kyvernoDown = vector([PROMETHEUS, 1], [TRAEFIK, 1], [KUBELET, 1], [KYVERNO, 0]);
+    expect((await byName(backends({ up: kyvernoDown }).look(at))).prometheus).toEqual({
+      healthy: true,
+      saw: 'the 2 targets the senses read up (1 of the rest down), and metrics arriving over OTLP from 10 services',
+    });
+  });
+
+  it('finds Prometheus unhealthy with no scrape at all, or no metrics over OTLP', async () => {
     expect((await byName(backends({ up: vector() }).look(at))).prometheus).toMatchObject({ healthy: false });
     expect((await byName(backends({ otlp: vector() }).look(at))).prometheus).toEqual({
       healthy: false,
-      saw: 'all 1 targets up, but no metrics arriving over OTLP',
+      saw: 'the 2 targets the senses read up, but no metrics arriving over OTLP',
     });
   });
 

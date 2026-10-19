@@ -88,10 +88,21 @@ export const ENVIRONMENT = {
     canary: ['prometheus', 'disk'],
   } satisfies Record<Exclude<Sense, 'report'>, readonly Dependency[]>,
   /**
-   * Prometheus is healthy when every target it scrapes answered its last scrape, and metrics still arrive over OTLP.
-   * Loki is when it stored a record from anything within `lokiMinutes`; Tempo, a trace within `tempoMinutes`, since a
-   * trace is searchable only a minute or two after it ends. Each of them always has something: the traffic generator
-   * keeps the app busy, and the factory's own workers log and trace.
+   * The targets Prometheus scrapes whose series the senses read, each by the labels of its `up` series. Prometheus is
+   * healthy when each has a target, every one of those answered its last scrape, and metrics still arrive over OTLP,
+   * where the app's own are. The rest it scrapes, the platform's components among them, are kept for a person looking
+   * back, and one of them down holds nothing.
+   */
+  targets: {
+    // Traefik, whose requests to each of a release's versions the canary's analysis counts (release/analysis.ts).
+    traefik: { job: 'kubernetes-pods', namespace: 'kube-system', app_kubernetes_io_name: 'traefik' },
+    // The kubelet on each node, whose volume stats are the disk's measure.
+    kubelet: { job: 'kubernetes-nodes' },
+  } satisfies Record<string, Readonly<Record<string, string>>>,
+  /**
+   * Loki is healthy when it stored a record from anything within `lokiMinutes`; Tempo, a trace within `tempoMinutes`,
+   * since a trace is searchable only a minute or two after it ends. Each of them always has something: the traffic
+   * generator keeps the app busy, and the factory's own workers log and trace.
    */
   lokiMinutes: 5,
   tempoMinutes: 10,

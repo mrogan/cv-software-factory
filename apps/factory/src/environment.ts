@@ -1,8 +1,8 @@
 /**
  * Triage's look at what the senses read besides the app (`ENVIRONMENT` in policy/triage.ts): whether Prometheus
- * scrapes every target and still takes metrics over OTLP, whether Loki and Tempo still store what they are sent, and
- * whether the cluster's volumes have room. Each is asked as of a time, so a look taken after a signal waited in the
- * inbox says how things stood when the sense saw it.
+ * scrapes the targets the senses read and still takes metrics over OTLP, whether Loki and Tempo still store what they
+ * are sent, and whether the cluster's volumes have room. Each is asked as of a time, so a look taken after a signal
+ * waited in the inbox says how things stood when the sense saw it.
  *
  * Only the backends it has an address for are looked at, and the disk is read through Prometheus. A backend that
  * cannot be asked, or has no measure, is neither healthy nor not (`healthy: null`), which triage counts as not seen to
@@ -67,18 +67,43 @@ export function environmentLook(backends: Backends): ((at: Date) => Promise<Envi
   };
 }
 
-/** Every target Prometheus scrapes answered its last scrape, and metrics still arrive over OTLP. */
+/**
+ * Each target the senses read (`ENVIRONMENT.targets`) is there and answered its last scrape, and metrics still arrive
+ * over OTLP. A target down is named by its namespace and pod, or its instance, so a hold says which.
+ */
 async function scraping(prometheus: Prometheus, at: Date): Promise<Omit<Reading, 'name'>> {
   const up = await prometheus.instant('up', at);
   if (!up.length) return { healthy: false, saw: 'no scrape stored at the time, not even of itself' };
-  const down = [...new Set(up.filter((target) => target.value !== 1).map((target) => target.labels.job ?? '?'))];
-  if (down.length) return { healthy: false, saw: `${down.length} of ${up.length} targets down: ${down.join(', ')}` };
+  const read = Object.entries(ENVIRONMENT.targets).map(([name, labels]) => ({
+    name,
+    targets: up.filter((target) => Object.entries(labels).every(([label, value]) => target.labels[label] === value)),
+  }));
+  const counted = new Set(read.flatMap(({ targets }) => targets));
+  const missing = read.filter(({ targets }) => !targets.length).map(({ name }) => `no ${name} target`);
+  const down = read.flatMap(({ name, targets }) =>
+    targets.filter((target) => target.value !== 1).map((target) => `${name} ${where(target.labels)}`),
+  );
+  const others = up.filter((target) => !counted.has(target) && target.value !== 1).length;
+  const ofTheRest = others ? ` (${others} of the rest down)` : '';
   const [otlp] = await prometheus.instant('count(target_info)', at);
-  if (!otlp?.value) return { healthy: false, saw: `all ${up.length} targets up, but no metrics arriving over OTLP` };
-  return {
-    healthy: true,
-    saw: `all ${up.length} targets up, and metrics arriving over OTLP from ${otlp.value} services`,
-  };
+  const arriving = otlp?.value
+    ? `metrics arriving over OTLP from ${otlp.value} services`
+    : 'no metrics arriving over OTLP';
+  if (missing.length || down.length) {
+    const problems = [...missing, ...(down.length ? [`down: ${down.join(', ')}`] : [])].join('; ');
+    // What is down first, so the clip leaves it whole as far as it can.
+    return { healthy: false, saw: `${problems}; ${arriving}${ofTheRest}` };
+  }
+  const targets = `the ${counted.size} targets the senses read up${ofTheRest}`;
+  return otlp?.value
+    ? { healthy: true, saw: `${targets}, and ${arriving}` }
+    : { healthy: false, saw: `${targets}, but ${arriving}` };
+}
+
+/** Where a target is: its namespace and pod when it is a pod's, or else its instance (a node, for the kubelet). */
+function where(labels: Record<string, string>): string {
+  const { namespace, pod, instance } = labels;
+  return namespace && pod ? `${namespace}/${pod}` : (instance ?? '?');
 }
 
 /**
