@@ -38,6 +38,8 @@ flowchart TD
 
 A sense's signal on an open ticket adds its evidence (`signal.received`) the first time that sense sees it in each version of the app. So the ticket records every version the problem was seen in, so every version of the app rolled back on it, and the planner is told each. Within a version, the inbox counts it (outcome `counted`) and nothing is appended: the events grow with tickets and releases, not with the minutes a defect stays unfixed.
 
+Nothing reads a counted signal again, so triage deletes each three days after it arrived (`INBOX` in `policy/triage.ts`), when it starts and every hour. It keeps each sense's newest signal, from which a restarted watcher takes up, and the canary's, whose ids the line sends again after a restart. Signals that opened a ticket, are held, or still wait stay: triage's burst and hold reads look at them.
+
 - An open ticket on `*` (a class the crawler found on every page) takes its class's signals on any route.
 - But not where the canary is on either side: the canary's `*` means worse on more than one route, or on routes its analysis could not name, so it matches only another canary `*` ([rollback signals](RELEASE-AND-VERIFY.md#rollback-signals)).
 

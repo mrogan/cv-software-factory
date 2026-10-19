@@ -6,7 +6,7 @@ import type { Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DiskArtifacts } from '../src/artifacts.ts';
 import { EventWriter, nextWorkItem, storeKind } from '../src/events.ts';
-import { sendSignal } from '../src/inbox.ts';
+import { pruneInbox, sendSignal } from '../src/inbox.ts';
 import { realStore } from '../src/real-store.ts';
 import { type Database, freshDatabase } from './database.ts';
 
@@ -143,7 +143,62 @@ describe('the inbox', () => {
                  values (${id}, 'crawler', '/about broken-link', ${writer.json(signal)})`;
     await writer`update inbox set triaged_at = now(), outcome = 'opened', work_item = '1000' where id = ${id}`;
     await expect(writer`update inbox set signal = '{}' where id = ${id}`).rejects.toThrow('permission denied');
-    await expect(writer`delete from inbox where id = ${id}`).rejects.toThrow('permission denied');
+  });
+
+  it('lets the writer delete a signal triage counted, and no other', async () => {
+    const ids = { counted: uuid(), opened: uuid(), held: uuid(), waiting: uuid() };
+    for (const [outcome, id] of Object.entries(ids)) {
+      const triaged = outcome === 'waiting' ? null : outcome;
+      await owner`insert into inbox (id, sense, fingerprint, signal, triaged_at, outcome)
+                  values (${id}, 'crawler', '/about broken-link', ${owner.json(signal)},
+                          ${triaged ? new Date() : null}, ${triaged})`;
+    }
+    const deleted = await writer`delete from inbox where id in ${writer(Object.values(ids))}`;
+    expect(deleted.count).toBe(1);
+    const left = await owner<{ id: string }[]>`select id from inbox where id in ${owner(Object.values(ids))}`;
+    expect(left.map((row) => row.id).sort()).toEqual([ids.opened, ids.held, ids.waiting].sort());
+  });
+
+  describe('pruning', () => {
+    const now = Date.parse('2026-10-19T12:00:00.000Z');
+    const daysAgo = (days: number) => new Date(now - days * 24 * 60 * 60 * 1000);
+    let keep: string[];
+    let go: string[];
+
+    /** A signal from `sense`, received and observed `days` ago, that triage made `outcome` of. */
+    async function received(sense: string, days: number, outcome: string | null): Promise<string> {
+      const id = uuid();
+      const at = daysAgo(days);
+      await owner`insert into inbox (id, sense, fingerprint, signal, received_at, triaged_at, outcome)
+                  values (${id}, ${sense}, '/about broken-link',
+                          ${owner.json({ ...signal, sense, observedAt: at.toISOString() })}, ${at},
+                          ${outcome ? at : null}, ${outcome})`;
+      return id;
+    }
+
+    beforeAll(async () => {
+      go = [await received('crawler', 5, 'counted'), await received('crawler', 4, 'counted')];
+      keep = [
+        await received('crawler', 2, 'counted'), // not old enough
+        await received('crawler', 6, 'opened'), // triage's burst read looks at what opened
+        await received('crawler', 6, 'held'), // and at what a hold holds
+        await received('crawler', 6, null), // and at what still waits
+        await received('canary', 6, 'counted'), // its row is what drops it when the line sends it again
+        await received('probe', 7, 'counted'), // the probes' newest, which a restarted watcher takes up from
+      ];
+      go.push(await received('probe', 8, 'counted'));
+    });
+
+    it('deletes the repeats triage counted before then, and nothing else', async () => {
+      expect(await pruneInbox(writer, daysAgo(3))).toBe(go.length);
+      const mine = [...keep, ...go];
+      const left = await writer<{ id: string }[]>`select id from inbox where id in ${writer(mine)}`;
+      expect(left.map((row) => row.id).sort()).toEqual([...keep].sort());
+    });
+
+    it('deletes nothing more the second time', async () => {
+      expect(await pruneInbox(writer, daysAgo(3))).toBe(0);
+    });
   });
 
   it('checks what a sense sends, and files it by fingerprint', async () => {

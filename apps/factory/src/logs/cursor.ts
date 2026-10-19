@@ -1,5 +1,5 @@
 /**
- * Where a sense left off. The inbox is never emptied (the inbox counts repeats), so the newest signal a sense left
+ * Where a sense left off. The inbox keeps each sense's newest signal however old (`pruneInbox`), so the newest it left
  * in it says how far that sense had read, and a restarted watcher takes up from there.
  */
 import type { Sense } from '@software-factory/events';
