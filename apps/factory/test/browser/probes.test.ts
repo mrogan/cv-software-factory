@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { validateSignal } from '@software-factory/events/schemas';
 import { DiskArtifacts } from '@software-factory/store';
 import { type Browser, chromium } from 'playwright';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PROBES } from '../../src/probes/index.ts';
 import { Shop } from '../../src/probes/site.ts';
 import { BrowserSense } from '../../src/senses/browser.ts';
@@ -19,10 +19,15 @@ import { type Fault, startShop } from './shop.ts';
 
 let browser: Browser;
 const store = new DiskArtifacts(mkdtempSync(join(tmpdir(), 'probe-artifacts-')));
-const log = { warn: () => {} };
+/** What the sense warned of in this test, such as a screenshot it could not take, for a failure to say. */
+const warnings: string[] = [];
+const log = { warn: (fields: object, message: string) => warnings.push(`${message} ${JSON.stringify(fields)}`) };
 
 beforeAll(async () => {
   browser = await chromium.launch();
+});
+beforeEach(() => {
+  warnings.length = 0;
 });
 afterAll(() => browser?.close());
 
@@ -101,9 +106,16 @@ describe.each(CASES)('%s', (check, fault, symptom) => {
     expect(found?.trouble).toBeUndefined();
     expect(found?.finding?.symptom).toBe(symptom);
     expect(found?.finding?.message).not.toBe('');
-    // The proof it keeps: a screenshot, with at most four boxes, and and the sentence that says what was expected and seen goes in the signal's summary.
+    // The proof it keeps: a screenshot, with at most four boxes, and the sentence that says what was expected and
+    // seen goes in the signal's summary. A screenshot the sense could not take is a warning, not an error, so a
+    // missing one is told apart from too many boxes, with what the sense warned of.
     const screenshot = found?.artifacts.find((a) => a.kind === 'screenshot');
-    expect(screenshot?.kind === 'screenshot' && screenshot.boxes.length <= 4).toBe(true);
+    expect(
+      screenshot,
+      `no screenshot of the finding; the sense warned: ${warnings.join(' | ') || 'nothing'}`,
+    ).toBeDefined();
+    const boxes = screenshot?.kind === 'screenshot' ? screenshot.boxes.length : 0;
+    expect(boxes, 'boxes on the screenshot').toBeLessThanOrEqual(4);
     // And the signal the runner would send is one the inbox takes.
     expect(
       validateSignal({
