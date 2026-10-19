@@ -110,6 +110,14 @@ interface Query {
 
 const TIMED = Symbol('store.timed');
 
+// Counting is never worth a query: one that settled while its count threw would never answer, and a socket whose
+// count threw would never connect.
+function counted(count: () => void) {
+  try {
+    count();
+  } catch {}
+}
+
 /**
  * Times every query postgres.js runs in this process, a transaction's and a cursor's too. A query is a lazy promise
  * that runs when it is first awaited, through its `handle`: that is where the clock starts. It ends when postgres.js
@@ -136,7 +144,7 @@ function timeQuery(query: Query) {
   const record = (extra: Record<string, string>) => {
     if (settled) return;
     settled = true;
-    instruments().duration.record((performance.now() - started) / 1000, { ...attributes, ...extra });
+    counted(() => instruments().duration.record((performance.now() - started) / 1000, { ...attributes, ...extra }));
   };
   for (const key of ['resolve', 'reject'] as const) {
     let current = query[key];
@@ -171,12 +179,13 @@ function countedSocket(options: { host: string[]; port: number[]; path: string |
   socket.emit = function (this: net.Socket, event: string | symbol, ...args: unknown[]) {
     if (event === 'connect' && !open && !ended) {
       open = true;
-      instruments().connections.add(1);
-      instruments().attempts.add(1, { outcome: 'connected' });
+      counted(() => {
+        instruments().connections.add(1);
+        instruments().attempts.add(1, { outcome: 'connected' });
+      });
     } else if (event === 'close' && !ended) {
       ended = true;
-      if (open) instruments().connections.add(-1);
-      else instruments().attempts.add(1, { outcome: 'failed' });
+      counted(() => (open ? instruments().connections.add(-1) : instruments().attempts.add(1, { outcome: 'failed' })));
     }
     return Reflect.apply(emit, this, [event, ...args]);
   } as typeof socket.emit;

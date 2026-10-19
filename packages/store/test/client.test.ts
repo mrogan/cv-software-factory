@@ -97,6 +97,26 @@ describe("the store's client", () => {
     }
   });
 
+  it('answers every query and opens every connection when counting them throws', async () => {
+    const broken = () => {
+      throw new Error('the meter is broken');
+    };
+    const meter = {
+      createHistogram: () => ({ record: broken }),
+      createUpDownCounter: () => ({ add: broken }),
+      createCounter: () => ({ add: broken }),
+    };
+    const spy = vi.spyOn(metrics, 'getMeterProvider').mockReturnValue({ getMeter: () => meter } as never);
+    const sql = connect(inject('databaseUrl'), { max: 1, connect_timeout: 2 });
+    try {
+      await expect(sql`select 1 as one`).resolves.toEqual([{ one: 1 }]);
+      await expect(sql`select 1 / 0`).rejects.toThrow(/division by zero/);
+    } finally {
+      await sql.end();
+      spy.mockRestore();
+    }
+  });
+
   it('leaves postgres.js its own sockets for more than one address, which it rotates through by port', async () => {
     const one = connect('postgres://nobody@127.0.0.1:5432/none');
     const hosts = connect('postgres://nobody@127.0.0.1:5432,127.0.0.2:5432/none');
