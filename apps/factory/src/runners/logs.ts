@@ -92,10 +92,10 @@ export class StepLogs {
 
   /**
    * Writes a work item's kept logs (`of`) as text, step by step, each under a heading that names its job, pod and
-   * ending. A log cut mid-line still ends before the next heading.
+   * ending. A log cut mid-line still ends before the next heading. Given none, it writes nothing: saying that none is
+   * kept is the caller's.
    */
-  async print(workItem: string, found: KeptLog[], write: (chunk: string | Uint8Array) => void): Promise<void> {
-    if (!found.length) write(`No runner's log is kept for ${workItem}.\n`);
+  async print(found: KeptLog[], write: (chunk: string | Uint8Array) => void): Promise<void> {
     for (const each of found) {
       const ended = each.reason ? `${each.ending}: ${each.reason}` : each.ending;
       write(`== ${each.job} ${each.part} (${each.pod}), ${ended}, ${each.keptAt.toISOString()}\n`);
