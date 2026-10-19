@@ -11,7 +11,7 @@ import { parse } from 'yaml';
 import { objectives } from '../../../../policy/objectives.ts';
 import { SPEND_METRIC } from '../../src/gateway/metrics.ts';
 import { GRAFANA, OUTCOMES, SERIES, STATUS } from './palette.ts';
-import { HISTOGRAM_SUFFIXES, INSTRUMENTS, RULES, THIRD_PARTY } from './series.ts';
+import { HISTOGRAM_SUFFIXES, HISTOGRAMS, INSTRUMENTS, RULES, THIRD_PARTY } from './series.ts';
 
 const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 const TELEMETRY = join(ROOT, 'deploy/base/telemetry');
@@ -178,12 +178,16 @@ describe('Grafana’s dashboards', () => {
     const made = instruments();
     const rules = readFileSync(join(TELEMETRY, 'values/prometheus-rules.yaml'), 'utf-8');
     for (const [series, instrument] of Object.entries(INSTRUMENTS)) expect(made, series).toContain(instrument);
+    for (const histogram of HISTOGRAMS)
+      expect({ ...INSTRUMENTS, ...THIRD_PARTY }, histogram).toHaveProperty([histogram]);
     for (const rule of RULES) expect(rules, rule).toContain(`record: ${rule}\n`);
 
+    // A histogram is read by its buckets, count or sum, never by its base; anything else by its name alone.
+    const histogramPart = (name: string) =>
+      HISTOGRAM_SUFFIXES.some((suffix) => name.endsWith(suffix) && HISTOGRAMS.includes(name.slice(0, -suffix.length)));
     const known = (name: string) =>
-      [name, ...HISTOGRAM_SUFFIXES.filter((s) => name.endsWith(s)).map((s) => name.slice(0, -s.length))].some(
-        (n) => n in INSTRUMENTS || n in THIRD_PARTY || RULES.includes(n),
-      );
+      histogramPart(name) ||
+      (!HISTOGRAMS.includes(name) && (name in INSTRUMENTS || name in THIRD_PARTY || RULES.includes(name)));
     let seen = 0;
     for (const { dashboard } of dashboards) {
       for (const query of queries(dashboard).filter((q) => q.uid === 'prometheus')) {

@@ -66,5 +66,13 @@ export const THIRD_PARTY: Record<string, string> = {
   loki_discarded_samples_total: 'Loki’s distributor, from the first discard',
 };
 
-/** A histogram is named by its base; a query reads its buckets, count or sum. */
+/** The histograms among them, named by their base: a query reads only their buckets, count or sum. */
+export const HISTOGRAMS = [
+  'line_stage_duration_seconds',
+  'gateway_call_duration_milliseconds',
+  'factory_triage_signal_to_ticket_seconds',
+  'console_stream_delay_seconds',
+  'http_server_request_duration_seconds',
+];
+
 export const HISTOGRAM_SUFFIXES = ['_bucket', '_count', '_sum'];

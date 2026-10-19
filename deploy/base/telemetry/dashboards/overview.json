@@ -461,7 +461,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(line_steps_total{outcome=\"done\"}[$__range])) / sum(increase(line_steps_total[$__range]))",
+          "expr": "(sum(increase(line_steps_total{outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total[$__range])) > 0)",
           "instant": true,
           "range": false
         }
@@ -507,7 +507,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "time() - max(max_over_time((timestamp(increase(line_steps_total[2m]) > 0))[7d:1m]))",
+          "expr": "time() - max(max_over_time((timestamp(increase(line_steps_total[5m]) > 0))[7d:5m]))",
           "instant": true,
           "range": false
         }

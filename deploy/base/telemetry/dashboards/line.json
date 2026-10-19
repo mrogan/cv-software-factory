@@ -385,7 +385,7 @@
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(line_steps_total{agent=~\"$agent\", outcome=\"done\"}[$__range])) / sum(increase(line_steps_total{agent=~\"$agent\"}[$__range]))",
+          "expr": "(sum(increase(line_steps_total{agent=~\"$agent\", outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total{agent=~\"$agent\"}[$__range])) > 0)",
           "instant": true,
           "range": false,
           "legendFormat": "success rate"
@@ -435,7 +435,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "Steps by outcome",
-      "description": "Steps as they ended, by how: done; failed or out of turns, which count against the step; errored or effects failed, where something around the agent failed; capped, stopped or stale, which run again. Each bar is its interval’s steps, so they add up to the count beside them.",
+      "description": "Steps as they ended, by how: done; failed or out of turns, which count against the step; errored or effects failed, where something around the agent failed; capped, stopped or stale, which run again. Each bar is its interval’s steps, so together they come to about the count beside them.",
       "gridPos": { "x": 4, "y": 10, "w": 10, "h": 7 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "interval": "5m",
@@ -514,7 +514,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(line_steps_total{agent=\"planner\", agent=~\"$agent\", outcome=\"done\"}[$__range])) / sum(increase(line_steps_total{agent=\"planner\", agent=~\"$agent\"}[$__range]))",
+          "expr": "(sum(increase(line_steps_total{agent=\"planner\", agent=~\"$agent\", outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total{agent=\"planner\", agent=~\"$agent\"}[$__range])) > 0)",
           "instant": true,
           "range": false,
           "legendFormat": "planner"
@@ -522,7 +522,7 @@
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(line_steps_total{agent=\"coder\", agent=~\"$agent\", outcome=\"done\"}[$__range])) / sum(increase(line_steps_total{agent=\"coder\", agent=~\"$agent\"}[$__range]))",
+          "expr": "(sum(increase(line_steps_total{agent=\"coder\", agent=~\"$agent\", outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total{agent=\"coder\", agent=~\"$agent\"}[$__range])) > 0)",
           "instant": true,
           "range": false,
           "legendFormat": "coder"
@@ -530,7 +530,7 @@
         {
           "refId": "C",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(line_steps_total{agent=\"reviewer\", agent=~\"$agent\", outcome=\"done\"}[$__range])) / sum(increase(line_steps_total{agent=\"reviewer\", agent=~\"$agent\"}[$__range]))",
+          "expr": "(sum(increase(line_steps_total{agent=\"reviewer\", agent=~\"$agent\", outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total{agent=\"reviewer\", agent=~\"$agent\"}[$__range])) > 0)",
           "instant": true,
           "range": false,
           "legendFormat": "reviewer"
@@ -538,7 +538,7 @@
         {
           "refId": "D",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(line_steps_total{agent=\"describer\", agent=~\"$agent\", outcome=\"done\"}[$__range])) / sum(increase(line_steps_total{agent=\"describer\", agent=~\"$agent\"}[$__range]))",
+          "expr": "(sum(increase(line_steps_total{agent=\"describer\", agent=~\"$agent\", outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total{agent=\"describer\", agent=~\"$agent\"}[$__range])) > 0)",
           "instant": true,
           "range": false,
           "legendFormat": "describer"
@@ -828,7 +828,7 @@
       "id": 16,
       "type": "timeseries",
       "title": "Spend by agent",
-      "description": "What each agent’s model calls cost, in US dollars. Each bar is its interval’s spend, so they add up to the figure beside them.",
+      "description": "What each agent’s model calls cost, in US dollars. Each bar is its interval’s spend, so together they come to about the figure beside them.",
       "gridPos": { "x": 4, "y": 26, "w": 10, "h": 7 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "interval": "5m",
@@ -1455,21 +1455,21 @@
       "id": 29,
       "type": "stat",
       "title": "Warnings and errors",
-      "description": "Lines the line and its runners logged at warn or error in the range, for the work item chosen above. A few warnings are routine; an error is worth reading.",
+      "description": "Lines the line and its runners logged at warn, error or worse in the range, for the work item chosen above. A few warnings are routine; an error is worth reading.",
       "gridPos": { "x": 0, "y": 64, "w": 4, "h": 10 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum(count_over_time({service_name=\"line\"} | workItem=~\"$work_item\" | detected_level=~\"warn|error\" [$__range])) or vector(0)",
+          "expr": "sum(count_over_time({service_name=\"line\"} | workItem=~\"$work_item\" | detected_level=~\"warn|error|critical|fatal\" [$__range])) or vector(0)",
           "queryType": "instant",
           "legendFormat": "line"
         },
         {
           "refId": "B",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum(count_over_time({service_name=\"pod-logs\", k8s_namespace_name=\"runners\"} | json | workItem=~\"$work_item\" | detected_level=~\"warn|error\" [$__range])) or vector(0)",
+          "expr": "sum(count_over_time({service_name=\"pod-logs\", k8s_namespace_name=\"runners\"} | json | workItem=~\"$work_item\" | detected_level=~\"warn|error|critical|fatal\" [$__range])) or vector(0)",
           "queryType": "instant",
           "legendFormat": "runners"
         }
