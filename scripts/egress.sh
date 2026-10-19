@@ -101,8 +101,8 @@ for deployment in "${workers[@]}" telemetry/query "${scraped[@]}"; do
   fi
 done
 # The pod log collector, which Prometheus scrapes too, is a DaemonSet.
-if ! kubectl --context "$context" -n pod-logs rollout status daemonset/pod-logs --timeout=3m >/dev/null; then
-  echo "pod-logs/pod-logs has not rolled out: run this again when it has." >&2
+if ! kubectl --context "$context" -n pod-logs rollout status daemonset/pod-logs-agent --timeout=3m >/dev/null; then
+  echo "pod-logs/pod-logs-agent has not rolled out: run this again when it has." >&2
   exit 1
 fi
 cleanup() {
