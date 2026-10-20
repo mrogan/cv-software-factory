@@ -199,7 +199,8 @@ export function zeroCounts({ providerOf, dryRun }: Counting): void {
   }
   for (const dry_run of dryRun ? [false, true] : [false]) {
     for (const outcome of Object.values(RELEASE_ENDINGS)) releases.add(0, { outcome, dry_run });
-    for (const sense of SENSES) {
+    // `unknown` for one that names no sense: a dry run's whose ticket no sense saw, or one recorded before senses were.
+    for (const sense of [...SENSES, 'unknown']) {
       for (const outcome of Object.keys(EVERY_VERIFICATION)) verifications.add(0, { sense, outcome, dry_run });
     }
   }

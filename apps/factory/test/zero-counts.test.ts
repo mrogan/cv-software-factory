@@ -81,12 +81,12 @@ describe('the counts', () => {
     expect(await zeros('line.holds')).toEqual(product({ cause: theLines, stage: stages }));
     expect(await zeros('line.releases')).toEqual(product({ dry_run: [false], outcome: RELEASES }));
     expect(await zeros('line.verifications')).toEqual(
-      product({ dry_run: [false], outcome: ['cleared', 'persists'], sense: SENSES }),
+      product({ dry_run: [false], outcome: ['cleared', 'persists'], sense: [...SENSES, 'unknown'] }),
     );
 
     line.zeroCounts({ providerOf: () => 'anthropic', dryRun: true });
     expect(await zeros('line.releases')).toEqual(product({ dry_run: [false, true], outcome: RELEASES }));
-    expect(await zeros('line.verifications')).toHaveLength(SENSES.length * 2 * 2);
+    expect(await zeros('line.verifications')).toHaveLength((SENSES.length + 1) * 2 * 2);
   });
 
   it('start at 0 for each route the gateway sends calls on, and triage’s judgements', async () => {
