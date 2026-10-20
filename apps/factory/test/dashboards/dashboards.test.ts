@@ -237,6 +237,26 @@ describe('Grafana’s dashboards', () => {
     expect(seen).toBeGreaterThan(0);
   });
 
+  it('aggregate each log range before anything else touches it, so Loki’s series cap holds over any range', () => {
+    // A range aggregation answers a series per stream, and pod restarts multiply streams: wrapped in label_replace
+    // or anything else per series, Loki holds them all and refuses past 500. Summed first, it holds one per group.
+    const RANGE = /\b(?:\w+_over_time|rate|rate_counter|bytes_rate)\s*\(/g;
+    const AGGREGATED =
+      /\b(?:sum|min|max|avg|count|stddev|stdvar|topk|bottomk)\s*(?:(?:by|without)\s*\([^)]*\)\s*)?\(\s*(?:(?:\d+|\$\{?\w+\}?)\s*,\s*)?$/;
+    let seen = 0;
+    for (const { dashboard } of dashboards) {
+      for (const query of queries(dashboard).filter((q) => q.uid === 'loki')) {
+        const bare = query.expr.replace(/"(?:[^"\\]|\\.)*"|`[^`]*`/g, '""');
+        for (const range of bare.matchAll(RANGE)) {
+          const before = bare.slice(0, range.index);
+          expect(AGGREGATED.test(before), `${query.where}: ${range[0]} is not aggregated first`).toBe(true);
+          seen++;
+        }
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+
   it('link only to dashboards there are, by tag or by uid', () => {
     const uids = new Set(dashboards.map(({ dashboard }) => dashboard.uid));
     for (const { dashboard } of dashboards) {

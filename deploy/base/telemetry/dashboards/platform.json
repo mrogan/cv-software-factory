@@ -162,14 +162,14 @@
         {
           "refId": "F",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum by (worker) (label_replace(count_over_time({service_namespace=\"software-factory\"} | detected_level=~\"warn\" [$__range]), \"worker\", \"$1\", \"service_name\", \"(.+)\")) or (sum by (worker) (label_replace(count_over_time({service_namespace=\"software-factory\"} [$__range]), \"worker\", \"$1\", \"service_name\", \"(.+)\")) * 0)",
+          "expr": "label_replace(sum by (service_name) (count_over_time({service_namespace=\"software-factory\"} | detected_level=~\"warn\" [$__range])), \"worker\", \"$1\", \"service_name\", \"(.+)\") or (label_replace(sum by (service_name) (count_over_time({service_namespace=\"software-factory\"} [$__range])), \"worker\", \"$1\", \"service_name\", \"(.+)\") * 0)",
           "queryType": "instant",
           "format": "table"
         },
         {
           "refId": "G",
           "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum by (worker) (label_replace(count_over_time({service_namespace=\"software-factory\"} | detected_level=~\"error|critical|fatal\" [$__range]), \"worker\", \"$1\", \"service_name\", \"(.+)\")) or (sum by (worker) (label_replace(count_over_time({service_namespace=\"software-factory\"} [$__range]), \"worker\", \"$1\", \"service_name\", \"(.+)\")) * 0)",
+          "expr": "label_replace(sum by (service_name) (count_over_time({service_namespace=\"software-factory\"} | detected_level=~\"error|critical|fatal\" [$__range])), \"worker\", \"$1\", \"service_name\", \"(.+)\") or (label_replace(sum by (service_name) (count_over_time({service_namespace=\"software-factory\"} [$__range])), \"worker\", \"$1\", \"service_name\", \"(.+)\") * 0)",
           "queryType": "instant",
           "format": "table"
         }
