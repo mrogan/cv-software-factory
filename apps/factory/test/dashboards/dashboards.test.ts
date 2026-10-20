@@ -1,7 +1,8 @@
 /**
  * Grafana's dashboards, held to one bar (#394): each parses and is provisioned, every panel says what it answers and
  * what good looks like, has a unit and says why it is empty, every series a query names exists, every link reaches a
- * dashboard, and every colour is the palette's, with an outcome the same colour everywhere.
+ * dashboard, every colour is the palette's, with an outcome the same colour everywhere, and every threshold drawn from
+ * the app's objectives is the policy's own figure.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { objectives } from '../../../../policy/objectives.ts';
+import { routeRecords } from '../../src/alerts/rules.ts';
 import { SPEND_METRIC } from '../../src/gateway/metrics.ts';
 import { GRAFANA, OUTCOMES, SERIES, STATUS } from './palette.ts';
 import { HISTOGRAM_SUFFIXES, HISTOGRAMS, INSTRUMENTS, RULES, THIRD_PARTY } from './series.ts';
@@ -23,11 +25,27 @@ const NOT_YET = ['website'];
 /** Dashboards a link may name that the next pull request of #394 adds; it empties this. */
 const FORTHCOMING = ['platform'];
 
+/**
+ * The thresholds drawn from the app's objectives, by dashboard, panel and, in a table, column. Grafana takes a
+ * threshold as a number, not from a series, so each is written in the dashboard and held here to the policy: its last
+ * step is the policy's figure, and a warning step before it is half of it. A panel that reads a route's recorded error
+ * ratio or latency, the alerts' own figures, must be listed.
+ */
+const { errorRatio, latency } = objectives;
+const FROM_POLICY: { uid: string; title: string; column?: string; value: number }[] = [
+  { uid: 'overview', title: 'Errors, worst route', value: errorRatio.max },
+  { uid: 'overview', title: 'p95, slowest route', value: latency.maxSeconds },
+];
+
 interface Target {
   refId?: string;
   datasource?: { type?: string; uid?: string };
   expr?: string;
   query?: unknown;
+}
+
+interface Thresholds {
+  steps: { color: string; value: number | null }[];
 }
 
 interface Override {
@@ -43,7 +61,10 @@ interface Panel {
   datasource?: { type?: string; uid?: string };
   targets?: Target[];
   panels?: Panel[];
-  fieldConfig?: { defaults?: Record<string, unknown> & { links?: { url: string }[] }; overrides?: Override[] };
+  fieldConfig?: {
+    defaults?: Record<string, unknown> & { links?: { url: string }[]; thresholds?: Thresholds };
+    overrides?: Override[];
+  };
   links?: { url: string }[];
 }
 
@@ -272,6 +293,46 @@ describe('Grafana’s dashboards', () => {
       }
     },
   );
+});
+
+describe('the thresholds drawn from the objectives', () => {
+  const panel = (uid: string, title: string) =>
+    drawn(
+      dashboards.find(({ dashboard }) => dashboard.uid === uid)?.dashboard ?? ({ panels: [] } as unknown as Dashboard),
+    ).find((p) => p.title === title);
+
+  it.each(
+    FROM_POLICY.map((entry) => [`${entry.uid}: ${entry.title}${entry.column ? `, ${entry.column}` : ''}`, entry]),
+  )('%s is the policy’s', (_, { uid, title, column, value }) => {
+    const found = panel(uid, title);
+    expect(found, `${uid} has no panel ${title}`).toBeDefined();
+    const thresholds =
+      column === undefined
+        ? found?.fieldConfig?.defaults?.thresholds
+        : (found?.fieldConfig?.overrides
+            ?.find((o) => o.matcher.id === 'byName' && o.matcher.options === column)
+            ?.properties.find((p) => p.id === 'thresholds')?.value as Thresholds | undefined);
+    const steps = thresholds?.steps ?? [];
+    expect(steps.at(-1)?.value).toBe(value);
+    for (const step of steps.filter((s) => s.color === STATUS.warning)) expect(step.value).toBe(value / 2);
+  });
+
+  it('list every panel that reads a route’s error ratio or latency', () => {
+    const route = routeRecords(objectives);
+    for (const { dashboard } of dashboards) {
+      for (const p of drawn(dashboard)) {
+        const reads = (p.targets ?? []).some(
+          (t) => t.expr?.includes(route.errorRatio) || t.expr?.includes(route.latency),
+        );
+        if (reads) {
+          expect(
+            FROM_POLICY.some((entry) => entry.uid === dashboard.uid && entry.title === p.title),
+            `${dashboard.uid}: ${p.title}`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
 });
 
 describe('reading the series a query names', () => {

@@ -127,6 +127,8 @@ describe('the senses read only what the collector stamped as the app’s', () =>
   });
 
   it('the dashboards that draw the app: its own, and the overview’s tiles', async () => {
+    // The routes' and the budget's records are the app's alone: their rules are held to the stamp above.
+    const records = [...routeRulesFor(objectives), ...budgetRulesFor(objectives)].map((rule) => rule.record);
     const targets: string[] = [];
     for (const name of ['website', 'overview']) {
       const dashboard = await readFile(join(DEPLOY, `../dashboards/${name}.json`), 'utf-8');
@@ -134,7 +136,8 @@ describe('the senses read only what the collector stamped as the app’s', () =>
         .flatMap((panel) => panel.targets ?? [])
         .map((target) => target.expr ?? target.query ?? '');
       const app = queries.filter((q) => q.includes(objectives.app.metricsJob) || /service[._]name="website"/.test(q));
-      expect(app.length, name).toBeGreaterThan(0);
+      const recorded = queries.filter((q) => records.some((record) => q.includes(record)));
+      expect(app.length + recorded.length, name).toBeGreaterThan(0);
       targets.push(...app);
     }
     expectStamped(targets);

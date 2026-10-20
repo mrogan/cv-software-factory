@@ -7,6 +7,8 @@
  * created (`createCounter('line.steps', …)` and its kin). The recording rules are checked against the generated rules
  * file. The rest are third-party, named by the exporter or scrape that produces them.
  */
+import { objectives } from '../../../../policy/objectives.ts';
+import { LAST_STEP, routeRecords } from '../../src/alerts/rules.ts';
 import { SPEND_METRIC } from '../../src/gateway/metrics.ts';
 
 /** The factory's and the console's series, by the instrument that makes each, as Prometheus names it. */
@@ -36,8 +38,10 @@ export const INSTRUMENTS: Record<string, string> = {
 
 /** Prometheus's recording rules, generated from the policy (`alerts/rules.ts`). */
 export const RULES = [
+  ...Object.values(routeRecords(objectives)),
   'line:work_items:max',
   'line:stage_oldest:ratio_to_limit',
+  LAST_STEP,
   'website:error_budget_remaining:ratio7d',
 ];
 
