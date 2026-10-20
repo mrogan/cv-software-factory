@@ -82,7 +82,7 @@ Prometheus records a few figures that dashboards and alerts read, so each is def
 
 ### Each route against the objectives
 
-What the app's alerting rules judge, recorded each minute so a dashboard draws exactly what an alert fires on: each route over the [objectives'](../../policy/objectives.ts) 15 minutes, its error ratio and p95 only once it has had the 20 requests a route needs to be judged. The alerts read these and compare them with 5% and 1 s; the dashboards draw those same numbers as thresholds, and their test holds each drawn threshold to the policy, since Grafana takes a threshold as a number, not from a series.
+What the app's alerting rules judge, recorded each minute for dashboards to draw: each route over the [objectives'](../../policy/objectives.ts) 15 minutes, its error ratio and p95 only once it has had the 20 requests a route needs to be judged. Each record's expression is the one its alert compares with 5% or 1 s, word for word. The alerts do not read the records: anything that sends metrics over OTLP may send a series by any name, and an alert judges only [the app's own](#which-records-are-the-apps) requests.
 
 | Series | Says |
 |---|---|
@@ -90,7 +90,7 @@ What the app's alerting rules judge, recorded each minute so a dashboard draws e
 | `website:route_errors:ratio_rate15m` | Each route's share of 5xx answers over them; 0 for one with none, and no series for a route with fewer than 20 requests |
 | `website:route_latency_seconds:p95_rate15m` | Each route's p95 over them, in seconds; no series for a route with fewer than 20 requests |
 
-The names carry the window and the percentile, so a policy that changes either renames the series, and the dashboards' test fails until they read the new ones.
+The names carry the window and the percentile (a whole one: the generator refuses p99.5), so a policy that changes either renames the series.
 
 ### The app's error budget
 
@@ -105,7 +105,7 @@ Each of the app's [objectives](../../policy/objectives.ts) gives a share of its 
 | `website:error_budget_burn:rate1h`, `…_rate6h` | How fast the budget burns: the share bad over the window against the share allowed, so 1 spends it in exactly seven days, and 14 in half a day |
 | `website:error_budget_remaining:ratio7d` | How much of the budget the last seven days left: 1 is all of it, 0 none, and below 0 overspent |
 
-Every rule of the budget is evaluated every five minutes, the five-minute rates first, so a longer window sums one sample of a rate for each five minutes it covers: 2,016 over seven days, from one series. The app is broken on purpose, so its budget is overspent while its faults stand: the figure says how far.
+The five-minute rates are recorded every five minutes, so a longer window sums one sample of a rate for each five minutes it covers: 2,016 over seven days, from one series. What is read from them is recorded every minute: Prometheus looks back five minutes for a series' latest sample, so one recorded only as often would be missing while its next was being written. The app is broken on purpose, so its budget is overspent while its faults stand: the figure says how far.
 
 ### The line's stuck limits
 

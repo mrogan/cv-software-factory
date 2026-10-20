@@ -22,7 +22,7 @@ flowchart LR
 
 ## The rules
 
-`apps/factory/src/alerts/rules.ts` generates Prometheus's alerting rules from it into `deploy/base/telemetry/values/prometheus-rules.yaml`, labelled with the route and the symptom class (`server-error`, `slow-response`). Each rule compares a figure recorded for every route, its error ratio or p95 over the window once it has had enough requests, with the objective: the same series the dashboards draw ([recording rules](TELEMETRY.md#each-route-against-the-objectives)). `make check` fails when the file is out of date.
+`apps/factory/src/alerts/rules.ts` generates Prometheus's alerting rules from it into `deploy/base/telemetry/values/prometheus-rules.yaml`, labelled with the route and the symptom class (`server-error`, `slow-response`). Each rule compares every route's error ratio or p95 over the window, once it has had enough requests, with the objective, by the same expression Prometheus records for dashboards ([recording rules](TELEMETRY.md#each-route-against-the-objectives)), and reads only the app's own series. `make check` fails when the file is out of date.
 
 ## The intake
 

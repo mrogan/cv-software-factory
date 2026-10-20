@@ -9,6 +9,7 @@ import {
   BUDGET_INTERVAL,
   BUDGET_WINDOWS,
   budgetRulesFor,
+  isBudgetRate,
   LAST_STEP,
   OBJECTIVES,
   outOfDate,
@@ -27,11 +28,13 @@ import { OPEN_STAGES } from '../src/line/metrics.ts';
 import { leaseFor } from '../src/line/worker.ts';
 
 describe('alerting rules', () => {
-  it('judge every route alike, by the figures recorded for each, which the dashboards draw', () => {
+  it('judge every route by the very expressions recorded for the dashboards, not the recorded series', () => {
     const [errors, latency] = rulesFor(objectives);
-    const route = routeRecords(objectives);
-    expect(errors?.expr).toBe(`${route.errorRatio} > ${objectives.errorRatio.max}`);
-    expect(latency?.expr).toBe(`${route.latency} > ${objectives.latency.maxSeconds}`);
+    const [, errorRatio, p95] = routeRulesFor(objectives);
+    expect(errors?.expr).toBe(`(${errorRatio?.expr}) > ${objectives.errorRatio.max}`);
+    expect(latency?.expr).toBe(`(${p95?.expr}) > ${objectives.latency.maxSeconds}`);
+    // A recorded series is anyone's to send over OTLP by its name; the alerts read only the app's own.
+    for (const rule of [errors, latency]) expect(rule?.expr).not.toContain('website:route_');
   });
 
   it('label each alert with its route and symptom class', () => {
@@ -86,9 +89,9 @@ describe('each route’s recording rules', () => {
     expect(latency?.expr).toContain(`histogram_quantile(${objectives.latency.percentile}`);
     for (const rule of [errors, latency]) {
       expect(rule?.expr).toContain(`[${objectives.windowMinutes}m]`);
-      expect(rule?.expr).toMatch(
-        new RegExp(`and on \\(http_route\\) \\(${route.requests} >= ${objectives.minRequests}\\)$`),
-      );
+      expect(
+        rule?.expr.endsWith(`and on (http_route) (${query.requests(objectives)} >= ${objectives.minRequests})`),
+      ).toBe(true);
       // No rule names a route: the route comes from the series.
       expect(rule?.expr).not.toMatch(/http_route="/);
     }
@@ -98,8 +101,12 @@ describe('each route’s recording rules', () => {
     expect(errors?.expr).toContain(` or ${query.requestRate(objectives)} * 0) / `);
   });
 
-  it('come before the alerting rules that read them, in a group of their own evaluated every minute', () => {
+  it('are recorded every minute, in a group of their own', () => {
     expect(render(objectives)).toMatch(/- name: routes\n {8}rules:\n {10}- record: website:route_requests:/);
+  });
+
+  it('refuse a percentile that is not a whole one, which a series could not be named by', () => {
+    expect(() => routeRecords({ ...objectives, latency: { percentile: 0.995, maxSeconds: 1 } })).toThrow(/whole/);
   });
 });
 
@@ -135,14 +142,24 @@ describe('the error budget’s recording rules', () => {
 
   it('record the five-minute rates every five minutes, so seven days are a sum of 2,016 samples, not 10,080', () => {
     expect(BUDGET_INTERVAL).toBe('5m');
-    expect(named('website:requests:rate5m')[0]?.expr).toContain('[5m]');
-    expect(render(objectives)).toContain(
-      `- name: error-budget\n        interval: ${BUDGET_INTERVAL}\n        rules:\n`,
-    );
-    // Every rule of the budget is in that group, the rates first, so each window reads the rates just recorded.
-    const group = render(objectives).split('- name: error-budget\n')[1]?.split('- name: ')[0] ?? '';
-    expect([...group.matchAll(/record: (\S+)/g)].map((m) => m[1])).toEqual(rules.map((rule) => rule.record));
-    expect(rules[0]?.record).toBe('website:requests:rate5m');
+    const text = render(objectives);
+    const group = (name: string) =>
+      [...(text.split(`- name: ${name}\n`)[1]?.split('- name: ')[0] ?? '').matchAll(/record: (\S+)/g)].map((m) => m[1]);
+    expect(text).toContain(`- name: error-budget-rates\n        interval: ${BUDGET_INTERVAL}\n        rules:\n`);
+    expect(group('error-budget-rates')).toEqual([
+      'website:requests:rate5m',
+      'website:requests_bad:rate5m',
+      'website:requests_bad:rate5m',
+    ]);
+    for (const rule of rules.filter(isBudgetRate)) expect(rule.expr).toContain('[5m]');
+  });
+
+  it('record what is read from them every minute, which Prometheus would not find while a five-minute one is written', () => {
+    const text = render(objectives);
+    expect(text).toMatch(/- name: error-budget\n {8}rules:\n/);
+    const derived = rules.filter((rule) => !isBudgetRate(rule)).map((rule) => rule.record);
+    expect(derived).toContain('website:error_budget_burn:rate1h');
+    expect(derived).toContain('website:error_budget_remaining:ratio7d');
   });
 
   it('refuse a latency objective that is not a bound of the app’s buckets, which no series could count', () => {

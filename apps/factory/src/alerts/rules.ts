@@ -33,17 +33,18 @@ interface Rule {
 const ROUTE = '{{ $labels.http_route }}';
 
 /**
- * One rule per objective. Each judges every route alike, and only one that has had `minRequests` in the window: it
- * reads the route's recorded figure (`routeRulesFor`), which has none for a route with fewer.
+ * One rule per objective. Each judges every route alike, and only one that has had `minRequests` in the window, by the
+ * very expression recorded for the dashboards (`routeRulesFor`). It does not read the recorded series: anything that
+ * sends metrics over OTLP could send one by that name, and an alert judges only the app's own requests.
  */
 export function rulesFor(o: Objectives): Rule[] {
-  const route = routeRecords(o);
+  const route = routeFigures(o);
   const window = `${o.windowMinutes} minutes`;
   const hold = `${o.holdMinutes}m`;
   return [
     {
       alert: 'RouteErrorRatioAboveObjective',
-      expr: `${route.errorRatio} > ${o.errorRatio.max}`,
+      expr: `(${route.errorRatio}) > ${o.errorRatio.max}`,
       for: hold,
       labels: { route: ROUTE, symptom: 'server-error', objective: OBJECTIVES.errorRatio },
       annotations: {
@@ -54,7 +55,7 @@ export function rulesFor(o: Objectives): Rule[] {
     },
     {
       alert: 'RouteLatencyAboveObjective',
-      expr: `${route.latency} > ${o.latency.maxSeconds}`,
+      expr: `(${route.latency}) > ${o.latency.maxSeconds}`,
       for: hold,
       labels: { route: ROUTE, symptom: 'slow-response', objective: OBJECTIVES.latency },
       annotations: {
@@ -80,6 +81,12 @@ interface Recording {
  */
 export function routeRecords(o: Objectives) {
   const w = `${o.windowMinutes}m`;
+  const percentile = o.latency.percentile * 100;
+  if (Math.abs(percentile - Math.round(percentile)) > 1e-9) {
+    throw new Error(
+      `The latency objective's percentile, ${o.latency.percentile}, is not a whole one to name a series by`,
+    );
+  }
   return {
     requests: `website:route_requests:increase${w}`,
     errorRatio: `website:route_errors:ratio_rate${w}`,
@@ -90,24 +97,38 @@ export function routeRecords(o: Objectives) {
 /**
  * Each route against the objectives, as the alerting rules judge it and the dashboards draw it: its requests in the
  * window, and its error ratio and latency only when it has had `minRequests`. A route that has answered no 5xx has an
- * error ratio of 0, not none.
+ * error ratio of 0, not none. Each reads the app's own series alone, never a recorded one.
  */
-export function routeRulesFor(o: Objectives): Recording[] {
-  const route = routeRecords(o);
-  const enough = `on (http_route) (${route.requests} >= ${o.minRequests})`;
+export function routeFigures(o: Objectives): { requests: string; errorRatio: string; latency: string } {
+  const enough = `on (http_route) (${query.requests(o)} >= ${o.minRequests})`;
   const all = query.requestRate(o);
-  return [
-    { record: route.requests, expr: query.requests(o) },
-    { record: route.errorRatio, expr: `((${query.errorRate(o)} or ${all} * 0) / ${all}) and ${enough}` },
-    { record: route.latency, expr: `${query.latency(o)} and ${enough}` },
-  ];
+  return {
+    requests: query.requests(o),
+    errorRatio: `((${query.errorRate(o)} or ${all} * 0) / ${all}) and ${enough}`,
+    latency: `${query.latency(o)} and ${enough}`,
+  };
+}
+
+/** The routes' figures, recorded for the dashboards under `routeRecords`' names. */
+export function routeRulesFor(o: Objectives): Recording[] {
+  const names = routeRecords(o);
+  const figures = routeFigures(o);
+  return (['requests', 'errorRatio', 'latency'] as const).map((figure) => ({
+    record: names[figure],
+    expr: figures[figure],
+  }));
 }
 
 /**
- * How often the error budget's rules are evaluated: each records the five minutes before it, so a window of hours or
- * days is a sum of one sample every five minutes (2,016 over seven days), and the last hour's burn moves as often.
+ * How often the error budget's five-minute rates are recorded: each covers the five minutes before it, so a window of
+ * hours or days is a sum of one sample every five minutes (2,016 over seven days). What is read from them is recorded
+ * every minute, as Prometheus would find no sample of a series recorded only as often as it looks back for one (five
+ * minutes) while its next is being written.
  */
 export const BUDGET_INTERVAL = '5m';
+
+/** Whether a rule of the budget is one of its five-minute rates, recorded every `BUDGET_INTERVAL`. */
+export const isBudgetRate = (rule: Recording) => rule.record.endsWith(':rate5m');
 
 /** The windows the share of bad requests is recorded over: two for how fast the budget burns, and the budget's own. */
 export const BUDGET_WINDOWS = ['1h', '6h', '7d'] as const;
@@ -233,10 +254,13 @@ ${rules}
       - name: routes
         rules:
 ${recordings(routeRulesFor(o))}
-      - name: error-budget
+      - name: error-budget-rates
         interval: ${BUDGET_INTERVAL}
         rules:
-${recordings(budgetRulesFor(o))}
+${recordings(budgetRulesFor(o).filter(isBudgetRate))}
+      - name: error-budget
+        rules:
+${recordings(budgetRulesFor(o).filter((rule) => !isBudgetRate(rule)))}
       - name: line
         rules:
 ${recordings(stuckRulesFor(stuck))}

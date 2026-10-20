@@ -6,7 +6,7 @@ serverFiles:
       - name: objectives
         rules:
           - alert: RouteErrorRatioAboveObjective
-            expr: "website:route_errors:ratio_rate15m > 0.05"
+            expr: "(((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_response_status_code=~\"5..\"}[15m])) or sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) * 0) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) >= 20)) > 0.05"
             for: 2m
             labels:
               route: "{{ $labels.http_route }}"
@@ -17,7 +17,7 @@ serverFiles:
               description: "Over 15 minutes, with at least 20 requests."
               threshold: "0.05"
           - alert: RouteLatencyAboveObjective
-            expr: "website:route_latency_seconds:p95_rate15m > 1"
+            expr: "(histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) >= 20)) > 1"
             for: 2m
             labels:
               route: "{{ $labels.http_route }}"
@@ -34,10 +34,10 @@ serverFiles:
           - record: website:route_requests:increase15m
             expr: "sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))"
           - record: website:route_errors:ratio_rate15m
-            expr: "((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_response_status_code=~\"5..\"}[15m])) or sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) * 0) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (website:route_requests:increase15m >= 20)"
+            expr: "((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_response_status_code=~\"5..\"}[15m])) or sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) * 0) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) >= 20)"
           - record: website:route_latency_seconds:p95_rate15m
-            expr: "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (website:route_requests:increase15m >= 20)"
-      - name: error-budget
+            expr: "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) >= 20)"
+      - name: error-budget-rates
         interval: 5m
         rules:
           - record: website:requests:rate5m
@@ -50,6 +50,8 @@ serverFiles:
             expr: "sum(rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[5m])) - sum(rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", le=\"1\"}[5m]))"
             labels:
               objective: "latency"
+      - name: error-budget
+        rules:
           - record: website:error_budget:ratio
             expr: "vector(0.05)"
             labels:
