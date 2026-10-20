@@ -126,7 +126,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_response_status_code=~\"5..\"}[15m])) or (sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) * 0)) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) >= 20))"
+          "expr": "max(website:route_errors:ratio_rate15m)"
         }
       ],
       "options": {
@@ -169,7 +169,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) >= 20))"
+          "expr": "max(website:route_latency_seconds:p95_rate15m)"
         }
       ],
       "options": {
@@ -384,7 +384,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\", http_response_status_code=~\"5..\"}[15m])) or (sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) * 0)) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) >= 20)",
+          "expr": "website:route_errors:ratio_rate15m{http_route=~\"$route\"}",
           "legendFormat": "{{http_route}}"
         }
       ],
@@ -437,7 +437,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) >= 20)",
+          "expr": "website:route_latency_seconds:p95_rate15m{http_route=~\"$route\"}",
           "legendFormat": "{{http_route}}"
         }
       ],
@@ -489,21 +489,21 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (http_route) (round(increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])))",
+          "expr": "round(website:route_requests:increase15m{http_route=~\"$route\"})",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\", http_response_status_code=~\"5..\"}[15m])) or (sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) * 0)) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) >= 20)",
+          "expr": "max by (http_route) (website:route_errors:ratio_rate15m{http_route=~\"$route\"})",
           "instant": true,
           "format": "table"
         },
         {
           "refId": "C",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) >= 20)",
+          "expr": "max by (http_route) (website:route_latency_seconds:p95_rate15m{http_route=~\"$route\"})",
           "instant": true,
           "format": "table"
         }

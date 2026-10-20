@@ -25,10 +25,18 @@ const DASHBOARDS = join(TELEMETRY, 'dashboards');
  * step is the policy's figure, and a warning step before it is half of it. A panel that reads a route's recorded error
  * ratio or latency, the alerts' own figures, must be listed.
  */
-const { errorRatio, latency } = objectives;
+const { errorRatio, latency, minRequests } = objectives;
 const FROM_POLICY: { uid: string; title: string; column?: string; value: number }[] = [
   { uid: 'overview', title: 'Errors, worst route', value: errorRatio.max },
   { uid: 'overview', title: 'p95, slowest route', value: latency.maxSeconds },
+  { uid: 'website', title: 'Errors, worst route', value: errorRatio.max },
+  { uid: 'website', title: 'p95, slowest route', value: latency.maxSeconds },
+  { uid: 'website', title: 'Errors by route, over 15 minutes', value: errorRatio.max },
+  { uid: 'website', title: 'p95 by route, over 15 minutes', value: latency.maxSeconds },
+  { uid: 'website', title: 'Each route now', column: 'Requests, 15 min', value: minRequests },
+  { uid: 'website', title: 'Each route now', column: 'Errors', value: errorRatio.max },
+  { uid: 'website', title: 'Each route now', column: 'p95', value: latency.maxSeconds },
+  { uid: 'website', title: 'Server errors, stable and canary', value: errorRatio.max },
 ];
 
 interface Target {
