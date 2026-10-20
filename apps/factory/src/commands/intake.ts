@@ -23,7 +23,7 @@ export async function run(args: string[]): Promise<number> {
   const { DATABASE_URL, PORT } = process.env;
   const sql = values['dry-run'] ? undefined : connect(DATABASE_URL);
   const { prometheus, loki } = telemetryFrom();
-  const outbox = sql ? inbox(sql) : printing((line) => console.log(line));
+  const outbox = sql ? inbox(sql, 'metrics') : printing((line) => console.log(line));
 
   const server = createServer(
     createIntake({ backends: { objectives, prometheus, loki, now: () => new Date() }, outbox, log }),

@@ -82,7 +82,7 @@ async function loop(sense: Crawler, app: string): Promise<number> {
     sense,
     log,
     version: () => versionOf(app, UNMEASURED),
-    send: inbox(sql).send,
+    send: inbox(sql, 'crawler').send,
     remember: (look, at) => index.remember(look, at),
     every: number('CRAWL_INTERVAL', 300) * 1000,
   });

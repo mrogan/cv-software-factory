@@ -15,11 +15,31 @@
  * As it starts, and every `INBOX.pruneMinutes` after, it deletes the inbox's repeats older than
  * `INBOX.keepCountedDays` (`pruneInbox` in packages/store).
  */
-import type { Screenshot } from '@software-factory/events';
-import { type Judge, type PageReader, Triage } from '@software-factory/triage';
+import type { Counter } from '@opentelemetry/api';
+import { type Screenshot, SIGNAL_SOURCES } from '@software-factory/events';
+import { type Judge, type Outcome, type PageReader, Triage } from '@software-factory/triage';
 import { INBOX } from '../../../../policy/triage.ts';
 
 export const USAGE = '  factory triage';
+
+/** Every way triage takes a signal: a record, so an outcome added to `Outcome` and left out here fails to type-check. */
+const OUTCOMES: Record<Outcome, true> = {
+  opened: true,
+  evidence: true,
+  counted: true,
+  report: true,
+  finding: true,
+  reopened: true,
+  held: true,
+};
+
+/**
+ * Starts the count of signals triaged at 0 for each source and outcome, so the first of each after a restart is
+ * counted: Prometheus's `increase` reads nothing into a series' first sample.
+ */
+export function zeroTriaged(triaged: Pick<Counter, 'add'>): void {
+  for (const sense of SIGNAL_SOURCES) for (const outcome of Object.keys(OUTCOMES)) triaged.add(0, { sense, outcome });
+}
 
 export async function run(args: string[]): Promise<number> {
   const { GATEWAY_URL, PAGES_URL, ARTIFACTS_DIR, DATABASE_URL, PROMETHEUS_URL, LOKI_URL, TEMPO_URL } = process.env;
@@ -34,6 +54,7 @@ export async function run(args: string[]): Promise<number> {
   const { connect, DiskArtifacts, EventWriter, pruneInbox } = await import('@software-factory/store');
   const { GatewayClient } = await import('../gateway/client.ts');
   const { waitingFor } = await import('../gateway/waiting.ts');
+  const { sendCounts } = await import('../counts.ts');
   const { environmentLook } = await import('../environment.ts');
   const { Prometheus } = await import('../clients/prometheus.ts');
   const { Loki } = await import('../clients/loki.ts');
@@ -72,6 +93,7 @@ export async function run(args: string[]): Promise<number> {
   const triaged = meter.createCounter('factory.triage.signals', {
     description: 'Signals triaged, by sense and outcome (opened, evidence, counted, report, finding, reopened, held)',
   });
+  zeroTriaged(triaged);
   const toTicket = meter.createHistogram('factory.triage.signal_to_ticket', {
     description: 'From a sense seeing something to its ticket opening',
     unit: 's',
@@ -119,6 +141,9 @@ export async function run(args: string[]): Promise<number> {
   }
   const looks = { prometheus: PROMETHEUS_URL ?? null, loki: LOKI_URL ?? null, tempo: TEMPO_URL ?? null };
   log.info({ gateway: GATEWAY_URL, pages: PAGES_URL ?? null, ...looks }, 'triage taking signals from the inbox');
+
+  // The counts' zeros go before the first signal triage takes, which may be at once, from a backlog.
+  await sendCounts();
 
   let pruning: Promise<void> | undefined;
   // One prune at a time: a tick that finds one still running leaves it be.

@@ -7,6 +7,7 @@
  * http://localhost:4318, which `pnpm dev` reaches through a port-forward to the cluster's collector.
  */
 import { register } from 'node:module';
+import { metrics } from '@opentelemetry/api';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { PinoInstrumentation } from '@opentelemetry/instrumentation-pino';
 import { RuntimeNodeInstrumentation } from '@opentelemetry/instrumentation-runtime-node';
@@ -34,4 +35,21 @@ sdk.start();
 /** Flushes whatever is buffered. Call it once, as the process stops. */
 export function shutdownTelemetry(): Promise<void> {
   return sdk.shutdown();
+}
+
+/**
+ * Sends the metrics as they stand, before the server takes its first request: a count started at 0 has to reach
+ * Prometheus as 0 before its first event does, or its first sample is that event, which `rate` and `increase` read
+ * nothing into. Waits at most five seconds, so a collector that is down holds up nothing.
+ */
+export async function sendMetrics(): Promise<void> {
+  const provider = metrics.getMeterProvider() as { forceFlush?: () => Promise<void> };
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    provider.forceFlush?.().catch(() => {}),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, 5_000);
+    }),
+  ]);
+  clearTimeout(timer);
 }

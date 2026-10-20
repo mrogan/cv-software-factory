@@ -38,7 +38,7 @@ export async function run(args: string[]): Promise<number> {
   const { DATABASE_URL } = process.env;
   const dryRun = values['dry-run'];
   const sql = dryRun ? undefined : connect(DATABASE_URL);
-  const outbox = sql ? inbox(sql) : printing((line) => console.log(line));
+  const outbox = sql ? inbox(sql, 'logs', 'report') : printing((line) => console.log(line));
   const now = () => new Date();
   const backends = { objectives, ...telemetryFrom(), outbox, log };
 

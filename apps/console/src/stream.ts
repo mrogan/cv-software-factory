@@ -14,6 +14,8 @@ const clients = meter.createUpDownCounter('console.stream.clients', {
   description: 'Browsers connected to the event stream',
 });
 const sent = meter.createCounter('console.stream.events', { description: 'Events sent to browsers' });
+// From 0, so the first event sent is counted: Prometheus's `rate` reads nothing into a series' first sample.
+sent.add(0);
 const delay = meter.createHistogram('console.stream.delay', {
   description: 'Time from an event being appended to the store to its being sent to a browser',
   unit: 's',

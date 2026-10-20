@@ -1122,7 +1122,7 @@
         {
           "refId": "E",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (agent, model) (increase(gateway_tokens_total{agent=~\"$agent\", kind=\"cache_read\"}[$__range])) / sum by (agent, model) (increase(gateway_tokens_total{agent=~\"$agent\", kind=~\"input|cache_read\"}[$__range]))",
+          "expr": "sum by (agent, model) (increase(gateway_tokens_total{agent=~\"$agent\", kind=\"cache_read\"}[$__range])) / (sum by (agent, model) (increase(gateway_tokens_total{agent=~\"$agent\", kind=~\"input|cache_read\"}[$__range])) > 0)",
           "instant": true,
           "range": false,
           "format": "table"

@@ -69,6 +69,7 @@ import { lineStopped, uuidFrom } from '@software-factory/triage';
 import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
 import { release as RELEASE } from '../../../../policy/release.ts';
+import { sendCounts } from '../counts.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 import { type Carry, DEPLOYS, MAX_CARRIES } from '../github/deploys.ts';
 import type {
@@ -113,7 +114,7 @@ import {
   STAGE_OF,
   type WorkItemState,
 } from './machine.ts';
-import { countRecorded, countStep, observeStages, type StepEnding } from './metrics.ts';
+import { countRecorded, countStep, observeStages, type StepEnding, zeroCounts } from './metrics.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Own, pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem } from './queue.ts';
@@ -504,6 +505,12 @@ export class Line {
     const nudge = () => wake.resolve();
     const listening = await this.#o.sql.listen('events', nudge);
     abort.addEventListener('abort', nudge);
+    // Every count from 0, so the first of each kind since the line started is counted: only on a line that takes
+    // work, so a line that is off reads as nothing rather than as a quiet line.
+    if (this.#o.takesWork) {
+      zeroCounts({ providerOf: this.#o.providerOf, dryRun: this.#o.dryRun });
+      await sendCounts();
+    }
     // The stages as the store has them, while the line runs: with LINE_MODE off, nothing moves them.
     const unobserve = this.#o.takesWork ? observeStages(this.#o.sql) : () => {};
     try {

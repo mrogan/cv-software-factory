@@ -23,7 +23,7 @@ import { createApp } from './app.ts';
 import { Feed, logFeed, storeFeed } from './feed.ts';
 import { log } from './log.ts';
 import { loadSite } from './site.ts';
-import { shutdownTelemetry } from './telemetry.ts';
+import { sendMetrics, shutdownTelemetry } from './telemetry.ts';
 
 const port = Number(process.env.PORT ?? 8080);
 const commit = process.env.GIT_COMMIT ?? 'dev';
@@ -46,6 +46,8 @@ const server = createServer(
     artifacts: new DiskArtifacts(source.artifacts ?? mkdtempSync(join(tmpdir(), 'no-artifacts-'))),
   }),
 );
+// The event stream's count from 0 (stream.ts), before a browser that was waiting reconnects.
+await sendMetrics();
 server.listen(port, () => log.info({ port, commit }, `console listening on :${port}`));
 
 // Kubernetes sends SIGTERM before it stops the pod: finish the requests in flight, then flush telemetry.

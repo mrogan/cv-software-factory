@@ -3,9 +3,15 @@
  * in-process gateway need none. Attributes are agent, provider, model and outcome, as the `model call` span names
  * them (`spans.ts`), and a few closed sets beside them (a token's kind, a provider's status, a cap): never a work
  * item, which would make a series for each, and never anything from a request.
+ *
+ * Each count starts at 0 as the gateway starts, for every label set it can count from closed sets (`zeroCounts`):
+ * Prometheus's `increase` and `changes` read nothing into a series' first sample, so a series that started at 1 would
+ * lose the first call, refusal or error of each kind after every restart, and the first call's spend.
  */
 import { type BatchObservableResult, metrics } from '@opentelemetry/api';
 import type { Profile } from '../../../../policy/spend.ts';
+import type { ProviderErrorKind, SpendCapped } from './errors.ts';
+import type { Outcome } from './gateway.ts';
 
 const meter = metrics.getMeter('factory-gateway');
 
@@ -30,6 +36,12 @@ export const latency = meter.createHistogram('gateway.call.duration', {
 
 /** What a token was spent on, as the span's `input_tokens`, `output_tokens`, `cache_read_tokens` and `cache_write_tokens`. */
 export type TokenKind = 'input' | 'output' | 'cache_read' | 'cache_write';
+
+/** A provider's error that is not an HTTP status: `providerErrors`' closed `status`es. */
+export type ProviderFailure = 'network' | 'timeout' | 'malformed' | 'broken';
+
+/** A cap a call is refused at: the factory's own, or a provider's (`capRefusals`). */
+export type CapRefused = SpendCapped['cap'] | 'provider';
 
 /**
  * Tokens, as the audit row counts them: an answered call's, a failed call's that the provider billed (a stream that
@@ -69,6 +81,63 @@ const capSpent = meter.createObservableGauge('gateway.cap.spent_usd', {
 const capLimit = meter.createObservableGauge('gateway.cap.limit_usd', {
   description: "The profile's spend caps, by cap (day, month, work-item) and profile, in US dollars",
 });
+
+// Each closed set as a record, so a value added to its type and left out here fails to type-check.
+const OUTCOMES: Record<Outcome, true> = { answered: true, replayed: true, refused: true, failed: true };
+const KINDS: Record<TokenKind, true> = { input: true, output: true, cache_read: true, cache_write: true };
+const FAILURES: Record<ProviderFailure, true> = { network: true, timeout: true, malformed: true, broken: true };
+const CAPS: Record<CapRefused, true> = { day: true, month: true, 'work-item': true, provider: true };
+
+/** Whose calls a series counts: an agent's, on the provider and model the gateway sends them to. */
+export interface Route {
+  agent: string;
+  provider: string;
+  model: string;
+}
+
+/**
+ * Starts each count at 0 for each label set the routes can count, so the first of each after a restart is counted.
+ * An agent's calls (`messages`) can end each way, use each kind of token (a refusal uses none), fail at the provider
+ * without a status, and be refused at each cap. A judgement uses only input and output tokens, as it is answered or
+ * replayed; TypeSafe's errors without a status are its kinds `network`, `timeout` and `malformed`; and the provider's
+ * own caps are only agents'. An HTTP status is an open set, so the first of each status is still lost. Adding 0
+ * again is harmless.
+ */
+export function zeroCounts(messages: readonly Route[], judgements: readonly Route[]): void {
+  const every = <K extends string>(set: Record<K, true>) => Object.keys(set) as K[];
+  zero(messages, {
+    tokens: ['answered', 'replayed', 'failed'],
+    kinds: every(KINDS),
+    statuses: every(FAILURES),
+    caps: every(CAPS),
+  });
+  const typesafe: ProviderErrorKind[] = ['network', 'timeout', 'malformed'];
+  zero(judgements, {
+    tokens: ['answered', 'replayed'],
+    kinds: ['input', 'output'],
+    statuses: typesafe,
+    caps: every(CAPS).filter((cap) => cap !== 'provider'),
+  });
+}
+
+interface Sets {
+  /** The outcomes that count tokens. */
+  tokens: Outcome[];
+  kinds: TokenKind[];
+  statuses: string[];
+  caps: CapRefused[];
+}
+
+function zero(routes: readonly Route[], { tokens: used, kinds, statuses, caps }: Sets): void {
+  for (const route of routes) {
+    const series = { agent: route.agent, provider: route.provider, model: route.model };
+    spend.add(0, series);
+    for (const outcome of Object.keys(OUTCOMES)) calls.add(0, { ...series, outcome });
+    for (const outcome of used) for (const kind of kinds) tokens.add(0, { ...series, outcome, kind });
+    for (const status of statuses) providerErrors.add(0, { ...series, status });
+    for (const cap of caps) capRefusals.add(0, { ...series, cap });
+  }
+}
 
 /** The spend against the profile's caps, as `Spend` last counted it. */
 export interface CapReading {
