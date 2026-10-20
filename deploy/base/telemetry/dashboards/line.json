@@ -736,6 +736,7 @@
       "description": "Requests a second through Traefik to the app’s stable version and to its canary: the split a release’s canary analysis judges. Outside a release, the canary has none.",
       "gridPos": { "x": 12, "y": 18, "w": 12, "h": 7 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "2m",
       "targets": [
         {
           "refId": "A",
@@ -764,8 +765,7 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "never",
-            "stacking": { "mode": "normal", "group": "A" }
+            "showPoints": "never"
           }
         },
         "overrides": [

@@ -1,7 +1,6 @@
 /**
  * Every Prometheus series a dashboard may name, and where it comes from. A query that names anything else draws
- * nothing, and says nothing of why, as the Factory dashboard's logs panel did for months: so the dashboards test fails
- * on it instead. A series added to a dashboard is added here, with its source.
+ * nothing, and says nothing of why: so the dashboards test fails on it instead. A series added to a dashboard is added here, with its source.
  *
  * The factory's own are checked against the code: each names the instrument that makes it, which must still be
  * created (`createCounter('line.steps', …)` and its kin). The recording rules are checked against the generated rules
