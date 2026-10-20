@@ -9,11 +9,14 @@
  *   table each time the SDK collects, not counted in the process: a line that restarts reports the same, and two
  *   replicas report the same figure, so a reader takes the `max` of them, never the `sum`.
  * - How long a work item spent at a stage is recorded as it leaves it, by whichever worker moves it.
+ * - Each count starts at 0 as the line starts, for every label set it can count (`zeroCounts`): Prometheus's
+ *   `increase` and `changes` read nothing into a series' first sample, so a series that started at 1 would lose the
+ *   first step, hold, release or verification of each kind after every restart.
  */
 import { type BatchObservableResult, metrics } from '@opentelemetry/api';
-import type { PayloadOf } from '@software-factory/events';
+import { HOLD_CAUSES, type HoldCause, type PayloadOf, SENSES, STAGES } from '@software-factory/events';
 import type { Sql } from 'postgres';
-import type { LineAgent, QueueStage } from './machine.ts';
+import { type LineAgent, type QueueStage, STAGE_OF } from './machine.ts';
 
 const meter = metrics.getMeter('factory-line');
 
@@ -58,6 +61,27 @@ export type StepEnding =
   | 'stale'
   | 'effects-failed'
   | 'errored';
+
+/** Every way a step ends: a record, so an ending added to `StepEnding` and left out here fails to type-check. */
+const EVERY_ENDING: Record<StepEnding, true> = {
+  done: true,
+  failed: true,
+  'max-turns': true,
+  capped: true,
+  stopped: true,
+  stale: true,
+  'effects-failed': true,
+  errored: true,
+};
+
+/** Every outcome a verification has, the same way. */
+const EVERY_VERIFICATION: Record<PayloadOf<'verification.finished'>['outcome'], true> = {
+  cleared: true,
+  persists: true,
+};
+
+/** The holds triage starts, which are triage's to count (or a hold that recorded no cause): the line starts the rest. */
+const NOT_THE_LINES: readonly HoldCause[] = ['suggestion', 'finding', 'burst', 'environment', 'unknown'];
 
 /** How a release ended: each of the release events that ends one. */
 export const RELEASE_ENDINGS = {
@@ -148,6 +172,37 @@ export function endingsIn(events: readonly Counted[]): Ending[] {
     endings.set(`${type} ${release}`, { type: type as Ending['type'], release, dryRun: dryRun === true });
   }
   return [...endings.values()];
+}
+
+/** What the line counts by, as it starts. */
+export interface Counting {
+  /** The provider each agent's calls go to, as the line counts its steps. */
+  providerOf: (agent: LineAgent) => string;
+  /** Whether the line runs a dry run, whose releases and verifications it counts with `dry_run` true. */
+  dryRun: boolean;
+}
+
+/**
+ * Starts every count at 0 for each label set the line can count, so the first of each after a restart is counted:
+ * each agent's step by its provider and each way it ends; each hold the line starts, by cause, at each stage from Plan
+ * on; each release's end; and each sense's verification. A real release can end under a dry run too, so `dry_run`
+ * false always, and true only on a dry run. Adding 0 again is harmless.
+ */
+export function zeroCounts({ providerOf, dryRun }: Counting): void {
+  const agents = Object.keys(STAGE_OF) as LineAgent[];
+  for (const agent of agents) {
+    for (const outcome of Object.keys(EVERY_ENDING)) steps.add(0, { agent, provider: providerOf(agent), outcome });
+  }
+  const stages = STAGES.slice(STAGES.indexOf('plan'));
+  for (const cause of HOLD_CAUSES.filter((c) => !NOT_THE_LINES.includes(c))) {
+    for (const stage of stages) holds.add(0, { cause, stage });
+  }
+  for (const dry_run of dryRun ? [false, true] : [false]) {
+    for (const outcome of Object.values(RELEASE_ENDINGS)) releases.add(0, { outcome, dry_run });
+    for (const sense of SENSES) {
+      for (const outcome of Object.keys(EVERY_VERIFICATION)) verifications.add(0, { sense, outcome, dry_run });
+    }
+  }
 }
 
 /** A release's end, the first time the store records it: on however many work items it carried, it is one. */

@@ -45,7 +45,7 @@ function instruments() {
 }
 function make() {
   const meter = metrics.getMeter('factory-store');
-  return {
+  const kept = {
     duration: meter.createHistogram('store.query.duration', {
       description: 'How long a query to the store took, a wait for a connection included',
       unit: 's',
@@ -61,6 +61,10 @@ function make() {
       description: 'Connections to the store the client tried to open, by whether they opened',
     }),
   };
+  // From 0, so the first failure is counted, as Prometheus's `increase` reads nothing into a series' first sample. They
+  // are made as the first connection opens, so its own count goes with its zero, and that one is not.
+  for (const outcome of ['connected', 'failed']) kept.attempts.add(0, { outcome });
+  return kept;
 }
 
 // The statement's first word, if it is one of these: anything else is `other`, so no text of a query makes a series.

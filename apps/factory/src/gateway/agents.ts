@@ -28,7 +28,7 @@ import { context, propagation, ROOT_CONTEXT, type Span, SpanStatusCode, trace } 
 import { jobForToken } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { MODEL_AGENTS, type ModelAgent, modelFor } from '../../../../policy/models.ts';
+import { type AgentModel, MODEL_AGENTS, type ModelAgent, modelFor } from '../../../../policy/models.ts';
 import type { Profile } from '../../../../policy/spend.ts';
 import type { Logger } from '../log.ts';
 import { ATTRIBUTES as A, tracer } from '../spans.ts';
@@ -132,6 +132,24 @@ interface Call {
 
 type Outcome = 'answered' | 'replayed' | 'refused' | 'failed';
 
+/** Where an agent's calls go on a profile: Bedrock's go to Anthropic's API until Bedrock has a provider here. */
+function routeOf(
+  profile: Profile,
+  agent: ModelAgent,
+  allLocal: boolean,
+): { chosen: AgentModel; provider: ProviderName } {
+  const chosen = modelFor(profile, agent, allLocal);
+  return { chosen, provider: chosen.provider === 'local' ? 'local' : 'anthropic' };
+}
+
+/** Every agent's route on a profile, as its calls' series are labelled. */
+export function routes(profile: Profile, allLocal: boolean): instruments.Route[] {
+  return MODEL_AGENTS.map((agent) => {
+    const { chosen, provider } = routeOf(profile, agent, allLocal);
+    return { agent, provider, model: chosen.model };
+  });
+}
+
 /** How long the line's state is trusted before it is read again. */
 const LINE_FRESH_MS = 5_000;
 const PROVIDER_TIMEOUT_MS = 15 * 60_000;
@@ -221,8 +239,7 @@ export class AgentCalls {
     started: number,
     gone?: AbortSignal,
   ): Promise<Reply> {
-    const chosen = modelFor(this.#o.profile, who.agent, this.#o.allLocal);
-    const provider = chosen.provider === 'local' ? 'local' : 'anthropic';
+    const { chosen, provider } = routeOf(this.#o.profile, who.agent, this.#o.allLocal);
     const call: Call = { ...who, provider, model: chosen.model };
     span.setAttributes({ [A.provider]: provider, [A.model]: chosen.model });
     priceOf(chosen.model);
@@ -239,7 +256,8 @@ export class AgentCalls {
     const audit = (outcome: Outcome, usage: Usage = NO_USAGE, reason?: string) =>
       this.#audit(call, span, key, outcome, usage, performance.now() - started, reason);
     const series = { agent: call.agent, provider, model: call.model };
-    const providerError = (status: string) => instruments.providerErrors.add(1, { ...series, status });
+    const providerError = (status: instruments.ProviderFailure | `${number}`) =>
+      instruments.providerErrors.add(1, { ...series, status });
 
     const replaying = mode === 'replay' || mode === 'replay-record';
     const stored = replaying ? cassettes.find(key) : undefined;
@@ -299,7 +317,7 @@ export class AgentCalls {
     }
     if (!response.ok) {
       // Counted before the body is read, which can break off too.
-      providerError(String(response.status));
+      providerError(`${response.status}`);
       const errorBody = await response.text();
       const refusal = capOf(response.status, errorBody);
       await audit('failed', undefined, `${provider} answered ${response.status}`);

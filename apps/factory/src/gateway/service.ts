@@ -4,21 +4,24 @@
  */
 import { tmpdir } from 'node:os';
 import { connect, DiskArtifacts, EventWriter } from '@software-factory/store';
+import { MODEL as TRIAGE_MODEL } from '@software-factory/triage';
 import { MODELS } from '../../../../policy/models.ts';
 import { SPEND } from '../../../../policy/spend.ts';
+import { sendCounts } from '../counts.ts';
 import { log } from '../log.ts';
 import { AgentCassettes } from './agent-cassettes.ts';
-import { AgentCalls, usageOf } from './agents.ts';
+import { AgentCalls, routes, usageOf } from './agents.ts';
 import { Cassettes } from './cassettes.ts';
 import type { GatewayConfig } from './config.ts';
 import { Gateway } from './gateway.ts';
+import { zeroCounts } from './metrics.ts';
 import { costOf } from './prices.ts';
 import { ProviderCaps } from './provider-caps.ts';
 import { Anthropic, LocalModels, type MessagesProvider, type ProviderName } from './providers.ts';
 import { startPruning } from './pruning.ts';
 import { createGatewayServer } from './server.ts';
 import { Spend } from './spend.ts';
-import { TypeSafe } from './typesafe.ts';
+import { PROVIDER as TYPESAFE, TypeSafe } from './typesafe.ts';
 
 export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv = process.env) {
   const sql = connect(env.DATABASE_URL, { max: 4 });
@@ -82,6 +85,9 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
     providers,
     log,
   });
+  // Every count from 0: each agent's calls on the route the profile gives it, and triage's judgements.
+  zeroCounts(routes(config.profile, config.allLocal), [{ agent: 'triage', provider: TYPESAFE, model: TRIAGE_MODEL }]);
+  await sendCounts();
   await spend.resume();
   spend.start();
   await caps.resume();

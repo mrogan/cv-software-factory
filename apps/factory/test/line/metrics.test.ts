@@ -390,7 +390,7 @@ describe('the line’s metrics', () => {
     expect(at(await points('line.work_items'), { stage: 'held' })).toBe(2);
   });
 
-  it('report the stages while the line runs, and read them no more once it stops', async () => {
+  it('report the stages while the line runs, every count from 0, and read them no more once it stops', async () => {
     const workItem = await ticket();
     await database.writer`insert into line (work_item, stage) values (${workItem}, 'review')`;
     // A line for another work item leaves this one where it is; the figures are the whole store's.
@@ -399,6 +399,9 @@ describe('the line’s metrics', () => {
     const running = it.run(abort.signal);
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(at(await points('line.work_items'), { stage: 'review' })).toBe(1);
+    // Every count from 0 as it starts: a kind nothing in this file counted has its series all the same.
+    const aborted = (await points('line.releases')).filter((p) => p.attributes.outcome === 'aborted');
+    expect(aborted).toEqual([{ attributes: { outcome: 'aborted', dry_run: false }, value: 0 }]);
     abort.abort();
     await running;
     await database.writer`update line set stage = 'verify'`;
