@@ -6,14 +6,17 @@ import { objectives } from '../../../policy/objectives.ts';
 import { STUCK } from '../../../policy/stuck.ts';
 import * as query from '../src/alerts/queries.ts';
 import {
+  BUDGET_INTERVAL,
   BUDGET_WINDOWS,
   budgetRulesFor,
+  LAST_STEP,
   OBJECTIVES,
   outOfDate,
   RULES_FILE,
   render,
+  routeRecords,
+  routeRulesFor,
   rulesFor,
-  SLOW_INTERVAL,
   stuckRulesFor,
 } from '../src/alerts/rules.ts';
 import { coder } from '../src/line/agents/coder.ts';
@@ -24,15 +27,11 @@ import { OPEN_STAGES } from '../src/line/metrics.ts';
 import { leaseFor } from '../src/line/worker.ts';
 
 describe('alerting rules', () => {
-  it('judge every route alike, and only one with enough requests', () => {
+  it('judge every route alike, by the figures recorded for each, which the dashboards draw', () => {
     const [errors, latency] = rulesFor(objectives);
-    expect(errors?.expr).toContain('sum by (http_route)');
-    expect(errors?.expr).toContain(`> ${objectives.errorRatio.max}`);
-    expect(errors?.expr).toContain(`>= ${objectives.minRequests}`);
-    expect(latency?.expr).toContain(`histogram_quantile(${objectives.latency.percentile}`);
-    expect(latency?.expr).toContain(`> ${objectives.latency.maxSeconds}`);
-    // No rule names a route: the route comes from the series.
-    for (const rule of [errors, latency]) expect(rule?.expr).not.toMatch(/http_route="/);
+    const route = routeRecords(objectives);
+    expect(errors?.expr).toBe(`${route.errorRatio} > ${objectives.errorRatio.max}`);
+    expect(latency?.expr).toBe(`${route.latency} > ${objectives.latency.maxSeconds}`);
   });
 
   it('label each alert with its route and symptom class', () => {
@@ -67,6 +66,43 @@ describe('alerting rules', () => {
   });
 });
 
+describe('each route’s recording rules', () => {
+  const route = routeRecords(objectives);
+  const [requests, errors, latency] = routeRulesFor(objectives);
+
+  it('are named for the objectives’ window and percentile', () => {
+    expect(route).toEqual({
+      requests: 'website:route_requests:increase15m',
+      errorRatio: 'website:route_errors:ratio_rate15m',
+      latency: 'website:route_latency_seconds:p95_rate15m',
+    });
+    expect(routeRecords({ ...objectives, windowMinutes: 30 }).errorRatio).toBe('website:route_errors:ratio_rate30m');
+  });
+
+  it('judge every route alike, and only one with enough requests', () => {
+    expect(requests).toEqual({ record: route.requests, expr: query.requests(objectives) });
+    expect(errors?.expr).toContain('sum by (http_route)');
+    expect(errors?.expr).toContain('http_response_status_code=~"5.."');
+    expect(latency?.expr).toContain(`histogram_quantile(${objectives.latency.percentile}`);
+    for (const rule of [errors, latency]) {
+      expect(rule?.expr).toContain(`[${objectives.windowMinutes}m]`);
+      expect(rule?.expr).toMatch(
+        new RegExp(`and on \\(http_route\\) \\(${route.requests} >= ${objectives.minRequests}\\)$`),
+      );
+      // No rule names a route: the route comes from the series.
+      expect(rule?.expr).not.toMatch(/http_route="/);
+    }
+  });
+
+  it('give a route with no 5xx an error ratio of 0, not none', () => {
+    expect(errors?.expr).toContain(` or ${query.requestRate(objectives)} * 0) / `);
+  });
+
+  it('come before the alerting rules that read them, in a group of their own evaluated every minute', () => {
+    expect(render(objectives)).toMatch(/- name: routes\n {8}rules:\n {10}- record: website:route_requests:/);
+  });
+});
+
 describe('the error budget’s recording rules', () => {
   const rules = budgetRulesFor(objectives);
   const named = (record: string) => rules.filter((rule) => rule.record === record);
@@ -97,15 +133,16 @@ describe('the error budget’s recording rules', () => {
     expect(named('website:error_budget_remaining:ratio7d')[0]?.expr).toContain('website:requests_bad:ratio_rate7d');
   });
 
-  it('read hours or days only every few minutes, and the last hour every minute', () => {
-    const slow = rules.filter((rule) => rule.slow).map((rule) => rule.record);
-    expect(slow).toEqual([
-      'website:requests_bad:ratio_rate6h',
-      'website:error_budget_burn:rate6h',
-      'website:requests_bad:ratio_rate7d',
-      'website:error_budget_remaining:ratio7d',
-    ]);
-    expect(render(objectives)).toContain(`- name: error-budget-over-hours\n        interval: ${SLOW_INTERVAL}\n`);
+  it('record the five-minute rates every five minutes, so seven days are a sum of 2,016 samples, not 10,080', () => {
+    expect(BUDGET_INTERVAL).toBe('5m');
+    expect(named('website:requests:rate5m')[0]?.expr).toContain('[5m]');
+    expect(render(objectives)).toContain(
+      `- name: error-budget\n        interval: ${BUDGET_INTERVAL}\n        rules:\n`,
+    );
+    // Every rule of the budget is in that group, the rates first, so each window reads the rates just recorded.
+    const group = render(objectives).split('- name: error-budget\n')[1]?.split('- name: ')[0] ?? '';
+    expect([...group.matchAll(/record: (\S+)/g)].map((m) => m[1])).toEqual(rules.map((rule) => rule.record));
+    expect(rules[0]?.record).toBe('website:requests:rate5m');
   });
 
   it('refuse a latency objective that is not a bound of the app’s buckets, which no series could count', () => {
@@ -141,9 +178,18 @@ describe('the line’s recording rules', () => {
   });
 
   it('read the line’s gauges with max, which two replicas would otherwise count twice', () => {
-    for (const rule of stuckRulesFor(STUCK).filter((r) => r.record !== 'line:stage_limit_seconds')) {
+    // The steps are a counter, which each replica keeps of its own: they add up.
+    const gauges = stuckRulesFor(STUCK).filter(
+      (r) => r.record !== 'line:stage_limit_seconds' && r.record !== LAST_STEP,
+    );
+    for (const rule of gauges) {
       expect(rule.expr).not.toMatch(/\bsum\b/);
     }
+  });
+
+  it('record when a step was last counted, for a week’s last to be read cheaply', () => {
+    const last = stuckRulesFor(STUCK).find((rule) => rule.record === LAST_STEP);
+    expect(last?.expr).toBe('timestamp(sum(increase(line_steps_total[5m])) > 0)');
   });
 
   it('follow the policy', () => {

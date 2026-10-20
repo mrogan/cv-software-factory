@@ -58,6 +58,8 @@ tempo:
   # named `traces_`: any sender names its own service, so an edge is a picture, not evidence.
   #
   # Each minute, as Prometheus scrapes, it writes what it has counted; what it could not write yet waits on the volume.
+  # TraceQL metrics queries, the agreement check's among them, are the querier's in Tempo 3, generator or none: they need
+  # no `local-blocks` processor here.
   metricsGenerator:
     enabled: true
     processor:

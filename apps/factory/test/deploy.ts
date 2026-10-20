@@ -15,6 +15,39 @@ export const PROMETHEUS = {
   podSelector: { matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' } },
 };
 
+/** One of Prometheus's relabelling rules, as a scrape job's `metric_relabel_configs` lists them. */
+export interface Relabel {
+  source_labels?: string[];
+  regex?: string;
+  action?: string;
+  target_label?: string;
+  replacement?: string;
+}
+
+/**
+ * What Prometheus's metric relabelling makes of a series, or undefined if it drops it, for the actions deploy/ uses:
+ * `drop`, `labeldrop` and `replace` (with a fixed replacement). Prometheus anchors a regex at both ends. Any other
+ * action throws, so a rule the simulation does not know is never read as keeping a series.
+ */
+export function relabel(rules: Relabel[], series: Record<string, string>): Record<string, string> | undefined {
+  let labels: Record<string, string> = { ...series };
+  for (const rule of rules) {
+    const regex = new RegExp(`^(?:${rule.regex ?? '(.*)'})$`);
+    const value = (rule.source_labels ?? []).map((label) => labels[label] ?? '').join(';');
+    const action = rule.action ?? 'replace';
+    if (action === 'drop') {
+      if (regex.test(value)) return undefined;
+    } else if (action === 'labeldrop') {
+      labels = Object.fromEntries(Object.entries(labels).filter(([label]) => !regex.test(label)));
+    } else if (action === 'replace') {
+      if (regex.test(value) && rule.target_label) labels = { ...labels, [rule.target_label]: rule.replacement ?? '$1' };
+    } else {
+      throw new Error(`The relabelling simulation does not know the ${action} action`);
+    }
+  }
+  return labels;
+}
+
 /** What every manifest has; each test names the rest of what it reads. */
 export interface Manifest {
   kind?: string;

@@ -1,14 +1,14 @@
 /**
  * Prometheus's rules, generated from the policy: the alerting rules from the app's objectives
- * (policy/objectives.ts), and the recording rules that dashboards and alerts read the objectives' error budget and the
- * line's stuck limits from (policy/stuck.ts).
+ * (policy/objectives.ts), and the recording rules that dashboards and alerts read each route against the objectives,
+ * the objectives' error budget and the line's stuck limits from (policy/stuck.ts).
  *
  *     node apps/factory/src/alerts/rules.ts            # write the rules
  *     node apps/factory/src/alerts/rules.ts --check    # fail if they are out of date (make check, CI)
  *
  * The output is a values file for the Prometheus chart: `serverFiles` is where the chart keeps its rule files. A rule
- * judges each route that has had enough requests, and the alert carries the route and the symptom class as labels,
- * which is all the intake needs to make a signal of it.
+ * judges each route that has had enough requests, by the figure recorded for it that the dashboards draw, and the alert
+ * carries the route and the symptom class as labels, which is all the intake needs to make a signal of it.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -32,15 +32,18 @@ interface Rule {
 /** What `{{ $labels.http_route }}` makes of a route in an alert, once Prometheus has expanded it. */
 const ROUTE = '{{ $labels.http_route }}';
 
-/** One rule per objective. Each judges every route alike, and only one that has had `minRequests` in the window. */
+/**
+ * One rule per objective. Each judges every route alike, and only one that has had `minRequests` in the window: it
+ * reads the route's recorded figure (`routeRulesFor`), which has none for a route with fewer.
+ */
 export function rulesFor(o: Objectives): Rule[] {
-  const enough = `(${query.requests(o)} >= ${o.minRequests})`;
+  const route = routeRecords(o);
   const window = `${o.windowMinutes} minutes`;
   const hold = `${o.holdMinutes}m`;
   return [
     {
       alert: 'RouteErrorRatioAboveObjective',
-      expr: `((${query.errorRatio(o)}) > ${o.errorRatio.max}) and on (http_route) ${enough}`,
+      expr: `${route.errorRatio} > ${o.errorRatio.max}`,
       for: hold,
       labels: { route: ROUTE, symptom: 'server-error', objective: OBJECTIVES.errorRatio },
       annotations: {
@@ -51,7 +54,7 @@ export function rulesFor(o: Objectives): Rule[] {
     },
     {
       alert: 'RouteLatencyAboveObjective',
-      expr: `((${query.latency(o)}) > ${o.latency.maxSeconds}) and on (http_route) ${enough}`,
+      expr: `${route.latency} > ${o.latency.maxSeconds}`,
       for: hold,
       labels: { route: ROUTE, symptom: 'slow-response', objective: OBJECTIVES.latency },
       annotations: {
@@ -69,12 +72,42 @@ interface Recording {
   record: string;
   expr: string;
   labels?: Record<string, string>;
-  /** Over hours or days: evaluated every `SLOW_INTERVAL`, not every minute, as it barely moves in one. */
-  slow?: true;
 }
 
-/** How often the rules over hours or days are evaluated. */
-export const SLOW_INTERVAL = '5m';
+/**
+ * The names of the figures the objectives judge a route by, over their window (15 minutes): its requests, its share of
+ * 5xx answers and its latency at the objective's percentile, as `website:route_errors:ratio_rate15m`.
+ */
+export function routeRecords(o: Objectives) {
+  const w = `${o.windowMinutes}m`;
+  return {
+    requests: `website:route_requests:increase${w}`,
+    errorRatio: `website:route_errors:ratio_rate${w}`,
+    latency: `website:route_latency_seconds:${query.percentileName(o.latency.percentile)}_rate${w}`,
+  };
+}
+
+/**
+ * Each route against the objectives, as the alerting rules judge it and the dashboards draw it: its requests in the
+ * window, and its error ratio and latency only when it has had `minRequests`. A route that has answered no 5xx has an
+ * error ratio of 0, not none.
+ */
+export function routeRulesFor(o: Objectives): Recording[] {
+  const route = routeRecords(o);
+  const enough = `on (http_route) (${route.requests} >= ${o.minRequests})`;
+  const all = query.requestRate(o);
+  return [
+    { record: route.requests, expr: query.requests(o) },
+    { record: route.errorRatio, expr: `((${query.errorRate(o)} or ${all} * 0) / ${all}) and ${enough}` },
+    { record: route.latency, expr: `${query.latency(o)} and ${enough}` },
+  ];
+}
+
+/**
+ * How often the error budget's rules are evaluated: each records the five minutes before it, so a window of hours or
+ * days is a sum of one sample every five minutes (2,016 over seven days), and the last hour's burn moves as often.
+ */
+export const BUDGET_INTERVAL = '5m';
 
 /** The windows the share of bad requests is recorded over: two for how fast the budget burns, and the budget's own. */
 export const BUDGET_WINDOWS = ['1h', '6h', '7d'] as const;
@@ -83,8 +116,8 @@ export const BUDGET_WINDOWS = ['1h', '6h', '7d'] as const;
  * The app's error budget, one for each objective, over every route together: the share of its requests each objective
  * allows to be bad, and how much of that the last seven days have left. A request is bad for the error ratio when it
  * answers with a 5xx status, and for latency when it is slower than the objective's bound, which the percentile allows
- * that share of. The requests are the alerting rules' (the app's own, to a route), counted every five minutes, so a
- * longer window is a sum of those and costs one series to read.
+ * that share of. The requests are the alerting rules' (the app's own, to a route), recorded as a rate over each five
+ * minutes, every five minutes (`BUDGET_INTERVAL`), so a longer window is a sum of those and costs one series to read.
  */
 export function budgetRulesFor(o: Objectives): Recording[] {
   const { maxSeconds } = o.latency;
@@ -118,23 +151,19 @@ export function budgetRulesFor(o: Objectives): Recording[] {
       labels: { objective: OBJECTIVES.latency },
     },
     ...BUDGET_WINDOWS.flatMap((w) => {
-      const slow = w === '1h' ? {} : { slow: true as const };
       const ratio = {
         record: `website:requests_bad:ratio_rate${w}`,
         expr: `sum_over_time(website:requests_bad:rate5m[${w}]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[${w}]) > 0)`,
-        ...slow,
       };
       const burn = {
         record: `website:error_budget_burn:rate${w}`,
         expr: `website:requests_bad:ratio_rate${w} / on (objective) website:error_budget:ratio`,
-        ...slow,
       };
       return w === '7d' ? [ratio] : [ratio, burn];
     }),
     {
       record: 'website:error_budget_remaining:ratio7d',
       expr: '1 - website:requests_bad:ratio_rate7d / on (objective) website:error_budget:ratio',
-      slow: true,
     },
   ];
 }
@@ -142,6 +171,9 @@ export function budgetRulesFor(o: Objectives): Recording[] {
 /**
  * The line's stuck limits, a series for each stage that has one, and what each stage's figures say against them.
  * Two replicas of the line would each report the whole store's figures, so a stage's are read with `max`, never `sum`.
+ *
+ * And when the line last finished a step (`LAST_STEP`): a sample, its value its own time, each minute a step was
+ * counted in the five before it, and none otherwise, so the last in a week is one read of a few samples.
  */
 export function stuckRulesFor(stuck: Record<StuckStage, { minutes: number | null }>): Recording[] {
   const limits = Object.entries(stuck).flatMap(([stage, { minutes }]) =>
@@ -157,8 +189,12 @@ export function stuckRulesFor(stuck: Record<StuckStage, { minutes: number | null
       record: 'line:stage_oldest:ratio_to_limit',
       expr: 'line:stage_oldest_seconds:max / on (stage) line:stage_limit_seconds',
     },
+    { record: LAST_STEP, expr: 'timestamp(sum(increase(line_steps_total[5m])) > 0)' },
   ];
 }
+
+/** When the line last finished a step, as a Unix time, up to five minutes late: read it with `last_over_time`. */
+export const LAST_STEP = 'line:steps:last_timestamp_seconds';
 
 /** The values file's text. Strings are JSON strings, which YAML reads as written. */
 export function render(o: Objectives, stuck = STUCK): string {
@@ -177,7 +213,6 @@ ${map(rule.labels, '              ')}
 ${map(rule.annotations, '              ')}`,
     )
     .join('\n');
-  const budget = budgetRulesFor(o);
   const recordings = (group: Recording[]) =>
     group
       .map(
@@ -195,13 +230,13 @@ serverFiles:
 ${rules}
   recording_rules.yml:
     groups:
+      - name: routes
+        rules:
+${recordings(routeRulesFor(o))}
       - name: error-budget
+        interval: ${BUDGET_INTERVAL}
         rules:
-${recordings(budget.filter((rule) => !rule.slow))}
-      - name: error-budget-over-hours
-        interval: ${SLOW_INTERVAL}
-        rules:
-${recordings(budget.filter((rule) => rule.slow))}
+${recordings(budgetRulesFor(o))}
       - name: line
         rules:
 ${recordings(stuckRulesFor(stuck))}

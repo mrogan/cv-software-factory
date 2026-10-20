@@ -1,6 +1,6 @@
 /**
- * The PromQL behind the objectives, written once: the alerting rules judge every route with it, and the intake
- * plots one route's series with it, so the picture on a ticket is exactly what fired.
+ * The PromQL behind the objectives, written once: the recording rules the alerts and dashboards read judge every
+ * route with it, and the intake plots one route's series with it, so the picture on a ticket is exactly what fired.
  *
  * The app's request metrics are OpenTelemetry's HTTP server semantic conventions as Prometheus names them:
  * `http_server_request_duration_seconds` (a histogram) labelled with `http_route` and `http_response_status_code`.
@@ -64,11 +64,19 @@ export function requests(o: Objectives, scope: Scope = {}): string {
   return `${sum(scope)} (increase(${REQUESTS}_count${matchers(o, scope)}[${window(o)}]))`;
 }
 
+/** Requests a second over the window; with `extra`, only those its matchers pick. */
+export function requestRate(o: Objectives, scope: Scope = {}, extra: string[] = []): string {
+  return `${sum(scope)} (rate(${REQUESTS}_count${matchers(o, scope, extra)}[${window(o)}]))`;
+}
+
+/** Requests answered with a 5xx status, a second, over the window. */
+export function errorRate(o: Objectives, scope: Scope = {}): string {
+  return requestRate(o, scope, ['http_response_status_code=~"5.."']);
+}
+
 /** The share of requests that answered with a 5xx status. */
 export function errorRatio(o: Objectives, scope: Scope = {}): string {
-  const errors = `${sum(scope)} (rate(${REQUESTS}_count${matchers(o, scope, ['http_response_status_code=~"5.."'])}[${window(o)}]))`;
-  const all = `${sum(scope)} (rate(${REQUESTS}_count${matchers(o, scope)}[${window(o)}]))`;
-  return `${errors} / ${all}`;
+  return `${errorRate(o, scope)} / ${requestRate(o, scope)}`;
 }
 
 /** The latency the objective's share of requests came in under, in seconds. */

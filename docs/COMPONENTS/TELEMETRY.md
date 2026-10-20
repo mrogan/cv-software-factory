@@ -78,7 +78,19 @@ Seven days, or less when they would outgrow its volume: past 3 GiB of blocks and
 
 ## Recording rules
 
-Prometheus records a few figures that dashboards read, and alerts may, so each is defined once ([`prometheus-rules.yaml`](../../deploy/base/telemetry/values/prometheus-rules.yaml)). They are generated with the alerting rules from the policy, by [`alerts/rules.ts`](../../apps/factory/src/alerts/rules.ts), and `make check` fails when the file is out of date.
+Prometheus records a few figures that dashboards and alerts read, so each is defined once ([`prometheus-rules.yaml`](../../deploy/base/telemetry/values/prometheus-rules.yaml)). They are generated with the alerting rules from the policy, by [`alerts/rules.ts`](../../apps/factory/src/alerts/rules.ts), and `make check` fails when the file is out of date.
+
+### Each route against the objectives
+
+What the app's alerting rules judge, recorded each minute so a dashboard draws exactly what an alert fires on: each route over the [objectives'](../../policy/objectives.ts) 15 minutes, its error ratio and p95 only once it has had the 20 requests a route needs to be judged. The alerts read these and compare them with 5% and 1 s; the dashboards draw those same numbers as thresholds, and their test holds each drawn threshold to the policy, since Grafana takes a threshold as a number, not from a series.
+
+| Series | Says |
+|---|---|
+| `website:route_requests:increase15m` | Each route's requests in the last 15 minutes, by `http_route`: the app's own, by [their stamp](#which-records-are-the-apps) |
+| `website:route_errors:ratio_rate15m` | Each route's share of 5xx answers over them; 0 for one with none, and no series for a route with fewer than 20 requests |
+| `website:route_latency_seconds:p95_rate15m` | Each route's p95 over them, in seconds; no series for a route with fewer than 20 requests |
+
+The names carry the window and the percentile, so a policy that changes either renames the series, and the dashboards' test fails until they read the new ones.
 
 ### The app's error budget
 
@@ -93,7 +105,7 @@ Each of the app's [objectives](../../policy/objectives.ts) gives a share of its 
 | `website:error_budget_burn:rate1h`, `…_rate6h` | How fast the budget burns: the share bad over the window against the share allowed, so 1 spends it in exactly seven days, and 14 in half a day |
 | `website:error_budget_remaining:ratio7d` | How much of the budget the last seven days left: 1 is all of it, 0 none, and below 0 overspent |
 
-The longer windows sum the five-minute rates, so each reads one series however long it is. The app is broken on purpose, so its budget is overspent while its faults stand: the figure says how far.
+Every rule of the budget is evaluated every five minutes, the five-minute rates first, so a longer window sums one sample of a rate for each five minutes it covers: 2,016 over seven days, from one series. The app is broken on purpose, so its budget is overspent while its faults stand: the figure says how far.
 
 ### The line's stuck limits
 
@@ -115,6 +127,7 @@ How long a work item may stay at a stage before the line counts as stuck there (
 | `line:work_items:max` | Work items at each stage now, by `stage`: [`line_work_items`](#the-lines-metrics) read with `max`, as two replicas would each report the whole store |
 | `line:stage_oldest_seconds:max` | How long the work item longest at each stage has been there, by `stage`; 0 with none |
 | `line:stage_oldest:ratio_to_limit` | That against the stage's limit: above 1 is stuck; none for a stage with no limit |
+| `line:steps:last_timestamp_seconds` | When the line last finished a step, as a Unix time, up to five minutes late: a sample each minute a step was counted in the five before it, and none otherwise, so `last_over_time` over a week reads a few samples |
 
 ## The service graph
 
@@ -122,6 +135,7 @@ Tempo's metrics generator turns the traces into a graph of the services and the 
 
 - **The service graph alone.** Span metrics, a series for each span name and its attributes, are off. A node is a service's `service.name`, or, for a call out no service of ours answered, the host it called (`server.address`) or the database system (`db.system`), never Tempo's defaults, `peer.service` and `db.name`, which a span may set to anything. The factory's code calls a handful of hosts, so the nodes are few. Tempo writes only these series, and only Tempo reaches Prometheus's remote-write receiver ([network policies](NETWORK-POLICIES.md#telemetry)).
 - **Read by nothing that judges.** No sense, alert or canary analysis reads a `traces_` series: any worker may name its spans' service as it likes, so the edges say what services claimed to be, which is enough for a picture and not for a judgement.
+- **TraceQL metrics as before.** In Tempo 3 a TraceQL metrics query over recent spans is answered by the querier, with or without the generator, so the agreement check and the dashboards' step durations need no `local-blocks` processor: Tempo 3.1 with this configuration and without the generator gave the same counts and quantiles over the last ten minutes (20 October).
 - **Its cost.** Tempo holds each edge's series and the spans it waits to pair, beside the searches that take it to about 900 MiB, so it may use 1.5 GiB.
 
 ## Naming the factory's series

@@ -6,7 +6,7 @@ serverFiles:
       - name: objectives
         rules:
           - alert: RouteErrorRatioAboveObjective
-            expr: "((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_response_status_code=~\"5..\"}[15m])) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) > 0.05) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) >= 20)"
+            expr: "website:route_errors:ratio_rate15m > 0.05"
             for: 2m
             labels:
               route: "{{ $labels.http_route }}"
@@ -17,7 +17,7 @@ serverFiles:
               description: "Over 15 minutes, with at least 20 requests."
               threshold: "0.05"
           - alert: RouteLatencyAboveObjective
-            expr: "((histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])))) > 1) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) >= 20)"
+            expr: "website:route_latency_seconds:p95_rate15m > 1"
             for: 2m
             labels:
               route: "{{ $labels.http_route }}"
@@ -29,7 +29,16 @@ serverFiles:
               threshold: "1"
   recording_rules.yml:
     groups:
+      - name: routes
+        rules:
+          - record: website:route_requests:increase15m
+            expr: "sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))"
+          - record: website:route_errors:ratio_rate15m
+            expr: "((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_response_status_code=~\"5..\"}[15m])) or sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) * 0) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (website:route_requests:increase15m >= 20)"
+          - record: website:route_latency_seconds:p95_rate15m
+            expr: "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (website:route_requests:increase15m >= 20)"
       - name: error-budget
+        interval: 5m
         rules:
           - record: website:requests:rate5m
             expr: "sum(rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[5m]))"
@@ -53,9 +62,6 @@ serverFiles:
             expr: "sum_over_time(website:requests_bad:rate5m[1h]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[1h]) > 0)"
           - record: website:error_budget_burn:rate1h
             expr: "website:requests_bad:ratio_rate1h / on (objective) website:error_budget:ratio"
-      - name: error-budget-over-hours
-        interval: 5m
-        rules:
           - record: website:requests_bad:ratio_rate6h
             expr: "sum_over_time(website:requests_bad:rate5m[6h]) / ignoring (objective) group_left () (sum_over_time(website:requests:rate5m[6h]) > 0)"
           - record: website:error_budget_burn:rate6h
@@ -96,3 +102,5 @@ serverFiles:
             expr: "max by (stage) (line_stage_oldest_seconds)"
           - record: line:stage_oldest:ratio_to_limit
             expr: "line:stage_oldest_seconds:max / on (stage) line:stage_limit_seconds"
+          - record: line:steps:last_timestamp_seconds
+            expr: "timestamp(sum(increase(line_steps_total[5m])) > 0)"
