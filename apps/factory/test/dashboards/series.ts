@@ -33,6 +33,9 @@ export const INSTRUMENTS: Record<string, string> = {
   console_stream_clients: 'console.stream.clients',
   console_stream_events_total: 'console.stream.events',
   console_stream_delay_seconds: 'console.stream.delay',
+  store_query_duration_seconds: 'store.query.duration',
+  store_connections: 'store.connections',
+  store_connection_attempts_total: 'store.connection.attempts',
 };
 
 /** Prometheus's recording rules, generated from the policy (`alerts/rules.ts`). */
@@ -42,6 +45,8 @@ export const RULES = [
   'line:stage_oldest:ratio_to_limit',
   LAST_STEP,
   'website:error_budget_remaining:ratio7d',
+  'website:error_budget_burn:rate1h',
+  'website:error_budget_burn:rate6h',
 ];
 
 /** Series from outside the factory's code, by what produces them. */
@@ -49,12 +54,29 @@ export const THIRD_PARTY: Record<string, string> = {
   up: 'Prometheus, for each scrape target',
   ALERTS: 'Prometheus, for each alerting rule',
   http_server_request_duration_seconds: 'OpenTelemetry’s HTTP instrumentation, in the app, the console and the workers',
+  v8js_memory_heap_used_bytes: 'OpenTelemetry’s runtime instrumentation, in each worker and the console',
+  nodejs_eventloop_delay_p99_seconds: 'OpenTelemetry’s runtime instrumentation, in each worker and the console',
+  container_memory_working_set_bytes: 'the kubelet’s cAdvisor',
+  container_cpu_usage_seconds_total: 'the kubelet’s cAdvisor',
   kube_pod_container_status_restarts_total: 'kube-state-metrics',
+  kube_pod_container_resource_limits: 'kube-state-metrics',
+  kube_pod_container_resource_requests: 'kube-state-metrics',
+  pg_up: 'the Postgres exporter',
+  pg_stat_database_numbackends: 'the Postgres exporter',
+  pg_stat_database_xact_commit: 'the Postgres exporter',
+  pg_stat_database_xact_rollback: 'the Postgres exporter',
+  pg_stat_database_deadlocks: 'the Postgres exporter',
+  pg_database_size_bytes: 'the Postgres exporter',
+  pg_settings_max_connections: 'the Postgres exporter, the one setting kept at scrape',
   argocd_app_info: 'Argo CD’s application controller',
   argocd_app_sync_total: 'Argo CD’s application controller',
   rollout_phase: 'Argo Rollouts’ controller',
+  rollout_events_total: 'Argo Rollouts’ controller',
   kyverno_admission_requests_total: 'Kyverno’s admission controller',
   traefik_service_requests_total: 'Traefik',
+  otelcol_receiver_accepted_spans: 'the collectors',
+  otelcol_receiver_accepted_metric_points: 'the collectors',
+  otelcol_receiver_accepted_log_records: 'the collectors',
   otelcol_receiver_refused_spans: 'the collectors',
   otelcol_receiver_refused_metric_points: 'the collectors',
   otelcol_receiver_refused_log_records: 'the collectors',
@@ -64,9 +86,17 @@ export const THIRD_PARTY: Record<string, string> = {
   otelcol_exporter_send_failed_spans: 'the collectors, from the first failure',
   otelcol_exporter_send_failed_metric_points: 'the collectors, from the first failure',
   otelcol_exporter_send_failed_log_records: 'the collectors, from the first failure',
+  otelcol_exporter_queue_size: 'the collectors',
+  otelcol_exporter_queue_capacity: 'the collectors',
+  tempo_distributor_spans_received_total: 'Tempo’s distributor',
   tempo_receiver_refused_spans: 'Tempo’s distributor',
   tempo_discarded_spans_total: 'Tempo’s distributor, from the first discard',
+  loki_distributor_lines_received_total: 'Loki’s distributor',
   loki_discarded_samples_total: 'Loki’s distributor, from the first discard',
+  prometheus_tsdb_head_series: 'Prometheus, of itself',
+  prometheus_tsdb_lowest_timestamp_seconds: 'Prometheus, of itself',
+  prometheus_tsdb_storage_blocks_bytes: 'Prometheus, of itself',
+  prometheus_tsdb_retention_limit_bytes: 'Prometheus, of itself',
 };
 
 /** The histograms among them, named by their base: a query reads only their buckets, count or sum. */
@@ -76,6 +106,7 @@ export const HISTOGRAMS = [
   'factory_triage_signal_to_ticket_seconds',
   'console_stream_delay_seconds',
   'http_server_request_duration_seconds',
+  'store_query_duration_seconds',
 ];
 
 export const HISTOGRAM_SUFFIXES = ['_bucket', '_count', '_sum'];
