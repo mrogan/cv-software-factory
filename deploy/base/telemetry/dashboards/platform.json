@@ -1,0 +1,1527 @@
+{
+  "uid": "platform",
+  "title": "The platform",
+  "description": "Is what the factory runs on healthy, and if not, what? Each worker’s memory, CPU and event loop against its limits; the store and Postgres; the telemetry pipeline; delivery through Argo CD, Argo Rollouts and Kyverno; and the workers’ logs.",
+  "tags": ["software-factory"],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "refresh": "1m",
+  "time": { "from": "now-6h", "to": "now" },
+  "links": [
+    {
+      "title": "Dashboards",
+      "type": "dashboards",
+      "tags": ["software-factory"],
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": false,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Releases",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#9085e9",
+        "expr": "sum by (outcome) (changes(line_releases_total{dry_run=\"false\"}[2m])) > 0",
+        "step": "1m",
+        "titleFormat": "Release {{outcome}}",
+        "textFormat": "The line recorded a release’s end",
+        "tagKeys": "outcome",
+        "useValueForTime": false
+      },
+      {
+        "name": "Deploys",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#3987e5",
+        "expr": "sum by (name) (changes(argocd_app_sync_total{phase=\"Succeeded\"}[2m])) > 0",
+        "step": "1m",
+        "titleFormat": "Argo CD synced {{name}}",
+        "textFormat": "",
+        "tagKeys": "name",
+        "useValueForTime": false
+      },
+      {
+        "name": "Restarts",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#fab219",
+        "expr": "sum by (namespace, container) (changes(kube_pod_container_status_restarts_total[2m])) > 0",
+        "step": "1m",
+        "titleFormat": "{{container}} restarted",
+        "textFormat": "In {{namespace}}",
+        "tagKeys": "namespace,container",
+        "useValueForTime": false
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "service_name",
+        "label": "Worker",
+        "description": "The workers whose logs to read, or all of them",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "query": {
+          "type": 1,
+          "label": "service_name",
+          "stream": "{service_namespace=\"software-factory\"}",
+          "refId": "LokiVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values({service_namespace=\"software-factory\"},service_name)",
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "current": { "text": ["All"], "value": ["$__all"] },
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "level",
+        "label": "Level",
+        "description": "Which of the workers’ log lines to show",
+        "type": "custom",
+        "query": "everything : .*, warnings and errors : warn|error|critical|fatal, errors : error|critical|fatal",
+        "includeAll": false,
+        "multi": false,
+        "current": { "text": "everything", "value": ".*" },
+        "options": [],
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 24,
+      "type": "row",
+      "title": "Workers",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 25,
+      "type": "table",
+      "title": "Each worker now",
+      "description": "Every worker and the console: memory used of its limit (Kubernetes kills it at 100%), CPU used of what it requests, how late its event loop runs (p99), its heap, and over the range its restarts and the warnings and errors it logged. Good is green across. Select a worker to read its logs below.",
+      "gridPos": { "x": 0, "y": 1, "w": 24, "h": 12 },
+      "datasource": { "type": "datasource", "uid": "-- Mixed --" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (worker) (label_replace(max by (container) (container_memory_working_set_bytes{namespace=\"factory\", container!=\"\"}) / max by (container) (kube_pod_container_resource_limits{namespace=\"factory\", resource=\"memory\"}), \"worker\", \"$1\", \"container\", \"(.+)\") and on (worker) label_replace(group by (job) (v8js_memory_heap_used_bytes{job=~\"software-factory/.+\"}), \"worker\", \"$1\", \"job\", \"software-factory/(.+)\"))",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (worker) (label_replace(sum by (container) (rate(container_cpu_usage_seconds_total{namespace=\"factory\", container!=\"\"}[5m])) / max by (container) (kube_pod_container_resource_requests{namespace=\"factory\", resource=\"cpu\"}), \"worker\", \"$1\", \"container\", \"(.+)\") and on (worker) label_replace(group by (job) (v8js_memory_heap_used_bytes{job=~\"software-factory/.+\"}), \"worker\", \"$1\", \"job\", \"software-factory/(.+)\"))",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (worker) (label_replace(nodejs_eventloop_delay_p99_seconds{job=~\"software-factory/.+\"}, \"worker\", \"$1\", \"job\", \"software-factory/(.+)\"))",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "D",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (worker) (label_replace(v8js_memory_heap_used_bytes{job=~\"software-factory/.+\"}, \"worker\", \"$1\", \"job\", \"software-factory/(.+)\"))",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "E",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (worker) (label_replace(sum by (container) (round(increase(kube_pod_container_status_restarts_total{namespace=\"factory\"}[$__range]))), \"worker\", \"$1\", \"container\", \"(.+)\") and on (worker) label_replace(group by (job) (v8js_memory_heap_used_bytes{job=~\"software-factory/.+\"}), \"worker\", \"$1\", \"job\", \"software-factory/(.+)\"))",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "F",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum by (worker) (label_replace(count_over_time({service_namespace=\"software-factory\"} | detected_level=~\"warn\" [$__range]), \"worker\", \"$1\", \"service_name\", \"(.+)\")) or (sum by (worker) (label_replace(count_over_time({service_namespace=\"software-factory\"} [$__range]), \"worker\", \"$1\", \"service_name\", \"(.+)\")) * 0)",
+          "queryType": "instant",
+          "format": "table"
+        },
+        {
+          "refId": "G",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum by (worker) (label_replace(count_over_time({service_namespace=\"software-factory\"} | detected_level=~\"error|critical|fatal\" [$__range]), \"worker\", \"$1\", \"service_name\", \"(.+)\")) or (sum by (worker) (label_replace(count_over_time({service_namespace=\"software-factory\"} [$__range]), \"worker\", \"$1\", \"service_name\", \"(.+)\")) * 0)",
+          "queryType": "instant",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        { "id": "filterFieldsByName", "options": { "include": { "pattern": "^(worker|Value.*)$" } } },
+        { "id": "joinByField", "options": { "byField": "worker", "mode": "outer" } },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "worker": "Worker",
+              "Value #A": "Memory, of limit",
+              "Value #B": "CPU, of request",
+              "Value #C": "Event loop, p99",
+              "Value #D": "Heap",
+              "Value #E": "Restarts",
+              "Value #F": "Warnings logged",
+              "Value #G": "Errors logged"
+            }
+          }
+        }
+      ],
+      "options": { "showHeader": true, "cellHeight": "sm", "sortBy": [{ "displayName": "Worker", "desc": false }] },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "noValue": "No worker is reporting", "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Worker" },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "This worker’s logs",
+                    "url": "/d/platform?var-service_name=${__value.raw}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Memory, of limit" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "#0ca30c", "value": null },
+                    { "color": "#fab219", "value": 0.8 },
+                    { "color": "#d03b3b", "value": 0.95 }
+                  ]
+                }
+              },
+              { "id": "decimals", "value": 0 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "CPU, of request" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [{ "color": "#0ca30c", "value": null }, { "color": "#fab219", "value": 1 }]
+                }
+              },
+              { "id": "decimals", "value": 0 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Event loop, p99" },
+            "properties": [
+              { "id": "unit", "value": "s" },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "#0ca30c", "value": null },
+                    { "color": "#fab219", "value": 0.1 },
+                    { "color": "#d03b3b", "value": 1 }
+                  ]
+                }
+              },
+              { "id": "decimals", "value": 1 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Heap" },
+            "properties": [{ "id": "unit", "value": "bytes" }, { "id": "decimals", "value": 0 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Restarts" },
+            "properties": [
+              { "id": "unit", "value": "none" },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "#0ca30c", "value": null },
+                    { "color": "#fab219", "value": 1 },
+                    { "color": "#d03b3b", "value": 5 }
+                  ]
+                }
+              },
+              { "id": "decimals", "value": 0 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Warnings logged" },
+            "properties": [{ "id": "unit", "value": "none" }, { "id": "decimals", "value": 0 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Errors logged" },
+            "properties": [
+              { "id": "unit", "value": "none" },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [{ "color": "#0ca30c", "value": null }, { "color": "#d03b3b", "value": 1 }]
+                }
+              },
+              { "id": "decimals", "value": 0 }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Memory, of each worker’s limit",
+      "description": "Each worker’s working memory as a share of its limit: at 100% Kubernetes kills it. A line that climbs and never falls is a leak. The dashed lines are 80% and 95%; the legend puts the highest first.",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (worker) (label_replace(max by (container) (container_memory_working_set_bytes{namespace=\"factory\", container!=\"\"}) / max by (container) (kube_pod_container_resource_limits{namespace=\"factory\", resource=\"memory\"}), \"worker\", \"$1\", \"container\", \"(.+)\") and on (worker) label_replace(group by (job) (v8js_memory_heap_used_bytes{job=~\"software-factory/.+\"}), \"worker\", \"$1\", \"job\", \"software-factory/(.+)\"))",
+          "legendFormat": "{{worker}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": ["lastNotNull", "max"],
+          "sortBy": "Max",
+          "sortDesc": true,
+          "width": 280
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "No worker is reporting",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#0ca30c", "value": null },
+              { "color": "#fab219", "value": 0.8 },
+              { "color": "#d03b3b", "value": 0.95 }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "gradientMode": "scheme",
+            "axisSoftMax": 1,
+            "thresholdsStyle": { "mode": "dashed" }
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "Event loop, p99 delay",
+      "description": "How late each worker’s event loop ran what was due, at its 99th percentile: a worker busy computing, or blocked, answers nothing meanwhile. About 10 ms is the timer’s own grain; the dashed lines are 100 ms and 1 s.",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (worker) (label_replace(nodejs_eventloop_delay_p99_seconds{job=~\"software-factory/.+\"}, \"worker\", \"$1\", \"job\", \"software-factory/(.+)\"))",
+          "legendFormat": "{{worker}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": ["lastNotNull", "max"],
+          "sortBy": "Max",
+          "sortDesc": true,
+          "width": 280
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "No worker is reporting",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#0ca30c", "value": null },
+              { "color": "#fab219", "value": 0.1 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "gradientMode": "scheme",
+            "thresholdsStyle": { "mode": "dashed" }
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 28,
+      "type": "row",
+      "title": "The store",
+      "collapsed": true,
+      "gridPos": { "x": 0, "y": 21, "w": 24, "h": 1 },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Postgres",
+          "description": "Whether the exporter reached Postgres at its last scrape. Every worker’s state is there: down, the line and triage stop.",
+          "gridPos": { "x": 0, "y": 22, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "max(pg_up)" }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "noValue": "The exporter is not reporting",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{ "color": "#d03b3b", "value": null }, { "color": "#0ca30c", "value": 1 }]
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": { "0": { "text": "Down", "index": 0 }, "1": { "text": "Up", "index": 1 } }
+                }
+              ]
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Connections, of the maximum",
+          "description": "Connections Postgres holds now, every client’s together, as a share of its max_connections. Past it, a worker cannot connect. Good is under 70%.",
+          "gridPos": { "x": 4, "y": 22, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum(pg_stat_database_numbackends) / max(pg_settings_max_connections)"
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "decimals": 0,
+              "noValue": "The exporter is not reporting",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "#0ca30c", "value": null },
+                  { "color": "#fab219", "value": 0.7 },
+                  { "color": "#d03b3b", "value": 0.9 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Queries failed",
+          "description": "Queries the workers’ store clients saw fail in the range, whatever the cause: a constraint, a conflict to retry, or a lost connection. The panel below names their codes. Good is none.",
+          "gridPos": { "x": 8, "y": 22, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "(sum(round(increase(store_query_duration_seconds_count{outcome=\"error\"}[$__range]))) or vector(0))"
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "noValue": "No answer from Prometheus",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "text", "value": null },
+                  { "color": "#0ca30c", "value": 0 },
+                  { "color": "#fab219", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Connections failed",
+          "description": "Connections a worker tried to open in the range that closed before they opened: refused, timed out, or ended as the worker stopped. A few at a deploy are expected; a steady count is Postgres out of reach.",
+          "gridPos": { "x": 12, "y": 22, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "(sum(round(increase(store_connection_attempts_total{outcome=\"failed\"}[$__range]))) or vector(0))"
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "noValue": "No answer from Prometheus",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "text", "value": null },
+                  { "color": "#0ca30c", "value": 0 },
+                  { "color": "#fab219", "value": 1 },
+                  { "color": "#d03b3b", "value": 10 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Deadlocks",
+          "description": "Deadlocks Postgres broke in the factory’s database in the range, rolling one side back. Good is none.",
+          "gridPos": { "x": 16, "y": 22, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "(sum(round(increase(pg_stat_database_deadlocks{datname=\"factory\"}[$__range]))) or vector(0))"
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "noValue": "No answer from Prometheus",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "text", "value": null },
+                  { "color": "#0ca30c", "value": 0 },
+                  { "color": "#d03b3b", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Database size",
+          "description": "The factory’s database on disk now: the event store, the inbox, the line and the artifacts’ index. It grows with the work done; a jump is worth a look.",
+          "gridPos": { "x": 20, "y": 22, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "max(pg_database_size_bytes{datname=\"factory\"})"
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "decimals": 0,
+              "noValue": "The exporter is not reporting",
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Query time, p95 by statement",
+          "description": "The 95th percentile of how long the workers’ queries took, by the statement’s first word, from asking to answer, so a wait for a free connection counts. A listen is left out: it holds its connection open for as long as the worker runs.",
+          "gridPos": { "x": 0, "y": 26, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(store_query_duration_seconds_bucket{job=~\"software-factory/.+\", operation!=\"listen\"}[$__rate_interval])))",
+              "legendFormat": "{{operation}}"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "noValue": "No queries in this range",
+              "color": { "mode": "fixed", "fixedColor": "#898781" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "spanNulls": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "select" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "insert" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "update" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#199e70" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "delete" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c98500" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "with" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d55181" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "begin" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#008300" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "commit" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9085e9" } }]
+              }
+            ]
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Queries failed, by code",
+          "description": "Queries that failed, by their code: Postgres’s SQLSTATE (23505 a duplicate, 40001 a conflict to retry) or the client’s own (CONNECTION_CLOSED, ECONNREFUSED). Each bar is its interval’s count. Good is none.",
+          "gridPos": { "x": 12, "y": 26, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "interval": "5m",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum by (code) (round(increase(store_query_duration_seconds_count{job=~\"software-factory/.+\", outcome=\"error\"}[$__interval]))) > 0",
+              "legendFormat": "{{code}}"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "noValue": "No query failed in this range",
+              "color": { "mode": "shades", "fixedColor": "#d03b3b" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 90,
+                "lineWidth": 1,
+                "barAlignment": 0,
+                "stacking": { "mode": "normal", "group": "A" },
+                "axisSoftMin": 0,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 9,
+          "type": "bargauge",
+          "title": "Connections, by worker",
+          "description": "The connections each worker’s store client holds open now, its listen included. Each holds a small pool; one far above the rest is leaking.",
+          "gridPos": { "x": 0, "y": 34, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "max by (worker) (label_replace(store_connections{job=~\"software-factory/.+\"}, \"worker\", \"$1\", \"job\", \"software-factory/(.+)\"))",
+              "instant": true,
+              "legendFormat": "{{worker}}"
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "valueMode": "color",
+            "namePlacement": "left",
+            "showUnfilled": true,
+            "sizing": "auto",
+            "minVizHeight": 16,
+            "maxVizHeight": 24,
+            "legend": { "showLegend": false }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "noValue": "No worker is reporting",
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Transactions, committed and rolled back",
+          "description": "Transactions a second in the factory’s database, by how they ended. A rollback is a conflict retried or a failure undone: a few are normal, many beside few commits are not.",
+          "gridPos": { "x": 8, "y": 34, "w": 16, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "interval": "2m",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum(rate(pg_stat_database_xact_commit{datname=\"factory\"}[$__rate_interval]))",
+              "legendFormat": "committed"
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum(rate(pg_stat_database_xact_rollback{datname=\"factory\"}[$__rate_interval]))",
+              "legendFormat": "rolled back"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "decimals": 2,
+              "min": 0,
+              "noValue": "The exporter is not reporting",
+              "color": { "mode": "fixed", "fixedColor": "#0ca30c" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "spanNulls": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "committed" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#0ca30c" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "rolled back" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#fab219" } }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "row",
+      "title": "Telemetry pipeline",
+      "collapsed": true,
+      "gridPos": { "x": 0, "y": 22, "w": 24, "h": 1 },
+      "panels": [
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "Dropped in the range",
+          "description": "Spans, metric points and log records lost in the range: refused or failed at the collectors, failed on the way out of them, or refused or discarded by Tempo and Loki. Good is none of each.",
+          "gridPos": { "x": 0, "y": 23, "w": 8, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "(sum(round(increase(otelcol_receiver_refused_spans[$__range]))) or vector(0)) + (sum(round(increase(otelcol_receiver_failed_spans[$__range]))) or vector(0)) + (sum(round(increase(otelcol_exporter_send_failed_spans[$__range]))) or vector(0)) + (sum(round(increase(tempo_receiver_refused_spans[$__range]))) or vector(0)) + (sum(round(increase(tempo_discarded_spans_total[$__range]))) or vector(0))",
+              "legendFormat": "spans"
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "(sum(round(increase(otelcol_receiver_refused_metric_points[$__range]))) or vector(0)) + (sum(round(increase(otelcol_receiver_failed_metric_points[$__range]))) or vector(0)) + (sum(round(increase(otelcol_exporter_send_failed_metric_points[$__range]))) or vector(0))",
+              "legendFormat": "metric points"
+            },
+            {
+              "refId": "C",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "(sum(round(increase(otelcol_receiver_refused_log_records[$__range]))) or vector(0)) + (sum(round(increase(otelcol_receiver_failed_log_records[$__range]))) or vector(0)) + (sum(round(increase(otelcol_exporter_send_failed_log_records[$__range]))) or vector(0)) + (sum(round(increase(loki_discarded_samples_total[$__range]))) or vector(0))",
+              "legendFormat": "log records"
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "noValue": "No answer from Prometheus",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "text", "value": null },
+                  { "color": "#0ca30c", "value": 0 },
+                  { "color": "#d03b3b", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 12,
+          "type": "bargauge",
+          "title": "Export queues, how full",
+          "description": "How full each of the collectors’ queues to Tempo, Prometheus and Loki is now. A backend slow or down fills its queue; full, the collector drops what comes next. Good is near empty.",
+          "gridPos": { "x": 8, "y": 23, "w": 6, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "max by (exporter) (otelcol_exporter_queue_size) / max by (exporter) (otelcol_exporter_queue_capacity)",
+              "instant": true,
+              "legendFormat": "{{exporter}}"
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "valueMode": "color",
+            "namePlacement": "left",
+            "showUnfilled": true,
+            "sizing": "auto",
+            "minVizHeight": 16,
+            "maxVizHeight": 24,
+            "legend": { "showLegend": false }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "decimals": 0,
+              "min": 0,
+              "max": 1,
+              "noValue": "The collectors are not reporting",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "#0ca30c", "value": null },
+                  { "color": "#fab219", "value": 0.5 },
+                  { "color": "#d03b3b", "value": 0.8 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 13,
+          "type": "stat",
+          "title": "Metrics kept",
+          "description": "How far back Prometheus’s oldest sample is. It keeps seven days, or less when its disk cap comes first; the error budget reads seven days, so with fewer kept it is over fewer. Good is six days or more.",
+          "gridPos": { "x": 14, "y": 23, "w": 4, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "(time() - min(prometheus_tsdb_lowest_timestamp_seconds)) / 86400"
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "d",
+              "decimals": 1,
+              "noValue": "Prometheus is not reporting",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "#d03b3b", "value": null },
+                  { "color": "#fab219", "value": 1 },
+                  { "color": "#0ca30c", "value": 6 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 14,
+          "type": "stat",
+          "title": "Storage, of its cap",
+          "description": "Prometheus’s blocks on disk as a share of its size cap. At the cap it deletes its oldest block, so the days kept beside it fall; near it is the usual state of a busy week.",
+          "gridPos": { "x": 18, "y": 23, "w": 3, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "max(prometheus_tsdb_storage_blocks_bytes) / max(prometheus_tsdb_retention_limit_bytes)"
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "decimals": 0,
+              "noValue": "Prometheus is not reporting",
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 15,
+          "type": "stat",
+          "title": "Series",
+          "description": "Series in Prometheus’s head block: the cost of every label. A step up is a new label with many values, which a dashboard should never need: work items are in traces and logs.",
+          "gridPos": { "x": 21, "y": 23, "w": 3, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "max(prometheus_tsdb_head_series)"
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "wideLayout": true,
+            "showPercentChange": false
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "noValue": "Prometheus is not reporting",
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Into the collectors, by signal",
+          "description": "What the collectors accepted a second, by signal: spans and metric points over OTLP, and log records over OTLP and from the pods’ log files. A signal falling to nothing is a sender gone quiet.",
+          "gridPos": { "x": 0, "y": 28, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "interval": "2m",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum(rate(otelcol_receiver_accepted_spans[$__rate_interval]))",
+              "legendFormat": "spans"
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum(rate(otelcol_receiver_accepted_metric_points[$__rate_interval]))",
+              "legendFormat": "metric points"
+            },
+            {
+              "refId": "C",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum(rate(otelcol_receiver_accepted_log_records[$__rate_interval]))",
+              "legendFormat": "log records"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cps",
+              "decimals": 1,
+              "min": 0,
+              "noValue": "The collectors are not reporting",
+              "color": { "mode": "fixed", "fixedColor": "#3987e5" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "spanNulls": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "spans" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "metric points" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "log records" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#199e70" } }]
+              }
+            ]
+          }
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Into Tempo and Loki",
+          "description": "What Tempo and Loki received a second: spans and log lines. Each should follow what the collectors accepted beside it; a gap that opens is telemetry lost between them.",
+          "gridPos": { "x": 12, "y": 28, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "interval": "2m",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum(rate(tempo_distributor_spans_received_total[$__rate_interval]))",
+              "legendFormat": "spans"
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum(rate(loki_distributor_lines_received_total[$__rate_interval]))",
+              "legendFormat": "log lines"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cps",
+              "decimals": 1,
+              "min": 0,
+              "noValue": "Tempo and Loki are not reporting",
+              "color": { "mode": "fixed", "fixedColor": "#3987e5" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "spanNulls": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "spans" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "log lines" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#199e70" } }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Delivery",
+      "collapsed": true,
+      "gridPos": { "x": 0, "y": 23, "w": 24, "h": 1 },
+      "panels": [
+        {
+          "id": 18,
+          "type": "state-timeline",
+          "title": "Argo CD’s applications",
+          "description": "Each application Argo CD keeps in step with main, over the range: synced and healthy, out of sync or still progressing (normal for a minute after a merge), or degraded or missing.",
+          "gridPos": { "x": 0, "y": 24, "w": 12, "h": 9 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "interval": "1m",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "max by (name) (2 * argocd_app_info{health_status=~\"Degraded|Missing\"} or argocd_app_info{sync_status!=\"Synced\"} or argocd_app_info{health_status!=\"Healthy\"} or 0 * argocd_app_info)",
+              "legendFormat": "{{name}}"
+            }
+          ],
+          "options": {
+            "showValue": "never",
+            "mergeValues": true,
+            "alignValue": "center",
+            "rowHeight": 0.8,
+            "legend": { "showLegend": false, "displayMode": "list", "placement": "bottom" },
+            "tooltip": { "mode": "single" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "noValue": "Argo CD is not reporting",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "#0ca30c", "value": null },
+                  { "color": "#fab219", "value": 1 },
+                  { "color": "#d03b3b", "value": 2 }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": { "text": "Synced and healthy", "color": "#0ca30c", "index": 0 },
+                    "1": { "text": "Out of sync or progressing", "color": "#fab219", "index": 1 },
+                    "2": { "text": "Degraded or missing", "color": "#d03b3b", "index": 2 }
+                  }
+                }
+              ],
+              "custom": { "fillOpacity": 80, "lineWidth": 0 }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "Argo CD’s syncs",
+          "description": "Syncs Argo CD ran, by how they ended. Each merge to main that changes an application is one or more; a failed sync leaves the cluster behind main. Each bar is its interval’s count.",
+          "gridPos": { "x": 12, "y": 24, "w": 12, "h": 9 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "interval": "5m",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum by (phase) (round(increase(argocd_app_sync_total[$__interval]))) > 0",
+              "legendFormat": "{{phase}}"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "noValue": "No syncs in this range",
+              "color": { "mode": "fixed", "fixedColor": "#898781" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 90,
+                "lineWidth": 1,
+                "barAlignment": 0,
+                "stacking": { "mode": "normal", "group": "A" },
+                "axisSoftMin": 0,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "Succeeded" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#0ca30c" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "Failed" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d03b3b" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "Error" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d03b3b" } }]
+              }
+            ]
+          }
+        },
+        {
+          "id": 20,
+          "type": "state-timeline",
+          "title": "Argo Rollouts’ rollouts",
+          "description": "Each Rollout over the range: stable, a canary in progress, or a canary aborted, which Argo Rollouts does when its analysis fails. The app’s is the one the line releases.",
+          "gridPos": { "x": 0, "y": 33, "w": 12, "h": 6 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "interval": "1m",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "max by (namespace, name) (rollout_phase{phase=~\"Progressing|Paused\"}) + 2 * max by (namespace, name) (rollout_phase{phase=~\"Abort|Error|Timeout\"})",
+              "legendFormat": "{{namespace}}/{{name}}"
+            }
+          ],
+          "options": {
+            "showValue": "never",
+            "mergeValues": true,
+            "alignValue": "center",
+            "rowHeight": 0.8,
+            "legend": { "showLegend": false, "displayMode": "list", "placement": "bottom" },
+            "tooltip": { "mode": "single" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "noValue": "Argo Rollouts is not reporting",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "#0ca30c", "value": null },
+                  { "color": "#898781", "value": 1 },
+                  { "color": "#d03b3b", "value": 2 }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": { "text": "Stable", "color": "#0ca30c", "index": 0 },
+                    "1": { "text": "Canary", "color": "#898781", "index": 1 },
+                    "2": { "text": "Aborted", "color": "#d03b3b", "index": 2 },
+                    "3": { "text": "Aborted", "color": "#d03b3b", "index": 3 }
+                  }
+                }
+              ],
+              "custom": { "fillOpacity": 80, "lineWidth": 0 }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "Admissions, allowed and denied",
+          "description": "Requests Kyverno’s admission control judged, by its answer. A denial is an image not signed on main, or something else its policies forbid, kept out of the cluster. Each bar is its interval’s count.",
+          "gridPos": { "x": 12, "y": 33, "w": 12, "h": 6 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "interval": "5m",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum(round(increase(kyverno_admission_requests_total{request_allowed=\"true\"}[$__interval]))) > 0",
+              "legendFormat": "allowed"
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "sum(round(increase(kyverno_admission_requests_total{request_allowed=\"false\"}[$__interval]))) > 0",
+              "legendFormat": "denied"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "noValue": "No admissions in this range",
+              "color": { "mode": "fixed", "fixedColor": "#0ca30c" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 90,
+                "lineWidth": 1,
+                "barAlignment": 0,
+                "stacking": { "mode": "normal", "group": "A" },
+                "axisSoftMin": 0,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "allowed" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#0ca30c" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "denied" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d03b3b" } }]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "row",
+      "title": "Logs",
+      "collapsed": true,
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 1 },
+      "panels": [
+        {
+          "id": 22,
+          "type": "timeseries",
+          "title": "Warnings and errors",
+          "description": "Lines the workers chosen above logged at warn, error or worse, by level. A few warnings are routine (a sense that could not tell); an error is worth reading below. Each bar is its interval’s count.",
+          "gridPos": { "x": 0, "y": 25, "w": 24, "h": 6 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "interval": "5m",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "sum by (detected_level) (count_over_time({service_namespace=\"software-factory\", service_name=~\"$service_name\"} | detected_level=~\"warn|error|critical|fatal\" [$__interval]))",
+              "legendFormat": "{{detected_level}}"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "min": 0,
+              "noValue": "No warnings or errors in this range",
+              "color": { "mode": "fixed", "fixedColor": "#d03b3b" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 90,
+                "lineWidth": 1,
+                "barAlignment": 0,
+                "stacking": { "mode": "normal", "group": "A" },
+                "axisSoftMin": 0,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "warn" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#fab219" } }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "error" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d03b3b" } }]
+              }
+            ]
+          }
+        },
+        {
+          "id": 23,
+          "type": "logs",
+          "title": "The workers’ logs",
+          "description": "What the factory’s workers said, newest first, for the workers and level chosen above. A line with a trace opens it.",
+          "gridPos": { "x": 0, "y": 31, "w": 24, "h": 14 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "loki" },
+              "expr": "{service_namespace=\"software-factory\", service_name=~\"$service_name\"} | detected_level=~\"$level\""
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "dedupStrategy": "none"
+          },
+          "fieldConfig": { "defaults": { "noValue": "Nothing logged in this range" }, "overrides": [] }
+        }
+      ]
+    }
+  ]
+}

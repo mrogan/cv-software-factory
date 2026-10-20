@@ -1,97 +1,202 @@
 {
   "uid": "website",
   "title": "The World's Worst Website",
-  "description": "The app the factory looks after: its requests, errors and latency by route and by version, what visitors report, and its logs and traces.",
+  "description": "Is the app meeting its objectives, and if not, which route and since when? Its error ratio and latency by route against the alerts’ 5% and 1 s, the alerts, the error budget and how fast it burns; then the canary against the stable version, its traffic, what visitors report, and its logs and traces.",
   "tags": ["software-factory"],
   "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
   "schemaVersion": 41,
-  "refresh": "30s",
-  "time": {
-    "from": "now-1h",
-    "to": "now"
+  "refresh": "1m",
+  "time": { "from": "now-6h", "to": "now" },
+  "links": [
+    {
+      "title": "Dashboards",
+      "type": "dashboards",
+      "tags": ["software-factory"],
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": false,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Releases",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#9085e9",
+        "expr": "sum by (outcome) (changes(line_releases_total{dry_run=\"false\"}[2m])) > 0",
+        "step": "1m",
+        "titleFormat": "Release {{outcome}}",
+        "textFormat": "The line recorded a release’s end",
+        "tagKeys": "outcome",
+        "useValueForTime": false
+      },
+      {
+        "name": "Deploys",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#3987e5",
+        "expr": "sum by (name) (changes(argocd_app_sync_total{name=\"website\", phase=\"Succeeded\"}[2m])) > 0",
+        "step": "1m",
+        "titleFormat": "Argo CD synced {{name}}",
+        "textFormat": "",
+        "tagKeys": "name",
+        "useValueForTime": false
+      },
+      {
+        "name": "The Rollout",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#199e70",
+        "expr": "sum by (reason) (changes(rollout_events_total{namespace=\"website\", name=\"website\", reason=~\"RolloutUpdated|RolloutCompleted|RolloutAborted|AnalysisRunFailed\"}[2m])) > 0",
+        "step": "1m",
+        "titleFormat": "{{reason}}",
+        "textFormat": "Argo Rollouts, for the app",
+        "tagKeys": "reason",
+        "useValueForTime": false
+      },
+      {
+        "name": "The app’s alerts",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#d03b3b",
+        "expr": "ALERTS{alertstate=\"firing\", objective!=\"\"}",
+        "step": "1m",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{route}}",
+        "tagKeys": "objective,route",
+        "useValueForTime": false
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "route",
+        "label": "Route",
+        "description": "A route, or all of them",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": {
+          "qryType": 1,
+          "query": "label_values(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}, http_route)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}, http_route)",
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": { "text": "All", "value": "$__all" },
+        "options": [],
+        "hide": 0
+      }
+    ]
   },
   "panels": [
     {
       "id": 1,
+      "type": "row",
+      "title": "Objectives",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 2,
       "type": "stat",
-      "title": "Requests per second",
-      "gridPos": {
-        "x": 0,
-        "y": 0,
-        "w": 6,
-        "h": 4
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "title": "Errors, worst route",
+      "description": "The share of requests answered with a 5xx status over 15 minutes, on the route with the most, among routes with at least 20 requests: what the error alert judges. Good is under the objective, 5%.",
+      "gridPos": { "x": 0, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\"}[$__rate_interval]))"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_response_status_code=~\"5..\"}[15m])) or (sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) * 0)) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) >= 20))"
         }
       ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
-          "decimals": 2
+          "unit": "percentunit",
+          "decimals": 1,
+          "noValue": "No route had 20 requests",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 0.025 },
+              { "color": "#d03b3b", "value": 0.05 }
+            ]
+          }
         },
         "overrides": []
       }
     },
     {
-      "id": 2,
-      "type": "stat",
-      "title": "Server errors",
-      "gridPos": {
-        "x": 6,
-        "y": 0,
-        "w": 6,
-        "h": 4
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_response_status_code=~\"5..\"}[$__rate_interval])) / sum(rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\"}[$__rate_interval])) or vector(0)"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "decimals": 1
-        },
-        "overrides": []
-      },
-      "description": "Share of responses with a 5xx status."
-    },
-    {
       "id": 3,
       "type": "stat",
-      "title": "Latency, 95th percentile",
-      "gridPos": {
-        "x": 12,
-        "y": 0,
-        "w": 6,
-        "h": 4
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "title": "p95, slowest route",
+      "description": "The 95th percentile of response time over 15 minutes, on the slowest route with at least 20 requests: what the latency alert judges. Good is under the objective, 1 s.",
+      "gridPos": { "x": 4, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\"}[$__rate_interval])))"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\"}[15m])) >= 20))"
         }
       ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "decimals": 3
+          "decimals": 2,
+          "noValue": "No route had 20 requests",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 0.5 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          }
         },
         "overrides": []
       }
@@ -99,165 +204,995 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "Reports in the last hour",
-      "gridPos": {
-        "x": 18,
-        "y": 0,
-        "w": 6,
-        "h": 4
-      },
-      "datasource": {
-        "type": "loki",
-        "uid": "loki"
-      },
+      "title": "Alerts firing",
+      "description": "The app’s alerts firing now, one for each route and objective broken for two minutes. Good is none; the timeline below says which.",
+      "gridPos": { "x": 8, "y": 1, "w": 3, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(count_over_time({service_name=\"website\", k8s_pod_name!=\"\"} | event=\"report\" [1h])) or vector(0)"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "count(ALERTS{alertstate=\"firing\", objective!=\"\"}) or vector(0)"
         }
       ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 0
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Prometheus",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          }
         },
         "overrides": []
-      },
-      "description": "What visitors sent through \"Report a problem\"."
+      }
     },
     {
       "id": 5,
-      "type": "timeseries",
-      "title": "Requests by route",
-      "gridPos": {
-        "x": 0,
-        "y": 4,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "type": "stat",
+      "title": "Error budget left, 7 days",
+      "description": "How much of each objective’s error budget the last seven days left: 5% of requests may fail, and 5% may be slower than 1 s. 100% is all of it; below 0 is overspent. The app is broken on purpose, so it is overspent while its faults stand.",
+      "gridPos": { "x": 11, "y": 1, "w": 5, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\"}[$__rate_interval]))",
-          "legendFormat": "{{http_route}}"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "website:error_budget_remaining:ratio7d",
+          "legendFormat": "{{objective}}"
         }
       ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "percentunit",
+          "decimals": 0,
+          "noValue": "No requests in 7 days",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#d03b3b", "value": null },
+              { "color": "#fab219", "value": 0 },
+              { "color": "#0ca30c", "value": 0.25 }
+            ]
+          }
         },
         "overrides": []
-      },
-      "description": "A request that matched no route has no route label."
+      }
     },
     {
       "id": 6,
-      "type": "timeseries",
-      "title": "Latency by route, 95th percentile",
-      "gridPos": {
-        "x": 12,
-        "y": 4,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "type": "stat",
+      "title": "Burn rate, 1 h",
+      "description": "How fast each objective spent its budget over the last hour, against the pace that would spend a week’s budget in a week: 1 is that pace, 2 would spend it in half a week. Good is under 1. An hour reacts fast and forgets fast; read it with the six hours beside it.",
+      "gridPos": { "x": 16, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\"}[$__rate_interval])))",
-          "legendFormat": "{{http_route}}"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "website:error_budget_burn:rate1h",
+          "legendFormat": "{{objective}}"
         }
       ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "suffix:×",
+          "decimals": 1,
+          "noValue": "No requests in the hour",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#0ca30c", "value": null },
+              { "color": "#fab219", "value": 1 },
+              { "color": "#d03b3b", "value": 2 }
+            ]
+          }
         },
         "overrides": []
       }
     },
     {
       "id": 7,
-      "type": "timeseries",
-      "title": "Errors by route",
-      "gridPos": {
-        "x": 0,
-        "y": 12,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "type": "stat",
+      "title": "Burn rate, 6 h",
+      "description": "How fast each objective spent its budget over the last six hours, against the pace that would spend a week’s budget in a week. Good is under 1. High here and low over the hour is a fault that has stopped; high in both is one still burning.",
+      "gridPos": { "x": 20, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (http_route, http_response_status_code) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_response_status_code=~\"[45]..\"}[$__rate_interval]))",
-          "legendFormat": "{{http_route}} {{http_response_status_code}}"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "website:error_budget_burn:rate6h",
+          "legendFormat": "{{objective}}"
         }
       ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "suffix:×",
+          "decimals": 1,
+          "noValue": "No requests in six hours",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#0ca30c", "value": null },
+              { "color": "#fab219", "value": 1 },
+              { "color": "#d03b3b", "value": 2 }
+            ]
+          }
         },
         "overrides": []
-      },
-      "description": "Responses with a 4xx or 5xx status."
+      }
     },
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Requests by version",
-      "gridPos": {
-        "x": 12,
-        "y": 12,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "title": "Errors by route, over 15 minutes",
+      "description": "Each route’s share of 5xx answers over the 15 minutes before each point, among routes with at least 20 requests in them: the line the error alert draws. The dashed line is the objective, 5%; a route above it for two minutes fires the alert. The legend puts the worst first.",
+      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "1m",
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (service_version) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\"}[$__rate_interval]))",
-          "legendFormat": "{{service_version}}"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\", http_response_status_code=~\"5..\"}[15m])) or (sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) * 0)) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) >= 20)",
+          "legendFormat": "{{http_route}}"
         }
       ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": ["max"],
+          "sortBy": "Max",
+          "sortDesc": true,
+          "width": 260
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "percentunit",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "No route had 20 requests",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#0ca30c", "value": null }, { "color": "#d03b3b", "value": 0.05 }]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "gradientMode": "scheme",
+            "axisSoftMax": 0.06,
+            "thresholdsStyle": { "mode": "dashed" }
+          }
         },
         "overrides": []
-      },
-      "description": "A version is the commit its image was built from. During a deploy, the old and the new run side by side."
+      }
     },
     {
       "id": 9,
-      "type": "logs",
-      "title": "Reports",
-      "description": "One record for each \"Report a problem\" sent. The text is whatever a visitor typed.",
-      "gridPos": {
-        "x": 0,
-        "y": 20,
-        "w": 24,
-        "h": 6
-      },
-      "datasource": {
-        "type": "loki",
-        "uid": "loki"
-      },
+      "type": "timeseries",
+      "title": "p95 by route, over 15 minutes",
+      "description": "Each route’s 95th percentile of response time over the 15 minutes before each point, among routes with at least 20 requests in them: the line the latency alert draws. The dashed line is the objective, 1 s. The legend puts the slowest first.",
+      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "1m",
       "targets": [
         {
           "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) >= 20)",
+          "legendFormat": "{{http_route}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": ["max"],
+          "sortBy": "Max",
+          "sortDesc": true,
+          "width": 260
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "No route had 20 requests",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "#0ca30c", "value": null }, { "color": "#d03b3b", "value": 1 }]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "gradientMode": "scheme",
+            "axisSoftMax": 1.2,
+            "thresholdsStyle": { "mode": "dashed" }
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Each route now",
+      "description": "Every route’s last 15 minutes against the objectives, worst first: its requests, its share of 5xx answers and its 95th percentile. A route with fewer than 20 requests is not judged, as the alerts do not judge it. Select a route to narrow the dashboard to it.",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (http_route) (round(increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])))",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "((sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\", http_response_status_code=~\"5..\"}[15m])) or (sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) * 0)) / sum by (http_route) (rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) >= 20)",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m]))) and on (http_route) (sum by (http_route) (increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[15m])) >= 20)",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "renameByName": {
+              "http_route": "Route",
+              "Value #A": "Requests, 15 min",
+              "Value #B": "Errors",
+              "Value #C": "p95"
+            }
+          }
+        }
+      ],
+      "options": { "showHeader": true, "cellHeight": "sm", "sortBy": [{ "displayName": "Errors", "desc": true }] },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "noValue": "No requests in 15 minutes", "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Route" },
+            "properties": [
+              {
+                "id": "links",
+                "value": [{ "title": "This route", "url": "/d/website?var-route=${__value.raw}&${__url_time_range}" }]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Requests, 15 min" },
+            "properties": [
+              { "id": "unit", "value": "none" },
+              { "id": "decimals", "value": 0 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [{ "color": "#898781", "value": null }, { "color": "text", "value": 20 }]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Errors" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "decimals", "value": 1 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "#0ca30c", "value": null },
+                    { "color": "#fab219", "value": 0.025 },
+                    { "color": "#d03b3b", "value": 0.05 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p95" },
+            "properties": [
+              { "id": "unit", "value": "s" },
+              { "id": "decimals", "value": 2 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "#0ca30c", "value": null },
+                    { "color": "#fab219", "value": 0.5 },
+                    { "color": "#d03b3b", "value": 1 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "type": "state-timeline",
+      "title": "The app’s alerts",
+      "description": "Each alert over the range, by route: pending while its objective is broken but not yet for two minutes, firing after. While none is either, one green row says so.",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "1m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (alertname, route) (2 * ALERTS{alertstate=\"firing\", objective!=\"\"} or ALERTS{alertstate=\"pending\", objective!=\"\"}) or on () label_replace(vector(0), \"alertname\", \"No alert\", \"\", \"\")",
+          "legendFormat": "{{alertname}} {{route}}"
+        }
+      ],
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "alignValue": "center",
+        "rowHeight": 0.8,
+        "legend": { "showLegend": false, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No alert pending or firing in this range",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#0ca30c", "value": null },
+              { "color": "#fab219", "value": 1 },
+              { "color": "#d03b3b", "value": 2 }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "None pending or firing", "color": "#0ca30c", "index": 0 },
+                "1": { "text": "Pending", "color": "#fab219", "index": 1 },
+                "2": { "text": "Firing", "color": "#d03b3b", "index": 2 }
+              }
+            }
+          ],
+          "custom": { "fillOpacity": 80, "lineWidth": 0 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Burn rate, 1 h and 6 h",
+      "description": "How fast each objective spent its error budget over the hour and the six hours before each point, against the pace that spends a week’s budget in a week, the dashed line at 1. Above it, the budget runs out before the week does.",
+      "gridPos": { "x": 0, "y": 21, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "5m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "website:error_budget_burn:rate1h",
+          "legendFormat": "{{objective}}, 1 h"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "website:error_budget_burn:rate6h",
+          "legendFormat": "{{objective}}, 6 h"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "No requests in this range",
+          "color": { "mode": "fixed", "fixedColor": "#3987e5" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "transparent", "value": null }, { "color": "#d03b3b", "value": 1 }]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMax": 1.5,
+            "thresholdsStyle": { "mode": "dashed" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "error-ratio, 1 h" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "latency, 1 h" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "error-ratio, 6 h" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } },
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "latency, 6 h" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } },
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Error budget left, 7 days",
+      "description": "How much of each objective’s budget the seven days before each point left: 100% is all of it, below the dashed line at 0 it is overspent. A fault mended climbs back as its bad week ages out.",
+      "gridPos": { "x": 12, "y": 21, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "5m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "website:error_budget_remaining:ratio7d",
+          "legendFormat": "{{objective}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "noValue": "No requests in 7 days",
+          "color": { "mode": "fixed", "fixedColor": "#3987e5" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "transparent", "value": null }, { "color": "#d03b3b", "value": 0 }]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMax": 1,
+            "thresholdsStyle": { "mode": "dashed" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "error-ratio" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "latency" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Canary and stable",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 28, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 15,
+      "type": "state-timeline",
+      "title": "The app’s Rollout",
+      "description": "Where the app’s Rollout was over the range: stable, a canary in progress, or a canary aborted, which Argo Rollouts does when its analysis fails. Good is stable, or a canary on its way.",
+      "gridPos": { "x": 0, "y": 29, "w": 24, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "1m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(rollout_phase{namespace=\"website\", name=\"website\", phase=~\"Progressing|Paused\"}) + 2 * max(rollout_phase{namespace=\"website\", name=\"website\", phase=~\"Abort|Error|Timeout\"})",
+          "legendFormat": "Rollout"
+        }
+      ],
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "alignValue": "center",
+        "rowHeight": 0.8,
+        "legend": { "showLegend": false, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "Argo Rollouts not reporting",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#0ca30c", "value": null },
+              { "color": "#898781", "value": 1 },
+              { "color": "#d03b3b", "value": 2 }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "Stable", "color": "#0ca30c", "index": 0 },
+                "1": { "text": "Canary", "color": "#898781", "index": 1 },
+                "2": { "text": "Aborted", "color": "#d03b3b", "index": 2 },
+                "3": { "text": "Aborted", "color": "#d03b3b", "index": 3 }
+              }
+            }
+          ],
+          "custom": { "fillOpacity": 80, "lineWidth": 0 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Requests, stable and canary",
+      "description": "Requests a second through Traefik to the app’s stable version and to its canary: the split a release’s canary analysis judges. Traefik counts everyone’s, the probes’ and the crawler’s too. Outside a release, the canary has none.",
+      "gridPos": { "x": 0, "y": 32, "w": 8, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "2m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(traefik_service_requests_total{service=\"website-website-80@kubernetescrd\"}[$__rate_interval]))",
+          "legendFormat": "stable"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(traefik_service_requests_total{service=\"website-website-canary-80@kubernetescrd\"}[$__rate_interval]))",
+          "legendFormat": "canary"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "Traefik not reporting",
+          "color": { "mode": "fixed", "fixedColor": "#3987e5" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "stable" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "canary" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Server errors, stable and canary",
+      "description": "The share of requests through Traefik answered with a 5xx status, by the stable version and the canary. A canary well above the stable version is one its analysis should stop. The dashed line is the objective, 5%.",
+      "gridPos": { "x": 8, "y": 32, "w": 8, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "2m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum(rate(traefik_service_requests_total{service=\"website-website-80@kubernetescrd\", code=~\"5..\"}[$__rate_interval])) or vector(0)) / (sum(rate(traefik_service_requests_total{service=\"website-website-80@kubernetescrd\"}[$__rate_interval])) > 0)",
+          "legendFormat": "stable"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum(rate(traefik_service_requests_total{service=\"website-website-canary-80@kubernetescrd\", code=~\"5..\"}[$__rate_interval])) or vector(0)) / (sum(rate(traefik_service_requests_total{service=\"website-website-canary-80@kubernetescrd\"}[$__rate_interval])) > 0)",
+          "legendFormat": "canary"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "Traefik not reporting",
+          "color": { "mode": "fixed", "fixedColor": "#3987e5" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "transparent", "value": null }, { "color": "#d03b3b", "value": 0.05 }]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMax": 0.06,
+            "thresholdsStyle": { "mode": "dashed" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "stable" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "canary" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Requests by version",
+      "description": "The app’s own requests a second by the commit its image was built from, in shades of one colour. During a canary, the old and the new run side by side; after it, one.",
+      "gridPos": { "x": 16, "y": 32, "w": 8, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (version) (label_replace(rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route=~\"$route\"}[$__rate_interval]), \"version\", \"$1\", \"service_version\", \"(.{7}).*\"))",
+          "legendFormat": "{{version}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "No requests in this range",
+          "color": { "mode": "shades", "fixedColor": "#3987e5" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "mode": "normal", "group": "A" }
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "Traffic",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 39, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Requests by status",
+      "description": "The app’s own requests a second by the class of their status: 2xx answered, 3xx redirected, 4xx the visitor’s mistake (or a broken link), 5xx the app’s. Stacked, so the top is all of them.",
+      "gridPos": { "x": 0, "y": 40, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (class) (label_replace(rate(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route=~\"$route\"}[$__rate_interval]), \"class\", \"${1}xx\", \"http_response_status_code\", \"(.).*\"))",
+          "legendFormat": "{{class}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "No requests in this range",
+          "color": { "mode": "fixed", "fixedColor": "#898781" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "mode": "normal", "group": "A" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "2xx" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#0ca30c" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "3xx" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#898781" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "4xx" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#fab219" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "5xx" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d03b3b" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 21,
+      "type": "bargauge",
+      "title": "Busiest routes",
+      "description": "The ten routes with the most requests in the range, of the app’s own. Select one to narrow the dashboard to it.",
+      "gridPos": { "x": 12, "y": 40, "w": 6, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "topk(10, sum by (http_route) (round(increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route!=\"\", http_route=~\"$route\"}[$__range]))))",
+          "instant": true,
+          "legendFormat": "{{http_route}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "color",
+        "namePlacement": "left",
+        "showUnfilled": true,
+        "sizing": "auto",
+        "minVizHeight": 16,
+        "maxVizHeight": 24,
+        "legend": { "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "No requests in this range",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#3987e5", "value": null }] },
+          "links": [
+            { "title": "This route", "url": "/d/website?var-route=${__field.labels.http_route}&${__url_time_range}" }
+          ]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 22,
+      "type": "bargauge",
+      "title": "Most 4xx, by route",
+      "description": "The ten routes that answered 4xx most in the range. A request that matched no route is “no route”: a broken link, or someone guessing.",
+      "gridPos": { "x": 18, "y": 40, "w": 6, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "topk(10, label_replace(sum by (http_route) (round(increase(http_server_request_duration_seconds_count{job=\"worlds-worst-website/website\", k8s_pod_label_rollouts_pod_template_hash!=\"\", http_route=~\"$route\", http_response_status_code=~\"4..\"}[$__range]))), \"http_route\", \"no route\", \"http_route\", \"\") > 0)",
+          "instant": true,
+          "legendFormat": "{{http_route}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "color",
+        "namePlacement": "left",
+        "showUnfilled": true,
+        "sizing": "auto",
+        "minVizHeight": 16,
+        "maxVizHeight": 24,
+        "legend": { "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "No 4xx in this range",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#fab219", "value": null }] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 23,
+      "type": "row",
+      "title": "Reports, logs and traces",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 47, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Reports",
+      "description": "What visitors sent through “Report a problem” in the range. Each is a signal triage reads; none is the usual state.",
+      "gridPos": { "x": 0, "y": 48, "w": 4, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum(count_over_time({service_name=\"website\", k8s_pod_name!=\"\"} | event=\"report\" [$__range])) or vector(0)",
+          "queryType": "instant"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Loki",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 25,
+      "type": "logs",
+      "title": "Reports",
+      "description": "One record for each “Report a problem” sent, newest first. The text is whatever a visitor typed.",
+      "gridPos": { "x": 4, "y": 48, "w": 20, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
           "expr": "{service_name=\"website\", k8s_pod_name!=\"\"} | event=\"report\""
         }
       ],
@@ -265,59 +1200,57 @@
         "showTime": true,
         "wrapLogMessage": true,
         "sortOrder": "Descending",
-        "enableLogDetails": true
-      }
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "fieldConfig": { "defaults": { "noValue": "No reports in this range" }, "overrides": [] }
     },
     {
-      "id": 10,
+      "id": 26,
       "type": "logs",
       "title": "Logs",
-      "gridPos": {
-        "x": 0,
-        "y": 26,
-        "w": 24,
-        "h": 10
-      },
-      "datasource": {
-        "type": "loki",
-        "uid": "loki"
-      },
+      "description": "The app’s own log, newest first, for the route chosen above (its path; the log names routes by their template). Each request’s line has its status, time and trace.",
+      "gridPos": { "x": 0, "y": 56, "w": 24, "h": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
           "refId": "A",
-          "expr": "{service_name=\"website\", k8s_pod_name!=\"\"}"
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service_name=\"website\", k8s_pod_name!=\"\"} | path=~\"$route\""
         }
       ],
       "options": {
         "showTime": true,
         "wrapLogMessage": true,
         "sortOrder": "Descending",
-        "enableLogDetails": true
-      }
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "fieldConfig": { "defaults": { "noValue": "The app logged nothing in this range" }, "overrides": [] }
     },
     {
-      "id": 11,
+      "id": 27,
       "type": "table",
-      "title": "Recent traces",
-      "gridPos": {
-        "x": 0,
-        "y": 36,
-        "w": 24,
-        "h": 8
-      },
-      "datasource": {
-        "type": "tempo",
-        "uid": "tempo"
-      },
+      "title": "Recent traces, last hour",
+      "description": "The app’s last requests from their traces, for the route chosen above. Select one to open its waterfall. It reads the last hour whatever the range, as Tempo searches a day at most.",
+      "gridPos": { "x": 0, "y": 66, "w": 24, "h": 8 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "timeFrom": "1h",
       "targets": [
         {
           "refId": "A",
+          "datasource": { "type": "tempo", "uid": "tempo" },
           "queryType": "traceql",
-          "query": "{resource.service.name=\"website\" && resource.k8s.pod.name != nil}",
+          "query": "{resource.service.name=\"website\" && resource.k8s.pod.name != nil && span.http.route=~\"$route\"}",
           "limit": 20,
           "tableType": "traces"
         }
-      ]
+      ],
+      "options": { "showHeader": true, "cellHeight": "sm" },
+      "fieldConfig": {
+        "defaults": { "noValue": "No requests in the last hour", "custom": { "align": "auto" } },
+        "overrides": []
+      }
     }
   ]
 }

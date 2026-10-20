@@ -19,12 +19,6 @@ const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 const TELEMETRY = join(ROOT, 'deploy/base/telemetry');
 const DASHBOARDS = join(TELEMETRY, 'dashboards');
 
-/** Dashboards not yet up to the bar, held only to their series being real: #394's last pull request empties this. */
-const NOT_YET = ['website'];
-
-/** Dashboards a link may name that the next pull request of #394 adds; it empties this. */
-const FORTHCOMING = ['platform'];
-
 /**
  * The thresholds drawn from the app's objectives, by dashboard, panel and, in a table, column. Grafana takes a
  * threshold as a number, not from a series, so each is written in the dashboard and held here to the policy: its last
@@ -236,7 +230,7 @@ describe('Grafana’s dashboards', () => {
   });
 
   it('link only to dashboards there are, by tag or by uid', () => {
-    const uids = new Set([...dashboards.map(({ dashboard }) => dashboard.uid), ...FORTHCOMING]);
+    const uids = new Set(dashboards.map(({ dashboard }) => dashboard.uid));
     for (const { dashboard } of dashboards) {
       for (const link of dashboard.links ?? []) {
         expect(link.type, dashboard.uid).toBe('dashboards');
@@ -251,9 +245,7 @@ describe('Grafana’s dashboards', () => {
     }
   });
 
-  const held = dashboards.filter(({ dashboard }) => !NOT_YET.includes(dashboard.uid));
-
-  it.each(held.map(({ dashboard }) => [dashboard.uid, dashboard]))(
+  it.each(dashboards.map(({ dashboard }) => [dashboard.uid, dashboard]))(
     '%s: every panel says what it answers, in a unit, and why it is empty',
     (_, dashboard) => {
       expect(dashboard.description, dashboard.uid).toBeTruthy();
@@ -275,7 +267,7 @@ describe('Grafana’s dashboards', () => {
     },
   );
 
-  it.each(held.map(({ dashboard }) => [dashboard.uid, dashboard]))(
+  it.each(dashboards.map(({ dashboard }) => [dashboard.uid, dashboard]))(
     '%s: every colour is the palette’s, and each outcome its own everywhere',
     (_, dashboard) => {
       for (const panel of drawn(dashboard)) {

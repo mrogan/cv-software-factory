@@ -45,6 +45,14 @@ configMapGenerator:
       disableNameSuffixHash: true
       labels:
         grafana_dashboard: "1"
+  - name: dashboard-platform
+    namespace: telemetry
+    files:
+      - dashboards/platform.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
   - name: dashboard-website
     namespace: telemetry
     files:

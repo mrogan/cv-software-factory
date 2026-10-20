@@ -80,9 +80,14 @@ datasources:
           serviceMap:
             datasourceUid: prometheus
 
+# At 512Mi it was killed for memory after a few dashboards opened in a fresh browser one after another: it idles near
+# 250Mi, and each page load's queries, assets and panels leave its heap growing until Go next collects.
 resources:
   requests:
     cpu: 50m
-    memory: 128Mi
+    memory: 256Mi
   limits:
-    memory: 512Mi
+    memory: 768Mi
+# Go collects hard before the kernel kills: 90% of the limit above, in bytes, as Tempo and Prometheus set for themselves.
+env:
+  GOMEMLIMIT: "724775731"
