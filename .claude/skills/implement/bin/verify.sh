@@ -4,7 +4,9 @@
 #                          nothing uncommitted; an issue's says Closes (or Part of) #<n>; every file it changes that
 #                          CODEOWNERS gives Martin has a line in the description's section on them (a heading naming
 #                          CODEOWNERS), with words beside the path. Whether those words are a good reason is left to
-#                          the reader. Shows checks and threads.
+#                          the reader. Once Copilot has reviewed, a comment on the pull request from us, posted after
+#                          its review and beginning "Copilot's review summary:", answers the review's summary. Shows
+#                          checks and threads.
 #   verify.sh <key>        skipped: nothing was left behind, no branch pushed and no pull request opened.
 # A key of 278-2 is issue 278's second pull request. Exit 1 on any mismatch.
 set -euo pipefail
@@ -82,4 +84,18 @@ say threads "$(gh api graphql -F owner="${repo%/*}" -F name="${repo#*/}" -F n="$
   query($owner:String!, $name:String!, $n:Int!) { repository(owner:$owner, name:$name) { pullRequest(number:$n) {
     reviewThreads(first:100) { nodes { isResolved } } } } }' \
   -q '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)] | length') unresolved"
+
+# Copilot's summary can name findings no thread carries, so the worker answers it once in a comment. Whether the
+# answer is right is the reader's to judge; that there is one, after the review, is checked here.
+reviewed=$(gh api "repos/$repo/pulls/$pr/reviews" --paginate \
+  -q '[.[] | select(.user.login | startswith("copilot-pull-request-reviewer")) | .submitted_at] | last // empty')
+if [[ -z $reviewed ]]; then
+  say summary "Copilot has not reviewed"
+else
+  me=$(gh api user -q .login)
+  answer=$(gh api "repos/$repo/issues/$pr/comments" --paginate -q "[.[] | select(.user.login == \"$me\"
+    and .created_at > \"$reviewed\" and (.body | startswith(\"Copilot's review summary:\"))) | .html_url] | first // empty")
+  if [[ -n $answer ]]; then say summary "answered $answer"
+  else bad summary "no comment from $me after Copilot's review begins \"Copilot's review summary:\""; fi
+fi
 exit $fail
