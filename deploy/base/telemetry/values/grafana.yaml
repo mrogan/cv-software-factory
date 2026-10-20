@@ -80,8 +80,8 @@ datasources:
           serviceMap:
             datasourceUid: prometheus
 
-# At 512Mi it was killed for memory after a few dashboards opened in a fresh browser one after another: it idles near
-# 250Mi, and each page load's queries, assets and panels leave its heap growing until Go next collects.
+# It idles near 250Mi, and each page load's queries, assets and panels leave its heap growing until Go next collects:
+# a few dashboards opened one after another in a fresh browser take it past 512Mi.
 resources:
   requests:
     cpu: 50m

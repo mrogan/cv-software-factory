@@ -72,7 +72,7 @@
   "templating": {
     "list": [
       {
-        "name": "service_name",
+        "name": "worker",
         "label": "Worker",
         "description": "The workers whose logs to read, or all of them",
         "type": "query",
@@ -205,7 +205,7 @@
                 "value": [
                   {
                     "title": "This worker’s logs",
-                    "url": "/d/platform?var-service_name=${__value.raw}&${__url_time_range}"
+                    "url": "/d/platform?var-worker=${__value.raw}&${__url_time_range}"
                   }
                 ]
               }
@@ -1460,7 +1460,7 @@
             {
               "refId": "A",
               "datasource": { "type": "loki", "uid": "loki" },
-              "expr": "sum by (detected_level) (count_over_time({service_namespace=\"software-factory\", service_name=~\"$service_name\"} | detected_level=~\"warn|error|critical|fatal\" [$__interval]))",
+              "expr": "sum by (detected_level) (count_over_time({service_namespace=\"software-factory\", service_name=~\"$worker\"} | detected_level=~\"warn|error|critical|fatal\" [$__interval]))",
               "legendFormat": "{{detected_level}}"
             }
           ],
@@ -1509,7 +1509,7 @@
             {
               "refId": "A",
               "datasource": { "type": "loki", "uid": "loki" },
-              "expr": "{service_namespace=\"software-factory\", service_name=~\"$service_name\"} | detected_level=~\"$level\""
+              "expr": "{service_namespace=\"software-factory\", service_name=~\"$worker\"} | detected_level=~\"$level\""
             }
           ],
           "options": {

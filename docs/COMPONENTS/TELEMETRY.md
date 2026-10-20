@@ -167,7 +167,7 @@ The line sends what an alert needs to say it is stuck: how work items move throu
 
 ## Dashboards
 
-Grafana's dashboards are provisioned from [`dashboards/`](../../deploy/base/telemetry/dashboards), one ConfigMap each, into one folder, and each links to the others by their shared tag, keeping the time range. The overview is Grafana's home page. Grafana has 768Mi, and Go collects hard at 90% of it (`GOMEMLIMIT`): at 512Mi a few dashboards opened one after another in a fresh browser had it killed for memory.
+Grafana's dashboards are provisioned from [`dashboards/`](../../deploy/base/telemetry/dashboards), one ConfigMap each, into one folder, and each links to the others by their shared tag, keeping the time range. The overview is Grafana's home page. Grafana has 768Mi, and Go collects hard at 90% of it (`GOMEMLIMIT`): it idles near 250Mi, and each dashboard opened grows its heap until Go next collects.
 
 | Dashboard | uid | Range | Answers |
 |---|---|---|---|
@@ -177,7 +177,7 @@ Grafana's dashboards are provisioned from [`dashboards/`](../../deploy/base/tele
 | The platform | `platform` | 6 h | Is what the factory runs on healthy, and if not, what: each worker's memory against its limit, CPU against its request, event loop, heap, restarts and the warnings and errors it logged, in one table and over time; the store and Postgres; the telemetry pipeline, what it accepted and dropped, its queues, and how many days of metrics Prometheus keeps; Argo CD's applications and syncs, the Rollouts, and Kyverno's admissions; and the workers' logs, narrowed by worker and level. Its rows below the workers' are closed until opened |
 | The console | `console` | 1 h | The console's requests, latency, event stream, logs and traces |
 
-Releases and Argo CD's syncs are annotated on every time series; the app's alerts too on the overview, the line's and the app's, the app's Rollout's start, end and abort on the app's, and containers' restarts on the platform's.
+Releases and Argo CD's syncs are annotated on every time series but the console's; the app's alerts too on the overview, the line's and the app's, the app's Rollout's start, end and abort on the app's, and containers' restarts on the platform's.
 
 - **A rate reads at least two samples.** Grafana sizes `$__rate_interval` from what the services push every 15 seconds, but Prometheus scrapes its other targets (Traefik, the collectors, Postgres's exporter) every minute, so a panel that rates one of theirs asks for an interval of two minutes at least, or it draws nothing over a short range.
 - **Built for a line that is idle for hours.** A count is over the range shown and a bar is its interval's count, so together the bars come to about the count beside them (Prometheus's `increase` estimates each window from its samples), and a stat or table that has nothing to show says why ("No steps in this range", "The line is off"), never Grafana's "No data". Tempo searches a day at most, so the tables of recent steps and the step durations read the last 24 hours whatever the range.
