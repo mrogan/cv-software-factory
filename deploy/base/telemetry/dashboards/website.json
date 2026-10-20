@@ -596,7 +596,7 @@
       "id": 11,
       "type": "state-timeline",
       "title": "The app’s alerts",
-      "description": "Each alert over the range, by route: pending while its objective is broken but not yet for two minutes, firing after. While none is either, one green row says so.",
+      "description": "Each alert over the range on the route chosen above, by route: pending while its objective is broken but not yet for two minutes, firing after. While none is either, one green row says so.",
       "gridPos": { "x": 12, "y": 13, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "interval": "1m",
@@ -604,7 +604,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max by (alertname, route) (2 * ALERTS{alertstate=\"firing\", objective!=\"\"} or ALERTS{alertstate=\"pending\", objective!=\"\"}) or on () label_replace(vector(0), \"alertname\", \"No alert\", \"\", \"\")",
+          "expr": "max by (alertname, route) (2 * ALERTS{alertstate=\"firing\", objective!=\"\", route=~\"$route\"} or ALERTS{alertstate=\"pending\", objective!=\"\", route=~\"$route\"}) or on () label_replace(vector(0), \"alertname\", \"No alert\", \"\", \"\")",
           "legendFormat": "{{alertname}} {{route}}"
         }
       ],
