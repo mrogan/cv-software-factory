@@ -1,0 +1,1171 @@
+{
+  "uid": "overview",
+  "title": "Overview",
+  "description": "Is the factory healthy right now, and if not, where? The app against its objectives, the line, spend against the caps, and the platform; each tile opens its dashboard.",
+  "tags": ["software-factory"],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "links": [
+    {
+      "title": "Dashboards",
+      "type": "dashboards",
+      "tags": ["software-factory"],
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": false,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Releases",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#9085e9",
+        "expr": "sum by (outcome) (changes(line_releases_total{dry_run=\"false\"}[2m])) > 0",
+        "step": "1m",
+        "titleFormat": "Release {{outcome}}",
+        "textFormat": "The line recorded a release’s end",
+        "tagKeys": "outcome",
+        "useValueForTime": false
+      },
+      {
+        "name": "Deploys",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#3987e5",
+        "expr": "sum by (name) (changes(argocd_app_sync_total{phase=\"Succeeded\"}[2m])) > 0",
+        "step": "1m",
+        "titleFormat": "Argo CD synced {{name}}",
+        "textFormat": "",
+        "tagKeys": "name",
+        "useValueForTime": false
+      },
+      {
+        "name": "The app’s alerts",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#d03b3b",
+        "expr": "ALERTS{alertstate=\"firing\", objective!=\"\"}",
+        "step": "1m",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{route}}",
+        "tagKeys": "objective,route",
+        "useValueForTime": false
+      }
+    ]
+  },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "The app",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Errors, worst route",
+      "description": "The share of requests answered with a 5xx status over 15 minutes, on the route with the most, among routes with at least 20 requests: what the error alert judges. Good is under the objective, 5%.",
+      "gridPos": { "x": 0, "y": 1, "w": 5, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(website:route_errors:ratio_rate15m)"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "noValue": "No route had 20 requests",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 0.025 },
+              { "color": "#d03b3b", "value": 0.05 }
+            ]
+          },
+          "links": [{ "title": "The app", "url": "/d/website?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "p95, slowest route",
+      "description": "The 95th percentile of response time over 15 minutes, on the slowest route with at least 20 requests: what the latency alert judges. Good is under the objective, 1 s.",
+      "gridPos": { "x": 5, "y": 1, "w": 5, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(website:route_latency_seconds:p95_rate15m)"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "noValue": "No route had 20 requests",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 0.5 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          },
+          "links": [{ "title": "The app", "url": "/d/website?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Alerts firing",
+      "description": "The app’s alerts firing now, one for each route and objective broken for two minutes. Good is none.",
+      "gridPos": { "x": 10, "y": 1, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "count(ALERTS{alertstate=\"firing\", objective!=\"\"}) or vector(0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Prometheus",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          },
+          "links": [{ "title": "The app", "url": "/d/website?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Error budget left, 7 days",
+      "description": "How much of each objective’s error budget the last seven days left: 5% of requests may fail, and 5% may be slower than 1 s. 100% is all of it; below 0 is overspent. The app is broken on purpose, so it is overspent while its faults stand.",
+      "gridPos": { "x": 14, "y": 1, "w": 5, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "website:error_budget_remaining:ratio7d",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{objective}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "noValue": "No requests in 7 days",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#d03b3b", "value": null },
+              { "color": "#fab219", "value": 0 },
+              { "color": "#0ca30c", "value": 0.25 }
+            ]
+          },
+          "links": [{ "title": "The app", "url": "/d/website?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Rollout",
+      "description": "Where the app’s Rollout is: stable, a canary in progress, or a canary aborted, which Argo Rollouts does when its analysis fails. Good is stable, or a canary on its way.",
+      "gridPos": { "x": 19, "y": 1, "w": 5, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(rollout_phase{namespace=\"website\", name=\"website\", phase=~\"Progressing|Paused\"}) + 2 * max(rollout_phase{namespace=\"website\", name=\"website\", phase=~\"Abort|Error|Timeout\"})",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "noValue": "Argo Rollouts not reporting",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#898781", "value": 1 },
+              { "color": "#d03b3b", "value": 2 }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "Stable", "index": 0 },
+                "1": { "text": "Canary", "index": 1 },
+                "2": { "text": "Aborted", "index": 2 },
+                "3": { "text": "Aborted", "index": 3 }
+              }
+            }
+          ],
+          "links": [{ "title": "The app", "url": "/d/website?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "The line",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Work in progress",
+      "description": "Work items on the line now, at every stage but held. None is fine: the line takes a ticket when there is one.",
+      "gridPos": { "x": 0, "y": 5, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage!=\"held\"})",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "The line is off",
+          "color": { "mode": "fixed", "fixedColor": "text" },
+          "links": [{ "title": "The line", "url": "/d/line?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Nearest its limit",
+      "description": "How long the work item longest at its stage has been there, as a share of that stage’s limit, for the stage nearest its limit. Past 100% the line is stuck there. Waiting and held have no limit.",
+      "gridPos": { "x": 4, "y": 5, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(line:stage_oldest:ratio_to_limit)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "noValue": "The line is off",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 0.75 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          },
+          "links": [{ "title": "The line", "url": "/d/line?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Held for Martin",
+      "description": "Work items waiting for Martin’s answer. Good is none; one is the line asking, not failing.",
+      "gridPos": { "x": 8, "y": 5, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"held\"})",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "The line is off",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 1 }
+            ]
+          },
+          "links": [{ "title": "The line", "url": "/d/line?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Steps done",
+      "description": "The share of agents’ steps that ended done in the range, of all that ended. A step that failed runs again, so a few are expected; under half is a line going round in circles.",
+      "gridPos": { "x": 12, "y": 5, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum(increase(line_steps_total{outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total[$__range])) > 0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "noValue": "No steps in this range",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#d03b3b", "value": 0 },
+              { "color": "#fab219", "value": 0.5 },
+              { "color": "#0ca30c", "value": 0.8 }
+            ]
+          },
+          "links": [{ "title": "The line", "url": "/d/line?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Last step",
+      "description": "How long since an agent’s step last ended, within the last seven days. The line can be idle for hours: that is no fault on its own.",
+      "gridPos": { "x": 16, "y": 5, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "time() - max(last_over_time(line:steps:last_timestamp_seconds[7d]))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "noValue": "None in 7 days",
+          "color": { "mode": "fixed", "fixedColor": "text" },
+          "links": [{ "title": "The line", "url": "/d/line?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Releases",
+      "description": "Releases of the app the line saw end in the range, by how they ended: promoted, rolled back, aborted or errored. Dry runs are left out.",
+      "gridPos": { "x": 20, "y": 5, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (outcome) (round(increase(line_releases_total{dry_run=\"false\"}[$__range])))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No releases in this range",
+          "color": { "mode": "fixed", "fixedColor": "text" },
+          "links": [{ "title": "The line", "url": "/d/line?${__url_time_range}" }]
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "promoted" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#0ca30c" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "rolled-back" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d03b3b" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "aborted" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#898781" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "errored" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#ec835a" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Spend",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Spent today",
+      "description": "What the gateway has spent on models since midnight UTC, against the day’s cap: at the cap it refuses every paid call until the day ends.",
+      "gridPos": { "x": 0, "y": 9, "w": 6, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(gateway_cap_spent_usd{cap=\"day\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "spent"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(gateway_cap_limit_usd{cap=\"day\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "cap"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "transformations": [
+        {
+          "id": "configFromData",
+          "options": { "configRefId": "B", "mappings": [{ "fieldName": "cap", "handlerKey": "max" }] }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "noValue": "The gateway is not reporting",
+          "min": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              { "color": "#0ca30c", "value": null },
+              { "color": "#fab219", "value": 75 },
+              { "color": "#d03b3b", "value": 100 }
+            ]
+          },
+          "links": [{ "title": "The line", "url": "/d/line?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Spent this month",
+      "description": "What the gateway has spent on models this calendar month, against the month’s cap. A profile with no monthly cap, such as the local one, is never near it: the tile stays green.",
+      "gridPos": { "x": 6, "y": 9, "w": 6, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(gateway_cap_spent_usd{cap=\"month\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "spent"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(gateway_cap_limit_usd{cap=\"month\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "cap"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "transformations": [
+        {
+          "id": "configFromData",
+          "options": { "configRefId": "B", "mappings": [{ "fieldName": "cap", "handlerKey": "max" }] }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "noValue": "The gateway is not reporting",
+          "min": 0,
+          "max": 1000000,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              { "color": "#0ca30c", "value": null },
+              { "color": "#fab219", "value": 75 },
+              { "color": "#d03b3b", "value": 100 }
+            ]
+          },
+          "links": [{ "title": "The line", "url": "/d/line?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Cap refusals",
+      "description": "Model calls the gateway refused in the range because a spend cap was reached: the day’s, the month’s, a work item’s, or a provider’s own. Good is none.",
+      "gridPos": { "x": 12, "y": 9, "w": 6, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(increase(gateway_cap_refusals_total[$__range])) or vector(0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Prometheus",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          },
+          "links": [{ "title": "The line", "url": "/d/line?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Provider errors",
+      "description": "Errors a model provider answered with, or failed to answer at all, in the range, retried attempts included. A few are weather; many are an outage.",
+      "gridPos": { "x": 18, "y": 9, "w": 6, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(increase(gateway_provider_errors_total[$__range])) or vector(0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Prometheus",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 1 },
+              { "color": "#d03b3b", "value": 10 }
+            ]
+          },
+          "links": [{ "title": "The line", "url": "/d/line?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "The platform",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Targets down",
+      "description": "Scrape targets Prometheus cannot reach now. Good is none.",
+      "gridPos": { "x": 0, "y": 13, "w": 5, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "count(up == 0) or vector(0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Prometheus",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          },
+          "links": [{ "title": "The platform", "url": "/d/platform?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Pod restarts",
+      "description": "Containers Kubernetes restarted in the range, in every namespace. Good is none; a crash loop is many.",
+      "gridPos": { "x": 5, "y": 13, "w": 5, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(round(increase(kube_pod_container_status_restarts_total[$__range]))) or vector(0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Prometheus",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 1 },
+              { "color": "#d03b3b", "value": 5 }
+            ]
+          },
+          "links": [{ "title": "The platform", "url": "/d/platform?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Telemetry dropped",
+      "description": "Spans, metric points and log records lost in the range: refused or failed at the collector, failed on their way out of it, or refused or discarded by Tempo and Loki. Good is none.",
+      "gridPos": { "x": 10, "y": 13, "w": 5, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum(increase(otelcol_receiver_refused_spans[$__range])) or vector(0)) + (sum(increase(otelcol_receiver_refused_metric_points[$__range])) or vector(0)) + (sum(increase(otelcol_receiver_refused_log_records[$__range])) or vector(0)) + (sum(increase(otelcol_receiver_failed_spans[$__range])) or vector(0)) + (sum(increase(otelcol_receiver_failed_metric_points[$__range])) or vector(0)) + (sum(increase(otelcol_receiver_failed_log_records[$__range])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_spans[$__range])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_metric_points[$__range])) or vector(0)) + (sum(increase(otelcol_exporter_send_failed_log_records[$__range])) or vector(0)) + (sum(increase(tempo_receiver_refused_spans[$__range])) or vector(0)) + (sum(increase(tempo_discarded_spans_total[$__range])) or vector(0)) + (sum(increase(loki_discarded_samples_total[$__range])) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Prometheus",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          },
+          "links": [{ "title": "The platform", "url": "/d/platform?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Argo CD apps out of step",
+      "description": "Argo CD applications not synced to main, or not healthy, now. Good is none; one is normal for a minute after a merge.",
+      "gridPos": { "x": 15, "y": 13, "w": 5, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "count(argocd_app_info{sync_status!=\"Synced\"} or argocd_app_info{health_status!=\"Healthy\"}) or vector(0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Prometheus",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 1 }
+            ]
+          },
+          "links": [{ "title": "The platform", "url": "/d/platform?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Admissions denied",
+      "description": "Requests Kyverno refused in the range: images not signed on main, or anything else its policies forbid. Good is none.",
+      "gridPos": { "x": 20, "y": 13, "w": 4, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(increase(kyverno_admission_requests_total{request_allowed=\"false\"}[$__range])) or vector(0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Prometheus",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          },
+          "links": [{ "title": "The platform", "url": "/d/platform?${__url_time_range}" }]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 25,
+      "type": "state-timeline",
+      "title": "Work items at each stage",
+      "description": "How many work items stood at each stage of the line over the range. Blank is none; held is amber, because it waits for Martin.",
+      "gridPos": { "x": 0, "y": 16, "w": 14, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"plan\"})",
+          "legendFormat": "plan",
+          "interval": "1m"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"build\"})",
+          "legendFormat": "build",
+          "interval": "1m"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"waiting\"})",
+          "legendFormat": "waiting",
+          "interval": "1m"
+        },
+        {
+          "refId": "D",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"gates\"})",
+          "legendFormat": "gates",
+          "interval": "1m"
+        },
+        {
+          "refId": "E",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"review\"})",
+          "legendFormat": "review",
+          "interval": "1m"
+        },
+        {
+          "refId": "F",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"release\"})",
+          "legendFormat": "release",
+          "interval": "1m"
+        },
+        {
+          "refId": "G",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"verify\"})",
+          "legendFormat": "verify",
+          "interval": "1m"
+        },
+        {
+          "refId": "H",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"held\"})",
+          "legendFormat": "held",
+          "interval": "1m"
+        }
+      ],
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "alignValue": "center",
+        "rowHeight": 0.8,
+        "legend": { "showLegend": false },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "The line is off",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "transparent", "value": null }, { "color": "#3987e5", "value": 1 }]
+          },
+          "links": [{ "title": "The line", "url": "/d/line?${__url_time_range}" }],
+          "custom": { "fillOpacity": 80, "lineWidth": 0 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "held" },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [{ "color": "transparent", "value": null }, { "color": "#fab219", "value": 1 }]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 26,
+      "type": "table",
+      "title": "Recent steps, last 24 hours",
+      "description": "The agents’ last steps, newest first, from their traces. Select a trace to follow a step through its GitHub and Kubernetes calls to each model call. Tempo searches a day at most.",
+      "gridPos": { "x": 14, "y": 16, "w": 10, "h": 6 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "timeFrom": "24h",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "queryType": "traceql",
+          "query": "{name=\"step\"} | select(span.work_item, span.agent, span.outcome)",
+          "limit": 20,
+          "tableType": "spans"
+        }
+      ],
+      "options": { "showHeader": true, "cellHeight": "sm" },
+      "fieldConfig": { "defaults": { "noValue": "No steps in the last 24 hours" }, "overrides": [] }
+    }
+  ]
+}

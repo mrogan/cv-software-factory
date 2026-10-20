@@ -1,0 +1,1561 @@
+{
+  "uid": "line",
+  "title": "The line",
+  "description": "How work moves through the line: where it is, how the agents’ steps end, releases and verifications, model calls and spend, triage, and the traces and logs behind them, for one work item or all.",
+  "tags": ["software-factory"],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "links": [
+    {
+      "title": "Dashboards",
+      "type": "dashboards",
+      "tags": ["software-factory"],
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": false,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Releases",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#9085e9",
+        "expr": "sum by (outcome) (changes(line_releases_total{dry_run=\"false\"}[2m])) > 0",
+        "step": "1m",
+        "titleFormat": "Release {{outcome}}",
+        "textFormat": "The line recorded a release’s end",
+        "tagKeys": "outcome",
+        "useValueForTime": false
+      },
+      {
+        "name": "Deploys",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#3987e5",
+        "expr": "sum by (name) (changes(argocd_app_sync_total{phase=\"Succeeded\"}[2m])) > 0",
+        "step": "1m",
+        "titleFormat": "Argo CD synced {{name}}",
+        "textFormat": "",
+        "tagKeys": "name",
+        "useValueForTime": false
+      },
+      {
+        "name": "The app’s alerts",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "#d03b3b",
+        "expr": "ALERTS{alertstate=\"firing\", objective!=\"\"}",
+        "step": "1m",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{route}}",
+        "tagKeys": "objective,route",
+        "useValueForTime": false
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "agent",
+        "label": "Agent",
+        "description": "An agent, or all of them",
+        "type": "custom",
+        "query": "triage,planner,coder,reviewer,describer,red-team",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": { "text": "All", "value": "$__all" },
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "work_item",
+        "label": "Work item",
+        "type": "custom",
+        "description": "Type a work item’s number, or leave All",
+        "query": "",
+        "includeAll": true,
+        "allValue": ".*",
+        "allowCustomValue": true,
+        "multi": false,
+        "current": { "text": "All", "value": "$__all" },
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "dry_run",
+        "label": "Dry runs",
+        "description": "Whether to count dry runs’ releases and verifications",
+        "type": "custom",
+        "query": "false,true",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": { "text": "false", "value": "false" },
+        "options": [],
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Flow",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "state-timeline",
+      "title": "Work items at each stage",
+      "description": "How many work items stood at each stage over the range, as the store has them. Blank is none; held is amber, because it waits for Martin.",
+      "gridPos": { "x": 0, "y": 1, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"plan\"})",
+          "legendFormat": "plan",
+          "interval": "1m"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"build\"})",
+          "legendFormat": "build",
+          "interval": "1m"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"waiting\"})",
+          "legendFormat": "waiting",
+          "interval": "1m"
+        },
+        {
+          "refId": "D",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"gates\"})",
+          "legendFormat": "gates",
+          "interval": "1m"
+        },
+        {
+          "refId": "E",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"review\"})",
+          "legendFormat": "review",
+          "interval": "1m"
+        },
+        {
+          "refId": "F",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"release\"})",
+          "legendFormat": "release",
+          "interval": "1m"
+        },
+        {
+          "refId": "G",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"verify\"})",
+          "legendFormat": "verify",
+          "interval": "1m"
+        },
+        {
+          "refId": "H",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(line:work_items:max{stage=\"held\"})",
+          "legendFormat": "held",
+          "interval": "1m"
+        }
+      ],
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "alignValue": "center",
+        "rowHeight": 0.8,
+        "legend": { "showLegend": false },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "The line is off",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "transparent", "value": null }, { "color": "#3987e5", "value": 1 }]
+          },
+          "custom": { "fillOpacity": 80, "lineWidth": 0 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "held" },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [{ "color": "transparent", "value": null }, { "color": "#fab219", "value": 1 }]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "type": "bargauge",
+      "title": "Oldest at each stage, of its limit",
+      "description": "How long the work item longest at each stage has been there, as a share of the stage’s limit (Prometheus’s line:stage_limit_seconds). Past 100% the line is stuck there. Waiting and held have no limit.",
+      "gridPos": { "x": 12, "y": 1, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "line:stage_oldest:ratio_to_limit{stage=\"plan\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "plan"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "line:stage_oldest:ratio_to_limit{stage=\"build\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "build"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "line:stage_oldest:ratio_to_limit{stage=\"gates\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "gates"
+        },
+        {
+          "refId": "D",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "line:stage_oldest:ratio_to_limit{stage=\"review\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "review"
+        },
+        {
+          "refId": "E",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "line:stage_oldest:ratio_to_limit{stage=\"release\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "release"
+        },
+        {
+          "refId": "F",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "line:stage_oldest:ratio_to_limit{stage=\"verify\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "verify"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "namePlacement": "left",
+        "sizing": "auto",
+        "minVizHeight": 16,
+        "maxVizHeight": 24,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "min": 0,
+          "max": 1.5,
+          "noValue": "The line is off",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 0.75 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Time at each stage",
+      "description": "How long work items stayed at each stage before they left it, in the range: the median and the 95th percentile, from the buckets of line_stage_duration_seconds (a minute to a week). A stage no work item left in the range has no row.",
+      "gridPos": { "x": 18, "y": 1, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.5, sum by (le, stage) (increase(line_stage_duration_seconds_bucket[$__range])) and on (stage) sum by (stage) (increase(line_stage_duration_seconds_count[$__range])) > 0)",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, stage) (increase(line_stage_duration_seconds_bucket[$__range])) and on (stage) sum by (stage) (increase(line_stage_duration_seconds_count[$__range])) > 0)",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "renameByName": { "stage": "Stage", "Value #A": "Median", "Value #B": "95th percentile" }
+          }
+        }
+      ],
+      "options": { "showHeader": true, "cellHeight": "sm" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "noValue": "No work item left a stage in this range",
+          "custom": { "align": "auto" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Steps",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 9, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Steps in the range",
+      "description": "Agents’ steps that ended in the range, and their success rate: the share that ended done. A step that failed runs again, so a few are expected.",
+      "gridPos": { "x": 0, "y": 10, "w": 4, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(round(increase(line_steps_total{agent=~\"$agent\"}[$__range])))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "steps"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum(increase(line_steps_total{agent=~\"$agent\", outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total{agent=~\"$agent\"}[$__range])) > 0)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "success rate"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No steps in this range",
+          "color": { "mode": "fixed", "fixedColor": "text" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "success rate" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "color", "value": { "mode": "thresholds" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "text", "value": null },
+                    { "color": "#d03b3b", "value": 0 },
+                    { "color": "#fab219", "value": 0.5 },
+                    { "color": "#0ca30c", "value": 0.8 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Steps by outcome",
+      "description": "Steps as they ended, by how: done; failed or out of turns, which count against the step; errored or effects failed, where something around the agent failed; capped, stopped or stale, which run again. Each bar is its interval’s steps, so together they come to about the count beside them.",
+      "gridPos": { "x": 4, "y": 10, "w": 10, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "5m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (outcome) (round(increase(line_steps_total{agent=~\"$agent\"}[$__interval]))) > 0",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 90,
+            "lineWidth": 1,
+            "barAlignment": 0,
+            "stacking": { "mode": "normal", "group": "A" },
+            "axisSoftMin": 0,
+            "showPoints": "never"
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No steps in this range"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "done" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#0ca30c" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "failed" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d03b3b" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "max-turns" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d03b3b" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "capped" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#fab219" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "stopped" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#898781" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "stale" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#898781" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "effects-failed" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#ec835a" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "errored" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#ec835a" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "type": "bargauge",
+      "title": "Done, by agent",
+      "description": "The share of each agent’s steps that ended done in the range. Under half is an agent going round in circles.",
+      "gridPos": { "x": 14, "y": 10, "w": 5, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum(increase(line_steps_total{agent=\"planner\", agent=~\"$agent\", outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total{agent=\"planner\", agent=~\"$agent\"}[$__range])) > 0)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "planner"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum(increase(line_steps_total{agent=\"coder\", agent=~\"$agent\", outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total{agent=\"coder\", agent=~\"$agent\"}[$__range])) > 0)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "coder"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum(increase(line_steps_total{agent=\"reviewer\", agent=~\"$agent\", outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total{agent=\"reviewer\", agent=~\"$agent\"}[$__range])) > 0)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "reviewer"
+        },
+        {
+          "refId": "D",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum(increase(line_steps_total{agent=\"describer\", agent=~\"$agent\", outcome=\"done\"}[$__range])) or vector(0)) / (sum(increase(line_steps_total{agent=\"describer\", agent=~\"$agent\"}[$__range])) > 0)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "describer"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "namePlacement": "left",
+        "sizing": "auto",
+        "minVizHeight": 16,
+        "maxVizHeight": 24,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "min": 0,
+          "max": 1,
+          "noValue": "No steps in this range",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#d03b3b", "value": 0 },
+              { "color": "#fab219", "value": 0.5 },
+              { "color": "#0ca30c", "value": 0.8 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "bargauge",
+      "title": "Holds by cause",
+      "description": "Holds for Martin the line started in the range, by why: a work item it cannot carry further without his answer. Holds triage makes are triage’s, not counted here.",
+      "gridPos": { "x": 19, "y": 10, "w": 5, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sort_desc(sum by (cause) (round(increase(line_holds_total[$__range]))) > 0)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{cause}}"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "namePlacement": "left",
+        "sizing": "auto",
+        "minVizHeight": 16,
+        "maxVizHeight": 24,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "Nothing held in this range",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "text", "value": null }, { "color": "#fab219", "value": 1 }]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Release and Verify",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 17, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Releases by outcome",
+      "description": "Releases of the app the line saw end in the range: promoted, rolled back by the canary’s analysis, aborted, or errored. Dry runs are counted only when the dry_run variable says so.",
+      "gridPos": { "x": 0, "y": 18, "w": 6, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (outcome) (round(increase(line_releases_total{dry_run=~\"$dry_run\"}[$__range])))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No releases in this range",
+          "color": { "mode": "fixed", "fixedColor": "text" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "promoted" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#0ca30c" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "rolled-back" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d03b3b" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "aborted" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#898781" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "errored" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#ec835a" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "type": "bargauge",
+      "title": "Verifications by sense",
+      "description": "After a release, each sense looks again at what its work item was for: cleared, or the signal persists. Persists sends the work item back.",
+      "gridPos": { "x": 6, "y": 18, "w": 6, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sort_desc(sum by (sense, outcome) (round(increase(line_verifications_total{dry_run=~\"$dry_run\"}[$__range]))) > 0)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{sense}} {{outcome}}"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "namePlacement": "left",
+        "sizing": "auto",
+        "minVizHeight": 16,
+        "maxVizHeight": 24,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "No verifications in this range",
+          "color": { "mode": "fixed", "fixedColor": "#898781" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".* cleared" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#0ca30c" } }]
+          },
+          {
+            "matcher": { "id": "byRegexp", "options": ".* persists" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d03b3b" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "The app’s traffic, stable and canary",
+      "description": "Requests a second through Traefik to the app’s stable version and to its canary: the split a release’s canary analysis judges. Outside a release, the canary has none.",
+      "gridPos": { "x": 12, "y": 18, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "2m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(traefik_service_requests_total{service=\"website-website-80@kubernetescrd\"}[$__rate_interval]))",
+          "legendFormat": "stable"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(traefik_service_requests_total{service=\"website-website-canary-80@kubernetescrd\"}[$__rate_interval]))",
+          "legendFormat": "canary"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 1,
+          "min": 0,
+          "noValue": "Traefik not reporting",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "stable" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "canary" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Model calls",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 25, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Spend in the range",
+      "description": "What the gateway spent on models in the range, in US dollars, every priced call counted as it was made (factory_gateway_spend_usd_total). Replays and the local model cost nothing.",
+      "gridPos": { "x": 0, "y": 26, "w": 4, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(increase(factory_gateway_spend_usd_total{agent=~\"$agent\"}[$__range])) or vector(0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "noValue": "No answer from Prometheus",
+          "color": { "mode": "fixed", "fixedColor": "text" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Spend by agent",
+      "description": "What each agent’s model calls cost, in US dollars. Each bar is its interval’s spend, so together they come to about the figure beside them.",
+      "gridPos": { "x": 4, "y": 26, "w": 10, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "5m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (agent) (increase(factory_gateway_spend_usd_total{agent=~\"$agent\"}[$__interval])) > 0",
+          "legendFormat": "{{agent}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 90,
+            "lineWidth": 1,
+            "barAlignment": 0,
+            "stacking": { "mode": "normal", "group": "A" },
+            "axisSoftMin": 0,
+            "showPoints": "never"
+          },
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "noValue": "Nothing spent in this range"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "triage" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "planner" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "coder" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#199e70" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "reviewer" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c98500" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "describer" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d55181" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "red-team" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#008300" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "type": "bargauge",
+      "title": "Spend against the caps",
+      "description": "What the day’s and the month’s windows have spent, as a share of the profile’s caps; at 100% the gateway refuses every paid call until the window ends. A profile with no monthly cap shows the day alone.",
+      "gridPos": { "x": 14, "y": 26, "w": 5, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (cap) (gateway_cap_spent_usd) / on (cap) max by (cap) (gateway_cap_limit_usd)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{cap}}"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "namePlacement": "left",
+        "sizing": "auto",
+        "minVizHeight": 16,
+        "maxVizHeight": 24,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "min": 0,
+          "max": 1,
+          "noValue": "The gateway is not reporting",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 0.75 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 18,
+      "type": "bargauge",
+      "title": "Refusals and provider errors",
+      "description": "Calls refused in the range at a spend cap, by cap, and errors a provider answered with, by status. Good is none.",
+      "gridPos": { "x": 19, "y": 26, "w": 5, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (cap) (round(increase(gateway_cap_refusals_total[$__range]))) > 0",
+          "instant": true,
+          "range": false,
+          "legendFormat": "cap: {{cap}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (status) (round(increase(gateway_provider_errors_total[$__range]))) > 0",
+          "instant": true,
+          "range": false,
+          "legendFormat": "provider: {{status}}"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "namePlacement": "left",
+        "sizing": "auto",
+        "minVizHeight": 16,
+        "maxVizHeight": 24,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "None in this range",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "text", "value": null }, { "color": "#d03b3b", "value": 1 }]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Model calls by outcome",
+      "description": "Calls the gateway took: answered by a provider, replayed from a cassette, refused (a cap, or no cassette to replay), or failed. Each bar is its interval’s calls.",
+      "gridPos": { "x": 0, "y": 33, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "5m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (outcome) (round(increase(gateway_calls_total{agent=~\"$agent\"}[$__interval]))) > 0",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 90,
+            "lineWidth": 1,
+            "barAlignment": 0,
+            "stacking": { "mode": "normal", "group": "A" },
+            "axisSoftMin": 0,
+            "showPoints": "never"
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No model calls in this range"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "answered" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#0ca30c" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "replayed" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#898781" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "refused" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#fab219" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "failed" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d03b3b" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Step duration by agent, last 24 hours",
+      "description": "How long agents’ steps took, the median and the 95th percentile by agent, from their spans (TraceQL metrics). Tempo reads a day at most, so this panel always shows the last 24 hours.",
+      "gridPos": { "x": 12, "y": 33, "w": 12, "h": 7 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "timeFrom": "24h",
+      "interval": "30m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "queryType": "traceql",
+          "query": "{name=\"step\" && span.agent=~\"$agent\"} | quantile_over_time(duration, .5, .95) by (span.agent)",
+          "metricsQueryType": "range",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "No steps in the last 24 hours",
+          "custom": { "drawStyle": "points", "pointSize": 8, "showPoints": "always", "lineWidth": 0 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "Model calls by agent and model",
+      "description": "Each agent’s calls to each model in the range: how many, the 95th percentile of their duration, tokens in and out, the share of input read from the prompt cache, and what they cost.",
+      "gridPos": { "x": 0, "y": 40, "w": 24, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (agent, model) (round(increase(gateway_calls_total{agent=~\"$agent\"}[$__range]))) > 0",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, agent, model) (increase(gateway_call_duration_milliseconds_bucket{agent=~\"$agent\"}[$__range])))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (agent, model) (increase(gateway_tokens_total{agent=~\"$agent\", kind=\"input\"}[$__range]))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "D",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (agent, model) (increase(gateway_tokens_total{agent=~\"$agent\", kind=\"output\"}[$__range]))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "E",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (agent, model) (increase(gateway_tokens_total{agent=~\"$agent\", kind=\"cache_read\"}[$__range])) / sum by (agent, model) (increase(gateway_tokens_total{agent=~\"$agent\", kind=~\"input|cache_read\"}[$__range]))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "F",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (agent, model) (increase(factory_gateway_spend_usd_total{agent=~\"$agent\"}[$__range]))",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        {
+          "id": "filterByValue",
+          "options": {
+            "type": "include",
+            "match": "any",
+            "filters": [{ "fieldName": "Value #A", "config": { "id": "greater", "options": { "value": 0 } } }]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "indexByName": {
+              "agent": 0,
+              "model": 1,
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5,
+              "Value #E": 6,
+              "Value #F": 7
+            },
+            "renameByName": {
+              "agent": "Agent",
+              "model": "Model",
+              "Value #A": "Calls",
+              "Value #B": "p95",
+              "Value #C": "Tokens in",
+              "Value #D": "Tokens out",
+              "Value #E": "Cache hits",
+              "Value #F": "Spend"
+            }
+          }
+        },
+        { "id": "sortBy", "options": { "sort": [{ "field": "Spend", "desc": true }] } }
+      ],
+      "options": { "showHeader": true, "cellHeight": "sm" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No model calls in this range",
+          "custom": { "align": "auto" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": "p95|Tokens in|Tokens out|Cache hits|Spend" },
+            "properties": [{ "id": "noValue", "value": "—" }]
+          },
+          { "matcher": { "id": "byName", "options": "p95" }, "properties": [{ "id": "unit", "value": "ms" }] },
+          {
+            "matcher": { "id": "byName", "options": "Cache hits" },
+            "properties": [{ "id": "unit", "value": "percentunit" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Spend" },
+            "properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 2 }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 22,
+      "type": "row",
+      "title": "Triage",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 47, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Inbox",
+      "description": "Signals waiting in the inbox for triage now, and those left there after their last attempt. Waiting signals clear in seconds; one out of attempts needs a look at triage’s logs.",
+      "gridPos": { "x": 0, "y": 48, "w": 4, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(factory_inbox_waiting{state=\"waiting\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "waiting"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(factory_inbox_waiting{state=\"failed\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "out of attempts"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "Triage is not reporting",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#d03b3b", "value": 1 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "waiting" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "text" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Signals by source",
+      "description": "Signals triage took, by where they came from: a sense (probe, crawler, metrics, logs, canary, report) or the planner. Each bar is its interval’s signals.",
+      "gridPos": { "x": 4, "y": 48, "w": 10, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "5m",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (sense) (round(increase(factory_triage_signals_total[$__interval]))) > 0",
+          "legendFormat": "{{sense}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 90,
+            "lineWidth": 1,
+            "barAlignment": 0,
+            "stacking": { "mode": "normal", "group": "A" },
+            "axisSoftMin": 0,
+            "showPoints": "never"
+          },
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No signals in this range"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "probe" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "crawler" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "metrics" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#199e70" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "logs" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c98500" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "canary" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d55181" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "report" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#008300" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "planner" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9085e9" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 25,
+      "type": "bargauge",
+      "title": "Signals by outcome",
+      "description": "What triage did with the signals in the range: opened a ticket, added evidence or a count to one, filed a report or a finding, reopened one, or held it for Martin.",
+      "gridPos": { "x": 14, "y": 48, "w": 5, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sort_desc(sum by (outcome) (round(increase(factory_triage_signals_total[$__range]))) > 0)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "namePlacement": "left",
+        "sizing": "auto",
+        "minVizHeight": 16,
+        "maxVizHeight": 24,
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "No signals in this range",
+          "color": { "mode": "fixed", "fixedColor": "#3987e5" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "held" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#fab219" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Signal to ticket",
+      "description": "How long from a signal reaching the inbox to triage opening its ticket, in the range: the median and the 95th percentile.",
+      "gridPos": { "x": 19, "y": 48, "w": 5, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(factory_triage_signal_to_ticket_seconds_bucket[$__range]))) and on () sum(increase(factory_triage_signal_to_ticket_seconds_count[$__range])) > 0",
+          "instant": true,
+          "range": false,
+          "legendFormat": "median"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(factory_triage_signal_to_ticket_seconds_bucket[$__range]))) and on () sum(increase(factory_triage_signal_to_ticket_seconds_count[$__range])) > 0",
+          "instant": true,
+          "range": false,
+          "legendFormat": "95th percentile"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1,
+          "noValue": "No ticket opened in this range",
+          "color": { "mode": "fixed", "fixedColor": "text" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 27,
+      "type": "row",
+      "title": "Traces and logs",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 55, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 28,
+      "type": "table",
+      "title": "Recent steps, last 24 hours",
+      "description": "The agents’ steps, newest first, from their traces, for the work item and agent chosen above. Select a trace to follow the step through its GitHub and Kubernetes calls to each model call. Tempo searches a day at most.",
+      "gridPos": { "x": 0, "y": 56, "w": 24, "h": 8 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "timeFrom": "24h",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "queryType": "traceql",
+          "query": "{name=\"step\" && span.work_item=~\"$work_item\" && span.agent=~\"$agent\"} | select(span.work_item, span.agent, span.outcome)",
+          "limit": 50,
+          "tableType": "spans"
+        }
+      ],
+      "options": { "showHeader": true, "cellHeight": "sm" },
+      "fieldConfig": { "defaults": { "noValue": "No steps in the last 24 hours" }, "overrides": [] }
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "Warnings and errors",
+      "description": "Lines the line and its runners logged at warn, error or worse in the range, for the work item chosen above. A few warnings are routine; an error is worth reading.",
+      "gridPos": { "x": 0, "y": 64, "w": 4, "h": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum(count_over_time({service_name=\"line\"} | workItem=~\"$work_item\" | detected_level=~\"warn|error|critical|fatal\" [$__range])) or vector(0)",
+          "queryType": "instant",
+          "legendFormat": "line"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum(count_over_time({service_name=\"pod-logs\", k8s_namespace_name=\"runners\"} | json | workItem=~\"$work_item\" | detected_level=~\"warn|error|critical|fatal\" [$__range])) or vector(0)",
+          "queryType": "instant",
+          "legendFormat": "runners"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Loki",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "#0ca30c", "value": 0 },
+              { "color": "#fab219", "value": 1 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byFrameRefID", "options": "A" },
+            "properties": [{ "id": "displayName", "value": "line" }]
+          },
+          {
+            "matcher": { "id": "byFrameRefID", "options": "B" },
+            "properties": [{ "id": "displayName", "value": "runners" }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 30,
+      "type": "logs",
+      "title": "The line’s logs",
+      "description": "What the line said, newest first, for the work item chosen above. Each line names its work item, job and agent; a line with a trace opens it.",
+      "gridPos": { "x": 4, "y": 64, "w": 10, "h": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service_name=\"line\"} | workItem=~\"$work_item\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "fieldConfig": { "defaults": { "noValue": "The line logged nothing in this range" }, "overrides": [] }
+    },
+    {
+      "id": 31,
+      "type": "logs",
+      "title": "The runners’ logs",
+      "description": "What the agents’ runner pods said, newest first, for the work item chosen above: preparing the work, the agent’s turns, and handing back.",
+      "gridPos": { "x": 14, "y": 64, "w": 10, "h": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service_name=\"pod-logs\", k8s_namespace_name=\"runners\"} | json | workItem=~\"$work_item\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "fieldConfig": { "defaults": { "noValue": "No runner logged in this range" }, "overrides": [] }
+    }
+  ]
+}

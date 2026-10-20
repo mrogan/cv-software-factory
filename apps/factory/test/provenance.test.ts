@@ -126,11 +126,20 @@ describe('the senses read only what the collector stamped as the app’s', () =>
     expect(await planted.spans('0af7651916cd43dd8448eb211c80319c')).toBeUndefined();
   });
 
-  it('the app’s dashboard', async () => {
-    const dashboard = await readFile(join(DEPLOY, '../dashboards/website.json'), 'utf-8');
-    const targets = (JSON.parse(dashboard) as { panels: { targets?: { expr?: string; query?: string }[] }[] }).panels
-      .flatMap((panel) => panel.targets ?? [])
-      .map((target) => target.expr ?? target.query ?? '');
+  it('the dashboards that draw the app: its own, and the overview’s tiles', async () => {
+    // The routes' and the budget's records are the app's alone: their rules are held to the stamp above.
+    const records = [...routeRulesFor(objectives), ...budgetRulesFor(objectives)].map((rule) => rule.record);
+    const targets: string[] = [];
+    for (const name of ['website', 'overview']) {
+      const dashboard = await readFile(join(DEPLOY, `../dashboards/${name}.json`), 'utf-8');
+      const queries = (JSON.parse(dashboard) as { panels: { targets?: { expr?: string; query?: string }[] }[] }).panels
+        .flatMap((panel) => panel.targets ?? [])
+        .map((target) => target.expr ?? target.query ?? '');
+      const app = queries.filter((q) => q.includes(objectives.app.metricsJob) || /service[._]name="website"/.test(q));
+      const recorded = queries.filter((q) => records.some((record) => q.includes(record)));
+      expect(app.length + recorded.length, name).toBeGreaterThan(0);
+      targets.push(...app);
+    }
     expectStamped(targets);
   });
 });

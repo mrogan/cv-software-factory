@@ -14,6 +14,9 @@ grafana.ini:
     check_for_plugin_updates: false
   news:
     news_feed_enabled: false
+  # The overview is the home page: whether the factory is healthy, and each tile a way into the dashboard behind it.
+  dashboards:
+    default_home_dashboard_path: /tmp/dashboards/overview.json
 
 # The dashboards' sidecar reads ConfigMaps and Secrets in this namespace, and no other: by default the chart lets it
 # read them in every namespace, the scoreboard's answer key included.
@@ -31,6 +34,10 @@ sidecar:
     # notices only when it times out, it arrives within eleven minutes, not two.
     watchServerTimeout: 600
     watchClientTimeout: 660
+    # Every dashboard in one folder, linked to the others by their shared tag.
+    provider:
+      folder: Software Factory
+      folderUid: software-factory
 
 datasources:
   datasources.yaml:
