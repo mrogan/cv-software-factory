@@ -130,14 +130,15 @@ describe('the counts', () => {
     expect(refusals.filter((r) => r.includes('agent=triage') && r.includes('cap=provider'))).toEqual([]);
   });
 
-  it('start at 0 for each source and outcome triage counts, and each sense the inbox counts', async () => {
+  it('start at 0 for each source and outcome triage counts, and each sense an inbox is opened for', async () => {
     const triaged = api.getMeter('factory-triage').createCounter('factory.triage.signals');
     zeroTriaged(triaged);
     const outcomes = ['opened', 'evidence', 'counted', 'report', 'finding', 'reopened', 'held'];
     expect(await zeros('factory.triage.signals')).toEqual(product({ outcome: outcomes, sense: SIGNAL_SOURCES }));
 
-    inbox({} as Sql);
-    expect(await zeros('factory_signals')).toEqual(product({ sense: SENSES }));
+    // Only the senses a process sends for: the log watcher's two.
+    inbox({} as Sql, 'logs', 'report');
+    expect(await zeros('factory_signals')).toEqual(product({ sense: ['logs', 'report'] }));
   });
 
   it('send the zeros before anything is counted, so Prometheus’s first sample of each is 0', async () => {

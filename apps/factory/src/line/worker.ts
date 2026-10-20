@@ -505,9 +505,12 @@ export class Line {
     const nudge = () => wake.resolve();
     const listening = await this.#o.sql.listen('events', nudge);
     abort.addEventListener('abort', nudge);
-    // Every count from 0, so the first of each kind since the line started is counted.
-    zeroCounts({ providerOf: this.#o.providerOf, dryRun: this.#o.dryRun });
-    await sendCounts();
+    // Every count from 0, so the first of each kind since the line started is counted: only on a line that takes
+    // work, so a line that is off reads as nothing rather than as a quiet line.
+    if (this.#o.takesWork) {
+      zeroCounts({ providerOf: this.#o.providerOf, dryRun: this.#o.dryRun });
+      await sendCounts();
+    }
     // The stages as the store has them, while the line runs: with LINE_MODE off, nothing moves them.
     const unobserve = this.#o.takesWork ? observeStages(this.#o.sql) : () => {};
     try {

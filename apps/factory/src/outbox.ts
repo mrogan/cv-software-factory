@@ -1,12 +1,13 @@
 /**
  * Where a sense leaves its signals: the inbox, or, for a dry run, the terminal. A signal left in the inbox is counted
- * as `factory_signals_total{sense}`, from 0 for each sense as the inbox is opened, so the first counts. The dashboards count signals as triage takes them instead
+ * as `factory_signals_total{sense}`, from 0 for each of its senses as the inbox is opened, so the first counts. The dashboards count signals as triage takes them instead
  * (`factory_triage_signals_total`), which has the canary's and the planner's too.
  */
 import { metrics } from '@opentelemetry/api';
-import { type InboxSignal, SENSES } from '@software-factory/events';
+import type { InboxSignal, Sense } from '@software-factory/events';
 import { sendSignal } from '@software-factory/store';
 import type { Sql } from 'postgres';
+import { sendCounts } from './counts.ts';
 
 export interface Outbox {
   /**
@@ -22,12 +23,17 @@ const signals = metrics.getMeter('factory').createCounter('factory_signals', {
   unit: '1',
 });
 
-/** The inbox, in Postgres. */
-export function inbox(sql: Sql): Outbox {
-  for (const sense of SENSES) signals.add(0, { sense });
+/**
+ * The inbox, in Postgres, for the senses named: each one's count starts at 0, and the first signal waits until the
+ * zeros have been sent, so it is not lost with them.
+ */
+export function inbox(sql: Sql, ...senses: Sense[]): Outbox {
+  for (const sense of senses) signals.add(0, { sense });
+  const sent = sendCounts();
   return {
     async send(signal, id) {
       await sendSignal(sql, signal, id);
+      await sent;
       signals.add(1, { sense: signal.sense });
     },
   };

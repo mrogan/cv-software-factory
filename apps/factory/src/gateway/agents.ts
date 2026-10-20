@@ -34,7 +34,7 @@ import type { Logger } from '../log.ts';
 import { ATTRIBUTES as A, tracer } from '../spans.ts';
 import { type AgentCassettes, agentCassetteKey, keyedRequest } from './agent-cassettes.ts';
 import { SpendCapped } from './errors.ts';
-import type { Mode } from './gateway.ts';
+import type { Mode, Outcome } from './gateway.ts';
 import * as instruments from './metrics.ts';
 import { costOf, priceOf, type Usage } from './prices.ts';
 import type { ProviderCaps } from './provider-caps.ts';
@@ -129,8 +129,6 @@ interface Call {
   provider: ProviderName;
   model: string;
 }
-
-type Outcome = 'answered' | 'replayed' | 'refused' | 'failed';
 
 /** Where an agent's calls go on a profile: Bedrock's go to Anthropic's API until Bedrock has a provider here. */
 function routeOf(

@@ -26,6 +26,8 @@ export function connect(url?: string, options: Options = {}): Sql {
   const settings = { onnotice: () => {}, ...options };
   const sql = url ? postgres(url, settings) : postgres(settings);
   timeQueries(sql);
+  // The instruments, and the connection attempts' zeros, before the first attempt, which is often moments away.
+  counted(instruments);
   // One address, by host or by Unix socket, is all the factory uses: more hosts or ports, and postgres.js rotates
   // through them itself, by its ports, and its connections go uncounted.
   const { host, port } = sql.options;
@@ -61,8 +63,8 @@ function make() {
       description: 'Connections to the store the client tried to open, by whether they opened',
     }),
   };
-  // From 0, so the first failure is counted, as Prometheus's `increase` reads nothing into a series' first sample. They
-  // are made as the first connection opens, so its own count goes with its zero, and that one is not.
+  // From 0, so the first of each is counted, as Prometheus's `increase` reads nothing into a series' first sample. An
+  // attempt within the same export as its zero, such as a worker's first, goes out with it and is still lost.
   for (const outcome of ['connected', 'failed']) kept.attempts.add(0, { outcome });
   return kept;
 }

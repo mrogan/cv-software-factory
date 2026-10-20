@@ -102,7 +102,7 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
     sense,
     log,
     version: () => versionOf(app, UNMEASURED),
-    send: inbox(sql).send,
+    send: inbox(sql, 'probe').send,
     remember: (look, at) => index.remember(look, at),
     every: seconds('PROBE_INTERVAL', 300),
   });
