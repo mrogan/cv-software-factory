@@ -1,6 +1,7 @@
 /**
- * The PromQL behind the objectives, written once: the recording rules the alerts and dashboards read judge every
- * route with it, and the intake plots one route's series with it, so the picture on a ticket is exactly what fired.
+ * The PromQL behind the objectives, written once: the alerting rules, and the recording rules the dashboards draw,
+ * judge every route with it, and the intake plots one route's series with it, so the picture on a ticket is exactly
+ * what fired.
  *
  * The app's request metrics are OpenTelemetry's HTTP server semantic conventions as Prometheus names them:
  * `http_server_request_duration_seconds` (a histogram) labelled with `http_route` and `http_response_status_code`.

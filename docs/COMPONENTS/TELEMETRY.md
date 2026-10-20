@@ -71,14 +71,14 @@ Prometheus scrapes itself in its own job. Kyverno's, Argo Rollouts' and the pod 
 
 ## What Prometheus keeps
 
-Seven days, or less when they would outgrow its volume: past 3 GiB of blocks and write-ahead log, it deletes its oldest blocks ([`values/prometheus.yaml`](../../deploy/base/telemetry/values/prometheus.yaml)). Two kinds of series are dropped as they are scraped, since nothing reads them and they were much of what it kept:
+Seven days, or less when they would outgrow its volume: past 3 GiB of blocks and write-ahead log, it deletes its oldest blocks ([`values/prometheus.yaml`](../../deploy/base/telemetry/values/prometheus.yaml)). Two kinds of series are dropped as they are scraped, since nothing reads them and they would be much of what it keeps:
 
 - **The nodes' histogram buckets.** The kubelet's endpoint serves its own latency histograms and, on k3s, the control plane's, one series for each bucket of each operation (about 6,800 of 46,000 head series on 19 October). Every bucket of them goes; their `_count` and `_sum` stay, enough for rates and mean latencies, and no dashboard draws a quantile of them.
 - **Postgres's settings,** `pg_settings_*` from the exporter: 284 constants, of which only `pg_settings_max_connections` is kept, read against the connections in use.
 
 ## Recording rules
 
-Prometheus records a few figures that dashboards and alerts read, so each is defined once ([`prometheus-rules.yaml`](../../deploy/base/telemetry/values/prometheus-rules.yaml)). They are generated with the alerting rules from the policy, by [`alerts/rules.ts`](../../apps/factory/src/alerts/rules.ts), and `make check` fails when the file is out of date.
+Prometheus records the figures the dashboards draw, so each is defined once ([`prometheus-rules.yaml`](../../deploy/base/telemetry/values/prometheus-rules.yaml)). They are generated with the alerting rules from the policy, by [`alerts/rules.ts`](../../apps/factory/src/alerts/rules.ts), and `make check` fails when the file is out of date.
 
 ### Each route against the objectives
 
@@ -135,7 +135,7 @@ Tempo's metrics generator turns the traces into a graph of the services and the 
 
 - **The service graph alone.** Span metrics, a series for each span name and its attributes, are off. A node is a service's `service.name`, or, for a call out no service of ours answered, the host it called (`server.address`) or the database system (`db.system`), never Tempo's defaults, `peer.service` and `db.name`, which a span may set to anything. The factory's code calls a handful of hosts, so the nodes are few. Tempo writes only these series, and only Tempo reaches Prometheus's remote-write receiver ([network policies](NETWORK-POLICIES.md#telemetry)).
 - **Read by nothing that judges.** No sense, alert or canary analysis reads a `traces_` series: any worker may name its spans' service as it likes, so the edges say what services claimed to be, which is enough for a picture and not for a judgement.
-- **TraceQL metrics as before.** In Tempo 3 a TraceQL metrics query over recent spans is answered by the querier, with or without the generator, so the agreement check and the dashboards' step durations need no `local-blocks` processor: Tempo 3.1 with this configuration and without the generator gave the same counts and quantiles over the last ten minutes (20 October).
+- **TraceQL metrics need no more of it.** In Tempo 3 the querier answers a TraceQL metrics query over recent spans itself, so the agreement check and the dashboards' step durations need no `local-blocks` processor in the generator.
 - **Its cost.** Tempo holds each edge's series and the spans it waits to pair, beside the searches that take it to about 900 MiB, so it may use 1.5 GiB.
 
 ## Naming the factory's series

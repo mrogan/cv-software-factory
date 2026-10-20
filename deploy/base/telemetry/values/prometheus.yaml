@@ -149,8 +149,8 @@ server:
 # Two kinds of series are dropped as they are scraped, since nothing reads them and they are much of what Prometheus
 # keeps: every histogram's buckets from the nodes' endpoint, the kubelet's and, on k3s, the control plane's, one series
 # for each bucket of each operation (about 6,800 of 46,000 head series on 19 October; their `_count` and `_sum` stay,
-# enough for rates and mean latencies), and the Postgres exporter's `pg_settings_*`, Postgres's configuration, constant and 284 series, of
-# which only `max_connections` is read, against the connections in use.
+# enough for rates and mean latencies), and the Postgres exporter's `pg_settings_*`, Postgres's configuration,
+# constant and 284 series, of which only `max_connections` is read, against the connections in use.
 #
 # The chart's two jobs for Services that ask to be probed (`kubernetes-services`, through a blackbox exporter, and
 # `prometheus-pushgateway`) are off: neither a blackbox exporter nor a Pushgateway runs here, so a Service that asked

@@ -1,14 +1,14 @@
 /**
  * Prometheus's rules, generated from the policy: the alerting rules from the app's objectives
- * (policy/objectives.ts), and the recording rules that dashboards and alerts read each route against the objectives,
- * the objectives' error budget and the line's stuck limits from (policy/stuck.ts).
+ * (policy/objectives.ts), and the recording rules the dashboards draw: each route against the objectives, the
+ * objectives' error budget, and the line's stuck limits (policy/stuck.ts).
  *
  *     node apps/factory/src/alerts/rules.ts            # write the rules
  *     node apps/factory/src/alerts/rules.ts --check    # fail if they are out of date (make check, CI)
  *
  * The output is a values file for the Prometheus chart: `serverFiles` is where the chart keeps its rule files. A rule
- * judges each route that has had enough requests, by the figure recorded for it that the dashboards draw, and the alert
- * carries the route and the symptom class as labels, which is all the intake needs to make a signal of it.
+ * judges each route that has had enough requests, by the same expression as the figure recorded for the dashboards, and
+ * the alert carries the route and the symptom class as labels, which is all the intake needs to make a signal of it.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
