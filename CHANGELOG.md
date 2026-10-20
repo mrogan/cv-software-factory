@@ -1,5 +1,70 @@
 # Changelog
 
+## [0.8.0](https://github.com/mrogan/cv-software-factory/compare/v0.7.0...v0.8.0) (2026-10-20)
+
+
+### Features
+
+* **console:** list a stage's work first, with a status icon on each row ([#404](https://github.com/mrogan/cv-software-factory/issues/404)) ([acdb321](https://github.com/mrogan/cv-software-factory/commit/acdb321977de5910f43a9e69d1d3f5e9128a4fbe))
+* **console:** open the reel on now and leave it still ([#422](https://github.com/mrogan/cv-software-factory/issues/422)) ([cb422d1](https://github.com/mrogan/cv-software-factory/commit/cb422d1be98bf0511ee6407dbca74c828a9f5864))
+* **deploy:** keep every pod's log in Loki ([#433](https://github.com/mrogan/cv-software-factory/issues/433)) ([344e9e8](https://github.com/mrogan/cv-software-factory/commit/344e9e87cdf804f48b7a536a61c8487be5cb50d3))
+* **factory:** name the work item and agent in the handback's and the GitHub worker's logs ([#415](https://github.com/mrogan/cv-software-factory/issues/415)) ([0fc4b0c](https://github.com/mrogan/cv-software-factory/commit/0fc4b0c970316d3ad3e3eaa958888683edac8f37))
+* **gateway:** count tokens by kind, provider errors, cap refusals and spend against the caps ([#484](https://github.com/mrogan/cv-software-factory/issues/484)) ([6a878cf](https://github.com/mrogan/cv-software-factory/commit/6a878cf0746780c27d8ce7d2b1ecccf27d74dec0))
+* **gateway:** delete cassettes two weeks after the last thing they were for ([#477](https://github.com/mrogan/cv-software-factory/issues/477)) ([beecc23](https://github.com/mrogan/cv-software-factory/commit/beecc2381bc09170b4bf71ee48382a649666d061))
+* **line:** follow a work item in one trace, from its step to its model calls ([#479](https://github.com/mrogan/cv-software-factory/issues/479)) ([4f2fec0](https://github.com/mrogan/cv-software-factory/commit/4f2fec050e7408d09beda8644c2e93458dc38113))
+* **line:** look again at held work after a release, and wait on a spec that overlaps ([#430](https://github.com/mrogan/cv-software-factory/issues/430)) ([45c562d](https://github.com/mrogan/cv-software-factory/commit/45c562dca1808e0fd50f034377d5be7db32bd8ae))
+* **line:** metrics for the line, Release and Verify ([#485](https://github.com/mrogan/cv-software-factory/issues/485)) ([2ccb4c8](https://github.com/mrogan/cv-software-factory/commit/2ccb4c80ecd657a51540f86ef564ac9563261099))
+* **runners:** keep each runner pod's log with its step, and log what the agent does ([#431](https://github.com/mrogan/cv-software-factory/issues/431)) ([9e246af](https://github.com/mrogan/cv-software-factory/commit/9e246af8d26fa1ecee60418e9cbcc5fd82650237))
+* **store:** count the store client's queries and connections ([#483](https://github.com/mrogan/cv-software-factory/issues/483)) ([7beceb3](https://github.com/mrogan/cv-software-factory/commit/7beceb3b249e8d13e59fd083ff7a46ebd332144e))
+* **telemetry:** keep the cluster's state and Postgres's statistics in Prometheus ([#436](https://github.com/mrogan/cv-software-factory/issues/436)) ([7f0ff6b](https://github.com/mrogan/cv-software-factory/commit/7f0ff6b23a6e7193706d6a203ffc647d97b57591))
+* **telemetry:** record the error budget and stuck limits, and draw the service graph ([#487](https://github.com/mrogan/cv-software-factory/issues/487)) ([e4df89e](https://github.com/mrogan/cv-software-factory/commit/e4df89eb3435f4de906a0ed1a426395048e535bd))
+* **telemetry:** report each worker's heap, event loop and garbage collection ([#482](https://github.com/mrogan/cv-software-factory/issues/482)) ([5d410ab](https://github.com/mrogan/cv-software-factory/commit/5d410ab58c0f999031b1bab8e6b9642b7de565e1))
+* **telemetry:** scrape the platform's own metrics ([#434](https://github.com/mrogan/cv-software-factory/issues/434)) ([1db7a24](https://github.com/mrogan/cv-software-factory/commit/1db7a24e79a7657a8e7e87a70d06a5fff1162e3f))
+* **telemetry:** the app's dashboard led by its objectives, and the platform's ([#489](https://github.com/mrogan/cv-software-factory/issues/489)) ([158d4bc](https://github.com/mrogan/cv-software-factory/commit/158d4bc14aed59edd3d1d5eec8d5e6b828e96e31))
+* **telemetry:** trace each request out made inside a span ([#478](https://github.com/mrogan/cv-software-factory/issues/478)) ([362121b](https://github.com/mrogan/cv-software-factory/commit/362121b2961f87786239685f38a1e2ebfc82838f))
+* **triage:** delete the inbox's old repeats ([#476](https://github.com/mrogan/cv-software-factory/issues/476)) ([7e2f7c9](https://github.com/mrogan/cv-software-factory/commit/7e2f7c9e41c86e79bdfaec43bfac85f99b15db3c))
+* **verify:** name the other work item whose own page a page is ([#471](https://github.com/mrogan/cv-software-factory/issues/471)) ([f6a44c0](https://github.com/mrogan/cv-software-factory/commit/f6a44c0eb9f8d0d134ad7aeacdcd5070088165f5))
+* **visual-pr:** show a large change two-up, with what moved outlined ([#412](https://github.com/mrogan/cv-software-factory/issues/412)) ([9fb2fb7](https://github.com/mrogan/cv-software-factory/commit/9fb2fb73431b6342155fa51acb9d4d3893cee8c9))
+
+
+### Bug Fixes
+
+* **coder:** run the app's lint, formatting and type check before handing back ([#421](https://github.com/mrogan/cv-software-factory/issues/421)) ([791c2e6](https://github.com/mrogan/cv-software-factory/commit/791c2e610a75e6f34a01cf8f5996b2e6cf2cee9a))
+* **console:** end a closed work item's story with how it closed ([#411](https://github.com/mrogan/cv-software-factory/issues/411)) ([1725cd6](https://github.com/mrogan/cv-software-factory/commit/1725cd61b03555bea24cf89711ce7520fbe76ac5))
+* **console:** keep a spec's wait for Martin to a spec that holds for him ([#459](https://github.com/mrogan/cv-software-factory/issues/459)) ([aa4496c](https://github.com/mrogan/cv-software-factory/commit/aa4496c35ed2f78162b9c228e9dd29e59b5ecc80))
+* **console:** keep the Jev chart's questions and answers on one line, and show its bars' empty part ([#423](https://github.com/mrogan/cv-software-factory/issues/423)) ([1493684](https://github.com/mrogan/cv-software-factory/commit/1493684da401db2fafaf3fdeda294e773464c262))
+* **console:** name the console's controls with the words they show ([#464](https://github.com/mrogan/cv-software-factory/issues/464)) ([e6bb4bb](https://github.com/mrogan/cv-software-factory/commit/e6bb4bb32f83b06c5a18ff8f3a885e706cfb898a))
+* **console:** show a promoted release's work at Verify while a sense looks ([#458](https://github.com/mrogan/cv-software-factory/issues/458)) ([3f5cf90](https://github.com/mrogan/cv-software-factory/commit/3f5cf900a95e4ff79749908944d51a2302c3b126))
+* **deploy:** bound Tempo's searches and have Go collect before its limit ([#400](https://github.com/mrogan/cv-software-factory/issues/400)) ([c570c75](https://github.com/mrogan/cv-software-factory/commit/c570c750fe0f068d5391a335609ac6e8553c256e))
+* **deploy:** have Grafana find a trace's logs by its trace_id field ([#417](https://github.com/mrogan/cv-software-factory/issues/417)) ([13a053c](https://github.com/mrogan/cv-software-factory/commit/13a053ccb7a8cd9a73ada5d6fb234110622a8ff9))
+* **deploy:** have Loki's compactor delete logs older than seven days ([#398](https://github.com/mrogan/cv-software-factory/issues/398)) ([219d13b](https://github.com/mrogan/cv-software-factory/commit/219d13b0e296a9b4bf7438d11ab81f5ba3515dbc))
+* **deploy:** store k3s's metrics once, and keep Prometheus within its volume ([#399](https://github.com/mrogan/cv-software-factory/issues/399)) ([eac2307](https://github.com/mrogan/cv-software-factory/commit/eac2307a19520c128621fe6ce36c99f8727277d4))
+* **egress:** wait for the pod log collector's DaemonSet by its name, pod-logs-agent ([#480](https://github.com/mrogan/cv-software-factory/issues/480)) ([3de971a](https://github.com/mrogan/cv-software-factory/commit/3de971a95c4d42871330f6470d531919e698e050))
+* **factory:** log an error with its causes, so fetch failed says why ([#397](https://github.com/mrogan/cv-software-factory/issues/397)) ([4766735](https://github.com/mrogan/cv-software-factory/commit/4766735f05167ab2028a8c2341fbb8d5a5b765d1))
+* **factory:** move the log watcher's report cursor when a check finds nothing ([#396](https://github.com/mrogan/cv-software-factory/issues/396)) ([31f5c82](https://github.com/mrogan/cv-software-factory/commit/31f5c82b3c745eb1eaf7590b2c09328a25e5cd97))
+* **factory:** quieten routine polling in the factory's logs and traces ([#416](https://github.com/mrogan/cv-software-factory/issues/416)) ([4e36d4a](https://github.com/mrogan/cv-software-factory/commit/4e36d4a6151dcf107b5a1baa70fc8dcce1b8b72e))
+* **factory:** read reports back over a margin, so one that reaches Loki late is still sent ([#406](https://github.com/mrogan/cv-software-factory/issues/406)) ([8e324e8](https://github.com/mrogan/cv-software-factory/commit/8e324e894ca16ddacfd01ebed8041a4d98758965))
+* **line:** answer 404 for the logs of a work item the line kept none for ([#470](https://github.com/mrogan/cv-software-factory/issues/470)) ([061e9f5](https://github.com/mrogan/cv-software-factory/commit/061e9f5916cbc87e35596de18943821b20f3691c))
+* **line:** end what a dry run left on real tickets once the line runs live ([#420](https://github.com/mrogan/cv-software-factory/issues/420)) ([20da684](https://github.com/mrogan/cv-software-factory/commit/20da684c8a221e21a71b24a93669fecb0d91ebef))
+* **line:** keep a triage hold answered in words on Needs you ([#425](https://github.com/mrogan/cv-software-factory/issues/425)) ([ee76d0b](https://github.com/mrogan/cv-software-factory/commit/ee76d0b065588d3602ab1b7628a1a6cdf7a94afa))
+* **line:** name the work item when closing a dry run's leftover issue ([#428](https://github.com/mrogan/cv-software-factory/issues/428)) ([79a3887](https://github.com/mrogan/cv-software-factory/commit/79a3887cd2d3301b92964aaf8d85f42c282b3ae9))
+* **line:** number a step after its work item's job tokens too ([#456](https://github.com/mrogan/cv-software-factory/issues/456)) ([fc424ee](https://github.com/mrogan/cv-software-factory/commit/fc424ee3010fed3b6ecbfc1952ec644fc6bb3a4b))
+* **line:** record the gates on a merged pull request's head with its merge ([#457](https://github.com/mrogan/cv-software-factory/issues/457)) ([9ebc3c8](https://github.com/mrogan/cv-software-factory/commit/9ebc3c83f22f93043f913063d0cd41ec77bd39e4))
+* **line:** run one step at a time on the local model ([#438](https://github.com/mrogan/cv-software-factory/issues/438)) ([25caa08](https://github.com/mrogan/cv-software-factory/commit/25caa085210279b0c4c160782a63a3239c455e27))
+* **line:** send back work whose gates fail on a newer commit after they passed ([#461](https://github.com/mrogan/cv-software-factory/issues/461)) ([23f107c](https://github.com/mrogan/cv-software-factory/commit/23f107c9d25f00d4c9a820cc9618515a7df3a463))
+* **line:** take a coder's change with no patch that declines every suggestion as declining them all ([#395](https://github.com/mrogan/cv-software-factory/issues/395)) ([beca90c](https://github.com/mrogan/cv-software-factory/commit/beca90cbc3b9af975b4df32e4ab0d2f81bfd9e66))
+* **probes:** say why a finding has no screenshot ([#481](https://github.com/mrogan/cv-software-factory/issues/481)) ([dd4e5fc](https://github.com/mrogan/cv-software-factory/commit/dd4e5fc54688a78eb45cee77463aef826a158e54))
+* **release:** record how many of the journeys' checks passed at each canary step ([#419](https://github.com/mrogan/cv-software-factory/issues/419)) ([4072464](https://github.com/mrogan/cv-software-factory/commit/40724641078e3f7c3213fae196c8f566ac954bbb))
+* **runner:** name the model that answered each turn, not the SDK's ([#469](https://github.com/mrogan/cv-software-factory/issues/469)) ([500953e](https://github.com/mrogan/cv-software-factory/commit/500953e8fba213228af04c07585a7738f5ddf6a4))
+* **skills:** have /implement answer Copilot's review summary, not only its threads ([#495](https://github.com/mrogan/cv-software-factory/issues/495)) ([d5e0009](https://github.com/mrogan/cv-software-factory/commit/d5e00095ba74399d05a31e5f6a463fd5efc65938))
+* **telemetry:** have Prometheus scrape the pod log collector's own metrics ([#473](https://github.com/mrogan/cv-software-factory/issues/473)) ([cc5ee19](https://github.com/mrogan/cv-software-factory/commit/cc5ee191c1948be32b092dfed164fe30c7949f5d))
+* **telemetry:** scrape what asks only in the platform's namespaces ([#474](https://github.com/mrogan/cv-software-factory/issues/474)) ([27ffa6a](https://github.com/mrogan/cv-software-factory/commit/27ffa6a56b43b80001f5827ee3ce9b279ecb13b5))
+* **telemetry:** start each count at 0, so the first of each kind after a restart counts ([#492](https://github.com/mrogan/cv-software-factory/issues/492)) ([9fd34c5](https://github.com/mrogan/cv-software-factory/commit/9fd34c5344177cb8fc3d48b432a0d9242e04a534))
+* **telemetry:** sum each worker's log counts before naming the worker, under Loki's series cap ([#493](https://github.com/mrogan/cv-software-factory/issues/493)) ([27d5a7d](https://github.com/mrogan/cv-software-factory/commit/27d5a7d62d6a98e8762a4b5f3d27eae0e755a191))
+* **triage:** ask Martin again when it gives up on his answer, so a restart does not retry it ([#414](https://github.com/mrogan/cv-software-factory/issues/414)) ([f65797f](https://github.com/mrogan/cv-software-factory/commit/f65797f2c55d1a6098b6de1d784b5b3931738d7a))
+* **triage:** count a finding into the held one with its fingerprint, so Martin answers it once ([#410](https://github.com/mrogan/cv-software-factory/issues/410)) ([4d325eb](https://github.com/mrogan/cv-software-factory/commit/4d325eb11e05effeb05943256869bbc82de66edc))
+* **triage:** count only the scrape targets the senses read ([#475](https://github.com/mrogan/cv-software-factory/issues/475)) ([f27a496](https://github.com/mrogan/cv-software-factory/commit/f27a496f494946c099e76c85c3464824bd7eb02e))
+
 ## [0.7.0](https://github.com/mrogan/cv-software-factory/compare/v0.6.0...v0.7.0) (2026-10-17)
 
 
