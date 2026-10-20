@@ -6,7 +6,7 @@ import { Loki } from '../src/clients/loki.ts';
 import { Prometheus } from '../src/clients/prometheus.ts';
 import { Tempo } from '../src/clients/tempo.ts';
 import { environmentLook } from '../src/environment.ts';
-import { DEPLOY } from './deploy.ts';
+import { DEPLOY, type Relabel, relabel } from './deploy.ts';
 import { fakeFetch, vector } from './fakes.ts';
 
 const at = new Date('2026-10-13T19:47:57.000Z');
@@ -177,29 +177,30 @@ describe('the look at what the senses read', () => {
 describe('Prometheus keeps what the look reads', () => {
   interface ScrapeConfig {
     enabled?: boolean;
-    metric_relabel_configs?: { source_labels?: string[]; regex?: string; action?: string }[];
+    metric_relabel_configs?: Relabel[];
   }
   const values = async (file: string) => parse(await readFile(join(DEPLOY, file), 'utf-8'));
-  // Prometheus anchors a relabelling regex at both ends.
   const drops = (config: ScrapeConfig | undefined, name: string) =>
-    (config?.metric_relabel_configs ?? []).some(
-      (rule) =>
-        rule.action === 'drop' &&
-        rule.source_labels?.join(';') === '__name__' &&
-        new RegExp(`^(?:${rule.regex})$`).test(name),
-    );
+    relabel(config?.metric_relabel_configs ?? [], { __name__: name }) === undefined;
 
-  it('still scrapes the kubelet’s volume stats on k3s, with the second copy of its metrics dropped', async () => {
+  it('still scrapes the kubelet’s volume stats, with its buckets dropped and on k3s its second copy off', async () => {
     const local = (await values('overlays/local/values/prometheus.yaml')) as {
       scrapeConfigs: Record<string, ScrapeConfig>;
     };
     expect(local.scrapeConfigs['kubernetes-api-servers']?.enabled).toBe(false);
-    const nodes = local.scrapeConfigs['kubernetes-nodes'];
+    // The local overlay's own rules for the job would take the place of the base's.
+    expect(local.scrapeConfigs['kubernetes-nodes']).toBeUndefined();
+    const base = (await values('base/telemetry/values/prometheus.yaml')) as {
+      scrapeConfigs: Record<string, ScrapeConfig>;
+    };
+    const nodes = base.scrapeConfigs['kubernetes-nodes'];
     expect(nodes?.enabled).not.toBe(false);
     const dropped = (name: string) => drops(nodes, name);
     for (const name of volumes.match(/kubelet_volume_stats_\w+/g) ?? []) expect(dropped(name)).toBe(false);
     expect(dropped('apiserver_request_duration_seconds_bucket')).toBe(true);
+    expect(dropped('workqueue_work_duration_seconds_bucket')).toBe(true);
     expect(dropped('apiserver_request_duration_seconds_count')).toBe(false);
+    expect(dropped('kubelet_running_pods')).toBe(false);
   });
 
   it.each([

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { objectives } from '../../../policy/objectives.ts';
 import * as query from '../src/alerts/queries.ts';
-import { rulesFor } from '../src/alerts/rules.ts';
+import { budgetRulesFor, routeRulesFor, rulesFor } from '../src/alerts/rules.ts';
 import { Loki } from '../src/clients/loki.ts';
 import { Prometheus } from '../src/clients/prometheus.ts';
 import { Tempo } from '../src/clients/tempo.ts';
@@ -91,10 +91,12 @@ describe('the senses read only what the collector stamped as the app’s', () =>
     expectStamped(sent.tempo);
   });
 
-  it('the alerting rules, and the intake’s and Verify’s pictures of a route', () => {
+  it('the alerting rules, the routes’ and the error budget’s, and the intake’s and Verify’s pictures of a route', () => {
     const scopes = [{}, { route: '/about' }, { template: '/products/:slug' }, { route: '/about', version: 'abc1234' }];
     expectStamped([
       ...rulesFor(objectives).map((rule) => rule.expr),
+      ...routeRulesFor(objectives).map((rule) => rule.expr),
+      ...budgetRulesFor(objectives).map((rule) => rule.expr),
       ...scopes.flatMap((scope) => [query.requests(objectives, scope), query.errorRatio(objectives, scope)]),
       ...scopes.flatMap((scope) => [query.latency(objectives, scope)]),
       query.versions(objectives, { route: '/about' }),

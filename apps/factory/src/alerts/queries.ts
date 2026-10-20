@@ -1,6 +1,7 @@
 /**
- * The PromQL behind the objectives, written once: the alerting rules judge every route with it, and the intake
- * plots one route's series with it, so the picture on a ticket is exactly what fired.
+ * The PromQL behind the objectives, written once: the alerting rules, and the recording rules the dashboards draw,
+ * judge every route with it, and the intake plots one route's series with it, so the picture on a ticket is exactly
+ * what fired.
  *
  * The app's request metrics are OpenTelemetry's HTTP server semantic conventions as Prometheus names them:
  * `http_server_request_duration_seconds` (a histogram) labelled with `http_route` and `http_response_status_code`.
@@ -9,7 +10,13 @@
 import type { Objectives } from '../../../../policy/objectives.ts';
 import { METRICS_FROM_THE_APP } from '../provenance.ts';
 
-const REQUESTS = 'http_server_request_duration_seconds';
+export const REQUESTS = 'http_server_request_duration_seconds';
+
+/**
+ * The bounds of the app's request duration buckets, in seconds: OpenTelemetry's for `http.server.request.duration`,
+ * which the app keeps. A request is slower than the latency objective when it is outside the bucket at its bound.
+ */
+export const LATENCY_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10] as const;
 
 /**
  * What a query covers: every route that has one, or the one route; or every path a route template serves, as one, such
@@ -32,7 +39,8 @@ export function appSeries(o: Objectives): string {
   return `job=${quoted(o.app.metricsJob)}, ${METRICS_FROM_THE_APP}`;
 }
 
-function matchers(o: Objectives, scope: Scope, extra: string[] = []): string {
+/** The selector of the app's request series in a scope, with any further matchers. */
+export function matchers(o: Objectives, scope: Scope, extra: string[] = []): string {
   const route =
     scope.template !== undefined
       ? `http_route=~${quoted(templatePattern(scope.template))}`
@@ -57,11 +65,19 @@ export function requests(o: Objectives, scope: Scope = {}): string {
   return `${sum(scope)} (increase(${REQUESTS}_count${matchers(o, scope)}[${window(o)}]))`;
 }
 
+/** Requests a second over the window; with `extra`, only those its matchers pick. */
+export function requestRate(o: Objectives, scope: Scope = {}, extra: string[] = []): string {
+  return `${sum(scope)} (rate(${REQUESTS}_count${matchers(o, scope, extra)}[${window(o)}]))`;
+}
+
+/** Requests answered with a 5xx status, a second, over the window. */
+export function errorRate(o: Objectives, scope: Scope = {}): string {
+  return requestRate(o, scope, ['http_response_status_code=~"5.."']);
+}
+
 /** The share of requests that answered with a 5xx status. */
 export function errorRatio(o: Objectives, scope: Scope = {}): string {
-  const errors = `${sum(scope)} (rate(${REQUESTS}_count${matchers(o, scope, ['http_response_status_code=~"5.."'])}[${window(o)}]))`;
-  const all = `${sum(scope)} (rate(${REQUESTS}_count${matchers(o, scope)}[${window(o)}]))`;
-  return `${errors} / ${all}`;
+  return `${errorRate(o, scope)} / ${requestRate(o, scope)}`;
 }
 
 /** The latency the objective's share of requests came in under, in seconds. */

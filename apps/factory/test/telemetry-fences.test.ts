@@ -1,10 +1,11 @@
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { ENVIRONMENT } from '../../../policy/triage.ts';
 import { TIMING } from '../src/logs/watcher.ts';
-import { DEPLOY, manifests as deployManifests } from './deploy.ts';
+import { DEPLOY, manifests as deployManifests, PROMETHEUS } from './deploy.ts';
 
 /**
  * The readers of telemetry as deploy/ declares them (#348): the factory's workers reach Prometheus, Loki and Tempo only
@@ -213,7 +214,88 @@ describe('Tempo', () => {
   });
 });
 
+describe('the service graph', () => {
+  interface TempoValues {
+    tempo: {
+      metricsGenerator: {
+        enabled: boolean;
+        processor: { service_graphs: Record<string, unknown> };
+        storage: { remote_write: { url: string; write_relabel_configs: unknown[] }[] };
+      };
+      overrides: { defaults: { metrics_generator: { processors: string[] } } };
+    };
+  }
+
+  it('is all Tempo’s metrics generator makes, and all it writes, to Prometheus', async () => {
+    const { tempo } = parse(await readFile(join(DEPLOY, 'base/telemetry/values/tempo.yaml'), 'utf-8')) as TempoValues;
+    expect(tempo.metricsGenerator.enabled).toBe(true);
+    // Span metrics off. A node is a service, or the host or database system a call out reached: not Tempo's defaults,
+    // `peer.service` and `db.name`, which a span may set to anything; and no span attribute is a label of its own.
+    expect(tempo.overrides.defaults.metrics_generator.processors).toEqual(['service-graphs']);
+    expect(tempo.metricsGenerator.processor).toEqual({
+      service_graphs: { peer_attributes: ['server.address'], database_name_attributes: ['db.system'] },
+    });
+    expect(tempo.metricsGenerator.storage.remote_write).toEqual([
+      {
+        url: 'http://prometheus-server.telemetry/api/v1/write',
+        write_relabel_configs: [{ source_labels: ['__name__'], regex: 'traces_service_graph_.+', action: 'keep' }],
+      },
+    ]);
+  });
+
+  it('is read by nothing the senses, the alerts or the canary’s analysis read', async () => {
+    const sources = async (dir: string) =>
+      Promise.all(
+        (await readdir(dir, { recursive: true }))
+          .filter((file) => file.endsWith('.ts') || file.endsWith('.yaml'))
+          .map(async (file) => [file, await readFile(join(dir, file), 'utf-8')] as const),
+      );
+    const read = [
+      ...(await sources(fileURLToPath(new URL('../src/', import.meta.url)))),
+      ...(await sources(join(DEPLOY, 'base/analysis'))),
+      ['prometheus-rules.yaml', await readFile(join(DEPLOY, 'base/telemetry/values/prometheus-rules.yaml'), 'utf-8')],
+    ];
+    expect(read.length).toBeGreaterThan(10);
+    expect(read.filter(([, text]) => /\btraces_/.test(text)).map(([file]) => file)).toEqual([]);
+  });
+});
+
 describe('Prometheus', () => {
+  it('lets in only what writes to it or reads it by design', async () => {
+    const values = parse(await readFile(join(DEPLOY, 'base/telemetry/values/prometheus.yaml'), 'utf-8')) as {
+      server: { extraFlags: string[] };
+    };
+    expect(values.server.extraFlags).toEqual(
+      expect.arrayContaining(['web.enable-otlp-receiver', 'web.enable-remote-write-receiver']),
+    );
+    const fences = (await manifests()).filter(
+      ({ manifest, namespace }) => manifest.kind === 'NetworkPolicy' && namespace === 'telemetry',
+    );
+    expect(fences.map(({ manifest }) => manifest.metadata?.name)).toEqual(['prometheus']);
+    const [fence] = fences.map(({ manifest }) => manifest) as {
+      spec: { podSelector: unknown; policyTypes: string[]; ingress: { from: Peer[]; ports: unknown[] }[] };
+    }[];
+    expect(fence?.spec.podSelector).toEqual(PROMETHEUS.podSelector);
+    // Ingress alone: what it scrapes is fenced by each target's own policy.
+    expect(fence?.spec.policyTypes).toEqual(['Ingress']);
+    const telemetry = (name: string) => ({ podSelector: { matchLabels: { 'app.kubernetes.io/name': name } } });
+    expect(fence?.spec.ingress).toEqual([
+      {
+        from: [
+          telemetry('opentelemetry-collector'),
+          telemetry('tempo'),
+          telemetry('grafana'),
+          telemetry('query'),
+          {
+            namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'argo-rollouts' } },
+            podSelector: { matchLabels: { 'app.kubernetes.io/component': 'rollouts-controller' } },
+          },
+        ],
+        ports: [{ protocol: 'TCP', port: 9090 }],
+      },
+    ]);
+  });
+
   it('has its lifecycle endpoints off, and reloads itself', async () => {
     const values = await readFile(join(DEPLOY, 'base/telemetry/values/prometheus.yaml'), 'utf-8');
     const parsed = parse(values) as {

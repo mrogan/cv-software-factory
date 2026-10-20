@@ -1,0 +1,44 @@
+# Who reaches Prometheus's server. On its one port it answers queries and takes writes: metrics over OTLP from the
+# collector, and Tempo's service graph over remote write. A writer could plant the series the alerts and the canary's
+# analysis judge by, so the port is open only to what writes or reads by design, and to nothing else in `telemetry`:
+#
+# - the collector, which writes over OTLP;
+# - Tempo, whose metrics generator writes the service graph;
+# - Grafana and the read-only proxy (query.yaml), which read;
+# - Argo Rollouts' controller, which runs the canary's analysis.
+#
+# Prometheus scrapes itself on its own address, which no policy stands between, and a port-forward reaches it as the
+# kubelet does, from the node. What it scrapes is fenced by each target's own policy; it may reach out as before.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus
+  namespace: telemetry
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+      app.kubernetes.io/component: server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: query
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argo-rollouts
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: rollouts-controller
+      ports:
+        - { protocol: TCP, port: 9090 }

@@ -3,19 +3,38 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { objectives } from '../../../policy/objectives.ts';
+import { STUCK } from '../../../policy/stuck.ts';
 import * as query from '../src/alerts/queries.ts';
-import { outOfDate, RULES_FILE, render, rulesFor } from '../src/alerts/rules.ts';
+import {
+  BUDGET_INTERVAL,
+  BUDGET_WINDOWS,
+  budgetRulesFor,
+  isBudgetRate,
+  LAST_STEP,
+  OBJECTIVES,
+  outOfDate,
+  RULES_FILE,
+  render,
+  routeRecords,
+  routeRulesFor,
+  rulesFor,
+  stuckRulesFor,
+} from '../src/alerts/rules.ts';
+import { coder } from '../src/line/agents/coder.ts';
+import { describer } from '../src/line/agents/describer.ts';
+import { planner } from '../src/line/agents/planner.ts';
+import { reviewer } from '../src/line/agents/reviewer.ts';
+import { OPEN_STAGES } from '../src/line/metrics.ts';
+import { leaseFor } from '../src/line/worker.ts';
 
 describe('alerting rules', () => {
-  it('judge every route alike, and only one with enough requests', () => {
+  it('judge every route by the very expressions recorded for the dashboards, not the recorded series', () => {
     const [errors, latency] = rulesFor(objectives);
-    expect(errors?.expr).toContain('sum by (http_route)');
-    expect(errors?.expr).toContain(`> ${objectives.errorRatio.max}`);
-    expect(errors?.expr).toContain(`>= ${objectives.minRequests}`);
-    expect(latency?.expr).toContain(`histogram_quantile(${objectives.latency.percentile}`);
-    expect(latency?.expr).toContain(`> ${objectives.latency.maxSeconds}`);
-    // No rule names a route: the route comes from the series.
-    for (const rule of [errors, latency]) expect(rule?.expr).not.toMatch(/http_route="/);
+    const [, errorRatio, p95] = routeRulesFor(objectives);
+    expect(errors?.expr).toBe(`(${errorRatio?.expr}) > ${objectives.errorRatio.max}`);
+    expect(latency?.expr).toBe(`(${p95?.expr}) > ${objectives.latency.maxSeconds}`);
+    // A recorded series is anyone's to send over OTLP by its name; the alerts read only the app's own.
+    for (const rule of [errors, latency]) expect(rule?.expr).not.toContain('website:route_');
   });
 
   it('label each alert with its route and symptom class', () => {
@@ -47,6 +66,153 @@ describe('alerting rules', () => {
     expect(outOfDate(objectives, file)).toBe(false);
     writeFileSync(file, `${render(objectives)}# edited\n`);
     expect(outOfDate(objectives, file)).toBe(true);
+  });
+});
+
+describe('each route’s recording rules', () => {
+  const route = routeRecords(objectives);
+  const [requests, errors, latency] = routeRulesFor(objectives);
+
+  it('are named for the objectives’ window and percentile', () => {
+    expect(route).toEqual({
+      requests: 'website:route_requests:increase15m',
+      errorRatio: 'website:route_errors:ratio_rate15m',
+      latency: 'website:route_latency_seconds:p95_rate15m',
+    });
+    expect(routeRecords({ ...objectives, windowMinutes: 30 }).errorRatio).toBe('website:route_errors:ratio_rate30m');
+  });
+
+  it('judge every route alike, and only one with enough requests', () => {
+    expect(requests).toEqual({ record: route.requests, expr: query.requests(objectives) });
+    expect(errors?.expr).toContain('sum by (http_route)');
+    expect(errors?.expr).toContain('http_response_status_code=~"5.."');
+    expect(latency?.expr).toContain(`histogram_quantile(${objectives.latency.percentile}`);
+    for (const rule of [errors, latency]) {
+      expect(rule?.expr).toContain(`[${objectives.windowMinutes}m]`);
+      expect(
+        rule?.expr.endsWith(`and on (http_route) (${query.requests(objectives)} >= ${objectives.minRequests})`),
+      ).toBe(true);
+      // No rule names a route: the route comes from the series.
+      expect(rule?.expr).not.toMatch(/http_route="/);
+    }
+  });
+
+  it('give a route with no 5xx an error ratio of 0, not none', () => {
+    expect(errors?.expr).toContain(` or ${query.requestRate(objectives)} * 0) / `);
+  });
+
+  it('are recorded every minute, in a group of their own', () => {
+    expect(render(objectives)).toMatch(/- name: routes\n {8}rules:\n {10}- record: website:route_requests:/);
+  });
+
+  it('refuse a percentile that is not a whole one, which a series could not be named by', () => {
+    expect(() => routeRecords({ ...objectives, latency: { percentile: 0.995, maxSeconds: 1 } })).toThrow(/whole/);
+  });
+});
+
+describe('the error budget’s recording rules', () => {
+  const rules = budgetRulesFor(objectives);
+  const named = (record: string) => rules.filter((rule) => rule.record === record);
+
+  it('count a request as bad by each objective’s own measure', () => {
+    const [errors, latency] = named('website:requests_bad:rate5m');
+    expect(errors?.labels).toEqual({ objective: OBJECTIVES.errorRatio });
+    expect(errors?.expr).toContain('http_response_status_code=~"5.."');
+    expect(latency?.labels).toEqual({ objective: OBJECTIVES.latency });
+    expect(latency?.expr).toContain(`le="${objectives.latency.maxSeconds}"`);
+  });
+
+  it('allow each objective the share of requests it lets be bad', () => {
+    const budgets = named('website:error_budget:ratio').map((rule) => [rule.labels?.objective, rule.expr]);
+    expect(budgets).toEqual([
+      [OBJECTIVES.errorRatio, `vector(${objectives.errorRatio.max})`],
+      [OBJECTIVES.latency, `vector(${Number((1 - objectives.latency.percentile).toFixed(6))})`],
+    ]);
+  });
+
+  it('record the share bad over an hour, six and the budget’s seven days, and the burn over the first two', () => {
+    expect(BUDGET_WINDOWS).toEqual(['1h', '6h', '7d']);
+    for (const w of BUDGET_WINDOWS) expect(named(`website:requests_bad:ratio_rate${w}`)).toHaveLength(1);
+    expect(rules.filter((rule) => rule.record.startsWith('website:error_budget_burn:')).map((r) => r.record)).toEqual([
+      'website:error_budget_burn:rate1h',
+      'website:error_budget_burn:rate6h',
+    ]);
+    expect(named('website:error_budget_remaining:ratio7d')[0]?.expr).toContain('website:requests_bad:ratio_rate7d');
+  });
+
+  it('record the five-minute rates every five minutes, so seven days are a sum of 2,016 samples, not 10,080', () => {
+    expect(BUDGET_INTERVAL).toBe('5m');
+    const text = render(objectives);
+    const group = (name: string) =>
+      [...(text.split(`- name: ${name}\n`)[1]?.split('- name: ')[0] ?? '').matchAll(/record: (\S+)/g)].map((m) => m[1]);
+    expect(text).toContain(`- name: error-budget-rates\n        interval: ${BUDGET_INTERVAL}\n        rules:\n`);
+    expect(group('error-budget-rates')).toEqual([
+      'website:requests:rate5m',
+      'website:requests_bad:rate5m',
+      'website:requests_bad:rate5m',
+    ]);
+    for (const rule of rules.filter(isBudgetRate)) expect(rule.expr).toContain('[5m]');
+  });
+
+  it('record what is read from them every minute, which Prometheus would not find while a five-minute one is written', () => {
+    const text = render(objectives);
+    expect(text).toMatch(/- name: error-budget\n {8}rules:\n/);
+    const derived = rules.filter((rule) => !isBudgetRate(rule)).map((rule) => rule.record);
+    expect(derived).toContain('website:error_budget_burn:rate1h');
+    expect(derived).toContain('website:error_budget_remaining:ratio7d');
+  });
+
+  it('refuse a latency objective that is not a bound of the app’s buckets, which no series could count', () => {
+    expect(() => budgetRulesFor({ ...objectives, latency: { percentile: 0.95, maxSeconds: 0.8 } })).toThrow(
+      /not a bound/,
+    );
+  });
+});
+
+describe('the line’s recording rules', () => {
+  it('give every stage the line reports a limit or none, and no other', () => {
+    expect(Object.keys(STUCK).sort()).toEqual([...OPEN_STAGES].sort());
+  });
+
+  it('leave a step and its one retry, to the end of their leases, half an hour to spare', () => {
+    // A runner that dies is noticed only when its lease runs out; a step that fails runs once more.
+    const lease = (agent: { deadlineSeconds: number }) => leaseFor(agent.deadlineSeconds) / 60;
+    const spare = 30;
+    expect(STUCK.plan.minutes).toBeGreaterThanOrEqual(2 * lease(planner) + spare);
+    expect(STUCK.build.minutes).toBeGreaterThanOrEqual(2 * lease(coder) + spare);
+    expect(STUCK.review.minutes).toBeGreaterThanOrEqual(
+      lease(reviewer) + lease(describer) + Math.max(lease(reviewer), lease(describer)) + spare,
+    );
+  });
+
+  it('record a limit for each stage that has one, in seconds', () => {
+    const limits = stuckRulesFor(STUCK).filter((rule) => rule.record === 'line:stage_limit_seconds');
+    const expected = Object.entries(STUCK).flatMap(([stage, { minutes }]) =>
+      minutes === null ? [] : [[stage, `vector(${minutes * 60})`]],
+    );
+    expect(limits.map((rule) => [rule.labels?.stage, rule.expr])).toEqual(expected);
+    expect(limits.map((rule) => rule.labels?.stage)).not.toContain('held');
+  });
+
+  it('read the line’s gauges with max, which two replicas would otherwise count twice', () => {
+    // The steps are a counter, which each replica keeps of its own: they add up.
+    const gauges = stuckRulesFor(STUCK).filter(
+      (r) => r.record !== 'line:stage_limit_seconds' && r.record !== LAST_STEP,
+    );
+    for (const rule of gauges) {
+      expect(rule.expr).not.toMatch(/\bsum\b/);
+    }
+  });
+
+  it('record when a step was last counted, for a week’s last to be read cheaply', () => {
+    const last = stuckRulesFor(STUCK).find((rule) => rule.record === LAST_STEP);
+    expect(last?.expr).toBe('timestamp(sum(increase(line_steps_total[5m])) > 0)');
+  });
+
+  it('follow the policy', () => {
+    const stricter = { ...STUCK, build: { minutes: 30 } };
+    expect(render(objectives, stricter)).toContain('vector(1800)');
+    expect(render(objectives, stricter)).not.toBe(render(objectives));
   });
 });
 

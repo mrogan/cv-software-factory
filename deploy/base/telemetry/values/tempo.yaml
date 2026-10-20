@@ -14,16 +14,17 @@ tempo:
     allowPrivilegeEscalation: false
     capabilities:
       drop: [ALL]
+  # Searches take it to 900Mi or so, and the metrics generator holds each edge's series and the spans it waits to pair.
   resources:
     requests:
       cpu: 50m
-      memory: 256Mi
+      memory: 384Mi
     limits:
-      memory: 1Gi
+      memory: 1536Mi
   # Go collects hard before the kernel kills: 90% of the limit above, in bytes, as Prometheus sets for itself.
   extraEnv:
     - name: GOMEMLIMIT
-      value: "966367641"
+      value: "1449551462"
   # One search is split into jobs, a block or so each, and the querier runs this many at once across every search: the
   # bound on what searches hold in memory together. Tempo's defaults run 20 batches of up to 7 jobs each, every job of a
   # batch at once; one job a batch makes the bound eight jobs. The factory's reads take one to a dozen jobs.
@@ -47,6 +48,38 @@ tempo:
   backendWorker:
     backoff:
       max_period: 5m
+  # The metrics generator, for the service graph alone: each pair of a client span and the server span under it, across
+  # services, is an edge from one to the other, counted with its latency and failures, and written to Prometheus as
+  # `traces_service_graph_*`, which Grafana's Tempo data source draws (values/grafana.yaml). Span metrics, a series for
+  # each span name and its attributes, are off. A node is a service's `service.name`, or, for a call out that no
+  # service of ours answered, the host it called (`server.address`) or the database system (`db.system`): never
+  # Tempo's defaults, `peer.service` and `db.name`, which a span may set to anything. Only these series are written,
+  # and only Tempo writes them (prometheus-fence.yaml). Nothing the senses, the alerts or the canary's analysis read is
+  # named `traces_`: any sender names its own service, so an edge is a picture, not evidence.
+  #
+  # Each minute, as Prometheus scrapes, it writes what it has counted; what it could not write yet waits on the volume.
+  # TraceQL metrics queries, the agreement check's among them, are the querier's in Tempo 3, generator or none: they need
+  # no `local-blocks` processor here.
+  metricsGenerator:
+    enabled: true
+    processor:
+      service_graphs:
+        peer_attributes: [server.address]
+        database_name_attributes: [db.system]
+    registry:
+      collection_interval: 1m
+    storage:
+      path: /var/tempo/generator/wal
+      remote_write:
+        - url: http://prometheus-server.telemetry/api/v1/write
+          write_relabel_configs:
+            - source_labels: [__name__]
+              regex: traces_service_graph_.+
+              action: keep
+  overrides:
+    defaults:
+      metrics_generator:
+        processors: [service-graphs]
 persistence:
   enabled: true
   size: 4Gi

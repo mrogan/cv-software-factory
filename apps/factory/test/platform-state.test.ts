@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { DEPLOY, manifests as deployManifests, PROMETHEUS } from './deploy.ts';
+import { DEPLOY, manifests as deployManifests, PROMETHEUS, type Relabel, relabel } from './deploy.ts';
 
 /**
  * The cluster's state and Postgres's statistics as deploy/ declares them (#385): kube-state-metrics, from the
@@ -118,6 +118,24 @@ describe('the Postgres exporter', () => {
         ports: [{ protocol: 'TCP', port: 5432 }],
       },
     ]);
+  });
+
+  it('has its settings dropped as they are scraped, but for max_connections', async () => {
+    const { scrapeConfigs } = parse(await readFile(join(DEPLOY, 'base/telemetry/values/prometheus.yaml'), 'utf-8')) as {
+      scrapeConfigs: Record<string, { metric_relabel_configs?: Relabel[] }>;
+    };
+    const rules = scrapeConfigs['kubernetes-pods']?.metric_relabel_configs ?? [];
+    const exporter = { job: 'kubernetes-pods', namespace: 'factory' };
+    expect(relabel(rules, { __name__: 'pg_settings_max_connections', ...exporter })).toEqual({
+      __name__: 'pg_settings_max_connections',
+      ...exporter,
+    });
+    expect(relabel(rules, { __name__: 'pg_settings_shared_buffers_bytes', ...exporter })).toBeUndefined();
+    expect(relabel(rules, { __name__: 'pg_settings_max_wal_size_bytes', ...exporter })).toBeUndefined();
+    expect(relabel(rules, { __name__: 'pg_stat_database_numbackends', ...exporter })).toEqual({
+      __name__: 'pg_stat_database_numbackends',
+      ...exporter,
+    });
   });
 
   it('is let into Postgres', async () => {
