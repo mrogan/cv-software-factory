@@ -1009,7 +1009,7 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "d",
+              "unit": "suffix: days",
               "decimals": 1,
               "noValue": "Prometheus is not reporting",
               "color": { "mode": "thresholds" },
