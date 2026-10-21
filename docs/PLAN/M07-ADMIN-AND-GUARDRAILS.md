@@ -2,7 +2,7 @@
 
 ## Outcome
 
-Martin runs the factory from the console, not from the command line or by hand in the store. He signs in with a passkey and answers what waits on him in Needs you. He also stops and starts the line, sets the autonomy level and the switches, promotes, pauses, rolls back and retries a canary, chooses each agent's model and effort, sets the spend caps within what policy allows, and reads the audit log. Everything he can change, a visitor can see, drawn read-only, so the controls that make the factory safe are part of the demo.
+Martin runs the factory from the console, not from the command line or by hand in the store. He signs in with a passkey and answers what waits on him in Needs you. He also stops and starts the line, sets the autonomy level and the switches, promotes, pauses, aborts and retries a canary, chooses each agent's model and effort, sets the spend caps within what policy allows, and reads the audit log. Everything he can change, a visitor can see, drawn read-only, so the controls that make the factory safe are part of the demo.
 
 He asks for an improvement with the "+" on Plan. It goes down the same line as a fix and ships behind a feature flag that he switches from the console in stages. Verify compares the flag's two sides before everyone gets it.
 
@@ -22,7 +22,7 @@ The part's session orchestrates with the `/implement` skill (`.claude/skills/imp
 
 - **`/security-review` on every Part A pull request,** and on any in B or C that touches sign-in, the admin service, a credential, a fence or the approval routing. Each brief says so.
 - **The orchestrator does what a worker skips:**
-  - a deploy pull request that waits for an image, opened once Martin has merged the change that builds it;
+  - a `deploy/` change that waits for an image (a new Deployment, a migration, a new setting), opened once Martin has merged the change that builds the image and the App's deploy pull request that pins it. Only the App's deploy watch opens a pin's pull request (ADR 0005);
   - a proof on the local cluster, run with the `try-the-line` skill on Claude, time-boxed and within the spend caps;
   - a drill.
 
@@ -41,7 +41,7 @@ The part's session orchestrates with the `/implement` skill (`.claude/skills/imp
 ### Signing in
 
 - **A passkey, and nothing else.** Martin signs in with a passkey (WebAuthn, user verification required): it cannot be phished, nothing reusable is kept on the server, and it works the same on every profile. There is no password and no third party.
-- **Enrolled from the command line.** `factory admin enrol`, run with the store's writer credentials, prints a one-time code that lasts ten minutes and allows five tries; Martin enters it on the console's enrolment page and makes a passkey. He may hold two (a laptop and a phone). `factory admin enrol --revoke-others` is recovery: it revokes every other passkey and every session. Each passkey belongs to its host, so each profile is enrolled on its own.
+- **Enrolled from the command line.** `factory admin enrol`, run with the store's writer credentials, prints a one-time code that lasts ten minutes and allows five tries; Martin enters it on the console's enrolment page and makes a passkey. Enrolment is the one write that takes no session: the code is its credential, used once, and the page still checks `Origin`, accepts only `POST` and is rate-limited by client address. `policy/access.ts` gives it a role of its own, `enrolment code`, and the access tests prove it refuses a request with no code, a used one, an expired one and a sixth try. Every passkey is enrolled this way, so a signed-in session can never add one. He may hold two (a laptop and a phone). `factory admin enrol --revoke-others` is recovery: it revokes every other passkey and every session. Each passkey belongs to its host, so each profile is enrolled on its own.
 - **Sessions are kept on the server.** The browser holds only a random id in a cookie named `__Host-session`, `Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/`; the store keeps its hash. A session lasts eight hours from sign-in with no idle timeout, a figure in `policy/access.ts`: ASVS asks for an idle timeout, and ADR 0012 records why there is none (one admin, who signs in with a passkey and gives it again for every high-impact action). The id changes at sign-in, signing out ends it on the server, and "sign out everywhere" ends them all.
 - **Every change that loosens a control or promotes something needs the passkey again,** given within the last five minutes:
   - raising a spend cap;
@@ -49,7 +49,7 @@ The part's session orchestrates with the `/implement` skill (`.claude/skills/imp
   - turning auto-merge on, or auto-rollback off;
   - promoting a canary;
   - widening a flag's stage;
-  - enrolling or revoking a passkey.
+  - revoking a passkey.
 
   `policy/access.ts` marks each, and a test holds the spec's list and the table to each other.
 - **Every write is defended against forgery:**
@@ -150,7 +150,7 @@ Each task is its own pull request, in order, each demonstrable.
   - sign-in and enrolment;
   - the settings;
   - the audit log;
-  - promote, pause, roll back and retry on the Canary panel;
+  - promote, pause, abort and retry on the Canary panel;
   - preview as visitor;
   - each one's read-only form for visitors.
 - The README's "Not decided yet" loses what this settles.
@@ -184,7 +184,7 @@ Each task is its own pull request, in order, each demonstrable.
 ### 6. Release controls
 
 - The admin service's Role on the app's Rollout, and `release-fences.test.ts` updated to allow it alone.
-- Promote (to the next step, or fully), pause, abort and retry on the Canary panel, each an event with Martin as its actor. A retry ends the "until Martin retries it" holds that today take a `kubectl` patch.
+- Promote (to the next step, or fully), pause, abort and retry on the Canary panel, each an event with Martin as its actor. Martin's abort is `release.aborted` with `by: martin`, recorded by the control rather than inferred from time: the version before takes all the traffic, nothing failed, and it is no signal. A rollback stays the analysis's alone. A retry ends the "until Martin retries it" holds that today take a `kubectl` patch.
 
 ### 7. The line's controls
 
@@ -257,7 +257,7 @@ Outlined here, and detailed when Part B is done.
   - the runners' network policies render as intended.
 
   The rulesets' drift check (`github-settings.ts --check`) runs on a schedule.
-- **19a. A store role for each worker (#435).** Every worker writes as `factory_writer` today; each gets a role of its own, granted only the tables it needs, with a test of each role's grants.
+- **19a. A store role for each worker that uses the store (#435).** Each writes as `factory_writer` today; each gets a role of its own, granted only the tables it needs, with a test of each role's grants. The GitHub worker and the traffic generator never connect to the store, and get none.
 - **20. `make guardrails`.** One command for the proofs that need the cluster:
   - egress;
   - admission's refusals;

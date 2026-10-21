@@ -52,7 +52,7 @@ Something that needs Martin's decision, or that cannot merge until something els
 
 A worker skips what needs an image pinned first, a migration with an ordered rollout, or the local cluster to prove it. When the plan or the brief names such work, it is yours, not a skip to report:
 
-- **A deploy pull request that waits for an image:** list it in the summary with what it waits for, and open it in a later run, once Martin has merged the change that builds the image.
+- **A `deploy/` change that waits for an image** (a new Deployment, a migration, a new setting): list it in the summary with what it waits for, and make it in a later run, once Martin has merged the change that builds the image and the App's deploy pull request that pins it. Only the App's deploy watch opens a pin's pull request (ADR 0005); never open one yourself.
 - **A proof or a drill on the local cluster:** run it yourself with the `try-the-line` skill, time-boxed, and log what it showed in `NOTES.md`; until then it is in the summary.
 
 When a milestone's plan asks for `/security-review` on a task, say so in its brief.

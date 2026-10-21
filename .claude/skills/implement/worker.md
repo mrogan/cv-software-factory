@@ -35,7 +35,7 @@ Keep the change to what the work needs, and give each file a line in its own sec
 2. **Triage.** Read the issue or the brief, and the code it names. Stop and report `skipped`, with a one-paragraph reason, if:
    - it is invalid, already done, or duplicates an open issue or pull request;
    - it needs a decision only Martin can make that neither the issue nor the brief settles (a change to the intent, a trade-off left open, a security flaw);
-   - it can't merge on its own: it needs a new image pinned before a `deploy/` change, a migration with an ordered rollout, or a change to the local cluster to prove it. When your brief hands that part (the deploy pull request, the proof) to the orchestrator, this is no reason to skip: build the rest, and name what you left under `decisions`.
+   - it can't merge on its own: it needs a new image pinned before a `deploy/` change, a migration with an ordered rollout, or a change to the local cluster to prove it. When your brief hands that part (the `deploy/` change, the proof) to the orchestrator, this is no reason to skip: build the rest, and name what you left under `decisions`.
 
    That a file is code-owned is never on its own a reason to skip.
 3. **Implement.** Follow `AGENTS.md` and the docs it points to. Add or change tests to cover the change. `make check` passes before going on; run `make e2e` too if the console changed (snapshots only in the pinned image, `make e2e UPDATE=1`).
