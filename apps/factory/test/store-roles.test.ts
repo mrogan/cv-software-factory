@@ -1,0 +1,55 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { PASSWORDS, WORKERS } from '../../../packages/store/src/migrate.ts';
+import { DEPLOY, manifests } from './deploy.ts';
+
+/**
+ * Each worker's own role in the store (#435) gets its password as the store's other roles do: from a Secret `make up`
+ * makes, which the migrate Job reads and sets.
+ */
+interface Env {
+  name: string;
+  valueFrom?: { secretKeyRef?: { name: string; key: string; optional?: boolean } };
+}
+interface Job {
+  kind?: string;
+  metadata?: { name?: string };
+  spec?: { template?: { spec: { containers: { env?: Env[] }[] } } };
+}
+
+const migrateJob = async () => {
+  const found = (await manifests<Job>()).find(
+    (m) => m.manifest.kind === 'Job' && m.manifest.metadata?.name === 'migrate',
+  );
+  return found?.manifest.spec?.template?.spec.containers[0]?.env ?? [];
+};
+
+describe('the store’s passwords', () => {
+  it('are each set by the migrate Job from a Secret, for every role the migrations give one', async () => {
+    const env = await migrateJob();
+    for (const { variable } of Object.values(PASSWORDS)) {
+      expect(env.find((e) => e.name === variable)?.valueFrom?.secretKeyRef?.key, variable).toBe('password');
+    }
+  });
+
+  it('come from a Secret of each worker’s own, optional so a cluster made before them still migrates', async () => {
+    const env = await migrateJob();
+    for (const worker of WORKERS) {
+      expect(env.find((e) => e.name === PASSWORDS[worker].variable)?.valueFrom?.secretKeyRef).toEqual({
+        name: `postgres-${worker}`,
+        key: 'password',
+        optional: true,
+      });
+    }
+  });
+
+  it('are made by `make worker-secrets`, which `make up` runs, one for each worker', async () => {
+    const makefile = await readFile(join(DEPLOY, '../Makefile'), 'utf-8');
+    expect(makefile).toMatch(/^STORE_WORKERS := (.+)$/m);
+    expect(makefile.match(/^STORE_WORKERS := (.+)$/m)?.[1]?.split(' ')).toEqual([...WORKERS]);
+    expect(makefile).toMatch(/^up:[^\n]*\n(?:\t[^\n]*\n)*\t@\$\(MAKE\) --no-print-directory worker-secrets$/m);
+    expect(makefile).toMatch(/^worker-secrets: .*## /m);
+    expect(makefile).toMatch(/create secret generic postgres-\$\$worker --from-file=password=\/dev\/stdin/);
+  });
+});

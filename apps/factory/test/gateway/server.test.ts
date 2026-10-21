@@ -34,10 +34,10 @@ const start = async (mode: Mode, policy: SpendPolicy = { dayUsd: 20, monthUsd: 1
   // A database of its own, so one test's spend is not another's.
   database = await freshDatabase('server');
   const dir = mkdtempSync(join(tmpdir(), 'cassettes-'));
-  const events = new EventWriter(database.writer, { kind: 'real', artifacts: new DiskArtifacts(dir) });
-  const spend = new Spend({ sql: database.writer, events, profile: 'local', policy, log: captured.log });
+  const events = new EventWriter(database.as.gateway, { kind: 'real', artifacts: new DiskArtifacts(dir) });
+  const spend = new Spend({ sql: database.as.gateway, events, profile: 'local', policy, log: captured.log });
   const gateway = new Gateway({
-    sql: database.writer,
+    sql: database.as.gateway,
     spend,
     cassettes: new Cassettes({ record: dir }),
     mode,

@@ -7,14 +7,14 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import postgres, { type Sql } from 'postgres';
 import type { TestProject } from 'vitest/node';
-import { migrate } from '../src/migrate.ts';
+import { migrate, type Passwords, PASSWORDS as ROLES, WORKERS, type Worker } from '../src/migrate.ts';
 
-export const PASSWORDS = {
-  writer: 'writer-test-password',
-  console: 'console-test-password',
-  scoreboard: 'scoreboard-test-password',
-  metrics: 'metrics-test-password',
-};
+export { WORKERS, type Worker };
+
+/** Each role's password in the tests: its name's. */
+export const PASSWORDS = Object.fromEntries(
+  Object.keys(ROLES).map((name) => [name, `${name}-test-password`]),
+) as Required<Record<keyof Passwords, string>>;
 const quiet = { onnotice: () => {}, max: 2 };
 
 export interface Database {
@@ -24,6 +24,8 @@ export interface Database {
   reader: Sql;
   scoreboard: Sql;
   metrics: Sql;
+  /** A connection as each worker's own role. */
+  as: Record<Worker, Sql>;
   end(): Promise<void>;
 }
 
@@ -151,6 +153,7 @@ export async function createDatabase(server: string, name: string): Promise<Data
   const reader = as('console_reader', PASSWORDS.console);
   const scoreboard = as('scoreboard_writer', PASSWORDS.scoreboard);
   const metrics = as('metrics_reader', PASSWORDS.metrics);
+  const workers = Object.fromEntries(WORKERS.map((w) => [w, as(ROLES[w].role, PASSWORDS[w])])) as Record<Worker, Sql>;
   return {
     name: database,
     owner,
@@ -158,8 +161,9 @@ export async function createDatabase(server: string, name: string): Promise<Data
     reader,
     scoreboard,
     metrics,
+    as: workers,
     end: async () => {
-      await Promise.all([owner.end(), writer.end(), reader.end(), scoreboard.end(), metrics.end()]);
+      await Promise.all([owner, writer, reader, scoreboard, metrics, ...Object.values(workers)].map((c) => c.end()));
     },
   };
 }

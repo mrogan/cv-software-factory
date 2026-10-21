@@ -30,9 +30,12 @@ What it lacks is telemetry: OpenTelemetry instruments `pg` and not postgres.js, 
 
 | Role | May |
 |---|---|
-| The factory's writer | Append and read; delete the pictures no release needs, and the inbox's old repeats ([triage](TRIAGE.md#matching-an-open-ticket)) but no other signal, which row security refuses |
+| The factory's writer | Append and read; delete the pictures no release needs, and the inbox's old repeats ([triage](TRIAGE.md#matching-an-open-ticket)) but no other signal, which row security refuses. Every worker connects as it until it moves to its own role ([#435](https://github.com/mrogan/cv-software-factory/issues/435)) |
+| Each worker's own | What that worker uses and nothing else, and append and read events through a role they share |
 | The console's reader | See public views only |
 | The Postgres exporter's reader | Read the statistics any role may read, and nothing of the store |
+
+What each role may touch, table by table, column by column and, under row security, row by row, is one table, [`policy/store-grants.ts`](../../policy/store-grants.ts), and a test of the migrated store fails unless its grants and policies are exactly that table's. Each worker that uses the store (triage, the line, the gateway, the probes, the crawler, the intake and the log watcher) has a role of its own, named for it (`factory_triage` and the like), and each is a member of `factory_worker`, which may append and read events and logs in as nobody. On its own role, a worker taken over cannot touch another's tables: only the line writes its queue or ends a job's token, only the probes delete a picture, only triage says what became of a signal, and row security lets each sense send only its own signals and keep only its own looks. Any of them can still append any event. The GitHub worker and the traffic generator never connect to the store, and have no role. Each role's password is in a Secret of its own, `postgres-<worker>`, made by `make up` or, on a cluster made before, `make worker-secrets`; the migrate Job sets it.
 
 The [scoreboard](SCOREBOARD.md) has a role of its own. The exporter's ([telemetry](TELEMETRY.md#the-clusters-state-and-postgres)) is granted nothing, not even `pg_read_all_stats`, which would show it other sessions' queries, the migrations' setting of the roles' passwords among them. It may hold four connections.
 

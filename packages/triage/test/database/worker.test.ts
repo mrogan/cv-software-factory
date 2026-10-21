@@ -20,7 +20,7 @@ const at = '2026-10-04T09:00:00.000Z';
 
 beforeAll(async () => {
   database = await freshDatabase('triage');
-  writer = database.writer;
+  writer = database.as.triage;
   events = new EventWriter(writer, { kind: 'real', artifacts });
 });
 afterAll(() => database?.end());
@@ -114,15 +114,15 @@ const types = (item: string) =>
 
 describe('triage', () => {
   it('opens a ticket for a new fingerprint, adds each sense’s evidence once a version, counts the rest', async () => {
-    await sendSignal(writer, found());
+    await sendSignal(database.owner, found());
     expect(await triage().takeOne()).toBe('opened');
     const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
       select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
     expect(await types(item)).toEqual(['work-item.opened', 'signal.received', 'ticket.opened', 'work-item.summarised']);
 
-    await sendSignal(writer, found());
-    await sendSignal(writer, found({ sense: 'probe', check: 'every link on the page leads somewhere' }));
-    await sendSignal(writer, found({ sense: 'probe', check: 'every link on the page leads somewhere' }));
+    await sendSignal(database.owner, found());
+    await sendSignal(database.owner, found({ sense: 'probe', check: 'every link on the page leads somewhere' }));
+    await sendSignal(database.owner, found({ sense: 'probe', check: 'every link on the page leads somewhere' }));
     expect([await triage().takeOne(), await triage().takeOne(), await triage().takeOne()]).toEqual([
       'counted',
       'evidence',
@@ -132,16 +132,19 @@ describe('triage', () => {
     expect(await triage().takeOne()).toBe('idle');
 
     // A new version of the app with the same defect: each sense that sees it there adds its evidence again, once.
-    await sendSignal(writer, found({ version: 'd03afe9' }));
-    await sendSignal(writer, found({ version: 'd03afe9' }));
+    await sendSignal(database.owner, found({ version: 'd03afe9' }));
+    await sendSignal(database.owner, found({ version: 'd03afe9' }));
     expect([await triage().takeOne(), await triage().takeOne()]).toEqual(['evidence', 'counted']);
     expect((await types(item)).filter((t) => t === 'signal.received')).toHaveLength(3);
   });
 
   it('numbers work items from the store, and counts a route’s signal on a ticket for every page', async () => {
-    await sendSignal(writer, found({ route: '*', symptom: 'missing-header', check: 'security headers' }));
+    await sendSignal(database.owner, found({ route: '*', symptom: 'missing-header', check: 'security headers' }));
     await triage().takeOne();
-    await sendSignal(writer, found({ route: '/contact', symptom: 'missing-header', check: 'security headers' }));
+    await sendSignal(
+      database.owner,
+      found({ route: '/contact', symptom: 'missing-header', check: 'security headers' }),
+    );
     expect(await triage().takeOne()).toBe('counted');
     const items = await writer<
       { work_item: string }[]
@@ -182,7 +185,7 @@ describe('triage', () => {
       )[0]?.work_item ?? '';
 
     it('opens a ticket as any sense’s signal does, and adds the next rollback of the same measure to it', async () => {
-      await sendSignal(writer, rollback());
+      await sendSignal(database.owner, rollback());
       expect(await triage().takeOne()).toBe('opened');
       const item = await openedBy();
       const [ticket] = await writer<{ payload: PayloadOf<'ticket.opened'>; actor: string }[]>`
@@ -204,38 +207,41 @@ describe('triage', () => {
 
       // The next release that carries the defect fails the same way: the same ticket, which records that release.
       const next = 'd'.repeat(40);
-      await sendSignal(writer, rollback({ version: next, observedAt: '2026-10-04T11:00:00.000Z' }));
+      await sendSignal(database.owner, rollback({ version: next, observedAt: '2026-10-04T11:00:00.000Z' }));
       expect(await triage().takeOne()).toBe('evidence');
       const versions = await writer<{ version: string }[]>`
         select payload->>'version' as version from events where work_item = ${item} and type = 'signal.received'
         order by seq`;
       expect(versions.map((v) => v.version)).toEqual(['c'.repeat(40), next]);
       // The same release's signal again is only counted.
-      await sendSignal(writer, rollback({ version: next, observedAt: '2026-10-04T11:05:00.000Z' }));
+      await sendSignal(database.owner, rollback({ version: next, observedAt: '2026-10-04T11:05:00.000Z' }));
       expect(await triage().takeOne()).toBe('counted');
     });
 
     it('neither takes another sense’s signal on one route, nor is taken by another’s ticket on every route', async () => {
-      await sendSignal(writer, rollback());
+      await sendSignal(database.owner, rollback());
       expect(await triage().takeOne()).toBe('opened');
       // The canary did worse on many routes: that is not the probe's defect on one of them.
-      await sendSignal(writer, found({ sense: 'probe', check: 'search', route: '/search', symptom: 'slow-response' }));
+      await sendSignal(
+        database.owner,
+        found({ sense: 'probe', check: 'search', route: '/search', symptom: 'slow-response' }),
+      );
       expect(await triage().takeOne()).toBe('opened');
 
       // A sense saw a broken link on every page: a rollback on one route is a defect of its own.
-      await sendSignal(writer, found({ route: '*', check: 'links' }));
+      await sendSignal(database.owner, found({ route: '*', check: 'links' }));
       expect(await triage().takeOne()).toBe('opened');
       await sendSignal(
-        writer,
+        database.owner,
         rollback({ check: 'journeys', route: '/about', symptom: 'broken-link', evidence: undefined }),
       );
       expect(await triage().takeOne()).toBe('opened');
       // Only the same route is the same problem: the probe's ticket on /search takes the canary's signal there. The
       // crawler's every page is not the canary's.
-      await sendSignal(writer, rollback({ route: '/search', check: 'latency', evidence: undefined }));
+      await sendSignal(database.owner, rollback({ route: '/search', check: 'latency', evidence: undefined }));
       expect(await triage().takeOne()).toBe('evidence');
       await sendSignal(
-        writer,
+        database.owner,
         rollback({ route: '*', check: 'journeys', symptom: 'broken-link', evidence: undefined }),
       );
       expect(await triage().takeOne()).toBe('opened');
@@ -243,13 +249,13 @@ describe('triage', () => {
   });
 
   it('reopens no other sense’s verified ticket on every route for a rollback on every route', async () => {
-    await sendSignal(writer, found({ route: '*', symptom: 'slow-response', check: 'speed' }));
+    await sendSignal(database.owner, found({ route: '*', symptom: 'slow-response', check: 'speed' }));
     expect(await triage().takeOne()).toBe('opened');
     const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
       select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
     await events.append(closed(item, 'verified'));
     await sendSignal(
-      writer,
+      database.owner,
       found({
         sense: 'canary',
         check: 'latency',
@@ -272,7 +278,7 @@ describe('triage', () => {
       outcome: PayloadOf<'work-item.closed'>['outcome'],
       verification?: { dryRun: boolean },
     ) => {
-      await sendSignal(writer, signal);
+      await sendSignal(database.owner, signal);
       expect(await triage().takeOne()).toBe('opened');
       const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
         select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
@@ -296,7 +302,7 @@ describe('triage', () => {
 
     it('reopens when a sense sees its fingerprint again, and is an open ticket from then on', async () => {
       const item = await ticketFor(found({ route: '/reopen' }), 'verified');
-      await sendSignal(writer, again({ route: '/reopen', version: 'd03afe9' }));
+      await sendSignal(database.owner, again({ route: '/reopen', version: 'd03afe9' }));
       expect(await triage().takeOne()).toBe('reopened');
       expect((await types(item)).slice(-3)).toEqual(['work-item.closed', 'work-item.reopened', 'signal.received']);
       const [reopened] = await writer<{ summary: string; payload: PayloadOf<'work-item.reopened'> }[]>`
@@ -313,9 +319,9 @@ describe('triage', () => {
       expect(inbox).toEqual({ outcome: 'reopened', work_item: item });
 
       // Open again, it dedupes as any open ticket does: the same sense is counted, another's evidence joins once.
-      await sendSignal(writer, again({ route: '/reopen', version: 'd03afe9' }));
+      await sendSignal(database.owner, again({ route: '/reopen', version: 'd03afe9' }));
       await sendSignal(
-        writer,
+        database.owner,
         again({ route: '/reopen', version: 'd03afe9', sense: 'probe', check: 'every link leads somewhere' }),
       );
       expect([await triage().takeOne(), await triage().takeOne()]).toEqual(['counted', 'evidence']);
@@ -323,7 +329,7 @@ describe('triage', () => {
 
     it('counts a signal the sense saw before the close: it is of the version the fix replaced', async () => {
       const item = await ticketFor(found({ route: '/stale' }), 'verified');
-      await sendSignal(writer, found({ route: '/stale' }));
+      await sendSignal(database.owner, found({ route: '/stale' }));
       expect(await triage().takeOne()).toBe('counted');
       const [inbox] = await writer`select outcome, work_item from inbox order by received_at desc limit 1`;
       expect(inbox).toEqual({ outcome: 'counted', work_item: item });
@@ -332,7 +338,7 @@ describe('triage', () => {
 
     it('counts a signal on a ticket a dry run verified: its fix never shipped, so it never reopens', async () => {
       const item = await ticketFor(found({ route: '/dry' }), 'verified', { dryRun: true });
-      await sendSignal(writer, again({ route: '/dry' }));
+      await sendSignal(database.owner, again({ route: '/dry' }));
       expect(await triage().takeOne()).toBe('counted');
       const [inbox] = await writer`select outcome, work_item from inbox order by received_at desc limit 1`;
       expect(inbox).toEqual({ outcome: 'counted', work_item: item });
@@ -383,20 +389,20 @@ describe('triage', () => {
         },
         closed(item, 'verified'),
       ]);
-      await sendSignal(writer, again({ route: '/looked' }));
+      await sendSignal(database.owner, again({ route: '/looked' }));
       expect(await triage().takeOne()).toBe('reopened');
     });
 
     it('reopens a ticket verified on a release that shipped', async () => {
       const item = await ticketFor(found({ route: '/shipped' }), 'verified', { dryRun: false });
-      await sendSignal(writer, again({ route: '/shipped' }));
+      await sendSignal(database.owner, again({ route: '/shipped' }));
       expect(await triage().takeOne()).toBe('reopened');
       expect((await types(item)).slice(-2)).toEqual(['work-item.reopened', 'signal.received']);
     });
 
     it('opens a new ticket when the same fingerprint returns on a ticket closed any other way', async () => {
       const item = await ticketFor(found({ route: '/not-fixed' }), 'no-change');
-      await sendSignal(writer, again({ route: '/not-fixed' }));
+      await sendSignal(database.owner, again({ route: '/not-fixed' }));
       expect(await triage().takeOne()).toBe('opened');
       const [inbox] = await writer<
         { work_item: string }[]
@@ -407,20 +413,20 @@ describe('triage', () => {
 
     it('goes by the last close: one closed again after it reopened, not as verified, stays closed', async () => {
       const item = await ticketFor(found({ route: '/again' }), 'verified');
-      await sendSignal(writer, again({ route: '/again' }));
+      await sendSignal(database.owner, again({ route: '/again' }));
       expect(await triage().takeOne()).toBe('reopened');
       await events.append(closed(item, 'no-change'));
-      await sendSignal(writer, again({ route: '/again' }));
+      await sendSignal(database.owner, again({ route: '/again' }));
       expect(await triage().takeOne()).toBe('opened');
     });
 
     it('matches its fingerprint exactly: a ticket on every page is not one page’s defect come back', async () => {
       const every = { route: '*', symptom: 'missing-header', check: 'security headers' } as const;
       const item = await ticketFor(found(every), 'verified');
-      await sendSignal(writer, again({ ...every, route: '/contact' }));
+      await sendSignal(database.owner, again({ ...every, route: '/contact' }));
       expect(await triage().takeOne()).toBe('opened');
       expect(await types(item)).not.toContain('work-item.reopened');
-      await sendSignal(writer, again(every));
+      await sendSignal(database.owner, again(every));
       expect(await triage().takeOne()).toBe('reopened');
     });
   });
@@ -434,9 +440,9 @@ describe('triage', () => {
     });
     const opened: boolean[] = [];
     const counting = triage({ onTriaged: (_outcome, _signal, _waited, ticket) => opened.push(ticket) });
-    await sendSignal(writer, report);
+    await sendSignal(database.owner, report);
     expect(await counting.takeOne()).toBe('report');
-    await sendSignal(writer, report);
+    await sendSignal(database.owner, report);
     expect(await counting.takeOne()).toBe('report');
     // Only the first opened a ticket, so only it counts towards the time from signal to ticket.
     expect(opened).toEqual([true, false]);
@@ -464,7 +470,7 @@ describe('triage', () => {
       planning: '1001',
     });
     const opened: boolean[] = [];
-    await sendSignal(writer, finding);
+    await sendSignal(database.owner, finding);
     expect(await triage({ onTriaged: (_o, _s, _w, ticket) => opened.push(ticket) }).takeOne()).toBe('finding');
     expect(opened).toEqual([false]);
     const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
@@ -498,15 +504,15 @@ describe('triage', () => {
       const judged = await jev(request);
       return { ...judged, answers: { ...judged.answers, category: choice('suggestion') } };
     };
-    await sendSignal(writer, finding('/delivery'));
+    await sendSignal(database.owner, finding('/delivery'));
     expect(await triage({ judge: suggests }).takeOne()).toBe('finding');
     const [held] = await writer<{ payload: { cause: string } }[]>`
       select payload from events where type = 'hold.started' order by seq desc limit 1`;
     expect(held?.payload.cause).toBe('suggestion');
 
-    await sendSignal(writer, found());
+    await sendSignal(database.owner, found());
     expect(await triage().takeOne()).toBe('opened');
-    await sendSignal(writer, finding('/about'));
+    await sendSignal(database.owner, finding('/about'));
     expect(await triage().takeOne()).toBe('finding');
     const [ticket, joined] = await writer<{ work_item: string }[]>`
       select work_item from inbox where outcome in ('opened', 'finding') order by received_at desc limit 2`.then(
@@ -517,7 +523,7 @@ describe('triage', () => {
 
     // Never into the ticket it was planning: what it noticed there is beyond that ticket, so it waits on its own.
     const planned = ticket?.work_item ?? '';
-    await sendSignal(writer, finding('/about', planned));
+    await sendSignal(database.owner, finding('/about', planned));
     expect(await triage().takeOne()).toBe('finding');
     const [own] = await writer<{ work_item: string }[]>`
       select work_item from inbox where outcome = 'finding' order by received_at desc limit 1`;
@@ -531,7 +537,7 @@ describe('triage', () => {
   describe('a defect the planner noticed, parked', () => {
     const park = async (route: string, planning = '1', text = 'The total is wrong') => {
       await sendSignal(
-        writer,
+        database.owner,
         found({
           sense: 'planner',
           check: `planning ticket #${planning}`,
@@ -595,7 +601,7 @@ describe('triage', () => {
           report: { page: '/about', text: 'The year the shop was founded is wrong' },
           ...(sense === 'planner' && { planning: '1' }),
         });
-      await sendSignal(writer, about('planner'));
+      await sendSignal(database.owner, about('planner'));
       expect(await triage({ judge: words, read }).takeOne()).toBe('finding');
       const [{ work_item: item = '' } = {}] = await writer<{ work_item: string }[]>`
         select work_item from inbox where outcome = 'finding' order by received_at desc limit 1`;
@@ -603,7 +609,7 @@ describe('triage', () => {
         select payload from events where work_item = ${item} and type = 'hold.started'`;
       expect(hold?.payload.defect).toEqual({ fingerprint: { page: '/about', text: passage }, symptom: 'wrong-result' });
 
-      await sendSignal(writer, about('report'));
+      await sendSignal(database.owner, about('report'));
       expect(await triage({ judge: words, read }).takeOne()).toBe('report');
       const [{ work_item: ticket = '' } = {}] = await writer<{ work_item: string }[]>`
         select work_item from inbox where outcome = 'report' order by received_at desc limit 1`;
@@ -618,7 +624,10 @@ describe('triage', () => {
         fingerprint: { route: '/basket', class: 'wrong-result' },
         symptom: 'wrong-result',
       });
-      await sendSignal(writer, found({ route: '/basket', symptom: 'wrong-result', check: 'the basket adds up' }));
+      await sendSignal(
+        database.owner,
+        found({ route: '/basket', symptom: 'wrong-result', check: 'the basket adds up' }),
+      );
       expect(await triage().takeOne()).toBe('opened');
       const [{ work_item: ticket = '' } = {}] = await writer<{ work_item: string }[]>`
         select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
@@ -738,7 +747,7 @@ describe('triage', () => {
         },
       } as unknown as EventWriter;
       await sendSignal(
-        writer,
+        database.owner,
         found({
           sense: 'planner',
           check: 'planning ticket #2',
@@ -762,7 +771,7 @@ describe('triage', () => {
     it('joins a ticket on every page, then one a sense already has, and closes when he rejects it', async () => {
       const first = await park('/gift-cards');
       const second = await park('/delivery');
-      await sendSignal(writer, found({ route: '*', symptom: 'wrong-result', check: 'prices add up' }));
+      await sendSignal(database.owner, found({ route: '*', symptom: 'wrong-result', check: 'prices add up' }));
       expect(await triage().takeOne()).toBe('opened');
       const [{ work_item: ticket = '' } = {}] = await writer<{ work_item: string }[]>`
         select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
@@ -785,7 +794,10 @@ describe('triage', () => {
     });
 
     it('holds one with the fingerprint of the ticket being planned, saying so, until a sense’s ticket can take it', async () => {
-      await sendSignal(writer, found({ route: '/basket', symptom: 'wrong-result', check: 'the basket adds up' }));
+      await sendSignal(
+        database.owner,
+        found({ route: '/basket', symptom: 'wrong-result', check: 'the basket adds up' }),
+      );
       expect(await triage().takeOne()).toBe('opened');
       const [{ work_item: planned = '' } = {}] = await writer<{ work_item: string }[]>`
         select work_item from inbox where outcome = 'opened' order by received_at desc limit 1`;
@@ -796,7 +808,10 @@ describe('triage', () => {
       expect(hold?.payload.reason).toContain(`A sense’s ticket can take it once #${planned} closes`);
       // The planned ticket's fix is verified and it closes; the defect is still there, and a sense opens its ticket.
       await events.append(closed(planned));
-      await sendSignal(writer, found({ route: '/basket', symptom: 'wrong-result', check: 'the basket adds up' }));
+      await sendSignal(
+        database.owner,
+        found({ route: '/basket', symptom: 'wrong-result', check: 'the basket adds up' }),
+      );
       expect(await triage().takeOne()).toBe('opened');
       expect((await closing(item))?.reason).toMatch(/^A sense saw it: ticket #/);
     });
@@ -880,7 +895,7 @@ describe('triage', () => {
         payload,
         artifacts: [],
       } as NewEvent);
-    await sendSignal(writer, found({ route: '/stopped' }));
+    await sendSignal(database.owner, found({ route: '/stopped' }));
     await line('line.stopped', { reason: 'A test' });
     expect(await triage().takeOne()).toBe('stopped');
     await line('line.started', { autonomy: 'supervised' });
@@ -930,7 +945,7 @@ describe('triage', () => {
       throw new JudgeWaiting('No cassette for this report, and the gateway has no key', until);
     };
     const id = await sendSignal(
-      writer,
+      database.owner,
       found({ sense: 'report', symptom: undefined, report: { page: '/', text: 'Nothing loads' } }),
     );
     const worker = triage({ judge: waiting });
@@ -948,16 +963,19 @@ describe('triage', () => {
         throw new JudgeWaiting('The day spend cap is reached', until);
       },
     });
-    await sendSignal(writer, found({ sense: 'report', symptom: undefined, report: { page: '/', text: 'Broken' } }));
+    await sendSignal(
+      database.owner,
+      found({ sense: 'report', symptom: undefined, report: { page: '/', text: 'Broken' } }),
+    );
     expect(await worker.takeOne()).toBe('waiting');
-    await sendSignal(writer, found({ route: '/during-a-cap' }));
+    await sendSignal(database.owner, found({ route: '/during-a-cap' }));
     expect(await worker.takeOne()).toBe('opened');
     expect(await worker.takeOne()).toBe('waiting');
   });
 
   it('leaves a signal that keeps failing in the inbox with its reason', async () => {
     const id = await sendSignal(
-      writer,
+      database.owner,
       found({ sense: 'report', symptom: undefined, report: { page: '/', text: 'Broken' } }),
     );
     const failing = triage({
@@ -974,7 +992,7 @@ describe('triage', () => {
 
   it('records what it made of a signal whose events were appended before a crash, appending nothing again', async () => {
     const signal = found({ route: '/crashed' });
-    const id = await sendSignal(writer, signal);
+    const id = await sendSignal(database.owner, signal);
     await events.append(senseTicket(signal, id, '1999', new Date(at)));
     expect(await triage().takeOne()).toBe('opened');
     const [row] = await writer`select work_item from inbox where id = ${id}`;
@@ -1018,7 +1036,7 @@ describe('triage', () => {
 
     it('holds more new problems than a handful, sent at once, as one work item with no ticket', async () => {
       const many = BURST.tickets + 2;
-      for (let n = 1; n <= many; n++) await sendSignal(writer, page(n));
+      for (let n = 1; n <= many; n++) await sendSignal(database.owner, page(n));
       expect(await takeAll()).toEqual(Array(many).fill('held'));
       const item = await heldIn();
       const types = await writer<{ type: string }[]>`select type from events where work_item = ${item} order by seq`;
@@ -1040,57 +1058,57 @@ describe('triage', () => {
       expect(await ticketsOf('/burst/%')).toEqual([]);
 
       // A problem it holds already is counted, and another sense's opens its ticket as ever.
-      await sendSignal(writer, page(1));
-      await sendSignal(writer, page(1, { sense: 'probe' }));
+      await sendSignal(database.owner, page(1));
+      await sendSignal(database.owner, page(1, { sense: 'probe' }));
       expect(await takeAll()).toEqual(['counted', 'opened']);
     });
 
     it('counts the tickets the sense opened just before, and holds every new problem after them', async () => {
       for (let n = 1; n <= BURST.tickets; n++) {
-        await sendSignal(writer, page(n));
+        await sendSignal(database.owner, page(n));
         expect(await triage().takeOne()).toBe('opened');
       }
-      await sendSignal(writer, page(BURST.tickets + 1));
+      await sendSignal(database.owner, page(BURST.tickets + 1));
       expect(await triage().takeOne()).toBe('held');
       const item = await heldIn();
       expect(await payloadOf<{ reason: string }>(item, 'hold.started')).toMatchObject({
         reason: expect.stringContaining(`found ${BURST.tickets + 1} new problems`),
       });
       // While it waits, every new problem the sense finds joins it, however long after.
-      await sendSignal(writer, page(99, { symptom: 'broken-image', check: 'images load' }));
+      await sendSignal(database.owner, page(99, { symptom: 'broken-image', check: 'images load' }));
       expect(await triage().takeOne()).toBe('held');
       expect(await heldIn()).toBe(item);
     });
 
     it('never counts a signal on an open ticket, nor problems a handful apart in time', async () => {
-      await sendSignal(writer, page(1));
+      await sendSignal(database.owner, page(1));
       expect(await triage().takeOne()).toBe('opened');
-      for (let n = 0; n < BURST.tickets + 2; n++) await sendSignal(writer, page(1, { version: `d0${n}efd8` }));
+      for (let n = 0; n < BURST.tickets + 2; n++) await sendSignal(database.owner, page(1, { version: `d0${n}efd8` }));
       expect(new Set(await takeAll())).toEqual(new Set(['evidence']));
       // Older than the window, as the earlier tests' signals are.
       await database.owner`update inbox set received_at = received_at - interval '1 hour'`;
-      for (let n = 2; n <= BURST.tickets; n++) await sendSignal(writer, page(n));
+      for (let n = 2; n <= BURST.tickets; n++) await sendSignal(database.owner, page(n));
       expect(await takeAll()).toEqual(Array(BURST.tickets - 1).fill('opened'));
-      await sendSignal(writer, page(BURST.tickets + 1));
+      await sendSignal(database.owner, page(BURST.tickets + 1));
       expect(await triage().takeOne()).toBe('opened');
     });
 
     it('never counts a waiting signal that would reopen a verified ticket', async () => {
       for (let n = 1; n <= BURST.tickets; n++) {
-        await sendSignal(writer, page(n));
+        await sendSignal(database.owner, page(n));
         expect(await triage().takeOne()).toBe('opened');
         await events.append(closed((await ticketsOf(`/burst/${n}`))[0] ?? '', 'verified'));
       }
       await database.owner`update inbox set received_at = received_at - interval '1 hour'`;
-      await sendSignal(writer, page(BURST.tickets + 1));
+      await sendSignal(database.owner, page(BURST.tickets + 1));
       const again = { version: 'd03afe9', observedAt: '2026-10-04T10:00:00.000Z' };
-      for (let n = 1; n <= BURST.tickets; n++) await sendSignal(writer, page(n, again));
+      for (let n = 1; n <= BURST.tickets; n++) await sendSignal(database.owner, page(n, again));
       expect(await takeAll()).toEqual(['opened', ...Array(BURST.tickets).fill('reopened')]);
     });
 
     it('waits while Martin only answers, and opens a ticket for each problem when he approves', async () => {
       const many = BURST.tickets + 1;
-      for (let n = 1; n <= many; n++) await sendSignal(writer, page(n));
+      for (let n = 1; n <= many; n++) await sendSignal(database.owner, page(n));
       await takeAll();
       const item = await heldIn();
       await answer(item, 'answered');
@@ -1098,7 +1116,7 @@ describe('triage', () => {
       expect(await ticketsOf('/burst/%')).toEqual([]);
 
       // A sense's ticket opened meanwhile takes the problem it has: that one joins it as evidence.
-      await sendSignal(writer, page(2, { sense: 'probe' }));
+      await sendSignal(database.owner, page(2, { sense: 'probe' }));
       expect(await triage().takeOne()).toBe('opened');
       const [probe = ''] = await ticketsOf('/burst/2');
 
@@ -1120,8 +1138,8 @@ describe('triage', () => {
     });
 
     it('lets a problem through onto a ticket the same approval opened, as evidence once', async () => {
-      await sendSignal(writer, found({ route: '*' }));
-      for (let n = 1; n <= BURST.tickets; n++) await sendSignal(writer, page(n));
+      await sendSignal(database.owner, found({ route: '*' }));
+      for (let n = 1; n <= BURST.tickets; n++) await sendSignal(database.owner, page(n));
       await takeAll();
       const item = await heldIn();
       await answer(item, 'approved');
@@ -1135,19 +1153,19 @@ describe('triage', () => {
     });
 
     it('closes with no ticket when he rejects it, and a problem still there is found again', async () => {
-      for (let n = 1; n <= BURST.tickets + 1; n++) await sendSignal(writer, page(n));
+      for (let n = 1; n <= BURST.tickets + 1; n++) await sendSignal(database.owner, page(n));
       await takeAll();
       const item = await heldIn();
       await answer(item, 'rejected');
       expect(await triage().settleOne()).toBe(true);
       expect(await payloadOf(item, 'work-item.closed')).toMatchObject({ outcome: 'discarded' });
       expect(await ticketsOf('/burst/%')).toEqual([]);
-      await sendSignal(writer, page(1));
+      await sendSignal(database.owner, page(1));
       expect(await triage().takeOne()).toBe('opened');
     });
 
     it('asks again when it cannot act on his answer to a burst, which goes on taking the sense’s problems', async () => {
-      for (let n = 1; n <= BURST.tickets + 1; n++) await sendSignal(writer, page(n));
+      for (let n = 1; n <= BURST.tickets + 1; n++) await sendSignal(database.owner, page(n));
       await takeAll();
       const item = await heldIn();
       await answer(item, 'rejected');
@@ -1159,7 +1177,7 @@ describe('triage', () => {
       expect(holds[1]?.payload.reason).toMatch(/act on Martin's rejection/);
       // After a restart there is no answer to try, and the sense's next new problem joins the hold.
       expect(await triage().settleOne()).toBe(false);
-      await sendSignal(writer, page(BURST.tickets + 2));
+      await sendSignal(database.owner, page(BURST.tickets + 2));
       expect(await triage().takeOne()).toBe('held');
       expect(await heldIn()).toBe(item);
       // His next answer is acted on.
@@ -1169,12 +1187,12 @@ describe('triage', () => {
     });
 
     it('lets a held signal through after a crash, if Martin approved its burst before the inbox heard it', async () => {
-      for (let n = 1; n <= BURST.tickets + 1; n++) await sendSignal(writer, page(n));
+      for (let n = 1; n <= BURST.tickets + 1; n++) await sendSignal(database.owner, page(n));
       await takeAll();
       const item = await heldIn();
       // Its evidence reached the burst, and the worker stopped before the inbox recorded it.
       const signal = page(50);
-      const id = await sendSignal(writer, signal);
+      const id = await sendSignal(database.owner, signal);
       await events.append(senseEvidence(signal, id, item, new Date(at)));
       await answer(item, 'approved');
       expect(await triage().settleOne()).toBe(true);
@@ -1185,7 +1203,7 @@ describe('triage', () => {
 
     it('records a held signal whose events were appended before a crash, appending nothing again', async () => {
       const signal = page(1);
-      const id = await sendSignal(writer, signal);
+      const id = await sendSignal(database.owner, signal);
       await events.append(burstEvents(signal, id, '1998', BURST.tickets + 1, new Date(at)));
       expect(await triage().takeOne()).toBe('held');
       const [row] = await writer`select work_item from inbox where id = ${id}`;
@@ -1243,7 +1261,7 @@ describe('triage', () => {
         asked.push(when.toISOString());
         return all()(when);
       };
-      await sendSignal(writer, found({ route: '/looked' }));
+      await sendSignal(database.owner, found({ route: '/looked' }));
       expect(await triage({ look }).takeOne()).toBe('opened');
       expect(asked).toEqual([at]);
       const [item = ''] = await ticketsOn('/looked');
@@ -1254,7 +1272,7 @@ describe('triage', () => {
 
     it('holds a new problem seen while what its sense reads was not healthy, and every new one after it', async () => {
       const worker = triage({ look: all(false) });
-      await sendSignal(writer, logs({ route: '/unwell/1' }));
+      await sendSignal(database.owner, logs({ route: '/unwell/1' }));
       expect(await worker.takeOne()).toBe('held');
       const item = await heldIn();
       expect(await types(item)).toEqual([
@@ -1275,38 +1293,38 @@ describe('triage', () => {
 
       // Another new problem joins it, even once Loki is well again; one it has is counted. Another sense, whose disk
       // was well, opens its ticket as ever.
-      await sendSignal(writer, logs({ route: '/unwell/2' }));
+      await sendSignal(database.owner, logs({ route: '/unwell/2' }));
       expect(await triage({ look: all() }).takeOne()).toBe('held');
       expect(await heldIn()).toBe(item);
-      await sendSignal(writer, logs({ route: '/unwell/1' }));
+      await sendSignal(database.owner, logs({ route: '/unwell/1' }));
       expect(await worker.takeOne()).toBe('counted');
-      await sendSignal(writer, found({ route: '/unwell/1', sense: 'probe', check: 'links' }));
+      await sendSignal(database.owner, found({ route: '/unwell/1', sense: 'probe', check: 'links' }));
       expect(await worker.takeOne()).toBe('opened');
     });
 
     it('holds one it could not tell about, but adds evidence to an open ticket whatever it saw', async () => {
-      await sendSignal(writer, logs({ route: '/unknown' }));
+      await sendSignal(database.owner, logs({ route: '/unknown' }));
       expect(await triage({ look: all(null) }).takeOne()).toBe('held');
       const item = await heldIn();
       expect((await payloads<{ reason: string }>(item, 'hold.started'))[0]?.reason).toContain('while Loki was not');
 
-      await sendSignal(writer, found({ route: '/known' }));
+      await sendSignal(database.owner, found({ route: '/known' }));
       expect(await triage().takeOne()).toBe('opened');
       const [open = ''] = await ticketsOn('/known');
       const disk = looking(reading('disk', false));
-      await sendSignal(writer, found({ route: '/known', version: 'd03afe9' }));
+      await sendSignal(database.owner, found({ route: '/known', version: 'd03afe9' }));
       expect(await triage({ look: disk }).takeOne()).toBe('evidence');
       const signals = await payloads<PayloadOf<'signal.received'>>(open, 'signal.received');
       expect(signals.at(-1)?.environment?.dependencies).toEqual([reading('disk', false)]);
     });
 
     it('holds a signal that would reopen a verified ticket, and lets it reopen when Martin approves', async () => {
-      await sendSignal(writer, found({ route: '/came-back' }));
+      await sendSignal(database.owner, found({ route: '/came-back' }));
       expect(await triage().takeOne()).toBe('opened');
       const [item = ''] = await ticketsOn('/came-back');
       await events.append(closed(item, 'verified'));
       const later = { version: 'd03afe9', observedAt: '2026-10-04T10:00:00.000Z' };
-      await sendSignal(writer, found({ route: '/came-back', ...later }));
+      await sendSignal(database.owner, found({ route: '/came-back', ...later }));
       expect(await triage({ look: looking(reading('disk', false)) }).takeOne()).toBe('held');
       const held = await heldIn();
       await answer(held, 'approved');
@@ -1320,8 +1338,8 @@ describe('triage', () => {
     });
 
     it('opens a ticket for each when Martin approves, and none when he rejects', async () => {
-      await sendSignal(writer, logs({ route: '/let/1' }));
-      await sendSignal(writer, logs({ route: '/let/2' }));
+      await sendSignal(database.owner, logs({ route: '/let/1' }));
+      await sendSignal(database.owner, logs({ route: '/let/2' }));
       const worker = triage({ look: all(false) });
       expect([await worker.takeOne(), await worker.takeOne()]).toEqual(['held', 'held']);
       const item = await heldIn();
@@ -1337,7 +1355,7 @@ describe('triage', () => {
       const [signal] = await payloads<PayloadOf<'signal.received'>>(first, 'signal.received');
       expect(signal?.environment?.dependencies).toContainEqual(reading('loki', false));
 
-      await sendSignal(writer, logs({ route: '/let/3' }));
+      await sendSignal(database.owner, logs({ route: '/let/3' }));
       expect(await worker.takeOne()).toBe('held');
       const again = await heldIn();
       await answer(again, 'rejected');

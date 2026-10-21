@@ -14,7 +14,7 @@ beforeEach(async () => {
 afterEach(() => database?.end());
 
 const writer = () =>
-  new EventWriter(database.writer, {
+  new EventWriter(database.as.line, {
     kind: 'real',
     artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
   });
@@ -22,7 +22,7 @@ const writer = () =>
 /** A ticket as triage opens one, with its severity. */
 async function ticket(severity: 'broken' | 'degraded' | 'cosmetic', route: string): Promise<string> {
   const events = writer();
-  const workItem = await nextWorkItem(database.writer);
+  const workItem = await nextWorkItem(database.as.triage);
   const event = (type: 'work-item.opened' | 'ticket.opened', payload: object) =>
     ({
       id: crypto.randomUUID(),
@@ -48,7 +48,7 @@ async function ticket(severity: 'broken' | 'degraded' | 'cosmetic', route: strin
   return workItem;
 }
 
-const end = (workItem: string) => database.writer`update line set stage = 'ended' where work_item = ${workItem}`;
+const end = (workItem: string) => database.as.line`update line set stage = 'ended' where work_item = ${workItem}`;
 
 const pending: Pending = {
   agent: 'reviewer',
@@ -68,8 +68,8 @@ const pending: Pending = {
 
 describe('a kept handback', () => {
   it('keeps what each write gave back, nothing among it, and stays kept', async () => {
-    const queue = new Queue(database.writer, 'test');
-    await database.writer`insert into line (work_item, stage) values ('1001', 'review')`;
+    const queue = new Queue(database.as.line, 'test');
+    await database.as.line`insert into line (work_item, stage) values ('1001', 'review')`;
     await queue.keep('1001', pending);
     await queue.begun('1001', 'check-run');
     await queue.done('1001', 'check-run', 42);
@@ -83,21 +83,21 @@ describe('a kept handback', () => {
 
 describe("a step's number", () => {
   it('counts on from the last, and from the job tokens of a row made afresh, so no job name comes round again', async () => {
-    const queue = new Queue(database.writer, 'test');
-    await database.writer`insert into line (work_item, stage) values ('1001', 'plan')`;
+    const queue = new Queue(database.as.line, 'test');
+    await database.as.line`insert into line (work_item, stage) values ('1001', 'plan')`;
     expect(await queue.startStep('1001')).toBe(1);
     expect(await queue.startStep('1001')).toBe(2);
     // The row taken away by hand (only the owner may), and made again: its job tokens stay, the fourth the last.
     for (const job of ['planner-1001-1-1', 'planner-1001-1-2', 'coder-1001-1-4']) {
-      await issueJobToken(database.writer, { job, workItem: '1001', agent: job.split('-')[0] as string });
+      await issueJobToken(database.as.line, { job, workItem: '1001', agent: job.split('-')[0] as string });
     }
     // Another work item's tokens count for nothing here, nor names the line does not make.
-    await issueJobToken(database.writer, { job: 'coder-1002-1-9', workItem: '1002', agent: 'coder' });
+    await issueJobToken(database.as.line, { job: 'coder-1002-1-9', workItem: '1002', agent: 'coder' });
     for (const job of ['coder-1001-by-hand', 'coder-1001-1730000000000']) {
-      await issueJobToken(database.writer, { job, workItem: '1001', agent: 'coder' });
+      await issueJobToken(database.as.line, { job, workItem: '1001', agent: 'coder' });
     }
     await database.owner`delete from line where work_item = '1001'`;
-    await database.writer`insert into line (work_item, stage) values ('1001', 'plan')`;
+    await database.as.line`insert into line (work_item, stage) values ('1001', 'plan')`;
     expect(await queue.startStep('1001')).toBe(5);
     expect(await queue.startStep('1001')).toBe(6);
     await expect(queue.startStep('1003')).rejects.toThrow('not on the line');
@@ -106,12 +106,13 @@ describe("a step's number", () => {
 
 describe('a queue of one work item', () => {
   it('sees only that work item on the line, and the whole line sees them all', async () => {
-    await database.writer`insert into line (work_item, stage) values ('1001', 'build'), ('1002', 'plan'), ('1003', 'review')`;
-    const one = new Queue(database.writer, 'test', { only: '1002' });
+    await database.as
+      .line`insert into line (work_item, stage) values ('1001', 'build'), ('1002', 'plan'), ('1003', 'review')`;
+    const one = new Queue(database.as.line, 'test', { only: '1002' });
     expect((await one.free()).map((i) => i.workItem)).toEqual(['1002']);
     expect(await one.claim('1002', 60)).toMatchObject({ workItem: '1002' });
     expect(await one.free()).toEqual([]);
-    const all = new Queue(database.writer, 'other');
+    const all = new Queue(database.as.line, 'other');
     expect((await all.free()).map((i) => i.workItem).sort()).toEqual(['1001', '1003']);
   });
 });
@@ -121,42 +122,42 @@ describe('a queue with a limit', () => {
     const cosmetic = await ticket('cosmetic', '/');
     const broken = await ticket('broken', '/search');
     const degraded = await ticket('degraded', '/products');
-    const two = new Queue(database.writer, 'test', { take: 2 });
+    const two = new Queue(database.as.line, 'test', { take: 2 });
     expect(await two.admit()).toBe(broken);
     await end(broken);
     expect(await two.admit()).toBe(degraded);
     await end(degraded);
     // Two have come onto the line: the cosmetic ticket waits, for this queue and for one that starts afresh.
     expect(await two.admit()).toBeUndefined();
-    expect(await new Queue(database.writer, 'again', { take: 2 }).admit()).toBeUndefined();
-    expect(await new Queue(database.writer, 'all').admit()).toBe(cosmetic);
+    expect(await new Queue(database.as.line, 'again', { take: 2 }).admit()).toBeUndefined();
+    expect(await new Queue(database.as.line, 'all').admit()).toBe(cosmetic);
   });
 
   it('counts the work items already on the line, and takes none at all with a limit of none', async () => {
     await ticket('broken', '/search');
-    expect(await new Queue(database.writer, 'test', { take: 0 }).admit()).toBeUndefined();
-    await database.writer`insert into line (work_item, stage) values ('1001', 'ended')`;
-    expect(await new Queue(database.writer, 'test', { take: 1 }).admit()).toBeUndefined();
-    expect(await new Queue(database.writer, 'test', { take: 2 }).admit()).toBeDefined();
+    expect(await new Queue(database.as.line, 'test', { take: 0 }).admit()).toBeUndefined();
+    await database.as.line`insert into line (work_item, stage) values ('1001', 'ended')`;
+    expect(await new Queue(database.as.line, 'test', { take: 1 }).admit()).toBeUndefined();
+    expect(await new Queue(database.as.line, 'test', { take: 2 }).admit()).toBeDefined();
   });
 });
 
 describe('a spec waiting for overlapping work', () => {
   it('waits at a stage of its own, which leaves room for the next ticket', async () => {
     const first = await ticket('broken', '/search');
-    const queue = new Queue(database.writer, 'test');
+    const queue = new Queue(database.as.line, 'test');
     expect(await queue.admit()).toBe(first);
     const next = await ticket('degraded', '/products');
     expect(await queue.admit()).toBeUndefined();
-    await database.writer`update line set stage = 'waiting' where work_item = ${first}`;
+    await database.as.line`update line set stage = 'waiting' where work_item = ${first}`;
     expect(await queue.admit()).toBe(next);
   });
 });
 
 describe('work at Release and Verify', () => {
   it('waits there on the line, handed out as any other, and leaves room for the next ticket', async () => {
-    await database.writer`insert into line (work_item, stage) values ('1001', 'release'), ('1002', 'verify')`;
-    const queue = new Queue(database.writer, 'test');
+    await database.as.line`insert into line (work_item, stage) values ('1001', 'release'), ('1002', 'verify')`;
+    const queue = new Queue(database.as.line, 'test');
     expect((await queue.free()).map((i) => i.workItem)).toEqual(['1001', '1002']);
     expect(await queue.claim('1001', 60)).toMatchObject({ workItem: '1001', stage: 'release' });
     await queue.release('1001', 'verify');
@@ -167,7 +168,7 @@ describe('work at Release and Verify', () => {
   });
 
   it('refuses a stage the line does not have', async () => {
-    await expect(database.writer`insert into line (work_item, stage) values ('1001', 'shipped')`).rejects.toThrow(
+    await expect(database.as.line`insert into line (work_item, stage) values ('1001', 'shipped')`).rejects.toThrow(
       /line_stage_check/,
     );
   });
@@ -200,18 +201,18 @@ describe('a reopened work item', () => {
 
   it('comes back into Plan from its end, afresh, whatever else is on the line and whatever the limit', async () => {
     const reopened = await ticket('degraded', '/search');
-    const queue = new Queue(database.writer, 'test', { take: 1 });
+    const queue = new Queue(database.as.line, 'test', { take: 1 });
     expect(await queue.admit()).toBe(reopened);
-    await database.writer`update line set stage = 'ended', failures = 2, failure = 'It failed', session = 'abc'
+    await database.as.line`update line set stage = 'ended', failures = 2, failure = 'It failed', session = 'abc'
                           where work_item = ${reopened}`;
     await closeOrReopen(reopened, 'work-item.closed');
     expect(await queue.reopened()).toEqual([]);
     await closeOrReopen(reopened, 'work-item.reopened');
     // Not straight after its end, while its volume may still be going.
     expect(await queue.reopened()).toEqual([]);
-    await database.writer`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${reopened}`;
+    await database.as.line`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${reopened}`;
     // Another ticket fills Plan, and the limit is reached: the reopened one comes back all the same, and only once.
-    await database.writer`insert into line (work_item, stage) values ('1999', 'plan')`;
+    await database.as.line`insert into line (work_item, stage) values ('1999', 'plan')`;
     expect((await queue.reopened()).map((item) => item.workItem)).toEqual([reopened]);
     expect(await queue.revive(reopened)).toBe(true);
     expect(await queue.revive(reopened)).toBe(false);
@@ -231,26 +232,26 @@ describe('a reopened work item', () => {
   });
 
   it('is handed to nobody from where it was, when it reopened before its end, until it comes back', async () => {
-    const queue = new Queue(database.writer, 'test');
+    const queue = new Queue(database.as.line, 'test');
     const workItem = await ticket('broken', '/search');
-    await database.writer`insert into line (work_item, stage) values (${workItem}, 'verify')`;
+    await database.as.line`insert into line (work_item, stage) values (${workItem}, 'verify')`;
     await closeOrReopen(workItem, 'work-item.closed');
     await closeOrReopen(workItem, 'work-item.reopened');
     expect(await queue.free()).toEqual([]);
     expect(await queue.claim(workItem, 60)).toBeUndefined();
     expect((await queue.reopened()).map((item) => item.workItem)).toEqual([workItem]);
     // Not while another holds it.
-    await database.writer`update line set held_by = 'other', held_until = now() + interval '1 minute'
+    await database.as.line`update line set held_by = 'other', held_until = now() + interval '1 minute'
                           where work_item = ${workItem}`;
     expect(await queue.reopened()).toEqual([]);
     expect(await queue.revive(workItem)).toBe(false);
-    await database.writer`update line set held_by = null, held_until = null where work_item = ${workItem}`;
+    await database.as.line`update line set held_by = null, held_until = null where work_item = ${workItem}`;
     expect(await queue.revive(workItem)).toBe(true);
     expect((await queue.free()).map((item) => item.workItem)).toEqual([workItem]);
   });
 
   it('is open to the queue again: the last of its closes and reopenings decides', async () => {
-    const queue = new Queue(database.writer, 'test');
+    const queue = new Queue(database.as.line, 'test');
     const closed = await ticket('broken', '/search');
     await closeOrReopen(closed, 'work-item.closed');
     expect(await queue.admit()).toBeUndefined();
@@ -261,13 +262,13 @@ describe('a reopened work item', () => {
 
   it('is left alone by a queue of another work item, and stays ended while it is closed', async () => {
     const workItem = await ticket('broken', '/search');
-    await database.writer`insert into line (work_item, stage, moved_at) values (${workItem}, 'ended', now() - interval '1 hour')`;
+    await database.owner`insert into line (work_item, stage, moved_at) values (${workItem}, 'ended', now() - interval '1 hour')`;
     await closeOrReopen(workItem, 'work-item.closed');
     await closeOrReopen(workItem, 'work-item.reopened');
-    expect(await new Queue(database.writer, 'test', { only: '1999' }).reopened()).toEqual([]);
+    expect(await new Queue(database.as.line, 'test', { only: '1999' }).reopened()).toEqual([]);
     await closeOrReopen(workItem, 'work-item.closed', 'no-change');
-    expect(await new Queue(database.writer, 'test').reopened()).toEqual([]);
-    expect(await new Queue(database.writer, 'test').revive(workItem)).toBe(false);
+    expect(await new Queue(database.as.line, 'test').reopened()).toEqual([]);
+    expect(await new Queue(database.as.line, 'test').revive(workItem)).toBe(false);
   });
 });
 
@@ -276,7 +277,7 @@ describe('migration 0008', () => {
 
   /** A work item that ended on the line before Release, with the events that ended it. */
   async function ended(types: ('pull-request.merged' | 'work-item.closed')[], number = 17): Promise<string> {
-    const workItem = await nextWorkItem(database.writer);
+    const workItem = await nextWorkItem(database.as.triage);
     const payloads = {
       'work-item.opened': { kind: 'defect-fix', title: 'Server errors', sample: false },
       'pull-request.merged': { number, commit: 'd'.repeat(40), by: 'martin' },
@@ -298,7 +299,7 @@ describe('migration 0008', () => {
           }) as NewEvent,
       ),
     );
-    await database.writer`insert into line (work_item, stage) values (${workItem}, 'ended')`;
+    await database.as.line`insert into line (work_item, stage) values (${workItem}, 'ended')`;
     return workItem;
   }
 
@@ -309,7 +310,7 @@ describe('migration 0008', () => {
     // A dry run's pull requests are numbered from a billion up: its merge never shipped.
     const dryRun = await ended(['pull-request.merged'], 1_000_000_003);
     await database.owner.unsafe(readFileSync(MIGRATION, 'utf-8'));
-    const queue = new Queue(database.writer, 'test');
+    const queue = new Queue(database.as.line, 'test');
     expect(await queue.get(merged)).toMatchObject({ stage: 'release' });
     expect(await queue.get(closed)).toMatchObject({ stage: 'ended' });
     expect(await queue.get(unmerged)).toMatchObject({ stage: 'ended' });

@@ -1,5 +1,5 @@
 /**
- * Pruning a recording gateway's cassettes, against the store as the factory's writer: what goes two weeks after the
+ * Pruning a recording gateway's cassettes, against the store as the gateway's own role: what goes two weeks after the
  * work items its calls name have closed, after its last call, or after it was written, and what stays.
  */
 import { mkdtempSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
@@ -32,7 +32,7 @@ function cassette(days: number, name?: string): string {
 
 /** A call recorded `days` ago, for a work item or none, that names a cassette. */
 async function call(key: string, days: number, workItem: string | null, questionSet = 'messages') {
-  await database.writer`
+  await database.as.gateway`
     insert into model_calls (id, at, agent, work_item, provider, model, question_set, duration_ms, cassette, outcome)
     values (${crypto.randomUUID()}, ${daysAgo(days)}, 'coder', ${workItem}, 'anthropic', 'claude-sonnet-4-5',
             ${questionSet}, 1, ${key}, 'answered')`;
@@ -65,7 +65,7 @@ describe('pruning the cassettes', () => {
     await ended('1003', 'work-item.closed', 25);
     await ended('1003', 'work-item.reopened', 20);
 
-    expect(await pruneCassettes({ sql: database.writer, dir, now: NOW })).toEqual({ deleted: 1, failed: 0 });
+    expect(await pruneCassettes({ sql: database.as.gateway, dir, now: NOW })).toEqual({ deleted: 1, failed: 0 });
     expect(left()).toEqual([closedLately, open, reopened].map(file).sort());
   });
 
@@ -75,8 +75,11 @@ describe('pruning the cassettes', () => {
     await call(shared, 29, '1001');
     await ended('1000', 'work-item.closed', 20);
     await ended('1001', 'work-item.closed', 10);
-    expect(await pruneCassettes({ sql: database.writer, dir, now: NOW })).toEqual({ deleted: 0, failed: 0 });
-    expect(await pruneCassettes({ sql: database.writer, dir, now: daysAgo(-5) })).toEqual({ deleted: 1, failed: 0 });
+    expect(await pruneCassettes({ sql: database.as.gateway, dir, now: NOW })).toEqual({ deleted: 0, failed: 0 });
+    expect(await pruneCassettes({ sql: database.as.gateway, dir, now: daysAgo(-5) })).toEqual({
+      deleted: 1,
+      failed: 0,
+    });
   });
 
   it('deletes a cassette whose calls name no work item two weeks after its last call', async () => {
@@ -85,7 +88,7 @@ describe('pruning the cassettes', () => {
     const askedLately = cassette(30);
     await call(askedLately, 20, null);
     await call(askedLately, 3, null);
-    expect(await pruneCassettes({ sql: database.writer, dir, now: NOW })).toEqual({ deleted: 1, failed: 0 });
+    expect(await pruneCassettes({ sql: database.as.gateway, dir, now: NOW })).toEqual({ deleted: 1, failed: 0 });
     expect(left()).toEqual([file(askedLately)]);
   });
 
@@ -95,7 +98,7 @@ describe('pruning the cassettes', () => {
     cassette(20, `${'f'.repeat(64)}.json.42.tmp`);
     writeFileSync(join(dir, 'README'), 'not a cassette');
     utimesSync(join(dir, 'README'), daysAgo(20), daysAgo(20));
-    expect(await pruneCassettes({ sql: database.writer, dir, now: NOW })).toEqual({ deleted: 2, failed: 0 });
+    expect(await pruneCassettes({ sql: database.as.gateway, dir, now: NOW })).toEqual({ deleted: 2, failed: 0 });
     expect(left()).toEqual(['README', file(fresh)].sort());
   });
 
@@ -105,14 +108,14 @@ describe('pruning the cassettes', () => {
     await ended('1000', 'work-item.closed', 20);
     const gone = cassette(30);
     await call(gone, 30, '1000');
-    expect(await pruneCassettes({ sql: database.writer, dir, now: NOW })).toEqual({ deleted: 1, failed: 0 });
+    expect(await pruneCassettes({ sql: database.as.gateway, dir, now: NOW })).toEqual({ deleted: 1, failed: 0 });
     expect(left()).toEqual([file(rewritten)]);
-    const counted = await database.writer<{ calls: number }[]>`select count(*)::int as calls from model_calls`;
+    const counted = await database.as.gateway<{ calls: number }[]>`select count(*)::int as calls from model_calls`;
     expect(counted).toEqual([{ calls: 2 }]);
   });
 
   it('prunes nothing in a folder not made yet', async () => {
-    expect(await pruneCassettes({ sql: database.writer, dir: join(dir, 'none'), now: NOW })).toEqual({
+    expect(await pruneCassettes({ sql: database.as.gateway, dir: join(dir, 'none'), now: NOW })).toEqual({
       deleted: 0,
       failed: 0,
     });
@@ -124,7 +127,7 @@ describe('pruning the cassettes', () => {
     const judged = cassette(30);
     await call(judged, 20, null, 'triage/v2');
     const unnamed = cassette(30);
-    expect(await pruneCassettes({ sql: database.writer, dir, now: NOW, agentsOnly: true })).toEqual({
+    expect(await pruneCassettes({ sql: database.as.gateway, dir, now: NOW, agentsOnly: true })).toEqual({
       deleted: 1,
       failed: 0,
     });
@@ -135,7 +138,7 @@ describe('pruning the cassettes', () => {
     cassette(30);
     const told: string[] = [];
     const log = { info: (_: object, message: string) => told.push(message), warn: () => {} };
-    const pruner = startPruning({ sql: database.writer, dir }, log, 60_000);
+    const pruner = startPruning({ sql: database.as.gateway, dir }, log, 60_000);
     await pruner.stop();
     expect(left()).toEqual([]);
     expect(told).toEqual(['deleted the cassettes no longer kept']);

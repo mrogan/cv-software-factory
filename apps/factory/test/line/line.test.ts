@@ -23,7 +23,7 @@ let database: Database;
 let events: EventWriter;
 beforeEach(async () => {
   database = await freshDatabase('line');
-  events = new EventWriter(database.writer, {
+  events = new EventWriter(database.as.line, {
     kind: 'real',
     artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
   });
@@ -50,7 +50,7 @@ const event = <K extends NewEvent['type']>(
 
 /** A ticket as triage opens one, with its severity. */
 async function ticket(severity: PayloadOf<'ticket.opened'>['severity'] = 'broken', route = '/search'): Promise<string> {
-  const workItem = await nextWorkItem(database.writer);
+  const workItem = await nextWorkItem(database.as.triage);
   await events.append([
     event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'Server errors', sample: false }, 'triage'),
     event(
@@ -134,10 +134,10 @@ function line(
   store: Pick<EventWriter, 'append'> = events,
   options: Partial<LineOptions> = {},
 ) {
-  const steps = new FakeSteps(database.writer, agents);
+  const steps = new FakeSteps(database.as.gateway, agents);
   const github = new FakeGitHub();
   const it = new Line({
-    sql: database.writer,
+    sql: database.as.line,
     events: store,
     steps,
     github,
@@ -156,25 +156,25 @@ function line(
 }
 
 async function types(workItem: string): Promise<string[]> {
-  const rows = await database.writer<{ type: string }[]>`
+  const rows = await database.as.line<{ type: string }[]>`
     select type from events where work_item = ${workItem} order by seq`;
   return rows.map((r) => r.type);
 }
 
 async function payloads<K extends NewEvent['type']>(workItem: string, type: K): Promise<PayloadOf<K>[]> {
-  const rows = await database.writer<{ payload: PayloadOf<K> }[]>`
+  const rows = await database.as.line<{ payload: PayloadOf<K> }[]>`
     select payload from events where work_item = ${workItem} and type = ${type} order by seq`;
   return rows.map((r) => r.payload);
 }
 
 async function summaries(workItem: string, type: NewEvent['type']): Promise<string[]> {
-  const rows = await database.writer<{ summary: string }[]>`
+  const rows = await database.as.line<{ summary: string }[]>`
     select summary from events where work_item = ${workItem} and type = ${type} order by seq`;
   return rows.map((r) => r.summary);
 }
 
 const stage = async (workItem: string) =>
-  (await database.writer<{ stage: string }[]>`select stage from line where work_item = ${workItem}`)[0]?.stage;
+  (await database.as.line<{ stage: string }[]>`select stage from line where work_item = ${workItem}`)[0]?.stage;
 
 describe('the line', () => {
   it('runs each step in a span named for its work item, agent and job, with what the step writes in GitHub inside it', async () => {
@@ -585,7 +585,7 @@ describe('the line', () => {
       reason: `The coder changed nothing when the work came back from gates: ${why}`,
     });
     // An outcome, not a failure: nothing is counted against the step, and nothing more runs while it waits.
-    const [row] = await database.writer<
+    const [row] = await database.as.line<
       { failures: number }[]
     >`select failures from line where work_item = ${workItem}`;
     expect(row?.failures).toBe(0);
@@ -909,7 +909,7 @@ describe('the line', () => {
         .map((r) => `${r.workItem === first ? 'first' : 'second'} ${r.agent}`)
         .sort();
       const waiting = await stage(second);
-      await database.writer`update line set stage = 'ended' where work_item in (${first}, ${second})`;
+      await database.as.line`update line set stage = 'ended' where work_item in (${first}, ${second})`;
       return { started, second: waiting };
     };
 
@@ -1054,7 +1054,7 @@ describe('the line', () => {
     await pass();
     expect(steps.requests[0]?.commit).toBe(MAIN);
     expect(await types(workItem)).not.toContain('spec.written');
-    const [row] = await database.writer<{ failure: string }[]>`select failure from line where work_item = ${workItem}`;
+    const [row] = await database.as.line<{ failure: string }[]>`select failure from line where work_item = ${workItem}`;
     expect(row?.failure).toMatch(/Dockerfile names a path no patch may change/);
     // The next attempt is told why.
     await pass();
@@ -1084,9 +1084,7 @@ describe('the line', () => {
     expect(await summaries(workItem, 'spec.written')).toEqual([
       'Spec written: 1 criterion, 2 paths in scope; 2 findings left for triage',
     ]);
-    const left = await database.writer<
-      { id: string; sense: string; fingerprint: string | null; signal: InboxSignal }[]
-    >`
+    const left = await database.owner<{ id: string; sense: string; fingerprint: string | null; signal: InboxSignal }[]>`
       select id, sense, fingerprint, signal from inbox where signal->>'planning' = ${workItem} order by signal->>'route'`;
     expect(left.map((row) => [row.sense, row.fingerprint, row.signal.route, row.signal.report?.text])).toEqual([
       ['planner', null, '/about', 'The page could list the opening hours.'],
@@ -1484,7 +1482,7 @@ describe('the line', () => {
     // The calls it made are recorded; nothing holds it.
     expect(await types(workItem)).toEqual(['work-item.opened', 'ticket.opened', 'model.called']);
     const failures = async () =>
-      (await database.writer<{ failures: number }[]>`select failures from line where work_item = ${workItem}`)[0]
+      (await database.as.line<{ failures: number }[]>`select failures from line where work_item = ${workItem}`)[0]
         ?.failures;
     expect(await failures()).toBe(0);
 
@@ -1526,7 +1524,7 @@ describe('the line', () => {
     ]);
     const { pass } = line({ ...AGENTS, planner: () => ({ ...handback(undefined), error: 'It went wrong.' }) });
     await pass();
-    const [row] = await database.writer<
+    const [row] = await database.as.line<
       { failures: number }[]
     >`select failures from line where work_item = ${workItem}`;
     expect(row?.failures).toBe(1);
@@ -1999,7 +1997,7 @@ describe('the deploy pull request', () => {
     ];
     await merged(shipped, 15, sha('1'));
     await merged(carried, 17, sha('2'));
-    await database.writer`
+    await database.owner`
       insert into line (work_item, stage, issue) values (${shipped}, 'ended', 14), (${carried}, 'ended', 16), (${later}, 'ended', 24)`;
     const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
     github.deploy = { number: 30, commit: sha('3'), pinned: sha('1'), digests: [] };
@@ -2052,7 +2050,7 @@ describe('the deploy pull request', () => {
     await events.append([
       event(closed, 'work-item.closed', { outcome: 'no-change', reason: 'Martin closed it' }, 'martin'),
     ]);
-    await database.writer`
+    await database.owner`
       insert into line (work_item, stage, issue) values (${held}, 'held', 14), (${after}, 'held', 16), (${closed}, 'ended', 18)`;
     const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
     github.history = history;
@@ -2115,7 +2113,7 @@ describe('the deploy pull request', () => {
 });
 
 async function failures(workItem: string) {
-  const [row] = await database.writer<{ failures: number; failure: string | null }[]>`
+  const [row] = await database.as.line<{ failures: number; failure: string | null }[]>`
     select failures, failure from line where work_item = ${workItem}`;
   return row;
 }

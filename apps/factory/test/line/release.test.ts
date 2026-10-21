@@ -24,7 +24,7 @@ let database: Database;
 let events: EventWriter;
 beforeEach(async () => {
   database = await freshDatabase('release');
-  events = new EventWriter(database.writer, {
+  events = new EventWriter(database.as.line, {
     kind: 'real',
     artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
   });
@@ -70,7 +70,7 @@ const pushed = (workItem: string, number: number) =>
 
 /** A ticket's first events, as triage appends them: its signal came from `sense`. */
 async function opened(sense: 'probe' | 'report' | 'canary' | 'logs' = 'probe'): Promise<string> {
-  const workItem = await nextWorkItem(database.writer);
+  const workItem = await nextWorkItem(database.as.triage);
   await events.append([
     event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'A redirect loop', sample: false }, 'triage'),
     event(
@@ -116,7 +116,7 @@ async function merged(
     ...(number >= 1_000_000_000 ? [pushed(workItem, number)] : []),
     event(workItem, 'pull-request.merged', { number, commit, by: 'martin' }, 'martin'),
   ]);
-  await database.writer`insert into line (work_item, stage, issue) values (${workItem}, 'release', ${number - 1})`;
+  await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'release', ${number - 1})`;
   return workItem;
 }
 
@@ -211,9 +211,9 @@ function line(options: Partial<LineOptions> = {}, { prometheusDown = false } = {
   const kube = new FakeKube();
   const asked: string[] = [];
   const it = new Line({
-    sql: database.writer,
+    sql: database.as.line,
     events,
-    steps: new FakeSteps(database.writer, {}),
+    steps: new FakeSteps(database.as.gateway, {}),
     github,
     log: quiet,
     me: 'test',
@@ -233,7 +233,7 @@ function line(options: Partial<LineOptions> = {}, { prometheusDown = false } = {
 
 const typesOf = async (workItem: string | null) =>
   (
-    await database.writer<{ type: string; actor: string }[]>`
+    await database.as.line<{ type: string; actor: string }[]>`
       select type, actor from events
       where work_item is not distinct from ${workItem}
         and type in ('release.started', 'canary.stepped', 'release.promoted', 'release.rolled-back', 'release.aborted',
@@ -243,12 +243,12 @@ const typesOf = async (workItem: string | null) =>
 
 const payloads = async <K extends NewEvent['type']>(workItem: string | null, type: K) =>
   (
-    await database.writer<{ payload: PayloadOf<K> }[]>`
+    await database.as.line<{ payload: PayloadOf<K> }[]>`
       select payload from events where work_item is not distinct from ${workItem} and type = ${type} order by seq`
   ).map((r) => r.payload);
 
 const stage = async (workItem: string) =>
-  (await database.writer<{ stage: string }[]>`select stage from line where work_item = ${workItem}`)[0]?.stage;
+  (await database.as.line<{ stage: string }[]>`select stage from line where work_item = ${workItem}`)[0]?.stage;
 
 /** The app's main: the commits of two fixes, the stable version's, a later fix's, and a release's. */
 const [FIX_1, FIX_2, FIX_3, FIX_4] = ['1', '2', '3', '4'].map((c) => c.repeat(40)) as [string, string, string, string];
@@ -444,10 +444,10 @@ describe('the line’s watch of the app’s release', () => {
     await it.tick();
     // A promotion of version 1 named no release, so it says nothing of which image shipped last.
     const payload = { version: commitOf(CANARY), previous: commitOf(STABLE) };
-    await database.writer`
+    await database.as.line`
       insert into events (id, ts, type, version, actor, summary, payload, artifacts, public, sample)
       values (${crypto.randomUUID()}, now(), 'release.promoted', 1, 'rollouts', 'Promoted',
-              ${database.writer.json(payload)}, '[]', '{}', false)`;
+              ${database.as.line.json(payload)}, '[]', '{}', false)`;
     kube.rollout = rollout({ current: STABLE, stable: STABLE, revision: 5 });
     await it.tick();
     expect(await typesOf(null)).toEqual([
@@ -583,7 +583,7 @@ describe('the line’s watch of the app’s release', () => {
 
 describe('a rollback, as signals to triage', () => {
   const inbox = async () =>
-    database.writer<{ sense: string; fingerprint: string; signal: InboxSignal }[]>`
+    database.owner<{ sense: string; fingerprint: string; signal: InboxSignal }[]>`
       select sense, fingerprint, signal from inbox order by signal->>'check'`;
 
   /** A release carrying a fix, under way at 25%, and the line that watches it. */
@@ -882,13 +882,13 @@ describe('Verify on the line', () => {
   };
   const types = async (workItem: string) =>
     (
-      await database.writer<{ type: string }[]>`
+      await database.as.line<{ type: string }[]>`
         select type from events where work_item = ${workItem} and type not like 'release.%' order by seq`
     ).map((r) => r.type);
 
   it('sends the work back to Plan when the probe still fails, with a session of its own, and holds the second time', async () => {
     const workItem = await merged(30, FIX_3);
-    await database.writer`update line set session = 'session-1' where work_item = ${workItem}`;
+    await database.as.line`update line set session = 'session-1' where work_item = ${workItem}`;
     await promote(workItem);
     const probes = new FakeProbes({ outcome: 'persists', version: commitOf(CANARY), runs: ['failed', 'failed'] });
     const { line: it, github } = line({ release: null, verify: { probes } });
@@ -900,7 +900,7 @@ describe('Verify on the line', () => {
       to: 'plan',
       reason: `The probe still saw “departments” on ${commitOf(CANARY)}, the release that carried the fix`,
     });
-    const [row] = await database.writer<{ stage: string; session: string | null }[]>`
+    const [row] = await database.as.line<{ stage: string; session: string | null }[]>`
       select stage, session from line where work_item = ${workItem}`;
     expect(row?.session).toBeNull();
     // The issue stays open.
@@ -1083,7 +1083,7 @@ describe('Verify on the line', () => {
     const workItem = await merged(30, FIX_3);
     await promote(workItem);
     const probes = new FakeProbes({ outcome: 'cleared', version: commitOf(CANARY), runs: ['passed', 'passed'] });
-    const steps = new FakeSteps(database.writer, { planner: () => 'fails' });
+    const steps = new FakeSteps(database.as.gateway, { planner: () => 'fails' });
     const { line: it, github } = line({ release: null, verify: { probes }, steps });
     await pass(it);
     await pass(it);
@@ -1100,7 +1100,7 @@ describe('Verify on the line', () => {
       dryRun: false,
     };
     await events.append([event(workItem, 'work-item.reopened', reopened, 'triage')]);
-    await database.writer`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${workItem}`;
+    await database.as.line`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${workItem}`;
     // GitHub fails the first time: it stays where it is, and comes back on the next pass.
     github.failing.set('reopenIssue', 1);
     await pass(it);
@@ -1131,7 +1131,7 @@ describe('Verify on the line', () => {
     const workItem = await merged(30, FIX_3);
     await promote(workItem);
     const probes = new FakeProbes({ outcome: 'cleared', version: commitOf(CANARY), runs: ['passed', 'passed'] });
-    const steps = new FakeSteps(database.writer, { planner: () => 'fails' });
+    const steps = new FakeSteps(database.as.gateway, { planner: () => 'fails' });
     const { line: it, github } = line({ release: null, verify: { probes }, steps });
     await pass(it);
     await pass(it);
@@ -1144,11 +1144,11 @@ describe('Verify on the line', () => {
       dryRun: false,
     };
     await events.append([event(workItem, 'work-item.reopened', reopened, 'triage')]);
-    await database.writer`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${workItem}`;
+    await database.as.line`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${workItem}`;
     github.refusing.set('reopenIssue', new GitHubWorkerError(404, 'not-found', 'Not Found'));
     await pass(it);
     expect(github.acts.at(-1)?.action).toBe('openIssue');
-    const [row] = await database.writer<{ stage: string; issue: number }[]>`
+    const [row] = await database.as.line<{ stage: string; issue: number }[]>`
       select stage, issue from line where work_item = ${workItem}`;
     expect(row).toEqual({ stage: 'plan', issue: 41 });
   });
@@ -1188,14 +1188,14 @@ describe('Verify on the line', () => {
       await promote(atVerify, 'dry-run-eeeeeeeeeeee', 'e'.repeat(40), true);
       const gone = await opened();
       await events.append([pushed(gone, 1_000_000_004)]);
-      await database.writer`insert into line (work_item, stage, issue) values (${gone}, 'gates', 8)`;
+      await database.owner`insert into line (work_item, stage, issue) values (${gone}, 'gates', 8)`;
       // Its pull request open still, on a ticket the line took before the dry run, with an issue GitHub has.
       const open = await opened();
       await events.append([pushed(open, 1_000_000_003)]);
-      await database.writer`insert into line (work_item, stage, issue) values (${open}, 'gates', 7)`;
+      await database.owner`insert into line (work_item, stage, issue) values (${open}, 'gates', 7)`;
       // Taken by the dry run, with no pull request yet: its issue is the dry run's.
       const taken = await opened();
-      await database.writer`insert into line (work_item, stage, issue) values (${taken}, 'plan', 1000000005)`;
+      await database.owner`insert into line (work_item, stage, issue) values (${taken}, 'plan', 1000000005)`;
       // Reopened by triage, and waiting to come back into Plan, which forgets its issue: it is left to that.
       const back = await opened();
       await events.append([
@@ -1214,7 +1214,7 @@ describe('Verify on the line', () => {
           'triage',
         ),
       ]);
-      await database.writer`insert into line (work_item, stage, issue) values (${back}, 'ended', 1000000006)`;
+      await database.owner`insert into line (work_item, stage, issue) values (${back}, 'ended', 1000000006)`;
       const real = await merged(30, FIX_3);
       const { line: it, github } = line({ release: null, gatesEveryMs: 0 });
       // GitHub fails once: that one is tried again on the next pass. One whose issue is gone closes all the same.
@@ -1266,9 +1266,9 @@ describe('Verify on the line', () => {
       await pass(dry.line);
       await pass(dry.line);
       expect(await stage(workItem)).toBe('ended');
-      await database.writer`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${workItem}`;
+      await database.as.line`update line set moved_at = moved_at - interval '2 minutes' where work_item = ${workItem}`;
 
-      const steps = new FakeSteps(database.writer, { planner: () => 'fails' });
+      const steps = new FakeSteps(database.as.gateway, { planner: () => 'fails' });
       const { line: it, github } = line({ release: null, steps });
       await pass(it);
       expect(await payloads(workItem, 'work-item.reopened')).toEqual([
@@ -1320,7 +1320,7 @@ describe('Verify on the line', () => {
     });
     /** Every page on the version before and on the release's, as the probes worker indexed them. */
     async function pictured() {
-      const index = new PictureIndex(database.writer);
+      const index = new PictureIndex(database.as.probes);
       const [before, after] = [commitOf(STABLE), commitOf(CANARY)];
       const page = (path: string, fills: string, changed: number, boxed = false): Picture => ({
         canary: after,
@@ -1348,7 +1348,7 @@ describe('Verify on the line', () => {
     }
     const screenshotsOf = async (workItem: string, type: string) =>
       (
-        await database.writer<{ artifacts: Screenshot[] }[]>`
+        await database.as.line<{ artifacts: Screenshot[] }[]>`
           select artifacts from events where work_item = ${workItem} and type = ${type} order by seq desc limit 1`
       )[0]?.artifacts ?? [];
     const artifactsOf = async (workItem: string, type: string) =>
@@ -1363,7 +1363,7 @@ describe('Verify on the line', () => {
     const lineWithPictures = async (options: Partial<LineOptions>) =>
       line({
         release: null,
-        events: new EventWriter(database.writer, { kind: 'real', artifacts: new IndexedArtifacts(database.writer) }),
+        events: new EventWriter(database.as.line, { kind: 'real', artifacts: new IndexedArtifacts(database.as.line) }),
         pictures: await pictured(),
         ...options,
       });
@@ -1372,7 +1372,7 @@ describe('Verify on the line', () => {
       const workItem = await merged(30, FIX_3);
       await promote(workItem);
       // The probe's signal was seen on the garden's page, with the heading boxed.
-      await new PictureIndex(database.writer).remember(
+      await new PictureIndex(database.as.probes).remember(
         {
           sense: 'probe',
           check: 'departments',
@@ -1434,7 +1434,7 @@ describe('Verify on the line', () => {
           'rollouts',
         ),
       ]);
-      await new PictureIndex(database.writer).remember(
+      await new PictureIndex(database.as.probes).remember(
         {
           sense: 'probe',
           check: 'departments',

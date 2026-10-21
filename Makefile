@@ -11,6 +11,8 @@ PLAYWRIGHT := $(shell grep -oE 'mcr\.microsoft\.com/playwright:[^ ]+' apps/facto
 REVISION ?= main
 # The private checkout, which holds the answer key: `make up` gives the scoreboard each entry's id and fingerprint.
 PRIVATE_DIR ?= $(CURDIR)/../cv-software-factory-private
+# The workers that connect to the store, each as a role of its own (packages/store/migrations/0022_worker-roles.sql).
+STORE_WORKERS := triage line gateway probes crawler intake logs
 
 # $(call as-writer,command): run a command on the host as the factory's writer, through a port-forward to Postgres.
 as-writer = $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
@@ -23,7 +25,7 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down gateway-key github-key scoreboard-secrets check status e2e egress admission-ready eval samples real-store stop-the-line start-the-line
+.PHONY: help up down gateway-key github-key scoreboard-secrets worker-secrets check status e2e egress admission-ready eval samples real-store stop-the-line start-the-line
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -39,6 +41,7 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@$(call secret,factory,postgres-writer,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-console,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-metrics,--from-literal=password="$$(openssl rand -hex 24)")
+	@$(MAKE) --no-print-directory worker-secrets
 	@$(MAKE) --no-print-directory gateway-key
 	@$(MAKE) --no-print-directory github-key
 	@$(MAKE) --no-print-directory scoreboard-secrets
@@ -104,6 +107,18 @@ scoreboard-secrets: node_modules ## Give the scoreboard its password, and the an
 		else $(KUBECTL) -n scoreboard delete secret answer-key --ignore-not-found >/dev/null && \
 			echo "  No private checkout at $(PRIVATE_DIR): no answer key, and the scoreboard is off."; fi
 	@$(KUBECTL) -n scoreboard delete pod -l app.kubernetes.io/name=scoreboard --ignore-not-found >/dev/null
+
+# A password for each worker's own role in the store, in a Secret of its own, made once: the migrate Job sets each role's
+# password from it as Argo CD syncs. Each goes through stdin, never on a command line. On a cluster made before the
+# workers had roles, run this before the deploy whose image brings their migration, or their roles have no password
+# until the sync after it.
+worker-secrets: ## Give each worker that uses the store a password for its own role
+	@for worker in $(STORE_WORKERS); do \
+		$(KUBECTL) -n factory get secret postgres-$$worker >/dev/null 2>&1 || \
+			printf %s "$$(openssl rand -hex 24)" | \
+			$(KUBECTL) -n factory create secret generic postgres-$$worker --from-file=password=/dev/stdin >/dev/null || \
+			exit 1; \
+	done
 
 egress: ## Prove the fences: only the gateway, the GitHub worker and Kyverno leave the cluster; the scoreboard reaches Postgres alone, and no service account of ours may read its Secrets (needs the workers running)
 	scripts/egress.sh
