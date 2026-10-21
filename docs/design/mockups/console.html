@@ -14,7 +14,7 @@
     ?signin=ready (default) | none (no passkey on this device) | expired (the session ended) | out | everywhere (signed out)
     ?enrol=code (default) | passkey (the code took; make the passkey) | done | wrong | spent (expired, used or out of tries)
     ?dialog=stop | start | stepup | abort (open one, as a click would)   ?fresh (the passkey was given in the last five minutes)
-    ?needs=none (nothing waits)   ?menu (the account menu open)
+    ?needs=none (nothing waits)   ?menu (the account menu open)   ?profile=local (default) | cloud (no local model to choose)
   The states shipping brings (README, "Shipping"):
     ?canary=flight (default) | line (no work item) | promoted | rolledback | early (rolled back before a step) | stopped | dry | idle | none
             | paused (by Martin) | aborted (by Martin)
@@ -680,9 +680,10 @@ input.code { font: 500 20px/1 var(--font-mono); letter-spacing: 2px; text-align:
 .settings .panel h2 { font-size: 26px; }
 table.agents { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .agents th { text-align: left; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); font-weight: 400; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); }
-.agents td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.agents td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.agents select.field { height: 40px; }
 .agents tr:last-child td { border-bottom: 0; }
-.agents td small { display: block; font-size: 12px; color: var(--text-muted); }
+.agents td small { display: block; margin-top: 2px; font-size: 12px; color: var(--text-muted); }
 .agents .changed select { border-color: var(--signal); box-shadow: inset 2px 0 0 var(--signal); }
 .agents .num { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); text-align: right; white-space: nowrap; }
 .caps { display: flex; flex-direction: column; }
@@ -2484,9 +2485,9 @@ function signinPage() {
     everywhere: `<div class="done" style="border-left-color: var(--line-strong)">Signed out everywhere: every session on every device has ended, this one too.</div>`,
   }[k] ?? '';
   return `<div class="door"><span class="label">Admin</span><h1>Sign in</h1>
-    <p>This is Martin’s way in. He signs in with a passkey: there is no password, and no other way.</p>${note}
+    <p>Sign in with the passkey on this device to answer holds, change settings and run the line.</p>${note}
     <button type="button" class="btn primary" data-signin>${glyph('key', 'key')}Sign in with a passkey</button>
-    <p class="aside">Visiting? There is nothing to sign in for. Everything the factory does is on the console, and every control is shown there, read-only. <a href="?mode=visitor">Back to the console</a></p></div>`;
+    <p class="aside">Visiting? Everything Martin can change is on the console already, read-only. <a href="?mode=visitor">Back to the console</a></p></div>`;
 }
 
 function enrolPage() {
@@ -2503,7 +2504,7 @@ function enrolPage() {
       <p class="help">Your browser or phone asks where to keep it. The name is for the settings, where you can revoke it.</p>`
     : `<div class="done">Passkey made, and you are signed in on this device. Sign in with it from now on.</div><a class="btn primary" href="?">Go to the console</a>`;
   return `<div class="door"><span class="label">Admin · enrolment</span><h1>Enrol a passkey</h1>
-    <p>Once for each device Martin signs in on. A one-time code is the only way to add a passkey: a signed-in session can’t.</p>
+    <p>Do this once on each device you sign in from. A passkey is added only with a one-time code from the command line, never from a signed-in session.</p>
     <ol class="steps-list">${li(1, 'On the command line, run <code>factory admin enrol</code>. It prints a code that lasts ten minutes and allows five tries.')}
       ${li(2, 'Enter the code here.')}${li(3, 'Make a passkey on this device.')}</ol>${body}
     <p class="aside">Lost a device? <code>factory admin enrol --revoke-others</code> revokes every other passkey and ends every session.</p></div>`;
@@ -2513,7 +2514,9 @@ const AGENTS = [['planner', 'Writes the spec from the ticket', 'claude-sonnet-5-
   ['coder', 'Writes the test, then the fix', 'claude-sonnet-5-5', 'high', 'high', '14 steps · $1.62'],
   ['reviewer', 'Reviews what passed the gates', 'claude-sonnet-5-5', 'medium', 'high', '11 steps · $0.88'],
   ['describer', 'Writes the pull request’s story', 'claude-haiku-4-5', 'low', 'medium', '6 steps · $0.07']];
-const MODEL_NAMES = [['qwen/qwen3.8-27b', 'Qwen 3.8 27B · local'], ['claude-haiku-4-5', 'Claude Haiku 4.5'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5'], ['claude-opus-5-5', 'Claude Opus 5.5']];
+// The models policy/models.ts gives the profile, by the names the sheet uses: a local one only where the profile has it.
+const MODEL_NAMES = [['claude-haiku-4-5', 'Claude Haiku 4.5'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5'], ['claude-opus-5-5', 'Claude Opus 5.5'],
+  ...(q.get('profile') === 'cloud' ? [] : [['qwen/qwen3.8-27b', 'Qwen3.8 27B · local']])];
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 function settingsPage() {
@@ -2531,9 +2534,7 @@ function settingsPage() {
       <span class="money"><input class="field" id="cap-${k}" inputmode="decimal" value="${val}" ${v ? 'disabled' : ''}></span>
       <span class="ceil"><span class="bar ink"><i style="width: ${pct}%"></i></span><span>${spent} · ceiling $${ceil}, from policy/spend.ts</span></span></div>`;
   const models = `<article class="panel" aria-labelledby="models-title"><div class="panel-head"><h2 id="models-title">Models</h2>${v ? '<span class="label">Read only</span>' : ''}</div>
-      <p class="help">Each agent’s model and effort, within the bounds <code>policy/models.ts</code> sets. A change applies from an agent’s next step: a step running now finishes on what it started with, and records what it ran on.</p>
-      <div class="switches"><button type="button" class="switch" role="switch" aria-checked="false" ${v ? 'disabled' : ''} data-local>
-        <span><span class="what">All local</span><small>Every agent on Qwen 3.8 27B, on Martin’s Mac, for nothing. Turning it off later asks for the passkey.</small></span><span class="track" aria-hidden="true"></span></button></div>
+      <p class="help">Each agent’s model and effort, within the bounds <code>policy/models.ts</code> sets for this profile. ${q.get('profile') === 'cloud' ? 'A cloud profile has no local model.' : 'Qwen3.8 27B runs on Martin’s Mac, for nothing.'} A change applies from an agent’s next step: a step running now finishes on what it started with, and records what it ran on.</p>
       <table class="agents"><thead><tr><th>Agent</th><th>Model</th><th>Effort</th><th class="num">Spent</th></tr></thead><tbody>${rows}</tbody></table>
       <p class="help">Triage is not here: it asks Jev typed questions, through the gateway, at a fraction of a cent each.</p></article>`;
   const caps = `<article class="panel" aria-labelledby="caps-title"><div class="panel-head"><h2 id="caps-title">Spend caps</h2>${v ? '<span class="label">Read only</span>' : ''}</div>
