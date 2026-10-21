@@ -288,7 +288,7 @@ An **MR monogram**: Martin Rogan's initials in Instrument Serif, with the R set 
 
 One page, three widths. The console is designed to be read from top to bottom: *is it running → what is happening → what does it need from me*.
 
-The Canary panel sits full width directly under the line, at every width: it is the Release station opened up. The bottom row, Needs you (or Try it yourself) and Controls, comes with milestone 8, under the reel.
+The Canary panel sits full width directly under the line, at every width: it is the Release station opened up. The bottom row, Needs you (or Try it yourself) and Controls, comes with milestone 7, under the reel.
 
 | Width | The line | The Canary panel | The reel and the sheet | Bottom row |
 |---|---|---|---|---|
@@ -304,7 +304,7 @@ Each panel does one job:
 
 - **Header:** mark, name, whether the line is running (with the autonomy level), and Stop the line. Autonomy is set in Controls.
 - **Scoreboard:** three figures: found, verified fixed, median time to verified. No totals, false positives or separate "fixed" count: "fixed" and "verified" are too close to earn two places.
-- **Canary:** the release in flight against the version it replaces, step by step, for everyone. It says the canary decides for itself; promote, hold and roll back are admin's, in milestone 8.
+- **Canary:** the release in flight against the version it replaces, step by step, for everyone. It says the canary decides for itself; promote, pause, roll back and retry are admin's, in milestone 7.
 - **Captions under stations:** the name and one line: state word and one figure. Descriptions belong in the stage panel, switches in Controls.
 - **The reel:** every work item, oldest to now. Watching the app change says more than a list; what waits on Martin is also listed in Needs you.
 - **The sheet:** one work item in full: the stage scrubber and the site at each step, the evidence, the change, the model calls and the gates.
@@ -343,7 +343,7 @@ The release in flight against the version it would replace, for everyone, full w
 - **The steps:** a bar that is the canary's share of the traffic, from 0 to 100%, with a stop at each step's weight. The steps are `release.started`'s (version 3): one per weight the Rollout sets, each with its pause; the final 100% is not listed, so the panel adds it, as "all". Under each stop, the weight and the pause ("3min", or "waits" for a pause that waits for someone), and "not judged" for a step the analysis does not measure. A step measured passing is an `ok` ring with a tick, a failed one `attn` with a cross, the step being measured a `signal` ring with a dot, and a step to come an empty ring. The bar fills to the canary's weight in the release's tone; a rollback's step is an `attn` cross, and an abort's (Stop the line's or Martin's) a dashed `attn` ring, named "stopped here" or "aborted here". When a release has no steps recorded (a version 2 event, a release found already live), the steps measured stand in, then 100%.
 - **The measures,** at the latest step measured: a table captioned "At the 25% step · measured 16:44:00", one row each for requests, errors, latency and the journeys, with the canary's figure, the baseline's in `text-muted`, and the verdict. Each measure has its rule in one caption line, in `policy/release.ts`'s terms ("share of 5xx answers · fails more than a point above"). Figures are tabular mono: requests counted, the 5xx share to two decimals, p99 in ms, and the journeys as "24 / 24" only when the step recorded counts; otherwise "—", and the verdict alone. The verdicts, from the analysis's own phases: **passed** (`ok`, tick), **failed** (`attn`, cross, and a 2px `attn` rule down the row's left edge), **measuring** (`signal`, ring), **waiting** (`text-muted`), **could not measure** for an error, which the analysis tries again (`text-muted`, with its message as the caption), and **inconclusive · waits for Martin** (`attn`, ring), since Argo Rollouts pauses the release until someone decides. Before the first step is measured the table waits: the same four rows with their rules, "—" for each figure and **measuring** for each verdict, captioned with the step in flight and when it is measured ("At the 25% step · measuring until 16:41:00"), so the panel never looks as if something failed to load. It waits only for a step the analysis judges when its pause runs out: a step that is not judged, or that waits for someone, has no table, and the note says why; nor has a dry run, which measures nothing. A rollback before the first step is measured replaces it with the rollback's own table.
 - **The note,** under the steps, says what happens next in the release's own times: "Measuring the 50% step until 16:47:30. If every measure passes, the canary takes all the traffic then; if one fails, it rolls back on its own."
-- **Last line, for everyone:** "The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything." Promote, hold and roll back are admin's, in milestone 8, and arrive with the bottom row.
+- **Last line, for everyone:** "The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything." Promote, pause, roll back and retry are admin's, in milestone 7, and arrive with the bottom row.
 
 | State | Kicker | Tone | The note says |
 |---|---|---|---|
@@ -404,4 +404,4 @@ Yellow stays the Release station's bird. Moving is ink, a measure that passed an
 - **Mark sign-off.** The MR monogram is a proposal until Martin approves it.
 - **Social card and README header,** built from the mark once it is approved.
 - **The audit log's table.**
-- **Promote, hold and roll back on the Canary panel,** and the bottom row they come with (milestone 8).
+- **Promote, pause, roll back and retry on the Canary panel,** and the bottom row they come with (milestone 7).

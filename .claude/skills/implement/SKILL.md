@@ -48,6 +48,15 @@ The run exists to close work, not to find more. Hold to this order when a sub-ag
 
 Something that needs Martin's decision, or that cannot merge until something else is deployed, is not an issue to file: it goes in the summary. Never leave an issue that the run filed without its pull request or a reason it was skipped.
 
+## Work a worker cannot do
+
+A worker skips what needs an image pinned first, a migration with an ordered rollout, or the local cluster to prove it. When the plan or the brief names such work, it is yours, not a skip to report:
+
+- **A deploy pull request that waits for an image:** list it in the summary with what it waits for, and open it in a later run, once Martin has merged the change that builds the image.
+- **A proof or a drill on the local cluster:** run it yourself with the `try-the-line` skill, time-boxed, and log what it showed in `NOTES.md`; until then it is in the summary.
+
+When a milestone's plan asks for `/security-review` on a task, say so in its brief.
+
 ## After the last work item
 
 With more than one pull request:

@@ -9,7 +9,7 @@ AI agents and deterministic gates that look after a live web app. They notice pr
 I'm Martin Rogan. This is my portfolio: a working system you can open and judge for yourself, rather than a description of what I can do. [Why it exists and what it has to prove](docs/INTENT.md).
 
 > [!NOTE]
-> **Under construction.** Milestones 1 to 5 of 11 are done ([the plan](docs/PLAN/README.md)): the repository, the toolchain, CI, a local Kubernetes cluster with GitOps and telemetry, the app the factory looks after, the console, drawn from an append-only event store and live in the browser, the factory's senses and triage, and the line that fixes. Agents in fenced sandboxes plan a fix, write a failing test and then the fix, and review it, and the factory's GitHub App opens the pull request, which waits for my approval: seeded defects have been fixed and merged with no human code. Nothing is canaried or verified yet: that is milestone 6, which is next.
+> **Under construction.** Milestones 1 to 6 of 11 are done ([the plan](docs/PLAN/README.md)): the repository, the toolchain, CI, a local Kubernetes cluster with GitOps and telemetry, the app the factory looks after, the console, drawn from an append-only event store and live in the browser, the factory's senses and triage, the line that fixes, and shipping safely. Agents in fenced sandboxes plan a fix, write a failing test and then the fix, and review it, and the factory's GitHub App opens the pull request, which waits for my approval. Once I merge its deploy, the fix ships as a signed image that admission control lets in, runs as a canary beside the version it replaces, promotes or rolls itself back, and is verified by the sense that first saw the defect, with the scoreboard counting it. Seeded defects have gone all the way with no human code, and a bad change has been rolled back with nobody touching it. Next is milestone 7: admin mode in the console, improvements behind feature flags, and every guardrail proved.
 
 ## What it will do
 
@@ -30,13 +30,14 @@ mise install     # Node, pnpm, kubectl and its Argo Rollouts plugin, k3d, helm, 
 make up          # a local Kubernetes cluster; Argo CD deploys the rest from this repo
 make samples     # twelve sample work items, so the console has something to show
 make status      # what is running, and where to open it
-make egress      # prove that only the model gateway can leave the cluster
+make egress      # prove the fences: only the model gateway, the GitHub worker and admission control leave the cluster
+make stop-the-line  # agents stop, workers take nothing new, a canary in flight aborts
 make down        # delete the cluster; nothing is left behind
 ```
 
 A store holds samples or the factory's own work, never both. `make real-store` empties it for real work: use it when you want to watch the factory find and triage defects in the app, rather than browse the samples.
 
-The factory's workers run in the cluster too: the model gateway, triage, the intake and log watcher, and the probes and crawler that look at the app. The gateway asks Jev (TypeSafe) with a key from `TYPESAFE_API_KEY` or the macOS Keychain (`typesafe-api-key`), which `make up` hands to the cluster and writes nowhere else; with no key it replays recorded answers only. Network policies let only the gateway reach the internet.
+The factory's workers run in the cluster too: the model gateway, triage, the intake and log watcher, the probes and crawler that look at the app, the line and its GitHub worker, the traffic generator that gives a canary enough requests to judge, and the scoreboard, alone in its own namespace. The gateway asks Jev (TypeSafe) with a key from `TYPESAFE_API_KEY` or the macOS Keychain (`typesafe-api-key`), which `make up` hands to the cluster and writes nowhere else; with no key it replays recorded answers only. Network policies let only the gateway, the GitHub worker and admission control reach the internet, and admission control runs only images the pipeline signed.
 
 `make` on its own lists every target. The first `make up` takes a few minutes while images download.
 

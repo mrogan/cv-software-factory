@@ -3,7 +3,7 @@
 The line after the merge: which release ships a fix, and whether the defect has gone from production. Part of the [factory plane](README.md#factory-plane).
 
 - **v1:** part of [the line](ORCHESTRATOR.md), as pure functions of the events and what it reads (`release/watch.ts`, `line/verify.ts`), with the reads and appends in `line/release.ts` and `line/worker.ts`.
-- **Later:** promote, hold and roll back from the console (milestone 8).
+- **Later:** promote, pause, roll back and retry from the console (milestone 7).
 
 ```mermaid
 flowchart LR
