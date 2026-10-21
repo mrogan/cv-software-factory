@@ -48,17 +48,17 @@ spec:
               value: "service.namespace=software-factory"
             - name: OTEL_METRIC_EXPORT_INTERVAL
               value: "15000"
-            # The event store, as the factory's writer: it appends and reads.
+            # The event store, as this worker's own role (policy/store-grants.ts): what it uses, and appending and reading events.
             - name: PGHOST
               value: postgres
             - name: PGDATABASE
               value: factory
             - name: PGUSER
-              value: factory_writer
+              value: factory_crawler
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-writer
+                  name: postgres-crawler
                   key: password
             # The app's stable Service: all of the app between releases. A canary is judged by its analysis, not here.
             - name: APP_URL

@@ -49,17 +49,17 @@ spec:
               value: "service.namespace=software-factory"
             - name: OTEL_METRIC_EXPORT_INTERVAL
               value: "15000"
-            # The event store, as the factory's writer: it appends and reads.
+            # The event store, as this worker's own role (policy/store-grants.ts): what it uses, and appending and reading events.
             - name: PGHOST
               value: postgres
             - name: PGDATABASE
               value: factory
             - name: PGUSER
-              value: factory_writer
+              value: factory_intake
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-writer
+                  name: postgres-intake
                   key: password
             - name: PROMETHEUS_URL
               value: http://query.telemetry:9090
