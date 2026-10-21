@@ -1,6 +1,6 @@
 /**
  * First meaningful view within two seconds on a throttled phone: the line drawn from the factory's events. Against
- * the test server by default; CONSOLE_URL points it at the local cluster.
+ * the test server by default; CONSOLE_URL (https://console.localhost:8443) points it at the local cluster.
  */
 import { consoleUrl, expect, test } from './support.ts';
 

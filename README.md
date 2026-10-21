@@ -26,15 +26,17 @@ It is safe because of mechanisms, not because the prompts ask nicely: agents can
 You need macOS or Linux, [mise](https://mise.jdx.dev) and a container runtime ([OrbStack](https://orbstack.dev) on a Mac).
 
 ```sh
-mise install     # Node, pnpm, kubectl and its Argo Rollouts plugin, k3d, helm, kustomize, cosign, all pinned
+mise install     # Node, pnpm, kubectl and its Argo Rollouts plugin, k3d, helm, kustomize, cosign, step, all pinned
 make up          # a local Kubernetes cluster; Argo CD deploys the rest from this repo
 make samples     # twelve sample work items, so the console has something to show
 make status      # what is running, and where to open it
 make egress      # prove the fences: of the factory's own pods, only the gateway and the GitHub worker leave the cluster
 make stop-the-line   # agents stop, workers take nothing new, a canary in flight aborts
 make start-the-line  # the line takes work again
-make down        # delete the cluster; nothing is left behind
+make down        # delete the cluster; nothing is left behind but the local certificate authority
 ```
+
+The console is at `https://console.localhost:8443`. The first `make up` makes a certificate authority for it that can sign for `localhost` names only, and macOS asks once whether to trust it; decline, and the console shows behind a browser warning, and secure cookies and passkeys, which the admin sign-in needs, won't work there. `make untrust-ca` removes it from the Keychain and deletes it.
 
 A store holds samples or the factory's own work, never both. `make real-store` empties it for real work: use it when you want to watch the factory find and triage defects in the app, rather than browse the samples.
 

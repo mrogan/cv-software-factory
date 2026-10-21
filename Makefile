@@ -13,6 +13,8 @@ REVISION ?= main
 PRIVATE_DIR ?= $(CURDIR)/../cv-software-factory-private
 # The workers that connect to the store, each as a role of its own (packages/store/migrations/0022_worker-roles.sql).
 STORE_WORKERS := triage line gateway probes crawler intake logs
+# The local certificate authority behind the console's HTTPS, outside the repository (scripts/local-ca.ts).
+LOCAL_CA = $(shell node scripts/local-ca.ts dir)
 
 # $(call as-writer,command): run a command on the host as the factory's writer, through a port-forward to Postgres.
 as-writer = $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
@@ -33,6 +35,11 @@ help: ## List the targets
 up: ## Create the local cluster; Argo CD then deploys everything from main (or REVISION=<branch>)
 	@docker info >/dev/null 2>&1 || { echo "Docker isn't running. Start OrbStack (or another runtime) and try again."; exit 1; }
 	@k3d cluster list $(CLUSTER) >/dev/null 2>&1 || k3d cluster create --config deploy/k3d/cluster.yaml
+	@# A cluster made before the console moved to HTTPS has no 8443. k3d adds it in place by making the cluster's load
+	@# balancer again, and keeps everything in the cluster, the store included.
+	@docker port k3d-$(CLUSTER)-serverlb 443/tcp >/dev/null 2>&1 || { \
+		echo "  This cluster has no HTTPS port: adding 127.0.0.1:8443, which restarts its load balancer and nothing else."; \
+		k3d cluster edit $(CLUSTER) --port-add 127.0.0.1:8443:443@loadbalancer; }
 	helm upgrade --install argocd argo-cd --repo https://argoproj.github.io/argo-helm --version $(ARGOCD_CHART) \
 		--kube-context $(CONTEXT) --namespace argocd --create-namespace \
 		--values deploy/argocd/values.yaml --wait --timeout 5m --hide-notes
@@ -46,6 +53,7 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@$(MAKE) --no-print-directory github-key
 	@$(MAKE) --no-print-directory scoreboard-secrets
 	@$(call secret,telemetry,grafana-admin,--from-literal=admin-user=admin --from-literal=admin-password="$$(openssl rand -hex 24)")
+	@$(MAKE) --no-print-directory local-tls
 	sed 's|targetRevision: main|targetRevision: $(REVISION)|' deploy/argocd/root.yaml | $(KUBECTL) apply -f -
 	@echo "Waiting for Argo CD to deploy everything (a few minutes the first time)..."
 	@# An Application reads healthy before it has deployed anything, so wait for each to sync before its health.
@@ -58,6 +66,23 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 
 down: ## Delete the local cluster, and everything in it
 	k3d cluster delete $(CLUSTER)
+	@echo "  The local certificate authority stays, trusted, for the next 'make up'. 'make untrust-ca' removes it."
+
+.PHONY: local-tls untrust-ca
+
+# The console's HTTPS: a local certificate authority that may sign for `localhost` names only, made once and kept
+# outside the repository; the Mac's trust in it, for TLS servers only, asked for once; and its certificate for the
+# console, renewed in its last 30 days, in the Secret Traefik serves it from. Declining the trust prompt leaves the
+# console behind a browser warning, and the admin sign-in unusable, until the next `make up` asks again.
+local-tls: ## Make the console's certificate (and its local authority) if due, have the Mac trust it, and give it to Traefik
+	@node scripts/local-ca.ts issue
+	@node scripts/local-ca.ts trust
+	@$(KUBECTL) create namespace factory --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
+	@$(KUBECTL) -n factory create secret tls console-tls --cert="$(LOCAL_CA)/tls.crt" --key="$(LOCAL_CA)/tls.key" \
+		--dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
+
+untrust-ca: ## Stop the Mac trusting the local certificate authority, and delete it; the next `make up` makes another
+	@node scripts/local-ca.ts untrust
 
 # The gateway's keys, TypeSafe's and Anthropic's, from the environment or the macOS Keychain, go to the cluster and
 # nowhere else: each is piped through stdin, never written to a file or put on a command line. Without one there is no
@@ -168,7 +193,7 @@ samples: node_modules ## Load the sample work items into the cluster's store, wi
 	@$(KUBECTL) -n factory delete pod artifacts-copier --wait=false >/dev/null
 	@# Then the events, as the factory's writer, through a port-forward to Postgres.
 	@$(call as-writer,ARTIFACTS_DIR=packages/samples/log/artifacts node apps/factory/src/cli.ts events load packages/samples/log)
-	@echo "  Console  http://console.localhost:8080"
+	@echo "  Console  https://console.localhost:8443"
 
 real-store: node_modules ## Replace the cluster's store with an empty one for real events (FORCE=1 if it holds some)
 	@# As the database's owner, through a port-forward: only the owner may drop the schema.
@@ -184,7 +209,7 @@ real-store: node_modules ## Replace the cluster's store with an empty one for re
 	@$(KUBECTL) -n factory exec artifacts-copier -- find /var/lib/factory/artifacts -mindepth 1 -delete
 	@$(KUBECTL) -n factory delete pod artifacts-copier --wait=false >/dev/null
 	@$(KUBECTL) -n factory rollout restart deployment/console >/dev/null
-	@echo "  Console  http://console.localhost:8080"
+	@echo "  Console  https://console.localhost:8443"
 
 stop-the-line: node_modules ## Stop the line: agents stop, workers take nothing new, a canary in flight aborts (REASON="...")
 	@# Both halves run whichever fails: a canary is aborted even if the store cannot be reached, and the other way round.
@@ -205,7 +230,7 @@ status: ## Show what is running, and where to open it
 		$(KUBECTL) -n argocd get applications -o custom-columns='APPLICATION:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status'; \
 		echo; \
 		echo "  Deployed from $$($(KUBECTL) -n argocd get application root -o jsonpath='{.spec.source.targetRevision}') at $$($(KUBECTL) -n argocd get application root -o jsonpath='{.status.sync.revision}' | cut -c1-7)"; \
-		echo "  Console  http://console.localhost:8080   $$(curl -sf http://console.localhost:8080/version || echo '(not up yet)')"; \
+		echo "  Console  https://console.localhost:8443  $$(curl -sf --cacert "$(LOCAL_CA)/ca.crt" https://console.localhost:8443/version || echo '(not up yet)')"; \
 		echo "  Website  http://website.localhost:8080   $$(curl -sf http://website.localhost:8080/version || echo '(not up yet)')"; \
 		echo "  Grafana  http://grafana.localhost:8080"; \
 		echo "  Argo CD  http://argocd.localhost:8080    read-only; the admin password is in the argocd-initial-admin-secret Secret"; \

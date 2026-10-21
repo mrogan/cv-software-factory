@@ -16,6 +16,8 @@ make e2e                       # the console in a browser, in the pinned Playwri
 make up / make samples / make status / make down
 ```
 
+The cluster's console is at `https://console.localhost:8443`, and plain HTTP on its host redirects there: Safari drops a `Secure` cookie over HTTP, even on `localhost`, and passkeys need a secure context. The app's hosts (`website.localhost:8080` and the canary), Grafana and Argo CD stay on plain HTTP at :8080. `make up` makes a local certificate authority once, in `~/.config/software-factory/local-ca` (`scripts/local-ca.ts`), whose name constraints let it sign for `localhost` names only, has macOS trust it for TLS servers (it asks once), and gives Traefik the console's certificate, renewed in its last 30 days by any `make up`. Decline the prompt and the console still shows past a browser warning, but secure cookies and passkeys, which the admin sign-in needs, will not work there; the next `make up` asks again. `make untrust-ca` takes it out of the Keychain and deletes it; `make down` leaves it. On a cluster made before HTTPS, `make up` adds the :8443 port in place (`k3d cluster edit`, which makes only the load balancer again, so the store keeps its work items); `make down && make up` gives a fresh cluster the port from `deploy/k3d/cluster.yaml`.
+
 The inner loop runs on the host, not through GitOps. With the cluster up, forward its collector and Postgres; `pnpm dev` reads the event store instead of the samples when `PGHOST` is set:
 
 ```sh
