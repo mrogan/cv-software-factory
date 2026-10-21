@@ -3,11 +3,10 @@
  * one-time code for the console's enrolment page, and, with `--revoke-others`, every passkey and session revoked first.
  * The store keeps the code's hash and sets its ten minutes; the code itself is printed once and kept nowhere.
  */
-import { DiskArtifacts, EventWriter } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { ENROLMENT_CODE, PASSKEYS } from '../../../../policy/access.ts';
 import { codeHash, newCode } from './secrets.ts';
-import { adminEvent } from './store.ts';
+import { adminEvent, appendMartins } from './store.ts';
 
 export interface Enrolment {
   code: string;
@@ -29,12 +28,8 @@ export async function enrol(sql: Sql, { revokeOthers = false } = {}): Promise<En
       revoked = rows.map((row) => row.name);
       // Revoking a passkey ends its sessions; this ends any left, whatever they were signed in with.
       await tx`update sessions set ended_at = now(), ended_by = 'revoked' where ended_at is null`;
-      const [store] = await tx<{ sample: boolean }[]>`select sample from store`;
-      const writer = new EventWriter(sql, {
-        kind: store?.sample ? 'sample' : 'real',
-        artifacts: new DiskArtifacts('/nonexistent'),
-      });
-      await writer.appendWithin(
+      await appendMartins(
+        sql,
         tx,
         revoked.map((name) =>
           adminEvent('passkey.revoked', 'Martin revoked a passkey', { passkey: name, from: 'command-line' }),

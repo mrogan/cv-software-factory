@@ -17,13 +17,13 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import { z } from 'zod';
-import { ACCESS, routeOf, SESSION, type ServedBy } from '../../../../policy/access.ts';
+import { ACCESS, PASSKEYS, routeOf, SESSION, type ServedBy } from '../../../../policy/access.ts';
 import type { Logger } from '../log.ts';
 import { clientAddress, LIMITS, RateLimit } from './client.ts';
 import type { AdminConfig } from './config.ts';
 import { fromConsole, type Guard, guardOf, refuseWrite } from './guard.ts';
-import { codeHash, isSessionId, newChallenge, newSessionId, tokenOf } from './secrets.ts';
-import { type AdminStore, adminEvent, Refused, type Session, sessionHash } from './store.ts';
+import { codeHash, isSessionId, newChallenge, newSessionId, normalCode, tokenOf } from './secrets.ts';
+import { type AdminStore, adminEvent, Refused, type Session, sessionHash, TOO_MANY_PASSKEYS } from './store.ts';
 import { type FullEvents, resumeFrom } from './stream.ts';
 import {
   authenticationAnswer,
@@ -136,6 +136,8 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
     session: async ({ session, id }) => ({ status: 200, body: await described(session as Session, id as string) }),
 
     'full-events': async ({ req, res, url, session }) => {
+      // Asked only whether it is there, it opens no stream.
+      if (req.method === 'HEAD') return { status: 200, body: {} };
       events.stream(req, res, (session as Session).hash, resumeFrom(req, url));
       return 'streaming';
     },
@@ -143,8 +145,10 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
     enrol: async ({ url, body, id }) => {
       if (url.pathname.endsWith('/options')) {
         const code = (body as { code?: unknown }).code;
-        if (typeof code !== 'string' || !code.trim())
+        // Something that cannot be a code is no try: it counts against no code, so it cannot burn Martin's.
+        if (typeof code !== 'string' || !normalCode(code)) {
           return refused(400, 'code', 'Enter the code `factory admin enrol` printed.');
+        }
         const hash = codeHash(code);
         if (!(await store.tryCode(hash))) {
           return refused(
@@ -154,9 +158,7 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
           );
         }
         const held = await store.passkeys();
-        if (held.length >= 2) {
-          return refused(409, 'passkeys', 'Martin holds two passkeys already: revoke one before enrolling another.');
-        }
+        if (held.length >= PASSKEYS.most) return refused(409, 'passkeys', TOO_MANY_PASSKEYS);
         const challenge = newChallenge();
         await store.challenge(challenge, 'enrol', { code: hash });
         return { status: 200, body: await registrationOptions(config, challenge, held) };
@@ -334,10 +336,8 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
       }
     }
 
-    const body = write ? await readBody(req) : undefined;
-    if (body instanceof Refused) return refused(body.status, body.refused, body.message);
-
-    const session = guard === 'none' ? undefined : id ? await store.session(sessionHash(id)) : undefined;
+    // A session for Martin's reads and writes; enrolling and signing in take none.
+    const session = (guard === 'session' || guard === 'write') && id ? await store.session(sessionHash(id)) : undefined;
     if (guard === 'session' && !session) {
       return refused(401, 'session', 'Sign in first: there is no session, or it has ended.');
     }
@@ -350,6 +350,9 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
       );
       if (refusal) return refused(refusal.status, refusal.refused, refusal.message);
     }
+    // Read only once a write is allowed past its checks.
+    const body = write ? await readBody(req) : undefined;
+    if (body instanceof Refused) return refused(body.status, body.refused, body.message);
     return handlers[route]({ req, res, url, values, body, id, session });
   }
 }

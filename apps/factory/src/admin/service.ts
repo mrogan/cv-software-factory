@@ -1,5 +1,6 @@
 /** Starts the admin service: its store, its full-event streams and its server, and how to stop them. */
 import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { connect } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { log } from '../log.ts';
@@ -31,7 +32,8 @@ export async function startAdmin(
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
   await new Promise<void>((resolve) => server.listen(port, resolve));
-  log.info({ port: config.port, origin: config.origin, rpId: config.rpId }, `admin service listening on :${port}`);
+  const bound = (server.address() as AddressInfo).port;
+  log.info({ port: bound, origin: config.origin, rpId: config.rpId }, `admin service listening on :${bound}`);
 
   const stop = async () => {
     await events.stop();

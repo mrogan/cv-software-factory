@@ -77,6 +77,9 @@ export class FullEvents {
     });
     res.write('retry: 2000\n\n');
 
+    // Closed by this service, or by the browser: nothing more may be written, though a read may still be in flight.
+    let closed = false;
+    const gone = () => closed || res.destroyed || res.writableEnded;
     let last = after;
     let reading: Promise<void> | undefined;
     let again = false;
@@ -90,10 +93,10 @@ export class FullEvents {
         do {
           again = false;
           for (;;) {
-            if (res.destroyed) return;
+            if (gone()) return;
             const page = await readFull(this.#sql, last, { limit: PAGE });
             for (const { event } of page) {
-              if (res.destroyed) return;
+              if (gone()) return;
               last = event.seq;
               res.write(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`);
             }
@@ -114,7 +117,9 @@ export class FullEvents {
         });
     };
 
-    const heartbeat = setInterval(() => res.write(': still here\n\n'), HEARTBEAT_MS);
+    const heartbeat = setInterval(() => {
+      if (!gone()) res.write(': still here\n\n');
+    }, HEARTBEAT_MS);
     const recheck = setInterval(() => {
       this.#store.session(session).then(
         (live) => {
@@ -131,11 +136,12 @@ export class FullEvents {
     const open: Open = {
       session,
       close: (why) => {
-        if (!res.destroyed && !res.writableEnded) res.end(`event: ended\ndata: ${JSON.stringify({ why })}\n\n`);
+        if (!gone()) res.end(`event: ended\ndata: ${JSON.stringify({ why })}\n\n`);
         cleanUp();
       },
     };
     const cleanUp = () => {
+      closed = true;
       clearInterval(heartbeat);
       clearInterval(recheck);
       this.#listeners.delete(catchUp);

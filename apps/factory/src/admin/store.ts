@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter } from '@software-factory/store';
 import type { Sql, TransactionSql } from 'postgres';
-import { ENROLMENT_CODE, STEP_UP } from '../../../../policy/access.ts';
+import { ENROLMENT_CODE, PASSKEYS, STEP_UP } from '../../../../policy/access.ts';
 import { sha256 } from './secrets.ts';
 
 /** The events the admin service appends, all of them Martin's. */
@@ -58,6 +58,8 @@ export class Refused extends Error {
     this.status = status;
   }
 }
+
+export const TOO_MANY_PASSKEYS = `Martin holds ${PASSKEYS.most} passkeys already: revoke one before enrolling another.`;
 
 /** Postgres's code for an exception a trigger raised. */
 const RAISED = 'P0001';
@@ -157,14 +159,7 @@ export class AdminStore {
     try {
       return (await this.#sql.begin(async (tx) => {
         const result = await act(tx);
-        const [store] = await tx<{ sample: boolean }[]>`select sample from store`;
-        // Martin's events go in whichever kind of store this is: a store of samples takes samples alone.
-        const writer = new EventWriter(this.#sql, {
-          kind: store?.sample ? 'sample' : 'real',
-          // His events carry no artifacts, so the writer never looks in the artifact store.
-          artifacts: new DiskArtifacts('/nonexistent'),
-        });
-        await writer.appendWithin(tx, events(result));
+        await appendMartins(this.#sql, tx, events(result));
         return result;
       })) as T;
     } catch (error) {
@@ -211,10 +206,23 @@ const sessionOf = (row: SessionRow): Session => ({
 function refusalOf(error: unknown): Refused | undefined {
   if (error instanceof Refused) return error;
   const { code, message } = error as { code?: string; message?: string };
-  if (code === RAISED && message?.includes('two passkeys already')) {
-    return new Refused('passkeys', 409, 'Martin holds two passkeys already: revoke one before enrolling another.');
-  }
+  if (code === RAISED && message?.includes('two passkeys already'))
+    return new Refused('passkeys', 409, TOO_MANY_PASSKEYS);
   return undefined;
+}
+
+/**
+ * Appends Martin's events within a transaction, in whichever kind of store this is: a store of samples takes samples
+ * alone. His events carry no artifacts, so the writer never looks in the artifact store.
+ */
+export async function appendMartins(sql: Sql, tx: TransactionSql, events: NewEvent[]): Promise<void> {
+  if (!events.length) return;
+  const [store] = await tx<{ sample: boolean }[]>`select sample from store`;
+  const writer = new EventWriter(sql, {
+    kind: store?.sample ? 'sample' : 'real',
+    artifacts: new DiskArtifacts('/nonexistent'),
+  });
+  await writer.appendWithin(tx, events);
 }
 
 /** One of Martin's events, now. */

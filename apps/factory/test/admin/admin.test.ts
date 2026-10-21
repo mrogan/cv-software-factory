@@ -290,6 +290,24 @@ describe('enrolment', () => {
     });
   });
 
+  it('counts no try for what cannot be a code, so junk cannot burn Martin’s', async () => {
+    const code = await newCode();
+    for (let i = 0; i < 6; i++) {
+      expect((await new Browser().post('/admin/enrol/options', { code: 'not a code' })).status).toBe(400);
+    }
+    expect((await new Browser().post('/admin/enrol/options', { code })).status).toBe(200);
+  });
+
+  it('opens no stream for HEAD', async () => {
+    const { browser } = await signedIn();
+    const res = await fetch(`${base}/admin/events/stream`, {
+      method: 'HEAD',
+      headers: { cookie: `${COOKIE}=${browser.cookie}` },
+    });
+    expect(res.status).toBe(200);
+    expect(service.events.open).toBe(0);
+  });
+
   it('accepts the code with or without its dashes, in any case', async () => {
     const code = await newCode();
     const typed = code.replaceAll('-', ' ').toLowerCase();
