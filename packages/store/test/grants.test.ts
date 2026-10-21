@@ -144,10 +144,14 @@ describe('the grants', () => {
     );
   });
 
-  it('let every worker log in as itself and nobody as the role they share, and keep no writer', async () => {
+  it('let every worker log in as itself, and nobody as the role they share or as the writer', async () => {
     const roles = await db.owner<{ rolname: string; rolcanlogin: boolean }[]>`
       select rolname, rolcanlogin from pg_roles where rolname like 'factory\\_%'`;
-    expect(Object.fromEntries(roles.map((r) => [r.rolname, r.rolcanlogin]))).toEqual({
+    // 0024 drops the writer, or, where another database on the server still grants it something, leaves it there
+    // unable to log in; the grants above show it holds nothing here.
+    const { factory_writer: writer, ...rest } = Object.fromEntries(roles.map((r) => [r.rolname, r.rolcanlogin]));
+    expect(writer ?? false).toBe(false);
+    expect(rest).toEqual({
       factory_worker: false,
       ...Object.fromEntries(WORKERS.map((w) => [`factory_${w}`, true])),
       factory_admin: true,

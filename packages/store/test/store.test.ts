@@ -362,12 +362,16 @@ describe('reading', () => {
 });
 
 describe("Martin's command line", () => {
-  it('connects as his role, or as the owner on a store not yet migrated to it', async () => {
-    expect(await readyOperator(owner, 'operator-test')).toBe('factory_operator');
+  // Neither readies his role here, so neither changes its password beside another file's migration (postgres.ts),
+  // which readies it as this file's did.
+  it('connects as the owner on a store not yet migrated to his role, and fails on one migrated without it', async () => {
     const old = await freshDatabase('before_0023');
     try {
-      // As a store before 0023 has it: his role, made by another database on the server, may not append here.
+      // His role, made by another database on the server, may not append here.
       await old.owner`revoke insert on events from factory_operator`;
+      await expect(readyOperator(old.owner, 'operator-test')).rejects.toThrow("Martin's role cannot append events");
+      // As a store before 0023 has it.
+      await old.owner`delete from schema_migrations where version >= 23`;
       const [me] = await old.owner<{ me: string }[]>`select current_user as me`;
       expect(await readyOperator(old.owner, 'operator-test')).toBe(me?.me);
     } finally {
