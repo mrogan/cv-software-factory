@@ -110,7 +110,7 @@ A first-class factory capability, though not the centre of the visitor demo.
 - Same spec template as a fix. The planner may ask clarifying questions through "Needs you". Martin approves the spec before any code is written.
 - Then the same line: build, gates, review, canary, verify (acceptance criteria pass in production, canary shows no regression).
 - Small: one outcome per request, reviewable in minutes.
-- New behaviour ships behind a feature flag, which the change defines, switched off. Martin switches it from the console in stages: the factory's own requests first, so Verify can compare the flag's two sides in production; then browsers that opt in to preview it; then a share of browsers; then everyone. Off is a kill switch, with no rollback. A flag's state is never a visitor's to change.
+- New behaviour ships behind a feature flag, which the change defines, switched off. Martin switches it from the console in stages: the factory's own requests first, so Verify can check the acceptance criteria in production with nobody else seeing the change; then browsers that opt in to preview it; then a share of browsers, where Verify compares the flag's two sides; then everyone. Off is a kill switch, with no rollback. A flag's state is never a visitor's to change.
 
 ### 4.3 Autonomy
 
@@ -120,7 +120,7 @@ A first-class factory capability, though not the centre of the visitor demo.
 
 In every mode, no fix widens its ticket, and a change tagged out-of-scope needs a human (guardrail 11).
 
-Risk tags are worked out from the diff by deterministic checks: a test changed or deleted, a dependency, the security headers, a file beyond the spec's scope. An agent may add a tag, never remove one. Whether a change may merge without a human is a required check against the autonomy level, not the line's word. Only Martin changes the level; loosening it needs his passkey again, and alerts him.
+Risk tags that a diff can show are worked out from it by deterministic checks: a test deleted, skipped or weakened, a dependency changed, the security headers changed. Out-of-scope stays the planner's and the reviewer's tag on the spec, held before any code is written. An agent may add a tag, never remove one. Whether a change may merge without a human is a required check against the autonomy level, not the line's word, and it never lets the factory merge a change to a path CODEOWNERS gives a person, but for a deploy's image pin. Only Martin changes the level; loosening it needs his passkey again, and alerts him.
 
 Development runs Supervised. Public instances run Guarded, so visitor-triggered work completes unattended.
 
@@ -182,10 +182,10 @@ One page, read from top to bottom: *is it running → what is happening → what
 
 "Needs you" answers; canary promote, pause, roll back and retry; "+" improvement requests; feature flags and their stages; autonomy level; switches for agents taking new work, auto-merge of low-risk changes and auto-rollback; each agent's model and effort, and the spend caps, within the bounds policy sets; **stop the line**; the red-team attacks, run on demand; visitor key usage; a "Preview as visitor" mode.
 
-- **Signing in.** Martin signs in with a passkey, enrolled from the command line with a one-time code; there is no password. Sessions are kept on the server, behind a `__Host-` cookie that is `Secure`, `HttpOnly` and `SameSite=Strict`. High-impact actions (raising a cap, loosening autonomy, promoting a canary, switching off a guardrail's switch, enrolling a passkey) need the passkey again.
+- **Signing in.** Martin signs in with a passkey, enrolled from the command line with a one-time code; there is no password. Sessions are kept on the server, behind a `__Host-` cookie that is `Secure`, `HttpOnly` and `SameSite=Strict`. Every change that loosens a control or promotes something (raising a cap, loosening autonomy, turning auto-merge on or auto-rollback off, promoting a canary, widening a flag's stage) and enrolling or revoking a passkey need the passkey again.
 - **One write path.** A separate admin service is the only thing a browser can write through. Its database role appends Martin's commands and reads what his views need, and nothing else; the console's own server stays read-only. Every route and action is in one human-owned table of who may do what, and anything not in it is refused.
-- **Every action is an event,** with Martin as its actor, so the audit log holds it. Signing in, enrolling a passkey, loosening autonomy and changing a setting each alert him.
-- **Held to OWASP ASVS level 2,** with tests that every write refuses anyone without his session, and a scan in CI.
+- **Every action is an event,** with Martin as its actor, so the audit log holds it. Signing in, enrolling or revoking a passkey, every action that needs the passkey again, and every change to a setting alert him.
+- **Held to OWASP ASVS 5.0 level 2,** with tests that every write refuses anyone without his session, and a scan in CI.
 
 ### 5.5 Quality
 
@@ -212,7 +212,7 @@ Each is enforced by a mechanism, not an instruction, and has a test or demo prov
 7. **Hard spend caps** (daily, monthly, per task, visitor). At the cap, agents stop and the console says so.
 8. **All inputs are untrusted:** reports, logs, issues, web content.
 9. **Everything is reversible:** automatic rollback; stop the line always works.
-10. **Public means hostile.** The factory acts on no issue it did not open; outside issues get a polite reply from its App. Outside PRs are never run with secrets, reviewed with credentials or merged automatically. No self-hosted runners on public repos.
+10. **Public means hostile.** The factory acts only on issues it created or Martin labelled; outside issues get a polite bot reply. Outside PRs are never run with secrets, reviewed with credentials or merged automatically. No self-hosted runners on public repos.
 11. **No fix widens its ticket.** Each acceptance criterion names the evidence it comes from, and a change tagged out-of-scope waits for a human in every autonomy mode.
 
 ## 7. Architecture

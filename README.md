@@ -30,14 +30,15 @@ mise install     # Node, pnpm, kubectl and its Argo Rollouts plugin, k3d, helm, 
 make up          # a local Kubernetes cluster; Argo CD deploys the rest from this repo
 make samples     # twelve sample work items, so the console has something to show
 make status      # what is running, and where to open it
-make egress      # prove the fences: only the model gateway, the GitHub worker and admission control leave the cluster
-make stop-the-line  # agents stop, workers take nothing new, a canary in flight aborts
+make egress      # prove the fences: of the factory's own pods, only the gateway and the GitHub worker leave the cluster
+make stop-the-line   # agents stop, workers take nothing new, a canary in flight aborts
+make start-the-line  # the line takes work again
 make down        # delete the cluster; nothing is left behind
 ```
 
 A store holds samples or the factory's own work, never both. `make real-store` empties it for real work: use it when you want to watch the factory find and triage defects in the app, rather than browse the samples.
 
-The factory's workers run in the cluster too: the model gateway, triage, the intake and log watcher, the probes and crawler that look at the app, the line and its GitHub worker, the traffic generator that gives a canary enough requests to judge, and the scoreboard, alone in its own namespace. The gateway asks Jev (TypeSafe) with a key from `TYPESAFE_API_KEY` or the macOS Keychain (`typesafe-api-key`), which `make up` hands to the cluster and writes nowhere else; with no key it replays recorded answers only. Network policies let only the gateway, the GitHub worker and admission control reach the internet, and admission control runs only images the pipeline signed.
+The factory's workers run in the cluster too: the model gateway, triage, the intake and log watcher, the probes and crawler that look at the app, the line and its GitHub worker, the traffic generator that gives a canary enough requests to judge, and the scoreboard, alone in its own namespace. The gateway asks Jev (TypeSafe) with a key from `TYPESAFE_API_KEY` or the macOS Keychain (`typesafe-api-key`), which `make up` hands to the cluster and writes nowhere else; with no key it replays recorded answers only. Of the factory's own pods, network policies let only the gateway and the GitHub worker reach the internet. In the namespaces where the factory, its runners, the app and the scoreboard run, admission control runs only images the pipeline signed, and the few third-party images it names by digest.
 
 `make` on its own lists every target. The first `make up` takes a few minutes while images download.
 

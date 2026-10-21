@@ -28,7 +28,7 @@ The part's session orchestrates with the `/implement` skill (`.claude/skills/imp
 
   Each is in the run's summary until it is done.
 - **Console designs come first.** Martin is not a frontend developer, so each new view is drawn in the mockup and the design system's README, and agreed with him before it is built. Snapshots are updated in the pinned image.
-- **Work in the app's repository** (Part B's OpenFeature and flagd) waits for `/implement` to take a work item there: task 13 adds that.
+- **Work in the app's repository** (Part B's OpenFeature and flagd) goes through `/implement` too, once task 13 lets it take a work item there.
 
 ## Decisions
 
@@ -42,13 +42,16 @@ The part's session orchestrates with the `/implement` skill (`.claude/skills/imp
 
 - **A passkey, and nothing else.** Martin signs in with a passkey (WebAuthn, user verification required): it cannot be phished, nothing reusable is kept on the server, and it works the same on every profile. There is no password and no third party.
 - **Enrolled from the command line.** `factory admin enrol`, run with the store's writer credentials, prints a one-time code that lasts ten minutes and allows five tries; Martin enters it on the console's enrolment page and makes a passkey. He may hold two (a laptop and a phone). `factory admin enrol --revoke-others` is recovery: it revokes every other passkey and every session. Each passkey belongs to its host, so each profile is enrolled on its own.
-- **Sessions are kept on the server.** The browser holds only a random id in a cookie named `__Host-session`, `Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/`; the store keeps its hash. A session lasts eight hours from sign-in with no idle timeout, a figure in `policy/access.ts`. The id changes at sign-in, signing out ends it on the server, and "sign out everywhere" ends them all.
-- **High-impact actions need the passkey again,** within the last five minutes:
+- **Sessions are kept on the server.** The browser holds only a random id in a cookie named `__Host-session`, `Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/`; the store keeps its hash. A session lasts eight hours from sign-in with no idle timeout, a figure in `policy/access.ts`: ASVS asks for an idle timeout, and ADR 0012 records why there is none (one admin, who signs in with a passkey and gives it again for every high-impact action). The id changes at sign-in, signing out ends it on the server, and "sign out everywhere" ends them all.
+- **Every change that loosens a control or promotes something needs the passkey again,** given within the last five minutes:
   - raising a spend cap;
   - loosening autonomy;
+  - turning auto-merge on, or auto-rollback off;
   - promoting a canary;
-  - switching off a guardrail's switch;
+  - widening a flag's stage;
   - enrolling or revoking a passkey.
+
+  `policy/access.ts` marks each, and a test holds the spec's list and the table to each other.
 - **Every write is defended against forgery:**
   - `SameSite=Strict`;
   - the `Origin` header checked against the console's own;
@@ -57,11 +60,11 @@ The part's session orchestrates with the `/implement` skill (`.claude/skills/imp
 
   Admin responses are `no-store`. A strict Content Security Policy, `frame-ancestors 'none'` and HSTS are on every response. Enrolment and sign-in are rate-limited by client address.
 - **Forwarded headers are believed only from the proxy in front.** Traefik on `local`, and Cloudflare's tunnel on public profiles (spec 8). The client's address that the rate limits key on comes from them alone.
-- **The bar is OWASP ASVS level 2.** A ZAP baseline scan runs in CI against the console with an admin session, and its findings fail the build unless a reason is kept beside the exception. A short threat model goes in ADR 0012.
+- **The bar is OWASP ASVS 5.0 level 2.** A ZAP baseline scan runs in CI against the console with an admin session, and its findings fail the build unless a reason is kept beside the exception. The scan signs in as a real browser would, with a virtual WebAuthn authenticator enrolled against a throwaway store, so no sign-in path made for tests ships in the image. A short threat model goes in ADR 0012.
 
 ### The admin service
 
-- **One write path, separate from the console's server.** `factory admin` runs as its own Deployment in `factory`. Traefik routes `/admin/` on the console's host to it, so the browser sees one origin, while the console's server keeps its read-only role and never holds a session or a full event.
+- **One write path, separate from the console's server.** `factory admin` runs as its own Deployment in `factory`. Traefik routes `/admin/` on the console's host to it, so the browser sees one origin, while the console's server keeps its read-only role and never holds a session or a full event. The session cookie's path is `/`, as `__Host-` requires, so Traefik strips `Cookie` from every request it sends the console's server, and a test proves the server never receives one.
 - **Its database role appends Martin's commands and nothing else.** It may append its own event types (holds answered, the line stopped and started, autonomy, switches, settings, release controls, sign-ins) and read the full events Martin's views need. It reads and writes its own tables of passkeys, enrolment codes and sessions, and no other. A test of the grants proves each.
 - **It serves Martin the full events.** A live stream of full events, the public one's twin, goes to a signed-in session. Report text is shown to him as spec 5.3 says, inserted as text.
 - **It is the one service of ours that may touch a Rollout.** It gets a Role in `website` that may patch the app's Rollout and its status, by name, for promote, pause, abort and retry, and nothing else. `release-fences.test.ts` keeps every other service account away from it, and fails if this Role grows.
@@ -86,7 +89,7 @@ Public profiles get their certificates from Cloudflare (milestone 10).
 
 ### Alerts to Martin
 
-- **Alertmanager gets a second receiver, Pushover,** beside the intake. Its key comes from the Keychain through `make up`, as the other keys do. Its NetworkPolicy lets it reach the internet on 443, as Kyverno's does until egress by host name (#176).
+- **Alertmanager gets a second receiver, Pushover,** beside the intake. Its key comes from the Keychain through `make up`, as the other keys do. Alertmanager has no NetworkPolicy today; it gets its first, which lets it reach the intake and the internet on 443 and nothing else, as Kyverno's rule does until egress by host name (#176), and `make egress` covers it.
 - **Three levels, routed by label:**
 
   | Level | For |
@@ -95,13 +98,13 @@ Public profiles get their certificates from Cloudflare (milestone 10).
   | Notify | a release rolled back or errored, a new hold, autonomy changed |
   | Dashboard only | everything else |
 
-- **Security events come first (Part A):** a sign-in, a passkey enrolled or revoked, autonomy loosened, a setting changed. The admin service counts each, and an alerting rule pages on any. Factory health, releases and spend follow in Part C.
+- **Security events come first (Part A):** a sign-in, a passkey enrolled or revoked, every action that needs the passkey again, and every change to a setting. The admin service counts each, and an alerting rule pages on any. Factory health, releases and spend follow in Part C.
 - **Whether the factory is up is answered from outside it.** On public profiles, an always-firing alert goes to a dead man's switch, and an outside check watches the site and the console (milestone 10).
 
 ### Feature flags (Part B)
 
 - **OpenFeature in the app, flagd beside it.** The app asks OpenFeature, the CNCF's standard API for flags; flagd answers, from a definition it reads as a file. flagd's image is admitted by digest, as Postgres's is.
-- **The flag is defined in the change; its state is Martin's.** An improvement's pull request defines its flag, with the flag off. The state of every flag lives in one ConfigMap in `website`, kept out of Git, which only the admin service may write (the same kind of Role as the Rollout's), and flagd reads it as a file. That keeps the app from knowing the factory exists, and a kill switch fast.
+- **The flag is defined in the change; its state is Martin's.** An improvement's pull request defines its flag, with the flag off. The state of every flag lives in one ConfigMap in `website`, kept out of Git, which only the admin service may write (the same kind of Role as the Rollout's), and flagd reads it as a file. That keeps the app from knowing the factory exists. A mounted ConfigMap changes when the kubelet next syncs it, within about a minute, so a kill switch takes effect within a minute, with no deploy or rollback; if that proves too slow, flagd watches the resource through the Kubernetes API instead.
 - **A flag goes out in stages,** each one change in the console:
   1. the factory's own marked requests, so Verify can check the acceptance criteria in production with nobody else seeing the change;
   2. browsers that opt in to preview it;
@@ -109,20 +112,19 @@ Public profiles get their certificates from Cloudflare (milestone 10).
   4. everyone.
 
   Off is a kill switch for everyone, and beats a preview.
-- **Verify compares a flag's two sides.** Each request's telemetry carries the variant it was given (OpenFeature's OpenTelemetry hooks), and Verify judges flag-on against flag-off on errors, latency and journeys, as the canary judges versions. The traffic generator carries a browser id of its own, so both sides get enough requests.
+- **Verify compares a flag's two sides at the share stage.** The factory's marked requests are too few to judge on, and are left out of the judged figures, so stage 1 checks the acceptance criteria and the share stage compares. Each request's telemetry carries the variant it was given (OpenFeature's OpenTelemetry hooks), and Verify judges flag-on against flag-off on errors, latency and journeys, as the canary judges versions. The traffic generator carries a browser id of its own, so both sides get enough requests.
 - **A preview is the app's own feature, and harmless.** `?preview=<flag>` sets the app's preview cookie. The console's "Preview it" link uses it during the opt-in stage. The app accepts only flag names flagd knows, never echoes the parameter, and someone who sets it by hand sees a deployed feature in their own browser only.
 
 ### Autonomy (Part C)
 
-- **Risk tags are worked out from the diff.** Deterministic checks tag a change:
-  - test-loosening, when a test changes or goes;
+- **Risk tags that a diff can show are worked out from it.** Deterministic checks tag a change:
+  - test-loosening, when a test is deleted, skipped or weakened, as the test-integrity gate judges it (a new test, which every fix brings, is not one);
   - dependency-change, for a lockfile or a package manifest;
-  - security-headers, for the header settings;
-  - out-of-scope, for a file beyond the spec's scope.
+  - security-headers, for the header settings.
 
-  The planner and the reviewer may add a tag and hold the work for Martin; neither can remove one.
-- **Merging is decided by a required check.** A human-owned approval-routing check passes for an untagged change under Guarded, any change but `out-of-scope` under Lights-out, and anything Martin has approved. A deploy pull request passes it under Guarded only when it changes nothing but an image's pin to a signed digest.
-- **The App may bypass the review ruleset only.** The checks ruleset keeps no bypass, so a fault in the line still cannot merge a tagged change. ADR 0009 changes with it. The bypass's effect on OpenSSF Scorecard's Branch-Protection score is checked before it is made.
+  Out-of-scope is not in a diff, since the scope fence refuses a file beyond the spec's scope before it reaches GitHub. It stays the planner's tag on the spec, and the reviewer's, held for Martin before any code is written in every mode. The planner and the reviewer may add any tag and hold the work for Martin; neither can remove one.
+- **Merging is decided by a required check.** A human-owned approval-routing check passes for an untagged change under Guarded, any change but `out-of-scope` under Lights-out, and anything Martin has approved. It fails any pull request of the App's that touches a path CODEOWNERS gives Martin, but for a deploy pull request that changes nothing except an image's pin to a signed digest, which passes under Guarded. A release pull request waits for Martin in every mode: it publishes a version, and nothing waits on it.
+- **The App may bypass the review ruleset only.** That takes away code-owner review as the backstop for the App's pull requests, so the routing check holds code-owned paths in its place. The checks ruleset keeps no bypass, so a fault in the line still cannot merge a tagged change or touch a rule. ADR 0009 changes with it. The bypass's effect on OpenSSF Scorecard's Branch-Protection score is checked before it is made.
 - **Autonomy is set in the console.** Loosening it needs the passkey again and pages Martin; tightening is immediate. Lights-out is built and proved, and never the default.
 
 ## Part A: admin
@@ -137,7 +139,8 @@ Each task is its own pull request, in order, each demonstrable.
 ### 1. Local HTTPS
 
 - `mkcert` in `mise.toml`; `make up` makes the local authority, has the Mac trust it, and gives Traefik its certificate as a Secret.
-- The console on `https://console.localhost:8443`, with plain HTTP redirecting; `make status`, `AGENTS.md`, the e2e tests and the `try-the-line` skill use the new address.
+- `deploy/k3d/cluster.yaml` maps `127.0.0.1:8443` to Traefik's 443. A cluster made before this needs making again (`make down`, `make up`), and the task says so where people will see it.
+- The console on `https://console.localhost:8443`, with plain HTTP redirecting: its ingress in `deploy/overlays/local/`, the addresses `make up`, `make samples`, `make real-store` and `make status` print, `AGENTS.md`, the e2e tests and the `try-the-line` skill.
 - `make up` on a fresh clone still works for someone who declines the trust prompt, and says what they lose.
 
 ### 2. The designs
@@ -178,17 +181,17 @@ Each task is its own pull request, in order, each demonstrable.
 - Approve, reject or answer in words, appending `hold.answered`; words on a triage hold leave it held, as `WORDS_LEAVE_HELD` says.
 - For visitors, the same cards, read-only, with Martin's answers once given.
 
-### 6. The line's controls
-
-- Stop and start the line from the header, with a reason; the same events as `make stop-the-line`, which keeps its own path.
-- The autonomy level, recorded; Part C makes it route.
-- The switches spec 5.4 names: agents taking new work, and auto-merge of low-risk changes, which does nothing until Part C. Auto-rollback is Part C's.
-- The line's take settings, read by the line in place of its variables.
-
-### 7. Release controls
+### 6. Release controls
 
 - The admin service's Role on the app's Rollout, and `release-fences.test.ts` updated to allow it alone.
 - Promote (to the next step, or fully), pause, abort and retry on the Canary panel, each an event with Martin as its actor. A retry ends the "until Martin retries it" holds that today take a `kubectl` patch.
+
+### 7. The line's controls
+
+- Stop and start the line from the header, with a reason: the same events as `make stop-the-line`, and a canary in flight aborted through task 6's Role, as `scripts/abort-canaries.sh` does with Martin's own credentials. `make stop-the-line` keeps its own path.
+- The autonomy level, recorded; Part C makes it route.
+- The switches spec 5.4 names: agents taking new work, and auto-merge of low-risk changes, which does nothing until Part C. Auto-rollback is Part C's.
+- The line's take settings, read by the line in place of its variables.
 
 ### 8. Models and spend
 
@@ -202,7 +205,7 @@ Each task is its own pull request, in order, each demonstrable.
 
 ### 10. Alerts
 
-- Alertmanager's Pushover receiver, its key from the Keychain, its NetworkPolicy, and `make egress` showing it reaching out and nothing else changing.
+- Alertmanager's Pushover receiver, its key from the Keychain, and its first NetworkPolicy, with `make egress` showing it reaches the intake and the internet on 443 and nothing else.
 - The routes by level, and the security events' rule.
 - A test page from Martin's phone: a sign-in pages him.
 
@@ -251,10 +254,10 @@ Outlined here, and detailed when Part B is done.
   - no workflow uses `pull_request_target` or a self-hosted runner;
   - the reviewer's check is not required, and no gate or merge path calls a model;
   - only the gateway mounts a model key;
-  - the runners' network policies render as intended;
-  - every factory worker's store role is its own (#435).
+  - the runners' network policies render as intended.
 
   The rulesets' drift check (`github-settings.ts --check`) runs on a schedule.
+- **19a. A store role for each worker (#435).** Every worker writes as `factory_writer` today; each gets a role of its own, granted only the tables it needs, with a test of each role's grants.
 - **20. `make guardrails`.** One command for the proofs that need the cluster:
   - egress;
   - admission's refusals;
@@ -267,7 +270,7 @@ Outlined here, and detailed when Part B is done.
 - **22. Blocked actions.** `action.refused` from every mechanism: the gateway, the GitHub worker and Kyverno, beside the scope fence. A guardrails panel: each guardrail, its mechanism, its last proof and its recent refusals, and one line for those that cannot be switched off.
 - **23. Approval routing.** The deterministic risk tags, the approval-routing check, the App's bypass of the review ruleset (ADR 0009), and the line reading the autonomy level. A dry-run soak at Guarded, then Guarded for real.
 - **24. Auto-rollback's switch.** Off leaves a failed canary paused for Martin rather than rolled back. Switching it off needs the passkey again and pages him.
-- **25. Guardrail 10 as written.** The factory acts on no issue it did not open, and its App answers an outside issue politely.
+- **25. Guardrail 10 as written.** Its App answers an outside issue politely. The factory reads no issue as input today, so "acts only on issues it created or Martin labelled" holds by construction; whether a label of Martin's becomes a way in beside the "+" is settled when this part is detailed.
 - **26. Alerts for the factory.** Its health (a worker crash-looping, a lease stuck, the store down, Argo CD degraded), releases and spend, at their levels.
 
 **Done when:** every guardrail has a test or a demo that runs from one command and is shown in the console; a fix goes end to end at Guarded with nobody touching it; a risk-tagged change waits in Needs you until Martin approves; and each red-team attack is stopped by its mechanism, with the refusal shown.
