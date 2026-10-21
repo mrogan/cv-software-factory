@@ -9,8 +9,15 @@
   Console mockup. Plain HTML, CSS and JS on top of the design system in ../system/ (read its README).
   Visual and behavioural reference for apps/console: copy the structure and rules, not the code.
   Query options: ?mode=visitor  ?theme=ink  ?motion=off  ?item=1288 (start the reel there)  &sheet (and open its sheet)
+  Admin, and each control's read-only form for visitors (README, "Admin"):
+    ?view=signin | enrol | settings | audit (pages of their own; the console is the default)
+    ?signin=ready (default) | none (no passkey on this device) | expired (the session ended)
+    ?enrol=code (default) | passkey (the code took; make the passkey) | done | wrong | spent (expired, used or out of tries)
+    ?dialog=stop | start | stepup | abort (open one, as a click would)   ?fresh (the passkey was given in the last five minutes)
+    ?needs=none (nothing waits)   ?menu (the account menu open)
   The states shipping brings (README, "Shipping"):
     ?canary=flight (default) | line (no work item) | promoted | rolledback | early (rolled back before a step) | stopped | dry | idle | none
+            | paused (by Martin) | aborted (by Martin)
     ?score=on (default) | first (nothing verified yet) | off (no answer key) | sample | none (no score.updated at all)
   The app’s screenshots are drawn in HTML here; in the console they are Playwright captures from the event store.
   Package logos are from theSVG (MIT), inlined so the page makes no third-party requests for them.
@@ -60,6 +67,7 @@ a:hover { color: var(--signal-hover); }
 .seg { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: var(--raised); }
 .seg button { min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--on-inverse); }
+.seg button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .switch { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; min-height: 44px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
 .switch .track { width: 34px; height: 20px; border-radius: 10px; background: var(--line-strong); position: relative; flex: none; transition: background .15s; }
 .switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 7px; background: var(--raised); transition: transform .15s; }
@@ -77,7 +85,7 @@ a:hover { color: var(--signal-hover); }
 /* ---- Visitor banner and header ------------------------------------------------------- */
 .banner { background: var(--ok-wash); border-bottom: 1px solid var(--ok-line); color: var(--ok-text); font-size: 13px; }
 .banner .wrap { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.banner button { min-height: 32px; padding: 0 12px; border: 1px solid var(--ok-line); border-radius: var(--radius-card); background: transparent; color: var(--ok-text); font-size: 13px; cursor: pointer; }
+.banner button { white-space: nowrap; min-height: 32px; padding: 0 12px; border: 1px solid var(--ok-line); border-radius: var(--radius-card); background: transparent; color: var(--ok-text); font-size: 13px; cursor: pointer; }
 header.top { border-bottom: 1px solid var(--line); }
 header.top .wrap { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .brand { display: flex; align-items: center; gap: 14px; color: var(--text); text-decoration: none; }
@@ -564,6 +572,161 @@ table.steps { width: 100%; border-collapse: collapse; font: 12px/1.35 var(--font
 .meter { display: flex; flex-direction: column; gap: 6px; }
 .meter div:first-child { display: flex; justify-content: space-between; font-size: 13px; }
 .meter .mono { font-size: 12px; }
+.bar i.attn { background: var(--attn); }
+
+/* ---- Admin (milestone 7) --------------------------------------------------------------- */
+/* Step-up: a key after a control's label says it asks for the passkey again (unless given in the last five minutes). */
+.key { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.fresh { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 999px; font: 11px/1.4 var(--font-mono); color: var(--text-2); white-space: nowrap; }
+/* Needs you: one card per hold, each answer a row with what it does. */
+.needs-list { display: flex; flex-direction: column; gap: 12px; }
+.need .kick { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; align-items: baseline; }
+.need .kick b { font: 500 11px/1.4 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--attn); }
+.need .kick span { font: 11px/1.4 var(--font-mono); color: var(--text-muted); }
+.need h3 { margin: 0; font: 400 22px/1.15 var(--font-display); }
+.need .ev { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.need .ev q { color: var(--text); }
+.need .words { font-size: 11.5px; padding: 8px 10px; white-space: pre-wrap; }
+.answers { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 14px; align-items: center; margin: 2px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.answers .btn { min-height: 36px; padding: 0 12px; font-size: 13px; justify-content: flex-start; }
+.answers p { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--text-2); }
+.answers .ro { justify-self: start; }
+.words-form { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; }
+.words-form .row { justify-content: space-between; align-items: center; }
+.need-foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
+textarea, input.field, select.field { font: inherit; font-size: 14px; color: var(--text); background: var(--raised); border: 1px solid var(--line-strong); border-radius: var(--radius-small); padding: 9px 11px; width: 100%; }
+textarea { min-height: 72px; resize: vertical; line-height: 1.45; }
+textarea:focus, input.field:focus, select.field:focus { outline: var(--stroke-rule) solid var(--signal); outline-offset: 1px; }
+select.field { min-height: 40px; padding: 0 30px 0 10px; -webkit-appearance: none; appearance: none; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+select.field:disabled, input.field:disabled { color: var(--text-muted); background-color: transparent; cursor: default; }
+/* Read only: a control keeps its shape and shows its value; an action becomes a label beside what it does. */
+.ro { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-small); font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
+.answered { display: flex; flex-direction: column; gap: 0; border-top: 1px solid var(--line-strong); }
+.answered .label { padding: 10px 0 2px; }
+.answered div { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--text-2); }
+.answered div:first-of-type { border-top: 0; }
+.answered .mono { font-size: 11px; color: var(--text-muted); }
+.answered q { color: var(--text); }
+/* Controls: a group per job, each with its label. */
+.ctl-group { display: flex; flex-direction: column; gap: 8px; }
+.ctl-group .label { display: flex; justify-content: space-between; gap: 8px; }
+.switch .what { display: inline-flex; align-items: center; gap: 6px; }
+.switch:disabled { opacity: 1; cursor: default; }
+.switch:disabled .track { opacity: .6; }
+.seg button:disabled { cursor: default; }
+.seg.ro-seg button[aria-pressed="true"] { background: var(--line-strong); color: var(--text); }
+.take { display: flex; flex-direction: column; gap: 8px; }
+.take .seg { width: 100%; }
+.take .seg button { flex: 1; min-height: 36px; font-size: 12.5px; }
+.links { display: flex; flex-wrap: wrap; gap: 8px 20px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; }
+.links a { color: var(--text); }
+.legend { display: inline-flex; align-items: center; gap: 6px; }
+
+/* The Canary panel's controls: admin's buttons, or for a visitor the same as labels with what each does. */
+.canary-controls { display: flex; flex-direction: column; gap: 10px; padding-top: 16px; border-top: 1px solid var(--line); }
+.canary-controls .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.canary-controls .btn { min-height: 40px; }
+.canary-controls dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 14px; align-items: center; font-size: 12.5px; color: var(--text-2); }
+.canary-controls dd { margin: 0; }
+
+/* The account menu, top right. */
+.account { position: relative; }
+.account-btn { min-height: 40px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px 0 6px; border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: transparent; cursor: pointer; font-size: 13px; }
+.account-btn .me { width: 28px; height: 28px; border-radius: 14px; display: grid; place-items: center; background: var(--text); color: var(--on-inverse); font: 400 15px/1 var(--font-display); }
+.menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; width: 280px; padding: 6px; background: var(--raised); border: 1px solid var(--line-strong); border-radius: var(--radius-panel); box-shadow: var(--shadow-popover); display: flex; flex-direction: column; }
+.menu .who { padding: 10px 10px 12px; border-bottom: 1px solid var(--line); margin-bottom: 4px; font-size: 13px; }
+.menu .who small { display: block; margin-top: 2px; font: 11px/1.45 var(--font-mono); color: var(--text-muted); }
+.menu a, .menu button { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 10px; border: 0; border-radius: var(--radius-small); background: none; color: var(--text); text-decoration: none; font-size: 13.5px; text-align: left; cursor: pointer; }
+.menu a:hover, .menu button:hover { background: var(--surface); }
+.menu hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--line); }
+.menu small.after { font-size: 11.5px; color: var(--text-muted); }
+
+/* A dialog: centred on a laptop, a bottom sheet on a phone. */
+.dialog { position: fixed; left: 50%; top: 50%; z-index: 51; width: min(480px, calc(100vw - 32px)); transform: translate(-50%, -50%); padding: 24px; background: var(--raised); border: 1px solid var(--line-strong); border-radius: var(--radius-panel); box-shadow: var(--shadow-popover); display: flex; flex-direction: column; gap: 14px; }
+.dialog h2 { margin: 0; font: 400 28px/1.05 var(--font-display); }
+.dialog h2:focus { outline: none; }
+.dialog p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-2); }
+.dialog .row { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.dialog .kickline { display: flex; align-items: center; gap: 8px; }
+.dialog .what { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--bg); font-size: 13.5px; }
+.dialog .what b { font-weight: 500; }
+.dialog-scrim { position: fixed; inset: 0; z-index: 50; background: var(--scrim); }
+.chars { font: 11px/1 var(--font-mono); color: var(--text-muted); }
+
+/* Pages of their own: sign-in, enrolment, settings and the audit log. */
+.page { padding: 40px 0 0; display: flex; flex-direction: column; gap: 28px; }
+.page-head h1 { margin: 0; font: 400 46px/1 var(--font-display); letter-spacing: -0.6px; }
+.page-head p { margin: 10px 0 0; max-width: 720px; font-size: 15px; color: var(--text-2); }
+.page-head .crumb { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; font-size: 13px; color: var(--text-muted); }
+.door { max-width: 460px; margin: 24px auto 0; padding: 32px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-panel); display: flex; flex-direction: column; gap: 18px; }
+.door h1 { margin: 0; font: 400 40px/1 var(--font-display); letter-spacing: -0.4px; }
+.door p { margin: 0; font-size: 14.5px; line-height: 1.5; color: var(--text-2); }
+.door .btn { width: 100%; min-height: 48px; font-size: 15px; }
+.door .aside { padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--text-muted); }
+.door code, .page code { font: 12.5px var(--font-mono); padding: 1px 6px; border-radius: var(--radius-small); background: var(--surface); color: var(--text); }
+.door .refusal { padding: 10px 12px 10px 12px; border: 1px solid var(--line); border-left: var(--stroke-rule) solid var(--attn); border-radius: var(--radius-rule) var(--radius-card) var(--radius-card) var(--radius-rule); background: var(--bg); font-size: 13.5px; color: var(--text); }
+.door .refusal small { display: block; margin-top: 2px; font-size: 12.5px; color: var(--text-2); }
+.door .done { padding: 10px 12px; border: 1px solid var(--line); border-left: var(--stroke-rule) solid var(--ok); border-radius: var(--radius-rule) var(--radius-card) var(--radius-card) var(--radius-rule); background: var(--bg); font-size: 13.5px; }
+.steps-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; counter-reset: s; }
+.steps-list li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 10px; font-size: 14px; line-height: 1.45; color: var(--text-2); }
+.steps-list li::before { counter-increment: s; content: counter(s); width: 24px; height: 24px; border-radius: 12px; border: 1.5px solid var(--line-strong); display: grid; place-items: center; font: 12px/1 var(--font-mono); color: var(--text-muted); }
+.steps-list li.past::before { content: "✓"; border-color: var(--ok); color: var(--ok); }
+.steps-list li.now::before { border-color: var(--signal); color: var(--text); }
+.steps-list li.past { color: var(--text-muted); }
+input.code { font: 500 20px/1 var(--font-mono); letter-spacing: 2px; text-align: center; padding: 12px 8px; text-transform: uppercase; }
+
+.settings { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; }
+.settings .panel h2 { font-size: 26px; }
+table.agents { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.agents th { text-align: left; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); font-weight: 400; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); }
+.agents td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.agents tr:last-child td { border-bottom: 0; }
+.agents td small { display: block; font-size: 12px; color: var(--text-muted); }
+.agents .changed select { border-color: var(--signal); box-shadow: inset 2px 0 0 var(--signal); }
+.agents .num { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); text-align: right; white-space: nowrap; }
+.caps { display: flex; flex-direction: column; }
+.cap-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 6px 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.cap-row:first-child { border-top: 0; padding-top: 0; }
+.cap-row small { display: block; font-size: 12px; color: var(--text-muted); }
+.cap-row .money { position: relative; }
+.cap-row .money::before { content: "$"; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font: 14px var(--font-mono); color: var(--text-muted); }
+.cap-row .money input { padding-left: 22px; font-family: var(--font-mono); text-align: right; }
+.cap-row .ceil { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 5px; }
+.cap-row .ceil span { font: 11px/1.3 var(--font-mono); color: var(--text-muted); }
+.cap-row.changed .money input { border-color: var(--signal); box-shadow: inset 2px 0 0 var(--signal); }
+/* Unsaved settings: ruled in ink, the colour of work in hand, until saved or discarded. */
+.save-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 18px; background: var(--raised); border: 1px solid var(--line-strong); border-left: var(--stroke-rule) solid var(--signal); border-radius: var(--radius-rule) var(--radius-panel) var(--radius-panel) var(--radius-rule); }
+.save-bar p { margin: 0; font-size: 13px; color: var(--text-2); }
+.save-bar .row { display: flex; gap: 8px; }
+.keys { display: flex; flex-direction: column; }
+.keys > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+.keys > div:first-child { border-top: 0; padding-top: 0; }
+.keys small { display: block; font: 11px/1.45 var(--font-mono); color: var(--text-muted); }
+
+.filters { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; }
+.filters label { display: flex; flex-direction: column; gap: 6px; }
+.filters .field { min-width: 180px; }
+.filters input.field { width: 140px; min-height: 40px; font-family: var(--font-mono); }
+.chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 40px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 999px; background: transparent; font-size: 13px; color: var(--text-2); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.chip[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--on-inverse); }
+table.audit { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.audit caption { text-align: left; padding: 0 0 10px; font-size: 13px; color: var(--text-muted); }
+.audit th { text-align: left; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); font-weight: 400; padding: 0 14px 8px 0; border-bottom: 1px solid var(--line-strong); }
+.audit td { padding: 10px 14px 10px 0; border-bottom: 1px solid var(--line); vertical-align: baseline; }
+.audit .day td { padding: 18px 0 6px; font: 10.5px/1.4 var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--line-strong); }
+.audit .t { font: 12px var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+.audit .who { white-space: nowrap; }
+.audit .who b { font-weight: 500; }
+.audit .kindw { display: inline-flex; align-items: center; gap: 6px; font: 11px/1.4 var(--font-mono); letter-spacing: .6px; color: var(--text-2); white-space: nowrap; }
+.audit .kindw .glyph { width: 13px; height: 13px; }
+.audit .item { font: 12px var(--font-mono); white-space: nowrap; }
+.audit .what small { display: block; font: 11.5px/1.45 var(--font-mono); color: var(--text-muted); }
+.audit tr.admin td:first-child { box-shadow: inset 2px 0 0 var(--text); padding-left: 10px; }
+.audit .withheld { color: var(--text-muted); font-style: italic; }
+.audit .refused { color: var(--attn); }
 
 footer.foot { margin-top: 72px; border-top: 1px solid var(--line); }
 footer.foot .wrap { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; padding-top: 20px; padding-bottom: 32px; font-size: 12px; color: var(--text-muted); }
@@ -640,6 +803,37 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   .steps .opt { display: none; }
   .rel { padding: 14px; }
   .try-grid { grid-template-columns: 1fr; }
+  .answers { grid-template-columns: 1fr; gap: 4px; }
+  .answers .btn, .answers .ro { justify-self: stretch; justify-content: center; }
+  .answers p { margin-bottom: 8px; }
+  .canary-controls .row .btn { flex: 1 1 40%; }
+  .canary-controls dl { grid-template-columns: 1fr; gap: 2px; }
+  .canary-controls dd { margin-bottom: 8px; }
+  .account-btn .name, #fresh { display: none !important; }
+  .account-btn { padding: 0 6px; }
+  .dialog { left: 0; right: 0; top: auto; bottom: 0; width: auto; transform: none; border-radius: 14px 14px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom)); }
+  .dialog .row .btn { flex: 1; }
+  .page { padding-top: 24px; }
+  .page-head h1 { font-size: 34px; }
+  .door { margin-top: 8px; padding: 22px 18px; }
+  .door h1 { font-size: 32px; }
+  .settings { grid-template-columns: 1fr; }
+  table.agents thead { display: none; }
+  .agents tr { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .agents td { padding: 0; border: 0; }
+  .agents td:first-child, .agents td.num { grid-column: 1 / -1; }
+  .agents tr { grid-template-columns: 3fr 2fr; }
+  .agents td.num { text-align: left; }
+  .filters { gap: 10px; }
+  .filters label, .filters .field, .filters input.field { width: 100%; }
+  table.audit thead { display: none; }
+  .audit .kindw > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .audit tr:not(.day) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 2px 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .audit tr:not(.day) td { padding: 0; border: 0; }
+  .audit tr.admin td:first-child { padding-left: 8px; }
+  .audit td.what { grid-column: 1 / -1; }
+  .audit .day { display: block; }
+  .audit .day td { display: block; }
 }
 .phone-status { display: none; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
 </style>
@@ -657,7 +851,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
 </svg>
 
 <div class="banner" id="banner" hidden>
-  <div class="wrap"><span>You are previewing the console as a visitor sees it.</span><button type="button" id="to-admin">Back to admin</button></div>
+  <div class="wrap"><span>Previewing as a visitor: the public stream, as the server sends it to anyone without your session. You are still signed in.</span><button type="button" id="to-admin">Back to admin</button></div>
 </div>
 
 <header class="top">
@@ -669,19 +863,26 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
     </a>
     <div class="top-right">
       <span class="status" id="status"></span>
-      <span id="admin-top">
+      <span id="admin-top" class="top-right">
         <button type="button" class="btn small" id="preview-btn">Preview as visitor</button>
+        <span class="fresh" id="fresh" hidden></span>
         <button type="button" class="btn attn" id="stop-btn"></button>
+        <span class="account">
+          <button type="button" class="account-btn" id="account-btn" aria-haspopup="true" aria-expanded="false" aria-controls="menu"><span class="me" aria-hidden="true">M</span><span class="name">Martin</span></button>
+          <div class="menu" id="menu" hidden></div>
+        </span>
       </span>
       <span id="visitor-top" hidden>
-        <span class="pill visitor">VISITOR · amber-otter</span>
+        <span class="pill visitor" id="visitor-pill">VISITOR · amber-otter</span>
       </span>
+      <a class="btn small" id="back-top" href="?" hidden>Back to the console</a>
     </div>
   </div>
 </header>
 
 <main id="top">
 <div class="wrap">
+<div id="view-console">
 
   <section class="intro" aria-labelledby="app-name">
     <div>
@@ -731,24 +932,32 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
     <p class="help" style="margin-top: 18px"><b>What am I looking at?</b> Each card is one work item: what was wrong or wanted, what changed on the site, and what it cost. Where nothing visible changed, the card shows what did: a graph, a package, a log line or the refusal that stopped an attack. Open a card for every stage, screenshot and model call.</p>
   </section>
 
+  <!-- The bottom row: Needs you and Controls, for everyone. Admin answers and changes them; a visitor sees each read-only,
+       with what it does. Try it yourself joins it for visitors in milestone 8. -->
   <section class="bottom">
-    <article class="panel admin-only" aria-labelledby="needs-title">
-      <div class="panel-head"><h2 id="needs-title">Needs you</h2><span class="count-attn">2 waiting</span></div>
-      <div class="need">
-        <div class="kind">IMPROVEMENT<span>#1300 · spec ready</span></div>
-        <p>Sort products by price, behind a flag</p>
-        <p class="q">The planner asks: should out-of-stock products sort last?</p>
-        <div class="row"><button type="button" class="btn primary small">Answer and approve</button><button type="button" class="btn small" data-open="1300">Open spec</button></div>
-      </div>
-      <div class="need">
-        <div class="kind">TEST INTEGRITY<span>#1279 · held by the gate</span></div>
-        <p>This PR goes green by deleting a failing test</p>
-        <div class="row"><button type="button" class="btn primary small">Reject PR</button><button type="button" class="btn small" data-open="1279">Open work item</button></div>
-      </div>
-    </article>
+    <article class="panel" aria-labelledby="needs-title" id="needs"></article>
 
+    <article class="panel" aria-labelledby="controls-title" id="controls">
+      <div class="panel-head"><h2 id="controls-title">Controls</h2><span class="label visitor-only" hidden>Read only</span></div>
+      <div class="ctl-group">
+        <span class="label"><span>Autonomy</span></span>
+        <div class="seg" role="group" aria-label="Autonomy" id="autonomy"></div>
+        <p class="help" id="autonomy-help"></p>
+      </div>
+      <div class="ctl-group">
+        <span class="label"><span>Switches</span></span>
+        <div class="switches" id="switches"></div>
+      </div>
+      <div class="take" id="take"></div>
+      <div class="ctl-group" id="spend"></div>
+      <p class="help" id="controls-help"></p>
+      <div class="links"><a href="?view=settings">Models and spend caps</a><a href="?view=audit">Audit log</a></div>
+    </article>
+  </section>
+
+  <section class="bottom" id="later" hidden>
     <article class="panel visitor-only" aria-labelledby="try-title" hidden>
-      <div class="panel-head"><h2 id="try-title">Try it yourself</h2><span class="mono" style="font-size: 12px; color: var(--ok)">2 of 3 left today</span></div>
+      <div class="panel-head"><h2 id="try-title">Try it yourself</h2><span class="remark">Milestone 8</span></div>
       <div class="try-group">
         <span class="label">Break the site</span>
         <div class="try-grid">
@@ -767,32 +976,27 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
       <p class="help">Found a real problem? <a href="#">Report it on the site</a>. It goes through triage like any other signal.</p>
     </article>
 
-    <article class="panel" aria-labelledby="controls-title" id="controls">
-      <div class="panel-head"><h2 id="controls-title">Controls</h2><span class="label visitor-only" hidden>Read only</span></div>
-      <div class="autonomy">
-        <span class="label">Autonomy</span>
-        <div class="seg" role="group" aria-label="Autonomy" id="autonomy"></div>
-        <p class="help" id="autonomy-help"></p>
-      </div>
-      <div class="switches" id="switches"></div>
-      <div class="meter"><div><span>Model spend today</span><span class="mono">$3.40 <span class="muted">of $10</span></span></div><div class="bar ink"><i style="width: 34%"></i></div></div>
-      <div class="meter"><div><span>Visitor budget today</span><span class="mono">$0.80 <span class="muted">of $3</span></span></div><div class="bar ink"><i style="width: 27%"></i></div></div>
-      <p class="help" style="margin-top: auto">Gates, image signing and the egress fence are always on. They have no switch.</p>
-    </article>
+    <p class="help">Their allowance and the visitor budget come with them: the budget is a meter of its own in Controls.</p>
   </section>
 
+</div>
+<!-- Sign-in, enrolment, settings and the audit log: pages of their own (?view=), drawn by renderPage. -->
+<div id="view-page" hidden></div>
 </div>
 </main>
 
 <footer class="foot">
   <div class="wrap">
-    <div class="left"><svg class="mark" viewBox="0 -12 1100 752" aria-hidden="true"><path d="M315 710Q311 710 306 707Q301 704 299 694L148 81Q147 74 142 74.5Q137 75 137 82L117 634Q116 662 126 676.5Q136 691 161 695L174 697Q187 698 187 709Q187 720 172 720H29Q14 720 14 709Q14 698 27 697L40 695Q66 691 75.5 676.5Q85 662 86 634L106 66Q107 45 100 38Q93 31 70 27L47 23Q34 20 34 11Q34 0 49 0H169Q200 0 207 30L328 529Q330 536 334.5 536Q339 536 340 529L466 25Q472 0 498 0H616Q631 0 631 11Q631 20 618 23L595 27Q574 31 567 38Q560 45 561 66L581 654Q582 675 588 682Q594 689 615 693L638 697Q651 700 651 709Q651 720 636 720H455Q440 720 440 709Q440 700 453 697L476 693Q497 689 504 682Q511 675 510 654L493 82Q493 75 488.5 74.5Q484 74 482 80L330 694Q328 704 323.5 707Q319 710 315 710ZM875 729Q788 729 764 615L741 504Q730 450 716.5 422Q703 394 679.5 384Q656 374 615 374Q601 374 593 381.5Q585 389 585 400V650Q585 671 593 678.5Q601 686 629 691L666 697Q677 699 677 708Q677 720 662 720H459Q444 720 444 709Q444 700 457 697L480 693Q501 689 507.5 682Q514 675 514 654V66Q514 45 507.5 38Q501 31 480 27L457 23Q444 20 444 11Q444 0 459 0H662Q721 0 767 23Q813 46 839 86.5Q865 127 865 180Q865 243 827 293.5Q789 344 731 365Q724 367 723.5 371.5Q723 376 730 379Q762 394 780.5 421Q799 448 809 493L831 595Q842 647 857 669Q872 691 895 691Q903 691 909.5 688.5Q916 686 926 679Q934 674 941 676.5Q948 679 948 687Q948 704 926 716.5Q904 729 875 729ZM652 349Q720 349 755 303.5Q790 258 790 182Q790 108 749.5 66.5Q709 25 638 25Q585 25 585 65V294Q585 349 652 349Z" fill="currentColor"/><path d="M1035 729Q1013 729 997.5 714.5Q982 700 982 676Q982 653 997.5 638.5Q1013 624 1035 624Q1055 624 1071 638.5Q1087 653 1087 676Q1087 700 1071 714.5Q1055 729 1035 729Z" style="fill: var(--attn)"/></svg><span>Software Factory · Martin Rogan</span><a href="../system/index.html">Design system</a></div>
+    <div class="left"><svg class="mark" viewBox="0 -12 1100 752" aria-hidden="true"><path d="M315 710Q311 710 306 707Q301 704 299 694L148 81Q147 74 142 74.5Q137 75 137 82L117 634Q116 662 126 676.5Q136 691 161 695L174 697Q187 698 187 709Q187 720 172 720H29Q14 720 14 709Q14 698 27 697L40 695Q66 691 75.5 676.5Q85 662 86 634L106 66Q107 45 100 38Q93 31 70 27L47 23Q34 20 34 11Q34 0 49 0H169Q200 0 207 30L328 529Q330 536 334.5 536Q339 536 340 529L466 25Q472 0 498 0H616Q631 0 631 11Q631 20 618 23L595 27Q574 31 567 38Q560 45 561 66L581 654Q582 675 588 682Q594 689 615 693L638 697Q651 700 651 709Q651 720 636 720H455Q440 720 440 709Q440 700 453 697L476 693Q497 689 504 682Q511 675 510 654L493 82Q493 75 488.5 74.5Q484 74 482 80L330 694Q328 704 323.5 707Q319 710 315 710ZM875 729Q788 729 764 615L741 504Q730 450 716.5 422Q703 394 679.5 384Q656 374 615 374Q601 374 593 381.5Q585 389 585 400V650Q585 671 593 678.5Q601 686 629 691L666 697Q677 699 677 708Q677 720 662 720H459Q444 720 444 709Q444 700 457 697L480 693Q501 689 507.5 682Q514 675 514 654V66Q514 45 507.5 38Q501 31 480 27L457 23Q444 20 444 11Q444 0 459 0H662Q721 0 767 23Q813 46 839 86.5Q865 127 865 180Q865 243 827 293.5Q789 344 731 365Q724 367 723.5 371.5Q723 376 730 379Q762 394 780.5 421Q799 448 809 493L831 595Q842 647 857 669Q872 691 895 691Q903 691 909.5 688.5Q916 686 926 679Q934 674 941 676.5Q948 679 948 687Q948 704 926 716.5Q904 729 875 729ZM652 349Q720 349 755 303.5Q790 258 790 182Q790 108 749.5 66.5Q709 25 638 25Q585 25 585 65V294Q585 349 652 349Z" fill="currentColor"/><path d="M1035 729Q1013 729 997.5 714.5Q982 700 982 676Q982 653 997.5 638.5Q1013 624 1035 624Q1055 624 1071 638.5Q1087 653 1087 676Q1087 700 1071 714.5Q1055 729 1035 729Z" style="fill: var(--attn)"/></svg><span>Software Factory · Martin Rogan</span><a href="../system/index.html">Design system</a><a href="?view=audit">Audit log</a><a href="?view=signin" class="visitor-only" hidden>Martin’s sign-in</a></div>
     <div class="right">
       <div class="seg" role="group" aria-label="Theme"><button type="button" data-theme-set="paper">PAPER</button><button type="button" data-theme-set="ink">INK</button></div>
       <div class="seg" role="group" aria-label="Motion"><button type="button" data-motion="on">MOTION</button><button type="button" data-motion="off">STILL</button></div>
     </div>
   </div>
 </footer>
+
+<div class="dialog-scrim" id="dialog-scrim" hidden></div>
+<section class="dialog" id="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" hidden></section>
 
 <div class="scrim" id="scrim" hidden></div>
 <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden>
@@ -940,6 +1144,10 @@ const G = {
   triage: '<circle cx="8" cy="8" r="6.25" stroke-dasharray="2.2 2"/><path d="M5.5 8.25l1.75 1.75 3.5-3.75"/>',
   check: '<path d="M3.5 8.5 6.5 11.5 12.5 4.5"/>', cross: '<path d="M4 4l8 8M12 4l-8 8"/>', ring: '<circle cx="8" cy="8" r="5"/>', dash: '<path d="M4 8h8"/>',
   arrows: '<path d="M5.5 4.5 2 8l3.5 3.5 M10.5 4.5 14 8l-3.5 3.5"/>',
+  // Admin: the passkey (step-up), a person, an agent at work and a model call.
+  key: '<circle cx="4.5" cy="8" r="2.75"/><path d="M7.25 8H14.25 M11.75 8v2.5 M14 8v2"/>',
+  person: '<circle cx="8" cy="5.25" r="2.75"/><path d="M2.75 14c.7-2.9 2.8-4.5 5.25-4.5s4.55 1.6 5.25 4.5"/>',
+  chip: '<rect x="4" y="4" width="8" height="8" rx="1.5"/><path d="M6.5 1.75V4 M9.5 1.75V4 M6.5 12v2.25 M9.5 12v2.25 M1.75 6.5H4 M1.75 9.5H4 M12 6.5h2.25 M12 9.5h2.25"/>',
 };
 const glyph = (k, cls = 'glyph') => `<svg class="${cls}" viewBox="0 0 16 16" aria-hidden="true">${G[k]}</svg>`;
 const CAT = { improvement: 'Improvement', functional: 'Functional', performance: 'Performance', security: 'Security', dependency: 'Dependency', accessibility: 'Accessibility', observability: 'Observability', redteam: 'Red team', triage: 'Not a defect' };
@@ -1354,8 +1562,13 @@ const n = ITEMS.length;
 const asked = ITEMS.findIndex((i) => i.id === q.get('item'));
 const S = {
   visitor: q.get('mode') === 'visitor', previewing: false,
-  stage: null, stopped: false, autonomy: 'guarded',
-  switches: { agents: true, automerge: true, rollback: true },
+  stage: null, stopped: false, stopReason: '', autonomy: 'supervised',
+  switches: { agents: true, automerge: false, rollback: true },
+  // Admin: the canary's state (?canary=), the line's take, whether the passkey was given in the last five minutes,
+  // the holds answered here, which hold's words are open, the dialog and the account menu.
+  canary: q.get('canary') || 'flight', take: { mode: 'next', next: 5, only: '1312' }, fresh: q.has('fresh'),
+  answered: {}, words: null, dialog: null, menu: q.has('menu'), view: q.get('view') || 'console',
+  audit: { actor: '', item: '', kinds: { admin: true, agent: true, model: true } },
   P: asked >= 0 ? asked : n - 1, sheet: null, at: null, sheetPlay: false,
 };
 const cur = () => Math.round(Math.min(n - 1, Math.max(0, S.P)));
@@ -1385,8 +1598,10 @@ const minutes = (from, to) => { const t = (c) => c.split(':').reduce((a, n) => a
 // How a release stands: [word, tone, dot class].
 function standing(r) {
   if (r.dry) return [`Canary · ${r.now}%, as the dry run records it`, 'faint', ''];
+  if (!r.end && r.paused) return [`Paused by Martin at ${r.now}%`, 'signal', ''];
   if (!r.end) return [`Canary · ${r.now}% of traffic`, 'signal', 'blink'];
-  return { promoted: ['Promoted · all traffic', 'ok', ''], rolledback: [`Rolled back at ${r.end.weight}%`, 'attn', 'ring'], stopped: [`Stopped with the line at ${r.end.weight}%`, 'attn', 'ring'] }[r.end.kind];
+  return { promoted: ['Promoted · all traffic', 'ok', ''], rolledback: [`Rolled back at ${r.end.weight}%`, 'attn', 'ring'], stopped: [`Stopped with the line at ${r.end.weight}%`, 'attn', 'ring'],
+    aborted: [`Aborted by Martin at ${r.end.weight}%`, 'attn', 'ring'] }[r.end.kind];
 }
 
 // The steps: the bar is the canary's share of the traffic, each stop a step of the Rollout, at its weight.
@@ -1400,10 +1615,10 @@ function stepsTrack(r) {
     let cls = '', t = 'faint', g = '';
     if (m) { const bad = Object.values(m.v).includes('failed'); [cls, t, g] = r.dry ? ['done', 'faint', 'dash'] : bad ? ['done', 'attn', 'cross'] : ['done', 'ok', 'check']; }
     else if (r.end?.kind === 'promoted' && w === 100) [cls, t, g] = r.dry ? ['done', 'faint', 'dash'] : ['done', 'ok', 'check'];
-    else if (r.end && r.end.kind !== 'promoted' && w === r.end.weight) [cls, t, g] = ['done cut', 'attn', r.end.kind === 'stopped' ? 'dash' : 'cross'];
+    else if (r.end && r.end.kind !== 'promoted' && w === r.end.weight) [cls, t, g] = ['done cut', 'attn', r.end.kind === 'rolledback' ? 'cross' : 'dash'];
     else if (!r.end && w === r.now) cls = 'now';
     const held = (w === 100 ? 'all the traffic' : pause === null ? 'waits for someone' : pause === undefined ? '' : pause / 60 + 'min') + (analysis ? '' : ' · not judged');
-    const how = cls.includes('cut') ? (r.end.kind === 'stopped' ? 'stopped here' : 'rolled back here') : m ? VERDICT[g === 'cross' ? 'failed' : r.dry ? 'dry' : 'passed'][0] : cls === 'now' ? 'measuring now' : cls ? 'passed' : 'to come';
+    const how = cls.includes('cut') ? ({ stopped: 'stopped here', aborted: 'aborted here' }[r.end.kind] ?? 'rolled back here') : m ? VERDICT[g === 'cross' ? 'failed' : r.dry ? 'dry' : 'passed'][0] : cls === 'now' ? 'measuring now' : cls ? 'passed' : 'to come';
     return `<span class="stop ${cls} tone-${t}" style="left: ${w}%" role="listitem" aria-label="${w}%${held && w !== 100 ? ', ' + held : ''}, ${how}"><i>${g ? glyph(g) : ''}</i><b>${w}%</b><small>${w === 100 ? 'all' : pause === null ? 'waits' + (analysis ? '' : ' · not judged') : held}</small></span>`;
   }).join('');
   return `<div class="steps-track ${r.dry ? 'dry' : ''}" role="list" aria-label="The canary’s steps"><span class="rl"></span><span class="fill tone-${r.dry ? 'faint' : tone}" style="width: ${at}%"></span><span class="origin">0%</span>${stops}</div>`;
@@ -1440,6 +1655,8 @@ function canaryScenario(k) {
       end: { kind: 'rolledback', at: '16:47:30', weight: 50, ticket: null, words: 'Metric "errors" assessed Failed due to failed (2) > failureLimit (1)', failed: [['errors', 'Errors', '5xx share 3.71% against 1.18%: 2.53 points above, at most 1.00 points allowed']] } },
     early: RELEASES.r1308,
     stopped: { ...live, end: { kind: 'stopped', at: '16:45:12', weight: 50 } },
+    paused: { ...live, paused: '16:44:10' },
+    aborted: { ...live, end: { kind: 'aborted', at: '16:45:12', weight: 50 } },
     dry: { ...live, dry: true, digest: null },
     idle: { idle: true, last: { ...live, measured: [m25, m50], end: { kind: 'promoted', at: '16:47:30' } } },
     none: { none: true },
@@ -1447,7 +1664,7 @@ function canaryScenario(k) {
 }
 
 function renderCanary() {
-  const el = $('canary'), r = canaryScenario(q.get('canary') || 'flight');
+  const el = $('canary'), r = canaryScenario(S.canary);
   if (r.none || r.idle) {
     el.className = 'panel canary-panel idle';
     el.innerHTML = r.none
@@ -1462,9 +1679,11 @@ function renderCanary() {
   const image = r.dry ? 'no image: nothing shipped' : `${r.digest} · signed · admitted`;
   let note, right = measuresTable(r);
   if (r.dry) note = 'The dry run answers for this release: its merges were never made, so nothing shipped and nothing was measured. It records each step as the line would see it, so a soak goes round.';
+  else if (!r.end && r.paused) note = `Martin paused the canary at ${r.paused}. It keeps ${r.now}% of the traffic until he resumes it, promotes it or aborts it.`;
   else if (!r.end) note = `Measuring the ${r.now}% step until ${r.next}. If every measure passes, the canary takes all the traffic then; if one fails, it rolls back on its own.`;
   else if (r.end.kind === 'promoted') note = `Promoted at ${r.end.at}, ${minutes(r.start, r.end.at)} after it started. Verify now asks the sense that saw each ticket whether it has cleared.`;
   else if (r.end.kind === 'stopped') note = `Stop the line aborted the canary at ${r.end.weight}%, at ${r.end.at}. ${r.previous}, the version before, takes all the traffic. The release stays stopped until Martin retries it or a new deploy starts another; starting the line does not resume it.`;
+  else if (r.end.kind === 'aborted') note = `Martin aborted the canary at ${r.end.weight}%, at ${r.end.at}. ${r.previous}, the version before, takes all the traffic. Nothing failed, so it is no signal. The release stays aborted until he retries it or a new deploy starts another.`;
   else {
     note = `Rolled back at ${r.end.at}, ${minutes(r.start, r.end.at)} in. ${100 - r.end.weight}% of the traffic never saw it: it stayed on ${r.previous}.`;
     const failed = r.end.failed.map(([, name, said]) => `<tr class="failed"><td>${name}</td><td>${said}</td><td>${verdict('failed')}</td></tr>`).join('');
@@ -1478,6 +1697,7 @@ function renderCanary() {
       <h2 id="canary-title">${esc(title)}</h2>${carried(r)}</div>
     <div class="rel-id">Release ${r.id}<br><b>${r.previous} → ${r.version}</b> · ${r.commit}<br>${image}</div></div>
     <div class="canary-body"><div>${stepsTrack(r)}<p class="canary-note">${note}</p></div><div>${right}</div></div>
+    ${canaryControls(r)}
     <p class="help">The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything.</p>`;
 }
 
@@ -1501,17 +1721,26 @@ function renderScore() {
 function renderChrome() {
   document.body.classList.toggle('stopped', S.stopped);
   $('banner').hidden = !S.previewing;
-  $('admin-top').hidden = S.visitor;
-  $('visitor-top').hidden = !S.visitor;
+  // Sign-in and enrolment are doors: the header keeps the brand and a way back, nothing else.
+  const door = S.view === 'signin' || S.view === 'enrol';
+  $('admin-top').hidden = S.visitor || door;
+  $('visitor-top').hidden = !S.visitor || door;
+  $('back-top').hidden = !door;
+  // Martin previewing holds no visitor's key: the pill says whose view it is.
+  $('visitor-pill').textContent = S.previewing ? 'VISITOR VIEW' : 'VISITOR · amber-otter';
+  $('status').hidden = door;
+  $('fresh').hidden = !S.fresh;
+  $('fresh').innerHTML = `${glyph('key', 'key')}<span class="long">Passkey given · </span>5min`;
+  $('fresh').title = 'You gave your passkey in the last five minutes: actions that ask for it act at once until then.';
   document.querySelectorAll('.admin-only').forEach((el) => { el.hidden = S.visitor; });
   document.querySelectorAll('.visitor-only').forEach((el) => { el.hidden = !S.visitor; });
   const status = S.stopped
-    ? '<span class="dot tone-attn ring"></span>Line stopped'
+    ? `<span class="dot tone-attn ring"></span>Line stopped${S.stopReason ? ` · <q>${esc(S.stopReason)}</q>` : ''}`
     : `<span class="dot tone-ok blink"></span>Line running · ${AUTONOMY[S.autonomy][0]}`;
   $('status').innerHTML = status;
   $('phone-status').innerHTML = status;
   $('stop-btn').innerHTML = S.stopped
-    ? 'Restart the line'
+    ? `Start the line${S.fresh ? '' : glyph('key', 'key') + '<span class="sr"> (asks for your passkey)</span>'}`
     : '<svg width="14" height="16" viewBox="0 0 16 18" aria-hidden="true"><path d="M8 1 V11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="14" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Stop the line';
   $('stop-btn').className = S.stopped ? 'btn primary' : 'btn attn';
 }
@@ -2029,20 +2258,347 @@ function sheetPlay() {
 
 /* ==== Controls ============================================================================ */
 
-function renderControls() {
-  $('autonomy').innerHTML = Object.entries(AUTONOMY).map(([k, [label]]) =>
-    `<button type="button" data-autonomy="${k}" aria-pressed="${S.autonomy === k}" ${S.visitor ? 'disabled' : ''}>${label}</button>`).join('');
-  $('autonomy-help').textContent = AUTONOMY[S.autonomy][1];
-  const sw = [['agents', 'Agents on', 'Coder agents take new work'], ['automerge', 'Auto-merge low risk', 'After gates and review pass'], ['rollback', 'Auto-rollback', 'The canary can undo itself']];
-  $('switches').innerHTML = sw.map(([k, label, note]) =>
-    `<button type="button" class="switch" role="switch" data-switch="${k}" aria-checked="${S.switches[k]}" ${S.visitor ? 'disabled' : ''}>
-      <span>${label}<small>${note}</small></span><span class="track" aria-hidden="true"></span></button>`).join('');
+/* ==== Admin: step-up, Needs you, Controls, the Canary panel's controls ====================== */
+
+// A control that asks for the passkey again (policy/access.ts marks each) carries a key after its label. Pressing one
+// while the passkey was given in the last five minutes acts at once; otherwise the step-up dialog asks for it first.
+const KEY = `${glyph('key', 'key')}<span class="sr"> (asks for your passkey)</span>`;
+const keyIf = (b) => b ? KEY : '';
+
+// One card per hold, the line's and triage's, oldest first. Each answer: [decision, label, what it does, needs the
+// passkey]. What an answer does is the line's ANSWERS for the hold's cause; words on one of triage's holds leave it
+// held (WORDS_LEAVE_HELD). A hold whose cause is a guardrail asks for the passkey to approve it.
+const HOLDS = [
+  { id: '1279', cause: 'gates', kicker: 'Held by a gate', stage: 'Gates', age: '1d', title: 'A pull request that deletes the failing test',
+    ev: `<p class="words">test-integrity · PR #1280\n✕ test/money.test.ts deleted: 3 tests gone, none added</p>`,
+    answers: [['approved', 'Approve', 'Sends it back to the coder for one more round, past the gates’ limit.', true],
+      ['answered', 'Answer in words', 'Sends it back to the coder, with your words as the reason.'],
+      ['rejected', 'Reject', 'Closes #1279 and its pull request, unmerged.']] },
+  { id: '1300', cause: 'question', kicker: 'The planner asks', stage: 'Plan', age: '50min', title: 'Sort products by price',
+    ev: `<p class="ev">The spec is written, with three acceptance criteria. <q>Should out-of-stock products sort last?</q></p>`,
+    answers: [['approved', 'Approve', 'The line carries on with the spec as it stands.'],
+      ['answered', 'Answer in words', 'The planner reads your answer and writes the spec again.'],
+      ['rejected', 'Reject', 'Closes #1300. Nothing is built.']] },
+  { id: '1314', cause: 'deploy', kicker: 'Waiting for your deploy', stage: 'Release', age: '25min', title: 'The contact form loses your message',
+    ev: `<p class="ev">Merged at 15:58. The next deploy pull request carries it; merging that is yours, on GitHub, and a release that carries it ends this wait by itself.</p>`,
+    answers: [['rejected', 'Reject', 'Closes #1314. Its change stays merged, and goes out with the next deploy anyway.']] },
+  { id: '1315', cause: 'finding', kicker: 'The planner found', stage: 'Triage', age: '10min', title: 'The About page links to a page that isn’t there',
+    ev: `<p class="ev">Seen while planning #1312, and on no ticket yet. A finding waits for you before triage opens one.</p>`,
+    answers: [['approved', 'Approve', 'Triage opens its ticket, and it goes down the line like any other.'],
+      ['answered', 'Answer in words', 'Kept with the hold. It stays held until you approve or reject it.'],
+      ['rejected', 'Reject', 'Dropped. No ticket is opened.']] },
+];
+// Answered today, newest first: public through the redactor, except words on a hold about a visitor's report.
+const ANSWERED = [
+  ['16:12', '1310', 'Answered in words', '“Keep the old error page; fix the logging only.” Sent back to the coder.'],
+  ['11:40', '1306', 'Answered in words', null],
+  ['09:05', '1296', 'Approved', 'The spec went on to Build.'],
+];
+const DECIDED = { approved: 'Approved', answered: 'Answered in words', rejected: 'Rejected' };
+
+function renderNeeds() {
+  const el = $('needs'), v = S.visitor;
+  const holds = q.get('needs') === 'none' ? [] : HOLDS.filter((h) => !S.answered[h.id]);
+  const done = [...HOLDS.filter((h) => S.answered[h.id]).map((h) => ['now', h.id, DECIDED[S.answered[h.id]], null, true]), ...ANSWERED];
+  const cards = holds.map((h) => {
+    const rows = h.answers.map(([d, label, what, key]) => {
+      const control = v ? `<span class="ro">${label}</span>`
+        : d === 'answered' ? `<button type="button" class="btn" data-words="${h.id}" aria-expanded="${S.words === h.id}">${label}</button>`
+        : `<button type="button" class="btn" data-answer="${h.id}:${d}">${label}${keyIf(key && !S.fresh)}</button>`;
+      const form = !v && d === 'answered' && S.words === h.id ? `<div class="words-form">
+          <label class="sr" for="words-${h.id}">Your answer to #${h.id}</label>
+          <textarea id="words-${h.id}" maxlength="300" placeholder="What the line should know"></textarea>
+          <div class="row"><span class="help">Visitors see your words, with anything shaped like a secret left out. <span class="chars">0 / 300</span></span>
+          <button type="button" class="btn primary small" data-answer="${h.id}:answered">Send</button></div></div>` : '';
+      return `${control}<p>${what}</p>${form}`;
+    }).join('');
+    return `<article class="need" aria-labelledby="need-${h.id}">
+      <div class="kick"><b>${h.kicker}</b><span>#${h.id} · ${h.stage} · ${h.age}</span></div>
+      <h3 id="need-${h.id}">${esc(h.title)}</h3>${h.ev}
+      <div class="answers" role="group" aria-label="${v ? 'What Martin can answer' : 'Your answers'}">${rows}</div>
+      <div class="need-foot"><button type="button" class="linkish" data-open="${indexOf(h.id) >= 0 ? h.id : '1312'}">Open the work item</button>${v ? '<span>Martin answers, signed in</span>' : ''}</div>
+    </article>`;
+  }).join('');
+  const empty = `<p class="help" style="font-size: 13px">${v ? 'Nothing waits on Martin.' : 'Nothing waits on you.'} A hold lands here when the line or triage needs a person: a spec to approve, a pull request a gate held, a fix waiting for your deploy.</p>`;
+  const answered = done.length ? `<div class="answered"><span class="label">Answered today</span>${done.map(([t, id, how, said, here]) =>
+    `<div><span class="mono">${here ? 'now' : t}</span><span>#${id} · ${how}${said === null && !here ? '. His words stay his: the hold was about a visitor’s report.' : said ? `. ${said.startsWith('“') ? `<q>${esc(said.slice(1, said.indexOf('”')))}</q>${esc(said.slice(said.indexOf('”') + 1))}` : esc(said)}` : ''}</span></div>`).join('')}</div>` : '';
+  el.innerHTML = `<div class="panel-head"><h2 id="needs-title">${v ? 'Waiting on Martin' : 'Needs you'}</h2>${holds.length ? `<span class="count-attn">${holds.length} waiting</span>` : ''}</div>
+    ${holds.length ? `<div class="needs-list">${cards}</div>` : empty}${answered}`;
 }
+
+// The line's take: LINE_TAKE and LINE_ONLY as settings. Taking more than now asks for the passkey.
+const TAKES = [['all', 'Every ticket'], ['next', 'The next few'], ['only', 'Just one']];
+const takeSize = (t) => ({ all: 3, next: 2, only: 1 })[t];
+// Loosening autonomy asks for the passkey; tightening is immediate.
+const LOOSE = { supervised: 0, guarded: 1, lightsout: 2 };
+const SWITCHES = [
+  ['agents', 'Agents take new work', 'Off: each agent finishes its step, and nothing new is started.', () => false],
+  ['automerge', 'Auto-merge low-risk changes', 'An untagged change merges once its gates and review pass. Under Supervised it waits for you anyway.', (on) => !on],
+  ['rollback', 'Auto-rollback', 'Off: a failing canary is paused for you, not rolled back.', (on) => on],
+];
+
+function renderControls() {
+  const v = S.visitor;
+  $('autonomy').className = 'seg' + (v ? ' ro-seg' : '');
+  $('autonomy').innerHTML = Object.entries(AUTONOMY).map(([k, [label]]) =>
+    `<button type="button" data-autonomy="${k}" aria-pressed="${S.autonomy === k}" ${v ? 'disabled' : ''}>${label}${keyIf(!v && !S.fresh && LOOSE[k] > LOOSE[S.autonomy])}</button>`).join('');
+  $('autonomy-help').textContent = AUTONOMY[S.autonomy][1];
+  $('switches').innerHTML = SWITCHES.map(([k, label, note, keyed]) =>
+    `<button type="button" class="switch" role="switch" data-switch="${k}" aria-checked="${S.switches[k]}" ${v ? 'disabled' : ''}>
+      <span><span class="what">${label}${keyIf(!v && !S.fresh && keyed(S.switches[k]))}</span><small>${note}</small></span><span class="track" aria-hidden="true"></span></button>`).join('');
+  const t = S.take;
+  const takeHelp = { all: 'The oldest open ticket of the highest severity, one after another, for as long as the line runs.',
+    next: `${t.next} work items in all, then it takes nothing new: 2 taken so far, each carried to its end.`,
+    only: `Only #${t.only} moves, one step at a time. Every other work item stays where it is.` }[t.mode];
+  const field = v ? '' : t.mode === 'next' ? `<label class="legend" style="font-size: 13px">How many <input class="field" style="width: 72px; min-height: 36px; font-family: var(--font-mono)" type="number" min="1" max="20" value="${t.next}" data-take-n></label>`
+    : t.mode === 'only' ? `<label class="legend" style="font-size: 13px">Work item # <input class="field" style="width: 96px; min-height: 36px; font-family: var(--font-mono)" inputmode="numeric" value="${t.only}" data-take-only></label>` : '';
+  $('take').innerHTML = `<span class="label"><span>What the line takes</span></span>
+    <div class="seg ${v ? 'ro-seg' : ''}" role="group" aria-label="What the line takes">${TAKES.map(([k, label]) =>
+      `<button type="button" data-take="${k}" aria-pressed="${t.mode === k}" ${v ? 'disabled' : ''}>${label}${keyIf(!v && !S.fresh && takeSize(k) > takeSize(t.mode))}</button>`).join('')}</div>
+    ${field}<p class="help">${takeHelp}</p>`;
+  $('spend').innerHTML = `<span class="label"><span>Spend</span><span>resets at 00:00 UTC</span></span>
+    <div class="meter"><div><span>Models today</span><span class="mono">$3.40 <span class="muted">of $10</span></span></div><div class="bar ink"><i style="width: 34%"></i></div></div>
+    <div class="meter"><div><span>This month</span><span class="mono">$41.20 <span class="muted">of $60</span></span></div><div class="bar ink"><i style="width: 69%"></i></div></div>
+    <div class="meter"><div><span>Dearest work item today <span class="muted">#1312</span></span><span class="mono">$0.62 <span class="muted">of $1</span></span></div><div class="bar ink"><i style="width: 62%"></i></div></div>`;
+  $('controls-help').innerHTML = v
+    ? 'Only Martin changes these, signed in with his passkey, and every change is in the audit log. Gates, image signing and the egress fence are always on: they have no switch.'
+    : `Gates, image signing and the egress fence are always on: they have no switch. <span class="legend">${glyph('key', 'key')} asks for your passkey again, unless you gave it in the last five minutes.</span>`;
+}
+
+// The Canary panel's controls: admin's buttons, or for a visitor the same controls with what each does.
+function canaryControls(r) {
+  if (r.dry || (r.end && !['stopped', 'aborted'].includes(r.end.kind))) return '';
+  const steps = (r.steps ?? []).map((x) => x.weight), next = steps.find((w) => w > r.now);
+  const C = !r.end ? [
+    ...(next ? [['promote-next', `Promote to ${next}%`, `Moves the canary to its next step now, without waiting out this one.`, true]] : []),
+    ['promote-all', 'Promote fully', `Gives ${r.version} all the traffic now${next ? ', skipping the steps left' : ''}.`, true],
+    r.paused ? ['resume', 'Resume', 'Lets the canary move on by itself again.'] : ['pause', 'Pause', `Holds the canary at ${r.now}% until Martin resumes it.`],
+    ['abort', 'Abort', `Sends all the traffic back to ${r.previous}. Nothing failed, so it opens no ticket.`],
+  ] : [['retry', 'Retry', `Starts ${r.version}’s canary again from its first step.`, true]];
+  if (S.visitor) return `<div class="canary-controls"><span class="label">Martin’s controls</span>
+    <dl>${C.map(([, label, what]) => `<dt><span class="ro">${label}</span></dt><dd>${what}</dd>`).join('')}</dl></div>`;
+  return `<div class="canary-controls"><span class="label">Your controls</span><div class="row">${C.map(([k, label, what, key]) =>
+    `<button type="button" class="btn small" data-canary="${k}" title="${what}">${label}${keyIf(key && !S.fresh)}</button>`).join('')}</div></div>`;
+}
+
+/* ==== Dialogs: stop and start the line, abort, and the passkey again ======================== */
+
+// What each keyed action says in the step-up dialog: [title, what happens, why it asks].
+const STEPUP = {
+  'promote-next': ['Promote the canary', 'v0.9.13 moves to its next step now.', 'Promoting ships to more people'],
+  'promote-all': ['Promote the canary', '<b>v0.9.13 takes all the traffic now.</b> Verify then asks each ticket’s sense whether it cleared.', 'Promoting ships to everyone'],
+  retry: ['Retry the release', 'v0.9.13’s canary starts again from its first step.', 'Retrying ships again'],
+  autonomy: ['Loosen autonomy', null, 'Loosening autonomy lets more ship without you'],
+  switch: ['Change a switch', null, 'This loosens a control'],
+  take: ['Take more work', null, 'Taking more work raises spend'],
+  answer: ['Approve past a guardrail', null, 'A gate held this, and approving overrides it'],
+  save: ['Save the settings', '<b>The coder’s effort goes from medium to high</b>, from its next step.', 'This raises spend'],
+  revoke: ['Revoke a passkey', '<b>The iPhone’s passkey stops working</b>, and its sessions end.', 'Revoking a passkey'],
+};
+
+function openDialog(kind, ctx = {}) {
+  S.dialog = { kind, ...ctx };
+  const el = $('dialog'), fresh = S.fresh;
+  const reason = (id, ph) => `<label class="label" for="${id}">Reason</label><textarea id="${id}" maxlength="300" placeholder="${ph}" required></textarea>`;
+  const cancel = '<button type="button" class="btn" data-dialog-close>Cancel</button>';
+  if (kind === 'stop') el.innerHTML = `<h2 id="dialog-title" tabindex="-1">Stop the line</h2>
+    <p>Every agent stops at the end of its step, nothing new is taken, and a canary in flight is aborted: the version before takes all the traffic. <code>make stop-the-line</code> does the same when the console can’t.</p>
+    ${reason('stop-reason', 'Why, for the audit log')}
+    <div class="row">${cancel}<button type="button" class="btn attn" data-dialog-ok>Stop the line</button></div>`;
+  else if (kind === 'start') el.innerHTML = `<h2 id="dialog-title" tabindex="-1">Start the line</h2>
+    <p>Agents take work again, as the take settings say. A release stopped with the line stays stopped until you retry it.</p>
+    ${reason('start-reason', 'Why, for the audit log')}
+    <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>${fresh ? 'Start the line' : `Use your passkey and start${glyph('key', 'key')}`}</button></div>
+    ${fresh ? '' : '<p class="help">Starting the line asks for your passkey again.</p>'}`;
+  else if (kind === 'abort') el.innerHTML = `<h2 id="dialog-title" tabindex="-1">Abort the canary</h2>
+    <p>v0.9.12, the version before, takes all the traffic at once. Nothing failed, so it opens no ticket, and #1302 waits for your retry or the next deploy.</p>
+    <div class="row">${cancel}<button type="button" class="btn attn" data-dialog-ok>Abort</button></div>`;
+  else {
+    const [title, what, why] = STEPUP[ctx.action] ?? STEPUP.switch;
+    el.innerHTML = `<div class="kickline">${glyph('key', 'key')}<span class="label">Your passkey, again</span></div>
+      <h2 id="dialog-title" tabindex="-1">${title}</h2>
+      <div class="what">${ctx.what ?? what}</div>
+      <p>${why}, so it needs your passkey again. Once given, it stays fresh for five minutes, for this and anything else that asks.</p>
+      <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>Use your passkey</button></div>`;
+  }
+  $('dialog').hidden = false; $('dialog-scrim').hidden = false;
+  $('dialog-title').focus();
+}
+function closeDialog() { S.dialog = null; $('dialog').hidden = true; $('dialog-scrim').hidden = true; }
+
+// Run an action, asking for the passkey first when it needs it and none was given in the last five minutes.
+function keyed(needs, action, ctx, run) {
+  if (!needs || S.fresh) return run();
+  openDialog('stepup', { action, ...ctx, then: run });
+}
+function confirmDialog() {
+  const d = S.dialog;
+  if (!d) return;
+  const why = $('stop-reason') ?? $('start-reason');
+  if (why && !why.value.trim()) return why.focus();
+  if (d.kind === 'stop') { S.stopped = true; S.stopReason = $('stop-reason').value.trim(); if (!canaryScenario(S.canary).end) S.canary = 'stopped'; }
+  else if (d.kind === 'start') { S.fresh = true; S.stopped = false; }
+  else if (d.kind === 'abort') S.canary = 'aborted';
+  else { S.fresh = true; d.then?.(); }
+  closeDialog(); renderAll();
+}
+
+/* ==== The account menu ===================================================================== */
+
+function renderMenu() {
+  $('account-btn').setAttribute('aria-expanded', String(S.menu));
+  $('menu').hidden = !S.menu;
+  $('menu').innerHTML = `<div class="who">Martin Rogan<small>Signed in with a passkey at 15:40<br>The session ends at 23:40${S.fresh ? '<br>Passkey given again: 5min left' : ''}</small></div>
+    <a href="?view=settings">Settings</a><a href="?view=audit">Audit log</a>
+    <button type="button" data-preview>Preview as visitor</button><hr>
+    <a href="?view=signin&amp;signin=out">Sign out</a>
+    <a href="?view=signin&amp;signin=everywhere">Sign out everywhere <small class="after">every device</small></a>`;
+}
+
+/* ==== Pages of their own: sign-in, enrolment, settings and the audit log ===================== */
+
+function signinPage() {
+  const k = q.get('signin') || 'ready';
+  const note = {
+    none: `<div class="refusal">This device has no passkey for the factory.<small>Each device is enrolled once, from the command line: <code>factory admin enrol</code> prints a one-time code for the <a href="?view=enrol">enrolment page</a>.</small></div>`,
+    expired: `<div class="done" style="border-left-color: var(--line-strong)">Your session ended at 23:40. A session lasts eight hours from signing in, however busy.</div>`,
+    out: `<div class="done" style="border-left-color: var(--line-strong)">Signed out. This browser holds no session now.</div>`,
+    everywhere: `<div class="done" style="border-left-color: var(--line-strong)">Signed out everywhere: every session on every device has ended, this one too.</div>`,
+  }[k] ?? '';
+  return `<div class="door"><span class="label">Admin</span><h1>Sign in</h1>
+    <p>This is Martin’s way in. He signs in with a passkey: there is no password, and no other way.</p>${note}
+    <button type="button" class="btn primary" data-signin>${glyph('key', 'key')}Sign in with a passkey</button>
+    <p class="aside">Visiting? There is nothing to sign in for. Everything the factory does is on the console, and every control is shown there, read-only. <a href="?mode=visitor">Back to the console</a></p></div>`;
+}
+
+function enrolPage() {
+  const k = q.get('enrol') || 'code';
+  const step = { code: 2, wrong: 2, spent: 2, passkey: 3, done: 4 }[k] ?? 2;
+  const li = (n, html) => `<li class="${n < step ? 'past' : n === step ? 'now' : ''}"><span>${html}</span></li>`;
+  const refusal = { wrong: `<div class="refusal">That code isn’t right.<small>3 tries left for it, across every browser.</small></div>`,
+    spent: `<div class="refusal">That code can’t be used any more.<small>It has expired, been used, or had its five tries. Run <code>factory admin enrol</code> again for a new one.</small></div>` }[k] ?? '';
+  const body = step === 2 ? `${refusal}<label class="label" for="code">One-time code</label>
+      <input class="field code" id="code" autocomplete="one-time-code" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX" ${k === 'spent' ? 'disabled' : ''}>
+      <button type="button" class="btn primary" ${k === 'spent' ? 'disabled' : ''}>Check the code</button>`
+    : step === 3 ? `<label class="label" for="key-name">Name this passkey</label><input class="field" id="key-name" value="iPhone">
+      <button type="button" class="btn primary">${glyph('key', 'key')}Make a passkey</button>
+      <p class="help">Your browser or phone asks where to keep it. The name is for the settings, where you can revoke it.</p>`
+    : `<div class="done">Passkey made, and you are signed in on this device. Sign in with it from now on.</div><a class="btn primary" href="?">Go to the console</a>`;
+  return `<div class="door"><span class="label">Admin · enrolment</span><h1>Enrol a passkey</h1>
+    <p>Once for each device Martin signs in on. A one-time code is the only way to add a passkey: a signed-in session can’t.</p>
+    <ol class="steps-list">${li(1, 'On the command line, run <code>factory admin enrol</code>. It prints a code that lasts ten minutes and allows five tries.')}
+      ${li(2, 'Enter the code here.')}${li(3, 'Make a passkey on this device.')}</ol>${body}
+    <p class="aside">Lost a device? <code>factory admin enrol --revoke-others</code> revokes every other passkey and ends every session.</p></div>`;
+}
+
+const AGENTS = [['planner', 'Writes the spec from the ticket', 'claude-sonnet-5-5', 'medium', 'high', '9 steps · $0.71'],
+  ['coder', 'Writes the test, then the fix', 'claude-sonnet-5-5', 'high', 'high', '14 steps · $1.62'],
+  ['reviewer', 'Reviews what passed the gates', 'claude-sonnet-5-5', 'medium', 'high', '11 steps · $0.88'],
+  ['describer', 'Writes the pull request’s story', 'claude-haiku-4-5', 'low', 'medium', '6 steps · $0.07']];
+const MODEL_NAMES = [['qwen/qwen3.8-27b', 'Qwen 3.8 27B · local'], ['claude-haiku-4-5', 'Claude Haiku 4.5'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5'], ['claude-opus-5-5', 'Claude Opus 5.5']];
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+function settingsPage() {
+  const v = S.visitor;
+  const rows = AGENTS.map(([a, does, model, effort, max, week]) => {
+    const changed = !v && a === 'coder';
+    return `<tr class="${changed ? 'changed' : ''}"><td><b style="font-weight: 500">The ${a}</b><small>${does}</small></td>
+      <td><label class="sr" for="m-${a}">The ${a}’s model</label><select class="field" id="m-${a}" ${v ? 'disabled' : ''}>${MODEL_NAMES.map(([id, name]) => `<option ${id === model ? 'selected' : ''}>${name}</option>`).join('')}</select></td>
+      <td><label class="sr" for="e-${a}">The ${a}’s effort</label><select class="field" id="e-${a}" ${v ? 'disabled' : ''}>${EFFORTS.map((e, i) =>
+        `<option ${e === effort ? 'selected' : ''} ${i > EFFORTS.indexOf(max) ? 'disabled' : ''}>${e}${i > EFFORTS.indexOf(max) ? ' · above policy' : ''}</option>`).join('')}</select><small>up to ${max}</small></td>
+      <td class="num">${week}<br>last 7 days</td></tr>`;
+  }).join('');
+  const cap = (k, label, note, val, ceil, spent, pct) => `<div class="cap-row ${!v && k === 'day' ? '' : ''}">
+      <label for="cap-${k}">${label}<small>${note}</small></label>
+      <span class="money"><input class="field" id="cap-${k}" inputmode="decimal" value="${val}" ${v ? 'disabled' : ''}></span>
+      <span class="ceil"><span class="bar ink"><i style="width: ${pct}%"></i></span><span>${spent} · ceiling $${ceil}, from policy/spend.ts</span></span></div>`;
+  const models = `<article class="panel" aria-labelledby="models-title"><div class="panel-head"><h2 id="models-title">Models</h2>${v ? '<span class="label">Read only</span>' : ''}</div>
+      <p class="help">Each agent’s model and effort, within the bounds <code>policy/models.ts</code> sets. A change applies from an agent’s next step: a step running now finishes on what it started with, and records what it ran on.</p>
+      <div class="switches"><button type="button" class="switch" role="switch" aria-checked="false" ${v ? 'disabled' : ''} data-local>
+        <span><span class="what">All local</span><small>Every agent on Qwen 3.8 27B, on Martin’s Mac, for nothing. Turning it off later asks for the passkey.</small></span><span class="track" aria-hidden="true"></span></button></div>
+      <table class="agents"><thead><tr><th>Agent</th><th>Model</th><th>Effort</th><th class="num">Spent</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="help">Triage is not here: it asks Jev typed questions, through the gateway, at a fraction of a cent each.</p></article>`;
+  const caps = `<article class="panel" aria-labelledby="caps-title"><div class="panel-head"><h2 id="caps-title">Spend caps</h2>${v ? '<span class="label">Read only</span>' : ''}</div>
+      <p class="help">At a cap the gateway refuses every call, and the agents stop. ${v ? 'Martin sets each' : 'Set each'} within its ceiling; a higher ceiling is a pull request to <code>policy/spend.ts</code>. Raising a cap asks for the passkey, and carries on the work it held.</p>
+      <div class="caps">${cap('day', 'Each day', 'UTC, reset at 00:00', '10', 20, '$3.40 today', 34)}${cap('month', 'Each month', 'UTC calendar month', '60', 100, '$41.20 this month', 69)}${cap('item', 'Each work item', 'Across all its calls', '1.00', 2, 'the dearest today, #1312, $0.62', 62)}</div></article>`;
+  const side = v ? `<article class="panel"><h2>Who changes these</h2><p class="help" style="font-size: 13px">Martin, signed in with his passkey. Each change is an event, so it is in the <a href="?view=audit">audit log</a> with what it was before, and the gateway checks every setting against policy as it reads it: one outside the bounds has no effect.</p></article>`
+    : `<article class="panel" aria-labelledby="keys-title"><h2 id="keys-title">Passkeys</h2><div class="keys">
+        <div><span>MacBook Air<small>Enrolled 12 Oct · used today, 15:40 · this device</small></span><button type="button" class="btn small" data-revoke>Revoke${keyIf(!S.fresh)}</button></div>
+        <div><span>iPhone<small>Enrolled 12 Oct · used yesterday, 21:02</small></span><button type="button" class="btn small" data-revoke>Revoke${keyIf(!S.fresh)}</button></div></div>
+        <p class="help">Two at most. Each is added with <code>factory admin enrol</code> on the command line, never from here.</p></article>
+      <article class="panel" aria-labelledby="session-title"><h2 id="session-title">This session</h2>
+        <p class="help" style="font-size: 13px">Signed in at 15:40 with the MacBook Air’s passkey. It ends at 23:40: eight hours, however busy.</p>
+        <div class="actions" style="margin-top: 0"><a class="btn small" href="?view=signin&amp;signin=out">Sign out</a><a class="btn small" href="?view=signin&amp;signin=everywhere">Sign out everywhere</a></div></article>`;
+  const save = v ? '' : `<div class="save-bar"><p>1 change: the coder’s effort, medium → high. It raises spend, so saving asks for your passkey.</p>
+      <div class="row"><button type="button" class="btn small">Discard</button><button type="button" class="btn primary small" data-save>Save${keyIf(!S.fresh)}</button></div></div>`;
+  return `<div class="page"><div class="page-head"><a class="crumb" href="?${v ? 'mode=visitor' : ''}">← The console</a><h1>${v ? 'Models and spend' : 'Settings'}</h1>
+      <p>${v ? 'What each agent runs on, and what the factory may spend. Martin chooses within the bounds policy sets; nobody can choose outside them.' : 'Models and spend, within the bounds policy sets.'}</p></div>
+    <div class="settings"><div style="display: flex; flex-direction: column; gap: 20px; min-width: 0">${models}${caps}${save}</div><div style="display: flex; flex-direction: column; gap: 20px; min-width: 0">${side}</div></div></div>`;
+}
+
+// The audit log: [day, time, actor, kind, work item, what, detail, refused]. Public views, the same for everyone.
+const AUDIT = [
+  ['Today', '16:52:10', 'Martin', 'admin', '1302', 'Promoted the canary to all traffic', 'release 3b7e90c1d4-913 · passkey given at 16:51'],
+  ['Today', '16:51:58', 'Martin', 'admin', '', 'Gave his passkey again', 'for: promote the canary'],
+  ['Today', '16:44:10', 'Martin', 'admin', '1302', 'Paused the canary at 50%', ''],
+  ['Today', '16:40:03', 'the coder', 'agent', '1312', 'Pushed round 2 to PR #1318', '2 files · +14 −3'],
+  ['Today', '16:39:41', 'the coder', 'model', '1312', 'Claude Sonnet 5.5 · high', '18.2k in · 2.4k out · $0.09'],
+  ['Today', '16:36:12', 'the line', 'agent', '1312', 'The scope fence refused patch 1', 'src/server.ts is outside the spec’s scope', true],
+  ['Today', '16:31:20', 'the reviewer', 'agent', '1312', 'Asked for changes: 2 blocking', 'review 1 · attempt 1'],
+  ['Today', '16:30:02', 'the reviewer', 'model', '1312', 'Claude Sonnet 5.5 · medium', '21.6k in · 1.8k out · $0.08'],
+  ['Today', '16:20:44', 'triage', 'agent', '1306', 'Took a visitor’s report on /about', null],
+  ['Today', '16:20:40', 'triage', 'model', '1306', 'Jev 1.13.0 · TypeSafe · triage/v2', '4 questions · <$0.01'],
+  ['Today', '16:12:00', 'Martin', 'admin', '1310', 'Answered the hold in words', '“Keep the old error page; fix the logging only.”'],
+  ['Today', '15:58:30', 'Martin', 'admin', '', 'Raised the day’s cap from $5 to $10', 'passkey given at 15:58'],
+  ['Today', '15:40:12', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
+  ['Yesterday', '21:40:05', 'Martin', 'admin', '', 'Stopped the line', '“Going out; nothing to land tonight.”'],
+  ['Yesterday', '21:02:44', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
+];
+const KIND = { admin: ['person', 'Admin action'], agent: ['arrows', 'Agent action'], model: ['chip', 'Model call'] };
+const ACTORS = ['Martin', 'the planner', 'the coder', 'the reviewer', 'the describer', 'triage', 'the line', 'the senses'];
+
+function auditRows() {
+  const f = S.audit;
+  const rows = AUDIT.filter(([, , who, kind, item]) => f.kinds[kind] && (!f.actor || who === f.actor) && (!f.item || item === f.item.replace('#', '')));
+  let day = '';
+  return rows.map(([d, t, who, kind, item, what, detail, refused]) => {
+    const head = d !== day ? `<tr class="day"><td colspan="5">${(day = d)}</td></tr>` : '';
+    const [g, kw] = KIND[kind];
+    const small = detail === null ? '<small class="withheld">Its text is left out: a visitor wrote it.</small>' : detail ? `<small>${esc(detail)}</small>` : '';
+    return `${head}<tr class="${kind === 'admin' ? 'admin' : ''}"><td class="t">${t}</td><td class="who"><b>${who}</b></td>
+      <td><span class="kindw">${glyph(g)}<span>${kw}</span></span></td><td class="item">${item ? `#${item}` : '—'}</td>
+      <td class="what ${refused ? 'refused' : ''}">${esc(what)}${small}</td></tr>`;
+  }).join('') || `<tr><td colspan="5" class="help" style="padding: 18px 0">Nothing matches. Each filter narrows the log; clear one to see more.</td></tr>`;
+}
+function auditPage() {
+  const f = S.audit;
+  return `<div class="page"><div class="page-head"><a class="crumb" href="?${S.visitor ? 'mode=visitor' : ''}">← The console</a><h1>Audit log</h1>
+      <p>Every agent action, model call and admin action, newest first. Everyone sees the same log, from each event’s public view: what a visitor wrote, and anything shaped like a secret, is left out.</p></div>
+    <div class="filters" role="search" aria-label="Filter the audit log">
+      <label><span class="label">Actor</span><select class="field" data-audit-actor><option value="">Everyone</option>${ACTORS.map((a) => `<option ${f.actor === a ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
+      <label><span class="label">Work item</span><input class="field" placeholder="#1312" value="${esc(f.item)}" data-audit-item></label>
+      <div style="display: flex; flex-direction: column; gap: 6px"><span class="label">Kind</span><div class="chips">${Object.entries(KIND).map(([k, [g, w]]) =>
+        `<button type="button" class="chip" aria-pressed="${f.kinds[k]}" data-audit-kind="${k}">${glyph(g)}${w}s</button>`).join('')}</div></div></div>
+    <table class="audit"><caption>Showing the latest 15 of 1,284. Martin’s actions are ruled in ink.</caption>
+      <thead><tr><th>Time</th><th>Actor</th><th>Kind</th><th>Work item</th><th>What happened</th></tr></thead><tbody id="audit-rows">${auditRows()}</tbody></table>
+    <button type="button" class="btn small" style="align-self: flex-start">Show older</button></div>`;
+}
+
+function renderPage() {
+  const page = S.view !== 'console';
+  $('view-console').hidden = page;
+  $('view-page').hidden = !page;
+  if (!page) return;
+  $('view-page').innerHTML = { signin: signinPage, enrol: enrolPage, settings: settingsPage, audit: auditPage }[S.view]?.() ?? '';
+}
+
+function renderAll() { renderChrome(); renderLine(); renderStagePanel(); renderNeeds(); renderControls(); renderCanary(); renderMenu(); renderPage(); }
 
 /* ==== Events ============================================================================== */
 
 document.addEventListener('click', (e) => {
   const t = e.target.closest('button');
+  if (S.menu && !e.target.closest('.account')) { S.menu = false; renderMenu(); }
   if (!t) {
     if (S.stage !== null && !e.target.closest('#stage-panel')) openStage(S.stage);
     return;
@@ -2061,16 +2617,61 @@ document.addEventListener('click', (e) => {
   if (d.step) { const it = ITEMS[S.sheet]; S.at = Math.max(0, Math.min(it.ch.length - 1, atFor(it) + +d.step)); S.sheetPlay = false; clearInterval(sheetTimer); return renderSheetReplay(); }
   if ('splay' in d) return sheetPlay();
   if ('allEvents' in d) { S.allEvents = !S.allEvents; renderSheetReplay(); return document.querySelector('[data-all-events]')?.focus(); }
-  if (d.autonomy) { S.autonomy = d.autonomy; renderControls(); return renderChrome(); }
-  if (d.switch) { S.switches[d.switch] = !S.switches[d.switch]; return renderControls(); }
+  if (d.autonomy) {
+    const looser = LOOSE[d.autonomy] > LOOSE[S.autonomy];
+    return keyed(looser, 'autonomy', { what: `<b>Autonomy goes from ${AUTONOMY[S.autonomy][0]} to ${AUTONOMY[d.autonomy][0]}.</b> ${AUTONOMY[d.autonomy][1]}` },
+      () => { S.autonomy = d.autonomy; renderAll(); });
+  }
+  if (d.switch) {
+    const [, label, , needs] = SWITCHES.find(([k]) => k === d.switch);
+    return keyed(needs(S.switches[d.switch]), 'switch', { what: `<b>${label}: ${S.switches[d.switch] ? 'off' : 'on'}.</b>` },
+      () => { S.switches[d.switch] = !S.switches[d.switch]; renderAll(); });
+  }
+  if (d.take) {
+    return keyed(takeSize(d.take) > takeSize(S.take.mode), 'take', { what: `<b>The line takes: ${TAKES.find(([k]) => k === d.take)[1].toLowerCase()}.</b>` },
+      () => { S.take.mode = d.take; renderAll(); });
+  }
+  if (d.answer) {
+    const [id, how] = d.answer.split(':'), h = HOLDS.find((x) => x.id === id), a = h.answers.find(([x]) => x === how);
+    return keyed(a[3], 'answer', { what: `<b>${a[1]} #${id}.</b> ${a[2]}` }, () => { S.answered[id] = how; S.words = null; renderAll(); });
+  }
+  if (d.words) { S.words = S.words === d.words ? null : d.words; renderNeeds(); return document.getElementById('words-' + d.words)?.focus(); }
+  if (d.canary) {
+    const c = d.canary;
+    if (c === 'pause') { S.canary = 'paused'; return renderAll(); }
+    if (c === 'resume') { S.canary = 'flight'; return renderAll(); }
+    if (c === 'abort') return openDialog('abort');
+    return keyed(true, c, {}, () => { S.canary = c === 'retry' ? 'flight' : 'promoted'; renderAll(); });
+  }
+  if ('save' in d) return keyed(true, 'save', {}, () => renderAll());
+  if ('revoke' in d) return keyed(true, 'revoke', {}, () => renderAll());
+  if ('signin' in d) return;   // the browser's own passkey sheet, then the console
+  if ('dialogClose' in d) return closeDialog();
+  if ('dialogOk' in d) return confirmDialog();
+  if (t.id === 'account-btn') { S.menu = !S.menu; return renderMenu(); }
+  if ('preview' in d) { S.menu = false; renderMenu(); return setMode(true, true); }
+  if (d.auditKind) { S.audit.kinds[d.auditKind] = !S.audit.kinds[d.auditKind]; return renderPage(); }
   if (d.themeSet) return setTheme(d.themeSet);
   if (d.motion) return setMotion(d.motion === 'on');
-  if (t.id === 'stop-btn') { S.stopped = !S.stopped; renderChrome(); renderLine(); renderStagePanel(); retIndex = 0; return cycleReturns(); }
+  if (t.id === 'stop-btn') { openDialog(S.stopped ? 'start' : 'stop'); return; }
   if (t.id === 'preview-btn') return setMode(true, true);
   if (t.id === 'to-admin') return setMode(false, false);
 });
 $('scrim').addEventListener('click', closeSheet);
+$('dialog-scrim').addEventListener('click', closeDialog);
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.matches('textarea')) { const c = t.parentElement.querySelector('.chars'); if (c) c.textContent = `${t.value.length} / 300`; }
+  if (t.matches('[data-audit-item]')) { S.audit.item = t.value.trim(); $('audit-rows').innerHTML = auditRows(); }
+  if (t.matches('[data-take-n]')) S.take.next = +t.value || 1;
+  if (t.matches('[data-take-only]')) S.take.only = t.value.replace(/\D/g, '');
+});
+document.addEventListener('change', (e) => {
+  if (e.target.matches('[data-audit-actor]')) { S.audit.actor = e.target.value; $('audit-rows').innerHTML = auditRows(); }
+});
 document.addEventListener('keydown', (e) => {
+  if (S.dialog && e.key === 'Escape') return closeDialog();
+  if (S.menu && e.key === 'Escape') { S.menu = false; renderMenu(); return $('account-btn').focus(); }
   if (S.sheet === null) { if (e.key === 'Escape' && S.stage !== null) openStage(S.stage); return; }
   if (e.key === 'Escape') return closeSheet();
   if (e.key === 'Tab') {   // keep focus inside the sheet while it is open
@@ -2089,7 +2690,7 @@ addEventListener('resize', () => {
 function setMode(visitor, previewing) {
   Object.assign(S, { visitor, previewing, stage: null });
   if (S.sheet !== null) closeSheet();
-  renderChrome(); renderLine(); renderStagePanel(); renderControls(); retIndex = 0; cycleReturns();
+  renderAll(); retIndex = 0; cycleReturns();
   window.scrollTo(0, 0);
 }
 function setTheme(t) {
@@ -2106,7 +2707,9 @@ function setMotion(on) {
 // Paper always first; Ink is a choice made on the page, not remembered.
 setTheme(q.get('theme') === 'ink' ? 'ink' : 'paper');
 setMotion(!(q.get('motion') === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches));
-renderChrome(); renderLine(); renderStagePanel(); renderControls(); renderScore(); renderCanary(); cycleReturns();
+renderAll(); renderScore(); cycleReturns();
+if (q.get('dialog') === 'stepup') openDialog('stepup', { action: 'promote-all' });
+else if (q.get('dialog')) { if (q.get('dialog') === 'start') { S.stopped = true; S.canary = 'stopped'; renderAll(); } openDialog(q.get('dialog')); }
 reel.innerHTML = ITEMS.map(card).join('');
 buildRail(); layout(); renderRail(); fitHeight();
 document.fonts?.ready.then(fitHeight);

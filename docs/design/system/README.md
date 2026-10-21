@@ -288,13 +288,13 @@ An **MR monogram**: Martin Rogan's initials in Instrument Serif, with the R set 
 
 One page, three widths. The console is designed to be read from top to bottom: *is it running → what is happening → what does it need from me*.
 
-The Canary panel sits full width directly under the line, at every width: it is the Release station opened up. The bottom row, Needs you (or Try it yourself) and Controls, comes with milestone 7, under the reel.
+The Canary panel sits full width directly under the line, at every width: it is the Release station opened up. The bottom row, Needs you and Controls, sits under the reel, for everyone; Try it yourself joins it for visitors in milestone 8. Sign-in, enrolment, the settings and the audit log are pages of their own (see Admin).
 
 | Width | The line | The Canary panel | The reel and the sheet | Bottom row |
 |---|---|---|---|---|
-| ≥ 1180 | 8 stations in a row, scaled to fit; captions show state and one figure | The steps on the left, the measures on the right | Cards up to 620px with both neighbours showing; the sheet in two columns | Needs you (or Try it yourself), Controls |
+| ≥ 1180 | 8 stations in a row, scaled to fit; captions show state and one figure | The steps on the left, the measures on the right | Cards up to 620px with both neighbours showing; the sheet in two columns | Needs you, Controls, side by side and equally wide |
 | 721–1179 | Same row, smaller; captions show state only | The same, narrower | The same reel; the sheet in one column, its side column as two cards side by side | The same |
-| ≤ 720 | **Two rows of four stations**, reading left to right like text; the current return becomes one line of text underneath; tapping a station opens a bottom sheet | One column: the steps, then the measures, each baseline under its canary figure | Cards the width of the screen with neighbours just showing; the timeline the same window as at every width, a few work items either side of the playhead; the sheet at 94% height, one column, its scrubber showing dots and the current label | One column |
+| ≤ 720 | **Two rows of four stations**, reading left to right like text; the current return becomes one line of text underneath; tapping a station opens a bottom sheet | One column: the steps, then the measures, each baseline under its canary figure | Cards the width of the screen with neighbours just showing; the timeline the same window as at every width, a few work items either side of the playhead; the sheet at 94% height, one column, its scrubber showing dots and the current label | One column: Needs you, then Controls |
 
 The phone keeps the stations: they are the thing people remember, and at a quarter of the width the face, hatch and beacon still read. What goes on the phone is detail: figures, the parcels on the belt, and the return arcs.
 
@@ -302,14 +302,14 @@ The phone keeps the stations: they are the thing people remember, and at a quart
 
 Each panel does one job:
 
-- **Header:** mark, name, whether the line is running (with the autonomy level), and Stop the line. Autonomy is set in Controls.
+- **Header:** mark, name, whether the line is running (with the autonomy level), and, for admin, Preview as visitor, Stop the line (Start the line while stopped) and the account menu. Autonomy is set in Controls.
 - **Scoreboard:** three figures: found, verified fixed, median time to verified. No totals, false positives or separate "fixed" count: "fixed" and "verified" are too close to earn two places.
-- **Canary:** the release in flight against the version it replaces, step by step, for everyone. It says the canary decides for itself; promote, pause, abort and retry are admin's, in milestone 7.
+- **Canary:** the release in flight against the version it replaces, step by step, for everyone. It says the canary decides for itself; promote, pause, abort and retry are admin's, and a visitor sees them with what each does.
 - **Captions under stations:** the name and one line: state word and one figure. Descriptions belong in the stage panel, switches in Controls.
 - **The reel:** every work item, oldest to now. Watching the app change says more than a list; what waits on Martin is also listed in Needs you.
 - **The sheet:** one work item in full: the stage scrubber and the site at each step, the evidence, the change, the model calls and the gates.
-- **Needs you:** one card per work item (a spec and the planner's question on it are one decision). Requesting an improvement lives on the Plan station, not here.
-- **Controls:** autonomy, three switches and two spend meters. Guardrails that can't be switched off are not drawn as switches; one line says so.
+- **Needs you:** one card per hold, the line's and triage's (a spec and the planner's question on it are one decision), each answer beside what it does. Requesting an improvement lives on the Plan station, not here.
+- **Controls:** autonomy, three switches, what the line takes, and spend against the day's, the month's and a work item's caps; the models and the caps themselves are on the settings page. Guardrails that can't be switched off are not drawn as switches; one line says so.
 - **Left out on purpose:** placeholders for other apps, a live-feed ticker (the stations and the reel already show what is happening), an always-on feedback loop under the belt (production feeding Sense is a return like any other), sparklines, and help text that repeats itself.
 
 ## Sensing and triage (milestone 4)
@@ -343,11 +343,13 @@ The release in flight against the version it would replace, for everyone, full w
 - **The steps:** a bar that is the canary's share of the traffic, from 0 to 100%, with a stop at each step's weight. The steps are `release.started`'s (version 3): one per weight the Rollout sets, each with its pause; the final 100% is not listed, so the panel adds it, as "all". Under each stop, the weight and the pause ("3min", or "waits" for a pause that waits for someone), and "not judged" for a step the analysis does not measure. A step measured passing is an `ok` ring with a tick, a failed one `attn` with a cross, the step being measured a `signal` ring with a dot, and a step to come an empty ring. The bar fills to the canary's weight in the release's tone; a rollback's step is an `attn` cross, and an abort's (Stop the line's or Martin's) a dashed `attn` ring, named "stopped here" or "aborted here". When a release has no steps recorded (a version 2 event, a release found already live), the steps measured stand in, then 100%.
 - **The measures,** at the latest step measured: a table captioned "At the 25% step · measured 16:44:00", one row each for requests, errors, latency and the journeys, with the canary's figure, the baseline's in `text-muted`, and the verdict. Each measure has its rule in one caption line, in `policy/release.ts`'s terms ("share of 5xx answers · fails more than a point above"). Figures are tabular mono: requests counted, the 5xx share to two decimals, p99 in ms, and the journeys as "24 / 24" only when the step recorded counts; otherwise "—", and the verdict alone. The verdicts, from the analysis's own phases: **passed** (`ok`, tick), **failed** (`attn`, cross, and a 2px `attn` rule down the row's left edge), **measuring** (`signal`, ring), **waiting** (`text-muted`), **could not measure** for an error, which the analysis tries again (`text-muted`, with its message as the caption), and **inconclusive · waits for Martin** (`attn`, ring), since Argo Rollouts pauses the release until someone decides. Before the first step is measured the table waits: the same four rows with their rules, "—" for each figure and **measuring** for each verdict, captioned with the step in flight and when it is measured ("At the 25% step · measuring until 16:41:00"), so the panel never looks as if something failed to load. It waits only for a step the analysis judges when its pause runs out: a step that is not judged, or that waits for someone, has no table, and the note says why; nor has a dry run, which measures nothing. A rollback before the first step is measured replaces it with the rollback's own table.
 - **The note,** under the steps, says what happens next in the release's own times: "Measuring the 50% step until 16:47:30. If every measure passes, the canary takes all the traffic then; if one fails, it rolls back on its own."
-- **Last line, for everyone:** "The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything." Promote, pause, abort and retry are admin's, in milestone 7, and arrive with the bottom row.
+- **Controls,** above the last line: promote, pause, abort and retry (see Admin).
+- **Last line, for everyone:** "The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything."
 
 | State | Kicker | Tone | The note says |
 |---|---|---|---|
 | In flight | Canary · 50% of traffic | `signal`, blinking dot | when the step is measured, and what happens then |
+| Paused by Martin | Paused by Martin at 50% | `signal`, still dot | when he paused it, and that it keeps its share of the traffic until he resumes, promotes or aborts it |
 | Promoted | Promoted · all traffic | `ok` | when, how long it took, and that Verify now asks each ticket's sense |
 | Rolled back | Rolled back at 25% | `attn`, ringed | when, and how much of the traffic never saw it: "75% of the traffic never saw it: it stayed on v0.9.9" |
 | Stopped by an analysis error | Stopped by an analysis error at 25% | `attn`, ringed | that the analysis could not judge the canary, so nothing failed and it is no signal, that the version before takes all the traffic, and that the release stays stopped until Martin retries it or a new deploy starts another |
@@ -399,9 +401,112 @@ Yellow stays the Release station's bird. Moving is ink, a measure that passed an
 - **The wait for Martin's deploy** is the section's one block while it waits, with the `attn` rule.
 - **The scrubber** has one chapter for each release, named by how it ended (PROMOTED, ROLLED BACK, STOPPED for Stop the line's abort, ABORTED for Martin's, or CANARY while in flight; the text reads "v0.9.11 aborted by Martin at 25%"), PERSISTS for a verification that persists (nothing reopens), and REOPENED for a reopening. PERSISTS ends a pass, and the next begins with the work's return to Plan; REOPENED begins one. The first pass and the pass holding the chosen chapter are drawn in full; every other pass is one chapter, PASS 2, drawn as a dashed square, which opens when chosen. When that still leaves too many chapters to keep a target's width apart, the first pass folds too. A work item with more than one pass has its chapters spread evenly; past twelve, only the chosen one, the first and the last keep their labels. Under the scrubber, the events up to the chosen chapter, the last five of them, with "All events (17)" to show the rest and "Fewer events" to fold them again.
 
+## Admin (milestone 7)
+
+What Martin does from the console, and what a visitor sees of it, agreed as a set: the bottom row (Needs you and Controls), sign-in and enrolment, the account menu, the passkey asked again (step-up), the settings, the audit log, the Canary panel's controls, stopping and starting the line, and Preview as visitor. The mockup draws each (`?view=`, `?dialog=`, `?mode=visitor` and the rest in its comment). Requesting an improvement (the "+" on Plan) and the flags are Part B's, and are designed when it is detailed.
+
+Everything Martin can change, a visitor can see. The console draws both from the same table, `policy/access.ts`, so every control has a read-only form, and the two never drift apart.
+
+### Read only
+
+A visitor sees every control where Martin does, with its value and what it does, and nothing to press:
+
+- **A setting keeps its shape.** The autonomy level and the take are segmented controls with the current choice filled in `line-strong`, not `text`; a switch shows its state with its track at 60%; a model, an effort or a cap is a disabled field showing its value. None can be focused as a button.
+- **An action becomes a label.** Approve, Promote and the rest are drawn as a plain outlined label (`.ro`: 1px `line`, no fill, `text-2`) beside the sentence that says what it does, so a visitor reads the same "what happens if" as Martin.
+- **The panel says whose.** Controls carries a READ ONLY label, and its last line says that only Martin changes these, signed in with his passkey, and that each change is in the audit log. Needs you is titled **Waiting on Martin**, and each card ends "Martin answers, signed in".
+
+No lock glyph and no greyed-out buttons: a lock says "pay to unlock", and a grey button says "broken". The read-only form is part of the demo.
+
+### The passkey, again (step-up)
+
+`policy/access.ts` marks each action that loosens a control, raises spend, promotes something or overrides a guardrail. Each one carries a **key** glyph after its label (12px, drawn as the console's glyphs are; a screen reader hears "asks for your passkey"), and Controls has a one-line key to it. The key is drawn only where the action would loosen: Guarded and Lights-out carry it while the factory is Supervised, Auto-merge only while it is off, Auto-rollback only while it is on, a larger take but not a smaller one, Approve on a guardrail's hold but not Reject.
+
+Pressing one opens a small dialog: "Your passkey, again", the action's name as its title, what will happen in a ruled box, why it asks ("Promoting ships to everyone, so it needs your passkey again"), and **Use your passkey**, which raises the browser's own passkey sheet. Once given, the passkey is fresh for five minutes: the header shows a pill, key and "Passkey given · 5min", counting down, the keys disappear from every control, and those actions act at once. On a phone the pill moves into the account menu, where the header has no room. Actions that tighten (Stop the line, Abort, Reject, a lower cap, a tighter autonomy level) never ask.
+
+### Sign-in and enrolment
+
+Two pages of their own, each a single card in the middle of the page, under a header with only the mark and "Back to the console". They are the doors: nothing of the console shows behind them.
+
+- **Sign in:** "This is Martin's way in. He signs in with a passkey: there is no password, and no other way." One button, **Sign in with a passkey**, and, under a hairline, a line for anyone else: there is nothing to sign in for, since everything is already on the console, read-only. Reached from a quiet "Martin's sign-in" link in the footer, which only a visitor sees.
+  - Its states, each a box above the button: this device has no passkey (`attn` rule, and how to enrol one); the session ended ("A session lasts eight hours from signing in, however busy"); signed out; signed out everywhere (`line-strong` rule: they are facts, not faults).
+- **Enrol a passkey:** three numbered steps, each ticked in `ok` as it is done: run `factory admin enrol` on the command line, which prints a code that lasts ten minutes and allows five tries; enter the code; make a passkey on this device, with a name for it ("iPhone"), so the settings can list it. Then "Passkey made, and you are signed in on this device". The code is entered in one field in Geist Mono, 20px, upper case, and the page accepts it with or without its dashes.
+  - A wrong code says how many tries are left, across every browser; a code that has expired, been used or had its five tries says so in one sentence and that `factory admin enrol` prints a new one, and the field is disabled. Both take the `attn` rule. The foot names `factory admin enrol --revoke-others` for a lost device.
+  - The page says plainly that a one-time code is the only way to add a passkey: a signed-in session can't.
+
+### The header and the account menu
+
+For admin, the header's right side reads: the line's status, Preview as visitor, the step-up pill when it shows, Stop the line, and the account button (an "M" disc in Instrument Serif on `text`, and "Martin"). On a phone, the status moves under the name as it does now, Preview as visitor moves into the menu, and the button keeps only its disc.
+
+The menu: "Martin Rogan", when he signed in and when the session ends; Settings, Audit log, Preview as visitor; then, under a hairline, Sign out and Sign out everywhere ("every device"). Escape or a click outside closes it.
+
+### Stopping and starting the line
+
+Stop the line stays in the header, in `attn`, always one press away. It opens a dialog: what stopping does (each agent stops at the end of its step, nothing new is taken, a canary in flight is aborted), that `make stop-the-line` does the same when the console can't, and a **Reason** field, required, for the audit log. Its button is `attn` too. While stopped the header button reads **Start the line**, in `signal`, with the key, and its dialog asks for a reason as well, says that a release stopped with the line stays stopped until Martin retries it, and its button is "Use your passkey and start". The header's status then reads "Line stopped · “the reason”".
+
+### Needs you
+
+One card per hold, the line's and triage's, oldest first, so what has waited longest is on top. A card, top to bottom:
+
+1. **Kicker:** what the hold is, in Martin's words and `attn` caps ("Held by a gate", "The planner asks", "Waiting for your deploy", "The planner found"), and on the right, in `t-data`, the work item, its stage and how long it has waited ("#1279 · Gates · 1d").
+2. **Title** in Instrument Serif 22.
+3. **Evidence:** the one thing that explains the hold: the gate's or fence's output on the station face, the planner's question quoted, the merge and what it waits for. The full evidence is in the sheet: "Open the work item" at the foot opens it.
+4. **Answers:** one row per answer the hold takes, each a button and, beside it, what it does, from the line's `ANSWERS` for that cause: "Sends it back to the coder, with your words as the reason." Approve carries the key when the cause is a guardrail (`scope`, `beyond-ticket`, `review`, `gates`, `verify`, `spend`, `merge`). The buttons are all outlined, none filled: the console does not suggest an answer. On a triage hold, answering in words says that it stays held until Martin approves or rejects (`WORDS_LEAVE_HELD`). A hold with only one answer (a fix waiting for Martin's deploy, which a release ends by itself) shows only that one.
+5. **Answer in words** opens a field in the card (300 characters, counted), with "Visitors see your words, with anything shaped like a secret left out", and **Send**.
+
+The card keeps the `attn` rule on its left edge. A count in the panel's head says how many wait ("4 waiting"). Under the cards, under a `line-strong` hairline, **Answered today**: each answer's time, its work item, how he answered and his words, quoted; on a hold about a visitor's report, his words are not shown, and the row says why. Empty, the panel says "Nothing waits on you" and what lands here.
+
+### Controls
+
+Four groups, each under a `t-label`, then a key to the key, and links to the settings and the audit log:
+
+- **Autonomy:** Supervised, Guarded, Lights-out, and one line saying what the chosen one means. Loosening asks for the passkey; tightening is immediate.
+- **Switches:** Agents take new work, Auto-merge low-risk changes, Auto-rollback, each with a line saying what it does, or what off means.
+- **What the line takes:** Every ticket, The next few (with how many, and how many it has taken so far) or Just one (with its number), and a line saying what the line will do. These are `LINE_TAKE` and `LINE_ONLY` as settings.
+- **Spend:** three meters in ink (spend is not a fault): models today against the day's cap, this month against the month's, and the dearest work item today against a work item's cap, with when the day resets, in UTC. A meter at its cap turns `attn`.
+
+### The settings
+
+A page of its own, from the account menu and from Controls: "Settings" for Martin, "Models and spend" for a visitor.
+
+- **Models:** a table with a row per agent (the planner, the coder, the reviewer, the describer), each with what it does, its model (Qwen 3.8 27B · local, Claude Haiku, Sonnet or Opus), its effort, and what it spent in the last seven days. Efforts above policy's highest for that agent are listed and disabled, "· above policy", and the field says "up to high". Above the table, the **All local** switch. A line says that a change applies from an agent's next step, and that triage is not here, since it asks Jev.
+- **Spend caps:** each day, each month, each work item: a field in dollars, a meter of what has been spent against it, and its ceiling from `policy/spend.ts`. A line says that raising a cap asks for the passkey, carries on the work it held, and that a higher ceiling is a pull request.
+- **Unsaved changes:** a changed field takes a 2px `signal` rule inside its left edge, and a bar under the caps, ruled the same, lists them in words ("the coder's effort, medium → high"), says when saving asks for the passkey, and has Discard and Save.
+- **Passkeys** (Martin only): each by its name, when it was enrolled and last used, which is this device, and Revoke, with the key. A line says that each is added with `factory admin enrol`, never from here.
+- **This session** (Martin only): when it started, with which passkey, when it ends, and Sign out and Sign out everywhere.
+
+A visitor sees the models and the caps read-only, and in place of the last two a panel saying who changes these and that the gateway checks every setting against policy as it reads it.
+
+On a laptop the models and caps are on the left and the passkeys and session on the right; on a phone everything is one column, and each agent's row stacks its model and effort side by side under its name.
+
+### The audit log
+
+A page of its own, the same for everyone, reached from Controls, the account menu and the footer.
+
+- **The table:** Time (`t-data`), Actor, Kind (a glyph and its name: a person for an admin action, the arrows for an agent's, a chip for a model call), Work item, and What happened, with a `t-data` line of detail under it (a model call's tokens and cost, the reason Martin gave, whether the passkey was given again). Newest first, with a `t-label` row for each day. Martin's own actions take a 2px `text` rule on the row's left, so a reader can pick his out; a refusal (the scope fence, the gateway, admission) is in `attn`, as prominent as anything else.
+- **What it leaves out:** each row is the event's public view. A visitor's text is replaced with "Its text is left out: a visitor wrote it", in `text-muted` italic; Martin's words are shown, except on a hold about a visitor's report; a sign-in says only that he signed in, with a passkey.
+- **Filters:** Actor (Everyone, Martin, each agent, triage, the line, the senses), Work item (a number), and Kind (three chips, each on or off). A caption says how many rows show of how many; "Show older" pages back. Nothing matching says so, and that clearing a filter shows more.
+- **On a phone** each row is two lines: time, actor, the kind's glyph and the work item, then what happened and its detail.
+
+### The Canary panel's controls
+
+Under the steps and the measures, under a hairline, labelled **Your controls** for Martin:
+
+- **In flight:** Promote to the next step's weight (when there is a step before 100%), Promote fully, Pause and Abort. Both promotes carry the key.
+- **Paused:** Resume in place of Pause. The kicker reads "Paused by Martin at 50%", in `signal` with a still dot, and the note says it keeps its share of the traffic until he resumes, promotes or aborts it.
+- **Stopped with the line, aborted by Martin, or stopped by an analysis error:** Retry, with the key, which starts the canary again from its first step.
+- **Promoted, rolled back, or a dry run:** no controls; the release has ended, or nothing shipped.
+
+Abort opens a dialog saying that the version before takes all the traffic at once, that nothing failed so it opens no ticket, and what the work item waits for. For a visitor the same controls are labels beside what each does, under **Martin's controls**. The panel's last line still says the canary needs nobody to press anything, for everyone: the controls are for when Martin wants to, not for when it needs him.
+
+### Preview as visitor
+
+From the header or the account menu. A green banner across the top says: "Previewing as a visitor: the public stream, as the server sends it to anyone without your session. You are still signed in", with Back to admin. Everything below is the public view, served by the server rather than hidden in the browser, so what Martin sees is exactly what a visitor gets. The header's pill reads VISITOR VIEW, since Martin holds no visitor's key.
+
+### Dialogs
+
+A dialog is a `raised` card on a `scrim`, 480px wide in the middle of the screen on a laptop, and a bottom sheet with 14px top corners on a phone, its buttons side by side and full width. Escape, Cancel or the scrim close it, and focus goes to its title. Toasts are still not used: what happened shows where it happened (an answered card moves to Answered today, the canary's kicker changes).
+
 ## Not decided yet
 
 - **Mark sign-off.** The MR monogram is a proposal until Martin approves it.
 - **Social card and README header,** built from the mark once it is approved.
-- **The audit log's table.**
-- **Promote, pause, abort and retry on the Canary panel,** and the bottom row they come with (milestone 7).
