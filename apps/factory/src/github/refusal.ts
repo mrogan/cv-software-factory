@@ -1,6 +1,6 @@
 /**
  * Proves the App cannot change a workflow (guardrail 1: agents cannot change the rules). It tries, the way the
- * factory commits anything, and keeps what GitHub said: milestone 9's red-team harness shows the refusal.
+ * factory commits anything, and keeps what GitHub said: milestone 7's red-team harness shows the refusal.
  *
  * On a branch of its own, made from main and deleted afterwards, it first commits an ordinary file, which GitHub must
  * accept: the control, without which a refusal would show only that the App could not commit at all. Then it asks

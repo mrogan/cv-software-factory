@@ -109,7 +109,8 @@ A first-class factory capability, though not the centre of the visitor demo.
 - Only Martin can request one, via the "+" control in admin mode. The server rejects improvement requests from any other source.
 - Same spec template as a fix. The planner may ask clarifying questions through "Needs you". Martin approves the spec before any code is written.
 - Then the same line: build, gates, review, canary, verify (acceptance criteria pass in production, canary shows no regression).
-- Small: one outcome per request, reviewable in minutes. New behaviour ships behind a feature flag *(default)*.
+- Small: one outcome per request, reviewable in minutes.
+- New behaviour ships behind a feature flag, which the change defines, switched off. Martin switches it from the console in stages: the factory's own requests first, so Verify can check the acceptance criteria in production with nobody else seeing the change; then browsers that opt in to preview it; then a share of browsers, where Verify compares the flag's two sides; then everyone. Off is a kill switch, with no rollback. A flag's state is never a visitor's to change.
 
 ### 4.3 Autonomy
 
@@ -118,6 +119,8 @@ A first-class factory capability, though not the centre of the visitor demo.
 - **Lights-out:** only the automated guardrails apply.
 
 In every mode, no fix widens its ticket, and a change tagged out-of-scope needs a human (guardrail 11).
+
+Risk tags that a diff can show are worked out from it by deterministic checks: a test deleted, skipped or weakened, a dependency changed, the security headers changed. Out-of-scope stays the planner's and the reviewer's tag on the spec, held before any code is written. An agent may add a tag, never remove one. Whether a change may merge without a human is a required check against the autonomy level, not the line's word. Martin's approval is his own review of the change's last commit. The check never lets the factory merge a change to a path CODEOWNERS gives a person, or to the factory's own code, but for a deploy that moves an image's pin forward and nothing else. Only Martin changes the level; loosening it needs his passkey again, and alerts him.
 
 Development runs Supervised. Public instances run Guarded, so visitor-triggered work completes unattended.
 
@@ -147,13 +150,14 @@ One page, read from top to bottom: *is it running → what is happening → what
 
 - **Header:** the mark and name, whether the line is running (with the autonomy level), and **Stop the line** for admin.
 - **Scoreboard:** found, verified fixed, and median time to verified fix, beside the app's name; "Scoreboard off" where there is no answer key.
-- **The line:** one **station** per stage, in order, each showing its state (idle, working, sending back, passed, needs you, failed) in words and one figure. Work sent back upstream shows as a return arc, one at a time. Selecting a station opens its stage panel: the items in that stage, each opening its sheet. Triage's panel lists where work comes from. For admin, Plan carries the "+" for requesting an improvement; visitors do not see it.
+- **The line:** one **station** per stage, in order, each showing its state (idle, working, sending back, passed, needs you, failed) in words and one figure. Work sent back upstream shows as a return arc, one at a time. Selecting a station opens its stage panel: the items in that stage, each opening its sheet. Triage's panel lists where work comes from. Plan carries the "+" for requesting an improvement: admin's to press, and shown to visitors with what it does.
 - **The reel:** every work item as a card, oldest on the left and now on the right, scrubbed sideways by dragging the cards or a timeline beneath them that marks each item, each day and each release's version. A card shows the item's category, kind (defect fix, injected defect, improvement, dependency update, red-team attack, visitor report) and outcome (verified, rolled back, held for a human, closed, needs you, in progress); one picture of what changed; a title and two lines of description; its number, version, pull request, time, duration and model spend; and how far it got through the stages. The picture is evidence, never an illustration: before and after screenshots with a wipe between them and the change marked, or, where nothing visible changed, the metric, package, scan, log, refusal or judgement that did. Items waiting on Martin stay in the reel, marked as Needs you.
 - **The sheet:** opening a card raises it from the bottom of the screen, over most of it. It holds what happened in a paragraph; the stage scrubber (signal → ticket → spec → PR → gates → review → canary → verified, with a chapter per stage and per release, previous and next, each pass after a return from Verify or a reopening folded to one chapter until chosen, and the latest events up to *t* in plain English) beside the site's screenshot at *t*, so viewers watch it break and heal; the evidence at full size, with every page compared to the version before; the acceptance criteria and files changed; the gates; each release that carried it, step by step, and its verification; and each agent's model, settings, calls, tokens and cost.
 - **Landing:** the reel opens at now and stays there until the viewer moves it.
 - **Canary:** the release in flight compared with baseline on requests, error rate, latency and synthetic journeys, with its traffic steps and each step's verdict, and how it ended: promoted, rolled back with the analysis's words, or stopped with the line. It is always there, full width under the line; with nothing in flight it is one line naming the last release. It says that the canary moves on and rolls back by itself, for everyone.
-- **Needs you** (admin): one card per work item waiting on Martin. **Try it yourself** (visitors) takes its place: the visitor actions in section 5.3, with what is left of today's allowance.
-- **Controls:** autonomy, switches and spend against today's caps. Read-only for visitors. Guardrails that cannot be switched off are not drawn as switches; one line says so.
+- **Needs you:** one card per work item waiting on Martin, answered by admin and shown read-only to visitors, with his answers once given. **Try it yourself** (visitors): the visitor actions in section 5.3, with what is left of today's allowance.
+- **Controls:** autonomy, switches, feature flags, each agent's model and effort, and spend against today's caps. Read-only for visitors: everything admin can change, a visitor can see. Guardrails that cannot be switched off are not drawn as switches; one line says so.
+- **Audit log:** every agent action, model call and admin action, for everyone, from public views.
 - **Guardrails visible:** blocked actions, failed gates and rollbacks are shown as prominently as successes.
 - Panels explain themselves in a line; the reel has a "What am I looking at?" explanation.
 
@@ -176,7 +180,12 @@ One page, read from top to bottom: *is it running → what is happening → what
 
 ### 5.4 Admin mode (Martin only)
 
-"Needs you" queue; canary promote, hold and roll back; "+" improvement requests; autonomy level; switches for agents taking new work, auto-merge of low-risk changes and auto-rollback; spend caps; **stop the line**; audit log of every agent action and model call; visitor key usage; a "Preview as visitor" mode.
+"Needs you" answers; canary promote, pause, abort and retry; "+" improvement requests; feature flags and their stages; autonomy level; switches for agents taking new work, auto-merge of low-risk changes and auto-rollback; each agent's model and effort, and the spend caps, within the bounds policy sets; **stop the line**; the red-team attacks, run on demand; visitor key usage; a "Preview as visitor" mode.
+
+- **Signing in.** Martin signs in with a passkey, enrolled from the command line with a one-time code; there is no password. Sessions are kept on the server, behind a `__Host-` cookie that is `Secure`, `HttpOnly` and `SameSite=Strict`. Every action that loosens a control, raises spend, promotes something or overrides a guardrail (raising a cap or a setting that raises spend, loosening autonomy, turning auto-merge on or auto-rollback off, starting the line, promoting a canary or retrying a stopped release, widening a flag's stage, approving a hold whose cause is a guardrail) and revoking a passkey need the passkey again. A passkey is only ever added with a one-time code from the command line, never from a session.
+- **One write path.** A separate admin service is the only thing a browser can write through. Its database role appends Martin's commands and reads what his views need, and nothing else; the console's own server stays read-only. Only Martin's roles may append his commands, the store records which role appended each event, and the factory acts on a command only from one of them. Every route and action is in one human-owned table of who may do what, and anything not in it is refused.
+- **Every action is an event,** with Martin as its actor, so the audit log holds it. Signing in, enrolling or revoking a passkey, every action that needs the passkey again, and every change to a setting alert him.
+- **Held to OWASP ASVS 5.0 level 2,** with tests that every write refuses anyone without his session, and a scan in CI.
 
 ### 5.5 Quality
 
@@ -188,7 +197,7 @@ Built from the Paper & Ink design system; works on phone and laptop; first meani
 - One key per recipient, created with `factory keys add --label "Acme Ltd, Platform Lead"`; also list, disable and usage commands. Keys expire after 90 days *(default)*.
 - Entry via a landing page or `/?key=amber-otter`, remembered in a cookie.
 - Per key, record first and last visit, visit count, pages viewed, time in the console and actions taken. Nothing else. The landing page says visits are logged against the key.
-- Martin's own access uses a separate, secret admin credential.
+- Martin's own access is a passkey (section 5.4), never a key.
 
 ## 6. Guardrails
 
@@ -226,6 +235,9 @@ Each seam sits behind an interface, so a pivot means a new adapter, not a rewrit
 | Telemetry             | OpenTelemetry collector → Prometheus, Loki, Tempo, Grafana                          |
 | Probes and crawler    | Playwright                                                                          |
 | Console               | Preact and Vite (ADR 0007), reading the event store, live via server-sent events    |
+| Admin sign-in         | Passkeys (WebAuthn), sessions kept on the server                                    |
+| Feature flags         | OpenFeature in the app, flagd beside it                                             |
+| Alerting              | Prometheus and Alertmanager; to Martin by Pushover                                  |
 
 ### 7.1 Recorded model responses
 
@@ -259,6 +271,8 @@ Small judgements about untrusted text use TypeSafe's Jev model rather than a gen
 - Admission control in each cluster runs, in the namespaces of the factory, its runners and the app (`factory`, `runners`, `website`), only images that workflow signed and the few third-party images it names by digest, and fails closed (ADR 0010).
 - Each repository pins the images it builds by digest, per profile. A new image is deployed by merging the pull request that moves its pin, in the repository that built it (ADR 0005), and only a signed image is proposed. The app's then goes out as a canary (section 4.1); the factory's own images are not canaried.
 - Public profiles are reached through Cloudflare Tunnel: no load balancer and no open ports.
+- The local console is served over HTTPS, from a certificate authority `make up` creates, constrained to local names, which the Mac trusts, so it behaves as a public one: secure cookies and passkeys work in every browser.
+- Alerts reach Martin by Pushover: the factory's health, its releases, its spend, and every sign-in or change to autonomy and settings. Alerts from inside a cluster stop with it, so public profiles add a check from outside and a dead man's switch.
 - Cloud infrastructure is Terraform, tagged, and removable with one command.
 - A weekly scheduled job applies the AWS profile, smoke-tests it and destroys it, so it is known to work on the day it is needed.
 - One entry point: `make up`, `make down`, `make demo`, `make stop-the-line`, `make check`.

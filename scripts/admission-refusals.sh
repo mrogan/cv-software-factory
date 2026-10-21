@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Asks the cluster to start, in each guarded namespace, a pod on an image the pipeline did not sign, one on an image
 # signed by someone else and one on an image of ours that the namespace does not run, and keeps Kyverno's answers in
-# deploy/test/admission-refusals.json, for milestone 9's red team to show. Run it with every image policy enforcing
-# (Deny), as `main` has them: not during a `try-the-line` run, which switches `factory-images` to Audit.
+# deploy/test/admission-refusals.json, for milestone 7's red-team harness to show. Run it with every image policy
+# enforcing (Deny), as `main` has them: not during a `try-the-line` run, which switches `factory-images` to Audit.
 #
 # Each request is a server-side dry run: it passes through admission exactly as a real one does, and nothing is made.
 # The pods meet the restricted Pod Security Standard the namespaces enforce, so a refusal is the image policy's own.

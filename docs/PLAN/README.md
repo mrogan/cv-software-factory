@@ -25,8 +25,8 @@ Then update the table below.
 | 4 | [Sensing and triage](M04-SENSING-AND-TRIAGE.md) | Probes, crawler, telemetry alerts and reports produce deduplicated tickets with evidence and screenshots; triage runs on a Jev question set with an evaluation fixture set; gateway with record and replay from the first model call | Done |
 | 5 | [Fixing](M05-FIXING.md) | GitHub App, agent runners, planner, coder and reviewer; code-owner review required on `main`; the App opens the deploy and release pull requests, so workflows lose the right to open (and approve) them; CI gates in `cv-worlds-worst-website`; one seeded defect fixed and merged with no human code, at Supervised autonomy | Done |
 | 6 | [Shipping safely](M06-SHIPPING-SAFELY.md) | Signed images, admission control, canary with traffic generator, verification, ticket close or reopen, scoreboard; a bad change is rolled back automatically | Done |
-| 7 | Replay site | First public deliverable: curated recordings on GitHub Pages, README with GIF, `make demo` running on cassettes | |
-| 8 | Guardrails and admin | Every guardrail tested; stop the line, "Needs you", autonomy levels, audit log; improvements requested and shipped from the console | |
-| 9 | Visitor features | Inject a defect menu within the 20-minute target, red-team harness, report widget through triage; visitor limits and budget | |
-| 10 | Live on DigitalOcean | Terraform, visitor access keys and usage view, Guarded autonomy, reset to baseline | |
+| 7 | [Admin and guardrails](M07-ADMIN-AND-GUARDRAILS.md) | Admin mode signed in with a passkey, every control visible read-only to visitors, alerts to Martin; improvements requested with the "+" and shipped behind feature flags; every guardrail proved from one command, the red-team harness, and Guarded autonomy by deterministic risk tags | In progress |
+| 8 | Visitor features | Visitor access keys and their usage view; inject a defect from a menu within the 20-minute target; the red-team menu over the harness; the report widget through triage; visitor limits and budget | |
+| 9 | Replay site | First public deliverable: curated recordings on GitHub Pages, README with GIF, `make demo` running on cassettes | |
+| 10 | Live on DigitalOcean | Terraform, Cloudflare Tunnel, running Guarded, an outside uptime check and a dead man's switch, reset to baseline | |
 | 11 | Interview on AWS | Terraform for EKS, Bedrock adapter, weekly apply, smoke-test and destroy job; recorded walkthrough | |
