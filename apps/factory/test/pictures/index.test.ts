@@ -1,6 +1,7 @@
 /**
- * The pictures' index, in Postgres as the factory's writer: what the probes worker records, and what the line reads,
- * including the artifacts it may attach to an event without a way to the store.
+ * The pictures' index, in Postgres as each worker's own role: what the probes worker records, the looks the probes and
+ * the crawler keep, and what the line reads, including the artifacts it may attach to an event without a way to the
+ * store.
  */
 import { type NewEvent, type PayloadOf, type Screenshot, VERSIONS } from '@software-factory/events';
 import { AppendRefused, EventWriter, nextWorkItem } from '@software-factory/store';
@@ -43,7 +44,7 @@ const picture = (path: string, boxed = false): Picture => ({
 
 describe('the pictures’ index', () => {
   it('records a canary’s pages once, and gives them back by canary and stable version', async () => {
-    const index = new PictureIndex(database.writer);
+    const index = new PictureIndex(database.as.probes);
     expect(await index.pictured(NEW, OLD)).toEqual(new Set());
     await index.record([picture('/about'), picture('/')]);
     await index.record([{ ...picture('/'), changed: 0.5 }]);
@@ -58,7 +59,7 @@ describe('the pictures’ index', () => {
   });
 
   it('adds a page after the rollout once, only to a page with a box', async () => {
-    const index = new PictureIndex(database.writer);
+    const index = new PictureIndex(database.as.probes);
     await index.record([picture('/about', true), picture('/')]);
     const waiting = await index.awaitingRollout(NEW);
     expect(waiting.map((p) => p.path)).toEqual(['/about']);
@@ -69,7 +70,7 @@ describe('the pictures’ index', () => {
   });
 
   it('remembers where a check last boxed what it found, and forgets a look long gone', async () => {
-    const index = new PictureIndex(database.writer);
+    const index = new PictureIndex(database.as.probes);
     const look = {
       sense: 'probe' as const,
       check: 'product/price',
@@ -82,16 +83,28 @@ describe('the pictures’ index', () => {
     expect(await index.looks(now)).toEqual([]);
     await index.remember({ ...look, path: '/products/glove-right' }, now);
     expect(await index.looks(now)).toEqual([{ ...look, path: '/products/glove-right' }]);
-    expect(await index.lookOf('probe', 'product/price', '/products/:slug')).toEqual({
+    const line = new PictureIndex(database.as.line);
+    expect(await line.lookOf('probe', 'product/price', '/products/:slug')).toEqual({
       ...look,
       path: '/products/glove-right',
     });
-    expect(await index.lookOf('crawler', 'product/price', '/products/:slug')).toBeUndefined();
+    expect(await line.lookOf('crawler', 'product/price', '/products/:slug')).toBeUndefined();
+
+    // The crawler keeps its own, in place of where it last looked, as the probes do.
+    const crawler = new PictureIndex(database.as.crawler);
+    await crawler.remember({ ...look, sense: 'crawler' }, now);
+    await crawler.remember({ ...look, sense: 'crawler', path: '/products/glove-right' }, now);
+    expect(await line.lookOf('crawler', 'product/price', '/products/:slug')).toEqual({
+      ...look,
+      sense: 'crawler',
+      path: '/products/glove-right',
+    });
   });
 
-  it('lets the factory’s writer change nothing of a picture but its rollout', async () => {
-    await new PictureIndex(database.writer).record([picture('/about')]);
-    await expect(database.writer`update pictures set changed = 0`).rejects.toThrow(/permission denied/);
+  it('lets the probes change nothing of a picture but its rollout, and the line nothing at all', async () => {
+    await new PictureIndex(database.as.probes).record([picture('/about')]);
+    await expect(database.as.probes`update pictures set changed = 0`).rejects.toThrow(/permission denied/);
+    await expect(database.as.line`update pictures set rollout = null`).rejects.toThrow(/permission denied/);
   });
 });
 
@@ -131,7 +144,7 @@ describe('forgetting the pictures no release needs', () => {
     }) as NewEvent;
 
   it('keeps the last releases, those Verify waits for, and every image still named; gives back the rest', async () => {
-    const index = new PictureIndex(database.writer);
+    const index = new PictureIndex(database.as.probes);
     const forget = async (keep: number) => {
       const removed: string[] = [];
       const deleted = await index.forget(keep, V3, async (hash) => {
@@ -145,10 +158,13 @@ describe('forgetting the pictures no release needs', () => {
     await index.record([page(V1, OLD, '/', '1234'), page(V1, OLD, '/about', '56--')]);
     await index.record([page(V2, V1, '/', '789-')]);
     await index.record([page(V3, V2, '/', '1ab-')]);
-    const events = new EventWriter(database.writer, { kind: 'real', artifacts: new IndexedArtifacts(database.writer) });
+    const events = new EventWriter(database.as.line, {
+      kind: 'real',
+      artifacts: new IndexedArtifacts(database.as.line),
+    });
 
     // The second release carried a fix that waits at Verify.
-    const waiting = await nextWorkItem(database.writer);
+    const waiting = await nextWorkItem(database.as.triage);
     await events.append([
       event(waiting, 'work-item.opened', { kind: 'defect-fix', title: 'A fix', sample: false }),
       event(waiting, 'release.promoted', {
@@ -160,7 +176,7 @@ describe('forgetting the pictures no release needs', () => {
       }),
     ]);
     // The first release's canary picture of / is on an event, and its diff named by a verification's pages.
-    const verified = await nextWorkItem(database.writer);
+    const verified = await nextWorkItem(database.as.triage);
     await events.append([
       event(verified, 'work-item.opened', { kind: 'defect-fix', title: 'Another fix', sample: false }),
       event(verified, 'hold.started', { stage: 'verify', kind: 'held', cause: 'verify', reason: 'Too quiet' }, [
@@ -175,9 +191,9 @@ describe('forgetting the pictures no release needs', () => {
       }),
     ]);
     // Its rollout is on a signal triage has still to take.
-    await database.writer`
+    await database.owner`
       insert into inbox (id, sense, fingerprint, signal)
-      values (${crypto.randomUUID()}, 'probe', '/ broken-image', ${database.writer.json({ artifacts: [shot('4', V1)] } as never)})`;
+      values (${crypto.randomUUID()}, 'probe', '/ broken-image', ${database.owner.json({ artifacts: [shot('4', V1)] } as never)})`;
 
     // The first release's / before is the third's too, stored once; its /about is named by nothing.
     expect(await forget(1)).toEqual([hash('5'), hash('6')]);
@@ -202,11 +218,14 @@ describe('forgetting the pictures no release needs', () => {
   });
 
   it('forgets a release Verify returned to Plan, and offers again an image whose removal failed or was put off', async () => {
-    const index = new PictureIndex(database.writer);
+    const index = new PictureIndex(database.as.probes);
     await index.record([page(V1, OLD, '/', '12--')]);
     await index.record([page(V2, V1, '/', '34--')]);
-    const events = new EventWriter(database.writer, { kind: 'real', artifacts: new IndexedArtifacts(database.writer) });
-    const returned = await nextWorkItem(database.writer);
+    const events = new EventWriter(database.as.line, {
+      kind: 'real',
+      artifacts: new IndexedArtifacts(database.as.line),
+    });
+    const returned = await nextWorkItem(database.as.triage);
     await events.append([
       event(returned, 'work-item.opened', { kind: 'defect-fix', title: 'A fix', sample: false }),
       event(returned, 'release.promoted', {
@@ -242,7 +261,7 @@ describe('forgetting the pictures no release needs', () => {
   });
 
   it('keeps the release the stable version came from, though a later canary was pictured', async () => {
-    const index = new PictureIndex(database.writer);
+    const index = new PictureIndex(database.as.probes);
     await index.record([page(V1, OLD, '/', '12--')]);
     // A later canary, pictured and then rolled back: the stable version is still the first's.
     await index.record([page(V2, V1, '/', '34--')]);
@@ -254,15 +273,15 @@ describe('forgetting the pictures no release needs', () => {
 
 describe('the artifacts the line may attach', () => {
   it('are the pictures the index knows, at their size, and nothing else', async () => {
-    await new PictureIndex(database.writer).record([picture('/about')]);
-    const artifacts = new IndexedArtifacts(database.writer);
+    await new PictureIndex(database.as.probes).record([picture('/about')]);
+    const artifacts = new IndexedArtifacts(database.as.line);
     expect(await artifacts.size('2'.repeat(64))).toBe(1000 + '2'.charCodeAt(0));
     expect(await artifacts.size('3'.repeat(64))).toBe(1000 + '3'.charCodeAt(0));
     expect(await artifacts.size('9'.repeat(64))).toBeNull();
     await expect(artifacts.put()).rejects.toThrow(/no artifacts of its own/);
 
-    const events = new EventWriter(database.writer, { kind: 'real', artifacts });
-    const workItem = await nextWorkItem(database.writer);
+    const events = new EventWriter(database.as.line, { kind: 'real', artifacts });
+    const workItem = await nextWorkItem(database.as.triage);
     const opened = (artifacts: Screenshot[]): NewEvent => ({
       id: crypto.randomUUID(),
       ts: new Date().toISOString(),

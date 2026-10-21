@@ -85,7 +85,7 @@ const message = (usage: Record<string, number>) =>
 
 async function harness(policy: SpendPolicy, anthropic: MessagesProvider) {
   database = await freshDatabase('gateway_metrics');
-  const sql = database.writer;
+  const sql = database.as.gateway;
   const { log } = capturingLog();
   const dir = mkdtempSync(join(tmpdir(), 'cassettes-'));
   const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts(dir) });
@@ -113,7 +113,7 @@ async function harness(policy: SpendPolicy, anthropic: MessagesProvider) {
     typesafe: new TypeSafe({ apiKey: 'test-key', baseUrl: typesafe.url, log, sleep: async () => {}, random: () => 0 }),
     log,
   });
-  const token = await issueJobToken(sql, { job: 'coder-1001-1', workItem: '1001', agent: 'coder' });
+  const token = await issueJobToken(database.as.line, { job: 'coder-1001-1', workItem: '1001', agent: 'coder' });
   const call = async (text: string) => {
     const body = { model: 'claude-opus-5-5', max_tokens: 1000, messages: [{ role: 'user', content: text }] };
     const reply = await agents.messages({ 'x-api-key': token }, async () => JSON.stringify(body));

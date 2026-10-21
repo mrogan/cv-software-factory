@@ -39,6 +39,7 @@ export class FakeSteps implements Steps {
   readonly #sql: Sql;
   #working: (() => void)[] = [];
 
+  /** `sql` records each step's model calls, as the gateway does, so it is the gateway's. */
   constructor(sql: Sql, agents: Partial<Record<string, Agent>>) {
     this.#sql = sql;
     this.#agents = agents;

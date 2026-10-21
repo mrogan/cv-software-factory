@@ -20,9 +20,11 @@ export function fingerprintOf(found: Pick<InboxSignal, 'sense' | 'route' | 'symp
 export async function sendSignal(sql: Sql, found: InboxSignal, id: string = crypto.randomUUID()): Promise<string> {
   const checked = validateSignal(found);
   if (!checked.ok) throw new Error(`The inbox refuses this signal:\n  ${checked.problems.join('\n  ')}`);
+  // The id is the inbox's only unique key, so any conflict is this signal's. Naming it (`on conflict (id)`) would need
+  // the right to read the inbox, which a sense does not have (0022_worker-roles.sql).
   await sql`insert into inbox (id, sense, fingerprint, signal)
             values (${id}, ${found.sense}, ${fingerprintOf(found)}, ${sql.json(found as unknown as JSONValue)})
-            on conflict (id) do nothing`;
+            on conflict do nothing`;
   return id;
 }
 

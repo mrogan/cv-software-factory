@@ -68,7 +68,7 @@ function watcher(since: Date) {
         'http://tempo',
         fakeFetch([{ path: '/api/traces/9b1379cfdb0eace529f860d37eda3718', answer: () => ({}) }]),
       ),
-      outbox: inbox(database.writer),
+      outbox: inbox(database.as.logs),
       log: pino({ level: 'silent' }),
     },
     { errors: since, reports: since },
@@ -81,7 +81,7 @@ describe('the log watcher, against a real inbox', () => {
     expect(await watching.checkReports(NOW)).toBe(2);
     expect(await watching.checkErrors(NOW)).toBe(1);
 
-    const rows = await database.writer<
+    const rows = await database.owner<
       { sense: string; fingerprint: string | null; signal: { report?: { text: string } } }[]
     >`
       select sense, fingerprint, signal from inbox order by sense, received_at`;
@@ -97,14 +97,14 @@ describe('the log watcher, against a real inbox', () => {
   });
 
   it('picks up a margin before the last report, after a restart, and leaves no report twice', async () => {
-    expect(await lastObserved(database.writer, 'report')).toEqual(new Date('2026-10-03T20:45:00Z'));
-    expect(await lastObserved(database.writer, 'probe')).toBeUndefined();
-    const from = await reportsFrom(database.writer, NOW, 24 * 60 * 60 * 1000, 10 * 60_000);
+    expect(await lastObserved(database.as.logs, 'report')).toEqual(new Date('2026-10-03T20:45:00Z'));
+    expect(await lastObserved(database.as.logs, 'probe')).toBeUndefined();
+    const from = await reportsFrom(database.as.logs, NOW, 24 * 60 * 60 * 1000, 10 * 60_000);
     expect(from).toEqual(new Date('2026-10-03T20:35:00Z'));
 
     // The restarted watcher reads the report at 20:45 again, and the inbox keeps the copy it holds.
     expect(await watcher(from).checkReports(NOW)).toBe(1);
-    const [row] = await database.writer<{ reports: number }[]>`
+    const [row] = await database.owner<{ reports: number }[]>`
       select count(*)::int as reports from inbox where sense = 'report'`;
     expect(row?.reports).toBe(2);
   });
@@ -116,13 +116,14 @@ describe('where reading reports starts', () => {
     try {
       const now = new Date('2026-10-04T09:00:00Z');
       const day = 24 * 60 * 60 * 1000;
-      expect(await reportsFrom(fresh.writer, now, day, 10 * 60_000)).toEqual(new Date('2026-10-03T09:00:00Z'));
+      expect(await reportsFrom(fresh.as.logs, now, day, 10 * 60_000)).toEqual(new Date('2026-10-03T09:00:00Z'));
       await fresh.owner`insert into store (sample, chosen_at) values (false, '2026-10-04T08:30:00Z')`;
-      expect(await reportsFrom(fresh.writer, now, day, 10 * 60_000)).toEqual(new Date('2026-10-04T08:30:00Z'));
+      expect(await reportsFrom(fresh.as.logs, now, day, 10 * 60_000)).toEqual(new Date('2026-10-04T08:30:00Z'));
       // Nor does the margin before the last report reach back before it.
-      await fresh.writer`insert into inbox (id, sense, fingerprint, signal) values (${crypto.randomUUID()}, 'report', null,
-        ${fresh.writer.json({ sense: 'report', observedAt: '2026-10-04T08:35:00Z' })})`;
-      expect(await reportsFrom(fresh.writer, now, day, 10 * 60_000)).toEqual(new Date('2026-10-04T08:30:00Z'));
+      await fresh.as
+        .logs`insert into inbox (id, sense, fingerprint, signal) values (${crypto.randomUUID()}, 'report', null,
+        ${fresh.as.logs.json({ sense: 'report', observedAt: '2026-10-04T08:35:00Z' })})`;
+      expect(await reportsFrom(fresh.as.logs, now, day, 10 * 60_000)).toEqual(new Date('2026-10-04T08:30:00Z'));
     } finally {
       await fresh.end();
     }

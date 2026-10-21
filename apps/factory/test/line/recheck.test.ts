@@ -20,7 +20,7 @@ let events: EventWriter;
 let now = Date.parse('2026-10-17T13:00:00Z');
 beforeEach(async () => {
   database = await freshDatabase('recheck');
-  events = new EventWriter(database.writer, {
+  events = new EventWriter(database.as.line, {
     kind: 'real',
     artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
   });
@@ -57,7 +57,7 @@ async function planned(
   scope = SCOPE,
   route = '/departments/:department',
 ): Promise<string> {
-  const workItem = await nextWorkItem(database.writer);
+  const workItem = await nextWorkItem(database.as.triage);
   await events.append([
     event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'A redirect loop', sample: false }, 'triage'),
     event(
@@ -91,7 +91,7 @@ async function planned(
       'planner',
     ),
   ]);
-  await database.writer`insert into line (work_item, stage, issue) values (${workItem}, ${stage}, ${issue})`;
+  await database.owner`insert into line (work_item, stage, issue) values (${workItem}, ${stage}, ${issue})`;
   return workItem;
 }
 
@@ -150,9 +150,9 @@ const CLEARED: VerifyAnswer = { outcome: 'cleared', version: NEW, runs: ['passed
 function line(probes: FakeProbes, options: Partial<LineOptions> = {}) {
   const github = new FakeGitHub();
   const it = new Line({
-    sql: database.writer,
+    sql: database.as.line,
     events,
-    steps: new FakeSteps(database.writer, {}),
+    steps: new FakeSteps(database.as.gateway, {}),
     github,
     log: quiet,
     me: 'test',
@@ -171,12 +171,12 @@ const pass = async (it: Line) => {
 
 const payloads = async <K extends NewEvent['type']>(workItem: string, type: K) =>
   (
-    await database.writer<{ payload: PayloadOf<K> }[]>`
+    await database.as.line<{ payload: PayloadOf<K> }[]>`
       select payload from events where work_item = ${workItem} and type = ${type} order by seq`
   ).map((r) => r.payload);
 
 const stage = async (workItem: string) =>
-  (await database.writer<{ stage: string }[]>`select stage from line where work_item = ${workItem}`)[0]?.stage;
+  (await database.as.line<{ stage: string }[]>`select stage from line where work_item = ${workItem}`)[0]?.stage;
 
 describe('a held work item looked at again after a release', () => {
   it('closes a hold of the line’s own as verified when the signal cleared, with its issue and pull request', async () => {
@@ -184,7 +184,7 @@ describe('a held work item looked at again after a release', () => {
     const { line: it, github } = line(probes);
     const workItem = await held('gates', github);
     // Another work item's fix, which the line no longer has in hand.
-    const other = await nextWorkItem(database.writer);
+    const other = await nextWorkItem(database.as.triage);
     await events.append([
       event(other, 'work-item.opened', { kind: 'defect-fix', title: 'Another', sample: false }, 'triage'),
     ]);

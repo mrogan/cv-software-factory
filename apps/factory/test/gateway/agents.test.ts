@@ -132,7 +132,7 @@ async function start({
 }: Options = {}) {
   database = await freshDatabase('agents');
   cassettesDir = mkdtempSync(join(tmpdir(), 'cassettes-'));
-  const sql = database.writer;
+  const sql = database.as.gateway;
   const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts(cassettesDir) });
   const spend = new Spend({ sql, events, profile: 'local', policy, log: captured.log });
   const providers: Partial<Record<ProviderName, Anthropic | LocalModels>> = {
@@ -166,7 +166,7 @@ async function start({
   server = createGatewayServer({ gateway, agents, spend, log: captured.log });
   await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const token = await issueJobToken(sql, { job: 'coder-1001-1', workItem: '1001', agent: 'coder' });
+  const token = await issueJobToken(database.as.line, { job: 'coder-1001-1', workItem: '1001', agent: 'coder' });
   return { sql, token, events };
 }
 
@@ -194,9 +194,9 @@ const agentRequest = (day = '2026-10-04', session = 'a') => ({
 
 describe('agents through the gateway', () => {
   it('refuses a call without the token of a running job', async () => {
-    const { sql, token } = await start();
+    const { token } = await start();
     expect((await call('sk-ant-guess', agentRequest())).status).toBe(401);
-    await endJobToken(sql, 'coder-1001-1');
+    await endJobToken(database.as.line, 'coder-1001-1');
     const ended = await call(token, agentRequest());
     expect(ended.status).toBe(401);
     expect(await ended.json()).toMatchObject({ type: 'error', error: { type: 'authentication_error' } });

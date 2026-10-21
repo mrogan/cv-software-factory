@@ -36,7 +36,7 @@ let database: Database;
 let events: EventWriter;
 beforeEach(async () => {
   database = await freshDatabase('line_metrics');
-  events = new EventWriter(database.writer, {
+  events = new EventWriter(database.as.line, {
     kind: 'real',
     artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
   });
@@ -98,7 +98,7 @@ const event = <K extends NewEvent['type']>(
 
 /** A ticket as triage opens one, with the probe's signal it was opened on. */
 async function ticket(): Promise<string> {
-  const workItem = await nextWorkItem(database.writer);
+  const workItem = await nextWorkItem(database.as.triage);
   await events.append([
     event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'Server errors', sample: false }, 'triage'),
     event(
@@ -183,10 +183,10 @@ const AGENTS: Record<string, Agent> = {
 };
 
 function line(agents: Partial<Record<string, Agent>> = AGENTS, options: Partial<LineOptions> = {}) {
-  const steps = new FakeSteps(database.writer, agents);
+  const steps = new FakeSteps(database.as.gateway, agents);
   const github = new FakeGitHub();
   const it = new Line({
-    sql: database.writer,
+    sql: database.as.line,
     events,
     steps,
     github,
@@ -206,7 +206,7 @@ function line(agents: Partial<Record<string, Agent>> = AGENTS, options: Partial<
 
 /** Moves the line's rows' clock back, as though each had been where it is for `seconds` longer. */
 const age = (seconds: number) =>
-  database.writer`update line set moved_at = moved_at - make_interval(secs => ${seconds})`;
+  database.as.line`update line set moved_at = moved_at - make_interval(secs => ${seconds})`;
 
 /** Every attribute any of the line's series carries. */
 async function labels(): Promise<string[]> {
@@ -295,7 +295,7 @@ describe('the line’s metrics', () => {
   });
 
   it('count a dry run’s release once as it ends, and its verification by the dry run’s word', async () => {
-    const workItem = await nextWorkItem(database.writer);
+    const workItem = await nextWorkItem(database.as.triage);
     await events.append([
       event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'A redirect loop', sample: false }, 'triage'),
       event(
@@ -332,7 +332,7 @@ describe('the line’s metrics', () => {
       ),
       event(workItem, 'pull-request.merged', { number: 1_000_000_001, commit: 'd'.repeat(40), by: 'martin' }, 'martin'),
     ]);
-    await database.writer`insert into line (work_item, stage, issue) values (${workItem}, 'release', 1000000000)`;
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'release', 1000000000)`;
     const { line: it } = line({}, { release: null, dryRun: true, dryRunReleaseMs: 60_000 });
     const series = { outcome: 'promoted', dry_run: true };
     const [promoted = 0] = await read('line.releases', series);
@@ -367,12 +367,12 @@ describe('the line’s metrics', () => {
 
   it('read the work items at each stage, and the oldest’s time there, from the store, every stage reported', async () => {
     const [first, second, third] = [await ticket(), await ticket(), await ticket()];
-    await database.writer`
+    await database.owner`
       insert into line (work_item, stage, moved_at) values
         (${first}, 'held', clock_timestamp() - interval '2 hours'),
         (${second}, 'held', clock_timestamp() - interval '5 minutes'),
         (${third}, 'ended', clock_timestamp() - interval '3 days')`;
-    const stop = observeStages(database.writer);
+    const stop = observeStages(database.as.line);
     try {
       const counts = await points('line.work_items');
       expect(counts.map((p) => p.attributes.stage).sort()).toEqual([...OPEN_STAGES].sort());
@@ -386,13 +386,13 @@ describe('the line’s metrics', () => {
       stop();
     }
     // Once stopped it reads the store no more: the SDK keeps the last figure it had.
-    await database.writer`update line set stage = 'plan'`;
+    await database.as.line`update line set stage = 'plan'`;
     expect(at(await points('line.work_items'), { stage: 'held' })).toBe(2);
   });
 
   it('report the stages while the line runs, every count from 0, and read them no more once it stops', async () => {
     const workItem = await ticket();
-    await database.writer`insert into line (work_item, stage) values (${workItem}, 'review')`;
+    await database.as.line`insert into line (work_item, stage) values (${workItem}, 'review')`;
     // A line for another work item leaves this one where it is; the figures are the whole store's.
     const { line: it } = line({}, { only: 'none' });
     const abort = new AbortController();
@@ -404,7 +404,7 @@ describe('the line’s metrics', () => {
     expect(aborted).toEqual([{ attributes: { outcome: 'aborted', dry_run: false }, value: 0 }]);
     abort.abort();
     await running;
-    await database.writer`update line set stage = 'verify'`;
+    await database.as.line`update line set stage = 'verify'`;
     const after = await points('line.work_items');
     expect([at(after, { stage: 'review' }), at(after, { stage: 'verify' })]).toEqual([1, 0]);
   });

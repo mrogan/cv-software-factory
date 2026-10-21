@@ -5,8 +5,9 @@
  *
  *     DATABASE_URL=postgres://factory:…@localhost:5432/factory pnpm migrate
  *
- * WRITER_PASSWORD, CONSOLE_PASSWORD, SCOREBOARD_PASSWORD and METRICS_PASSWORD, when set, become the passwords of the
- * factory's writer, the console's reader, the scoreboard's writer and the Postgres exporter's reader. It connects as
+ * Each of the variables in `PASSWORDS`, when set, becomes the password of its role: WRITER_PASSWORD the factory's
+ * writer's, CONSOLE_PASSWORD the console's reader's, SCOREBOARD_PASSWORD the scoreboard's writer's, METRICS_PASSWORD
+ * the Postgres exporter's reader's, and TRIAGE_PASSWORD, LINE_PASSWORD and the like each worker's own. It connects as
  * the database's owner, the only role that may change its schema.
  */
 import { readdirSync, readFileSync } from 'node:fs';
@@ -38,12 +39,23 @@ export function migrations(dir = MIGRATIONS): Migration[] {
   return found;
 }
 
-export interface Passwords {
-  writer?: string | undefined;
-  console?: string | undefined;
-  scoreboard?: string | undefined;
-  metrics?: string | undefined;
-}
+/** Each role that logs in, by the name its password goes by here, and the variable that gives it in the cluster. */
+export const PASSWORDS = {
+  writer: { role: 'factory_writer', variable: 'WRITER_PASSWORD' },
+  console: { role: 'console_reader', variable: 'CONSOLE_PASSWORD' },
+  scoreboard: { role: 'scoreboard_writer', variable: 'SCOREBOARD_PASSWORD' },
+  metrics: { role: 'metrics_reader', variable: 'METRICS_PASSWORD' },
+  // Each worker's own (0022_worker-roles.sql).
+  triage: { role: 'factory_triage', variable: 'TRIAGE_PASSWORD' },
+  line: { role: 'factory_line', variable: 'LINE_PASSWORD' },
+  gateway: { role: 'factory_gateway', variable: 'GATEWAY_PASSWORD' },
+  probes: { role: 'factory_probes', variable: 'PROBES_PASSWORD' },
+  crawler: { role: 'factory_crawler', variable: 'CRAWLER_PASSWORD' },
+  intake: { role: 'factory_intake', variable: 'INTAKE_PASSWORD' },
+  logs: { role: 'factory_logs', variable: 'LOGS_PASSWORD' },
+} as const;
+
+export type Passwords = { [name in keyof typeof PASSWORDS]?: string | undefined };
 
 /** Applies what is pending and returns the names of the migrations it applied. */
 export async function migrate(sql: Sql, passwords: Passwords = {}): Promise<string[]> {
@@ -67,12 +79,8 @@ export async function migrate(sql: Sql, passwords: Passwords = {}): Promise<stri
       applied.push(`${migration.version}_${migration.name}`);
     }
   });
-  for (const [role, password] of [
-    ['factory_writer', passwords.writer],
-    ['console_reader', passwords.console],
-    ['scoreboard_writer', passwords.scoreboard],
-    ['metrics_reader', passwords.metrics],
-  ] as const) {
+  for (const [name, { role }] of Object.entries(PASSWORDS)) {
+    const password = passwords[name as keyof Passwords];
     // A role's password cannot be a query parameter; the literal is escaped instead.
     if (password) await sql.unsafe(`alter role ${role} password '${password.replaceAll("'", "''")}'`);
   }
@@ -83,12 +91,10 @@ if (import.meta.main) {
   const url = process.env.DATABASE_URL;
   const sql = connect(url);
   try {
-    const applied = await migrate(sql, {
-      writer: process.env.WRITER_PASSWORD,
-      console: process.env.CONSOLE_PASSWORD,
-      scoreboard: process.env.SCOREBOARD_PASSWORD,
-      metrics: process.env.METRICS_PASSWORD,
-    });
+    const passwords = Object.fromEntries(
+      Object.entries(PASSWORDS).map(([name, { variable }]) => [name, process.env[variable]]),
+    ) as Passwords;
+    const applied = await migrate(sql, passwords);
     console.log(applied.length ? `Applied ${applied.join(', ')}.` : 'Nothing to apply: the schema is current.');
   } finally {
     await sql.end();

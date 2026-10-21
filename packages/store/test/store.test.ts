@@ -91,6 +91,7 @@ describe('migrations', () => {
       { version: 19, name: 'job-tokens-by-work-item' },
       { version: 20, name: 'prune-inbox' },
       { version: 21, name: 'job-token-trace' },
+      { version: 22, name: 'worker-roles' },
     ]);
   });
 });

@@ -247,7 +247,7 @@ async function line(
   if (hang) kube.text = () => new Promise(() => {});
   let handbackUrl = '';
   const runners = new Runners({
-    sql: database.writer,
+    sql: database.as.line,
     kube,
     image: 'runner',
     gatewayUrl: 'http://gateway',
@@ -299,7 +299,7 @@ describe('running a step', () => {
     expect(outcome).toEqual({ kind: 'handed-back', job: 'coder-1001-1-1', handback: DONE });
     // A stranger's token, a body that is not a handback, the handback, and a second one, by when the token has ended.
     expect(answers).toEqual([401, 400, 202, 401]);
-    expect(await jobForToken(database.writer, token)).toBeUndefined();
+    expect(await jobForToken(database.as.line, token)).toBeUndefined();
     expect(calls.filter((c) => !c.startsWith('GET'))).toEqual([
       'POST /api/v1/namespaces/runners/persistentvolumeclaims PersistentVolumeClaim work-1001',
       'POST /apis/batch/v1/namespaces/runners/jobs Job coder-1001-1-1-prepare',
@@ -378,7 +378,7 @@ describe('a step’s attempts and results', () => {
 
   it('refuses a result over its limit', async () => {
     const { handbackUrl, close } = await line(() => {});
-    const token = await issueJobToken(database.writer, { job: 'coder-1006-1-1', workItem: '1006', agent: 'coder' });
+    const token = await issueJobToken(database.as.line, { job: 'coder-1006-1-1', workItem: '1006', agent: 'coder' });
     const answer = await handBack(handbackUrl, token, { ...DONE, result: { text: 'x'.repeat(70_000) } });
     await close();
     expect(answer.status).toBe(400);
@@ -387,7 +387,7 @@ describe('a step’s attempts and results', () => {
   it('measures a result in bytes, as the runner does, and to the runner’s own bound', async () => {
     expect(RESULT_BYTES).toBe(RUNNER_RESULT_BYTES);
     const { handbackUrl, close } = await line(() => {});
-    const token = await issueJobToken(database.writer, { job: 'coder-1008-1-1', workItem: '1008', agent: 'coder' });
+    const token = await issueJobToken(database.as.line, { job: 'coder-1008-1-1', workItem: '1008', agent: 'coder' });
     // Fewer characters than the bound, but more bytes: each is three in UTF-8.
     const answer = await handBack(handbackUrl, token, { ...DONE, result: { text: '€'.repeat(30_000) } });
     await close();
@@ -408,7 +408,7 @@ describe('a step’s attempts and results', () => {
     await close();
     expect(outcome).toEqual({ kind: 'stopped', job: 'coder-1007-1-1' });
     expect(calls).toContain('DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1007-1-1-agent');
-    expect(await jobForToken(database.writer, token)).toBeUndefined();
+    expect(await jobForToken(database.as.line, token)).toBeUndefined();
   });
 
   it('stops a step when its signal aborts, and starts none whose signal aborted before it began', async () => {
@@ -438,7 +438,7 @@ describe('a step’s attempts and results', () => {
 });
 
 describe('a step’s logs', () => {
-  const kept = () => new StepLogs(database.writer, new DiskArtifacts(mkdtempSync(join(tmpdir(), 'step-logs-'))));
+  const kept = () => new StepLogs(database.as.line, new DiskArtifacts(mkdtempSync(join(tmpdir(), 'step-logs-'))));
   const PREPARED = '{"msg":"installed the dependencies"}\n';
   const WORKED = '{"msg":"tool call","turn":1,"tool":"Read"}\n';
   const read = async (logs: StepLogs, workItem: string) =>
@@ -519,10 +519,10 @@ describe('a step’s logs', () => {
 
   it('goes on as ever when the store cannot keep a log: no table yet, or no volume', async () => {
     // Before migration 0017 has run, as when the factory's image is pinned before the console's, which migrates.
-    const noTable = new StepLogs(database.writer, new DiskArtifacts(mkdtempSync(join(tmpdir(), 'step-logs-'))));
+    const noTable = new StepLogs(database.as.line, new DiskArtifacts(mkdtempSync(join(tmpdir(), 'step-logs-'))));
     noTable.keep = () => Promise.reject(new Error('relation "step_logs" does not exist'));
     // ARTIFACTS_DIR set, but no volume mounted there: the read-only root refuses the folder.
-    const noVolume = new StepLogs(database.writer, new DiskArtifacts('/nonexistent/artifacts'));
+    const noVolume = new StepLogs(database.as.line, new DiskArtifacts('/nonexistent/artifacts'));
     for (const [i, logs] of [noTable, noVolume].entries()) {
       const workItem = `${1030 + i}`;
       const warned: Record<string, unknown>[] = [];
@@ -620,7 +620,7 @@ describe('a step’s logs', () => {
     while (!token) await new Promise((resolve) => setTimeout(resolve, 5));
     await runners.cancel();
     // Its token ended before its logs were waited for, and its jobs went after.
-    expect(await jobForToken(database.writer, token)).toBeUndefined();
+    expect(await jobForToken(database.as.line, token)).toBeUndefined();
     expect(calls).toContain('DELETE /apis/batch/v1/namespaces/runners/jobs/coder-1024-1-1-agent');
     expect(await running).toEqual({ kind: 'stopped', job: 'coder-1024-1-1' });
     await close();
@@ -630,7 +630,7 @@ describe('a step’s logs', () => {
 describe('the handback', () => {
   it('turns away a job nobody waits for, and a body over its limit', async () => {
     const { handbackUrl, close } = await line(() => {});
-    const token = await issueJobToken(database.writer, { job: 'coder-1004-1-1', workItem: '1004', agent: 'coder' });
+    const token = await issueJobToken(database.as.line, { job: 'coder-1004-1-1', workItem: '1004', agent: 'coder' });
     expect((await handBack(handbackUrl, token, DONE)).status).toBe(409);
     const huge = await fetch(handbackUrl, {
       method: 'POST',

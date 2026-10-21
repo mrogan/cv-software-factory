@@ -41,9 +41,9 @@ async function harness({ mode = 'record', key = true, policy = POLICY, clock, re
   const time = () => new Date(now.value.getTime() + tick++);
   const captured = capturingLog();
   const dir = mkdtempSync(join(tmpdir(), 'cassettes-'));
-  const events = new EventWriter(database.writer, { kind: 'real', artifacts: new DiskArtifacts(dir) });
+  const events = new EventWriter(database.as.gateway, { kind: 'real', artifacts: new DiskArtifacts(dir) });
   const spend = () =>
-    new Spend({ sql: database.writer, events, profile: 'local', policy, log: captured.log, clock: time });
+    new Spend({ sql: database.as.gateway, events, profile: 'local', policy, log: captured.log, clock: time });
   const ledger = spend();
   const typesafe = new TypeSafe({
     apiKey: 'test-key',
@@ -53,7 +53,7 @@ async function harness({ mode = 'record', key = true, policy = POLICY, clock, re
     random: () => 0,
   });
   const gateway = new Gateway({
-    sql: database.writer,
+    sql: database.as.gateway,
     spend: ledger,
     cassettes: new Cassettes({ record: dir, read }),
     mode,
@@ -123,7 +123,7 @@ describe('the gateway', () => {
     expect(file.recordedAt).toMatch(/^2026-10-03T12:00:00\.\d{3}Z$/);
 
     const replaying = new Gateway({
-      sql: h.database.writer,
+      sql: h.database.as.gateway,
       spend: h.ledger,
       cassettes: new Cassettes({ read: [h.dir] }),
       mode: 'replay',
@@ -367,7 +367,7 @@ describe('spend caps', () => {
     const capped = await failure(h.gateway.judge(request({ state: 'something new' })));
     expect(capped).toBeInstanceOf(SpendCapped);
     const replaying = new Gateway({
-      sql: h.database.writer,
+      sql: h.database.as.gateway,
       spend: h.ledger,
       cassettes: new Cassettes({ read: [h.dir] }),
       mode: 'replay-record',
@@ -404,7 +404,7 @@ describe('spend caps', () => {
   it('leaves a provider’s cap to the provider’s caps across a restart', async () => {
     const h = await harness({ clock: day() });
     const caps = new ProviderCaps({
-      sql: h.database.writer,
+      sql: h.database.as.gateway,
       events: h.events,
       log: h.captured.log,
       probe: async () => false,

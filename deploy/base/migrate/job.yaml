@@ -1,6 +1,7 @@
-# Applies whatever migrations the store has not had, then sets the writer's, the console's, the scoreboard's and the
-# Postgres exporter's passwords from their Secrets. A Sync hook in wave 1: after Postgres (wave 0) is healthy, before the console (wave 2)
-# starts. It runs the console's image, which carries the migrations, so a new image brings its migrations with it.
+# Applies whatever migrations the store has not had, then sets the passwords of the writer, the console, the
+# scoreboard, the Postgres exporter and each worker from their Secrets. A Sync hook in wave 1: after Postgres (wave 0)
+# is healthy, before the console (wave 2) starts. It runs the console's image, which carries the migrations, so a new
+# image brings its migrations with it.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -60,6 +61,50 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-metrics
+                  key: password
+                  optional: true
+            # Each worker's own (0022_worker-roles.sql), made by `make worker-secrets`. Optional, so a cluster made before
+            # them still migrates; their roles then have no password, and cannot log in.
+            - name: TRIAGE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-triage
+                  key: password
+                  optional: true
+            - name: LINE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-line
+                  key: password
+                  optional: true
+            - name: GATEWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-gateway
+                  key: password
+                  optional: true
+            - name: PROBES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-probes
+                  key: password
+                  optional: true
+            - name: CRAWLER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-crawler
+                  key: password
+                  optional: true
+            - name: INTAKE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-intake
+                  key: password
+                  optional: true
+            - name: LOGS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-logs
                   key: password
                   optional: true
           resources:
