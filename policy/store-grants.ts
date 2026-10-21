@@ -105,7 +105,7 @@ export const STORE_GRANTS = {
     rows: { inbox: { select: "sense in ('logs', 'report')", insert: "sense in ('logs', 'report')" } },
   },
   factory_writer: {
-    for: 'What every worker used before it had a role of its own; no worker uses it now, and its grants go next (#435).',
+    for: 'The make targets that write to the store, and some tests; no worker connects as it (#435).',
     on: {
       events: ['select', 'insert'],
       store: ['select', 'insert'],

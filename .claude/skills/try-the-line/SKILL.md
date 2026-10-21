@@ -24,16 +24,16 @@ To change the cluster in auto mode, Martin may add `Bash(kubectl --context k3d-s
 1. A throwaway Postgres for the job token and `model_calls`:
    ```sh
    docker run -d --name sf-bench-pg -e POSTGRES_USER=factory -e POSTGRES_PASSWORD=factory -e POSTGRES_DB=factory -p 127.0.0.1:5433:5432 "$(awk '/image:/{print $2}' deploy/base/postgres/statefulset.yaml)"
-   DATABASE_URL=postgres://factory:factory@127.0.0.1:5433/factory WRITER_PASSWORD=writer node packages/store/src/migrate.ts
+   DATABASE_URL=postgres://factory:factory@127.0.0.1:5433/factory LINE_PASSWORD=line GATEWAY_PASSWORD=gateway node packages/store/src/migrate.ts
    ```
 2. A gateway on Qwen (LM Studio on 127.0.0.1:1234):
    ```sh
-   PGHOST=127.0.0.1 PGPORT=5433 PGDATABASE=factory PGUSER=factory_writer PGPASSWORD=writer \
+   PGHOST=127.0.0.1 PGPORT=5433 PGDATABASE=factory PGUSER=factory_gateway PGPASSWORD=gateway \
      GATEWAY_MODE=replay-record CASSETTES_DIR=/tmp/bench-cassettes ALL_LOCAL=true PORT=8180 OTEL_SDK_DISABLED=true \
      node apps/factory/src/cli.ts gateway &
    ```
    For Claude, drop `ALL_LOCAL` and add `ANTHROPIC_API_KEY="$(security find-generic-password -s anthropic-api-key -w)"`: it costs money. For replay only, `GATEWAY_MODE=replay`.
-3. The step: `GATEWAY_URL=http://localhost:8180 PGHOST=127.0.0.1 PGPORT=5433 PGDATABASE=factory PGUSER=factory_writer PGPASSWORD=writer node apps/factory/src/cli.ts line bench coder off-by-one`.
+3. The step: `GATEWAY_URL=http://localhost:8180 PGHOST=127.0.0.1 PGPORT=5433 PGDATABASE=factory PGUSER=factory_line PGPASSWORD=line node apps/factory/src/cli.ts line bench coder off-by-one`.
 
 A step run again replays every call. A tool that prints a time the cassette key does not know ends a replay at that call: add a pattern to `UNSTEADY` in `gateway/agent-cassettes.ts`. Only cassettes made from invented work may be committed.
 

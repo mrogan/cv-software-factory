@@ -10,9 +10,16 @@ import { DEPLOY, manifests } from './deploy.ts';
  */
 interface Env {
   name: string;
+  value?: string;
   valueFrom?: { secretKeyRef?: { name: string; key: string; optional?: boolean } };
 }
 interface Job {
+  kind?: string;
+  metadata?: { name?: string };
+  spec?: { template?: { spec: { containers: { env?: Env[] }[] } } };
+}
+
+interface Deployment {
   kind?: string;
   metadata?: { name?: string };
   spec?: { template?: { spec: { containers: { env?: Env[] }[] } } };
@@ -51,5 +58,31 @@ describe('the store’s passwords', () => {
     expect(makefile).toMatch(/^up:[^\n]*\n(?:\t[^\n]*\n)*\t@\$\(MAKE\) --no-print-directory worker-secrets$/m);
     expect(makefile).toMatch(/^worker-secrets: .*## /m);
     expect(makefile).toMatch(/create secret generic postgres-\$\$worker --from-file=password=\/dev\/stdin/);
+  });
+});
+
+describe('each worker that uses the store', () => {
+  it('connects as its own role, with the password from its own Secret', async () => {
+    const deployments = (await manifests<Deployment>()).filter((m) => m.manifest.kind === 'Deployment');
+    for (const worker of WORKERS) {
+      const found = deployments.find((m) => m.manifest.metadata?.name === worker);
+      const env = found?.manifest.spec?.template?.spec.containers[0]?.env ?? [];
+      expect(env.find((e) => e.name === 'PGUSER')?.value, worker).toBe(PASSWORDS[worker].role);
+      expect(env.find((e) => e.name === 'PGPASSWORD')?.valueFrom?.secretKeyRef, worker).toEqual({
+        name: `postgres-${worker}`,
+        key: 'password',
+      });
+    }
+  });
+
+  it('is the only kind of Deployment that reads a worker’s Secret, and none reads the writer’s', async () => {
+    const secrets = new Set(WORKERS.map((worker) => `postgres-${worker}`));
+    for (const { manifest } of (await manifests<Deployment>()).filter((m) => m.manifest.kind === 'Deployment')) {
+      for (const e of manifest.spec?.template?.spec.containers.flatMap((c) => c.env ?? []) ?? []) {
+        const secret = e.valueFrom?.secretKeyRef?.name;
+        expect(secret, manifest.metadata?.name).not.toBe('postgres-writer');
+        if (secret && secrets.has(secret)) expect(secret).toBe(`postgres-${manifest.metadata?.name}`);
+      }
+    }
   });
 });
