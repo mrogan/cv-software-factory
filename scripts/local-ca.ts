@@ -20,7 +20,16 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -123,29 +132,42 @@ function dnsNames(certificate: X509Certificate): string[] {
     .sort();
 }
 
+/**
+ * Makes a certificate and its key beside the ones they replace, and puts them in place only once both are made, so a
+ * failed `step` leaves the old pair as it was.
+ */
+function replacePair(certificatePath: string, keyPath: string, make: (certificate: string, key: string) => void): void {
+  const [certificate, key] = [`${certificatePath}.new`, `${keyPath}.new`];
+  rmSync(certificate, { force: true });
+  rmSync(key, { force: true });
+  make(certificate, key);
+  chmodSync(key, 0o600);
+  renameSync(key, keyPath);
+  renameSync(certificate, certificatePath);
+}
+
 /** Makes the authority. Its key is unencrypted, so that `make up` runs unattended; its name constraints bound it. */
 export function makeAuthority(dir: string): void {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
   const { authority, authorityKey } = files(dir);
-  rmSync(authority, { force: true });
-  rmSync(authorityKey, { force: true });
-  stepWithTemplate(AUTHORITY_TEMPLATE, [
-    'certificate',
-    'create',
-    AUTHORITY_NAME,
-    authority,
-    authorityKey,
-    '--kty',
-    'EC',
-    '--crv',
-    'P-256',
-    '--not-after',
-    `${AUTHORITY_DAYS * 24}h`,
-    '--no-password',
-    '--insecure',
-  ]);
-  chmodSync(authorityKey, 0o600);
+  replacePair(authority, authorityKey, (certificate, key) =>
+    stepWithTemplate(AUTHORITY_TEMPLATE, [
+      'certificate',
+      'create',
+      AUTHORITY_NAME,
+      certificate,
+      key,
+      '--kty',
+      'EC',
+      '--crv',
+      'P-256',
+      '--not-after',
+      `${AUTHORITY_DAYS * 24}h`,
+      '--no-password',
+      '--insecure',
+    ]),
+  );
 }
 
 /** Signs a certificate for local names, with a key of its own. Refuses any name that is not a `localhost` name. */
@@ -157,29 +179,28 @@ export function sign(dir: string, names: string[], certificatePath: string, keyP
     throw new Error(`The local authority signs for localhost names only, not ${foreign.join(', ')}.`);
   }
   const { authority, authorityKey } = files(dir);
-  rmSync(certificatePath, { force: true });
-  rmSync(keyPath, { force: true });
-  stepWithTemplate(CERTIFICATE_TEMPLATE, [
-    'certificate',
-    'create',
-    first,
-    certificatePath,
-    keyPath,
-    ...names.flatMap((name) => ['--san', name]),
-    '--ca',
-    authority,
-    '--ca-key',
-    authorityKey,
-    '--kty',
-    'EC',
-    '--crv',
-    'P-256',
-    '--not-after',
-    `${days * 24}h`,
-    '--no-password',
-    '--insecure',
-  ]);
-  chmodSync(keyPath, 0o600);
+  replacePair(certificatePath, keyPath, (certificate, key) =>
+    stepWithTemplate(CERTIFICATE_TEMPLATE, [
+      'certificate',
+      'create',
+      first,
+      certificate,
+      key,
+      ...names.flatMap((name) => ['--san', name]),
+      '--ca',
+      authority,
+      '--ca-key',
+      authorityKey,
+      '--kty',
+      'EC',
+      '--crv',
+      'P-256',
+      '--not-after',
+      `${days * 24}h`,
+      '--no-password',
+      '--insecure',
+    ]),
+  );
 }
 
 /**
@@ -265,7 +286,12 @@ export function trust(dir: string): string[] {
     ];
   }
   const current = sha1Of(files(dir).authority);
-  for (const old of keychainCopies().filter((sha1) => sha1 !== current)) deleteCopy(old);
+  const kept = keychainCopies().filter((sha1) => sha1 !== current && !deleteCopy(sha1));
+  if (kept.length > 0) {
+    throw new Error(
+      `The login keychain kept an earlier local authority (${kept.join(', ')}), still trusted: remove it in Keychain Access, or run 'make untrust-ca'.`,
+    );
+  }
   if (trusted(dir)) return [`  The Mac trusts the local certificate authority. 'make untrust-ca' removes it.`];
   console.log('  Asking macOS to trust the local certificate authority, for localhost names only (it asks once)...');
   spawnSync(

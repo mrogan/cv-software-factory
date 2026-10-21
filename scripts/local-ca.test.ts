@@ -139,6 +139,19 @@ describe('the local certificate authority', () => {
     expect(statSync(made.certificateKey).mode & 0o777).toBe(0o600);
   });
 
+  it('keeps the certificate it has when making a new one fails', () => {
+    const before = readFileSync(made.certificate, 'utf-8');
+    const path = process.env.PATH;
+    process.env.PATH = '';
+    try {
+      expect(() => sign(dir, HOSTS, made.certificate, made.certificateKey, 1)).toThrow("step isn't installed");
+    } finally {
+      process.env.PATH = path;
+    }
+    expect(readFileSync(made.certificate, 'utf-8')).toBe(before);
+    expect(existsSync(made.certificateKey)).toBe(true);
+  });
+
   it('renews the certificate in its last 30 days, and the authority in its last 90, and nothing sooner', () => {
     const authority = readFileSync(made.authority, 'utf-8');
     expect(issue(dir)).toEqual([]);
