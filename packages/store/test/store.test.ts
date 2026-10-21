@@ -288,12 +288,7 @@ describe('append-only, by mechanism', () => {
     await expect(scoreboard`select nextval('work_items')`).rejects.toThrow('permission denied');
     await expect(scoreboard`create table mine (n integer)`).rejects.toThrow('permission denied');
 
-    // Every privilege it holds on anything in the schema, so a grant added later must be added here too.
-    expect(await held('scoreboard_writer')).toEqual([
-      { name: 'events', privilege: 'INSERT' },
-      { name: 'events', privilege: 'SELECT' },
-      { name: 'store', privilege: 'SELECT' },
-    ]);
+    // Every privilege it holds is in policy/store-grants.ts, which grants.test.ts holds the store to.
   });
 
   it('lets the Postgres exporter read the server’s statistics, and nothing of the store', async () => {
@@ -307,7 +302,6 @@ describe('append-only, by mechanism', () => {
     // Not the events, or any other table, view or sequence; not another session's query; no role but its own.
     await expect(metrics`select seq from events limit 1`).rejects.toThrow('permission denied');
     await expect(metrics`select count(*) from store`).rejects.toThrow('permission denied');
-    expect(await held('metrics_reader')).toEqual([]);
     await writer`select 1`;
     const others = await metrics<{ query: string | null }[]>`
       select distinct query from pg_stat_activity where pid <> pg_backend_pid() and usesysid is not null`;
@@ -360,25 +354,3 @@ describe('reading', () => {
     expect(read.map(({ event }) => event.seq)).toEqual([from + 1]);
   });
 });
-
-/** Every privilege a role holds on anything in the store's schema: tables and views, sequences, columns. */
-function held(role: string) {
-  return owner<{ name: string; privilege: string }[]>`
-    select c.relname as name, p.privilege from pg_class c
-    join pg_namespace n on n.oid = c.relnamespace
-    cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) p(privilege)
-    where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
-      and has_table_privilege(${role}, c.oid, p.privilege)
-    union all
-    select c.relname, p.privilege from pg_class c
-    join pg_namespace n on n.oid = c.relnamespace
-    cross join unnest(array['USAGE', 'SELECT', 'UPDATE']) p(privilege)
-    where n.nspname = 'public' and c.relkind = 'S' and has_sequence_privilege(${role}, c.oid, p.privilege)
-    union all
-    select a.attrelid::regclass::text, 'column ' || p.privilege from pg_attribute a
-    join pg_class c on c.oid = a.attrelid join pg_namespace n on n.oid = c.relnamespace
-    cross join unnest(array['UPDATE', 'REFERENCES']) p(privilege)
-    where n.nspname = 'public' and a.attnum > 0 and not a.attisdropped
-      and has_column_privilege(${role}, a.attrelid, a.attnum, p.privilege)
-    order by 1, 2`;
-}

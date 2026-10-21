@@ -1,10 +1,11 @@
 -- A role for each worker that uses the store, granted only the tables and columns it uses, so a worker taken over
--- cannot move another's work: the senses cannot touch the line, the gateway cannot end a job's token, and only triage
--- says what became of a signal. What each role may do is set out in one table, `policy/store-grants.ts`, and the
--- grants test fails unless the store grants exactly that. The GitHub worker and the traffic generator never connect
+-- cannot touch another's tables: the senses cannot touch the line, the gateway cannot end a job's token, and only triage
+-- says what became of a signal. Every worker may still append any event; row security on Martin's commands follows
+-- (milestone 7, task 4). What each role may do is set out in one table, `policy/store-grants.ts`, and the grants test
+-- fails unless the store's grants and row security are exactly that. The GitHub worker and the traffic generator never connect
 -- to the store, and have no role.
 --
--- `factory_writer` keeps its grants until every worker has moved to its own role; a later migration takes them away.
+-- `factory_writer` keeps its grants until every worker has moved to its own role (#435).
 -- Passwords are set outside migrations, from the cluster's Secrets (`make worker-secrets`).
 
 do $$
@@ -29,8 +30,7 @@ $$;
 grant factory_worker to factory_triage, factory_line, factory_gateway, factory_probes, factory_crawler, factory_intake,
   factory_logs;
 
-grant usage on schema public to factory_worker, factory_triage, factory_line, factory_gateway, factory_probes,
-  factory_crawler, factory_intake, factory_logs;
+grant usage on schema public to factory_worker;
 
 -- Every worker: read and append events. The first real event records the store's kind (events_one_kind), which runs
 -- as the role that appends.
@@ -75,8 +75,11 @@ grant insert (id, sense, fingerprint, signal) on inbox to factory_intake;
 grant select (sense, signal), insert (id, sense, fingerprint, signal) on inbox to factory_logs;
 
 -- Row security on the inbox (0020) holds each role to its own rows: a sense sends only its own signals, and only triage
--- changes one or deletes a repeat it counted.
-create policy inbox_workers_read on inbox for select to factory_triage, factory_probes, factory_logs using (true);
+-- changes one or deletes a repeat it counted. Reports' text is in the inbox, so the probes read only what triage has
+-- still to take, and the log watcher only its own senses' signals.
+create policy inbox_triage_reads on inbox for select to factory_triage using (true);
+create policy inbox_probes_read on inbox for select to factory_probes using (triaged_at is null);
+create policy inbox_logs_read on inbox for select to factory_logs using (sense in ('logs', 'report'));
 create policy inbox_triage_triages on inbox for update to factory_triage using (true) with check (true);
 create policy inbox_triage_prunes on inbox for delete to factory_triage using (outcome = 'counted');
 create policy inbox_line_sends on inbox for insert to factory_line with check (sense in ('canary', 'planner'));
@@ -84,3 +87,13 @@ create policy inbox_probes_send on inbox for insert to factory_probes with check
 create policy inbox_crawler_sends on inbox for insert to factory_crawler with check (sense = 'crawler');
 create policy inbox_intake_sends on inbox for insert to factory_intake with check (sense = 'metrics');
 create policy inbox_logs_send on inbox for insert to factory_logs with check (sense in ('logs', 'report'));
+
+-- Row security on the looks: each sense keeps only its own, and the line reads them all. The writer goes on as before.
+alter table looks enable row level security;
+create policy looks_writer on looks for all to factory_writer using (true) with check (true);
+create policy looks_read on looks for select to factory_probes, factory_crawler, factory_line using (true);
+create policy looks_probes_keep on looks for insert to factory_probes with check (sense = 'probe');
+create policy looks_probes_move on looks for update to factory_probes using (sense = 'probe') with check (sense = 'probe');
+create policy looks_crawler_keeps on looks for insert to factory_crawler with check (sense = 'crawler');
+create policy looks_crawler_moves on looks for update to factory_crawler
+  using (sense = 'crawler') with check (sense = 'crawler');

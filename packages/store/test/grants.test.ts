@@ -82,6 +82,51 @@ describe('the grants', () => {
     }
   });
 
+  it('let each role at only the rows the table names, on the tables with row security', async () => {
+    const policies = await db.owner<
+      { table: string; command: string; roles: string[]; using: string; check: string }[]
+    >`
+      select tablename as table, lower(cmd) as command, roles::text[] as roles, qual as using, with_check as check
+      from pg_policies where schemaname = 'public'`;
+    // As Postgres prints a condition, and as the table writes it: no casts to text, `in` for `= any (array[...])`.
+    const condition = (printed: string | null) =>
+      printed
+        ?.replaceAll(/::text(\[\])?/g, '')
+        .replaceAll(/(\w+) = ANY \(ARRAY\[(.+?)\]\)/g, '$1 in ($2)')
+        .replace(/^\((.*)\)$/, '$1');
+    const found: Record<string, Record<string, Record<string, string>>> = {};
+    for (const policy of policies) {
+      const using = condition(policy.using);
+      const check = condition(policy.check);
+      const rows = using && check && using !== check ? `using ${using}, check ${check}` : (using ?? check ?? '');
+      for (const role of policy.roles) {
+        found[role] ??= {};
+        const tables = found[role] as Record<string, Record<string, string>>;
+        tables[policy.table] ??= {};
+        const commands = tables[policy.table] as Record<string, string>;
+        expect(
+          commands[policy.command],
+          `${role} has two policies for ${policy.command} on ${policy.table}`,
+        ).toBeUndefined();
+        commands[policy.command] = rows;
+      }
+    }
+    const declared = Object.fromEntries(
+      Object.entries(STORE_GRANTS as Record<string, { rows?: Record<string, Record<string, string>> }>).flatMap(
+        ([role, grants]) => (grants.rows ? [[role, grants.rows]] : []),
+      ),
+    );
+    expect(found).toEqual(declared);
+
+    // Row security is on wherever the table names rows, and nowhere else, so none can be switched off unseen.
+    const secured = await db.owner<{ relname: string }[]>`
+      select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relrowsecurity order by 1`;
+    expect(secured.map((t) => t.relname)).toEqual(
+      [...new Set(Object.values(declared).flatMap((tables) => Object.keys(tables)))].sort(),
+    );
+  });
+
   it('give each role the memberships the table names, and no others', async () => {
     const members = await db.owner<{ role: string; member_of: string[] }[]>`
       select r.rolname as role,
@@ -134,6 +179,14 @@ const signal = (sense: 'probe' | 'crawler' | 'metrics' | 'logs' | 'canary'): Inb
 });
 
 describe('each worker', () => {
+  it('has its signals kept by id alone: the inbox has no other unique key', async () => {
+    // sendSignal's `on conflict do nothing` names no key, so that a sense needs no right to read the inbox; this
+    // keeps it from swallowing a conflict on any other.
+    const unique = await db.owner<{ name: string }[]>`
+      select indexrelid::regclass::text as name from pg_index where indrelid = 'inbox'::regclass and indisunique`;
+    expect(unique.map((i) => i.name)).toEqual(['inbox_pkey']);
+  });
+
   it('appends and reads events through the role they share', async () => {
     let n = 3000;
     for (const worker of WORKERS) {
@@ -194,6 +247,31 @@ describe('each worker', () => {
       db.as.line`insert into job_tokens (token_sha256, job, work_item, agent, issued_at)
                  values (${'b'.repeat(64)}, 'plan-3100-2', '3100', 'planner', now() - interval '1 day')`,
     ).rejects.toThrow('permission denied');
+  });
+
+  it('keeps only its own sense’s looks, and reads only the signals it needs', async () => {
+    const look = (sense: string) =>
+      db.owner.json({ sense, check: 'home journey', route: '/', path: '/', elements: [] });
+    await db.owner`insert into looks (sense, "check", route, path, elements, seen_at)
+                   values ('probe', 'home journey', '/', '/', ${look('probe')}, now())`;
+    await expect(
+      db.as.crawler`insert into looks (sense, "check", route, path, elements, seen_at)
+                    values ('probe', 'other', '/', '/', '[]', now())`,
+    ).rejects.toThrow('row-level security');
+    expect((await db.as.crawler`update looks set path = '/elsewhere' where sense = 'probe'`).count).toBe(0);
+    // A visitor's report is read by triage alone, and a counted signal by neither the probes nor the log watcher.
+    const report = await sendSignal(db.as.logs, {
+      sense: 'report',
+      check: 'report widget',
+      route: '/',
+      version: 'v1.0.0',
+      observedAt: new Date().toISOString(),
+      report: { page: '/', text: 'The lid is missing' },
+      artifacts: [],
+    });
+    await db.as.triage`update inbox set outcome = 'counted', triaged_at = now() where id = ${report}`;
+    expect(await db.as.probes`select signal from inbox where triaged_at is not null`).toEqual([]);
+    expect((await db.as.logs`select sense from inbox`).every((r) => ['logs', 'report'].includes(r.sense))).toBe(true);
   });
 
   it('cannot delete a picture unless it is the probes', async () => {

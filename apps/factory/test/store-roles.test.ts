@@ -1,8 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PASSWORDS } from '../../../packages/store/src/migrate.ts';
-import { WORKERS } from '../../../packages/store/test/postgres.ts';
+import { PASSWORDS, WORKERS } from '../../../packages/store/src/migrate.ts';
 import { DEPLOY, manifests } from './deploy.ts';
 
 /**

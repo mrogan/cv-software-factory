@@ -39,6 +39,10 @@ export function migrations(dir = MIGRATIONS): Migration[] {
   return found;
 }
 
+/** The workers that connect to the store, each as a role of its own (0022_worker-roles.sql). */
+export const WORKERS = ['triage', 'line', 'gateway', 'probes', 'crawler', 'intake', 'logs'] as const;
+export type Worker = (typeof WORKERS)[number];
+
 /** Each role that logs in, by the name its password goes by here, and the variable that gives it in the cluster. */
 export const PASSWORDS = {
   writer: { role: 'factory_writer', variable: 'WRITER_PASSWORD' },

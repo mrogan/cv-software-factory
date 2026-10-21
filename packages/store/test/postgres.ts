@@ -7,17 +7,15 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import postgres, { type Sql } from 'postgres';
 import type { TestProject } from 'vitest/node';
-import { migrate, type Passwords, PASSWORDS as ROLES } from '../src/migrate.ts';
+import { migrate, type Passwords, PASSWORDS as ROLES, WORKERS, type Worker } from '../src/migrate.ts';
+
+export { WORKERS, type Worker };
 
 /** Each role's password in the tests: its name's. */
 export const PASSWORDS = Object.fromEntries(
   Object.keys(ROLES).map((name) => [name, `${name}-test-password`]),
 ) as Required<Record<keyof Passwords, string>>;
 const quiet = { onnotice: () => {}, max: 2 };
-
-/** The workers that connect to the store each as a role of its own. */
-export const WORKERS = ['triage', 'line', 'gateway', 'probes', 'crawler', 'intake', 'logs'] as const;
-export type Worker = (typeof WORKERS)[number];
 
 export interface Database {
   name: string;
