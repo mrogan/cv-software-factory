@@ -14,7 +14,7 @@ PRIVATE_DIR ?= $(CURDIR)/../cv-software-factory-private
 # The workers that connect to the store, each as a role of its own (packages/store/migrations/0022_worker-roles.sql).
 STORE_WORKERS := triage line gateway probes crawler intake logs
 # The local certificate authority behind the console's HTTPS, outside the repository (scripts/local-ca.ts).
-LOCAL_CA = $(shell node scripts/local-ca.ts dir)
+LOCAL_CA = $(or $(shell node scripts/local-ca.ts dir),$(error node cannot say where the local CA is: run 'mise install'))
 
 # $(call as-writer,command): run a command on the host as the factory's writer, through a port-forward to Postgres.
 as-writer = $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
@@ -35,9 +35,9 @@ help: ## List the targets
 up: ## Create the local cluster; Argo CD then deploys everything from main (or REVISION=<branch>)
 	@docker info >/dev/null 2>&1 || { echo "Docker isn't running. Start OrbStack (or another runtime) and try again."; exit 1; }
 	@k3d cluster list $(CLUSTER) >/dev/null 2>&1 || k3d cluster create --config deploy/k3d/cluster.yaml
-	@# A cluster made before the console moved to HTTPS has no 8443. k3d adds it in place by making the cluster's load
-	@# balancer again, and keeps everything in the cluster, the store included.
-	@docker port k3d-$(CLUSTER)-serverlb 443/tcp >/dev/null 2>&1 || { \
+	@# A cluster without the console's HTTPS port gets it in place: k3d makes the cluster's load balancer again, and keeps
+	@# everything in the cluster, the store included. The load balancer's configured ports, so a stopped one counts too.
+	@docker inspect -f '{{json .HostConfig.PortBindings}}' k3d-$(CLUSTER)-serverlb | grep -q '"443/tcp"' || { \
 		echo "  This cluster has no HTTPS port: adding 127.0.0.1:8443, which restarts its load balancer and nothing else."; \
 		k3d cluster edit $(CLUSTER) --port-add 127.0.0.1:8443:443@loadbalancer; }
 	helm upgrade --install argocd argo-cd --repo https://argoproj.github.io/argo-helm --version $(ARGOCD_CHART) \

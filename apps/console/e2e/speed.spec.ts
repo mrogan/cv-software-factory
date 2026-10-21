@@ -10,7 +10,9 @@ test.use({
   viewport: { width: 390, height: 844 },
   isMobile: true,
   hasTouch: true,
-  ...(cluster && { baseURL: cluster }),
+  // The cluster's certificate is from the Mac's local authority, which this browser may not trust: the test times the
+  // page, not the certificate.
+  ...(cluster && { baseURL: cluster, ignoreHTTPSErrors: true }),
 });
 
 test('draws the first meaningful view within two seconds on a throttled phone', async ({ page, baseURL }) => {

@@ -210,6 +210,31 @@ export function issue(dir: string, now = new Date()): string[] {
   return said;
 }
 
+const LOGIN_KEYCHAIN = join(homedir(), 'Library', 'Keychains', 'login.keychain-db');
+
+/** The SHA-1 of each copy of an authority named as this one is in the login keychain: exactly that name, no other. */
+function keychainCopies(): string[] {
+  const found = spawnSync('security', ['find-certificate', '-a', '-c', AUTHORITY_NAME, '-Z', '-p', LOGIN_KEYCHAIN], {
+    encoding: 'utf-8',
+  });
+  return (found.stdout ?? '').split(/^(?=SHA-256 hash:)/m).flatMap((block) => {
+    const sha1 = block.match(/^SHA-1 hash: ([0-9A-F]+)$/m)?.[1];
+    const pem = block.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/)?.[0];
+    return sha1 && pem && new X509Certificate(pem).subject === `CN=${AUTHORITY_NAME}` ? [sha1] : [];
+  });
+}
+
+/** Deletes a copy from the login keychain, with its trust settings. */
+function deleteCopy(sha1: string): boolean {
+  return (
+    spawnSync('security', ['delete-certificate', '-t', '-Z', sha1, LOGIN_KEYCHAIN], { stdio: 'inherit' }).status === 0
+  );
+}
+
+function sha1Of(path: string): string {
+  return new X509Certificate(readFileSync(path)).fingerprint.replaceAll(':', '');
+}
+
 /** Whether macOS trusts the certificate Traefik serves, as Safari would judge it. */
 function trusted(dir: string): boolean {
   const [host = ''] = HOSTS;
@@ -229,41 +254,50 @@ const LOSS = [
   "  Run 'make up' again to be asked again.",
 ];
 
-/** Has the Mac trust the authority, for TLS servers only, in the login keychain. macOS asks for the password once. */
+/**
+ * Has the Mac trust the authority, for TLS servers only, in the login keychain, and forget any earlier one it made
+ * again. macOS asks for the password once.
+ */
 export function trust(dir: string): string[] {
   if (process.platform !== 'darwin') {
     return [
       `  Trust ${files(dir).authority} in your browser or your system's store for ${CONSOLE_URL} to work without a warning.`,
     ];
   }
+  const current = sha1Of(files(dir).authority);
+  for (const old of keychainCopies().filter((sha1) => sha1 !== current)) deleteCopy(old);
   if (trusted(dir)) return [`  The Mac trusts the local certificate authority. 'make untrust-ca' removes it.`];
   console.log('  Asking macOS to trust the local certificate authority, for localhost names only (it asks once)...');
-  const keychain = join(homedir(), 'Library', 'Keychains', 'login.keychain-db');
-  spawnSync('security', ['add-trusted-cert', '-r', 'trustRoot', '-p', 'ssl', '-k', keychain, files(dir).authority], {
-    stdio: 'inherit',
-  });
+  spawnSync(
+    'security',
+    ['add-trusted-cert', '-r', 'trustRoot', '-p', 'ssl', '-k', LOGIN_KEYCHAIN, files(dir).authority],
+    { stdio: 'inherit' },
+  );
   if (trusted(dir)) return [`  The Mac trusts the local certificate authority. 'make untrust-ca' removes it.`];
   return ['  The Mac does not trust the local certificate authority.', ...LOSS];
 }
 
-/** Takes every copy of the authority out of the login keychain, its trust with it, and deletes its directory. */
+/**
+ * Takes every copy of the authority out of the login keychain, its trust with it, and deletes its directory, its key
+ * included, even when a copy will not go. Throws afterwards if one would not.
+ */
 export function untrust(dir: string): string[] {
   const said: string[] = [];
+  const kept: string[] = [];
   if (process.platform === 'darwin') {
-    const found = spawnSync('security', ['find-certificate', '-a', '-c', AUTHORITY_NAME, '-Z'], { encoding: 'utf-8' });
-    const hashes = [...(found.stdout ?? '').matchAll(/^SHA-1 hash: ([0-9A-F]+)$/gm)].map(([, hash]) => hash as string);
-    for (const hash of hashes) {
-      const deleted = spawnSync('security', ['delete-certificate', '-t', '-Z', hash], { stdio: 'inherit' });
-      if (deleted.status !== 0) throw new Error(`The keychain kept the local authority ${hash}.`);
-    }
+    const copies = keychainCopies();
+    kept.push(...copies.filter((sha1) => !deleteCopy(sha1)));
     said.push(
-      hashes.length > 0
-        ? '  The Mac no longer trusts the local certificate authority.'
-        : '  The login keychain holds no local certificate authority.',
+      copies.length === 0
+        ? '  The login keychain holds no local certificate authority.'
+        : kept.length === 0
+          ? '  The Mac no longer trusts the local certificate authority.'
+          : `  The login keychain kept the local authority ${kept.join(', ')}: remove it in Keychain Access.`,
     );
   }
   rmSync(dir, { recursive: true, force: true });
   said.push(`  Deleted ${dir}: the next 'make up' makes a new authority and asks again.`);
+  if (kept.length > 0) throw new Error(said.join('\n'));
   return said;
 }
 

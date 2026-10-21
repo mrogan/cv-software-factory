@@ -107,6 +107,10 @@ describe('the local certificate authority', () => {
     );
     const address = mintedOutside('address', '140.82.112.3');
     await expect(handshake(address.cert, address.key, 'github.com')).resolves.toBe('excluded subtree violation');
+    const mailbox = mintedOutside('mailbox', 'someone@github.com');
+    await expect(handshake(mailbox.cert, mailbox.key, 'github.com')).resolves.toBe('permitted subtree violation');
+    const uri = mintedOutside('uri', 'https://github.com/');
+    await expect(handshake(uri.cert, uri.key, 'github.com')).resolves.toBe('permitted subtree violation');
     // Go's verifier, as `step` runs it, refuses it too.
     const verified = spawnSync(
       'step',
