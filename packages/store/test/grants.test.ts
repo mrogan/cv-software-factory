@@ -144,9 +144,9 @@ describe('the grants', () => {
     );
   });
 
-  it('let every worker log in as itself, and nobody as the role they share', async () => {
+  it('let every worker log in as itself and nobody as the role they share, and keep no writer', async () => {
     const roles = await db.owner<{ rolname: string; rolcanlogin: boolean }[]>`
-      select rolname, rolcanlogin from pg_roles where rolname like 'factory\\_%' and rolname <> 'factory_writer'`;
+      select rolname, rolcanlogin from pg_roles where rolname like 'factory\\_%'`;
     expect(Object.fromEntries(roles.map((r) => [r.rolname, r.rolcanlogin]))).toEqual({
       factory_worker: false,
       ...Object.fromEntries(WORKERS.map((w) => [`factory_${w}`, true])),
@@ -321,10 +321,10 @@ describe("Martin's commands", () => {
     expect(rows.map((r) => r.type).sort()).toEqual([...ADMIN_TYPES].sort());
   });
 
-  it('are refused from every worker’s role, the writer’s and the scoreboard’s', async () => {
+  it('are refused from every worker’s role and the scoreboard’s', async () => {
     await writer(db.operator).append(opened('3200'));
     for (const type of ADMIN_TYPES) {
-      for (const [name, sql] of [...Object.entries(db.as), ['writer', db.writer], ['scoreboard', db.scoreboard]]) {
+      for (const [name, sql] of [...Object.entries(db.as), ['scoreboard', db.scoreboard]]) {
         // The scoreboard's own trigger (0012) refuses it first.
         await expect(writer(sql as Sql).append(command(type, '3200')), `${type} from ${name}`).rejects.toThrow(
           /row-level security|the scoreboard appends its own figures/,
@@ -388,10 +388,9 @@ describe('signing in', () => {
                    values (${key(n)}, '\\x00', ${`Device ${n}`}, ${code})`;
   };
 
-  it('gives no worker, the writer, the console or the scoreboard anything of it', async () => {
+  it('gives no worker, the console or the scoreboard anything of it', async () => {
     for (const [name, sql] of [
       ...Object.entries(db.as),
-      ['writer', db.writer],
       ['console', db.reader],
       ['scoreboard', db.scoreboard],
       ['operator', db.operator],

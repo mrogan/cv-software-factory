@@ -247,7 +247,7 @@ On the local cluster, on Claude, at Supervised:
 
 ### Part A is done when
 
-- [ ] Every worker uses the store with a role of its own, `factory_writer` has no grant on its tables, and the test of the grants passes.
+- [x] Every worker uses the store with a role of its own, `factory_writer` has no grant on its tables, and the test of the grants passes.
 - [ ] Martin signs in with a passkey on a laptop and a phone, in Safari and Chrome, and no write succeeds without his session: the access tests and the ZAP scan pass.
 - [ ] Every hold in the store is answered from the console, and the line acts on each.
 - [ ] Stop the line, autonomy, the switches, the take settings, the release controls, the models and the caps are each changed from the console, recorded as events, and shown read-only to a visitor.

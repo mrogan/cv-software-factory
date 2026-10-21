@@ -4,7 +4,7 @@
  *     node --import ./src/telemetry.ts src/cli.ts intake [--dry-run]
  *
  * With `--dry-run` it prints the signals instead of leaving them in the inbox. PORT sets the port (default 8080).
- * Connects with DATABASE_URL, or the PG* variables, as the factory's writer; finds Prometheus and Loki as
+ * Connects with DATABASE_URL, or the PG* variables, as its own role (`factory_intake`); finds Prometheus and Loki as
  * `clients/env.ts` says. Run with the preload, it sends its own traces, metrics and logs to the collector.
  */
 import { createServer } from 'node:http';

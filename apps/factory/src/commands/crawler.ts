@@ -12,8 +12,8 @@
  * alone. Through Traefik, whose public route removes the header, as from the host, they count like a visitor's.
  *
  * Settings, from the environment: APP_URL, the app's address; ARTIFACTS_DIR, the artifact store's folder (`once`
- * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as the factory's
- * writer; CRAWL_INTERVAL, seconds between crawls, 300 by default; CRAWL_LIMIT, the most resources a crawl asks for,
+ * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as its own role
+ * (`factory_crawler`); CRAWL_INTERVAL, seconds between crawls, 300 by default; CRAWL_LIMIT, the most resources a crawl asks for,
  * 150 by default; VERSION_POLL, seconds between looks at the app's version, 15 by default.
  */
 import { mkdtemp } from 'node:fs/promises';

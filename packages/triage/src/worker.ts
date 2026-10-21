@@ -86,7 +86,7 @@ export interface Logger {
 }
 
 export interface TriageOptions {
-  /** As the factory's writer. */
+  /** As triage's role (`factory_triage`). */
   sql: Sql;
   events: EventWriter;
   judge: Judge;
