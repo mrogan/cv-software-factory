@@ -27,8 +27,8 @@ The part's session orchestrates with the `/implement` skill (`.claude/skills/imp
   - a drill.
 
   Each is in the run's summary until it is done.
-- **Console designs come first.** Martin is not a frontend developer, so each new view is drawn in the mockup and the design system's README, and agreed with him before it is built. Snapshots are updated in the pinned image.
-- **Work in the app's repository** (Part B's OpenFeature and flagd) goes through `/implement` too, once task 13 lets it take a work item there.
+- **Console designs come first.** Each new view is drawn in the mockup and the design system's README, and agreed with him before it is built. Snapshots are updated in the pinned image.
+- **Work in the app's repository** (Part B's OpenFeature and flagd) goes through `/implement` too, once task 14 lets it take a work item there.
 
 ## Decisions
 
@@ -68,7 +68,7 @@ The part's session orchestrates with the `/implement` skill (`.claude/skills/imp
 
 - **One write path, separate from the console's server.** `factory admin` runs as its own Deployment in `factory`. Traefik routes `/admin/` on the console's host to it, so the browser sees one origin, while the console's server keeps its read-only role and never holds a session or a full event. The session cookie's path is `/`, as `__Host-` requires, so Traefik strips `Cookie` from every request it sends the console's server, and a test proves the server never receives one.
 - **Its database role appends Martin's commands and nothing else.** It may append its own event types (holds answered, the line stopped and started, autonomy, switches, settings, release controls, sign-ins) and read the full events Martin's views need. It reads and writes its own tables of passkeys, enrolment codes and sessions, and no other.
-- **Only Martin's roles can append Martin's commands.** Every worker holds `factory_writer`, and the intake and the crawler handle what the internet sends, so an event saying `actor: martin` proves nothing. Row security on `events` lets only the admin service's role, and the role `make stop-the-line` and `make start-the-line` use, append the admin event types; the store stamps each event with the role that appended it (`current_user`, never the client's to set); and the line, triage and the gateway act on an admin event only when that role is one of Martin's. Workers get no grant on the passkey, code and session tables. A test of the grants proves each, and that an admin event appended as `factory_writer` is refused.
+- **Only Martin's roles can append Martin's commands.** Every worker may append events, each with a role of its own (task 1), and the intake and the crawler handle what the internet sends, so an event saying `actor: martin` proves nothing. Row security on `events` lets only the admin service's role, and the role `make stop-the-line` and `make start-the-line` use, append the admin event types; the store stamps each event with the role that appended it (`current_user`, never the client's to set); and the line, triage and the gateway act on an admin event only when that role is one of Martin's. Workers get no grant on the passkey, code and session tables. A test of the grants proves each, and that an admin event appended by any worker's role is refused.
 - **It serves Martin the full events.** A live stream of full events, the public one's twin, goes to a signed-in session, which the stream checks again every few seconds, closing as soon as the session is signed out, revoked or expired. Report text is shown to him as spec 5.3 says, inserted as text.
 - **It is the one service of ours that may touch a Rollout.** It gets a Role in `website` that may patch the app's Rollout and its status, by name, for promote, pause, abort and retry. A Role names objects, not fields, so a ValidatingAdmissionPolicy refuses any change of the admin service's to the Rollout but `spec.paused` and the status fields promote, abort and retry set. `release-fences.test.ts` keeps every other service account away from the Rollout, and fails if this Role or that policy grows.
 - **Every action is an event.** Martin is the actor. The public view says what he did, and the console's audit log reads it like any other event.
@@ -143,16 +143,23 @@ Each task is its own pull request, in order, each demonstrable.
 ### 0. Settled before the start
 
 - Martin has agreed the decisions above.
-- The holds waiting in the store, 1002's at Plan among them, stay as they are, to be answered from the console in task 11.
+- The holds waiting in the store, 1002's at Plan among them, stay as they are, to be answered from the console in task 12.
 
-### 1. Local HTTPS
+### 1. A store role for each worker (#435)
+
+- Each worker that uses the store (triage, the line, the gateway, the probes, the crawler, the intake and the log watcher) connects as a role of its own, granted only the tables and columns it uses. The GitHub worker and the traffic generator never connect to the store, and get none. The grants say in one place what each worker may touch, and a test of each role's grants fails if one grows.
+- Every worker may still append events, through a role they are all members of, so task 4's row security names Martin's roles once and refuses every worker's.
+- The roles' passwords come from Secrets `make up` makes and the migrate Job sets, as the scoreboard's do, with a `make` target for a cluster made before.
+- It rolls out in three steps, each a merge and a deploy: the roles, in a migration; each Deployment switched to its own Secret, once the image that migrates them is pinned; then `factory_writer`'s grants on the tables taken away.
+
+### 2. Local HTTPS
 
 - `step` in `mise.toml`; `make up` makes the local authority, constrained to `localhost` names, has the Mac trust it, and gives Traefik its certificate as a Secret. A test shows the authority refuses to sign for any other name.
 - `deploy/k3d/cluster.yaml` maps `127.0.0.1:8443` to Traefik's 443. A cluster made before this needs making again (`make down`, `make up`), and the task says so where people will see it.
 - The console on `https://console.localhost:8443`, with plain HTTP redirecting: its ingress in `deploy/overlays/local/`, the addresses `make up`, `make samples`, `make real-store` and `make status` print, `AGENTS.md`, the e2e tests and the `try-the-line` skill.
 - `make up` on a fresh clone still works for someone who declines the trust prompt, and says what they lose.
 
-### 2. The designs
+### 3. The designs
 
 - In the mockup and the design system's README, agreed with Martin before anything is built:
   - the bottom row (Needs you and Controls);
@@ -164,7 +171,7 @@ Each task is its own pull request, in order, each demonstrable.
   - each one's read-only form for visitors.
 - The README's "Not decided yet" loses what this settles.
 
-### 3. Sign-in and the access policy
+### 4. Sign-in and the access policy
 
 - `policy/access.ts`, and the test that every route and action is in it.
 - `factory admin`: its Deployment, NetworkPolicy, Traefik route and database role, with its migration and a test of its grants. A `deploy/` change follows its image.
@@ -173,7 +180,7 @@ Each task is its own pull request, in order, each demonstrable.
 - Tests:
   - every write route refuses no session, an expired session, a revoked one, the wrong origin and a missing token;
   - enrolment refuses no code, a used one, an expired one and a sixth try;
-  - an admin event appended as `factory_writer` is refused, and one with `actor: martin` from any other role is ignored;
+  - an admin event appended by any worker's role is refused, and one with `actor: martin` from any other role is ignored;
   - the cookie's flags, and that the console's server never receives it;
   - the id changes at sign-in;
   - a WebAuthn challenge cannot be used twice, and an assertion with the wrong origin, the wrong relying party or no user verification is refused;
@@ -182,47 +189,47 @@ Each task is its own pull request, in order, each demonstrable.
   - forwarded headers from anywhere but the proxy are ignored.
 - The ZAP baseline scan in CI, and ADR 0012 with the threat model.
 
-### 4. Martin's view
+### 5. Martin's view
 
 - The full-event stream to a signed-in session; the console draws full events for Martin and public ones for everyone else from the same projection.
 - A report's text for Martin, as spec 5.3 says.
 - Preview as visitor: the public stream, served by the server, not hidden in the browser.
 
-### 5. Needs you
+### 6. Needs you
 
 - The bottom row's Needs you: one card per hold, the line's and triage's, with its cause, its evidence and what each answer does (`ANSWERS`).
 - Approve, reject or answer in words, appending `hold.answered`; words on a triage hold leave it held, as `WORDS_LEAVE_HELD` says.
 - For visitors, the same cards, read-only, with Martin's answers once given.
 
-### 6. Release controls
+### 7. Release controls
 
 - The admin service's Role on the app's Rollout, the admission policy that holds it to the fields its controls set, and `release-fences.test.ts` updated to allow it alone and to fail if either grows.
 - Promote (to the next step, or fully), pause, abort and retry on the Canary panel, each an event with Martin as its actor. Martin's abort is `release.aborted` with `by: martin`, recorded by the control rather than inferred from time: the version before takes all the traffic, nothing failed, and it is no signal. A rollback stays the analysis's alone. A retry ends the "until Martin retries it" holds that today take a `kubectl` patch.
 
-### 7. The line's controls
+### 8. The line's controls
 
-- Stop and start the line from the header, with a reason: the same events as `make stop-the-line`, and a canary in flight aborted through task 6's Role, as `scripts/abort-canaries.sh` does with Martin's own credentials. `make stop-the-line` keeps its own path.
+- Stop and start the line from the header, with a reason: the same events as `make stop-the-line`, and a canary in flight aborted through task 7's Role, as `scripts/abort-canaries.sh` does with Martin's own credentials. `make stop-the-line` keeps its own path.
 - The autonomy level, recorded; Part C makes it route.
 - The switches spec 5.4 names: agents taking new work, and auto-merge of low-risk changes, which does nothing until Part C. Auto-rollback is Part C's.
 - The line's take settings, read by the line in place of its variables.
 
-### 8. Models and spend
+### 9. Models and spend
 
 - The bounds in `policy/models.ts` and `policy/spend.ts`, the settings event, and the gateway reading it at an agent's next step.
 - The settings page: each agent's model and effort, all-local, and the caps; raising a cap answers a `spend` hold.
 - Spend against today's caps in Controls, for everyone.
 
-### 9. The audit log
+### 10. The audit log
 
 - Every agent action, model call and admin action, newest first, filtered by actor, work item and kind; the same view for everyone, from public views.
 
-### 10. Alerts
+### 11. Alerts
 
 - Alertmanager's Pushover receiver, its key from the Keychain, and its first NetworkPolicy, with `make egress` showing it reaches the intake and the internet on 443 and nothing else.
 - The routes by level, and the security events' rule, counted from the stored events outside the admin service, and Alertmanager's ingress limited to Prometheus and Grafana.
 - A test page from Martin's phone: a sign-in pages him.
 
-### 11. The runs
+### 12. The runs
 
 On the local cluster, on Claude, at Supervised:
 
@@ -231,7 +238,7 @@ On the local cluster, on Claude, at Supervised:
 - An agent's model changed in the settings, and its next step running on the new one.
 - Martin uses it all on a laptop and a phone, and approves it against `INTENT.md`.
 
-### 12. Documentation for Part A
+### 13. Documentation for Part A
 
 - `COMPONENTS/`: the console, a new admin page, the event store's roles, alerting, the gateway's settings, progressive delivery's controls, and the guardrails table.
 - `AGENTS.md`: the console's address, enrolling, and Pushover's key.
@@ -240,6 +247,7 @@ On the local cluster, on Claude, at Supervised:
 
 ### Part A is done when
 
+- [ ] Every worker uses the store with a role of its own, `factory_writer` has no grant on its tables, and the test of the grants passes.
 - [ ] Martin signs in with a passkey on a laptop and a phone, in Safari and Chrome, and no write succeeds without his session: the access tests and the ZAP scan pass.
 - [ ] Every hold in the store is answered from the console, and the line acts on each.
 - [ ] Stop the line, autonomy, the switches, the take settings, the release controls, the models and the caps are each changed from the console, recorded as events, and shown read-only to a visitor.
@@ -250,12 +258,12 @@ On the local cluster, on Claude, at Supervised:
 
 Outlined here, and detailed when Part A is done.
 
-- **13. `/implement` in the app's repository.** A work item may name the app's repository. Its worktree lives under this checkout's `scratch/`, its worker follows the app's `AGENTS.md` and `docs/REVIEWERS.md`, and nothing it writes, in code, commits, pull requests or replies, mentions or hints at seeded defects.
-- **14. OpenFeature and flagd in the app.** The SDK, flagd beside the app, its image admitted by digest, the variant on the app's telemetry, the browser id and preview cookies. This is platform work, so one of Martin's sessions builds it, as his drills were.
-- **15. Flags in the console.** The ConfigMap, the admin service's Role for it, and the stages and the kill switch in Controls, read-only for visitors.
-- **16. Verify by variant.** Verify judges flag-on against flag-off for a work item shipped behind a flag. The traffic generator carries a browser id.
-- **17. The "+".** A request from Martin becomes a work item of kind improvement. The planner's spec template takes a flag and its stages, its questions arrive in Needs you, and Martin approves the spec before any code. The server refuses an improvement from anyone else.
-- **18. The first improvement.** Dark mode, asked for with the "+", shipped behind a flag, verified on both sides, and switched on for everyone, with no human code.
+- **14. `/implement` in the app's repository.** A work item may name the app's repository. Its worktree lives under this checkout's `scratch/`, its worker follows the app's `AGENTS.md` and `docs/REVIEWERS.md`, and nothing it writes, in code, commits, pull requests or replies, mentions or hints at seeded defects.
+- **15. OpenFeature and flagd in the app.** The SDK, flagd beside the app, its image admitted by digest, the variant on the app's telemetry, the browser id and preview cookies. This is platform work, so one of Martin's sessions builds it, as his drills were.
+- **16. Flags in the console.** The ConfigMap, the admin service's Role for it, and the stages and the kill switch in Controls, read-only for visitors.
+- **17. Verify by variant.** Verify judges flag-on against flag-off for a work item shipped behind a flag. The traffic generator carries a browser id.
+- **18. The "+".** A request from Martin becomes a work item of kind improvement. The planner's spec template takes a flag and its stages, its questions arrive in Needs you, and Martin approves the spec before any code. The server refuses an improvement from anyone else.
+- **19. The first improvement.** Dark mode, asked for with the "+", shipped behind a flag, verified on both sides, and switched on for everyone, with no human code.
 
 **Done when:** an improvement goes from the "+" to everyone through each stage, its flag's two sides compared by Verify, and its kill switch shown to work.
 
@@ -263,15 +271,14 @@ Outlined here, and detailed when Part A is done.
 
 Outlined here, and detailed when Part B is done.
 
-- **19. Proofs in CI.** Tests for what is true today by convention:
+- **20. Proofs in CI.** Tests for what is true today by convention:
   - no workflow uses `pull_request_target` or a self-hosted runner;
   - the reviewer's check is not required, and no gate or merge path calls a model;
   - only the gateway mounts a model key;
   - the runners' network policies render as intended.
 
   The rulesets' drift check (`github-settings.ts --check`) runs on a schedule.
-- **19a. A store role for each worker that uses the store (#435).** Each writes as `factory_writer` today; each gets a role of its own, granted only the tables it needs, with a test of each role's grants. The GitHub worker and the traffic generator never connect to the store, and get none.
-- **20. `make guardrails`.** One command for the proofs that need the cluster:
+- **21. `make guardrails`.** One command for the proofs that need the cluster:
   - egress;
   - admission's refusals;
   - the App's refusal to write a workflow;
@@ -279,12 +286,12 @@ Outlined here, and detailed when Part B is done.
   - a rollback.
 
   Each records its result as an event with the mechanism's refusal verbatim, so the console says when each guardrail was last proved.
-- **21. The red-team harness.** The attacks in spec 5.3, run by Martin from admin, each recording `attack.launched` and the refusal. It adds adversarial inputs in logs and page content for guardrail 8. Milestone 8 puts its menu in front of visitors.
-- **22. Blocked actions.** `action.refused` from every mechanism: the gateway, the GitHub worker and Kyverno, beside the scope fence. A guardrails panel: each guardrail, its mechanism, its last proof and its recent refusals, and one line for those that cannot be switched off.
-- **23. Approval routing.** The deterministic risk tags, worked out by the check itself; the approval-routing check, run from the base commit, pinned to GitHub Actions, reading Martin's review of the head commit and passing pins only line by line; the factory's own code and the check's script made code-owned; the App's bypass of the review ruleset (ADR 0009); and the line reading the autonomy level. A dry-run soak at Guarded, then Guarded for real.
-- **24. Auto-rollback's switch.** Off leaves a failed canary paused for Martin rather than rolled back. Switching it off needs the passkey again and pages him.
-- **25. Guardrail 10 as written.** Its App answers an outside issue politely. The factory reads no issue as input today, so "acts only on issues it created or Martin labelled" holds by construction; whether a label of Martin's becomes a way in beside the "+" is settled when this part is detailed.
-- **26. Alerts for the factory.** Its health (a worker crash-looping, a lease stuck, the store down, Argo CD degraded), releases and spend, at their levels.
+- **22. The red-team harness.** The attacks in spec 5.3, run by Martin from admin, each recording `attack.launched` and the refusal. It adds adversarial inputs in logs and page content for guardrail 8. Milestone 8 puts its menu in front of visitors.
+- **23. Blocked actions.** `action.refused` from every mechanism: the gateway, the GitHub worker and Kyverno, beside the scope fence. A guardrails panel: each guardrail, its mechanism, its last proof and its recent refusals, and one line for those that cannot be switched off.
+- **24. Approval routing.** The deterministic risk tags, worked out by the check itself; the approval-routing check, run from the base commit, pinned to GitHub Actions, reading Martin's review of the head commit and passing pins only line by line; the factory's own code and the check's script made code-owned; the App's bypass of the review ruleset (ADR 0009); and the line reading the autonomy level. A dry-run soak at Guarded, then Guarded for real.
+- **25. Auto-rollback's switch.** Off leaves a failed canary paused for Martin rather than rolled back. Switching it off needs the passkey again and pages him.
+- **26. Guardrail 10 as written.** Its App answers an outside issue politely. The factory reads no issue as input today, so "acts only on issues it created or Martin labelled" holds by construction; whether a label of Martin's becomes a way in beside the "+" is settled when this part is detailed.
+- **27. Alerts for the factory.** Its health (a worker crash-looping, a lease stuck, the store down, Argo CD degraded), releases and spend, at their levels.
 
 **Done when:** every guardrail has a test or a demo that runs from one command and is shown in the console; a fix goes end to end at Guarded with nobody touching it; a risk-tagged change waits in Needs you until Martin approves; and each red-team attack is stopped by its mechanism, with the refusal shown.
 
@@ -306,7 +313,7 @@ Outlined here, and detailed when Part B is done.
 ## Risks
 
 - **The admin service is a new way in.** It is the only write path a browser reaches. It is small, refuses by default, has its own role and Role, is reviewed for security on every change, and its tests and scan run in CI.
-- **A worker could pose as Martin.** Every worker shares `factory_writer`, and some handle what the internet sends. Row security on the admin event types, and every reader checking the appending role, keep Martin's commands his; #435 then gives each worker a role of its own.
+- **A worker could pose as Martin, or touch another's tables.** Some workers handle what the internet sends. Each has a role of its own, granted only what it uses, and row security on the admin event types, with every reader checking the appending role, keeps Martin's commands his.
 - **Guarded merges into a public repository with nobody watching.** A dry-run soak comes first, the routing check rather than the line decides, the canary's rollback is the guard after the merge, and tightening autonomy is one click.
 - **Flag state lives outside Git.** It is the one piece of production state Argo CD does not hold. Every change is an event, so the audit log is its history, and a flag's default in the app's code is off.
 - **Alertmanager reaches the internet.** It is allowed out on 443 as Kyverno is, until egress by host name (#176).
