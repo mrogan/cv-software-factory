@@ -96,11 +96,11 @@ spec:
             - name: PGDATABASE
               value: factory
             - name: PGUSER
-              value: factory_writer
+              value: factory_line
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-writer
+                  name: postgres-line
                   key: password
             - name: RUNNER_IMAGE
               value: factory-runner
