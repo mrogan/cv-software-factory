@@ -57,11 +57,11 @@ spec:
             - name: PGDATABASE
               value: factory
             - name: PGUSER
-              value: factory_writer
+              value: factory_gateway
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-writer
+                  name: postgres-gateway
                   key: password
             - name: GATEWAY_MODE
               value: record

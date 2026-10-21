@@ -30,7 +30,7 @@ What it lacks is telemetry: OpenTelemetry instruments `pg` and not postgres.js, 
 
 | Role | May |
 |---|---|
-| The factory's writer | Append and read; delete the pictures no release needs, and the inbox's old repeats ([triage](TRIAGE.md#matching-an-open-ticket)) but no other signal, which row security refuses. Every worker connects as it until it moves to its own role ([#435](https://github.com/mrogan/cv-software-factory/issues/435)) |
+| The factory's writer | Append and read; delete the pictures no release needs, and the inbox's old repeats ([triage](TRIAGE.md#matching-an-open-ticket)) but no other signal, which row security refuses. No worker connects as it any more: each uses its own. Its grants go next ([#435](https://github.com/mrogan/cv-software-factory/issues/435)), once the tests and make targets that still use it have moved |
 | Each worker's own | What that worker uses and nothing else, and append and read events through a role they share |
 | The console's reader | See public views only |
 | The Postgres exporter's reader | Read the statistics any role may read, and nothing of the store |

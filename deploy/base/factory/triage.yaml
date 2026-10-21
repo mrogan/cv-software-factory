@@ -54,11 +54,11 @@ spec:
             - name: PGDATABASE
               value: factory
             - name: PGUSER
-              value: factory_writer
+              value: factory_triage
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-writer
+                  name: postgres-triage
                   key: password
             - name: GATEWAY_URL
               value: http://gateway:8080

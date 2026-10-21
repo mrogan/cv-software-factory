@@ -53,11 +53,11 @@ spec:
             - name: PGDATABASE
               value: factory
             - name: PGUSER
-              value: factory_writer
+              value: factory_logs
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-writer
+                  name: postgres-logs
                   key: password
             - name: PROMETHEUS_URL
               value: http://query.telemetry:9090

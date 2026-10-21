@@ -54,11 +54,11 @@ spec:
             - name: PGDATABASE
               value: factory
             - name: PGUSER
-              value: factory_writer
+              value: factory_crawler
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-writer
+                  name: postgres-crawler
                   key: password
             # The app's stable Service: all of the app between releases. A canary is judged by its analysis, not here.
             - name: APP_URL
