@@ -13,9 +13,12 @@ import { connect } from './client.ts';
 /** Gives Martin's role this password, as the owner, and says which role to connect as. */
 export async function readyOperator(sql: Sql, password: string): Promise<'factory_operator' | 'factory_writer'> {
   if (!password) throw new Error("No password for Martin's role");
-  const [role] = await sql<{ exists: boolean }[]>`
-    select exists (select 1 from pg_roles where rolname = 'factory_operator') as exists`;
-  if (!role?.exists) return 'factory_writer';
+  // Roles belong to the whole server, so another database may have made it: this one is migrated when the role may
+  // append its events.
+  const [role] = await sql<{ ready: boolean }[]>`
+    select exists (select 1 from pg_roles where rolname = 'factory_operator')
+       and has_table_privilege('factory_operator', 'events', 'insert') as ready`;
+  if (!role?.ready) return 'factory_writer';
   // A role's password cannot be a query parameter; the literal is escaped instead.
   await sql.unsafe(`alter role factory_operator password '${password.replaceAll("'", "''")}'`);
   return 'factory_operator';
