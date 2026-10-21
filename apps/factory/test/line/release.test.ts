@@ -22,9 +22,15 @@ import { FakeGitHub, FakeProbes, FakeSteps } from './fakes.ts';
 const { spans } = recordSpans();
 let database: Database;
 let events: EventWriter;
+/** Martin's commands, from the admin service's role: only his roles may append them. */
+let martin: EventWriter;
 beforeEach(async () => {
   database = await freshDatabase('release');
   events = new EventWriter(database.as.line, {
+    kind: 'real',
+    artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
+  });
+  martin = new EventWriter(database.admin, {
     kind: 'real',
     artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
   });
@@ -767,7 +773,7 @@ describe('a rollback, as signals to triage', () => {
     const { line: it, kube, carried } = await underWay();
     // `make stop-the-line`: the line's stop, then the abort, which Argo Rollouts keeps to the second, cut short.
     const stop = event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin');
-    await events.append([{ ...stop, ts: new Date(now + 400).toISOString() }]);
+    await martin.append([{ ...stop, ts: new Date(now + 400).toISOString() }]);
     kube.rollout = rollout({
       current: CANARY,
       stable: STABLE,
@@ -780,7 +786,7 @@ describe('a rollback, as signals to triage', () => {
     expect(await typesOf(carried)).toEqual(['release.started by rollouts', 'release.aborted by martin']);
     expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'stop' }]);
     now += 60_000;
-    await events.append([event(null, 'line.started', { autonomy: 'guarded' }, 'martin')]);
+    await martin.append([event(null, 'line.started', { autonomy: 'guarded' }, 'martin')]);
     await it.tick();
     expect(await stage(carried)).toBe('held');
     // Martin retries it.
@@ -798,7 +804,7 @@ describe('a rollback, as signals to triage', () => {
 
   it('takes an abort long after the line stopped for Martin’s own', async () => {
     const { line: it, kube, carried } = await underWay();
-    await events.append([event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin')]);
+    await martin.append([event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin')]);
     kube.rollout = rollout({
       current: CANARY,
       stable: STABLE,
@@ -1024,7 +1030,7 @@ describe('Verify on the line', () => {
       kind: 'approval',
       cause: 'verify',
     });
-    await events.append([
+    await martin.append([
       event(workItem, 'hold.answered', { decision: 'approved', answer: 'The page is right now' }, 'martin'),
     ]);
     await pass(it);

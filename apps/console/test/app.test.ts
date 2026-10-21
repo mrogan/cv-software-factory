@@ -8,6 +8,7 @@ import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import type { RawEvent } from '@software-factory/events';
 import { type ArtifactStore, DiskArtifacts } from '@software-factory/store';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ACCESS, type Access, type Name, routeOf, type ServedBy } from '../../../policy/access.ts';
 import { createApp } from '../src/app.ts';
 import { Feed } from '../src/feed.ts';
 import { loadSite } from '../src/site.ts';
@@ -219,6 +220,39 @@ describe('the console server', () => {
     const res = await fetch(`${base}/nope`);
     expect(res.status).toBe(404);
     expect(await res.text()).toContain('The console lives at /.');
+  });
+
+  it('answers every route the access table gives it, and nothing the table does not', async () => {
+    // A path for each of the console's routes in policy/access.ts: a test of a route the table lacks fails here.
+    const paths: Record<ServedBy<'console'>, string[]> = {
+      page: ['/', '/index.html'],
+      files: ['/assets/index-AbC123.js'],
+      events: ['/api/events'],
+      // A stream never ends, so it is read by the tests above.
+      stream: [],
+      artifacts: [`/artifacts/${screenshot}`],
+      health: ['/health'],
+      version: ['/version'],
+    };
+    for (const [name, access] of Object.entries(ACCESS) as [Name, Access][]) {
+      if (access.server !== 'console') continue;
+      expect(paths[name as ServedBy<'console'>], name).toBeDefined();
+      for (const path of paths[name as ServedBy<'console'>]) {
+        expect(routeOf('console', 'GET', path)?.name, path).toBe(name);
+        const res = await fetch(`${base}${path}`, { method: 'HEAD' });
+        expect(res.status, path).toBe(200);
+      }
+    }
+    expect(routeOf('console', 'GET', '/api/events/stream')?.name).toBe('stream');
+    expect(Object.keys(paths).sort()).toEqual(
+      (Object.entries(ACCESS) as [Name, Access][])
+        .filter(([, a]) => a.server === 'console')
+        .map(([n]) => n)
+        .sort(),
+    );
+    for (const path of ['/admin/', '/admin/sign-in', '/index.htm', '/assets', '/api', '/favicon.ico']) {
+      expect((await fetch(`${base}${path}`)).status, path).toBe(404);
+    }
   });
 
   it('refuses methods other than GET and HEAD', async () => {

@@ -9,12 +9,14 @@ import { BURST, INBOX } from '../../../../policy/triage.ts';
 import { type Database, freshDatabase } from '../../../store/test/database.ts';
 import { burstEvents, idsFor, senseEvidence, senseTicket } from '../../src/events.ts';
 import { type Answer, type Judge, JudgeWaiting } from '../../src/judge.ts';
-import { Triage, type TriageOptions } from '../../src/worker.ts';
+import { lineStopped, Triage, type TriageOptions } from '../../src/worker.ts';
 
 let database: Database;
 let writer: Sql;
 const artifacts = new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-')));
 let events: EventWriter;
+/** Martin's commands, from the admin service's role: only his roles may append them. */
+let martin: EventWriter;
 const quiet = { info: () => {}, warn: () => {} };
 const at = '2026-10-04T09:00:00.000Z';
 
@@ -22,6 +24,7 @@ beforeAll(async () => {
   database = await freshDatabase('triage');
   writer = database.as.triage;
   events = new EventWriter(writer, { kind: 'real', artifacts });
+  martin = new EventWriter(database.admin, { kind: 'real', artifacts });
 });
 afterAll(() => database?.end());
 
@@ -552,8 +555,8 @@ describe('triage', () => {
         select work_item from inbox where outcome = 'finding' order by received_at desc limit 1`;
       return row?.work_item ?? '';
     };
-    const answer = (item: string, decision: 'approved' | 'rejected' | 'answered') =>
-      events.append({
+    const answerOf = (item: string, decision: 'approved' | 'rejected' | 'answered') =>
+      ({
         id: crypto.randomUUID(),
         ts: at,
         work_item: item,
@@ -563,7 +566,9 @@ describe('triage', () => {
         summary: `Martin ${decision} it`,
         payload: { decision },
         artifacts: [],
-      } as NewEvent<'hold.answered'>);
+      }) as NewEvent<'hold.answered'>;
+    const answer = (item: string, decision: 'approved' | 'rejected' | 'answered') =>
+      martin.append(answerOf(item, decision));
     const closing = async (item: string) =>
       (
         await writer<{ payload: { outcome: string; reason: string } }[]>`
@@ -657,6 +662,44 @@ describe('triage', () => {
       const late = await park('/returns', '3');
       expect(late).not.toBe(item);
       expect(await types(late)).toContain('hold.started');
+    });
+
+    it('ignores an approval or a stop that says it is Martin’s from any other role, and logs each once', async () => {
+      const item = await park('/forged');
+      const warned: string[] = [];
+      const log = { ...quiet, warn: (_details: object, message: string) => void warned.push(message) };
+      // Were row security on the events ever to fail, triage's own role could append them: it still heeds neither.
+      await database.owner`alter table events disable row level security`;
+      try {
+        await events.append([
+          answerOf(item, 'approved'),
+          {
+            id: crypto.randomUUID(),
+            ts: at,
+            work_item: null,
+            type: 'line.stopped',
+            version: 1,
+            actor: 'martin',
+            summary: 'Martin stopped the line',
+            payload: { reason: 'A test' },
+            artifacts: [],
+          },
+        ] as NewEvent[]);
+      } finally {
+        await database.owner`alter table events enable row level security`;
+      }
+      const worker = triage({ log });
+      expect(await worker.settleOne()).toBe(false);
+      expect(await lineStopped(writer)).toBe(false);
+      expect(await types(item)).not.toContain('ticket.opened');
+      expect(warned.filter((message) => message.startsWith('ignored'))).toEqual([
+        "ignored hold.answered: factory_triage appended it, and it is not one of Martin's roles",
+        "ignored line.stopped: factory_triage appended it, and it is not one of Martin's roles",
+      ]);
+      // Martin's own approval, from his role, is acted on.
+      await answer(item, 'approved');
+      expect(await worker.settleOne()).toBe(true);
+      expect(await types(item)).toContain('ticket.opened');
     });
 
     it('waits while Martin only answers, and opens its ticket by the policy’s table when he approves', async () => {
@@ -884,7 +927,7 @@ describe('triage', () => {
 
   it('takes nothing while the line is stopped, and carries on when it starts again', async () => {
     const line = (type: 'line.stopped' | 'line.started', payload: object) =>
-      events.append({
+      martin.append({
         id: crypto.randomUUID(),
         ts: at,
         work_item: null,
@@ -920,7 +963,7 @@ describe('triage', () => {
     );
     await expect.poll(() => calls).toBe(1);
     // An event, such as Martin's answer, is appended while the first settling is still reading.
-    await events.append({
+    await martin.append({
       id: crypto.randomUUID(),
       ts: at,
       work_item: null,
@@ -1003,7 +1046,7 @@ describe('triage', () => {
   describe('a burst of new problems from one sense', () => {
     const page = (n: number, overrides: Partial<InboxSignal> = {}) => found({ route: `/burst/${n}`, ...overrides });
     const answer = (item: string, decision: 'approved' | 'rejected' | 'answered') =>
-      events.append({
+      martin.append({
         id: crypto.randomUUID(),
         ts: at,
         work_item: item,
@@ -1226,7 +1269,7 @@ describe('triage', () => {
     const logs = (overrides: Partial<InboxSignal> = {}) =>
       found({ sense: 'logs', check: 'every request leaves a record', symptom: 'missing-log', ...overrides });
     const answer = (item: string, decision: 'approved' | 'rejected') =>
-      events.append({
+      martin.append({
         id: crypto.randomUUID(),
         ts: at,
         work_item: item,

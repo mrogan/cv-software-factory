@@ -64,7 +64,7 @@ import { hostname } from 'node:os';
 import { trace } from '@opentelemetry/api';
 import type { Evidence, PayloadOf, RawEvent, SignalSource, SymptomClass } from '@software-factory/events';
 import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD, workItemsWords } from '@software-factory/events';
-import { type EventWriter, sendSignal } from '@software-factory/store';
+import { type EventWriter, fromMartin, IgnoredCommands, sendSignal } from '@software-factory/store';
 import { lineStopped, uuidFrom } from '@software-factory/triage';
 import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
@@ -260,6 +260,8 @@ export class Line {
   #dryRunsEnded: boolean;
   /** The work items whose dry run's leftovers could not be ended on the last try, which wait for the next. */
   readonly #dryRunLeft = new Set<string>();
+  /** Martin's commands that a role not his appended: ignored, and each logged once. */
+  readonly #ignored: IgnoredCommands;
 
   constructor(options: LineOptions) {
     this.#o = {
@@ -283,6 +285,7 @@ export class Line {
       take: null,
       ...options,
     };
+    this.#ignored = new IgnoredCommands(this.#o.sql, this.#o.log);
     this.#queue = new Queue(options.sql, options.me ?? `line-${hostname()}`, {
       only: this.#o.only,
       take: this.#o.take,
@@ -307,6 +310,7 @@ export class Line {
    * ticket if there is room, and starts whatever each work item needs next. Steps carry on after it returns.
    */
   async tick(): Promise<void> {
+    await this.#ignored.check();
     if (await lineStopped(this.#o.sql)) {
       if (!this.#stopped) {
         this.#stopped = true;
@@ -1547,10 +1551,14 @@ export class Line {
       .map(({ report: _report, ...signal }) => signal);
   }
 
-  /** A work item's events, upcast, and the last of them by its place in the store. */
+  /**
+   * A work item's events, upcast, and the last of them by its place in the store: Martin's answers only from his roles.
+   */
   async #raw(workItem: string): Promise<{ raw: { type: string; payload: unknown }[]; last: number }> {
-    const rows = await this.#o.sql<RawEvent[]>`
-      select seq, type, version, payload from events where work_item = ${workItem} order by seq`;
+    const { sql } = this.#o;
+    const rows = await sql<RawEvent[]>`
+      select e.seq, e.type, e.version, e.payload from events e
+      where e.work_item = ${workItem} and ${fromMartin(sql, 'e')} order by e.seq`;
     const raw = rows.flatMap((row) => {
       const read = upcast({ ...row, seq: Number(row.seq) });
       return read.ok ? [{ type: read.event.type, payload: read.event.payload }] : [];

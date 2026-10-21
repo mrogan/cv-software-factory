@@ -25,7 +25,8 @@
  */
 
 import { context, propagation, ROOT_CONTEXT, type Span, SpanStatusCode, trace } from '@opentelemetry/api';
-import { jobForToken } from '@software-factory/store';
+import { IgnoredCommands, jobForToken } from '@software-factory/store';
+import { lineStopped } from '@software-factory/triage';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { type AgentModel, MODEL_AGENTS, type ModelAgent, modelFor } from '../../../../policy/models.ts';
@@ -160,9 +161,12 @@ const header = (headers: Headers, name: string) => {
 export class AgentCalls {
   readonly #o: AgentCallsOptions;
   #line: { stopped: boolean; at: number } | undefined;
+  /** Martin's commands that a role not his appended: ignored, and each logged once. */
+  readonly #ignored: IgnoredCommands;
 
   constructor(options: AgentCallsOptions) {
     this.#o = options;
+    this.#ignored = new IgnoredCommands(options.sql, options.log);
   }
 
   #now(): number {
@@ -426,9 +430,9 @@ export class AgentCalls {
   async #lineStopped(): Promise<boolean> {
     const now = this.#now();
     if (this.#line && now - this.#line.at < LINE_FRESH_MS) return this.#line.stopped;
-    const [last] = await this.#o.sql<{ type: string }[]>`
-      select type from events where type in ('line.stopped', 'line.started') order by seq desc limit 1`;
-    this.#line = { stopped: last?.type === 'line.stopped', at: now };
+    // Only Martin's roles stop and start the line; a stop or start any other appended is ignored, and logged once.
+    await this.#ignored.check();
+    this.#line = { stopped: await lineStopped(this.#o.sql), at: now };
     return this.#line.stopped;
   }
 

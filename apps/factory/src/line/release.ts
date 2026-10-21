@@ -36,7 +36,7 @@
 
 import { type Attributes, trace } from '@opentelemetry/api';
 import { type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
-import { lastEnd, sendSignal } from '@software-factory/store';
+import { fromMartin, lastEnd, sendSignal } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import type { Prometheus } from '../clients/prometheus.ts';
@@ -414,9 +414,10 @@ export class Releases {
   async #abortedBy(at: string): Promise<'stop' | 'martin'> {
     const { sql } = this.#o;
     const [last] = await sql<{ type: string; ts: Date }[]>`
-      select type, ts from events
-      where type in ('line.started', 'line.stopped') and ts < ${at}::timestamptz + interval '1 second'
-      order by seq desc limit 1`;
+      select e.type, e.ts from events e
+      where e.type in ('line.started', 'line.stopped') and e.ts < ${at}::timestamptz + interval '1 second'
+        and ${fromMartin(sql, 'e')}
+      order by e.seq desc limit 1`;
     const just = last && Date.parse(at) - new Date(last.ts).getTime() <= 60_000;
     return last?.type === 'line.stopped' && just ? 'stop' : 'martin';
   }

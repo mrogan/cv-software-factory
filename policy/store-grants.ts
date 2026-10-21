@@ -23,15 +23,26 @@ export interface RoleGrants {
    * it is not named for here.
    */
   rows?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /**
+   * One of Martin's roles: row security lets it append his commands (the admin event types, `ADMIN_TYPES` in the events
+   * package), and the line, triage and the gateway act on an admin event only when one of these appended it.
+   */
+  martin?: true;
 }
 
 /** The columns a sense may give a signal: the rest are triage's, or the store's defaults. */
 const SIGNAL = 'insert (id, sense, fingerprint, signal)';
 
+/** Every role that reads the events reads every row: the console's reads only the columns of their public views. */
+const READ = 'true';
+/** Every role but Martin's appends any event but his commands. */
+const NOT_HIS = 'NOT admin_event(type)';
+
 export const STORE_GRANTS = {
   factory_worker: {
-    for: 'Every worker, as a member: read and append events. It cannot log in.',
+    for: "Every worker, as a member: read and append events, but Martin's commands. It cannot log in.",
     on: { events: ['select', 'insert'], store: ['select', 'insert'] },
+    rows: { events: { select: READ, insert: NOT_HIS } },
   },
   factory_triage: {
     for: 'Triage: takes each signal, records what it made of it, prunes the repeats it counted, numbers work items.',
@@ -105,7 +116,9 @@ export const STORE_GRANTS = {
     rows: { inbox: { select: "sense in ('logs', 'report')", insert: "sense in ('logs', 'report')" } },
   },
   factory_writer: {
-    for: 'The make targets that write to the store, and some tests; no worker connects as it (#435).',
+    for:
+      'Some tests, until its grants are taken away (#435): no worker or make target connects as it, and it appends no ' +
+      "command of Martin's.",
     on: {
       events: ['select', 'insert'],
       store: ['select', 'insert'],
@@ -119,8 +132,51 @@ export const STORE_GRANTS = {
       step_logs: ['select', 'insert'],
     },
     rows: {
+      events: { select: READ, insert: NOT_HIS },
       inbox: { select: 'true', insert: 'true', update: 'true', delete: "outcome = 'counted'" },
       looks: { all: 'true' },
+    },
+  },
+  factory_admin: {
+    for:
+      "The admin service: appends Martin's commands and nothing else, reads the full events his views need, and keeps " +
+      'the passkeys, enrolment codes, sessions and WebAuthn challenges of signing in (0023_martins-commands.sql).',
+    martin: true,
+    on: {
+      events: ['select', 'insert'],
+      store: ['select', 'insert'],
+      passkeys: [
+        'select',
+        'insert (id, public_key, sign_count, transports, name, enrolled_with)',
+        'update (sign_count, last_used_at, revoked_at)',
+      ],
+      enrolment_codes: ['select', 'update (tries, used_at)'],
+      sessions: ['select', 'insert (id_sha256, passkey, expires_at)', 'update (stepped_up_at, ended_at, ended_by)'],
+      webauthn_challenges: [
+        'select',
+        'insert (challenge, purpose, session, code_sha256, expires_at)',
+        'update (used_at)',
+        'delete',
+      ],
+    },
+    rows: { events: { select: READ, insert: 'admin_event(type)' } },
+  },
+  factory_operator: {
+    for:
+      'Martin from the command line: `make stop-the-line`, `make start-the-line` and `make samples`. It appends any ' +
+      'event, his commands among them; no pod holds its password.',
+    martin: true,
+    on: { events: ['select', 'insert'], store: ['select', 'insert'] },
+    rows: { events: { select: READ, insert: 'true' } },
+  },
+  factory_enrol: {
+    for:
+      '`factory admin enrol`: adds an enrolment code, and revokes passkeys and their sessions. Nothing else, and no ' +
+      'pod holds its password.',
+    on: {
+      enrolment_codes: ['insert (code_sha256)'],
+      passkeys: ['select (id, name, enrolled_at, last_used_at, revoked_at)', 'update (revoked_at)'],
+      sessions: ['select (passkey, ended_at)', 'update (ended_at, ended_by)'],
     },
   },
   console_reader: {
@@ -129,13 +185,20 @@ export const STORE_GRANTS = {
       events: ['select (seq, id, ts, work_item, type, version, actor, public, appended_at)'],
       store: ['select'],
     },
+    rows: { events: { select: READ } },
   },
   scoreboard_writer: {
     for: 'The scoreboard: reads events and appends its own figures to a real store (0012_scoreboard.sql).',
     on: { events: ['select', 'insert'], store: ['select'] },
+    rows: { events: { select: READ, insert: "type = 'score.updated'" } },
   },
   metrics_reader: {
     for: "The Postgres exporter: the server's statistics, and nothing of the store.",
     on: {},
   },
 } as const satisfies Record<string, RoleGrants>;
+
+/** Martin's roles: the only ones that may append his commands, and the only ones the factory heeds them from. */
+export const MARTINS_ROLES = Object.entries(STORE_GRANTS as Record<string, RoleGrants>)
+  .filter(([, grants]) => grants.martin)
+  .map(([role]) => role);

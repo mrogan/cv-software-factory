@@ -1,5 +1,5 @@
 # Applies whatever migrations the store has not had, then sets the passwords of the writer, the console, the
-# scoreboard, the Postgres exporter and each worker from their Secrets. A Sync hook in wave 1: after Postgres (wave 0)
+# scoreboard, the Postgres exporter, each worker and Martin's command line from their Secrets. A Sync hook in wave 1: after Postgres (wave 0)
 # is healthy, before the console (wave 2) starts. It runs the console's image, which carries the migrations, so a new
 # image brings its migrations with it.
 apiVersion: batch/v1
@@ -105,6 +105,14 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-logs
+                  key: password
+                  optional: true
+            # Martin's own role, which `make stop-the-line` and the like connect as (0023_martins-commands.sql), made by
+            # `make up`; no other pod reads it. Optional, so a cluster made before it still migrates.
+            - name: OPERATOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-operator
                   key: password
                   optional: true
           resources:

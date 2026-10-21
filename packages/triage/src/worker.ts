@@ -40,7 +40,14 @@ import type {
   SignalSource,
   SymptomClass,
 } from '@software-factory/events';
-import { type EventWriter, fingerprintOf, lastEnd, nextWorkItem } from '@software-factory/store';
+import {
+  type EventWriter,
+  fingerprintOf,
+  fromMartin,
+  IgnoredCommands,
+  lastEnd,
+  nextWorkItem,
+} from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { BURST, ENVIRONMENT, INBOX, SYMPTOMS } from '../../../policy/triage.ts';
 import {
@@ -128,9 +135,12 @@ export class Triage {
    * not tried for ever. Leaving it starts the hold again in the store, so a restart has nothing answered to try.
    */
   readonly #settleFailures = new Map<string, number>();
+  /** Martin's commands that a role not his appended: ignored, and each logged once. */
+  readonly #ignored: IgnoredCommands;
 
   constructor(options: TriageOptions) {
     this.#o = { now: () => new Date(), ...options };
+    this.#ignored = new IgnoredCommands(this.#o.sql, this.#o.log);
   }
 
   /** Takes one signal, if the line is running and one is waiting, and triages it. */
@@ -223,6 +233,7 @@ export class Triage {
   async settleOne(): Promise<boolean> {
     const { sql, events, log } = this.#o;
     const now = this.#o.now();
+    await this.#ignored.check();
     if (await lineStopped(sql)) return false;
     if (await this.#settleHeld()) return true;
     const answered = (await parkedFindings(sql)).find((parked) => parked.decision !== null);
@@ -642,7 +653,7 @@ async function parkedFindings(sql: Sql): Promise<Parked[]> {
     from events h
     left join lateral (
       select a.payload->>'decision' as decision, a.seq from events a
-      where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq
+      where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq and ${fromMartin(sql, 'a')}
       order by a.seq desc limit 1
     ) a on true
     where h.type = 'hold.started' and h.payload->>'cause' = 'finding'
@@ -693,7 +704,7 @@ async function heldSignals(sql: Sql): Promise<Held[]> {
     from events h
     left join lateral (
       select a.payload->>'decision' as decision, a.seq from events a
-      where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq
+      where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq and ${fromMartin(sql, 'a')}
       order by a.seq desc limit 1
     ) a on true
     where h.type = 'hold.started' and h.payload->>'cause' in ('burst', 'environment')
@@ -714,10 +725,14 @@ async function heldSignals(sql: Sql): Promise<Held[]> {
 /** Whether a signal's words are for Jev to judge: a visitor's report, or a planner's finding. */
 const judged = (signal: InboxSignal) => signal.sense === 'report' || signal.sense === 'planner';
 
-/** Whether the line is stopped: the last of `line.started` and `line.stopped` decides. */
+/**
+ * Whether the line is stopped: the last of `line.started` and `line.stopped` that one of Martin's roles appended
+ * decides.
+ */
 export async function lineStopped(sql: Sql): Promise<boolean> {
   const [last] = await sql<{ type: string }[]>`
-    select type from events where type in ('line.started', 'line.stopped') order by seq desc limit 1`;
+    select e.type from events e where e.type in ('line.started', 'line.stopped') and ${fromMartin(sql, 'e')}
+    order by e.seq desc limit 1`;
   return last?.type === 'line.stopped';
 }
 

@@ -16,11 +16,12 @@ STORE_WORKERS := triage line gateway probes crawler intake logs
 # The local certificate authority behind the console's HTTPS, outside the repository (scripts/local-ca.ts).
 LOCAL_CA = $(or $(shell node scripts/local-ca.ts dir),$(error node cannot say where the local CA is: run 'mise install'))
 
-# $(call as-writer,command): run a command on the host as the factory's writer, through a port-forward to Postgres.
-as-writer = $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
+# $(call as-operator,command): run a command on the host as Martin's own role in the store, through a port-forward to
+# Postgres. Only his roles may append his commands (packages/store/migrations/0023_martins-commands.sql).
+as-operator = $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
 	trap 'kill $$forward' EXIT; sleep 2; \
-	PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory PGUSER=factory_writer \
-	PGPASSWORD="$$($(KUBECTL) -n factory get secret postgres-writer -o jsonpath='{.data.password}' | base64 -d)" $(1)
+	PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory PGUSER=factory_operator \
+	PGPASSWORD="$$($(KUBECTL) -n factory get secret postgres-operator -o jsonpath='{.data.password}' | base64 -d)" $(1)
 
 # $(call secret,namespace,name,data): create a Secret unless it exists.
 secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null && \
@@ -48,6 +49,8 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@$(call secret,factory,postgres-writer,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-console,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-metrics,--from-literal=password="$$(openssl rand -hex 24)")
+	@# Martin's own role, for the make targets that append his commands: the migrate Job sets it, and no other pod reads it.
+	@$(call secret,factory,postgres-operator,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(MAKE) --no-print-directory worker-secrets
 	@$(MAKE) --no-print-directory gateway-key
 	@$(MAKE) --no-print-directory github-key
@@ -191,8 +194,8 @@ samples: node_modules ## Load the sample work items into the cluster's store, wi
 	@COPYFILE_DISABLE=1 tar -C packages/samples/log/artifacts -cf - . | \
 		$(KUBECTL) -n factory exec -i artifacts-copier -- tar -C /var/lib/factory/artifacts -xf -
 	@$(KUBECTL) -n factory delete pod artifacts-copier --wait=false >/dev/null
-	@# Then the events, as the factory's writer, through a port-forward to Postgres.
-	@$(call as-writer,ARTIFACTS_DIR=packages/samples/log/artifacts node apps/factory/src/cli.ts events load packages/samples/log)
+	@# Then the events, as Martin, through a port-forward to Postgres: the samples hold his commands too.
+	@$(call as-operator,ARTIFACTS_DIR=packages/samples/log/artifacts node apps/factory/src/cli.ts events load packages/samples/log)
 	@echo "  Console  https://console.localhost:8443"
 
 real-store: node_modules ## Replace the cluster's store with an empty one for real events (FORCE=1 if it holds some)
@@ -213,11 +216,11 @@ real-store: node_modules ## Replace the cluster's store with an empty one for re
 
 stop-the-line: node_modules ## Stop the line: agents stop, workers take nothing new, a canary in flight aborts (REASON="...")
 	@# Both halves run whichever fails: a canary is aborted even if the store cannot be reached, and the other way round.
-	@{ $(call as-writer,node apps/factory/src/cli.ts line stop $(if $(REASON),--reason "$(REASON)")); } || failed=1; \
+	@{ $(call as-operator,node apps/factory/src/cli.ts line stop $(if $(REASON),--reason "$(REASON)")); } || failed=1; \
 		KUBECTL="$(KUBECTL)" scripts/abort-canaries.sh || failed=1; exit $${failed:-0}
 
 start-the-line: node_modules ## Start the line again; workers take what waited in the inbox
-	@$(call as-writer,node apps/factory/src/cli.ts line start)
+	@$(call as-operator,node apps/factory/src/cli.ts line start)
 
 # The factory command runs on the host, so loading the samples needs the dependencies: installed on first use, and
 # again when the lockfile changes.

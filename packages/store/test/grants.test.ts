@@ -1,14 +1,16 @@
 /**
  * The store's grants are exactly those `policy/store-grants.ts` sets out: a grant that grows, a role that gains one or
  * a membership that changes fails here until the table says so. Then what each worker's role may and may not do, as
- * the worker would try it.
+ * the worker would try it; that only Martin's roles append his commands; and the tables of signing in.
  */
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { InboxSignal, NewEvent } from '@software-factory/events';
+import { ADMIN_TYPES, EVENT_TYPES, type EventType, type InboxSignal, type NewEvent } from '@software-factory/events';
+import type { Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { STORE_GRANTS } from '../../../policy/store-grants.ts';
+import { ENROLMENT_CODE, PASSKEYS, SESSION } from '../../../policy/access.ts';
+import { MARTINS_ROLES, STORE_GRANTS } from '../../../policy/store-grants.ts';
 import { DiskArtifacts } from '../src/artifacts.ts';
 import { EventWriter } from '../src/events.ts';
 import { sendSignal } from '../src/inbox.ts';
@@ -148,6 +150,9 @@ describe('the grants', () => {
     expect(Object.fromEntries(roles.map((r) => [r.rolname, r.rolcanlogin]))).toEqual({
       factory_worker: false,
       ...Object.fromEntries(WORKERS.map((w) => [`factory_${w}`, true])),
+      factory_admin: true,
+      factory_operator: true,
+      factory_enrol: true,
     });
     for (const worker of WORKERS) {
       const [me] = await db.as[worker]<{ me: string }[]>`select current_user as me`;
@@ -285,5 +290,177 @@ describe('each worker', () => {
       await expect(db.as[worker]`delete from pictures`).rejects.toThrow('permission denied');
     }
     expect((await db.as.probes`delete from pictures`).count).toBe(0);
+  });
+});
+
+/** One of Martin's commands, as `actor: martin`. A command added to ADMIN_TYPES needs its payload here. */
+const command = (type: EventType, workItem: string | null = null): NewEvent =>
+  ({
+    id: crypto.randomUUID(),
+    ts: new Date().toISOString(),
+    work_item: type === 'hold.answered' ? workItem : null,
+    type,
+    version: 1,
+    actor: 'martin',
+    summary: `${type}, as Martin`,
+    payload:
+      type === 'hold.answered'
+        ? { decision: 'approved' }
+        : type === 'line.stopped'
+          ? { reason: 'Martin stopped the line' }
+          : { autonomy: 'supervised' },
+    artifacts: [],
+  }) as NewEvent;
+
+const writer = (sql: Sql) => new EventWriter(sql, { kind: 'sample', artifacts });
+
+describe("Martin's commands", () => {
+  it('are the same types to the store as to the factory', async () => {
+    const rows = await db.owner<{ type: string }[]>`
+      select type from unnest(${[...EVENT_TYPES, 'passkey.enrolled']}::text[]) as type where admin_event(type)`;
+    expect(rows.map((r) => r.type).sort()).toEqual([...ADMIN_TYPES].sort());
+  });
+
+  it('are refused from every worker’s role, the writer’s and the scoreboard’s', async () => {
+    await writer(db.operator).append(opened('3200'));
+    for (const type of ADMIN_TYPES) {
+      for (const [name, sql] of [...Object.entries(db.as), ['writer', db.writer], ['scoreboard', db.scoreboard]]) {
+        // The scoreboard's own trigger (0012) refuses it first.
+        await expect(writer(sql as Sql).append(command(type, '3200')), `${type} from ${name}`).rejects.toThrow(
+          /row-level security|the scoreboard appends its own figures/,
+        );
+      }
+    }
+    expect(await db.owner`select 1 from events where type in ${db.owner(ADMIN_TYPES)}`).toEqual([]);
+  });
+
+  it('are appended by Martin’s roles alone: the admin service nothing else, his command line anything', async () => {
+    await writer(db.admin).append(command('hold.answered', '3200'));
+    await writer(db.admin).append(command('line.stopped'));
+    await writer(db.operator).append(command('line.started'));
+    await expect(writer(db.admin).append(opened('3201'))).rejects.toThrow('row-level security');
+    await writer(db.operator).append(opened('3201'));
+    expect(MARTINS_ROLES.sort()).toEqual(['factory_admin', 'factory_operator']);
+  });
+
+  it('carry the role that appended them, which the store sets and no client may', async () => {
+    const [mine] = await writer(db.as.line).append(opened('3202'));
+    const [answer] = await writer(db.admin).append(command('hold.answered', '3202'));
+    const stamped = await db.owner<{ seq: string; appended_by: string }[]>`
+      select seq, appended_by from events where seq in ${db.owner([mine?.seq ?? 0, answer?.seq ?? 0])} order by seq`;
+    expect(stamped.map((row) => row.appended_by)).toEqual(['factory_line', 'factory_admin']);
+    const insert = (sql: Sql, as: string | null) => sql`
+      insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample,
+                          appended_by)
+      values (${crypto.randomUUID()}, now(), '3202', 'work-item.summarised', 1, 'planner', 'A summary', '{}', '[]',
+              '{}', true, ${as})`;
+    await expect(insert(db.as.line, 'factory_admin')).rejects.toThrow('records the role that appends an event');
+    await expect(insert(db.as.line, null)).rejects.toThrow('records the role that appends an event');
+    await expect(insert(db.owner, 'factory_admin')).rejects.toThrow('records the role that appends an event');
+    // Nor may a worker take one of Martin's roles.
+    await expect(db.as.line`set role factory_admin`).rejects.toThrow('permission denied');
+    // The console's server does not see who appended an event.
+    await expect(db.reader`select appended_by from events`).rejects.toThrow('permission denied');
+  });
+});
+
+describe('signing in', () => {
+  const hex = (n: number) => n.toString(16).padStart(64, '0');
+  const key = (n: number) => `credential-${String(n).padStart(8, '0')}`;
+  let codes = 0;
+  /** A code from `factory admin enrol`, and a passkey the admin service enrols with it. */
+  const enrolled = async (n: number) => {
+    const code = hex(++codes);
+    await db.enrol`insert into enrolment_codes (code_sha256) values (${code})`;
+    await db.admin`update enrolment_codes set used_at = now() where code_sha256 = ${code}`;
+    await db.admin`insert into passkeys (id, public_key, name, enrolled_with)
+                   values (${key(n)}, '\\x00', ${`Device ${n}`}, ${code})`;
+  };
+
+  it('gives no worker, the writer, the console or the scoreboard anything of it', async () => {
+    for (const [name, sql] of [
+      ...Object.entries(db.as),
+      ['writer', db.writer],
+      ['console', db.reader],
+      ['scoreboard', db.scoreboard],
+      ['operator', db.operator],
+    ]) {
+      for (const table of ['passkeys', 'enrolment_codes', 'sessions', 'webauthn_challenges']) {
+        await expect((sql as Sql)`select * from ${db.owner(table)}`, `${name} reading ${table}`).rejects.toThrow(
+          'permission denied',
+        );
+      }
+    }
+  });
+
+  it('lets the enrolment add a code and revoke, and nothing more', async () => {
+    await expect(
+      db.enrol`insert into enrolment_codes (code_sha256, expires_at) values (${hex(900)}, now() + interval '1 day')`,
+    ).rejects.toThrow('permission denied');
+    await expect(db.enrol`select code_sha256 from enrolment_codes`).rejects.toThrow('permission denied');
+    await expect(db.enrol`select public_key from passkeys`).rejects.toThrow('permission denied');
+    await expect(db.enrol`update sessions set expires_at = now() + interval '1 day'`).rejects.toThrow(
+      'permission denied',
+    );
+    await expect(writer(db.enrol).append(opened('3300'))).rejects.toThrow('permission denied');
+  });
+
+  it('holds a code to the policy’s ten minutes and five tries, used once', async () => {
+    const code = hex(++codes);
+    await db.enrol`insert into enrolment_codes (code_sha256) values (${code})`;
+    const [row] = await db.admin<{ minutes: number }[]>`
+      select extract(epoch from expires_at - created_at) / 60 as minutes from enrolment_codes where code_sha256 = ${code}`;
+    expect(Number(row?.minutes)).toBe(ENROLMENT_CODE.minutes);
+    for (let i = 0; i < ENROLMENT_CODE.tries; i++) {
+      await db.admin`update enrolment_codes set tries = tries + 1 where code_sha256 = ${code}`;
+    }
+    await expect(db.admin`update enrolment_codes set tries = tries + 1 where code_sha256 = ${code}`).rejects.toThrow(
+      'check constraint',
+    );
+    await db.admin`update enrolment_codes set used_at = now() where code_sha256 = ${code}`;
+    await expect(db.admin`update enrolment_codes set used_at = now() where code_sha256 = ${code}`).rejects.toThrow(
+      'used once',
+    );
+  });
+
+  it('holds Martin to two passkeys, and a session to eight hours, ended when its passkey is revoked', async () => {
+    expect(PASSKEYS.most).toBe(2);
+    expect(SESSION.hours).toBe(8);
+    await enrolled(1);
+    await enrolled(2);
+    await expect(enrolled(3)).rejects.toThrow('two passkeys already');
+    const session = hex(500);
+    await expect(
+      db.admin`insert into sessions (id_sha256, passkey, expires_at)
+               values (${session}, ${key(1)}, now() + interval '8 hours 1 minute')`,
+    ).rejects.toThrow('check constraint');
+    await expect(
+      db.admin`insert into sessions (id_sha256, passkey, expires_at, signed_in_at)
+               values (${session}, ${key(1)}, now() + interval '1 hour', now() - interval '1 day')`,
+    ).rejects.toThrow('permission denied');
+    await db.admin`insert into sessions (id_sha256, passkey, expires_at) values (${session}, ${key(1)}, now() + interval '8 hours')`;
+    // `factory admin enrol --revoke-others` revokes, and the store ends the passkey's sessions with it.
+    await db.enrol`update passkeys set revoked_at = now() where id = ${key(1)}`;
+    const [ended] = await db.admin<{ ended_by: string }[]>`select ended_by from sessions where id_sha256 = ${session}`;
+    expect(ended?.ended_by).toBe('revoked');
+    await expect(db.admin`update passkeys set revoked_at = null where id = ${key(1)}`).rejects.toThrow('stays revoked');
+    await expect(
+      db.admin`update sessions set ended_at = null, ended_by = null where id_sha256 = ${session}`,
+    ).rejects.toThrow('stays ended');
+    await enrolled(3);
+  });
+
+  it('uses each WebAuthn challenge once', async () => {
+    const challenge = 'c'.repeat(43);
+    await db.admin`insert into webauthn_challenges (challenge, purpose, expires_at)
+                   values (${challenge}, 'sign-in', now() + interval '5 minutes')`;
+    await db.admin`update webauthn_challenges set used_at = now() where challenge = ${challenge}`;
+    await expect(
+      db.admin`update webauthn_challenges set used_at = now() where challenge = ${challenge}`,
+    ).rejects.toThrow('used once');
+    await expect(
+      db.admin`insert into webauthn_challenges (challenge, purpose, expires_at)
+               values (${'d'.repeat(43)}, 'step-up', now() + interval '5 minutes')`,
+    ).rejects.toThrow('check constraint');
   });
 });

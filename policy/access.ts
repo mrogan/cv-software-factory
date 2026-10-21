@@ -1,0 +1,190 @@
+/**
+ * Who may do what (spec section 5.4): every route the console's server and the admin service answer, and every action
+ * Martin can take, each with the role it needs, whether it reads or writes, and, for a write, whether it needs his
+ * passkey again. The servers refuse anything not in it; the console draws its controls from it, so a visitor sees every
+ * control, read-only, with what it does.
+ *
+ * Human-owned: see `README.md`. `apps/console/test/access.test.ts` holds this table to the spec's list of what needs
+ * the passkey again, and to the routes the servers answer.
+ */
+import type { HoldCause } from '../packages/events/src/vocabulary.ts';
+
+/**
+ * Who a request must be: anyone (a visitor), Martin signed in (admin), or someone holding an enrolment code, which is
+ * the one write that takes no session: the code is its credential, used once.
+ */
+export const ROLES = ['visitor', 'admin', 'enrolment code'] as const;
+export type Role = (typeof ROLES)[number];
+
+/** A server's own: the console's read-only server, or the admin service, behind `/admin/` on the console's host. */
+export type Server = 'console' | 'admin';
+
+/**
+ * A route, as `METHOD /path`: a `:name` segment matches one segment, and a last `*` matches the rest of the path. A
+ * `GET` route answers `HEAD` too.
+ */
+export type Route = `${'GET' | 'POST'} /${string}`;
+
+export interface Access {
+  /** What it is, in the words the console shows beside its control. */
+  what: string;
+  role: Role;
+  does: 'read' | 'write';
+  /**
+   * A write that loosens a control, raises spend, promotes something or overrides a guardrail needs the passkey again,
+   * given within `STEP_UP.minutes`, so a stolen session does none of it. Always false for a read. An action that
+   * loosens one way and tightens the other is two entries, one each way.
+   */
+  stepUp: boolean;
+  /** Who answers its routes, if it has any yet: an action the admin service does not serve yet has none. */
+  server?: Server;
+  routes?: readonly Route[];
+}
+
+/** A session lasts this long from sign-in, however busy. There is no idle timeout: ADR 0012 says why. */
+export const SESSION = { hours: 8, idleTimeout: false } as const;
+
+/** The passkey, given again, is fresh for this long. */
+export const STEP_UP = { minutes: 5 } as const;
+
+/**
+ * `factory admin enrol`'s one-time code: its random bits, how long it lasts, and how many tries it allows, counted
+ * across every client.
+ */
+export const ENROLMENT_CODE = { bits: 128, minutes: 10, tries: 5 } as const;
+
+/** The most passkeys Martin holds at once: a laptop's and a phone's. */
+export const PASSKEYS = { most: 2 } as const;
+
+/**
+ * The holds whose cause is a guardrail: approving one overrides it, so it needs the passkey again. Rejecting one, or
+ * answering it in words, never does.
+ */
+export const GUARDRAIL_HOLDS = [
+  'scope',
+  'beyond-ticket',
+  'review',
+  'gates',
+  'verify',
+  'spend',
+  'merge',
+] as const satisfies readonly HoldCause[];
+
+const read = (what: string) => ({ what, role: 'visitor', does: 'read', stepUp: false }) as const;
+const admin = (what: string, stepUp = false) => ({ what, role: 'admin', does: 'write', stepUp }) as const;
+
+export const ACCESS = {
+  // The console's server: public reads, and nothing else.
+  page: { ...read('The console'), server: 'console', routes: ['GET /', 'GET /index.html'] },
+  files: { ...read("The console's scripts, styles, fonts and pictures"), server: 'console', routes: ['GET /assets/*'] },
+  events: { ...read('Every public event after the one given'), server: 'console', routes: ['GET /api/events'] },
+  stream: { ...read('The public events, live'), server: 'console', routes: ['GET /api/events/stream'] },
+  artifacts: { ...read('An artifact a public event refers to'), server: 'console', routes: ['GET /artifacts/:hash'] },
+  health: { ...read('Whether the console is up'), server: 'console', routes: ['GET /health'] },
+  version: { ...read('The commit the console was built from'), server: 'console', routes: ['GET /version'] },
+
+  // Views every visitor sees, drawn from the public events.
+  'audit-log': read('Every agent action, model call and admin action, newest first'),
+  settings: read("Each agent's model and effort, and spend against the caps"),
+
+  // Martin's own reads.
+  'full-events': {
+    what: 'The full events, live, with report text shown to Martin as text',
+    role: 'admin',
+    does: 'read',
+    stepUp: false,
+  },
+  'preview-as-visitor': {
+    what: 'The public stream, as the server sends it to anyone without a session',
+    role: 'admin',
+    does: 'read',
+    stepUp: false,
+  },
+
+  // Signing in and out. Signing in takes a passkey in place of a session; enrolling takes a code.
+  'sign-in': admin('Sign in with a passkey'),
+  enrol: {
+    what: 'Make a passkey on this device, with a one-time code from `factory admin enrol`',
+    role: 'enrolment code',
+    does: 'write',
+    stepUp: false,
+  },
+  'sign-out': admin('Sign out on this device'),
+  'sign-out-everywhere': admin('Sign out on every device'),
+  'passkey.revoke': admin('Revoke a passkey', true),
+
+  // Needs you.
+  'hold.approve': admin('Approve a hold whose cause is not a guardrail'),
+  'hold.approve-guardrail': admin(`Approve a hold whose cause is a guardrail (${GUARDRAIL_HOLDS.join(', ')})`, true),
+  'hold.reject': admin('Reject a hold'),
+  'hold.answer': admin('Answer a hold in words'),
+
+  // The line.
+  'line.stop': admin('Stop the line'),
+  'line.start': admin('Start the line', true),
+  'autonomy.tighten': admin('Make the autonomy level stricter'),
+  'autonomy.loosen': admin('Make the autonomy level looser', true),
+  'new-work.on': admin('Let agents take new work'),
+  'new-work.off': admin('Stop agents taking new work'),
+  'auto-merge.on': admin('Turn on auto-merge of low-risk changes', true),
+  'auto-merge.off': admin('Turn off auto-merge of low-risk changes'),
+  'auto-rollback.on': admin('Turn on auto-rollback of a failed canary'),
+  'auto-rollback.off': admin('Turn off auto-rollback of a failed canary', true),
+  'take.widen': admin('Let the line take more work items, or any rather than one', true),
+  'take.narrow': admin('Let the line take fewer work items, or just one'),
+
+  // A release in flight.
+  'release.promote': admin("Promote a canary, to the next step's weight or fully", true),
+  'release.pause': admin('Pause a canary'),
+  'release.resume': admin('Give a paused canary back to its analysis'),
+  'release.abort': admin('Abort a canary'),
+  'release.retry': admin('Retry a release that was stopped', true),
+
+  // Models and spend, within policy.
+  'agent.raise': admin('Give an agent a dearer model, or more effort', true),
+  'agent.lower': admin('Give an agent a cheaper model, or less effort'),
+  'caps.raise': admin('Raise a spend cap', true),
+  'caps.lower': admin('Lower a spend cap'),
+} as const satisfies Record<string, Access>;
+
+export type Name = keyof typeof ACCESS;
+
+/** The entries a server answers routes for. */
+export type ServedBy<S extends Server> = {
+  [K in Name]: (typeof ACCESS)[K] extends { server: S } ? K : never;
+}[Name];
+
+/** Whether a request's method and path are a route, and their values for its `:name` segments. */
+export function matchRoute(route: Route, method: string, path: string): Record<string, string> | null {
+  const [want = '', pattern = ''] = route.split(' ');
+  if (method !== want && !(want === 'GET' && method === 'HEAD')) return null;
+  const parts = pattern.split('/');
+  const given = path.split('/');
+  const values: Record<string, string> = {};
+  for (const [i, part] of parts.entries()) {
+    if (part === '*' && i === parts.length - 1) return given.length > i && given.slice(i).join('/') ? values : null;
+    const value = given[i];
+    if (value === undefined) return null;
+    if (part.startsWith(':')) {
+      if (!value) return null;
+      values[part.slice(1)] = value;
+    } else if (part !== value) return null;
+  }
+  return given.length === parts.length ? values : null;
+}
+
+/** The entry a server answers a request with, and its route's values, or null: the server refuses it. */
+export function routeOf<S extends Server>(
+  server: S,
+  method: string,
+  path: string,
+): { name: ServedBy<S>; values: Record<string, string> } | null {
+  for (const [name, access] of Object.entries(ACCESS) as [Name, Access][]) {
+    if (access.server !== server) continue;
+    for (const route of access.routes ?? []) {
+      const values = matchRoute(route, method, path);
+      if (values) return { name: name as ServedBy<S>, values };
+    }
+  }
+  return null;
+}

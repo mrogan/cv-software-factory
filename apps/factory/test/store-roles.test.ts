@@ -89,3 +89,32 @@ describe('each worker that uses the store', () => {
     }
   });
 });
+
+describe("Martin's own role", () => {
+  it('is what the make targets that append his commands connect as, and no other target or pod', async () => {
+    const makefile = await readFile(join(DEPLOY, '../Makefile'), 'utf-8');
+    // The writer's Secret is still made, for the migrate Job, but nothing on the host connects as the writer.
+    expect(makefile).not.toContain('factory_writer');
+    expect(makefile).not.toContain('get secret postgres-writer');
+    for (const target of ['samples', 'stop-the-line', 'start-the-line']) {
+      const recipe = makefile.match(new RegExp(`^${target}:[^\\n]*\\n((?:\\t[^\\n]*\\n)+)`, 'm'))?.[1] ?? '';
+      expect(recipe, target).toContain('$(call as-operator,');
+    }
+    expect(makefile).toMatch(/PGUSER=factory_operator/);
+    expect(makefile).toMatch(/\$\(call secret,factory,postgres-operator,/);
+  });
+
+  it('has its password from a Secret only the migrate Job reads', async () => {
+    expect((await migrateJob()).find((e) => e.name === PASSWORDS.operator.variable)?.valueFrom?.secretKeyRef).toEqual({
+      name: 'postgres-operator',
+      key: 'password',
+      optional: true,
+    });
+    for (const { manifest } of (await manifests<Deployment>()).filter((m) => m.manifest.kind !== 'Job')) {
+      const pod = manifest.spec?.template?.spec;
+      for (const e of [...(pod?.containers ?? []), ...(pod?.initContainers ?? [])].flatMap((c) => c.env ?? [])) {
+        expect(e.valueFrom?.secretKeyRef?.name, manifest.metadata?.name).not.toBe('postgres-operator');
+      }
+    }
+  });
+});

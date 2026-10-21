@@ -77,4 +77,14 @@ export const RELEASE_TYPES: readonly EventType[] = [
   'release.errored',
 ];
 
+/**
+ * Martin's commands: the types only his roles may append (row security on `events`, `0023_martins-commands.sql`), and
+ * that the line, triage and the gateway act on only when one of his roles appended it. Each of the admin service's
+ * commands (signing in, passkeys, autonomy, the switches, the settings, the release controls) joins this list when its
+ * type joins the catalogue, and a migration adds it to the store's own list (`admin_event`): the store's tests fail
+ * until the two agree. `release.aborted` is not one yet: the line records an abort it reads from the Rollout, Martin's
+ * included, until the console's own abort records his (milestone 7, task 7).
+ */
+export const ADMIN_TYPES: readonly EventType[] = ['hold.answered', 'line.started', 'line.stopped'];
+
 export const isEventType = (type: string): type is EventType => Object.hasOwn(VERSIONS, type);

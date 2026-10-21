@@ -7,7 +7,8 @@
  *
  * Each of the variables in `PASSWORDS`, when set, becomes the password of its role: WRITER_PASSWORD the factory's
  * writer's, CONSOLE_PASSWORD the console's reader's, SCOREBOARD_PASSWORD the scoreboard's writer's, METRICS_PASSWORD
- * the Postgres exporter's reader's, and TRIAGE_PASSWORD, LINE_PASSWORD and the like each worker's own. It connects as
+ * the Postgres exporter's reader's, TRIAGE_PASSWORD, LINE_PASSWORD and the like each worker's own, and OPERATOR_PASSWORD
+ * that of Martin's command line, which `make stop-the-line` and the like connect as. It connects as
  * the database's owner, the only role that may change its schema.
  */
 import { readdirSync, readFileSync } from 'node:fs';
@@ -57,6 +58,8 @@ export const PASSWORDS = {
   crawler: { role: 'factory_crawler', variable: 'CRAWLER_PASSWORD' },
   intake: { role: 'factory_intake', variable: 'INTAKE_PASSWORD' },
   logs: { role: 'factory_logs', variable: 'LOGS_PASSWORD' },
+  // Martin's command line (0023_martins-commands.sql): its Secret is read by this Job alone.
+  operator: { role: 'factory_operator', variable: 'OPERATOR_PASSWORD' },
 } as const;
 
 export type Passwords = { [name in keyof typeof PASSWORDS]?: string | undefined };

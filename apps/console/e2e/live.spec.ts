@@ -79,7 +79,7 @@ test.beforeAll(async () => {
   postgres = given ? { url: given, stop: () => {} } : await startPostgres();
   database = await createDatabase(postgres.url, 'live');
   // Every sample but #1302, which the tests append themselves, once its screenshots are in the store.
-  await load(database.writer, artifacts, SAMPLES, { except: ['1302'] });
+  await load(database.operator, artifacts, SAMPLES, { except: ['1302'] });
   for (const event of live())
     for (const { hash } of event.artifacts) await artifacts.put(readFileSync(logArtifactPath(SAMPLES, hash)));
   console_ = await startConsole();
@@ -100,7 +100,7 @@ test('moves an open console within a second of an append, with no refresh', asyn
   await expect(page.locator('.transport .count')).toHaveText('24 of 24');
   const [opened] = live();
   if (!opened) throw new Error('No events for #1302');
-  const writer = new EventWriter(database.writer, { kind: 'sample', artifacts });
+  const writer = new EventWriter(database.operator, { kind: 'sample', artifacts });
   const appended = Date.now();
   await writer.append(now(opened));
   await expect(page.locator('.transport .count')).toHaveText('25 of 25', { timeout: 1000 });
@@ -110,7 +110,7 @@ test('moves an open console within a second of an append, with no refresh', asyn
 test('resumes after the stream drops mid-play, with nothing missed and nothing twice', async ({ page }) => {
   await page.goto('/?motion=off&debug=events');
   await expect(page.locator('.transport .count')).toHaveText('25 of 25');
-  const writer = new EventWriter(database.writer, { kind: 'sample', artifacts });
+  const writer = new EventWriter(database.operator, { kind: 'sample', artifacts });
   const rest = live().slice(1);
   const half = Math.floor(rest.length / 2);
   for (const [i, event] of rest.entries()) {

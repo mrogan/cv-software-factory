@@ -26,7 +26,7 @@ describe('factory events', () => {
   });
 
   it('loads the samples, all but one, with the last of them now', async () => {
-    const result = await load(database.writer, artifacts, SAMPLES, { except: ['1302'] }, NOW);
+    const result = await load(database.operator, artifacts, SAMPLES, { except: ['1302'] }, NOW);
     expect(result.events).toBe(readLog(SAMPLES, { except: ['1302'] }).length);
     const [{ last } = { last: new Date(0) }] = await database.owner<
       { last: Date }[]
@@ -36,7 +36,7 @@ describe('factory events', () => {
   });
 
   it('refuses events the store already holds', async () => {
-    await expect(load(database.writer, artifacts, SAMPLES, { only: ['1296'] })).rejects.toThrow(
+    await expect(load(database.operator, artifacts, SAMPLES, { only: ['1296'] })).rejects.toThrow(
       'The store already holds',
     );
   });
@@ -44,7 +44,7 @@ describe('factory events', () => {
   it('plays a work item at its recorded pace, sped up, each event happening now', async () => {
     const pauses: number[] = [];
     const played: string[] = [];
-    const result = await play(database.writer, artifacts, SAMPLES, {
+    const result = await play(database.operator, artifacts, SAMPLES, {
       only: ['1302'],
       speed: 60,
       maxPause: 5000,
@@ -87,7 +87,7 @@ describe('factory events', () => {
         payload: { kind: 'defect-fix', title: 'Real work', sample: false },
         artifacts: [],
       });
-      await expect(load(real.writer, artifacts, SAMPLES)).rejects.toThrow(
+      await expect(load(real.operator, artifacts, SAMPLES)).rejects.toThrow(
         'This store holds real events, so it takes no samples.',
       );
     } finally {

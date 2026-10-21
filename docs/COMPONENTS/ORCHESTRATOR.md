@@ -141,7 +141,7 @@ flowchart TD
 
 ## Holds and Martin's answers
 
-Each hold names its cause, and Martin's answer does what `ANSWERS` in `line/machine.ts` says for that cause. Rejecting always closes the work item and its issue.
+Each hold names its cause, and Martin's answer does what `ANSWERS` in `line/machine.ts` says for that cause. Rejecting always closes the work item and its issue. The line reads an answer only from one of [Martin's roles](EVENT-STORE.md#martins-commands), and ignores, and logs, any other.
 
 | Cause | Held when | Approving | Answering |
 |---|---|---|---|
@@ -179,7 +179,7 @@ Triage's own holds, `finding`, `suggestion`, `burst` and `environment`, are on [
 
 ## Stopping the line
 
-Every worker checks for `line.stopped` before it takes work. `make stop-the-line` appends it, and then the line:
+Every worker checks for `line.stopped` before it takes work, and heeds a stop or a start only from one of [Martin's roles](EVENT-STORE.md#martins-commands). `make stop-the-line` appends it, as his command line's role, and then the line:
 
 - deletes the Jobs of every step in hand at once, starts none still preparing, and records nothing of them;
 - runs them afresh when the line starts;
