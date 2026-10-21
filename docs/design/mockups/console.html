@@ -2609,8 +2609,9 @@ function renderPage() {
   $('view-console').hidden = page;
   $('view-page').hidden = !page;
   if (!page) return;
-  const PAGES_BY_VIEW = new Map([['signin', signinPage], ['enrol', enrolPage], ['settings', settingsPage], ['audit', auditPage]]);
-  $('view-page').innerHTML = PAGES_BY_VIEW.get(S.view)?.() ?? '';
+  // A fixed choice of four, never a name from the address called as it stands.
+  const html = S.view === 'signin' ? signinPage() : S.view === 'enrol' ? enrolPage() : S.view === 'settings' ? settingsPage() : S.view === 'audit' ? auditPage() : '';
+  $('view-page').innerHTML = html;
 }
 
 // A visitor's links keep the visitor's view: in the app the server decides, from the session.
