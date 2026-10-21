@@ -44,7 +44,7 @@ The part's session orchestrates with the `/implement` skill (`.claude/skills/imp
 - **Enrolled from the command line.** `factory admin enrol` runs with a role of its own, `factory_enrol`, whose password `make` fetches and no pod holds, and which may only add codes and revoke. It prints a one-time code of 128 random bits that lasts ten minutes and allows five tries, counted across every client; Martin enters it on the console's enrolment page and makes a passkey. Enrolment is the one write that takes no session: the code is its credential, used once, and the page still checks `Origin`, accepts only `POST` and is rate-limited by client address. `policy/access.ts` gives it a role of its own, `enrolment code`, and the access tests prove it refuses a request with no code, a used one, an expired one and a sixth try. Every passkey is enrolled this way, so a signed-in session can never add one. He may hold two (a laptop and a phone). `factory admin enrol --revoke-others` is recovery: it revokes every other passkey and every session. Each passkey belongs to its host, so each profile is enrolled on its own.
 - **Sessions are kept on the server.** The browser holds only a random id in a cookie named `__Host-session`, `Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/`; the store keeps its hash. A session lasts eight hours from sign-in with no idle timeout, a figure in `policy/access.ts`: ASVS asks for an idle timeout, and ADR 0012 records why there is none (one admin, who signs in with a passkey and gives it again for every high-impact action). The id changes at sign-in, signing out ends it on the server, and "sign out everywhere" ends them all.
 - **Every action that loosens a control, raises spend, promotes something or overrides a guardrail needs the passkey again,** given within the last five minutes, so a stolen session does none of it:
-  - raising a spend cap, or a setting that raises spend (a dearer model, more effort, all-local off, a larger take);
+  - raising a spend cap, or a setting that raises spend (a dearer model, more effort, a larger take);
   - loosening autonomy;
   - turning auto-merge on, or auto-rollback off;
   - starting the line;
@@ -76,7 +76,7 @@ The part's session orchestrates with the `/implement` skill (`.claude/skills/imp
 
 ### Settings within policy
 
-- **Policy sets the bounds; Martin chooses within them.** `policy/models.ts` names the models each agent may use (Qwen, Claude Haiku, Sonnet and Opus to start, each priced in the gateway) and the highest effort for each. `policy/spend.ts` names each cap's ceiling. Martin's choice is a settings event, and the gateway reads the latest. Raising a ceiling, or adding a model, is still a pull request.
+- **Policy sets the bounds; Martin chooses within them.** `policy/models.ts` names the models each agent may use on each profile (Claude Haiku, Sonnet and Opus to start, and Qwen where the profile has a local model, each priced in the gateway) and the highest effort for each. The console offers an agent only the models its profile has, so a local model is one choice among them, agent by agent, and a cloud profile offers none. `policy/spend.ts` names each cap's ceiling. Martin's choice is a settings event, and the gateway reads the latest. Raising a ceiling, or adding a model, is still a pull request.
 - **Settings are checked where they are read, not only where they are written.** The gateway and the line check each settings event against policy as they read it, and fall back to policy's defaults for anything outside it; zero, null and anything not a finite number are never "no cap". A test appends an out-of-policy event straight to the store and shows it has no effect.
 - **A setting applies from an agent's next step,** never part-way through one, and the step records the settings it ran under.
 - **The line's take settings join them.** `LINE_TAKE` and `LINE_ONLY` become settings Martin changes in the console, with the variables as their defaults for a line on the host.
@@ -216,7 +216,7 @@ Each task is its own pull request, in order, each demonstrable.
 ### 9. Models and spend
 
 - The bounds in `policy/models.ts` and `policy/spend.ts`, the settings event, and the gateway reading it at an agent's next step.
-- The settings page: each agent's model and effort, all-local, and the caps; raising a cap answers a `spend` hold.
+- The settings page: each agent's model, from the profile's models, local ones included where it has them, its effort, and the caps; raising a cap answers a `spend` hold.
 - Spend against today's caps in Controls, for everyone.
 
 ### 10. The audit log
