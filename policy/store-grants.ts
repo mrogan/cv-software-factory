@@ -79,7 +79,7 @@ export const STORE_GRANTS = {
       inbox: ['select (signal, triaged_at)', SIGNAL],
     },
     rows: {
-      inbox: { select: 'triaged_at IS NULL', insert: "sense = 'probe'" },
+      inbox: { select: "(triaged_at IS NULL) AND (sense not in ('report', 'planner'))", insert: "sense = 'probe'" },
       looks: { select: 'true', insert: "sense = 'probe'", update: "sense = 'probe'" },
     },
   },
@@ -89,7 +89,7 @@ export const STORE_GRANTS = {
     on: { looks: ['select', 'insert', 'update (path, elements, seen_at)'], inbox: [SIGNAL] },
     rows: {
       inbox: { insert: "sense = 'crawler'" },
-      looks: { select: 'true', insert: "sense = 'crawler'", update: "sense = 'crawler'" },
+      looks: { select: "sense = 'crawler'", insert: "sense = 'crawler'", update: "sense = 'crawler'" },
     },
   },
   factory_intake: {

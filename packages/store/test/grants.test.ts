@@ -88,11 +88,13 @@ describe('the grants', () => {
     >`
       select tablename as table, lower(cmd) as command, roles::text[] as roles, qual as using, with_check as check
       from pg_policies where schemaname = 'public'`;
-    // As Postgres prints a condition, and as the table writes it: no casts to text, `in` for `= any (array[...])`.
+    // As Postgres prints a condition, and as the table writes it: no casts to text, `in` for `= any (array[...])` and
+    // `not in` for `<> all (array[...])`.
     const condition = (printed: string | null) =>
       printed
         ?.replaceAll(/::text(\[\])?/g, '')
         .replaceAll(/(\w+) = ANY \(ARRAY\[(.+?)\]\)/g, '$1 in ($2)')
+        .replaceAll(/(\w+) <> ALL \(ARRAY\[(.+?)\]\)/g, '$1 not in ($2)')
         .replace(/^\((.*)\)$/, '$1');
     const found: Record<string, Record<string, Record<string, string>>> = {};
     for (const policy of policies) {
@@ -259,7 +261,10 @@ describe('each worker', () => {
                     values ('probe', 'other', '/', '/', '[]', now())`,
     ).rejects.toThrow('row-level security');
     expect((await db.as.crawler`update looks set path = '/elsewhere' where sense = 'probe'`).count).toBe(0);
-    // A visitor's report is read by triage alone, and a counted signal by neither the probes nor the log watcher.
+    expect(await db.as.crawler`select path from looks where sense = 'probe'`).toEqual([]);
+    expect(await db.as.probes`select path from looks where sense = 'probe'`).toEqual([{ path: '/' }]);
+    // A visitor's report is read by triage alone, waiting or not, and a counted signal by neither the probes nor the
+    // log watcher.
     const report = await sendSignal(db.as.logs, {
       sense: 'report',
       check: 'report widget',
@@ -269,6 +274,7 @@ describe('each worker', () => {
       report: { page: '/', text: 'The lid is missing' },
       artifacts: [],
     });
+    expect(await db.as.probes`select signal from inbox where signal->>'sense' = 'report'`).toEqual([]);
     await db.as.triage`update inbox set outcome = 'counted', triaged_at = now() where id = ${report}`;
     expect(await db.as.probes`select signal from inbox where triaged_at is not null`).toEqual([]);
     expect((await db.as.logs`select sense from inbox`).every((r) => ['logs', 'report'].includes(r.sense))).toBe(true);

@@ -2,12 +2,15 @@
 -- cannot touch another's tables: the senses cannot touch the line, the gateway cannot end a job's token, and only triage
 -- says what became of a signal. Every worker may still append any event; row security on Martin's commands follows
 -- (milestone 7, task 4). What each role may do is set out in one table, `policy/store-grants.ts`, and the grants test
--- fails unless the store's grants and row security are exactly that. The GitHub worker and the traffic generator never connect
--- to the store, and have no role.
+-- fails unless the store's grants and row security are exactly that. The GitHub worker and the traffic generator never
+-- connect to the store, and have no role.
 --
 -- `factory_writer` keeps its grants until every worker has moved to its own role (#435).
 -- Passwords are set outside migrations, from the cluster's Secrets (`make worker-secrets`).
 
+-- Roles belong to the whole server, not one database, so another database may have made them already, perhaps
+-- differently: each is made, or set as it must be, and changed only if it is not, since two databases migrating at once
+-- must not both write the same role.
 do $$
 declare
   role text;
@@ -17,18 +20,27 @@ begin
     create role factory_worker nologin;
   exception when duplicate_object or unique_violation then null;
   end;
+  if (select rolcanlogin from pg_roles where rolname = 'factory_worker') then
+    alter role factory_worker nologin;
+  end if;
   foreach role in array array['factory_triage', 'factory_line', 'factory_gateway', 'factory_probes', 'factory_crawler',
                                'factory_intake', 'factory_logs'] loop
     begin
       execute format('create role %I login', role);
     exception when duplicate_object or unique_violation then null;
     end;
+    if not (select rolcanlogin and rolinherit from pg_roles where rolname = role) then
+      execute format('alter role %I login inherit', role);
+    end if;
+    if not exists (
+      select 1 from pg_auth_members
+      where roleid = 'factory_worker'::regrole and member = role::regrole and inherit_option
+    ) then
+      execute format('grant factory_worker to %I with inherit true', role);
+    end if;
   end loop;
 end
 $$;
-
-grant factory_worker to factory_triage, factory_line, factory_gateway, factory_probes, factory_crawler, factory_intake,
-  factory_logs;
 
 grant usage on schema public to factory_worker;
 
@@ -75,10 +87,11 @@ grant insert (id, sense, fingerprint, signal) on inbox to factory_intake;
 grant select (sense, signal), insert (id, sense, fingerprint, signal) on inbox to factory_logs;
 
 -- Row security on the inbox (0020) holds each role to its own rows: a sense sends only its own signals, and only triage
--- changes one or deletes a repeat it counted. Reports' text is in the inbox, so the probes read only what triage has
--- still to take, and the log watcher only its own senses' signals.
+-- changes one or deletes a repeat it counted. Visitors' reports and the planner's findings are in the inbox in their own
+-- words, so the probes read only the senses' signals triage has still to take, and the log watcher only its own.
 create policy inbox_triage_reads on inbox for select to factory_triage using (true);
-create policy inbox_probes_read on inbox for select to factory_probes using (triaged_at is null);
+create policy inbox_probes_read on inbox for select to factory_probes
+  using (triaged_at is null and sense not in ('report', 'planner'));
 create policy inbox_logs_read on inbox for select to factory_logs using (sense in ('logs', 'report'));
 create policy inbox_triage_triages on inbox for update to factory_triage using (true) with check (true);
 create policy inbox_triage_prunes on inbox for delete to factory_triage using (outcome = 'counted');
@@ -88,10 +101,12 @@ create policy inbox_crawler_sends on inbox for insert to factory_crawler with ch
 create policy inbox_intake_sends on inbox for insert to factory_intake with check (sense = 'metrics');
 create policy inbox_logs_send on inbox for insert to factory_logs with check (sense in ('logs', 'report'));
 
--- Row security on the looks: each sense keeps only its own, and the line reads them all. The writer goes on as before.
+-- Row security on the looks: each sense keeps only its own, and the probes, which box them all on their pictures, and
+-- the line read them all; the crawler reads only its own. The writer goes on as before.
 alter table looks enable row level security;
 create policy looks_writer on looks for all to factory_writer using (true) with check (true);
-create policy looks_read on looks for select to factory_probes, factory_crawler, factory_line using (true);
+create policy looks_read on looks for select to factory_probes, factory_line using (true);
+create policy looks_crawler_reads on looks for select to factory_crawler using (sense = 'crawler');
 create policy looks_probes_keep on looks for insert to factory_probes with check (sense = 'probe');
 create policy looks_probes_move on looks for update to factory_probes using (sense = 'probe') with check (sense = 'probe');
 create policy looks_crawler_keeps on looks for insert to factory_crawler with check (sense = 'crawler');
