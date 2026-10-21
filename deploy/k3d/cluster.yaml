@@ -7,8 +7,11 @@ servers: 1
 agents: 0
 image: rancher/k3s:v1.37.1-k3s1
 ports:
-  # k3s's Traefik ingress, so http://console.localhost:8080 and friends reach the cluster.
+  # k3s's Traefik ingress: plain HTTP for the app's hosts (http://website.localhost:8080) and the local UIs, and HTTPS
+  # for the console (https://console.localhost:8443). `make up` adds the second to a cluster made before it.
   - port: 127.0.0.1:8080:80
+    nodeFilters: [loadbalancer]
+  - port: 127.0.0.1:8443:443
     nodeFilters: [loadbalancer]
 options:
   kubeconfig:

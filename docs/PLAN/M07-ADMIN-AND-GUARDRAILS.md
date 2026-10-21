@@ -155,7 +155,7 @@ Each task is its own pull request, in order, each demonstrable.
 ### 2. Local HTTPS
 
 - `step` in `mise.toml`; `make up` makes the local authority, constrained to `localhost` names, has the Mac trust it, and gives Traefik its certificate as a Secret. A test shows the authority refuses to sign for any other name.
-- `deploy/k3d/cluster.yaml` maps `127.0.0.1:8443` to Traefik's 443. A cluster made before this needs making again (`make down`, `make up`), and the task says so where people will see it.
+- `deploy/k3d/cluster.yaml` maps `127.0.0.1:8443` to Traefik's 443. On a cluster made before this, `make up` adds the port in place (`k3d cluster edit`, which makes only the load balancer again), so the holds in the store wait for task 12; it says so where people will see it.
 - The console on `https://console.localhost:8443`, with plain HTTP redirecting: its ingress in `deploy/overlays/local/`, the addresses `make up`, `make samples`, `make real-store` and `make status` print, `AGENTS.md`, the e2e tests and the `try-the-line` skill.
 - `make up` on a fresh clone still works for someone who declines the trust prompt, and says what they lose.
 

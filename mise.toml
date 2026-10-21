@@ -11,3 +11,6 @@ cosign = "3.1.3"
 # The kubectl plugin for watching and promoting the website's canary (`kubectl argo rollouts`), at the version of the
 # controller in deploy/base/rollouts.
 argo-rollouts = "1.10.0"
+# The local certificate authority `make up` makes for https://console.localhost:8443, constrained to `localhost` names
+# (mkcert cannot constrain one), and the tests that hold it to them.
+step = "0.31.0"
