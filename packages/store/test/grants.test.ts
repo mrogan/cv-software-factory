@@ -332,6 +332,17 @@ describe("Martin's commands", () => {
       }
     }
     expect(await db.owner`select 1 from events where type in ${db.owner(ADMIN_TYPES)}`).toEqual([]);
+    // Were the guard to fail, the console would still not show one.
+    await db.owner`alter table events disable row level security`;
+    try {
+      await writer(db.as.line).append(command('line.stopped'));
+    } finally {
+      await db.owner`alter table events enable row level security`;
+    }
+    expect(await db.owner`select 1 from events where type = 'line.stopped'`).toHaveLength(1);
+    expect(await db.reader`select seq from events where type = 'line.stopped'`).toEqual([]);
+    await writer(db.admin).append(command('line.started'));
+    expect(await db.reader`select seq from events where type = 'line.started'`).toHaveLength(1);
   });
 
   it('are appended by Martin’s roles alone: the admin service nothing else, his command line anything', async () => {
@@ -430,15 +441,19 @@ describe('signing in', () => {
     await enrolled(2);
     await expect(enrolled(3)).rejects.toThrow('two passkeys already');
     const session = hex(500);
+    // The store sets a session's eight hours from its own clock: the admin service cannot set either end.
     await expect(
       db.admin`insert into sessions (id_sha256, passkey, expires_at)
-               values (${session}, ${key(1)}, now() + interval '8 hours 1 minute')`,
-    ).rejects.toThrow('check constraint');
-    await expect(
-      db.admin`insert into sessions (id_sha256, passkey, expires_at, signed_in_at)
-               values (${session}, ${key(1)}, now() + interval '1 hour', now() - interval '1 day')`,
+               values (${session}, ${key(1)}, now() + interval '1 day')`,
     ).rejects.toThrow('permission denied');
-    await db.admin`insert into sessions (id_sha256, passkey, expires_at) values (${session}, ${key(1)}, now() + interval '8 hours')`;
+    await expect(
+      db.admin`insert into sessions (id_sha256, passkey, signed_in_at)
+               values (${session}, ${key(1)}, now() - interval '1 day')`,
+    ).rejects.toThrow('permission denied');
+    await db.admin`insert into sessions (id_sha256, passkey) values (${session}, ${key(1)})`;
+    const [lasts] = await db.admin<{ hours: number }[]>`
+      select extract(epoch from expires_at - signed_in_at) / 3600 as hours from sessions where id_sha256 = ${session}`;
+    expect(Number(lasts?.hours)).toBe(SESSION.hours);
     // `factory admin enrol --revoke-others` revokes, and the store ends the passkey's sessions with it.
     await db.enrol`update passkeys set revoked_at = now() where id = ${key(1)}`;
     const [ended] = await db.admin<{ ended_by: string }[]>`select ended_by from sessions where id_sha256 = ${session}`;

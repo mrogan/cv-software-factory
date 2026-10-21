@@ -57,12 +57,15 @@ $$;
 create trigger events_stamped before insert on events
   for each row execute function events_stamp_role();
 
--- Row security on events. Everyone who reads them reads every row (the console's server, only their public views'
--- columns). Only Martin's roles append his commands: the admin service nothing else, and his command line anything, the
+-- Row security on events. Every role that reads them reads every row, but the console's server, which reads only
+-- their public views' columns, and only Martin's commands that the factory heeds: what it shows is what the factory
+-- does, even were this guard to fail. Only Martin's roles append his commands: the admin service nothing else, and his command line anything, the
 -- samples among them. The scoreboard appends its figures alone, as its trigger already holds it to (0012).
 alter table events enable row level security;
 create policy events_read on events for select
-  to factory_worker, factory_writer, console_reader, scoreboard_writer, factory_admin, factory_operator using (true);
+  to factory_worker, factory_writer, scoreboard_writer, factory_admin, factory_operator using (true);
+create policy events_console_reads on events for select to console_reader
+  using (not admin_event(type) or appended_by is null or appended_by in ('factory_admin', 'factory_operator'));
 create policy events_not_his on events for insert to factory_worker, factory_writer
   with check (not admin_event(type));
 create policy events_scores on events for insert to scoreboard_writer with check (type = 'score.updated');
@@ -103,13 +106,13 @@ create table passkeys (
 );
 
 -- Sessions, kept on the server: the browser holds a random id, and the store its SHA-256. Eight hours from signing in
--- at most (SESSION), with no idle timeout; the passkey given again is recorded when it is. Signing out ends one, and an
+-- (SESSION), set by the store from its own clock, with no idle timeout; the passkey given again is recorded when it is. Signing out ends one, and an
 -- ended session stays ended.
 create table sessions (
   id_sha256     text primary key check (id_sha256 ~ '^[0-9a-f]{64}$'),
   passkey       text not null references passkeys (id),
-  signed_in_at  timestamptz not null default clock_timestamp(),
-  expires_at    timestamptz not null,
+  signed_in_at  timestamptz not null default now(),
+  expires_at    timestamptz not null default now() + interval '8 hours',
   stepped_up_at timestamptz,
   ended_at      timestamptz,
   ended_by      text check (ended_by in ('sign-out', 'sign-out-everywhere', 'revoked')),
@@ -186,7 +189,7 @@ create trigger passkeys_revoked after update of revoked_at on passkeys
 grant select, insert (id, public_key, sign_count, transports, name, enrolled_with),
   update (sign_count, last_used_at, revoked_at) on passkeys to factory_admin;
 grant select, update (tries, used_at) on enrolment_codes to factory_admin;
-grant select, insert (id_sha256, passkey, expires_at), update (stepped_up_at, ended_at, ended_by)
+grant select, insert (id_sha256, passkey), update (stepped_up_at, ended_at, ended_by)
   on sessions to factory_admin;
 grant select, insert (challenge, purpose, session, code_sha256, expires_at), update (used_at), delete
   on webauthn_challenges to factory_admin;

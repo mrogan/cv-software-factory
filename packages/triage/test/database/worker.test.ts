@@ -2,14 +2,14 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { InboxSignal, NewEvent, PayloadOf, Screenshot } from '@software-factory/events';
-import { DiskArtifacts, EventWriter, lastEnd, sendSignal } from '@software-factory/store';
+import { DiskArtifacts, EventWriter, lastEnd, lineStopped, sendSignal } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { BURST, INBOX } from '../../../../policy/triage.ts';
 import { type Database, freshDatabase } from '../../../store/test/database.ts';
 import { burstEvents, idsFor, senseEvidence, senseTicket } from '../../src/events.ts';
 import { type Answer, type Judge, JudgeWaiting } from '../../src/judge.ts';
-import { lineStopped, Triage, type TriageOptions } from '../../src/worker.ts';
+import { Triage, type TriageOptions } from '../../src/worker.ts';
 
 let database: Database;
 let writer: Sql;

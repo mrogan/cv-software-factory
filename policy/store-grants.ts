@@ -33,7 +33,10 @@ export interface RoleGrants {
 /** The columns a sense may give a signal: the rest are triage's, or the store's defaults. */
 const SIGNAL = 'insert (id, sense, fingerprint, signal)';
 
-/** Every role that reads the events reads every row: the console's reads only the columns of their public views. */
+/**
+ * Every role that reads the events reads every row, but the console's: it reads only the columns of their public views,
+ * and only Martin's commands his roles appended, as the factory heeds them.
+ */
 const READ = 'true';
 /** Every role but Martin's appends any event but his commands. */
 const NOT_HIS = 'NOT admin_event(type)';
@@ -151,7 +154,7 @@ export const STORE_GRANTS = {
         'update (sign_count, last_used_at, revoked_at)',
       ],
       enrolment_codes: ['select', 'update (tries, used_at)'],
-      sessions: ['select', 'insert (id_sha256, passkey, expires_at)', 'update (stepped_up_at, ended_at, ended_by)'],
+      sessions: ['select', 'insert (id_sha256, passkey)', 'update (stepped_up_at, ended_at, ended_by)'],
       webauthn_challenges: [
         'select',
         'insert (challenge, purpose, session, code_sha256, expires_at)',
@@ -185,7 +188,12 @@ export const STORE_GRANTS = {
       events: ['select (seq, id, ts, work_item, type, version, actor, public, appended_at)'],
       store: ['select'],
     },
-    rows: { events: { select: READ } },
+    rows: {
+      events: {
+        select:
+          "(NOT admin_event(type)) OR (appended_by IS NULL) OR (appended_by in ('factory_admin', 'factory_operator'))",
+      },
+    },
   },
   scoreboard_writer: {
     for: 'The scoreboard: reads events and appends its own figures to a real store (0012_scoreboard.sql).',

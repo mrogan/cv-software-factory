@@ -25,8 +25,7 @@
  */
 
 import { context, propagation, ROOT_CONTEXT, type Span, SpanStatusCode, trace } from '@opentelemetry/api';
-import { IgnoredCommands, jobForToken } from '@software-factory/store';
-import { lineStopped } from '@software-factory/triage';
+import { IgnoredCommands, jobForToken, lineStopped } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { type AgentModel, MODEL_AGENTS, type ModelAgent, modelFor } from '../../../../policy/models.ts';

@@ -17,11 +17,17 @@ STORE_WORKERS := triage line gateway probes crawler intake logs
 LOCAL_CA = $(or $(shell node scripts/local-ca.ts dir),$(error node cannot say where the local CA is: run 'mise install'))
 
 # $(call as-operator,command): run a command on the host as Martin's own role in the store, through a port-forward to
-# Postgres. Only his roles may append his commands (packages/store/migrations/0023_martins-commands.sql).
-as-operator = $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
+# Postgres: only his roles may append his commands (packages/store/migrations/0023_martins-commands.sql). Its password
+# is in a Secret no pod reads, made here if it is not there, and set on the role here as the database's owner, so it
+# works on any cluster as soon as it is made. A store not yet migrated has no such role, and the writer appends there.
+as-operator = $(call secret,factory,postgres-operator,--from-literal=password="$$(openssl rand -hex 24)") && \
+	{ $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
 	trap 'kill $$forward' EXIT; sleep 2; \
-	PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory PGUSER=factory_operator \
-	PGPASSWORD="$$($(KUBECTL) -n factory get secret postgres-operator -o jsonpath='{.data.password}' | base64 -d)" $(1)
+	secret() { $(KUBECTL) -n factory get secret "$$1" -o jsonpath='{.data.password}' | base64 -d; }; \
+	export PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory; \
+	role="$$(secret postgres-operator | PGUSER=factory PGPASSWORD="$$(secret postgres)" \
+		node packages/store/src/operator.ts)" && \
+	PGUSER="$$role" PGPASSWORD="$$(secret postgres-$${role\#factory_})" $(1); }
 
 # $(call secret,namespace,name,data): create a Secret unless it exists.
 secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null && \
@@ -49,8 +55,6 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@$(call secret,factory,postgres-writer,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-console,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-metrics,--from-literal=password="$$(openssl rand -hex 24)")
-	@# Martin's own role, for the make targets that append his commands: the migrate Job sets it, and no other pod reads it.
-	@$(call secret,factory,postgres-operator,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(MAKE) --no-print-directory worker-secrets
 	@$(MAKE) --no-print-directory gateway-key
 	@$(MAKE) --no-print-directory github-key

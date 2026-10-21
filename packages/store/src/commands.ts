@@ -18,6 +18,17 @@ export const fromMartin = (sql: Sql | TransactionSql, alias: string) =>
        or ${sql(`${alias}.appended_by`)} is null
        or ${sql(`${alias}.appended_by`)} = any(${MARTINS_ROLES}))`;
 
+/**
+ * Whether the line is stopped: the last of `line.started` and `line.stopped` that one of Martin's roles appended
+ * decides. Every worker asks before it takes work.
+ */
+export async function lineStopped(sql: Sql): Promise<boolean> {
+  const [last] = await sql<{ type: string }[]>`
+    select e.type from events e where e.type in ('line.started', 'line.stopped') and ${fromMartin(sql, 'e')}
+    order by e.seq desc limit 1`;
+  return last?.type === 'line.stopped';
+}
+
 interface Log {
   warn(details: object, message: string): void;
 }
@@ -38,6 +49,8 @@ export class IgnoredCommands {
   readonly #sql: Sql;
   readonly #log: Log;
   #after = 0;
+  /** The look in progress: calls at once share it, so none logs an event another is logging. */
+  #looking: Promise<Ignored[]> | undefined;
 
   constructor(sql: Sql, log: Log) {
     this.#sql = sql;
@@ -45,7 +58,14 @@ export class IgnoredCommands {
   }
 
   /** Looks at the events appended since it last looked, and returns those it ignored. */
-  async check(): Promise<Ignored[]> {
+  check(): Promise<Ignored[]> {
+    this.#looking ??= this.#look().finally(() => {
+      this.#looking = undefined;
+    });
+    return this.#looking;
+  }
+
+  async #look(): Promise<Ignored[]> {
     const sql = this.#sql;
     const [top] = await sql<{ seq: string | null }[]>`select max(seq) as seq from events`;
     const upTo = Number(top?.seq ?? 0);

@@ -46,6 +46,7 @@ import {
   fromMartin,
   IgnoredCommands,
   lastEnd,
+  lineStopped,
   nextWorkItem,
 } from '@software-factory/store';
 import type { Sql } from 'postgres';
@@ -724,17 +725,6 @@ async function heldSignals(sql: Sql): Promise<Held[]> {
 
 /** Whether a signal's words are for Jev to judge: a visitor's report, or a planner's finding. */
 const judged = (signal: InboxSignal) => signal.sense === 'report' || signal.sense === 'planner';
-
-/**
- * Whether the line is stopped: the last of `line.started` and `line.stopped` that one of Martin's roles appended
- * decides.
- */
-export async function lineStopped(sql: Sql): Promise<boolean> {
-  const [last] = await sql<{ type: string }[]>`
-    select e.type from events e where e.type in ('line.started', 'line.stopped') and ${fromMartin(sql, 'e')}
-    order by e.seq desc limit 1`;
-  return last?.type === 'line.stopped';
-}
 
 /** Tickets whose work item is open: never closed, or reopened since it last closed. */
 export async function openTickets(sql: Sql): Promise<Ticket[]> {

@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import postgres, { type Sql } from 'postgres';
 import type { TestProject } from 'vitest/node';
 import { migrate, type Passwords, PASSWORDS as ROLES, WORKERS, type Worker } from '../src/migrate.ts';
+import { readyOperator } from '../src/operator.ts';
 
 export { WORKERS, type Worker };
 
@@ -155,6 +156,8 @@ export async function createDatabase(server: string, name: string): Promise<Data
     await admin.unsafe(`create database ${database}`);
     await migrate(owner, PASSWORDS);
     for (const [name, role] of Object.entries(UNSET)) await owner.unsafe(`alter role ${role} password '${name}-test'`);
+    // As `make stop-the-line` gives Martin's role its password.
+    await readyOperator(owner, 'operator-test');
   } finally {
     await admin.end();
   }
@@ -162,7 +165,7 @@ export async function createDatabase(server: string, name: string): Promise<Data
   const reader = as('console_reader', PASSWORDS.console);
   const scoreboard = as('scoreboard_writer', PASSWORDS.scoreboard);
   const metrics = as('metrics_reader', PASSWORDS.metrics);
-  const operator = as('factory_operator', PASSWORDS.operator);
+  const operator = as('factory_operator', 'operator-test');
   const service = as(UNSET.admin, 'admin-test');
   const enrol = as(UNSET.enrol, 'enrol-test');
   const workers = Object.fromEntries(WORKERS.map((w) => [w, as(ROLES[w].role, PASSWORDS[w])])) as Record<Worker, Sql>;
