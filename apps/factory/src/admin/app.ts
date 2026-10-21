@@ -23,7 +23,15 @@ import { clientAddress, LIMITS, RateLimit } from './client.ts';
 import type { AdminConfig } from './config.ts';
 import { fromConsole, type Guard, guardOf, refuseWrite } from './guard.ts';
 import { codeHash, isSessionId, newChallenge, newSessionId, normalCode, tokenOf } from './secrets.ts';
-import { type AdminStore, adminEvent, Refused, type Session, sessionHash, TOO_MANY_PASSKEYS } from './store.ts';
+import {
+  type AdminStore,
+  adminEvent,
+  lockSessions,
+  Refused,
+  type Session,
+  sessionHash,
+  TOO_MANY_PASSKEYS,
+} from './store.ts';
 import { type FullEvents, resumeFrom } from './stream.ts';
 import {
   authenticationAnswer,
@@ -255,7 +263,10 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
 
     'sign-out-everywhere': async () => {
       await store.record(
-        (tx) => tx`update sessions set ended_at = now(), ended_by = 'sign-out-everywhere' where ended_at is null`,
+        async (tx) => {
+          await lockSessions(tx);
+          await tx`update sessions set ended_at = now(), ended_by = 'sign-out-everywhere' where ended_at is null`;
+        },
         () => [adminEvent('admin.signed-out', 'Martin signed out everywhere', { everywhere: true })],
       );
       events.end('signed-out');

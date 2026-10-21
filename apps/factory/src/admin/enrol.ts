@@ -6,7 +6,7 @@
 import type { Sql } from 'postgres';
 import { ENROLMENT_CODE, PASSKEYS } from '../../../../policy/access.ts';
 import { codeHash, newCode } from './secrets.ts';
-import { adminEvent, appendMartins } from './store.ts';
+import { adminEvent, appendMartins, lockSessions } from './store.ts';
 
 export interface Enrolment {
   code: string;
@@ -23,6 +23,7 @@ export async function enrol(sql: Sql, { revokeOthers = false } = {}): Promise<En
   return (await sql.begin(async (tx) => {
     let revoked: string[] = [];
     if (revokeOthers) {
+      await lockSessions(tx);
       const rows = await tx<{ name: string }[]>`
         update passkeys set revoked_at = now() where revoked_at is null returning name`;
       revoked = rows.map((row) => row.name);

@@ -19,3 +19,15 @@ create policy events_enrol_revocations on events for insert to factory_enrol wit
 alter policy events_console_reads on events
   using (not admin_event(type) or appended_by is null
          or appended_by in ('factory_admin', 'factory_operator', 'factory_enrol'));
+
+-- The limit on passkeys refuses with a code of its own, so the admin service tells it from any other failure without
+-- reading its words.
+create or replace function passkeys_at_most_two() returns trigger language plpgsql as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('passkeys'));
+  if (select count(*) from passkeys where revoked_at is null) >= 2 then
+    raise exception 'Martin holds two passkeys already: revoke one before enrolling another' using errcode = 'SF002';
+  end if;
+  return new;
+end
+$$;

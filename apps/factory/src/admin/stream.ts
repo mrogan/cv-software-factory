@@ -99,10 +99,10 @@ export class FullEvents {
               if (gone()) return;
               last = event.seq;
               res.write(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`);
-            }
-            if (res.writableLength > MAX_BUFFERED_BYTES) {
-              res.destroy();
-              return;
+              if (res.writableLength > MAX_BUFFERED_BYTES) {
+                res.destroy();
+                return;
+              }
             }
             if (page.length < PAGE) break;
           }

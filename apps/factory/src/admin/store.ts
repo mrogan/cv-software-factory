@@ -61,8 +61,14 @@ export class Refused extends Error {
 
 export const TOO_MANY_PASSKEYS = `Martin holds ${PASSKEYS.most} passkeys already: revoke one before enrolling another.`;
 
-/** Postgres's code for an exception a trigger raised. */
-const RAISED = 'P0001';
+/** The SQLSTATE the store's limit on passkeys raises (0025_admin-service.sql). */
+const TOO_MANY = 'SF002';
+
+/**
+ * Starting a session and ending every session take this lock, so a sign-in in flight cannot start one that signing
+ * out everywhere, or `factory admin enrol --revoke-others`, has already passed over.
+ */
+export const lockSessions = (tx: TransactionSql) => tx`select pg_advisory_xact_lock(hashtext('sessions'))`;
 
 export class AdminStore {
   readonly #sql: Sql;
@@ -169,6 +175,7 @@ export class AdminStore {
 
   /** Starts a session for a passkey, in a transaction of the caller's, ending the one it replaces if there is one. */
   async startSession(tx: TransactionSql, passkey: string, hash: string, replaces?: string): Promise<void> {
+    await lockSessions(tx);
     if (replaces) {
       await tx`update sessions set ended_at = now(), ended_by = 'sign-out'
                where id_sha256 = ${replaces} and ended_at is null`;
@@ -205,9 +212,8 @@ const sessionOf = (row: SessionRow): Session => ({
 /** The store's own refusals, which its triggers raise, as the service's. */
 function refusalOf(error: unknown): Refused | undefined {
   if (error instanceof Refused) return error;
-  const { code, message } = error as { code?: string; message?: string };
-  if (code === RAISED && message?.includes('two passkeys already'))
-    return new Refused('passkeys', 409, TOO_MANY_PASSKEYS);
+  const { code } = error as { code?: string };
+  if (code === TOO_MANY) return new Refused('passkeys', 409, TOO_MANY_PASSKEYS);
   return undefined;
 }
 
