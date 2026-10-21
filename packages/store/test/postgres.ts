@@ -18,7 +18,7 @@ export const PASSWORDS = Object.fromEntries(
 ) as Required<Record<keyof Passwords, string>>;
 
 /** Roles the migrate Job gives no password, which the tests give one so they can connect as each. */
-const UNSET = { admin: 'factory_admin', enrol: 'factory_enrol' } as const;
+const UNSET = { enrol: 'factory_enrol' } as const;
 const quiet = { onnotice: () => {}, max: 2 };
 
 export interface Database {
@@ -166,7 +166,7 @@ export async function createDatabase(server: string, name: string): Promise<Data
   const scoreboard = as('scoreboard_writer', PASSWORDS.scoreboard);
   const metrics = as('metrics_reader', PASSWORDS.metrics);
   const operator = as('factory_operator', 'operator-test');
-  const service = as(UNSET.admin, 'admin-test');
+  const service = as('factory_admin', PASSWORDS.admin);
   const enrol = as(UNSET.enrol, 'enrol-test');
   const workers = Object.fromEntries(WORKERS.map((w) => [w, as(ROLES[w].role, PASSWORDS[w])])) as Record<Worker, Sql>;
   return {

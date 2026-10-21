@@ -174,13 +174,17 @@ export const STORE_GRANTS = {
   },
   factory_enrol: {
     for:
-      '`factory admin enrol`: adds an enrolment code, and revokes passkeys and their sessions. Nothing else, and no ' +
-      'pod holds its password.',
+      '`factory admin enrol`: adds an enrolment code, and revokes passkeys and their sessions, recording each passkey ' +
+      'it revokes. Nothing else, and no pod holds its password.',
+    martin: true,
     on: {
+      events: ['select', 'insert'],
+      store: ['select', 'insert'],
       enrolment_codes: ['insert (code_sha256)'],
       passkeys: ['select (id, name, enrolled_at, last_used_at, revoked_at)', 'update (revoked_at)'],
       sessions: ['select (passkey, ended_at)', 'update (ended_at, ended_by)'],
     },
+    rows: { events: { select: "type = 'passkey.revoked'", insert: "type = 'passkey.revoked'" } },
   },
   console_reader: {
     for: "The console's server: public views of events, and the store's kind.",
@@ -191,7 +195,8 @@ export const STORE_GRANTS = {
     rows: {
       events: {
         select:
-          "(NOT admin_event(type)) OR (appended_by IS NULL) OR (appended_by in ('factory_admin', 'factory_operator'))",
+          '(NOT admin_event(type)) OR (appended_by IS NULL) OR ' +
+          "(appended_by in ('factory_admin', 'factory_operator', 'factory_enrol'))",
       },
     },
   },

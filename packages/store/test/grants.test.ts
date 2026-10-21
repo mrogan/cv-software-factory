@@ -303,21 +303,25 @@ const command = (type: EventType, workItem: string | null = null): NewEvent =>
     version: 1,
     actor: 'martin',
     summary: `${type}, as Martin`,
-    payload:
-      type === 'hold.answered'
-        ? { decision: 'approved' }
-        : type === 'line.stopped'
-          ? { reason: 'Martin stopped the line' }
-          : { autonomy: 'supervised' },
+    payload: PAYLOADS[type] ?? {},
     artifacts: [],
   }) as NewEvent;
+
+/** A payload for each of Martin's commands that has one to give. */
+const PAYLOADS: Partial<Record<EventType, object>> = {
+  'hold.answered': { decision: 'approved' },
+  'line.stopped': { reason: 'Martin stopped the line' },
+  'line.started': { autonomy: 'supervised' },
+  'admin.signed-out': { everywhere: false },
+  'passkey.revoked': { from: 'console' },
+};
 
 const writer = (sql: Sql) => new EventWriter(sql, { kind: 'sample', artifacts });
 
 describe("Martin's commands", () => {
   it('are the same types to the store as to the factory', async () => {
     const rows = await db.owner<{ type: string }[]>`
-      select type from unnest(${[...EVENT_TYPES, 'passkey.enrolled']}::text[]) as type where admin_event(type)`;
+      select type from unnest(${[...EVENT_TYPES, 'not.a-command']}::text[]) as type where admin_event(type)`;
     expect(rows.map((r) => r.type).sort()).toEqual([...ADMIN_TYPES].sort());
   });
 
@@ -351,7 +355,7 @@ describe("Martin's commands", () => {
     await writer(db.operator).append(command('line.started'));
     await expect(writer(db.admin).append(opened('3201'))).rejects.toThrow('row-level security');
     await writer(db.operator).append(opened('3201'));
-    expect(MARTINS_ROLES.sort()).toEqual(['factory_admin', 'factory_operator']);
+    expect(MARTINS_ROLES.sort()).toEqual(['factory_admin', 'factory_enrol', 'factory_operator']);
   });
 
   it('carry the role that appended them, which the store sets and no client may', async () => {
@@ -413,7 +417,15 @@ describe('signing in', () => {
     await expect(db.enrol`update sessions set expires_at = now() + interval '1 day'`).rejects.toThrow(
       'permission denied',
     );
-    await expect(writer(db.enrol).append(opened('3300'))).rejects.toThrow('permission denied');
+    // Of the events, it appends the passkeys it revokes, and reads back only those.
+    await expect(writer(db.enrol).append(opened('3300'))).rejects.toThrow('row-level security');
+    // A hold's answer is refused sooner: the enrolment cannot see the work item it answers.
+    for (const type of ADMIN_TYPES.filter((t) => t !== 'passkey.revoked' && t !== 'hold.answered')) {
+      await expect(writer(db.enrol).append(command(type)), type).rejects.toThrow('row-level security');
+    }
+    const [revoked] = await writer(db.enrol).append(command('passkey.revoked'));
+    expect(await db.enrol`select seq from events`).toEqual([{ seq: String(revoked?.seq) }]);
+    expect(await db.reader`select seq from events where seq = ${revoked?.seq ?? 0}`).toHaveLength(1);
   });
 
   it('holds a code to the policy’s ten minutes and five tries, used once', async () => {

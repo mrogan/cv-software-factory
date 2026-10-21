@@ -30,6 +30,7 @@
     "@sigstore/protobuf-specs": "^0.5.2",
     "@sigstore/tuf": "^5.0.0",
     "@sigstore/verify": "^4.1.2",
+    "@simplewebauthn/server": "^14.0.3",
     "@software-factory/events": "workspace:*",
     "@software-factory/store": "workspace:*",
     "@software-factory/triage": "workspace:*",

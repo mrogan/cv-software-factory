@@ -105,15 +105,42 @@ describe("Martin's own role", () => {
 
   it('has its password from a Secret no pod reads, which the make targets make and set as the owner', async () => {
     const makefile = await readFile(join(DEPLOY, '../Makefile'), 'utf-8');
-    expect(makefile).toMatch(/^as-operator = \$\(call secret,factory,postgres-operator,/m);
+    expect(makefile).toMatch(/^as-martin = \$\(call secret,factory,postgres-\$\(1\),/m);
+    expect(makefile).toMatch(/^as-operator = \$\(call as-martin,operator,\$\(1\)\)$/m);
     expect(makefile).toMatch(
-      /secret postgres-operator \| PGUSER=factory .*\n.*node packages\/store\/src\/operator\.ts/,
+      /secret postgres-\$\(1\) \| PGUSER=factory .*\n.*node packages\/store\/src\/operator\.ts factory_\$\(1\)/,
     );
-    for (const { manifest } of await manifests<Deployment>()) {
-      const pod = manifest.spec?.template?.spec;
-      for (const e of [...(pod?.containers ?? []), ...(pod?.initContainers ?? [])].flatMap((c) => c.env ?? [])) {
-        expect(e.valueFrom?.secretKeyRef?.name, manifest.metadata?.name).not.toBe('postgres-operator');
-      }
-    }
+    await expectNoPodReads('postgres-operator');
   });
 });
+
+describe('the enrolment’s role', () => {
+  it('is what `make enrol` connects as, with its password from a Secret no pod reads', async () => {
+    const makefile = await readFile(join(DEPLOY, '../Makefile'), 'utf-8');
+    const recipe = makefile.match(/^enrol:[^\n]*\n((?:\t[^\n]*\n)+)/m)?.[1] ?? '';
+    expect(recipe).toContain('$(call as-martin,enrol,node apps/factory/src/cli.ts admin enrol');
+    await expectNoPodReads('postgres-enrol');
+  });
+});
+
+describe('the admin service’s role', () => {
+  it('has its password from a Secret `make up` makes, which the migrate Job sets', async () => {
+    const makefile = await readFile(join(DEPLOY, '../Makefile'), 'utf-8');
+    expect(makefile).toMatch(/^\t@\$\(call secret,factory,postgres-admin,/m);
+    expect((await migrateJob()).find((e) => e.name === 'ADMIN_PASSWORD')?.valueFrom?.secretKeyRef).toEqual({
+      name: 'postgres-admin',
+      key: 'password',
+      optional: true,
+    });
+  });
+});
+
+/** No Deployment's pod reads this Secret. */
+async function expectNoPodReads(secret: string) {
+  for (const { manifest } of await manifests<Deployment>()) {
+    const pod = manifest.spec?.template?.spec;
+    for (const e of [...(pod?.containers ?? []), ...(pod?.initContainers ?? [])].flatMap((c) => c.env ?? [])) {
+      expect(e.valueFrom?.secretKeyRef?.name, manifest.metadata?.name).not.toBe(secret);
+    }
+  }
+}

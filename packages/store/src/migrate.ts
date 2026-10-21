@@ -7,9 +7,9 @@
  *
  * Each of the variables in `PASSWORDS`, when set, becomes the password of its role: WRITER_PASSWORD the factory's
  * writer's, CONSOLE_PASSWORD the console's reader's, SCOREBOARD_PASSWORD the scoreboard's writer's, METRICS_PASSWORD
- * the Postgres exporter's reader's, and TRIAGE_PASSWORD, LINE_PASSWORD and the like each worker's own. Martin's own
- * role's is set by the make targets that use it (`operator.ts`), so no pod holds it. It connects as
- * the database's owner, the only role that may change its schema.
+ * the Postgres exporter's reader's, TRIAGE_PASSWORD, LINE_PASSWORD and the like each worker's own, and ADMIN_PASSWORD
+ * the admin service's. Martin's command line's and the enrolment's are set by the make targets that use them
+ * (`operator.ts`), so no pod holds them. It connects as the database's owner, the only role that may change its schema.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +58,8 @@ export const PASSWORDS = {
   crawler: { role: 'factory_crawler', variable: 'CRAWLER_PASSWORD' },
   intake: { role: 'factory_intake', variable: 'INTAKE_PASSWORD' },
   logs: { role: 'factory_logs', variable: 'LOGS_PASSWORD' },
+  // The admin service's (0023_martins-commands.sql).
+  admin: { role: 'factory_admin', variable: 'ADMIN_PASSWORD' },
 } as const;
 
 export type Passwords = { [name in keyof typeof PASSWORDS]?: string | undefined };

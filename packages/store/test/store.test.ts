@@ -93,6 +93,7 @@ describe('migrations', () => {
       { version: 21, name: 'job-token-trace' },
       { version: 22, name: 'worker-roles' },
       { version: 23, name: 'martins-commands' },
+      { version: 25, name: 'admin-service' },
     ]);
   });
 });
