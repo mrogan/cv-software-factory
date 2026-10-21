@@ -9,8 +9,8 @@
 --   challenges, which hold hashes of the codes and the session ids, never the values.
 --
 -- What each role may do is set out in `policy/store-grants.ts`, and the grants test fails unless the store is exactly
--- that. Passwords are set outside migrations: the operator's by the migrate Job, from a Secret `make up` makes that no
--- other pod reads; the admin service's and the enrolment's when they come (milestone 7, task 4).
+-- that. Passwords are set outside migrations: the operator's by the make targets that use it, as the owner, from a
+-- Secret no pod reads (`packages/store/src/operator.ts`); the admin service's and the enrolment's when they come.
 
 -- Roles belong to the whole server, not one database: each is made, or set as it must be, as in 0022.
 do $$
