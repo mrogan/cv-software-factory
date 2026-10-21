@@ -22,7 +22,7 @@ interface Job {
 interface Deployment {
   kind?: string;
   metadata?: { name?: string };
-  spec?: { template?: { spec: { containers: { env?: Env[] }[] } } };
+  spec?: { template?: { spec: { containers: { env?: Env[] }[]; initContainers?: { env?: Env[] }[] } } };
 }
 
 const migrateJob = async () => {
@@ -75,10 +75,13 @@ describe('each worker that uses the store', () => {
     }
   });
 
-  it('is the only kind of Deployment that reads a worker’s Secret, and none reads the writer’s', async () => {
+  it('is the only Deployment that reads its Secret, none reads the writer’s, and none names a connection string', async () => {
     const secrets = new Set(WORKERS.map((worker) => `postgres-${worker}`));
     for (const { manifest } of (await manifests<Deployment>()).filter((m) => m.manifest.kind === 'Deployment')) {
-      for (const e of manifest.spec?.template?.spec.containers.flatMap((c) => c.env ?? []) ?? []) {
+      const pod = manifest.spec?.template?.spec;
+      for (const e of [...(pod?.containers ?? []), ...(pod?.initContainers ?? [])].flatMap((c) => c.env ?? [])) {
+        // A connection string would win over PGUSER, and could name any role.
+        expect(e.name, manifest.metadata?.name).not.toBe('DATABASE_URL');
         const secret = e.valueFrom?.secretKeyRef?.name;
         expect(secret, manifest.metadata?.name).not.toBe('postgres-writer');
         if (secret && secrets.has(secret)) expect(secret).toBe(`postgres-${manifest.metadata?.name}`);

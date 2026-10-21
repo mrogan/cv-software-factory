@@ -66,7 +66,7 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   One agent's step also runs on the host, for working on its prompt, with no cluster but Postgres for its job token: the one forwarded above, or a throwaway container migrated by `packages/store/src/migrate.ts` with `LINE_PASSWORD` and `GATEWAY_PASSWORD` set, so the step and its gateway connect as their own roles there too. `factory line bench <agent> <fixture>` runs the runner's own prepare and agent steps on a fixture's invented work (`apps/factory/src/line/bench/fixtures.ts`), against a gateway on the host, and prints the handback, whether its result fits the agent's schema, how many of its calls the cassettes replayed, and how long it took; alone, it lists the fixtures. Work on Qwen, as here; then without `ALL_LOCAL` and with the Anthropic key, to record Claude's cassettes, which costs money; then with `GATEWAY_MODE=replay`, which replays a step in seconds up to its first changed call. Cassettes made from fixtures hold only invented work and the app's public code:
 
   ```sh
-  # Against the cluster's Postgres, as above; against a throwaway one, PGUSER=factory_line and the password it was migrated with.
+  # Against the cluster's Postgres, forwarded as above. The try-the-line skill runs the same against a throwaway store.
   (store_role gateway && ALL_LOCAL=true GATEWAY_MODE=replay-record CASSETTES_DIR=/tmp/bench-cassettes PORT=8180 node apps/factory/src/cli.ts gateway) &
   (store_role line && GATEWAY_URL=http://localhost:8180 node apps/factory/src/cli.ts line bench coder off-by-one)
   ```

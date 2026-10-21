@@ -47,7 +47,7 @@ spec:
               value: "service.namespace=software-factory"
             - name: OTEL_METRIC_EXPORT_INTERVAL
               value: "15000"
-            # The event store, as the factory's writer: it appends and reads.
+            # The event store, as this worker's own role (policy/store-grants.ts): what it uses, and appending and reading events.
             - name: PGHOST
               value: postgres
             - name: PGDATABASE
