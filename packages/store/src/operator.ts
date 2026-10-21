@@ -16,8 +16,8 @@ export async function readyOperator(sql: Sql, password: string): Promise<'factor
   // Roles belong to the whole server, so another database may have made it: this one is migrated when the role may
   // append its events.
   const [role] = await sql<{ ready: boolean }[]>`
-    select exists (select 1 from pg_roles where rolname = 'factory_operator')
-       and has_table_privilege('factory_operator', 'events', 'insert') as ready`;
+    select case when exists (select 1 from pg_roles where rolname = 'factory_operator')
+                then has_table_privilege('factory_operator', 'events', 'insert') else false end as ready`;
   if (!role?.ready) return 'factory_writer';
   // A role's password cannot be a query parameter; the literal is escaped instead.
   await sql.unsafe(`alter role factory_operator password '${password.replaceAll("'", "''")}'`);
