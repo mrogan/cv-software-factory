@@ -11,7 +11,7 @@
   Query options: ?mode=visitor  ?theme=ink  ?motion=off  ?item=1288 (start the reel there)  &sheet (and open its sheet)
   Admin, and each control's read-only form for visitors (README, "Admin"):
     ?view=signin | enrol | settings | audit (pages of their own; the console is the default)
-    ?signin=ready (default) | none (no passkey on this device) | expired (the session ended)
+    ?signin=ready (default) | none (no passkey on this device) | expired (the session ended) | out | everywhere (signed out)
     ?enrol=code (default) | passkey (the code took; make the passkey) | done | wrong | spent (expired, used or out of tries)
     ?dialog=stop | start | stepup | abort (open one, as a click would)   ?fresh (the passkey was given in the last five minutes)
     ?needs=none (nothing waits)   ?menu (the account menu open)
@@ -65,9 +65,8 @@ a:hover { color: var(--signal-hover); }
 .icon-btn:hover { border-color: var(--text-muted); }
 .icon-btn:disabled { opacity: .4; cursor: default; }
 .seg { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: var(--raised); }
-.seg button { min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; }
+.seg button { min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--radius-small); background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--on-inverse); }
-.seg button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .switch { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; min-height: 44px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
 .switch .track { width: 34px; height: 20px; border-radius: 10px; background: var(--line-strong); position: relative; flex: none; transition: background .15s; }
 .switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 7px; background: var(--raised); transition: transform .15s; }
@@ -819,10 +818,9 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   .door h1 { font-size: 32px; }
   .settings { grid-template-columns: 1fr; }
   table.agents thead { display: none; }
-  .agents tr { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .agents tr { display: grid; grid-template-columns: 3fr 2fr; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .agents td { padding: 0; border: 0; }
   .agents td:first-child, .agents td.num { grid-column: 1 / -1; }
-  .agents tr { grid-template-columns: 3fr 2fr; }
   .agents td.num { text-align: left; }
   .filters { gap: 10px; }
   .filters label, .filters .field, .filters input.field { width: 100%; }
@@ -868,7 +866,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
         <span class="fresh" id="fresh" hidden></span>
         <button type="button" class="btn attn" id="stop-btn"></button>
         <span class="account">
-          <button type="button" class="account-btn" id="account-btn" aria-haspopup="true" aria-expanded="false" aria-controls="menu"><span class="me" aria-hidden="true">M</span><span class="name">Martin</span></button>
+          <button type="button" class="account-btn" id="account-btn" aria-expanded="false" aria-controls="menu"><span class="me" aria-hidden="true">M</span><span class="name">Martin</span></button>
           <div class="menu" id="menu" hidden></div>
         </span>
       </span>
@@ -1567,7 +1565,7 @@ const S = {
   // Admin: the canary's state (?canary=), the line's take, whether the passkey was given in the last five minutes,
   // the holds answered here, which hold's words are open, the dialog and the account menu.
   canary: q.get('canary') || 'flight', take: { mode: 'next', next: 5, only: '1312' }, fresh: q.has('fresh'),
-  answered: {}, words: null, dialog: null, menu: q.has('menu'), view: q.get('view') || 'console',
+  answered: {}, said: {}, words: null, dialog: null, menu: q.has('menu'), view: q.get('view') || 'console',
   audit: { actor: '', item: '', kinds: { admin: true, agent: true, model: true } },
   P: asked >= 0 ? asked : n - 1, sheet: null, at: null, sheetPlay: false,
 };
@@ -2299,7 +2297,7 @@ const DECIDED = { approved: 'Approved', answered: 'Answered in words', rejected:
 function renderNeeds() {
   const el = $('needs'), v = S.visitor;
   const holds = q.get('needs') === 'none' ? [] : HOLDS.filter((h) => !S.answered[h.id]);
-  const done = [...HOLDS.filter((h) => S.answered[h.id]).map((h) => ['now', h.id, DECIDED[S.answered[h.id]], null, true]), ...ANSWERED];
+  const done = [...HOLDS.filter((h) => S.answered[h.id]).map((h) => ['now', h.id, DECIDED[S.answered[h.id]], S.said[h.id] ? `“${S.said[h.id]}”` : '', true]), ...ANSWERED];
   const cards = holds.map((h) => {
     const rows = h.answers.map(([d, label, what, key]) => {
       const control = v ? `<span class="ro">${label}</span>`
@@ -2375,29 +2373,32 @@ function canaryControls(r) {
     r.paused ? ['resume', 'Resume', 'Lets the canary move on by itself again.'] : ['pause', 'Pause', `Holds the canary at ${r.now}% until Martin resumes it.`],
     ['abort', 'Abort', `Sends all the traffic back to ${r.previous}. Nothing failed, so it opens no ticket.`],
   ] : [['retry', 'Retry', `Starts ${r.version}’s canary again from its first step.`, true]];
+  // A stopped line starts no canary: Retry waits for the line to start.
+  const off = (k) => k === 'retry' && S.stopped;
   if (S.visitor) return `<div class="canary-controls"><span class="label">Martin’s controls</span>
     <dl>${C.map(([, label, what]) => `<dt><span class="ro">${label}</span></dt><dd>${what}</dd>`).join('')}</dl></div>`;
   return `<div class="canary-controls"><span class="label">Your controls</span><div class="row">${C.map(([k, label, what, key]) =>
-    `<button type="button" class="btn small" data-canary="${k}" title="${what}">${label}${keyIf(key && !S.fresh)}</button>`).join('')}</div></div>`;
+    `<button type="button" class="btn small" data-canary="${k}" title="${what}" ${off(k) ? 'disabled' : ''}>${label}${keyIf(key && !S.fresh)}</button>`).join('')}
+    ${S.stopped && r.end ? '<span class="help">Start the line first: a stopped line starts no canary.</span>' : ''}</div></div>`;
 }
 
 /* ==== Dialogs: stop and start the line, abort, and the passkey again ======================== */
 
 // What each keyed action says in the step-up dialog: [title, what happens, why it asks].
 const STEPUP = {
-  'promote-next': ['Promote the canary', 'v0.9.13 moves to its next step now.', 'Promoting ships to more people'],
-  'promote-all': ['Promote the canary', '<b>v0.9.13 takes all the traffic now.</b> Verify then asks each ticket’s sense whether it cleared.', 'Promoting ships to everyone'],
-  retry: ['Retry the release', 'v0.9.13’s canary starts again from its first step.', 'Retrying ships again'],
+  'promote-next': ['Promote the canary', (r) => `${r.version} moves to its next step now.`, 'Promoting ships to more people'],
+  'promote-all': ['Promote the canary', (r) => `<b>${r.version} takes all the traffic now.</b> Verify then asks each ticket’s sense whether it cleared.`, 'Promoting ships to everyone'],
+  retry: ['Retry the release', (r) => `${r.version}’s canary starts again from its first step.`, 'Retrying ships again'],
   autonomy: ['Loosen autonomy', null, 'Loosening autonomy lets more ship without you'],
   switch: ['Change a switch', null, 'This loosens a control'],
   take: ['Take more work', null, 'Taking more work raises spend'],
   answer: ['Approve past a guardrail', null, 'A gate held this, and approving overrides it'],
   save: ['Save the settings', '<b>The coder’s effort goes from medium to high</b>, from its next step.', 'This raises spend'],
-  revoke: ['Revoke a passkey', '<b>The iPhone’s passkey stops working</b>, and its sessions end.', 'Revoking a passkey'],
+  revoke: ['Revoke a passkey', null, 'Revoking a passkey'],
 };
 
 function openDialog(kind, ctx = {}) {
-  S.dialog = { kind, ...ctx };
+  S.dialog = { kind, opener: S.dialog?.opener ?? document.activeElement, ...ctx };
   const el = $('dialog'), fresh = S.fresh;
   const reason = (id, ph) => `<label class="label" for="${id}">Reason</label><textarea id="${id}" maxlength="300" placeholder="${ph}" required></textarea>`;
   const cancel = '<button type="button" class="btn" data-dialog-close>Cancel</button>';
@@ -2410,21 +2411,25 @@ function openDialog(kind, ctx = {}) {
     ${reason('start-reason', 'Why, for the audit log')}
     <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>${fresh ? 'Start the line' : `Use your passkey and start${glyph('key', 'key')}`}</button></div>
     ${fresh ? '' : '<p class="help">Starting the line asks for your passkey again.</p>'}`;
-  else if (kind === 'abort') el.innerHTML = `<h2 id="dialog-title" tabindex="-1">Abort the canary</h2>
-    <p>v0.9.12, the version before, takes all the traffic at once. Nothing failed, so it opens no ticket, and #1302 waits for your retry or the next deploy.</p>
-    <div class="row">${cancel}<button type="button" class="btn attn" data-dialog-ok>Abort</button></div>`;
+  else if (kind === 'abort') { const r = canaryScenario(S.canary); el.innerHTML = `<h2 id="dialog-title" tabindex="-1">Abort the canary</h2>
+    <p>${r.previous}, the version before, takes all the traffic at once. Nothing failed, so it opens no ticket${r.carries.length ? `, and ${r.carries.map((id) => '#' + id).join(' and ')} waits for your retry or the next deploy` : ''}.</p>
+    <div class="row">${cancel}<button type="button" class="btn attn" data-dialog-ok>Abort</button></div>`; }
   else {
     const [title, what, why] = STEPUP[ctx.action] ?? STEPUP.switch;
     el.innerHTML = `<div class="kickline">${glyph('key', 'key')}<span class="label">Your passkey, again</span></div>
       <h2 id="dialog-title" tabindex="-1">${title}</h2>
-      <div class="what">${ctx.what ?? what}</div>
+      <div class="what">${ctx.what ?? (typeof what === 'function' ? what(canaryScenario(S.canary)) : what)}</div>
       <p>${why}, so it needs your passkey again. Once given, it stays fresh for five minutes, for this and anything else that asks.</p>
       <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>Use your passkey</button></div>`;
   }
   $('dialog').hidden = false; $('dialog-scrim').hidden = false;
   $('dialog-title').focus();
 }
-function closeDialog() { S.dialog = null; $('dialog').hidden = true; $('dialog-scrim').hidden = true; }
+function closeDialog() {
+  const back = S.dialog?.opener;
+  S.dialog = null; $('dialog').hidden = true; $('dialog-scrim').hidden = true;
+  if (back?.isConnected) back.focus();
+}
 
 // Run an action, asking for the passkey first when it needs it and none was given in the last five minutes.
 function keyed(needs, action, ctx, run) {
@@ -2436,11 +2441,11 @@ function confirmDialog() {
   if (!d) return;
   const why = $('stop-reason') ?? $('start-reason');
   if (why && !why.value.trim()) return why.focus();
-  if (d.kind === 'stop') { S.stopped = true; S.stopReason = $('stop-reason').value.trim(); if (!canaryScenario(S.canary).end) S.canary = 'stopped'; }
+  if (d.kind === 'stop') { S.stopped = true; S.stopReason = $('stop-reason').value.trim(); const r = canaryScenario(S.canary); if (!r.end && !r.idle && !r.none && !r.dry) S.canary = 'stopped'; }
   else if (d.kind === 'start') { S.fresh = true; S.stopped = false; }
   else if (d.kind === 'abort') S.canary = 'aborted';
   else { S.fresh = true; d.then?.(); }
-  closeDialog(); renderAll();
+  closeDialog(); renderAll(); retIndex = 0; cycleReturns();
 }
 
 /* ==== The account menu ===================================================================== */
@@ -2508,7 +2513,7 @@ function settingsPage() {
         `<option ${e === effort ? 'selected' : ''} ${i > EFFORTS.indexOf(max) ? 'disabled' : ''}>${e}${i > EFFORTS.indexOf(max) ? ' · above policy' : ''}</option>`).join('')}</select><small>up to ${max}</small></td>
       <td class="num">${week}<br>last 7 days</td></tr>`;
   }).join('');
-  const cap = (k, label, note, val, ceil, spent, pct) => `<div class="cap-row ${!v && k === 'day' ? '' : ''}">
+  const cap = (k, label, note, val, ceil, spent, pct) => `<div class="cap-row">
       <label for="cap-${k}">${label}<small>${note}</small></label>
       <span class="money"><input class="field" id="cap-${k}" inputmode="decimal" value="${val}" ${v ? 'disabled' : ''}></span>
       <span class="ceil"><span class="bar ink"><i style="width: ${pct}%"></i></span><span>${spent} · ceiling $${ceil}, from policy/spend.ts</span></span></div>`;
@@ -2523,8 +2528,8 @@ function settingsPage() {
       <div class="caps">${cap('day', 'Each day', 'UTC, reset at 00:00', '10', 20, '$3.40 today', 34)}${cap('month', 'Each month', 'UTC calendar month', '60', 100, '$41.20 this month', 69)}${cap('item', 'Each work item', 'Across all its calls', '1.00', 2, 'the dearest today, #1312, $0.62', 62)}</div></article>`;
   const side = v ? `<article class="panel"><h2>Who changes these</h2><p class="help" style="font-size: 13px">Martin, signed in with his passkey. Each change is an event, so it is in the <a href="?view=audit">audit log</a> with what it was before, and the gateway checks every setting against policy as it reads it: one outside the bounds has no effect.</p></article>`
     : `<article class="panel" aria-labelledby="keys-title"><h2 id="keys-title">Passkeys</h2><div class="keys">
-        <div><span>MacBook Air<small>Enrolled 12 Oct · used today, 15:40 · this device</small></span><button type="button" class="btn small" data-revoke>Revoke${keyIf(!S.fresh)}</button></div>
-        <div><span>iPhone<small>Enrolled 12 Oct · used yesterday, 21:02</small></span><button type="button" class="btn small" data-revoke>Revoke${keyIf(!S.fresh)}</button></div></div>
+        <div><span>MacBook Air<small>Enrolled 12 Oct · used today, 15:40 · this device</small></span><button type="button" class="btn small" data-revoke="MacBook Air">Revoke${keyIf(!S.fresh)}</button></div>
+        <div><span>iPhone<small>Enrolled 12 Oct · used yesterday, 21:02</small></span><button type="button" class="btn small" data-revoke="iPhone">Revoke${keyIf(!S.fresh)}</button></div></div>
         <p class="help">Two at most. Each is added with <code>factory admin enrol</code> on the command line, never from here.</p></article>
       <article class="panel" aria-labelledby="session-title"><h2 id="session-title">This session</h2>
         <p class="help" style="font-size: 13px">Signed in at 15:40 with the MacBook Air’s passkey. It ends at 23:40: eight hours, however busy.</p>
@@ -2570,6 +2575,8 @@ function auditRows() {
       <td class="what ${refused ? 'refused' : ''}">${esc(what)}${small}</td></tr>`;
   }).join('') || `<tr><td colspan="5" class="help" style="padding: 18px 0">Nothing matches. Each filter narrows the log; clear one to see more.</td></tr>`;
 }
+const auditCaption = () => { const n = auditRows().split('<tr class="').filter((x) => !x.startsWith('day')).length - 1;
+  return `Showing ${n === AUDIT.length ? `the latest ${n}` : `${n} that match, of the latest ${AUDIT.length}`}, of 1,284 in all. Martin’s actions are ruled in ink.`; };
 function auditPage() {
   const f = S.audit;
   return `<div class="page"><div class="page-head"><a class="crumb" href="?${S.visitor ? 'mode=visitor' : ''}">← The console</a><h1>Audit log</h1>
@@ -2579,7 +2586,7 @@ function auditPage() {
       <label><span class="label">Work item</span><input class="field" placeholder="#1312" value="${esc(f.item)}" data-audit-item></label>
       <div style="display: flex; flex-direction: column; gap: 6px"><span class="label">Kind</span><div class="chips">${Object.entries(KIND).map(([k, [g, w]]) =>
         `<button type="button" class="chip" aria-pressed="${f.kinds[k]}" data-audit-kind="${k}">${glyph(g)}${w}s</button>`).join('')}</div></div></div>
-    <table class="audit"><caption>Showing the latest 15 of 1,284. Martin’s actions are ruled in ink.</caption>
+    <table class="audit"><caption id="audit-caption">${auditCaption()}</caption>
       <thead><tr><th>Time</th><th>Actor</th><th>Kind</th><th>Work item</th><th>What happened</th></tr></thead><tbody id="audit-rows">${auditRows()}</tbody></table>
     <button type="button" class="btn small" style="align-self: flex-start">Show older</button></div>`;
 }
@@ -2592,7 +2599,15 @@ function renderPage() {
   $('view-page').innerHTML = { signin: signinPage, enrol: enrolPage, settings: settingsPage, audit: auditPage }[S.view]?.() ?? '';
 }
 
-function renderAll() { renderChrome(); renderLine(); renderStagePanel(); renderNeeds(); renderControls(); renderCanary(); renderMenu(); renderPage(); }
+// A visitor's links keep the visitor's view: in the app the server decides, from the session.
+function keepMode() {
+  document.querySelectorAll('a[href^="?"]').forEach((a) => {
+    const u = new URLSearchParams(a.getAttribute('href').slice(1));
+    if (S.visitor) u.set('mode', 'visitor'); else if (!a.closest('.door')) u.delete('mode');
+    a.setAttribute('href', '?' + u.toString());
+  });
+}
+function renderAll() { renderChrome(); renderLine(); renderStagePanel(); renderNeeds(); renderControls(); renderCanary(); renderMenu(); renderPage(); keepMode(); }
 
 /* ==== Events ============================================================================== */
 
@@ -2633,7 +2648,9 @@ document.addEventListener('click', (e) => {
   }
   if (d.answer) {
     const [id, how] = d.answer.split(':'), h = HOLDS.find((x) => x.id === id), a = h.answers.find(([x]) => x === how);
-    return keyed(a[3], 'answer', { what: `<b>${a[1]} #${id}.</b> ${a[2]}` }, () => { S.answered[id] = how; S.words = null; renderAll(); });
+    const words = how === 'answered' ? document.getElementById('words-' + id)?.value.trim() : '';
+    if (how === 'answered' && !words) return document.getElementById('words-' + id)?.focus();
+    return keyed(a[3], 'answer', { what: `<b>${a[1]} #${id}.</b> ${a[2]}` }, () => { S.answered[id] = how; S.said[id] = words; S.words = null; renderAll(); });
   }
   if (d.words) { S.words = S.words === d.words ? null : d.words; renderNeeds(); return document.getElementById('words-' + d.words)?.focus(); }
   if (d.canary) {
@@ -2641,10 +2658,10 @@ document.addEventListener('click', (e) => {
     if (c === 'pause') { S.canary = 'paused'; return renderAll(); }
     if (c === 'resume') { S.canary = 'flight'; return renderAll(); }
     if (c === 'abort') return openDialog('abort');
-    return keyed(true, c, {}, () => { S.canary = c === 'retry' ? 'flight' : 'promoted'; renderAll(); });
+    return keyed(true, c, {}, () => { S.canary = c === 'promote-all' ? 'promoted' : 'flight'; renderAll(); });
   }
   if ('save' in d) return keyed(true, 'save', {}, () => renderAll());
-  if ('revoke' in d) return keyed(true, 'revoke', {}, () => renderAll());
+  if ('revoke' in d) return keyed(true, 'revoke', { what: `<b>The ${d.revoke}’s passkey stops working</b>, and its sessions end.` }, () => renderAll());
   if ('signin' in d) return;   // the browser's own passkey sheet, then the console
   if ('dialogClose' in d) return closeDialog();
   if ('dialogOk' in d) return confirmDialog();
@@ -2662,15 +2679,25 @@ $('dialog-scrim').addEventListener('click', closeDialog);
 document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.matches('textarea')) { const c = t.parentElement.querySelector('.chars'); if (c) c.textContent = `${t.value.length} / 300`; }
-  if (t.matches('[data-audit-item]')) { S.audit.item = t.value.trim(); $('audit-rows').innerHTML = auditRows(); }
-  if (t.matches('[data-take-n]')) S.take.next = +t.value || 1;
-  if (t.matches('[data-take-only]')) S.take.only = t.value.replace(/\D/g, '');
+  if (t.matches('[data-audit-item]')) { S.audit.item = t.value.trim(); $('audit-rows').innerHTML = auditRows(); $('audit-caption').textContent = auditCaption(); }
 });
 document.addEventListener('change', (e) => {
-  if (e.target.matches('[data-audit-actor]')) { S.audit.actor = e.target.value; $('audit-rows').innerHTML = auditRows(); }
+  const t = e.target;
+  if (t.matches('[data-take-n]')) {   // a larger take asks for the passkey; a smaller one doesn't
+    const n = Math.min(20, Math.max(1, Math.round(+t.value) || 1));
+    return keyed(n > S.take.next, 'take', { what: `<b>The line takes ${n} work items in all.</b>` }, () => { S.take.next = n; renderAll(); });
+  }
+  if (t.matches('[data-take-only]')) { S.take.only = t.value.replace(/\D/g, '') || S.take.only; return renderControls(); }
+  if (e.target.matches('[data-audit-actor]')) { S.audit.actor = e.target.value; $('audit-rows').innerHTML = auditRows(); $('audit-caption').textContent = auditCaption(); }
 });
 document.addEventListener('keydown', (e) => {
   if (S.dialog && e.key === 'Escape') return closeDialog();
+  if (S.dialog && e.key === 'Tab') {   // keep focus inside the dialog while it is open
+    const f = [...$('dialog').querySelectorAll('button:not([disabled]), a[href], textarea')];
+    if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f.at(-1).focus(); }
+    else if (!e.shiftKey && document.activeElement === f.at(-1)) { e.preventDefault(); f[0].focus(); }
+    return;
+  }
   if (S.menu && e.key === 'Escape') { S.menu = false; renderMenu(); return $('account-btn').focus(); }
   if (S.sheet === null) { if (e.key === 'Escape' && S.stage !== null) openStage(S.stage); return; }
   if (e.key === 'Escape') return closeSheet();
