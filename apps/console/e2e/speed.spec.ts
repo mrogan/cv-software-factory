@@ -1,6 +1,6 @@
 /**
  * First meaningful view within two seconds on a throttled phone: the line drawn from the factory's events. Against
- * the test server by default; CONSOLE_URL points it at the local cluster.
+ * the test server by default; CONSOLE_URL (https://console.localhost:8443) points it at the local cluster.
  */
 import { consoleUrl, expect, test } from './support.ts';
 
@@ -10,7 +10,9 @@ test.use({
   viewport: { width: 390, height: 844 },
   isMobile: true,
   hasTouch: true,
-  ...(cluster && { baseURL: cluster }),
+  // The cluster's certificate is from the Mac's local authority, which this browser may not trust: the test times the
+  // page, not the certificate.
+  ...(cluster && { baseURL: cluster, ignoreHTTPSErrors: true }),
 });
 
 test('draws the first meaningful view within two seconds on a throttled phone', async ({ page, baseURL }) => {
