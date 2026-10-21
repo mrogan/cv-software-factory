@@ -1564,8 +1564,8 @@ const S = {
   switches: { agents: true, automerge: false, rollback: true },
   // Admin: the canary's state (?canary=), the line's take, whether the passkey was given in the last five minutes,
   // the holds answered here, which hold's words are open, the dialog and the account menu.
-  canary: q.get('canary') || 'flight', take: { mode: 'next', next: 5, only: '1312' }, fresh: q.has('fresh'),
-  answered: {}, said: {}, words: null, dialog: null, menu: q.has('menu'), view: q.get('view') || 'console',
+  canary: q.get('canary') || 'flight', take: { mode: 'next', next: 5, only: '1312' }, fresh: q.has('fresh'), freshUntil: q.has('fresh') ? Date.now() + 300000 : 0,
+  answered: {}, said: {}, kept: [], words: null, dialog: null, menu: q.has('menu'), view: q.get('view') || 'console',
   audit: { actor: '', item: '', kinds: { admin: true, agent: true, model: true } },
   P: asked >= 0 ? asked : n - 1, sheet: null, at: null, sheetPlay: false,
 };
@@ -1728,7 +1728,8 @@ function renderChrome() {
   $('visitor-pill').textContent = S.previewing ? 'VISITOR VIEW' : 'VISITOR · amber-otter';
   $('status').hidden = door;
   $('fresh').hidden = !S.fresh;
-  $('fresh').innerHTML = `${glyph('key', 'key')}<span class="long">Passkey given · </span>5min`;
+  const left = Math.max(1, Math.ceil((S.freshUntil - Date.now()) / 60000));
+  $('fresh').innerHTML = `${glyph('key', 'key')}<span class="long">Passkey given · </span>${left}min`;
   $('fresh').title = 'You gave your passkey in the last five minutes: actions that ask for it act at once until then.';
   document.querySelectorAll('.admin-only').forEach((el) => { el.hidden = S.visitor; });
   document.querySelectorAll('.visitor-only').forEach((el) => { el.hidden = !S.visitor; });
@@ -2292,12 +2293,13 @@ const ANSWERED = [
   ['11:40', '1306', 'Answered in words', null],
   ['09:05', '1296', 'Approved', 'The spec went on to Build.'],
 ];
+const WORDS_LEAVE = ['suggestion', 'finding', 'burst', 'environment'];
 const DECIDED = { approved: 'Approved', answered: 'Answered in words', rejected: 'Rejected' };
 
 function renderNeeds() {
   const el = $('needs'), v = S.visitor;
   const holds = q.get('needs') === 'none' ? [] : HOLDS.filter((h) => !S.answered[h.id]);
-  const done = [...HOLDS.filter((h) => S.answered[h.id]).map((h) => ['now', h.id, DECIDED[S.answered[h.id]], S.said[h.id] ? `“${S.said[h.id]}”` : '', true]), ...ANSWERED];
+  const done = [...S.kept.map(([id, w]) => ['now', id, 'Answered in words, still held', `“${w}”`, true]).reverse(), ...HOLDS.filter((h) => S.answered[h.id]).map((h) => ['now', h.id, DECIDED[S.answered[h.id]], S.said[h.id] ? `“${S.said[h.id]}”` : '', true]), ...ANSWERED];
   const cards = holds.map((h) => {
     const rows = h.answers.map(([d, label, what, key]) => {
       const control = v ? `<span class="ro">${label}</span>`
@@ -2319,7 +2321,7 @@ function renderNeeds() {
   }).join('');
   const empty = `<p class="help" style="font-size: 13px">${v ? 'Nothing waits on Martin.' : 'Nothing waits on you.'} A hold lands here when the line or triage needs a person: a spec to approve, a pull request a gate held, a fix waiting for your deploy.</p>`;
   const answered = done.length ? `<div class="answered"><span class="label">Answered today</span>${done.map(([t, id, how, said, here]) =>
-    `<div><span class="mono">${here ? 'now' : t}</span><span>#${id} · ${how}${said === null && !here ? '. His words stay his: the hold was about a visitor’s report.' : said ? `. ${said.startsWith('“') ? `<q>${esc(said.slice(1, said.indexOf('”')))}</q>${esc(said.slice(said.indexOf('”') + 1))}` : esc(said)}` : ''}</span></div>`).join('')}</div>` : '';
+    `<div><span class="mono">${here ? 'now' : t}</span><span>#${id} · ${how}${said === null && !here ? '. His words stay his: the hold was about a visitor’s report.' : said ? `. ${said.startsWith('“') ? `<q>${esc(said.slice(1, said.lastIndexOf('”')))}</q>${esc(said.slice(said.lastIndexOf('”') + 1))}` : esc(said)}` : ''}</span></div>`).join('')}</div>` : '';
   el.innerHTML = `<div class="panel-head"><h2 id="needs-title">${v ? 'Waiting on Martin' : 'Needs you'}</h2>${holds.length ? `<span class="count-attn">${holds.length} waiting</span>` : ''}</div>
     ${holds.length ? `<div class="needs-list">${cards}</div>` : empty}${answered}`;
 }
@@ -2425,10 +2427,20 @@ function openDialog(kind, ctx = {}) {
   $('dialog').hidden = false; $('dialog-scrim').hidden = false;
   $('dialog-title').focus();
 }
+// The passkey, given: fresh for five minutes, then every keyed action asks again.
+function giveKey() { S.fresh = true; S.freshUntil = Date.now() + 300000; }
+setInterval(() => {
+  if (!S.fresh) return;
+  if (Date.now() >= S.freshUntil) { S.fresh = false; renderAll(); } else renderChrome();
+}, 15000);
 function closeDialog() {
   const back = S.dialog?.opener;
   S.dialog = null; $('dialog').hidden = true; $('dialog-scrim').hidden = true;
-  if (back?.isConnected) back.focus();
+  if (!back) return;
+  // Acting redraws the control that opened the dialog: focus goes to it, or to what replaced it, found by the same
+  // attributes.
+  const sel = [...back.attributes].filter((a) => a.name.startsWith('data-') || a.name === 'id').map((a) => `[${a.name}="${CSS.escape(a.value)}"]`).join('');
+  setTimeout(() => (back.isConnected ? back : sel && document.querySelector(sel))?.focus());
 }
 
 // Run an action, asking for the passkey first when it needs it and none was given in the last five minutes.
@@ -2442,10 +2454,11 @@ function confirmDialog() {
   const why = $('stop-reason') ?? $('start-reason');
   if (why && !why.value.trim()) return why.focus();
   if (d.kind === 'stop') { S.stopped = true; S.stopReason = $('stop-reason').value.trim(); const r = canaryScenario(S.canary); if (!r.end && !r.idle && !r.none && !r.dry) S.canary = 'stopped'; }
-  else if (d.kind === 'start') { S.fresh = true; S.stopped = false; }
+  else if (d.kind === 'start') { giveKey(); S.stopped = false; }
   else if (d.kind === 'abort') S.canary = 'aborted';
-  else { S.fresh = true; d.then?.(); }
-  closeDialog(); renderAll(); retIndex = 0; cycleReturns();
+  else { giveKey(); d.then?.(); }
+  renderAll(); retIndex = 0; cycleReturns();
+  closeDialog();
 }
 
 /* ==== The account menu ===================================================================== */
@@ -2453,7 +2466,7 @@ function confirmDialog() {
 function renderMenu() {
   $('account-btn').setAttribute('aria-expanded', String(S.menu));
   $('menu').hidden = !S.menu;
-  $('menu').innerHTML = `<div class="who">Martin Rogan<small>Signed in with a passkey at 15:40<br>The session ends at 23:40${S.fresh ? '<br>Passkey given again: 5min left' : ''}</small></div>
+  $('menu').innerHTML = `<div class="who">Martin Rogan<small>Signed in with a passkey at 15:40<br>The session ends at 23:40${S.fresh ? `<br>Passkey given again: ${Math.max(1, Math.ceil((S.freshUntil - Date.now()) / 60000))}min left` : ''}</small></div>
     <a href="?view=settings">Settings</a><a href="?view=audit">Audit log</a>
     <button type="button" data-preview>Preview as visitor</button><hr>
     <a href="?view=signin&amp;signin=out">Sign out</a>
@@ -2596,7 +2609,8 @@ function renderPage() {
   $('view-console').hidden = page;
   $('view-page').hidden = !page;
   if (!page) return;
-  $('view-page').innerHTML = { signin: signinPage, enrol: enrolPage, settings: settingsPage, audit: auditPage }[S.view]?.() ?? '';
+  const PAGES_BY_VIEW = new Map([['signin', signinPage], ['enrol', enrolPage], ['settings', settingsPage], ['audit', auditPage]]);
+  $('view-page').innerHTML = PAGES_BY_VIEW.get(S.view)?.() ?? '';
 }
 
 // A visitor's links keep the visitor's view: in the app the server decides, from the session.
@@ -2650,7 +2664,12 @@ document.addEventListener('click', (e) => {
     const [id, how] = d.answer.split(':'), h = HOLDS.find((x) => x.id === id), a = h.answers.find(([x]) => x === how);
     const words = how === 'answered' ? document.getElementById('words-' + id)?.value.trim() : '';
     if (how === 'answered' && !words) return document.getElementById('words-' + id)?.focus();
-    return keyed(a[3], 'answer', { what: `<b>${a[1]} #${id}.</b> ${a[2]}` }, () => { S.answered[id] = how; S.said[id] = words; S.words = null; renderAll(); });
+    // Words on one of triage's holds are kept with it, and it stays held (WORDS_LEAVE_HELD).
+    const stays = how === 'answered' && WORDS_LEAVE.includes(h.cause);
+    return keyed(a[3], 'answer', { what: `<b>${a[1]} #${id}.</b> ${a[2]}` }, () => {
+      if (stays) S.kept.push([id, words]); else { S.answered[id] = how; S.said[id] = words; }
+      S.words = null; renderAll();
+    });
   }
   if (d.words) { S.words = S.words === d.words ? null : d.words; renderNeeds(); return document.getElementById('words-' + d.words)?.focus(); }
   if (d.canary) {
