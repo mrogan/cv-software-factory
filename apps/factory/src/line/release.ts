@@ -425,6 +425,11 @@ export class Releases {
       where e.type = 'release.controlled' and e.payload->>'action' = 'abort' and e.payload->>'release' = ${release}
         and e.ts < ${at}::timestamptz + interval '1 second' and e.ts >= ${at}::timestamptz - interval '1 minute'
         and ${fromMartin(sql, 'e')}
+        -- This attempt's: after the abort or Error that ended the one before it, if it was retried.
+        and e.ts >= coalesce((
+          select max((p.payload->>'abortedAt')::timestamptz) from events p
+          where p.type in ('release.aborted', 'release.errored') and p.payload->>'release' = ${release}
+        ) + interval '1 second', '-infinity')
       limit 1`;
     if (control) return 'martin';
     // The admin service records its control just after its patch: an abort only seconds old waits a pass for it.

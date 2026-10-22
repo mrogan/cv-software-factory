@@ -856,6 +856,42 @@ describe('a rollback, as signals to triage', () => {
     expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'martin' }]);
   });
 
+  it('takes a control of an earlier attempt for none of a retried release’s later aborts', async () => {
+    const { line: it, kube, carried } = await underWay();
+    await martin.append([
+      {
+        ...event(
+          null,
+          'release.controlled',
+          { action: 'abort', release: releaseOf(CANARY), version: commitOf(CANARY), weight: 25 },
+          'martin',
+        ),
+        ts: new Date(now - 5_000).toISOString(),
+      },
+    ]);
+    const first = new Date(now - 4_000).toISOString();
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: first });
+    kube.runs = terminated();
+    now += 20_000;
+    await it.tick();
+    expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'martin' }]);
+    // Retried, then aborted again within the minute by Stop the line: the earlier control is the first attempt's.
+    kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    kube.runs = [...terminated(), run({ name: 'website-68ff668868-4.1', created: new Date(now).toISOString() })];
+    await it.tick();
+    await martin.append([event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin')]);
+    kube.rollout = rollout({
+      current: CANARY,
+      stable: STABLE,
+      stepIndex: 0,
+      abort: true,
+      abortedAt: new Date(now + 1_000).toISOString(),
+    });
+    now += 20_000;
+    await it.tick();
+    expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'martin' }, { by: 'stop' }]);
+  });
+
   it('takes no control of another release, or long before the abort, for Martin’s abort of this one', async () => {
     const { line: it, kube, carried } = await underWay();
     const control = (release: string, ts: number) => ({

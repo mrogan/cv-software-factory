@@ -250,7 +250,7 @@ export class ReleaseControls {
     });
     const valid = validate(event);
     if (!valid.ok) throw new Error(`a control's event is not valid: ${valid.problems.join('; ')}`);
-    await this.#patch(plan, canary.resourceVersion);
+    await this.#patch(plan, canary);
     // Made: recorded after it, in a transaction of its own, so no connection waits on Kubernetes.
     await this.#record(event);
     this.#log.info({ action, release, weight: canary.weight, to: plan.to }, `Martin's ${action} of the canary`);
@@ -258,15 +258,16 @@ export class ReleaseControls {
   }
 
   /**
-   * The plan's patches, status first: the first conditional on the Rollout as it was read, so nothing is applied to a
-   * release that moved on. A spec patch after a status patch (a promotion's or an abort's resume, a retry's) is not,
-   * and belongs to it: if it fails, the control was made, and the canary stays paused until Martin resumes it.
+   * The plan's patches, status first, each conditional on the Rollout as it was read for it, so nothing is applied to a
+   * release that moved on. A spec patch after a status patch (a promotion's or an abort's resume, a retry's) reads the
+   * Rollout again, and is made only while the same release is in it: if it cannot be, the control was made, and the
+   * canary stays paused until Martin resumes it.
    *
    * A patch whose answer never came (the connection failed, or timed out) may have been made: the Rollout is read again,
    * and the control counts as made if it shows the patch.
    */
-  async #patch(plan: Plan, resourceVersion: string): Promise<void> {
-    const precondition = { metadata: { resourceVersion } };
+  async #patch(plan: Plan, canary: Canary): Promise<void> {
+    const precondition = { metadata: { resourceVersion: canary.resourceVersion } };
     const [first, then] = plan.status
       ? [{ path: `${this.#path}/status`, body: { ...precondition, status: plan.status } }, plan.spec]
       : [{ path: this.#path, body: { ...precondition, spec: plan.spec } }, undefined];
@@ -277,7 +278,10 @@ export class ReleaseControls {
     }
     if (!then) return;
     try {
-      await this.#kube.patch(this.#path, { spec: then });
+      const now = await this.#kube.get(this.#path, rolloutWithVersion);
+      const still = now && canaryOf(now);
+      if (still?.release !== canary.release) throw new Error('another release is in the Rollout now');
+      await this.#kube.patch(this.#path, { metadata: { resourceVersion: still.resourceVersion }, spec: then });
     } catch (error) {
       this.#log.error({ err: error }, 'made a control of the canary, and could not resume it: it stays paused');
     }

@@ -21,6 +21,7 @@
 #   replicas          another number of replicas                                       refused
 #   label             a label added                                                    refused
 #   step-back         the status's step sent back by one                               refused
+#   step-dropped      the status's step dropped, which sends it back to the start      refused
 #   stable            the status's stable version changed                              refused
 #   weights           the traffic split's weights in the status                        refused
 #   pause-condition   a pause added                                                    refused
@@ -65,6 +66,7 @@ try() { # case subresource patch
   try replicas '' '{"spec":{"replicas":5}}'
   try label '' '{"metadata":{"labels":{"rollout-refusal":"x"}}}'
   try step-back status "{\"status\":{\"currentStepIndex\":$(( at - 1 ))}}"
+  try step-dropped status '{"status":{"currentStepIndex":null}}'
   try stable status '{"status":{"stableRS":"rollout-refusal"}}'
   try weights status '{"status":{"canary":{"weights":{"canary":{"weight":100,"podTemplateHash":"x","serviceName":"website-canary"},"stable":{"weight":0,"podTemplateHash":"x","serviceName":"website"}}}}}'
   try pause-condition status '{"status":{"pauseConditions":[{"reason":"PausedByUser","startTime":"2026-01-01T00:00:00Z"}]}}'
