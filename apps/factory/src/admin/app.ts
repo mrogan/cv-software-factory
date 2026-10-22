@@ -118,7 +118,10 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
     })),
   });
 
-  /** Signs in with a passkey, in a transaction with the event that records it, replacing any session the browser had. */
+  /**
+   * Signs in with a passkey, in a transaction with the event that records it, replacing any session the browser had:
+   * the one it ends is recorded as signed out, as signing out records it.
+   */
   const signIn = async (
     passkey: { id: string; name: string },
     replaces: string | undefined,
@@ -126,14 +129,19 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
     recorded: ReturnType<typeof adminEvent>[],
   ): Promise<Reply> => {
     const id = newSessionId();
-    await store.record(
+    const { ended } = await store.record(
       async (tx) => {
         await act(tx);
-        await store.startSession(tx, passkey.id, sessionHash(id), replaces);
+        return store.startSession(tx, passkey.id, sessionHash(id), replaces);
       },
-      () => [...recorded, adminEvent('admin.signed-in', 'Martin signed in with a passkey', { passkey: passkey.name })],
+      ({ ended }) => [
+        ...(ended ? [adminEvent('admin.signed-out', 'Martin signed out', { everywhere: false })] : []),
+        ...recorded,
+        adminEvent('admin.signed-in', 'Martin signed in with a passkey', { passkey: passkey.name }),
+      ],
     );
-    if (replaces) events.end('signed-out', [replaces]);
+    // One that had already ended closes its stream at the stream's next check, saying why.
+    if (replaces && ended) events.end('signed-out', [replaces]);
     const session = await store.session(sessionHash(id));
     if (!session) throw new Error('A session just started is not live');
     return { status: 200, body: await described(session, id), cookie: sessionCookie(id) };
@@ -158,6 +166,10 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
         if (typeof code !== 'string' || !normalCode(code)) {
           return refused(400, 'code', 'Enter the code `factory admin enrol` printed.');
         }
+        // With two passkeys held no code can be used, so the right one is refused before it is tried, and costs none
+        // of its tries. That tells nobody more than the public events, which say each passkey enrolled and revoked.
+        const held = await store.passkeys();
+        if (held.length >= PASSKEYS.most) return refused(409, 'passkeys', TOO_MANY_PASSKEYS);
         const hash = codeHash(code);
         const tried = await store.tryCode(hash);
         if (!tried.match) {
@@ -173,8 +185,6 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
               );
           return { ...reply, body: { ...reply.body, left: tried.left } };
         }
-        const held = await store.passkeys();
-        if (held.length >= PASSKEYS.most) return refused(409, 'passkeys', TOO_MANY_PASSKEYS);
         const challenge = newChallenge();
         await store.challenge(challenge, 'enrol', { code: hash });
         return { status: 200, body: await registrationOptions(config, challenge, held) };
@@ -251,22 +261,29 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
       const signCount =
         passkey && (await verifyAuthentication(config, answer, challenge, passkey).catch(() => undefined));
       if (!passkey || signCount === undefined) return refused(403, 'passkey', "That is not this session's passkey.");
-      const [stepped] = await store.sql.begin(async (tx) => {
-        await store.used(tx, passkey.id, signCount);
-        return tx<{ stepped_up_at: Date }[]>`
-          update sessions set stepped_up_at = now() where id_sha256 = ${live.hash} and ended_at is null
-          returning stepped_up_at`;
-      });
-      if (!stepped) return refused(401, 'session', 'Sign in first: the session has ended.');
-      return { status: 200, body: { steppedUpAt: stepped.stepped_up_at.toISOString() } };
+      // Recorded with the passkey's use, in one transaction, and neither stays if the session ended meanwhile.
+      const stepped = await store.record(
+        async (tx) => {
+          await store.used(tx, passkey.id, signCount);
+          const [row] = await tx<{ stepped_up_at: Date }[]>`
+            update sessions set stepped_up_at = now()
+            where id_sha256 = ${live.hash} and ended_at is null and expires_at > now()
+            returning stepped_up_at`;
+          if (!row) throw new Refused('session', 401, 'Sign in first: the session has ended.');
+          return row.stepped_up_at;
+        },
+        () => [adminEvent('admin.stepped-up', 'Martin gave his passkey again', { passkey: passkey.name })],
+      );
+      return { status: 200, body: { steppedUpAt: stepped.toISOString() } };
     },
 
     'sign-out': async ({ session }) => {
       const live = session as Session;
+      // One that signing in again, from another tab, ended meanwhile was recorded then, and is not again here.
       await store.record(
         (tx) => tx`update sessions set ended_at = now(), ended_by = 'sign-out'
                    where id_sha256 = ${live.hash} and ended_at is null`,
-        () => [adminEvent('admin.signed-out', 'Martin signed out', { everywhere: false })],
+        ({ count }) => (count ? [adminEvent('admin.signed-out', 'Martin signed out', { everywhere: false })] : []),
       );
       events.end('signed-out', [live.hash]);
       return { status: 200, body: { signedOut: 'here' }, cookie: clearedCookie };

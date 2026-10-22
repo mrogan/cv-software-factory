@@ -885,6 +885,11 @@ export const PAYLOADS = {
   'admin.signed-in': z.strictObject({ passkey: passkeyName.optional() }),
   /** Martin signed out: on the one device, or everywhere, which ends every session. */
   'admin.signed-out': z.strictObject({ everywhere: z.boolean() }),
+  /**
+   * Martin gave his passkey again in a session, the one it signed in with, so for five minutes it may do what the access
+   * table marks as needing it. Its name is Martin's alone, as above.
+   */
+  'admin.stepped-up': z.strictObject({ passkey: passkeyName.optional() }),
   /** A passkey made with a one-time code from `factory admin enrol`. Its name is Martin's alone, as above. */
   'passkey.enrolled': z.strictObject({ passkey: passkeyName.optional() }),
   /**
