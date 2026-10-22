@@ -445,7 +445,7 @@ function Controls({ r, admin, lineStopped }: { r: Release; admin: Admin; lineSto
           <button
             key={c.action}
             type="button"
-            className="btn small"
+            className="btn"
             title={c.what}
             disabled={busy || c.off !== undefined}
             onClick={() => (c.action === 'abort' ? setAborting(true) : void act(c))}
