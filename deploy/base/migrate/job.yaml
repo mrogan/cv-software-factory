@@ -1,5 +1,5 @@
-# Applies whatever migrations the store has not had, then sets the passwords of the writer, the console, the
-# scoreboard, the Postgres exporter and each worker from their Secrets. A Sync hook in wave 1: after Postgres (wave 0)
+# Applies whatever migrations the store has not had, then sets the passwords of the console, the scoreboard, the
+# Postgres exporter and each worker from their Secrets. A Sync hook in wave 1: after Postgres (wave 0)
 # is healthy, before the console (wave 2) starts. It runs the console's image, which carries the migrations, so a new
 # image brings its migrations with it.
 apiVersion: batch/v1
@@ -37,11 +37,6 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres
-                  key: password
-            - name: WRITER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-writer
                   key: password
             - name: CONSOLE_PASSWORD
               valueFrom:

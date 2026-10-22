@@ -11,7 +11,10 @@ import { realStore } from '../src/real-store.ts';
 import { type Database, freshDatabase } from './database.ts';
 
 let owner: Sql;
-let writer: Sql;
+/** Triage numbers work items, reads and records the inbox; the crawler and the log watcher send it signals. */
+let triage: Sql;
+let crawler: Sql;
+let logs: Sql;
 let reader: Sql;
 let database: Database;
 const artifacts = new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-')));
@@ -33,29 +36,30 @@ function opened(item: string, sample = false): NewEvent<'work-item.opened'> {
 
 beforeAll(async () => {
   database = await freshDatabase('real');
-  ({ owner, writer, reader } = database);
+  ({ owner, reader } = database);
+  ({ triage, crawler, logs } = database.as);
 });
 
 afterAll(() => database?.end());
 
 describe('a real store', () => {
   it('is chosen by its first event, and recorded once', async () => {
-    expect(await storeKind(writer)).toBeNull();
-    await new EventWriter(writer, { kind: 'sample', artifacts }).append(opened('1262', true));
+    expect(await storeKind(triage)).toBeNull();
+    await new EventWriter(triage, { kind: 'sample', artifacts }).append(opened('1262', true));
     expect(await storeKind(reader)).toBe('sample');
     await expect(owner`update store set sample = false`).rejects.toThrow('append-only');
   });
 
   it('replaces a store of samples with an empty one that refuses them', async () => {
     expect(await realStore(owner)).toEqual({ dropped: 1 });
-    expect(await storeKind(writer)).toBe('real');
-    await expect(new EventWriter(writer, { kind: 'sample', artifacts }).append(opened('1262', true))).rejects.toThrow(
+    expect(await storeKind(triage)).toBe('real');
+    await expect(new EventWriter(triage, { kind: 'sample', artifacts }).append(opened('1262', true))).rejects.toThrow(
       'this store holds real events, so it refuses samples',
     );
   });
 
   it('refuses to replace a store that holds real events, unless forced', async () => {
-    await new EventWriter(writer, { kind: 'real', artifacts }).append(opened(await nextWorkItem(writer)));
+    await new EventWriter(triage, { kind: 'real', artifacts }).append(opened(await nextWorkItem(triage)));
     await expect(realStore(owner)).rejects.toThrow('This store holds 1 real events');
     expect(await realStore(owner, { force: true })).toEqual({ dropped: 1 });
   });
@@ -71,15 +75,15 @@ describe('a real store', () => {
   });
 
   it('numbers work items from 1000', async () => {
-    expect([await nextWorkItem(writer), await nextWorkItem(writer)]).toEqual(['1000', '1001']);
+    expect([await nextWorkItem(triage), await nextWorkItem(triage)]).toEqual(['1000', '1001']);
   });
 });
 
 describe('appending again', () => {
-  const real = () => new EventWriter(writer, { kind: 'real', artifacts });
+  const real = () => new EventWriter(triage, { kind: 'real', artifacts });
 
   it('stores an event appended twice with the same id and content once', async () => {
-    const event = opened(await nextWorkItem(writer));
+    const event = opened(await nextWorkItem(triage));
     const [first] = await real().append(event);
     const [again] = await real().append({ ...event, payload: { ...event.payload } });
     expect(again?.seq).toBe(first?.seq);
@@ -87,7 +91,7 @@ describe('appending again', () => {
   });
 
   it('stores the rest of a batch when part of it was stored before', async () => {
-    const event = opened(await nextWorkItem(writer));
+    const event = opened(await nextWorkItem(triage));
     await real().append(event);
     const closed: NewEvent<'work-item.closed'> = {
       ...event,
@@ -102,7 +106,7 @@ describe('appending again', () => {
   });
 
   it('refuses the same id with different content, saying what differs', async () => {
-    const event = opened(await nextWorkItem(writer));
+    const event = opened(await nextWorkItem(triage));
     await real().append(event);
     await expect(real().append({ ...event, summary: 'Something else' })).rejects.toThrow(
       `event ${event.id} is already stored, with a different summary`,
@@ -121,31 +125,31 @@ describe('the inbox', () => {
   it('takes signals from the factory and tells listeners', async () => {
     const heard: string[] = [];
     const ready = Promise.withResolvers<void>();
-    const subscription = await writer.listen('inbox', (id) => heard.push(id), ready.resolve);
+    const subscription = await triage.listen('inbox', (id) => heard.push(id), ready.resolve);
     await ready.promise;
     const id = uuid();
-    await writer`insert into inbox (id, sense, fingerprint, signal)
-                 values (${id}, 'crawler', '/about broken-link', ${writer.json(signal)})`;
+    await crawler`insert into inbox (id, sense, fingerprint, signal)
+                  values (${id}, 'crawler', '/about broken-link', ${crawler.json(signal)})`;
     await expect.poll(() => heard).toEqual([id]);
     await subscription.unlisten();
   });
 
   it('keeps a report without a fingerprint, and a sense’s signal only with one', async () => {
-    await writer`insert into inbox (id, sense, signal) values (${uuid()}, 'report', '{}')`;
-    await expect(writer`insert into inbox (id, sense, signal) values (${uuid()}, 'crawler', '{}')`).rejects.toThrow(
+    await logs`insert into inbox (id, sense, signal) values (${uuid()}, 'report', '{}')`;
+    await expect(crawler`insert into inbox (id, sense, signal) values (${uuid()}, 'crawler', '{}')`).rejects.toThrow(
       'check constraint',
     );
   });
 
   it('lets triage record what it made of a signal, and nothing else', async () => {
     const id = uuid();
-    await writer`insert into inbox (id, sense, fingerprint, signal)
-                 values (${id}, 'crawler', '/about broken-link', ${writer.json(signal)})`;
-    await writer`update inbox set triaged_at = now(), outcome = 'opened', work_item = '1000' where id = ${id}`;
-    await expect(writer`update inbox set signal = '{}' where id = ${id}`).rejects.toThrow('permission denied');
+    await crawler`insert into inbox (id, sense, fingerprint, signal)
+                  values (${id}, 'crawler', '/about broken-link', ${crawler.json(signal)})`;
+    await triage`update inbox set triaged_at = now(), outcome = 'opened', work_item = '1000' where id = ${id}`;
+    await expect(triage`update inbox set signal = '{}' where id = ${id}`).rejects.toThrow('permission denied');
   });
 
-  it('lets the writer delete a signal triage counted, and no other', async () => {
+  it('lets triage delete a signal it counted, and no other', async () => {
     const ids = { counted: uuid(), opened: uuid(), held: uuid(), waiting: uuid() };
     for (const [outcome, id] of Object.entries(ids)) {
       const triaged = outcome === 'waiting' ? null : outcome;
@@ -153,7 +157,7 @@ describe('the inbox', () => {
                   values (${id}, 'crawler', '/about broken-link', ${owner.json(signal)},
                           ${triaged ? new Date() : null}, ${triaged})`;
     }
-    const deleted = await writer`delete from inbox where id in ${writer(Object.values(ids))}`;
+    const deleted = await triage`delete from inbox where id in ${triage(Object.values(ids))}`;
     expect(deleted.count).toBe(1);
     const left = await owner<{ id: string }[]>`select id from inbox where id in ${owner(Object.values(ids))}`;
     expect(left.map((row) => row.id).sort()).toEqual([ids.opened, ids.held, ids.waiting].sort());
@@ -190,25 +194,25 @@ describe('the inbox', () => {
     });
 
     it('deletes the repeats triage counted before then, and nothing else', async () => {
-      expect(await pruneInbox(writer, daysAgo(3))).toBe(go.length);
+      expect(await pruneInbox(triage, daysAgo(3))).toBe(go.length);
       const mine = [...keep, ...go];
-      const left = await writer<{ id: string }[]>`select id from inbox where id in ${writer(mine)}`;
+      const left = await triage<{ id: string }[]>`select id from inbox where id in ${triage(mine)}`;
       expect(left.map((row) => row.id).sort()).toEqual([...keep].sort());
     });
 
     it('deletes nothing more the second time', async () => {
-      expect(await pruneInbox(writer, daysAgo(3))).toBe(0);
+      expect(await pruneInbox(triage, daysAgo(3))).toBe(0);
     });
   });
 
   it('checks what a sense sends, and files it by fingerprint', async () => {
     const found = { sense: 'crawler' as const, ...signal, symptom: 'broken-link' as const };
-    const id = await sendSignal(writer, { ...found, observedAt: '2026-10-04T09:00:00.000Z', artifacts: [] });
-    expect(await writer`select fingerprint from inbox where id = ${id}`).toEqual([
+    const id = await sendSignal(crawler, { ...found, observedAt: '2026-10-04T09:00:00.000Z', artifacts: [] });
+    expect(await triage`select fingerprint from inbox where id = ${id}`).toEqual([
       { fingerprint: '/about broken-link' },
     ]);
     await expect(
-      sendSignal(writer, { ...found, route: 'about', observedAt: '2026-10-04T09:00:00.000Z', artifacts: [] }),
+      sendSignal(crawler, { ...found, route: 'about', observedAt: '2026-10-04T09:00:00.000Z', artifacts: [] }),
     ).rejects.toThrow('route: a path');
   });
 

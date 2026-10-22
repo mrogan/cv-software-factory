@@ -18,8 +18,8 @@
  * that carry `UNMEASURED` too. After each release, it deletes the pictures no release needs any more.
  *
  * Settings, from the environment: APP_URL, the app's address; ARTIFACTS_DIR, the artifact store's folder (`once`
- * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as the factory's
- * writer; PROBE_INTERVAL, seconds between runs, 300 by default; VERSION_POLL, seconds between looks at the app's
+ * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as its own role
+ * (`factory_probes`); PROBE_INTERVAL, seconds between runs, 300 by default; VERSION_POLL, seconds between looks at the app's
  * version, 15 by default; CRAWL_LIMIT, the most resources a crawl that Verify asks for reads, 150 by default;
  * CANARY_URL, unset by default, when no pictures are taken.
  */

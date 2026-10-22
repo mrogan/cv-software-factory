@@ -38,7 +38,7 @@ const SIGNAL = 'insert (id, sense, fingerprint, signal)';
  * and only Martin's commands his roles appended, as the factory heeds them.
  */
 const READ = 'true';
-/** Every role but Martin's appends any event but his commands. */
+/** Every worker appends any event but his commands. */
 const NOT_HIS = 'NOT admin_event(type)';
 
 export const STORE_GRANTS = {
@@ -117,28 +117,6 @@ export const STORE_GRANTS = {
     memberOf: ['factory_worker'],
     on: { inbox: ['select (sense, signal)', SIGNAL] },
     rows: { inbox: { select: "sense in ('logs', 'report')", insert: "sense in ('logs', 'report')" } },
-  },
-  factory_writer: {
-    for:
-      'Some tests, until its grants are taken away (#435): no worker or make target connects as it, and it appends no ' +
-      "command of Martin's.",
-    on: {
-      events: ['select', 'insert'],
-      store: ['select', 'insert'],
-      work_items: ['usage'],
-      inbox: ['select', 'insert', 'update (attempts, not_before, failure, triaged_at, outcome, work_item)', 'delete'],
-      model_calls: ['select', 'insert'],
-      job_tokens: ['select', 'insert', 'update (ended_at)'],
-      line: ['select', 'insert', 'update'],
-      pictures: ['select', 'insert', 'update (rollout)', 'delete'],
-      looks: ['select', 'insert', 'update'],
-      step_logs: ['select', 'insert'],
-    },
-    rows: {
-      events: { select: READ, insert: NOT_HIS },
-      inbox: { select: 'true', insert: 'true', update: 'true', delete: "outcome = 'counted'" },
-      looks: { all: 'true' },
-    },
   },
   factory_admin: {
     for:

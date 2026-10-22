@@ -24,7 +24,6 @@ const quiet = { onnotice: () => {}, max: 2 };
 export interface Database {
   name: string;
   owner: Sql;
-  writer: Sql;
   reader: Sql;
   scoreboard: Sql;
   metrics: Sql;
@@ -161,7 +160,6 @@ export async function createDatabase(server: string, name: string): Promise<Data
   } finally {
     await admin.end();
   }
-  const writer = as('factory_writer', PASSWORDS.writer);
   const reader = as('console_reader', PASSWORDS.console);
   const scoreboard = as('scoreboard_writer', PASSWORDS.scoreboard);
   const metrics = as('metrics_reader', PASSWORDS.metrics);
@@ -172,7 +170,6 @@ export async function createDatabase(server: string, name: string): Promise<Data
   return {
     name: database,
     owner,
-    writer,
     reader,
     scoreboard,
     metrics,
@@ -181,7 +178,7 @@ export async function createDatabase(server: string, name: string): Promise<Data
     enrol,
     as: workers,
     end: async () => {
-      const all = [owner, writer, reader, scoreboard, metrics, operator, service, enrol, ...Object.values(workers)];
+      const all = [owner, reader, scoreboard, metrics, operator, service, enrol, ...Object.values(workers)];
       await Promise.all(all.map((c) => c.end()));
     },
   };

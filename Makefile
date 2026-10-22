@@ -19,7 +19,8 @@ LOCAL_CA = $(or $(shell node scripts/local-ca.ts dir),$(error node cannot say wh
 # $(call as-operator,command): run a command on the host as Martin's own role in the store, through a port-forward to
 # Postgres: only his roles may append his commands (packages/store/migrations/0023_martins-commands.sql). Its password
 # is in a Secret no pod reads, made here if it is not there, and set on the role here as the database's owner, so it
-# works on any cluster as soon as it is made. A store not yet migrated has no such role, and the writer appends there.
+# works on any cluster as soon as it is made. A store not yet migrated has no such role, and guards none of his
+# commands: the owner appends there.
 as-operator = $(call secret,factory,postgres-operator,--from-literal=password="$$(openssl rand -hex 24)") && \
 	{ $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
 	trap 'kill $$forward' EXIT; sleep 2; \
@@ -27,7 +28,8 @@ as-operator = $(call secret,factory,postgres-operator,--from-literal=password="$
 	export PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory; \
 	role="$$(secret postgres-operator | PGUSER=factory PGPASSWORD="$$(secret postgres)" \
 		node packages/store/src/operator.ts)" && \
-	PGUSER="$$role" PGPASSWORD="$$(secret postgres-$${role\#factory_})" $(1); }
+	if [ "$$role" = factory_operator ]; then from=postgres-operator; else from=postgres; fi && \
+	PGUSER="$$role" PGPASSWORD="$$(secret $$from)" $(1); }
 
 # $(call secret,namespace,name,data): create a Secret unless it exists.
 secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null && \
@@ -52,7 +54,6 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 		--values deploy/argocd/values.yaml --wait --timeout 5m --hide-notes
 	@# Passwords live only in the cluster: made here once, never committed.
 	@$(call secret,factory,postgres,--from-literal=password="$$(openssl rand -hex 24)")
-	@$(call secret,factory,postgres-writer,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-console,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-metrics,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(MAKE) --no-print-directory worker-secrets

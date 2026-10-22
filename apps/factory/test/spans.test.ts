@@ -65,7 +65,7 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => provider.listen(0, '127.0.0.1', resolve));
   providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
   database = await freshDatabase('spans');
-  const sql = database.writer;
+  const sql = database.as.gateway;
   const events = new EventWriter(sql, {
     kind: 'real',
     artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'a-'))),
@@ -158,7 +158,7 @@ describe('a work item’s trace', () => {
   it('runs from the line’s step through the gateway’s call to the provider’s', async () => {
     let handback = '';
     const runners: Runners = new Runners({
-      sql: database.writer,
+      sql: database.as.line,
       kube: fakeKube(async (env) => {
         const answer = await callGateway(env.ANTHROPIC_BASE_URL ?? '', env.ANTHROPIC_API_KEY ?? '');
         expect(answer.status).toBe(200);
@@ -218,13 +218,13 @@ describe('a work item’s trace', () => {
     const step = tracer.startSpan('step');
     const traceparent = `00-${step.spanContext().traceId}-${step.spanContext().spanId}-01`;
     step.end();
-    const traced = await issueJobToken(database.writer, {
+    const traced = await issueJobToken(database.as.line, {
       job: 'coder-1002-1-1',
       workItem: '1002',
       agent: 'coder',
       traceparent,
     });
-    const untraced = await issueJobToken(database.writer, { job: 'coder-1003-1-1', workItem: '1003', agent: 'coder' });
+    const untraced = await issueJobToken(database.as.line, { job: 'coder-1003-1-1', workItem: '1003', agent: 'coder' });
     const asked = async (token: string) =>
       tracer.startActiveSpan('POST /v1/messages', async (request) => {
         const reply = await agents.messages({ 'x-api-key': token }, async () => JSON.stringify(REQUEST));
