@@ -162,6 +162,8 @@ egress: ## Prove the fences: only the gateway, the GitHub worker and Kyverno lea
 admission-ready: ## Say whether every image the guarded namespaces run is signed, so admission control can enforce
 	scripts/admission-ready.sh
 
+# All of the tests, whatever SHARD the shell or the command line says.
+check: override SHARD :=
 check: check-static check-tests ## Lint, type-check, test, build the browser code, check generated files are current, render the manifests
 
 # CI runs the two halves of `make check` side by side, and the tests in parts (check.yml).

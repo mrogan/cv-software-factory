@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * CI runs `make check` in parts on runners of their own (check.yml), and the one check the ruleset requires of it
- * passes only when they all did. A part `make check` gains and CI does not run would be checked on the laptop only.
+ * passes only when they all did. If `make check` gained a part that CI did not run, that part would be checked on the
+ * laptop only.
  */
 const workflow = readFileSync('.github/workflows/check.yml', 'utf-8');
 const makefile = readFileSync('Makefile', 'utf-8');
@@ -34,6 +35,8 @@ describe('make check in CI', () => {
     expect(jobs.get('tests')).toMatch(
       /run: make check-tests SHARD="\$SHARD"\n\s+env:\n\s+SHARD: \$\{\{ matrix\.shard \}\}/,
     );
+    // `make check` runs every shard, even with SHARD in the environment.
+    expect(makefile).toMatch(/^check: override SHARD :=$/m);
     expect(makefile).toMatch(
       /^\tpnpm exec vitest run --project unit --project database \$\(if \$\(SHARD\),--shard \$\(SHARD\)\)$/m,
     );
