@@ -39,7 +39,7 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 
 Never run two sub-agents at once, and never give a worktree to a second agent while the first can still run.
 
-When Martin merges one pull request and another then conflicts with `main`, send a sub-agent to merge `main` into it and resolve, briefed with what merged: it owns the worktree for that, as the first did.
+When Martin merges one pull request and another then conflicts with `main`, send a sub-agent to fetch and merge `origin/main` into it and resolve, briefed with what merged: it owns the worktree for that, as the first did.
 
 ## Finishing the work, not filing it
 
