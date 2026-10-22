@@ -57,7 +57,7 @@ export interface BenchOptions<A extends LineAgent> {
   fixture: Fixture<A>;
   /** The app's commit to start from instead of the fixture's. */
   commit?: string | undefined;
-  /** As the factory's writer: for the job token, and the audit of the step's calls. */
+  /** As the line's role: for the job token, and the audit of the step's calls. */
   sql: Sql;
   gateway: string;
   /** The bench's folder: `BENCH_DIR`, unless a test gives it one of its own. */

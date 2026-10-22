@@ -22,7 +22,7 @@ let factory: EventWriter;
 let now = Date.parse('2026-10-11T07:00:00Z');
 beforeEach(async () => {
   database = await freshDatabase('scoreboard');
-  factory = new EventWriter(database.writer, {
+  factory = new EventWriter(database.as.triage, {
     kind: 'real',
     artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
   });
@@ -53,7 +53,7 @@ const event = <K extends NewEvent['type']>(workItem: string, type: K, payload: P
 
 /** A probe's ticket on `route`, opened now. */
 async function ticket(route: string, symptom: 'server-error' | 'slow-response' = 'server-error'): Promise<string> {
-  const workItem = await nextWorkItem(database.writer);
+  const workItem = await nextWorkItem(database.as.triage);
   await factory.append([
     event(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'A defect', sample: false }),
     event(workItem, 'signal.received', { sense: 'probe', check: 'a check', route, version: 'v0.9.3', symptom }),

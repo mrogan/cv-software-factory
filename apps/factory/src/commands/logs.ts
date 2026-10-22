@@ -7,7 +7,7 @@
  * Runs until stopped: reports every few seconds (a visitor is waiting for an answer), error patterns and agreement
  * every minute. With `--dry-run` it makes one pass over the time since `--since` (default a day), prints what it
  * would send, and stops; a report's text is shown as its length. Otherwise it connects with DATABASE_URL, or the
- * PG* variables, as the factory's writer. Prometheus, Loki and Tempo are found as `clients/env.ts` says.
+ * PG* variables, as its own role (`factory_logs`). Prometheus, Loki and Tempo are found as `clients/env.ts` says.
  */
 import { parseArgs } from 'node:util';
 import { connect } from '@software-factory/store';

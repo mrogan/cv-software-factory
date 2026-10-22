@@ -83,6 +83,9 @@ export const ACCESS = {
   health: { ...read('Whether the console is up'), server: 'console', routes: ['GET /health'] },
   version: { ...read('The commit the console was built from'), server: 'console', routes: ['GET /version'] },
 
+  // The admin service, behind `/admin/` on the console's host.
+  'admin.health': { ...read('Whether the admin service is up'), server: 'admin', routes: ['GET /admin/health'] },
+
   // Views every visitor sees, drawn from the public events.
   'audit-log': read('Every agent action, model call and admin action, newest first'),
   settings: read("Each agent's model and effort, and spend against the caps"),
@@ -93,6 +96,16 @@ export const ACCESS = {
     role: 'admin',
     does: 'read',
     stepUp: false,
+    server: 'admin',
+    routes: ['GET /admin/events/stream'],
+  },
+  session: {
+    what: 'This session: when it started and ends, when the passkey was last given, and the passkeys',
+    role: 'admin',
+    does: 'read',
+    stepUp: false,
+    server: 'admin',
+    routes: ['GET /admin/session'],
   },
   'preview-as-visitor': {
     what: 'The public stream, as the server sends it to anyone without a session',
@@ -102,16 +115,35 @@ export const ACCESS = {
   },
 
   // Signing in and out. Signing in takes a passkey in place of a session; enrolling takes a code.
-  'sign-in': admin('Sign in with a passkey'),
+  'sign-in': {
+    ...admin('Sign in with a passkey'),
+    server: 'admin',
+    routes: ['POST /admin/sign-in/options', 'POST /admin/sign-in'],
+  },
   enrol: {
     what: 'Make a passkey on this device, with a one-time code from `factory admin enrol`',
     role: 'enrolment code',
     does: 'write',
     stepUp: false,
+    server: 'admin',
+    routes: ['POST /admin/enrol/options', 'POST /admin/enrol'],
   },
-  'sign-out': admin('Sign out on this device'),
-  'sign-out-everywhere': admin('Sign out on every device'),
-  'passkey.revoke': admin('Revoke a passkey', true),
+  'step-up': {
+    ...admin('Give the passkey again, for the actions that ask for it in the next five minutes'),
+    server: 'admin',
+    routes: ['POST /admin/step-up/options', 'POST /admin/step-up'],
+  },
+  'sign-out': { ...admin('Sign out on this device'), server: 'admin', routes: ['POST /admin/sign-out'] },
+  'sign-out-everywhere': {
+    ...admin('Sign out on every device'),
+    server: 'admin',
+    routes: ['POST /admin/sign-out-everywhere'],
+  },
+  'passkey.revoke': {
+    ...admin('Revoke a passkey', true),
+    server: 'admin',
+    routes: ['POST /admin/passkeys/:id/revoke'],
+  },
 
   // Needs you.
   'hold.approve': admin('Approve a hold whose cause is not a guardrail'),

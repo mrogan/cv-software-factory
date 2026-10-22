@@ -131,7 +131,7 @@ The console *is* the demo for most people. Everything the factory does must be u
 ### 5.1 Event-sourced by design
 
 - Every step of every work item is an event in an append-only store: `{id, seq, ts, work_item, type, version, actor, summary, payload, artifacts, public}`. `seq` is the store's total order and `version` belongs to the event's type; `summary` is the plain-English line shown to people. Payloads are typed per event type and validated when the event is appended; an invalid event is refused with the reason.
-- Append-only by mechanism: the factory's writer role can append and read, the console's role can read public views and nothing else, and no role can update, delete or truncate an event.
+- Append-only by mechanism: each worker's role can append and read, the console's role can read public views and nothing else, and no role can update, delete or truncate an event.
 - **The UI is a pure function of events up to time *t*.** It never fetches live state directly. Live view is *t* = now; replay is any other *t*. Same code.
 - Artifacts are captured when they happen, because their sources expire:
   - Playwright **screenshots of the site** when the signal fires, on the canary and after full rollout, with the bounding boxes of the elements the probe checked, so the console can mark the problem and the fix;

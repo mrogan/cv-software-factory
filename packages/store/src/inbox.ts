@@ -31,7 +31,7 @@ export async function sendSignal(sql: Sql, found: InboxSignal, id: string = cryp
 /**
  * Deletes the repeats triage counted before `before`, and returns how many went. A counted signal is one on a ticket
  * that already had it: nothing reads it again, as triage's burst and hold reads look only at signals that opened, are
- * held or still wait, and the store refuses the writer the delete of any of those (0020_prune-inbox.sql). Two kinds
+ * held or still wait, and the store refuses triage the delete of any of those (0020_prune-inbox.sql). Two kinds
  * stay however old:
  *
  * - each sense's newest signal, as a sense that takes up from where it left off reads it (`lastObserved` in
