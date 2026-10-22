@@ -946,7 +946,7 @@ describe('the release controls', () => {
 
   it('refuses a release that is not the one in the Rollout, or not recorded, and a control its state does not take', async () => {
     const before = (await controls()).length;
-    let kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    const first = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
     const { browser } = await signedIn();
     expect(await browser.post('/admin/release/abort', { release: releaseOf(STABLE) })).toMatchObject({
       status: 409,
@@ -960,12 +960,15 @@ describe('the release controls', () => {
       status: 400,
       body: { refused: 'body' },
     });
-    kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { recorded: false });
+    const unrecorded = await withRollout(
+      { current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 },
+      { recorded: false },
+    );
     expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
       status: 409,
       body: { refused: 'release' },
     });
-    expect(kube.patches).toEqual([]);
+    expect([...first.patches, ...unrecorded.patches]).toEqual([]);
     expect(await controls()).toHaveLength(before);
   });
 

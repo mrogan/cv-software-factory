@@ -64,12 +64,14 @@ spec:
       message: >-
         the admin service may change only status.abort, status.currentStepIndex, status.pauseConditions,
         status.controllerPause and status.promoteFull of the app's Rollout
+    # A step kept is never dropped, which would send the canary back to its first step.
     - expression: >-
-        !has(object.status) || !has(object.status.currentStepIndex) ||
+        has(object.status) && has(object.status.currentStepIndex) ?
         ((!has(oldObject.status) || !has(oldObject.status.currentStepIndex) ||
           object.status.currentStepIndex >= oldObject.status.currentStepIndex) &&
          object.status.currentStepIndex <= (has(object.spec.strategy.canary) && has(object.spec.strategy.canary.steps) ?
-           size(object.spec.strategy.canary.steps) : 0))
+           size(object.spec.strategy.canary.steps) : 0)) :
+        !has(oldObject.status) || !has(oldObject.status.currentStepIndex)
       message: the admin service may move the canary forward only, to a step it has, or past the last
     - expression: >-
         !has(object.status) || !has(object.status.pauseConditions) || size(object.status.pauseConditions) == 0 ||
@@ -80,8 +82,9 @@ spec:
         !has(object.status) || !has(object.status.controllerPause) || !object.status.controllerPause ||
         (has(oldObject.status) && has(oldObject.status.controllerPause) && oldObject.status.controllerPause)
       message: the admin service may clear the controller's pause, never set it
+    # Set, or dropped, it is taken back alike.
     - expression: >-
-        !has(object.status) || !has(object.status.promoteFull) || object.status.promoteFull ||
+        (has(object.status) && has(object.status.promoteFull) && object.status.promoteFull) ||
         !has(oldObject.status) || !has(oldObject.status.promoteFull) || !oldObject.status.promoteFull
       message: the admin service may promote the canary fully, never take a full promotion back
     - expression: >-
