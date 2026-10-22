@@ -14,7 +14,7 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 ## Before starting
 
 1. **Key each work item.** An issue's key is its number. Something from the conversation is a brief, and its key is a short slug (`station-order`). An issue's second pull request is `<n>-2`.
-2. **Make the run directory**: `run.sh <key>...` makes `scratch/implement/<date>-<keys>/` and prints its path. Notes, briefs, PR notes and the summary go there. A run that spans sessions (a milestone's part, with Martin merging between them) keeps three files there as well, which each session reads first and updates last, so that nothing lives only in a reply:
+2. **Make the run directory**: `run.sh <key>...` makes `scratch/implement/<date>-<keys>/` and prints its path. Notes, briefs, PR notes and the summary go there. A run that spans sessions (a milestone's part, with Martin merging between them) keeps three files there as well, which each session reads first and updates last, so that nothing lives only in a reply. A later session takes up the same run directory, named in its handover, rather than making a new one:
    - `LEDGER.md`: a row per work item, with its state, pull requests, what it waits on, and the next action;
    - `MARTIN.md`: what waits on Martin, in the order to do it, each pull request with what to look at, the files CODEOWNERS gives him, the decisions made for him, the rebase a merge forces, and what to try once it is deployed;
    - `FOLLOWUPS.md`: each loose end the moment it is found (a `found`, a workflow problem, something only Martin can do), with where it goes, emptied at the end of each work item.

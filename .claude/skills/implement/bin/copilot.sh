@@ -21,7 +21,7 @@ until (( $(reviews | jq length) > 0 )); do
   now=$(date +%s)
   if (( now >= window_ends )); then echo "copilot: no review within $(( copilot_window / 60 )) minutes of opening"; status=4; break; fi
   if (( now >= run_ends )); then echo "copilot: not reviewed yet; run copilot.sh $pr again"; status=5; break; fi
-  sleep 30
+  sleep $(( run_ends - now < 30 ? run_ends - now : 30 ))
 done
 (( status )) || echo "copilot: reviewed"
 gh api graphql -F owner="${repo%/*}" -F name="${repo#*/}" -F n="$pr" -f query='
