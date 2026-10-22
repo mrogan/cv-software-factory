@@ -28,6 +28,17 @@ describe('a report’s text, for Martin', () => {
     expect(reportText('javascript://alert(1) hi')).toBe('hi');
   });
 
+  it('removes an IP address, with its port and path', () => {
+    expect(reportText('go to 1.2.3.4/login now')).toBe('go to now');
+    expect(reportText('or 192.168.0.1:8080 then')).toBe('or then');
+  });
+
+  it('cleans what is left after a cut, which can leave a shape the whole did not have', () => {
+    // `xxx.co1zzzzz` is no domain, but the cut at 137 characters leaves `xxx.co`, which is one, so it is cleaned again.
+    const text = `${'b'.repeat(60)} ${'x'.repeat(73)}.co1zzzzz`;
+    expect(reportText(text)).toBe(`${'b'.repeat(60)}...`);
+  });
+
   it('removes email addresses', () => {
     expect(reportText('Write to me at someone@example.com please')).toBe('Write to me at please');
     expect(reportText('mail a.b+c@d.e.example!')).toBe('mail');

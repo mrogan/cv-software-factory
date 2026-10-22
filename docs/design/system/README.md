@@ -252,7 +252,7 @@ Package logos come from [theSVG](https://github.com/glincker/thesvg) (MIT; the m
 - **Agents and models** names the provider on every row, read from the event: "Jev 1.13.0 · TypeSafe" for `judgement.made`, with each question set asked ("triage/v2 · 4 questions"); "Claude Opus 5.5 · Anthropic", or "· Amazon Bedrock", from `model.called`. Jev's tokens aren't in the event, so that column shows a dash. When no model was called, a sentence says why: a sense knows what it saw, so the policy's table gives the category and severity.
 - The scrubber ends on a larger hollow ring, labelled "WAITING · PLAN", while the ticket waits; later senses' chapters are named by their sense. A quarantine's chapter is in the quiet tone.
 - A quarantined report's withheld block says it gave orders to the system, and that its text is kept, shown only to Martin and its sender.
-- For Martin, signed in, what the visitor wrote is quoted under the withheld block: a 2px `line-strong` rule on its left, "Only you see this: a visitor wrote it" in 12px `text-muted`, then the text in quotation marks in `text`. Nowhere else, and never on the card.
+- For Martin, signed in, what the visitor wrote is quoted under the withheld block: a 2px `line-strong` rule on its left, "Only you see this: a visitor wrote it" in 12px `text-muted`, then the text in quotation marks in `text`; a planner's finding the same way, "the planner wrote it". Nowhere else, and never on the card.
 
 ### A visitor's report
 

@@ -128,6 +128,8 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
     setPreviewing(on);
     setOpen(undefined);
     window.scrollTo(0, 0);
+    // Back to admin takes its button away: focus goes to the account button, where Preview as visitor is too.
+    if (!on) requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.account-btn')?.focus());
   };
 
   const sheet = useMemo(() => (open ? projectSheet(source.events, open, t) : undefined), [open, source.events, t]);

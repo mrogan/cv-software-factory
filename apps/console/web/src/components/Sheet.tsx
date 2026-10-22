@@ -773,7 +773,7 @@ function RoundRow({ attempt: a }: { attempt: Attempt }) {
 
 /**
  * A visitor's report, or the planner's finding: where it came from, and that its words are withheld. For Martin, what
- * each visitor wrote is quoted under it: only the full events carry it, made plain and short (`reportText`), and React
+ * each visitor (or the planner) wrote is quoted under it: only the full events carry it, made plain and short (`reportText`), and React
  * inserts it as text.
  */
 function Report({ report }: { report: NonNullable<SheetData['report']> }) {
@@ -799,17 +799,21 @@ function Report({ report }: { report: NonNullable<SheetData['report']> }) {
   return (
     <div className="report-own">
       {withheld}
-      <ReportTexts texts={report.texts} />
+      <ReportTexts texts={report.texts} by={report.by} />
     </div>
   );
 }
 
-function ReportTexts({ texts }: { texts: string[] }) {
+function ReportTexts({ texts, by }: { texts: string[]; by: 'visitor' | 'planner' }) {
+  const caption =
+    by === 'planner'
+      ? 'Only you see this: the planner wrote it'
+      : texts.length > 1
+        ? 'Only you see these: visitors wrote them'
+        : 'Only you see this: a visitor wrote it';
   return (
     <figure className="report-said">
-      <figcaption>
-        {texts.length > 1 ? 'Only you see these: visitors wrote them' : 'Only you see this: a visitor wrote it'}
-      </figcaption>
+      <figcaption>{caption}</figcaption>
       {texts.map((text, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: the reports keep their order, and two may say the same
         <blockquote key={i}>

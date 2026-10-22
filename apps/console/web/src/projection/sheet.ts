@@ -154,7 +154,8 @@ export interface Sheet {
   /**
    * A visitor's report, or the planner's finding: shown as withheld here, since only Martin (and a report's author)
    * may read its words. `times` is how often the planner noticed it: a finding with a held one's fingerprint joins it.
-   * `texts` is what each visitor wrote, made plain (`reportText`): only the full events, Martin's, carry any.
+   * `texts` is what each visitor, or the planner, wrote, made plain (`reportText`): only the full events, Martin's,
+   * carry any.
    */
   report: { page: string; quarantined: boolean; by: 'visitor' | 'planner'; times: number; texts: string[] } | undefined;
   story: string;
@@ -975,7 +976,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
               (event) => event.type === 'signal.received' && event.payload.sense === report.payload.sense,
             ).length,
             texts: item.events.flatMap((event) => {
-              if (event.type !== 'signal.received' || event.payload.sense !== 'report') return [];
+              if (event.type !== 'signal.received' || event.payload.sense !== report.payload.sense) return [];
               const text = reportText(event.payload.report?.text);
               return text ? [text] : [];
             }),

@@ -90,8 +90,10 @@ export function useEvents(from: Origin, want: Stream = 'public', lost?: () => Pr
   const pending = useRef<RawEvent[]>([]);
   const frame = useRef(0);
   // What is drawn now, for the full stream to take over from without a blank page between.
-  const drawn = useRef(source.events);
-  drawn.current = source.events;
+  const drawn = useRef(source);
+  drawn.current = source;
+  // The full events wait for the public stream to say what kind of store it is, which only it says.
+  const reading: Stream = want === 'full' && source.store !== undefined ? 'full' : 'public';
   // Whether any full event has been drawn: going back to the public events then starts again from nothing.
   const full = useRef(false);
   const onLost = useRef(lost);
@@ -143,30 +145,27 @@ export function useEvents(from: Origin, want: Stream = 'public', lost?: () => Pr
       pending.current = [];
     };
 
-    if (want === 'full') {
+    if (reading === 'full') {
       // The full events take over from the public ones as they arrive, event by event: each has the same seq as its
       // public view, so until the stream has caught up the page shows the public events after the last full one.
       full.current = true;
-      const before = drawn.current;
+      const before = drawn.current.events;
       let held: PublicEvent[] = [];
-      let notUnderstood: Source['newer'] = [];
+      // What the public events held that this console doesn't understand stays said until the full ones say it too.
+      const said = (newer: Source['newer']) =>
+        newer.filter((n, i) => newer.findIndex((m) => m.type === n.type && m.version === n.version) === i);
+      let notUnderstood: Source['newer'] = drawn.current.newer;
       apply = (incoming) => {
         const merged = merge(held, incoming);
         held = merged.events;
-        notUnderstood = [...notUnderstood, ...merged.newer];
+        notUnderstood = said([...notUnderstood, ...merged.newer]);
         // Every event the stream has sent so far, understood or not, replaces its public view.
         const rest = before.filter((event) => event.seq > last);
         setSource((current) => ({ ...current, events: [...held, ...rest], newer: notUnderstood }));
       };
       const follow = () => {
         stream = new EventSource(`/admin/events/stream?after=${last}`);
-        stream.onopen = () =>
-          !closed &&
-          setSource((current) => ({
-            ...current,
-            connection: 'live',
-            store: current.store === undefined ? null : current.store,
-          }));
+        stream.onopen = () => set('live');
         // The session ended (signed out, revoked or expired), or the service is stopping: ask before going on.
         const ask = () => {
           stream?.close();
@@ -241,7 +240,10 @@ export function useEvents(from: Origin, want: Stream = 'public', lost?: () => Pr
     };
     read();
     return stop;
-  }, [from, want]);
+  }, [from, reading]);
+
+  // Back from the full events, nothing of them is drawn, not even for the frame before the effect clears them.
+  if (reading === 'public' && full.current) return { ...source, events: [], newer: [], connection: 'loading' };
 
   return source;
 }
