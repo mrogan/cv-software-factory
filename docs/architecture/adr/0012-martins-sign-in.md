@@ -27,7 +27,7 @@ Where the bar asks for something this design leaves out, the reason is below.
 | Someone with Martin's lost phone | Sign in later | `make enrol REVOKE_OTHERS=1` revokes every passkey and session at once. |
 | Someone inside the cluster's network | Talk to the service directly, with forged forwarded headers | The service believes `X-Forwarded-For` only from the proxy's addresses (`ADMIN_TRUSTED_PROXIES`); anything else is the connection's own address. Its NetworkPolicy, which comes with its Deployment, lets in only Traefik. |
 
-**What the admin service trusts:** the store, Traefik, and the console's server. The console's server never holds a session or receives the cookie (Traefik strips `Cookie` on its way there, and the browser tests' proxy does the same), but it serves the page whose script does Martin's writes, so a console that served another script could act as him. It is trusted as the admin service is: its image is one `build.yml` signed on `main`, which admission control enforces (ADR 0010), and its Content Security Policy is the control on what the page may run.
+**What the admin service trusts:** the store, Traefik, and the console's server. The console's server never holds a session or receives the cookie (the Traefik route that comes with the admin service's Deployment strips `Cookie` on its way there, as the browser tests' proxy does), but it serves the page whose script does Martin's writes, so a console that served another script could act as him. It is trusted as the admin service is: its image is one `build.yml` signed on `main`, which admission control enforces (ADR 0010), and its Content Security Policy is the control on what the page may run.
 
 ## Why, where the bar asks for more
 
