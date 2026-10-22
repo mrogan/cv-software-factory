@@ -43,8 +43,8 @@ describe('make check in CI', () => {
     const check = jobs.get('check') ?? '';
     expect(check).toMatch(/^ {4}name: lint, types, tests$/m);
     expect(check).toMatch(/^ {4}needs: \[static, tests\]$/m);
-    // Without it, a part that failed would skip the check, and a skipped job counts as passed.
-    expect(check).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) \}\}$/m);
+    // Otherwise a part that failed, or a run cancelled, would skip the check, and a skipped job counts as passed.
+    expect(check).toMatch(/^ {4}if: \$\{\{ always\(\) \}\}$/m);
     expect(check).toContain('[ "$STATIC" = success ] && [ "$TESTS" = success ]');
   });
 });

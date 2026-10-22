@@ -117,11 +117,11 @@ jobs:
 
   # The one check the ruleset requires of `make check` (scripts/github-settings.ts), so that it need not change when it
   # is split differently. It passes when both halves passed, every part of the tests included. It runs whatever they
-  # did, since a skipped job counts as passed.
+  # did, a cancelled run included, since a skipped job counts as passed.
   check:
     name: lint, types, tests
     needs: [static, tests]
-    if: ${{ !cancelled() }}
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
