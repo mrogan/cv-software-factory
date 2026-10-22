@@ -14,7 +14,10 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 ## Before starting
 
 1. **Key each work item.** An issue's key is its number. Something from the conversation is a brief, and its key is a short slug (`station-order`). An issue's second pull request is `<n>-2`.
-2. **Make the run directory**: `run.sh <key>...` makes `scratch/implement/<date>-<keys>/` and prints its path. Notes, briefs, PR notes and the summary go there.
+2. **Make the run directory**: `run.sh <key>...` makes `scratch/implement/<date>-<keys>/` and prints its path. Notes, briefs, PR notes and the summary go there. A run that spans sessions (a milestone's part, with Martin merging between them) keeps three files there as well, which each session reads first and updates last, so that nothing lives only in a reply. A later session takes up the same run directory, named in its handover, rather than making a new one:
+   - `LEDGER.md`: a row per work item, with its state, pull requests, what it waits on, and the next action;
+   - `MARTIN.md`: what waits on Martin, in the order to do it, each pull request with what to look at, the files CODEOWNERS gives him, the decisions made for him, the rebase a merge forces, and what to try once it is deployed;
+   - `FOLLOWUPS.md`: each loose end the moment it is found (a `found`, a workflow problem, something only Martin can do), with where it goes, emptied at the end of each work item.
 3. **Write each brief from the conversation** to `<run dir>/brief-<slug>.md`. The sub-agent sees nothing of this conversation, so the brief stands alone:
    - **Goal**: the change, and why, in a paragraph;
    - **Agreed**: every decision Martin made or accepted, in Martin's terms, and every option turned down;
@@ -29,12 +32,14 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 
 1. **Brief** a fresh sub-agent to follow `${CLAUDE_SKILL_DIR}/worker.md`, with the key, the issue or the brief's path, the run directory, the scripts' path, and what you know about overlaps with the other work items and their pull requests.
 2. **Wait for it to end, not only to report.** A sub-agent can hand back its report while its own background work is still running, and resume afterwards. Go on only when its task notification says it finished with nothing of its own still running, and `ListAgents` shows neither it nor anything it started still running; `TaskStop` any that is.
-3. **Verify** before you log or say anything: `verify.sh <key> <pr>` for each pull request, or `verify.sh <key>` for a skip. If the report and the script disagree, the script wins: log what is true, and say so.
+3. **Verify** before you log or say anything: `verify.sh <key> <pr>` for each pull request, or `verify.sh <key>` for a skip. If the report and the script disagree, the script wins: log what is true, and say so. A pull request is not ready while Copilot may still review, and `verify.sh` says so.
 4. **Settle what it handed back.** A `split` or a `found` is yours to decide, not the sub-agent's (see below).
 5. **Log** the verified outcome and your decisions in `<run dir>/NOTES.md`.
 6. **Retry or move on.** A sub-agent that failed, stopped partway or reported something untrue is stopped before anything else touches its worktree. A new sub-agent may take the worktree over, briefed with what is actually there; otherwise note it and go on.
 
 Never run two sub-agents at once, and never give a worktree to a second agent while the first can still run.
+
+When Martin merges one pull request and another then conflicts with `main`, send a sub-agent to fetch and merge `origin/main` into it and resolve, briefed with what merged: it owns the worktree for that, as the first did.
 
 ## Finishing the work, not filing it
 
@@ -56,6 +61,8 @@ A worker skips what needs an image pinned first, a migration with an ordered rol
 - **A proof or a drill on the local cluster:** run it yourself with the `try-the-line` skill, time-boxed, and log what it showed in `NOTES.md`; until then it is in the summary.
 
 When a milestone's plan asks for `/security-review` on a task, say so in its brief.
+
+A pull request of your own (a deploy change, a fix to a check you ran) gets everything a worker's does: both reviews where a worker's would, `/visual-pr`, Copilot's threads and summary, and `verify.sh`. Brief a worker for it when you can; small is no reason to skip a step.
 
 ## After the last work item
 

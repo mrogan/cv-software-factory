@@ -5,11 +5,15 @@
 #                          CODEOWNERS gives Martin has a line in the description's section on them (a heading naming
 #                          CODEOWNERS), with words beside the path. Whether those words are a good reason is left to
 #                          the reader. Once Copilot has reviewed, a comment on the pull request from us, posted after
-#                          its review and beginning "Copilot's review summary:", answers the review's summary. Shows
-#                          checks and threads.
+#                          its review and beginning "Copilot's review summary:", answers the review's summary; until
+#                          Copilot has reviewed, or the hour window.sh gives it has passed, the pull request is not
+#                          ready. Shows checks and threads. A pull request Martin has merged passes on
+#                          what is left to check (its description, checks, threads and summary): its worktree may be
+#                          gone, and its branch may have moved under his own update.
 #   verify.sh <key>        skipped: nothing was left behind, no branch pushed and no pull request opened.
 # A key of 278-2 is issue 278's second pull request. Exit 1 on any mismatch.
 set -euo pipefail
+. "$(dirname "$0")/window.sh"
 key=${1:?usage: verify.sh <key> [pr]} key=${key#\#} pr=${2:-}
 root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
 wt="$root/scratch/worktrees/$key"
@@ -34,11 +38,11 @@ if [[ -z $pr ]]; then
   exit $fail
 fi
 
-IFS=$'\t' read -r state branch head < <(gh pr view "$pr" --json state,headRefName,headRefOid \
-  -q '[.state, .headRefName, .headRefOid] | @tsv')
+IFS=$'\t' read -r state branch head opened < <(gh pr view "$pr" --json state,headRefName,headRefOid,createdAt \
+  -q '[.state, .headRefName, .headRefOid, (.createdAt | fromdateiso8601)] | @tsv')
 body=$(gh pr view "$pr" --json body -q .body)
 say pr "#$pr $state $branch ${head:0:8}"
-[[ $state == OPEN ]] || bad state "pull request is $state"
+[[ $state == OPEN || $state == MERGED ]] || bad state "pull request is $state"
 if [[ $key =~ ^([0-9]+)(-[0-9]+)?$ ]]; then
   issue=${BASH_REMATCH[1]}
   grep -qiE "(closes|part of) #$issue\b" <<<"$body" || bad body "no 'Closes #$issue' or 'Part of #$issue'"
@@ -69,7 +73,9 @@ for file in ${owned[@]+"${owned[@]}"}; do
   elif (( words < 3 )); then bad owned "$file is named with no reason beside it"; fi
 done
 
-if [[ -d $wt ]]; then
+if [[ $state == MERGED ]]; then
+  say worktree "not checked: merged"
+elif [[ -d $wt ]]; then
   wt_branch=$(git -C "$wt" branch --show-current)
   wt_head=$(git -C "$wt" rev-parse HEAD)
   [[ $wt_branch == "$branch" ]] || bad branch "worktree on $wt_branch, pull request from $branch"
@@ -87,14 +93,20 @@ say threads "$(gh api graphql -F owner="${repo%/*}" -F name="${repo#*/}" -F n="$
 
 # Copilot's summary can name findings no thread carries, so the worker answers it once in a comment. Whether the
 # answer is right is the reader's to judge; that there is one, after the review, is checked here.
-reviewed=$(gh api "repos/$repo/pulls/$pr/reviews" --paginate \
-  -q '[.[] | select(.user.login | startswith("copilot-pull-request-reviewer")) | .submitted_at] | last // empty')
+# Every page read as one list: --paginate runs a -q filter on each page alone.
+reviewed=$(gh api "repos/$repo/pulls/$pr/reviews" --paginate | jq -rs 'add // []
+  | [.[] | select(.user.login | startswith("copilot-pull-request-reviewer")) | .submitted_at] | last // empty')
 if [[ -z $reviewed ]]; then
-  say summary "Copilot has not reviewed"
+  if (( $(date +%s) - opened < copilot_window )); then
+    bad summary "Copilot has not reviewed yet: run copilot.sh $pr again"
+  else
+    say summary "Copilot did not review within $(( copilot_window / 60 )) minutes of the opening"
+  fi
 else
   me=$(gh api user -q .login)
-  answer=$(gh api "repos/$repo/issues/$pr/comments" --paginate -q "[.[] | select(.user.login == \"$me\"
-    and .created_at > \"$reviewed\" and (.body | startswith(\"Copilot's review summary:\"))) | .html_url] | first // empty")
+  answer=$(gh api "repos/$repo/issues/$pr/comments" --paginate | jq -rs --arg me "$me" --arg after "$reviewed" 'add // []
+    | [.[] | select(.user.login == $me and .created_at > $after and (.body | startswith("Copilot'"'"'s review summary:")))
+    | .html_url] | first // empty')
   if [[ -n $answer ]]; then say summary "answered $answer"
   else bad summary "no comment from $me after Copilot's review begins \"Copilot's review summary:\""; fi
 fi
