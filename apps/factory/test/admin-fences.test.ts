@@ -15,13 +15,40 @@ interface Manifest {
   spec?: {
     rules?: { host?: string; http?: { paths?: { path?: string; backend?: Backend }[] } }[];
     headers?: { customRequestHeaders?: Record<string, string> };
-    podSelector?: { matchLabels?: Record<string, string> };
+    podSelector?: Selector;
     ingress?: { from?: unknown[]; ports?: unknown[] }[];
-    template?: { spec?: { containers?: { env?: { name: string; value?: string }[] }[] } };
+    template?: {
+      metadata?: { labels?: Record<string, string> };
+      spec?: { containers?: { env?: { name: string; value?: string }[] }[] };
+    };
+    namespaceResourceWhitelist?: { group: string; kind: string }[];
+    matchConstraints?: { resourceRules?: { apiGroups?: string[]; resources?: string[] }[] };
+    variables?: { name: string; expression: string }[];
+    validationActions?: string[];
   };
 }
 
+interface Selector {
+  matchLabels?: Record<string, string>;
+  matchExpressions?: { key: string; operator: string; values?: string[] }[];
+}
+
 const manifests = () => deployManifests<Manifest>();
+
+/** Whether a label selector picks a pod with these labels, for the operators deploy/ uses; any other throws. */
+function selects(selector: Selector, labels: Record<string, string>): boolean {
+  const byLabel = Object.entries(selector.matchLabels ?? {}).every(([key, value]) => labels[key] === value);
+  return (
+    byLabel &&
+    (selector.matchExpressions ?? []).every(({ key, operator, values = [] }) => {
+      if (operator === 'In') return values.includes(labels[key] ?? '');
+      if (operator === 'NotIn') return !values.includes(labels[key] ?? '');
+      if (operator === 'Exists') return key in labels;
+      if (operator === 'DoesNotExist') return !(key in labels);
+      throw new Error(`The selector simulation does not know ${operator}`);
+    })
+  );
+}
 const MIDDLEWARES = 'traefik.ingress.kubernetes.io/router.middlewares';
 const TRAEFIK = {
   namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' } },
@@ -64,11 +91,17 @@ describe('the admin service', () => {
   });
 
   it('lets in the ingress controller alone, so the forwarded headers it trusts come from Traefik', async () => {
-    const policies = (await manifests()).filter(
-      ({ manifest }) =>
+    const all = await manifests();
+    const deployment = all.find(
+      ({ manifest }) => manifest.kind === 'Deployment' && manifest.metadata?.name === 'admin',
+    );
+    const labels = deployment?.manifest.spec?.template?.metadata?.labels;
+    expect(labels?.['app.kubernetes.io/name']).toBe('admin');
+    const policies = all.filter(
+      ({ manifest, namespace }) =>
         manifest.kind === 'NetworkPolicy' &&
-        (manifest.spec?.podSelector?.matchLabels?.['app.kubernetes.io/name'] === 'admin' ||
-          Object.keys(manifest.spec?.podSelector ?? {}).length === 0),
+        namespace === 'factory' &&
+        selects(manifest.spec?.podSelector ?? {}, labels ?? {}),
     );
     const from = policies.flatMap(({ manifest }) => (manifest.spec?.ingress ?? []).flatMap((rule) => rule.from ?? []));
     expect(from).toEqual([TRAEFIK]);
@@ -83,5 +116,31 @@ describe('the admin service', () => {
     );
     expect(env.ADMIN_ORIGIN).toBe('https://console.localhost:8443');
     expect(env.ADMIN_TRUSTED_PROXIES).toBe('10.42.0.0/16');
+  });
+});
+
+describe('the app’s routes', () => {
+  // The app's repository, which agents write to, may make Traefik routes in `website`. A route on the console's host
+  // would take Martin's session cookie, so admission lets a route there name the app's hosts alone.
+  it('are the only routes the app’s repository may make, and the admission policy holds them', async () => {
+    const all = await manifests();
+    const project = all.find(({ manifest }) => manifest.kind === 'AppProject' && manifest.metadata?.name === 'website');
+    const routing = (project?.manifest.spec?.namespaceResourceWhitelist ?? []).filter(
+      ({ group, kind }) =>
+        ['traefik.io', 'traefik.containo.us', 'networking.k8s.io', 'gateway.networking.k8s.io'].includes(group) &&
+        kind !== 'Middleware' &&
+        kind !== 'TraefikService',
+    );
+    expect(routing).toEqual([{ group: 'traefik.io', kind: 'IngressRoute' }]);
+    const policy = all.find(
+      ({ manifest }) => manifest.kind === 'ValidatingPolicy' && manifest.metadata?.name === 'routes',
+    );
+    expect(policy?.file).toBe('base/admission/website/routes.yaml');
+    expect(policy?.manifest.spec?.validationActions).toEqual(['Deny']);
+    expect(policy?.manifest.spec?.matchConstraints?.resourceRules).toEqual([
+      expect.objectContaining({ apiGroups: ['traefik.io'], resources: ['ingressroutes'] }),
+    ]);
+    const hosts = policy?.manifest.spec?.variables?.find((v) => v.name === 'hosts')?.expression ?? '';
+    expect(hosts).not.toMatch(/console/);
   });
 });

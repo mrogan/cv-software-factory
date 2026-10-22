@@ -70,8 +70,9 @@ spec:
             # match exactly: the local cluster's (deploy/overlays/local/console-ingress.yaml).
             - name: ADMIN_ORIGIN
               value: https://console.localhost:8443
-            # Whose forwarded headers it believes, for the client's address its rate limits key on: the pod network,
-            # since its network policy lets only the ingress controller in (k3s's default range; each profile its own).
+            # Whose forwarded headers it believes, for the client's address its rate limits key on: k3s's pod network,
+            # since its network policy lets only the ingress controller in. Locally every request reaches Traefik
+            # through k3d's load balancer, so the limits key on that one address: they hold for the Mac as a whole.
             - name: ADMIN_TRUSTED_PROXIES
               value: 10.42.0.0/16
           readinessProbe:
