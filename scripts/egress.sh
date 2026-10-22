@@ -18,7 +18,7 @@
 #
 # Then the runners (ADR 0008): a pod made like an agent pod (its labels, no DNS, the line's two addresses in its hosts)
 # reaches the gateway and the line's handback and nothing else: not GitHub, the Kubernetes API, the cloud metadata
-# address, Postgres, the console or the host, nor a name. A pod labelled like a prepare pod reaches GitHub and the npm
+# address, Postgres, the console, the admin service or the host, nor a name. A pod labelled like a prepare pod reaches GitHub and the npm
 # registry, and none of the cluster.
 #
 # Then the release (milestone 6): the traffic generator reaches the app only through Traefik, its front door; a pod
@@ -42,7 +42,8 @@
 # internet.
 #
 # Then the admin service (milestone 7), which believes forwarded headers from the pod network because only Traefik may
-# reach it: a worker, an agent pod and the scoreboard cannot, and it reaches Postgres and the collector, and not the
+# reach it: a worker, an agent pod and the scoreboard cannot, nor the stranger in `telemetry`, whose own egress is
+# open, so only the admin service's fence stops it; and it reaches Postgres and the collector, and not the
 # gateway, the Kubernetes API or the internet.
 #
 # Then the scoreboard, which holds the answer key (milestone 6): it reaches Postgres, and nothing else: not the
@@ -549,7 +550,9 @@ expect "the admin service cannot reach the Kubernetes API" egress-admin "https:/
 expect "the admin service cannot reach a public address" egress-admin https://1.1.1.1 blocked
 expect "the worker cannot reach the admin service" "$pod" http://admin:8080/admin/health blocked
 expect "the agent pod cannot reach the admin service" runners:egress-agent "http://$admin_ip:8080/admin/health" blocked
-expect "the scoreboard cannot reach the admin service" scoreboard:egress-scoreboard http://admin.factory:8080/admin/health blocked
+expect "the scoreboard cannot reach the admin service" scoreboard:egress-scoreboard "http://$admin_ip:8080/admin/health" blocked
+expect "the stranger in telemetry cannot reach the admin service" telemetry:egress-stranger \
+  "http://$admin_ip:8080/admin/health" blocked
 
 echo "The scoreboard:"
 expect "the scoreboard reaches Postgres" scoreboard:egress-scoreboard tcp://postgres.factory:5432 reached
