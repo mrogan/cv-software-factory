@@ -23,10 +23,13 @@ Martin's side of the console is the [admin service](ADMIN-SERVICE.md)'s, on the 
 - **Who is looking.** As it opens, the page asks `GET /admin/session`: a session is Martin's, which puts his account button in the header; the service's own refusal is a visitor's, whose footer offers "Martin's sign-in"; anything else (the replay site, `pnpm dev` with no service, a cluster before the service's Deployment) is no service, and offers no sign-in. When the session's eight hours are up, the page sends him to the sign-in page, which says so.
 - **The doors.** Signing in (`/?view=sign-in`) and enrolling a passkey (`/?view=enrol`) are pages of their own, as the design system draws them, whose code and passkey ceremonies ([SimpleWebAuthn](https://simplewebauthn.dev)'s browser half) load only there. Each ceremony asks the service for its options, has the browser's own passkey sheet answer, and sends the answer back.
 - **The account menu** says when Martin signed in and when the session ends, and signs out here or everywhere.
-- **Writes** are `POST`s of JSON with the session's token in `X-CSRF-Token`, the one the service gave with the session.
+- **Writes** are `POST`s of JSON with the session's token in `X-CSRF-Token`, the one the service gave with the session (`write` in `admin.ts`). One the service refuses for want of the passkey given again opens the step-up dialog, and is sent again once it is given.
+- **The passkey, again.** An action the access table marks carries a key after its label while the passkey is not fresh (which actions, and for how long, are copied from `policy/access.ts` into `web/src/access.ts`, since the image is built without policy/, and a test holds them together). Pressing one opens "Your passkey, again" (`StepUp.tsx`): the action's name, what will happen in a ruled box, why it asks, and **Use your passkey**, which runs the service's step-up ceremony. Once given, the header shows "Passkey given · 5min", counting down, the keys go, and on a phone the count is in the account menu instead. The page's count is a convenience: the service decides.
+- **Dialogs** (`Dialog.tsx`) are the browser's own modal `<dialog>`: a raised card on the scrim, a bottom sheet on a phone, its title focused as it opens, and the control that opened it focused again as it closes; Escape, the scrim or Cancel close it.
+- **Read only.** Everyone but Martin sees each of his controls as a label (`.ro`) beside what it does, never a greyed-out button.
 - **In development,** `pnpm dev` passes `/admin/` to an admin service on the host when `ADMIN_URL` names one, and keeps `Cookie` from the console's server as Traefik does, started with `ADMIN_ORIGIN=http://localhost:5173`: `localhost` is a secure context, so a passkey and the `Secure` cookie work there in Chrome; Safari drops the cookie over plain HTTP.
 
-The browser tests take the doors through the real service on a throwaway store, behind a proxy standing in for Traefik, with a virtual passkey; ZAP's baseline scan runs against the same in CI, signed in that way ([CI pipeline](CI-PIPELINE.md#zaps-baseline-scan)).
+The browser tests take the doors, and the Canary panel's controls (against a stand-in Rollout), through the real service on a throwaway store, behind a proxy standing in for Traefik, with a virtual passkey; ZAP's baseline scan runs against the same in CI, signed in that way ([CI pipeline](CI-PIPELINE.md#zaps-baseline-scan)).
 
 ## The browser
 
@@ -49,7 +52,9 @@ Everything it draws is the design system's (`docs/design/system`):
 - **The Canary panel**, full width under the line:
   - draws the newest release from its events, one to a `release` id;
   - shows the steps `release.started` recorded, each step's measures against the baseline, and how it ended: promoted, rolled back, stopped by an analysis error (`release.errored`, with the analysis's words), stopped with the line or aborted by Martin (`release.aborted`; a history from before the line recorded aborts has only `line.stopped` after a release with no end, read as Stop the line's);
-  - folds to one line 15 minutes after the release ends.
+  - folds to one line 15 minutes after the release ends, but for a release that was stopped (aborted, or stopped by an analysis error), which stays in full while it is the newest: it waits for Martin's retry;
+  - draws Martin's pause (`release.controlled`): "Paused by Martin at 50%", still, holding its weight until he resumes, promotes or aborts it; and a canary he promoted at the step it went to;
+  - under the steps and the measures, his controls ([admin service](ADMIN-SERVICE.md#the-canarys-controls)): in flight, Promote to the next step's weight (when there is one before all of the traffic) and Promote fully, each with the key, Pause or Resume, and Abort, behind a dialog that says what it does; stopped, Retry, with the key, disabled while the line is stopped. Promoted, rolled back or a dry run's: none. For Martin they are buttons under "Your controls", for everyone else labels under "Martin's controls"; its last line still says the canary needs nobody to press anything.
 - **The scoreboard**, from the latest `score.updated` ([scoreboard](SCOREBOARD.md)).
 - **The reel**, whose timeline marks each ended release's version, struck through when it was not promoted.
 - **The sheet**, with:

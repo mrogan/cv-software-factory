@@ -4,11 +4,15 @@
  */
 import type { PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
+import { ACCESS, STEP_UP as STEP_UP_POLICY } from '../../../../policy/access.ts';
 import { release as policy } from '../../../../policy/release.ts';
 import { DRAWN } from '../../../factory/src/release/read.ts';
+import { FRESH_MINUTES, STEP_UP } from '../../web/src/access.ts';
 import { project, projectSheet, upTo } from '../../web/src/projection/index.ts';
 import { type Card, timeline } from '../../web/src/projection/reel.ts';
 import {
+  canaryView,
+  controlsOf,
   type End,
   type Failed,
   failedLooks,
@@ -671,5 +675,99 @@ describe('how many looks of a failed measure failed', () => {
       .filter((end) => end?.kind === 'rolled-back');
     expect(ends.length).toBeGreaterThan(0);
     for (const end of ends) expect(failedLooks(end, 'latency')).toBe(2);
+  });
+});
+
+describe('Martin’s controls of the canary', () => {
+  const started: PayloadOf<'release.started'> = {
+    release: 'r1',
+    version: 'v1.0.1',
+    previous: 'v1.0.0',
+    image: { digest: `sha256:${'b'.repeat(64)}`, signed: true, admitted: true },
+    watched: true,
+    steps: [
+      { weight: 25, pauseSeconds: 180, analysis: true },
+      { weight: 50, pauseSeconds: 180, analysis: true },
+    ],
+    dryRun: false,
+  };
+  const control = (
+    action: PayloadOf<'release.controlled'>['action'],
+    weight: number,
+    to?: number,
+  ): PayloadOf<'release.controlled'> => ({ action, release: 'r1', version: 'v1.0.1', weight, ...(to && { to }) });
+  const flying = () => work('1').open().add(1, 'release.started', 'rollouts', started);
+
+  it('holds a paused canary at the weight it kept, with no end to wait for, until he resumes it', () => {
+    const paused = flying().add(2, 'release.controlled', 'martin', control('pause', 25));
+    // Long past its pause's end, it is still where he paused it.
+    expect(releases(paused.events, [], paused.at(30))[0]).toMatchObject({
+      step: 0,
+      weight: 25,
+      until: undefined,
+      paused: { at: paused.at(2), weight: 25 },
+    });
+    const resumed = paused.add(5, 'release.controlled', 'martin', control('resume', 25));
+    expect(releases(resumed.events, [], resumed.at(5))[0]).toMatchObject({ paused: undefined });
+  });
+
+  it('moves a canary he promoted to the step it went to, and on from there', () => {
+    const promoted = flying().add(2, 'release.controlled', 'martin', control('promote', 25, 50));
+    expect(releases(promoted.events, [], promoted.at(3))[0]).toMatchObject({ step: 1, weight: 50 });
+  });
+
+  it('offers what each state takes: in flight, paused, stopped, and nothing once it ended or for a dry run', () => {
+    const [inFlight] = releases(flying().events, [], flying().at(2));
+    if (!inFlight) throw new Error('no release');
+    expect(controlsOf(inFlight, false).map((c) => [c.action, c.label, c.stepUp])).toEqual([
+      ['promote', 'Promote to 50%', true],
+      ['promote-fully', 'Promote fully', true],
+      ['pause', 'Pause', false],
+      ['abort', 'Abort', false],
+    ]);
+    const paused = flying().add(2, 'release.controlled', 'martin', control('pause', 25));
+    const [held] = releases(paused.events, [], paused.at(3));
+    expect(held && controlsOf(held, false).map((c) => c.action)).toContain('resume');
+    // At 50%, the next step is all of the traffic: promote fully alone.
+    const at50 = { ...inFlight, step: 1, weight: 50 };
+    expect(controlsOf(at50, false).map((c) => c.action)).toEqual(['promote-fully', 'pause', 'abort']);
+    const aborted: Release = { ...inFlight, end: { kind: 'aborted', at: 0, weight: 25, by: 'martin' } };
+    expect(controlsOf(aborted, false)).toMatchObject([{ action: 'retry', stepUp: true }]);
+    expect(controlsOf(aborted, true)).toMatchObject([
+      { action: 'retry', off: 'Start the line first: a stopped line starts no canary.' },
+    ]);
+    const errored: Release = {
+      ...inFlight,
+      end: { kind: 'errored', at: 0, weight: 25, reason: 'r', errored: [] },
+    };
+    expect(controlsOf(errored, false).map((c) => c.action)).toEqual(['retry']);
+    expect(controlsOf({ ...inFlight, end: { kind: 'promoted', at: 0, weight: 100 } }, false)).toEqual([]);
+    expect(
+      controlsOf(
+        { ...inFlight, end: { kind: 'rolled-back', at: 0, weight: 25, reason: 'r', failed: [], ticket: undefined } },
+        false,
+      ),
+    ).toEqual([]);
+    expect(controlsOf({ ...inFlight, dryRun: true }, false)).toEqual([]);
+  });
+
+  it('keeps a stopped release in full while it waits for his retry', () => {
+    const aborted = flying().add(3, 'release.aborted', 'martin', {
+      release: 'r1',
+      version: 'v1.0.1',
+      restored: 'v1.0.0',
+      abortedAt: new Date(flying().at(3)).toISOString(),
+      by: 'martin',
+    });
+    const all = releases(aborted.events, [], aborted.at(300));
+    expect(canaryView(all, aborted.at(300)).state).toBe('shown');
+  });
+
+  it('asks for the passkey where the access table does, and counts it fresh as long', () => {
+    for (const [action, stepUp] of Object.entries(STEP_UP)) {
+      const name = action === 'promote-fully' ? 'release.promote' : (`release.${action}` as const);
+      expect(stepUp, action).toBe(ACCESS[name as keyof typeof ACCESS].stepUp);
+    }
+    expect(FRESH_MINUTES).toBe(STEP_UP_POLICY.minutes);
   });
 });

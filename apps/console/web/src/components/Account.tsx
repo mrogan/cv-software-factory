@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { doorHref, post, type Session, said } from '../admin.ts';
 import { clock } from '../format.ts';
+import { StepUpLine } from './StepUp.tsx';
 
 export function Account({ session }: { session: Session }) {
   const [open, setOpen] = useState(false);
@@ -67,6 +68,7 @@ export function Account({ session }: { session: Session }) {
             Signed in with a passkey at {clock(Date.parse(session.signedInAt))}
             <br />
             The session ends at {clock(Date.parse(session.expiresAt))}
+            <StepUpLine />
           </small>
         </div>
         <button type="button" disabled={busy} onClick={() => void signOut(false)}>

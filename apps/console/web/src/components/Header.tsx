@@ -6,6 +6,7 @@ import type { Theme } from '../settings.ts';
 import type { Connection } from '../source.ts';
 import { Account } from './Account.tsx';
 import { Mark } from './Mark.tsx';
+import { StepUpPill } from './StepUp.tsx';
 
 const AUTONOMY: Record<Autonomy, string> = { supervised: 'Supervised', guarded: 'Guarded', 'lights-out': 'Lights-out' };
 
@@ -152,6 +153,7 @@ export function Header({ line, connection, theme, onTheme, motion, onMotion, adm
               STILL
             </button>
           </fieldset>
+          {admin.kind === 'martin' && <StepUpPill />}
           {admin.kind === 'martin' && <Account session={admin.session} />}
         </div>
       </div>

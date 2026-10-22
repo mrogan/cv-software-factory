@@ -15,6 +15,8 @@ import { fileURLToPath } from 'node:url';
 import type { CDPSession, Page } from '@playwright/test';
 import { createDatabase, type Database, startPostgres } from '../../../packages/store/test/postgres.ts';
 import type { AdminService } from '../../factory/src/admin/service.ts';
+import type { RolloutRef } from '../../factory/src/release/rollout-ref.ts';
+import type { KubeWriter } from '../../factory/src/runners/kube.ts';
 
 const HERE = fileURLToPath(new URL('..', import.meta.url));
 const SAMPLES = fileURLToPath(new URL('../../../packages/samples/log', import.meta.url));
@@ -30,8 +32,15 @@ export interface Harness {
   stop(): Promise<void>;
 }
 
-/** Starts the store, the admin service, the console's server and the proxy, with the proxy listening on `port`. */
-export async function startHarness(port: number, name = 'admin'): Promise<Harness> {
+/**
+ * Starts the store, the admin service, the console's server and the proxy, with the proxy listening on `port`. With
+ * `release`, the admin service controls that Rollout, through a stand-in for Kubernetes.
+ */
+export async function startHarness(
+  port: number,
+  name = 'admin',
+  release?: { rollout: RolloutRef; kube: KubeWriter },
+): Promise<Harness> {
   const given = process.env.TEST_DATABASE_URL;
   const postgres = given ? { url: given, stop: () => {} } : await startPostgres();
   const database = await createDatabase(postgres.url, name);
@@ -45,8 +54,8 @@ export async function startHarness(port: number, name = 'admin'): Promise<Harnes
   // The admin service as its Deployment runs it, connected as its own role; `localhost` is a secure context, so a
   // passkey and a `Secure` cookie work over plain HTTP here.
   const admin: AdminService = await startAdmin(
-    { origin, rpId: 'localhost', trusted: proxies(''), port: 0 },
-    { sql: database.admin, port: 0 },
+    { origin, rpId: 'localhost', trusted: proxies(''), port: 0, ...(release && { rollout: release.rollout }) },
+    { sql: database.admin, port: 0, ...(release && { kube: release.kube }) },
   );
   const adminPort = (admin.server.address() as AddressInfo).port;
 
