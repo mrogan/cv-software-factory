@@ -1,5 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { manifests as deployManifests } from './deploy.ts';
+import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 
 /**
  * The admin service's fences as deploy/ declares them (milestone 7): the browser reaches it under /admin/ on the
@@ -142,5 +144,26 @@ describe('the app’s routes', () => {
     ]);
     const hosts = policy?.manifest.spec?.variables?.find((v) => v.name === 'hosts')?.expression ?? '';
     expect(hosts).not.toMatch(/console/);
+  });
+
+  it('were refused by the cluster on any host but the app’s (scripts/route-refusals.sh)', async () => {
+    const kept = JSON.parse(await readFile(join(DEPLOY, 'test', 'route-refusals.json'), 'utf-8')) as {
+      case: string;
+      outcome: string;
+      message: string;
+    }[];
+    const outcomes = Object.fromEntries(kept.map((k) => [k.case, k.outcome]));
+    expect(outcomes).toEqual({
+      app: 'admitted',
+      'app-path': 'admitted',
+      console: 'refused',
+      'no-host': 'refused',
+      'or-console': 'refused',
+      'host-regexp': 'refused',
+      'console-and-app': 'refused',
+    });
+    for (const refusal of kept.filter((k) => k.outcome === 'refused')) {
+      expect(refusal.message).toContain('Policy website-routes failed');
+    }
   });
 });
