@@ -262,7 +262,7 @@ describe('enrolment', () => {
     const used = await newCode();
     expect((await enrolWith(new Browser(), new Authenticator(ORIGIN, RP_ID), used)).status).toBe(200);
     const again = await new Browser().post('/admin/enrol/options', { code: used });
-    expect(again).toMatchObject({ status: 403, body: { refused: 'code' } });
+    expect(again).toMatchObject({ status: 403, body: { refused: 'code', left: 0 } });
 
     const expired = await newCode();
     await db.owner`
@@ -280,14 +280,50 @@ describe('enrolment', () => {
     // Four wrong codes from four browsers, then the right one: five tries.
     for (let i = 0; i < 4; i++) {
       const wrong = await new Browser().post('/admin/enrol/options', { code: 'ZZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ' });
-      expect(wrong.status).toBe(403);
+      // Each says how many tries the live code has left, so the page can say so.
+      expect(wrong).toMatchObject({ status: 403, body: { refused: 'code', left: 4 - i } });
     }
     expect((await new Browser().post('/admin/enrol/options', { code })).status).toBe(200);
-    // The sixth is refused, however right.
+    // The sixth is refused, however right, as a code that can no longer be used.
     expect(await new Browser().post('/admin/enrol/options', { code })).toMatchObject({
+      status: 403,
+      body: { refused: 'code', left: 0 },
+    });
+  });
+
+  it('keeps one code live, the newest, whose tries are its own', async () => {
+    const older = await newCode();
+    const newer = await newCode();
+    // A new code replaces the one before it, which is refused as one that can no longer be used.
+    expect(await new Browser().post('/admin/enrol/options', { code: older })).toMatchObject({
+      status: 403,
+      body: { refused: 'code', left: 4 },
+    });
+    // The tries a wrong code says are left are the live code's: the one just typed counted against it alone.
+    expect(await new Browser().post('/admin/enrol/options', { code: 'ZZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ' })).toMatchObject({
+      status: 403,
+      body: { refused: 'code', left: 3 },
+    });
+    expect((await enrolWith(new Browser(), new Authenticator(ORIGIN, RP_ID), newer)).status).toBe(200);
+    // Used, the newest code leaves none live: the older one does not take its place.
+    expect(await new Browser().post('/admin/enrol/options', { code: older })).toMatchObject({
+      status: 403,
+      body: { refused: 'code', left: 0 },
+    });
+  });
+
+  it('refuses a ceremony begun with a code that a newer one has replaced since', async () => {
+    const older = await newCode();
+    const browser = new Browser();
+    const options = await browser.post('/admin/enrol/options', { code: older });
+    expect(options.status).toBe(200);
+    await newCode();
+    const response = new Authenticator(ORIGIN, RP_ID).create(options.body as { challenge: string });
+    expect(await browser.post('/admin/enrol', { response, name: 'Laptop' })).toMatchObject({
       status: 403,
       body: { refused: 'code' },
     });
+    expect(await db.owner`select 1 from passkeys where revoked_at is null`).toHaveLength(0);
   });
 
   it('counts no try for what cannot be a code, so junk cannot burn Martin’s', async () => {

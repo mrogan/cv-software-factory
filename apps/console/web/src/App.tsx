@@ -1,7 +1,9 @@
 /**
- * The console: events in, the page out. Everything below is drawn from `project(events, t)`.
+ * The console: events in, the page out. Everything below is drawn from `project(events, t)`. The doors, signing in
+ * and enrolling a passkey, are pages of their own on the same address (`?view=sign-in`, `?view=enrol`).
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type Admin, type Door, useAdmin } from './admin.ts';
 import { OriginContext } from './artifacts.ts';
 import { Canary } from './components/Canary.tsx';
 import { Footer } from './components/Footer.tsx';
@@ -12,22 +14,58 @@ import { Reel } from './components/Reel.tsx';
 
 import { EmptyReel, States } from './components/States.tsx';
 import { project, projectSheet } from './projection/index.ts';
-import { useMotion, useTheme, useTime } from './settings.ts';
-import { origin, useEvents } from './source.ts';
+import { type Theme, useMotion, useTheme, useTime } from './settings.ts';
+import { type Origin, origin, useEvents } from './source.ts';
 
 const params = new URLSearchParams(location.search);
 
 /** The sheet's code arrives when the first sheet opens: the first view does not need it. */
 const Sheet = lazy(() => import('./components/Sheet.tsx').then((module) => ({ default: module.Sheet })));
 
+/** The doors' code, and the passkey ceremonies', arrive only on a door. */
+const Doors = lazy(() => import('./components/Doors.tsx').then((module) => ({ default: module.Doors })));
+
+const asked = params.get('view');
+const door: Door | undefined = asked === 'sign-in' || asked === 'enrol' ? asked : undefined;
+
 export function App() {
   const from = useMemo(() => origin(), []);
+  const [theme, setTheme] = useTheme();
+  const [motion, setMotion] = useMotion();
+  const admin = useAdmin(from.kind === 'live');
+
+  // Signed in already, the sign-in door has nothing to do.
+  useEffect(() => {
+    if (door === 'sign-in' && admin.kind === 'martin') location.replace('/');
+  }, [admin.kind]);
+
+  if (door) {
+    return (
+      <>
+        <Suspense fallback={null}>
+          <Doors door={door} />
+        </Suspense>
+        <Footer signIn={false} />
+      </>
+    );
+  }
+  return <Console from={from} admin={admin} theme={theme} onTheme={setTheme} motion={motion} onMotion={setMotion} />;
+}
+
+interface ConsoleProps {
+  from: Origin;
+  admin: Admin;
+  theme: Theme;
+  onTheme: (theme: Theme) => void;
+  motion: boolean;
+  onMotion: (on: boolean) => void;
+}
+
+function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setMotion }: ConsoleProps) {
   const source = useEvents(from);
   const latest = source.events.length ? Date.parse(source.events.at(-1)?.ts ?? '') : undefined;
   const t = useTime(latest, from.kind === 'live');
   const view = useMemo(() => project(source.events, t), [source.events, t]);
-  const [theme, setTheme] = useTheme();
-  const [motion, setMotion] = useMotion();
   const n = view.cards.length;
   // The reel draws just after the line, not with it: it is most of the page's work, and the line is what a visitor
   // reads first. An effect runs after the frame that drew the line, so the reel comes in the next.
@@ -37,7 +75,7 @@ export function App() {
   const settled = source.connection === 'live' || source.connection === 'recorded' || source.events.length > 0;
 
   // The reel rests on the latest work item unless the viewer moves it, or asked for one in the address.
-  const asked = params.get('item');
+  const item = params.get('item');
   const [centre, setCentre] = useState<number | undefined>(undefined);
   const [open, setOpen] = useState<string | undefined>(undefined);
   const atNow = useRef(true);
@@ -45,13 +83,13 @@ export function App() {
 
   useEffect(() => {
     if (!n || centre !== undefined) return;
-    const index = view.cards.findIndex((card) => card.number === asked);
+    const index = view.cards.findIndex((card) => card.number === item);
     if (index >= 0) {
       atNow.current = index >= n - 1;
       setCentre(index);
-      if (params.has('sheet')) setOpen(asked ?? undefined);
+      if (params.has('sheet')) setOpen(item ?? undefined);
     }
-  }, [n, centre, asked, view.cards]);
+  }, [n, centre, item, view.cards]);
 
   // Following the line: a viewer watching now stays at now as new work items arrive.
   useEffect(() => {
@@ -86,6 +124,7 @@ export function App() {
         onTheme={setTheme}
         motion={motion}
         onMotion={setMotion}
+        admin={admin}
       />
       <main id="top">
         <div className="wrap">
@@ -118,7 +157,7 @@ export function App() {
           )}
         </div>
       </main>
-      <Footer />
+      <Footer signIn={admin.kind === 'visitor'} />
       {sheet && (
         <Suspense fallback={null}>
           <Sheet

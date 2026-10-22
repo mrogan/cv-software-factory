@@ -7,11 +7,13 @@
  * Plan's with a ticket in hand, and a fix's spec, rounds, review, gates and models, the sheet in Ink too. Milestone 6's
  * come from the samples too: the Canary panel in each state, a reopened card and one waiting for Martin's deploy, a
  * sheet's releases, the scrubber for work that goes round three times, and the timeline's versions, a release with no
- * work item's among them.
+ * work item's among them. Milestone 7's from a stand-in for the admin service: the sign-in and enrolment doors, a code
+ * refused, and Martin's account menu.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
 import {
+  adminService,
   CANARY,
   consoleUrl,
   emptyStore,
@@ -405,3 +407,57 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
     }
   });
 }
+
+/** A door drawn, with the fonts it is set in. */
+async function door(page: Page, url: string): Promise<void> {
+  await page.goto(url);
+  await page.locator('.door').waitFor();
+  await page.evaluate(() => document.fonts.ready);
+}
+
+/** Milestone 7: the doors, and Martin's account menu, against a stand-in for the admin service. */
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, signing in`, () => {
+    test.use({ viewport });
+
+    test('the sign-in door', async ({ page }) => {
+      await adminService(page, 'visitor');
+      await door(page, '/?view=sign-in');
+      await expect(page).toHaveScreenshot(`m07-sign-in-${width}.png`);
+    });
+
+    test('the enrolment door, and a wrong code', async ({ page }) => {
+      await adminService(page, 'visitor');
+      await page.route('**/admin/enrol/options', (route) =>
+        route.fulfill({ status: 403, json: { refused: 'code', message: 'That code isn’t right.', left: 3 } }),
+      );
+      await door(page, '/?view=enrol');
+      await expect(page).toHaveScreenshot(`m07-enrol-${width}.png`);
+      await page.getByLabel('One-time code').fill('AAAAAA-AAAAA-AAAAA-AAAAA-AAAAB');
+      await page.getByRole('button', { name: 'Check the code' }).click();
+      await page.getByRole('alert').waitFor();
+      await expect(page).toHaveScreenshot(`m07-enrol-wrong-${width}.png`);
+    });
+
+    test('Martin’s account menu', async ({ page }) => {
+      await adminService(page, 'martin');
+      await page.goto(consoleUrl());
+      await ready(page);
+      await page.getByRole('button', { name: 'Martin', exact: true }).click();
+      await page.locator('#account-menu').waitFor();
+      await expect(page).toHaveScreenshot(`m07-account-menu-${width}.png`, {
+        clip: { x: 0, y: 0, width: viewport.width, height: 320 },
+      });
+    });
+  });
+}
+
+test.describe('the doors in Ink', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('the sign-in door, after the session ended', async ({ page }) => {
+    await adminService(page, 'visitor');
+    await door(page, '/?view=sign-in&theme=ink&ended=expired&at=2026-10-06T22%3A40%3A00Z');
+    await expect(page).toHaveScreenshot('m07-sign-in-ended-ink.png');
+  });
+});

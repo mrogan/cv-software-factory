@@ -154,6 +154,7 @@ function entries() {
       ...servers,
     ],
     vite: [`${CONSOLE}/vite.config.ts`, `${CONSOLE}/${root}/index.html`],
+    jobs: scripts(),
   };
 }
 
@@ -166,7 +167,13 @@ function jobs() {
   );
 }
 
-const BROWSER_JOBS = ['console-browser', 'senses-browser', 'browser'];
+const BROWSER_JOBS = ['console-browser', 'senses-browser', 'zap', 'browser'];
+
+/** The scripts the browser jobs run with `node`, ZAP's scan among them. */
+const scripts = () =>
+  BROWSER_JOBS.flatMap((id) =>
+    [...(jobs().get(id) ?? '').matchAll(/run: node (\S+\.ts)$/gm)].map(([, file = '']) => file),
+  );
 
 describe('what the browser tests run', () => {
   const start = entries();
@@ -177,6 +184,7 @@ describe('what the browser tests run', () => {
     expect(start.playwright).toEqual(
       expect.arrayContaining(['apps/console/e2e/live.spec.ts', 'apps/console/src/server.ts']),
     );
+    expect(start.jobs).toEqual(['apps/console/zap/scan.ts']);
     expect(files).toEqual(
       expect.arrayContaining([
         'apps/console/web/src/main.tsx',
@@ -252,17 +260,21 @@ describe('what the browser tests run', () => {
     );
     expect(
       blocks.filter(
-        (line) => !/^(echo "[^"]*"|\[ "\$\w+" = success \]( && \[ "\$\w+" = success \])?)$/.test(line.trim()),
+        (line) => !/^(echo "[^"]*"|\[ "\$\w+" = success \]( && \[ "\$\w+" = success \])*)$/.test(line.trim()),
       ),
     ).toEqual([]);
     const uses = browser.flatMap((job) => [...job.matchAll(/uses: ([\w/-]+)@/g)].map(([, action = '']) => action));
-    expect(new Set(uses)).toEqual(new Set(['actions/checkout', 'actions/upload-artifact']));
+    // ZAP's scan runs on the runner, with the toolchain mise.toml pins.
+    expect(new Set(uses)).toEqual(new Set(['actions/checkout', 'actions/upload-artifact', 'jdx/mise-action']));
     expect(new Set(runs)).toEqual(
       new Set([
         'corepack enable && pnpm install --frozen-lockfile --ignore-scripts',
+        'pnpm install --frozen-lockfile --ignore-scripts',
         'pnpm --filter @software-factory/console build',
         'pnpm exec playwright test $TESTS',
         'pnpm exec vitest run --project browser',
+        'pnpm --filter @software-factory/console exec playwright install --with-deps --only-shell chromium',
+        'node apps/console/zap/scan.ts',
         '|',
       ]),
     );

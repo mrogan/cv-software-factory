@@ -1,0 +1,48 @@
+# 0012: Martin signs in with a passkey, to one small service held to ASVS level 2
+
+## Decision
+
+Martin runs the factory from the console, and everything he can do there goes through the admin service, `factory admin`: the one way a browser changes the factory. It answers `/admin/` on the console's own origin and nothing else, every route through the access table (`policy/access.ts`). He signs in with a passkey, and nothing else; a passkey is added only with a one-time code that `factory admin enrol` prints on the command line. His session is kept on the server, and the browser holds a random id in a `__Host-` cookie. Every write is a `POST` of JSON that passes four checks: `Origin` exactly the console's, a live session, the session's token in `X-CSRF-Token`, and, for an action that loosens a control, raises spend, promotes something or overrides a guardrail, the passkey given again within five minutes.
+
+The bar is [OWASP ASVS 5.0](https://owasp.org/www-project-application-security-verification-standard/) level 2. The access tests (`apps/factory/test/admin/admin.test.ts`), the browser tests of the console's sign-in and enrolment pages against the real service (`apps/console/e2e/signing-in.spec.ts`), and ZAP's baseline scan of the console signed in as Martin (`apps/console/zap`) hold it in CI. The scan signs in as a browser does, with a virtual passkey enrolled against a throwaway store through the enrolment page, so no image holds a way in made for tests. A finding fails the build unless `apps/console/zap/rules.tsv` keeps the reason beside its exception.
+
+Where the bar asks for something this design leaves out, the reason is below.
+
+## Threat model
+
+**What is worth taking:** Martin's session, which can stop and start the line, answer holds and change what agents may spend; a passkey enrolled by someone else, which would be a session whenever they liked; and the right to append Martin's commands to the store, which the line, triage and the gateway act on.
+
+**Who might try,** and what stands in the way:
+
+| Who | Could try | What stops it |
+|---|---|---|
+| Anyone on the internet | Guess a session, a code or a token | Each is random: a session id 256 bits, a code 128, the token a hash of the id. Signing in and enrolling are rate-limited by address. |
+| | Phish the passkey | A passkey answers only its relying party, the console's host, so another site's page gets nothing it can use. |
+| | Burn Martin's enrolment code | Possible: five well-formed wrong codes end it (below). |
+| | Add a passkey | Only with a live code, which only the command line makes; no session can add one. |
+| Another site's page, open in Martin's browser | Forge a write with his cookie | `SameSite=Strict` keeps the cookie off it; the exact `Origin`, the token in a header and JSON alone refuse it besides. Every response forbids framing. |
+| A script running in the console's page | Act as Martin | The console's Content Security Policy runs only the console's own scripts, from its own origin, and no inline script; the cookie is `HttpOnly`, so not even those read it. |
+| A worker, an agent or the internet's input to one | Append an event as Martin | Row security lets only Martin's roles append his event types, the store stamps the role that appended each, and the line, triage and the gateway act only on events Martin's roles appended. |
+| Someone with Martin's unlocked laptop | Loosen a guardrail, promote, raise spend | The passkey again, with the device's own user verification, for every such action. A session lasts eight hours at most. |
+| Someone with Martin's lost phone | Sign in later | `make enrol REVOKE_OTHERS=1` revokes every passkey and session at once. |
+| Someone inside the cluster's network | Talk to the service directly, with forged forwarded headers | The service believes `X-Forwarded-For` only from the proxy's addresses (`ADMIN_TRUSTED_PROXIES`); anything else is the connection's own address. Its NetworkPolicy, which comes with its Deployment, lets in only Traefik. |
+
+**What the admin service trusts:** the store, Traefik, and the console's server. The console's server never holds a session or receives the cookie (the Traefik route that comes with the admin service's Deployment strips `Cookie` on its way there, as the browser tests' proxy does), but it serves the page whose script does Martin's writes, so a console that served another script could act as him. It is trusted as the admin service is: its image is one `build.yml` signed on `main`, which admission control enforces (ADR 0010), and its Content Security Policy is the control on what the page may run.
+
+## Why, where the bar asks for more
+
+- **No idle timeout.** ASVS asks that a session end after a time unused. Here there is one admin, who signs in with a passkey, not a password, and gives it again for every action that could do harm; a session lasts eight hours from signing in however busy, and signing out, signing out everywhere and revoking a passkey end it on the server at once. An idle timeout would make him sign in again during a long read of the console, for no protection the passkey again does not already give.
+- **No attestation.** Martin's passkeys are whatever his laptop and phone make, synced or not. The one-time code from the command line is what proves it is him; which company made the authenticator proves nothing more, and asking for attestation would turn away passkeys that sync.
+- **Fast hashes.** The store keeps a SHA-256 of each code and session id, and derives the token from the id with a hash of its own. A slow, salted hash protects a secret a person chose, which may be guessed; these are 128 or 256 random bits that nobody chose, which no number of guesses finds, so a fast hash keeps them as safe at rest. A job token is kept the same way. Code scanning may say otherwise, as it would of a password.
+- **Rate limits in memory.** The service is one replica, so the counts are kept in its memory: enrolling allows ten requests in ten minutes from an address, signing in thirty. A restart forgets them, which an attacker cannot cause from outside. A second replica would need the counts in the store.
+- **A code can be burned.** A code allows five tries, counted across every client, so nobody can try more by changing address. That means anyone can end a live code with five well-formed wrong ones, from anywhere, within its ten minutes, and the enrolment page says how many tries a live code has left, so they could see one is live. It costs Martin another `make enrol`, and gains them nothing: no code, no passkey. One code is live at a time, the newest, so the tries the page reports are that code's own, and a new code ends the one before it. Only something shaped like a code counts, so junk cannot burn one, and a code that is not live gets the same answer as one that is used.
+- **Forwarded headers from the proxy alone.** The rate limits key on the client's address, which behind Traefik (and Cloudflare's tunnel on a public profile) is in `X-Forwarded-For`. The service reads it only from a connection whose address is the proxy's, and then only the last address the proxy did not add, so a client cannot choose its own.
+- **The console's page asks the service who it is talking to.** The console's server cannot know, since it never sees the cookie, so the page asks `GET /admin/session` as it opens: a session, or the service's refusal, or no service at all (the replay site, or a cluster before the service's Deployment), when the page offers no sign-in.
+
+## Consequences
+
+- A visitor's browser makes one request to the admin service as the console opens, and gets a refusal: the page cannot tell a visitor from Martin any other way.
+- The console's server sends `Cross-Origin-Embedder-Policy: require-corp` and a `Permissions-Policy` beside its other headers, as ZAP asks, so the page shares no process with another origin's and may use no camera, microphone, location, payment or USB.
+- Running an image built on the Mac on the local cluster (the `try-the-line` skill) switches the factory's admission policy to Audit, which takes the console's and the admin service's images out of its protection for the run. The local cluster is disposable; a public profile never runs one.
+- ZAP's baseline scan reads every answer and sends nothing of its own beyond its spider's requests, so it finds what headers, cookies and pages give away, not what a request crafted to break the service would. An active scan, which sends attacks, is later work.
+- Every change to the service, the console's pages or the access table is reviewed for security before it merges.
