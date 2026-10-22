@@ -68,6 +68,10 @@ const TOO_MANY = 'SF002';
  * Starting a session and ending every session take this lock, so a sign-in in flight cannot start one that signing
  * out everywhere, or `factory admin enrol --revoke-others`, has already passed over.
  */
+/** The newest enrolment code, the only one that can be live: a new `factory admin enrol` replaces any before it. */
+export const newestCode = (sql: Sql | TransactionSql) =>
+  sql`select code_sha256 from enrolment_codes order by created_at desc, code_sha256 limit 1`;
+
 export const lockSessions = (tx: TransactionSql) => tx`select pg_advisory_xact_lock(hashtext('sessions'))`;
 
 export class AdminStore {
@@ -115,20 +119,18 @@ export class AdminStore {
   }
 
   /**
-   * Counts a try of an enrolment code against every code still live, as the policy counts them across every client,
-   * and says whether this one is among them, and how many tries the live codes have left after it: none when no code
-   * is live, so a wrong code can be told from one that can no longer be used. A code past its tries, used or expired
-   * is no longer live.
+   * Counts a try of an enrolment code against the live code, as the policy counts them across every client, and says
+   * whether this is it, and how many tries it has left after this one: none when no code is live, so a wrong code can
+   * be told from one that can no longer be used. Only the newest code `factory admin enrol` printed can be live, so
+   * those tries are its own; it is no longer live once used, past its tries or expired, and no older code takes its place.
    */
   async tryCode(hash: string): Promise<{ match: boolean; left: number }> {
-    const rows = await this.#sql<{ code_sha256: string; tries: number }[]>`
+    const [row] = await this.#sql<{ code_sha256: string; tries: number }[]>`
       update enrolment_codes set tries = tries + 1
-      where used_at is null and expires_at > now() and tries < ${ENROLMENT_CODE.tries}
+      where code_sha256 = (${newestCode(this.#sql)})
+        and used_at is null and expires_at > now() and tries < ${ENROLMENT_CODE.tries}
       returning code_sha256, tries`;
-    return {
-      match: rows.some((row) => row.code_sha256 === hash),
-      left: Math.max(0, ...rows.map((row) => ENROLMENT_CODE.tries - row.tries)),
-    };
+    return { match: row?.code_sha256 === hash, left: row ? ENROLMENT_CODE.tries - row.tries : 0 };
   }
 
   /** A new challenge for a ceremony, bound to the session or the code it is for. Expired ones go as it is made. */

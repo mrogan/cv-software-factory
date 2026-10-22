@@ -27,6 +27,7 @@ import {
   type AdminStore,
   adminEvent,
   lockSessions,
+  newestCode,
   Refused,
   type Session,
   sessionHash,
@@ -197,8 +198,11 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
         async (tx) => {
           const spent = await tx`
             update enrolment_codes set used_at = now()
-            where code_sha256 = ${code} and used_at is null and expires_at > now()`;
-          if (spent.count !== 1) throw new Refused('code', 403, 'That code is used, or more than ten minutes old.');
+            where code_sha256 = ${code} and code_sha256 = (${newestCode(tx)})
+              and used_at is null and expires_at > now()`;
+          if (spent.count !== 1) {
+            throw new Refused('code', 403, 'That code is used, more than ten minutes old, or replaced by a newer one.');
+          }
           await tx`
             insert into passkeys (id, public_key, sign_count, transports, name, enrolled_with)
             values (${passkey.id}, ${passkey.publicKey}, ${passkey.signCount}, ${passkey.transports},
