@@ -101,8 +101,8 @@ export const doorHref = (door: Door, ended?: Ended, at?: string) => {
 };
 
 /**
- * Whether this browser is signed in, asked once as the page opens, and again when the session's eight hours are up,
- * which sends the page to the sign-in door, saying so. Only the live console asks: a recording has no service.
+ * Whether this browser is signed in, asked as the page opens, and again when the session's eight hours are up or the
+ * page is shown again: a session that has ended sends the page to the sign-in door, saying so. Only the live console asks: a recording has no service.
  */
 export function useAdmin(live: boolean): Admin {
   const [admin, setAdmin] = useState<Admin>(() => (live ? { kind: 'checking' } : { kind: 'none' }));
@@ -124,12 +124,15 @@ export function useAdmin(live: boolean): Admin {
     // Asked again rather than assumed, so a clock that is out says nothing wrong.
     const ended = () =>
       void check().then((found) => {
-        if (found.kind !== 'martin') location.assign(doorHref('sign-in', 'expired', expiresAt));
+        // Gone, not unreachable: a service that cannot be asked leaves the page as it is.
+        if (found.kind !== 'visitor') return;
+        location.assign(Date.now() >= ends ? doorHref('sign-in', 'expired', expiresAt) : doorHref('sign-in', 'here'));
       });
-    // A timer sleeps with the laptop, so coming back to the page checks the clock too.
+    // A timer sleeps with the laptop, so coming back to the page asks again too: the session may also have ended
+    // early, signed out everywhere from another device or its passkey revoked.
     const timer = setTimeout(ended, Math.max(0, ends - Date.now()) + 1000);
     const back = () => {
-      if (document.visibilityState === 'visible' && Date.now() >= ends) ended();
+      if (document.visibilityState === 'visible') ended();
     };
     document.addEventListener('visibilitychange', back);
     return () => {

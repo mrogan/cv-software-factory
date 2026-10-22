@@ -207,13 +207,11 @@ function Enrol({ heading }: Heading) {
     const got = await post('/admin/enrol', { response, name: name.trim() });
     setBusy(false);
     if (got.status === 200) return setStep(4);
-    // A ceremony out of time, or a code used meanwhile: back to the code, which says what it can.
-    if (got.body?.refused === 'challenge' || got.body?.refused === 'code') {
-      setOptions(undefined);
-      setStep(2);
-      return setNote({ kind: 'refused', text: said(got) });
-    }
-    setPasskeyNote(said(got));
+    // Refused, the ceremony is spent whatever the reason (the service spends a challenge before it checks the answer),
+    // so it starts again from the code, saying why.
+    setOptions(undefined);
+    setStep(2);
+    setNote({ kind: 'refused', text: said(got) });
   };
 
   const item = (n: number, children: ReactNode) => (
