@@ -211,6 +211,8 @@ const ALL: Step = { weight: 100, pauseSeconds: null, analysis: true };
 
 interface Building extends Release {
   listed: Step[] | null;
+  /** Each pause of Martin's that has ended: from when he paused it to when he resumed or promoted it. */
+  held: { from: number; to: number }[];
   stoppedAt: number | undefined;
 }
 
@@ -220,7 +222,16 @@ interface Building extends Release {
  * Martin, it stays where it was when he paused it, at the weight it kept, with no end to wait for.
  */
 function position(r: Building, now: number): Pick<Release, 'step' | 'weight' | 'until'> {
-  if (!r.listed) return { step: -1, weight: r.paused?.weight ?? r.measured.at(-1)?.weight ?? 0, until: undefined };
+  if (!r.listed) {
+    // With no steps to place it on, the weight it last went to: measured, or promoted to.
+    const latest = [
+      ...r.measured.map((m) => ({ at: m.at, weight: m.weight })),
+      ...r.promotions.map((p) => ({ at: p.at, weight: p.to })),
+    ]
+      .sort((a, b) => a.at - b.at)
+      .at(-1);
+    return { step: -1, weight: r.paused?.weight ?? latest?.weight ?? 0, until: undefined };
+  }
   const steps = r.steps;
   const paused = r.paused && r.paused.at <= now ? r.paused : undefined;
   const asOf = paused ? paused.at : now;
@@ -248,15 +259,27 @@ function position(r: Building, now: number): Pick<Release, 'step' | 'weight' | '
     }
   }
   if (holding) return { step, weight: paused?.weight ?? steps[step]?.weight ?? 100, until: undefined };
+  // A step's pause counts only the time the canary ran: what Martin held it for is added to its end.
+  const after = (start: number, ms: number) => {
+    let [t, left] = [start, ms];
+    for (const hold of r.held) {
+      if (hold.to <= t) continue;
+      const ran = Math.max(t, hold.from) - t;
+      if (ran >= left) break;
+      [t, left] = [Math.max(t, hold.to), left - ran];
+    }
+    return t + left;
+  };
   for (let s = steps[step]; s && !s.analysis && s.pauseSeconds !== null; s = steps[step]) {
-    if (from + s.pauseSeconds * 1000 > asOf) break;
-    from += s.pauseSeconds * 1000;
+    const ends = after(from, s.pauseSeconds * 1000);
+    if (ends > asOf) break;
+    from = ends;
     step += 1;
   }
   step = Math.min(step, steps.length - 1);
   const pause = steps[step]?.pauseSeconds;
   if (paused) return { step, weight: paused.weight, until: undefined };
-  return { step, weight: steps[step]?.weight ?? 100, until: pause == null ? undefined : from + pause * 1000 };
+  return { step, weight: steps[step]?.weight ?? 100, until: pause == null ? undefined : after(from, pause * 1000) };
 }
 
 /** Every release by t, oldest first, each as far as it had got. */
@@ -333,6 +356,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
         retried,
         paused: undefined,
         promotions: [],
+        held: [],
         stoppedAt: undefined,
       });
       continue;
@@ -344,7 +368,11 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
       if (!r || r.end) continue;
       const { action, weight, to } = event.payload;
       if (action === 'pause') r.paused = { at, weight };
-      else if (action !== 'retry') r.paused = undefined;
+      // Resumed or promoted, it runs again; aborted, it stays where he held it, which is where it stopped.
+      else if (r.paused && action !== 'abort' && action !== 'retry') {
+        r.held.push({ from: r.paused.at, to: at });
+        r.paused = undefined;
+      }
       if (to !== undefined) r.promotions.push({ at, to });
       continue;
     }
@@ -379,7 +407,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     if (event.type === 'release.aborted') r.end = abortedAt(r, Date.parse(event.payload.abortedAt), event.payload.by);
   }
   return [...byId.values()].map((r): Release => {
-    const { listed: _listed, stoppedAt: _stoppedAt, ...release } = r;
+    const { listed: _listed, stoppedAt: _stoppedAt, held: _held, ...release } = r;
     if (!r.planned) release.steps = measuredSteps(r);
     const end = endOf(r);
     const place = position(r, end?.at ?? t);

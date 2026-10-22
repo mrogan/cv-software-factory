@@ -720,6 +720,19 @@ describe('Martin’s controls of the canary', () => {
     expect(releases(resumed.events, [], resumed.at(5))[0]).toMatchObject({ paused: undefined });
   });
 
+  it('counts a step’s pause from where it was, after he resumes it, not from before he held it', () => {
+    // Paused a minute into the 25% step's three, held for ten, resumed: two minutes of its pause are left.
+    const resumed = flying()
+      .add(2, 'release.controlled', 'martin', control('pause', 25))
+      .add(12, 'release.controlled', 'martin', control('resume', 25));
+    expect(releases(resumed.events, [], resumed.at(13))[0]).toMatchObject({
+      step: 0,
+      weight: 25,
+      until: resumed.at(14),
+      paused: undefined,
+    });
+  });
+
   it('moves a canary he promoted to the step it went to, and on from there', () => {
     const promoted = flying().add(2, 'release.controlled', 'martin', control('promote', 25, 50));
     expect(releases(promoted.events, [], promoted.at(3))[0]).toMatchObject({ step: 1, weight: 50 });

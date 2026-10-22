@@ -103,9 +103,9 @@ export async function post(path: string, body: object = {}, token?: string): Pro
 }
 
 /**
- * One of Martin's writes: a `POST` with his session's token. One the service refuses because it needs his passkey
- * again asks for it (`stepUp`, which opens the step-up dialog, `StepUp.tsx`), and is sent again once it is given;
- * when he cancels, the refusal stands.
+ * One of Martin's writes: a `POST` with his session's token. When the service refuses it because it needs his passkey
+ * again, `stepUp` asks for it (the step-up dialog, `StepUp.tsx`), and the write is sent again once it is given; when
+ * he cancels, the refusal stands.
  */
 export async function write(
   path: string,

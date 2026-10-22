@@ -130,9 +130,12 @@ function StepUpDialog({ asked, token, onAnswer }: { asked: Asked; token: string;
     };
     const options = await post('/admin/step-up/options', {}, token);
     if (options.status !== 200 || !options.body) return fail(said(options));
-    const { startAuthentication } = await import('@simplewebauthn/browser');
-    let response: Awaited<ReturnType<typeof startAuthentication>>;
+    // Closed while it asked: no passkey sheet for a dialog that is gone.
+    if (!live.current) return;
+    let response: Awaited<ReturnType<typeof import('@simplewebauthn/browser').startAuthentication>>;
     try {
+      const { startAuthentication } = await import('@simplewebauthn/browser');
+      if (!live.current) return;
       response = await startAuthentication({ optionsJSON: options.body as never });
     } catch (error) {
       // The sheet was closed, or this device holds no passkey for the factory: the browser does not say which.
