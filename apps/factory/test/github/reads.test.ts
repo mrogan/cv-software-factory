@@ -256,7 +256,7 @@ describe('reading what a release is made of', () => {
       pinned: OTHER_SHA,
       digests: [],
     });
-    expect(await reads.deployProposal(REPO, 'deploy/console-local')).toBeNull();
+    expect(await reads.deployProposal(REPO, 'deploy/staging')).toBeNull();
     await expect(new LiveReads(github).deployProposal(REPO, 'deploy/local')).rejects.toThrow(/watches no deploys/);
   });
 });

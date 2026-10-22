@@ -2,7 +2,7 @@
 
 ## Decision
 
-Every image a cluster runs is pinned by digest, per profile, in the repository that builds it: the factory's images in this repository's overlays, the app's in its own. When CI builds a new image, the factory's GitHub App opens a pull request in that repository that moves the pin, and merging that pull request is the deployment: Argo CD deploys what each repository's `main` says. There is one open deploy pull request per image, always for the latest build.
+Every image a cluster runs is pinned by digest, per profile, in the repository that builds it: the factory's images in this repository's overlays, the app's in its own. When CI builds a new image, the factory's GitHub App opens a pull request in that repository that moves the pin, and merging that pull request is the deployment: Argo CD deploys what each repository's `main` says. There is one open deploy pull request per repository and profile, always for the latest build of each image it moves.
 
 ## Why
 

@@ -8,7 +8,8 @@
 #
 # Argo CD deploys only what is in git, so a new image reaches the local cluster through a pull request that pins its
 # digest in deploy/overlays/local. The factory's GitHub worker sees the new image in GHCR and opens that pull request
-# as the factory's App (ADR 0005): one for the console and one for the factory's images, which are built together.
+# as the factory's App (ADR 0005): one pull request, which moves the console's pin, the factory's images' pin (built
+# together), or both, each to its own newest build.
 name: build
 
 on:
@@ -70,10 +71,11 @@ jobs:
           shared='^(packages/events/|packages/store/|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.github/workflows/build\.yml)'
           console="$shared|^(apps/console/|docs/design/system/(tokens\.css|station\.ts|mark/))"
           factory="$shared|^(apps/factory/|apps/runner/|packages/triage/|policy/)"
-          # $1: the output, $2: the deploy commits' subject, $3: the image's inputs.
+          # $1: the output, $2: what the deploy commits' subject calls the image, $3: the image's inputs.
           decide() {
-            # The squash-merged deploy pull request's subject names the commit it deployed, such as "run console 1f14f44".
-            deployed=$(git log --format=%s -1 --grep "^chore(deploy): $2 [0-9a-f]\{7,40\} " | sed -E "s/^chore\(deploy\): $2 ([0-9a-f]+) .*/\1/")
+            # The squash-merged deploy pull request's subject names the commit it deployed, alone or after another:
+            # "run console 1f14f44 on the local cluster", "run console 1f14f44 and the factory 9e0b2d1 on the local cluster".
+            deployed=$(git log --format=%s -1 -E --grep "^chore\(deploy\): run (.+ and )?$2 [0-9a-f]{7,40} " | sed -E "s/^chore\(deploy\): run (.+ and )?$2 ([0-9a-f]+) .*/\2/")
             if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ -z "$deployed" ] || ! git cat-file -e "$deployed^{commit}" 2>/dev/null; then
               echo "$1=true" >> "$GITHUB_OUTPUT"
             elif git diff --name-only "$deployed" "$GITHUB_SHA" | grep -Eq "$3"; then
@@ -82,8 +84,8 @@ jobs:
               echo "$1=false" >> "$GITHUB_OUTPUT"
             fi
           }
-          decide console 'run console' "$console"
-          decide factory 'run the factory' "$factory"
+          decide console 'console' "$console"
+          decide factory 'the factory' "$factory"
 
   image:
     name: build and push

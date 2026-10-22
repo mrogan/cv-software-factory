@@ -3,11 +3,16 @@
  * cluster through a pull request that pins its digest in a profile's overlay. The build workflow builds and pushes
  * images and opens nothing; this watch sees each new image and proposes it.
  *
- * Each target is one pin file and the images it pins, which are built together from one commit. A target has at
- * most one open pull request, on its own branch, always for the newest commit on main that every one of its images
- * was built from. When that commit is newer than the one pinned on main, the new digests are committed on main's head
- * (signed, through the API), the branch is moved to that commit, and the pull request is opened, or retitled if it
- * was for an older build.
+ * Each repository has one deploy per profile, on one branch, with at most one open pull request. A deploy moves one
+ * or more pin files, each pinning images that are built together from one commit: the app's one image; this
+ * repository's console, and its factory images. The pull request moves each pin file whose images main has a newer
+ * build of, to the newest commit on main that every one of them was built from: one pin file when only one has a
+ * newer build, all of them, each at its own commit, when they all have. One pull request, not one each, because the
+ * ruleset merges only a branch that is up to date with main: a second pull request would fall behind as the first
+ * merged, and wait to be pinned again, checked again and approved again. In one commit they also deploy together, and
+ * in the order Argo CD's sync waves give them. When a newer build is found, the new digests are committed on main's
+ * head (signed, through the API), the branch is moved to that commit, and the pull request is opened, or retitled if
+ * it was for older builds or other pin files.
  *
  * The branch is never at main's head itself, even for a moment: GitHub closes a pull request whose branch has nothing
  * to merge, and would close the one for the older build, as the App. So the commit is made on a scratch branch of
@@ -19,12 +24,17 @@
  * behind main, and the ruleset will not merge it; so the pin commit is made again, the same way, on main's new head.
  * Not once Martin has approved, as for the App's other pull requests: a push would make his approval stale.
  *
- * Its title names the commit, as the build workflow's `changes` job reads it back: `chore(deploy): run console
- * 1f14f44 on the local cluster`. A proposal Martin closed without merging is not made again; the next build is.
+ * Its title names each pin file's commit, as the build workflow's `changes` job reads them back: `chore(deploy): run
+ * console 1f14f44 and the factory 9e0b2d1 on the local cluster`. A build Martin closed a pull request for without
+ * merging it is not proposed again, alone or beside another; the next build of that pin file is.
+ *
+ * A build of one pin file still being signed is waited for before any is proposed, so that the pull request does not
+ * open for the others only to move a minute later. One that is still building is not seen yet: the pull request opens
+ * for the builds that are there, and moves once it is.
  *
  * The app's deploy pull request also says what it carries: the line's work items whose fixes merged between the
  * pinned commit and the proposed one, each with its ticket, issue and pull request. The line works that out from its
- * events and tells the worker (`describeDeploy`); the worker keeps no store. The watch remembers each target's open
+ * events and tells the worker (`describeDeploy`); the worker keeps no store. The watch remembers its open
  * proposal (`DeployProposals`), which the line reads to know the range, and keeps the body's Carries section when it
  * moves the pull request to a newer build, until the line says again.
  *
@@ -45,46 +55,58 @@ import type { Watch } from './poller.ts';
 import type { Registry } from './registry.ts';
 import { pipeline, type Signatures, UnsignedError } from './signatures.ts';
 
-export interface DeployTarget {
-  repo: string;
+/** One pin file of a deploy and the images it pins, which are built together from one commit. */
+export interface Pin {
   /** What the title says it runs: `console`, `the factory`, or nothing for the app's one image. */
   what: string;
-  profile: 'local';
-  branch: string;
   /** The kustomization that pins the images. */
   file: string;
   /** Each image as kustomize names it, and where it is in GHCR. */
   images: { name: string; image: string }[];
 }
 
+/** A repository's deploy to one profile: its one branch, and the pin files its pull request moves. */
+export interface DeployTarget {
+  repo: string;
+  profile: 'local';
+  branch: string;
+  /** In the order the title names them. */
+  pins: Pin[];
+}
+
 export const DEPLOYS: DeployTarget[] = [
   {
     repo: 'mrogan/cv-software-factory',
-    what: 'console',
     profile: 'local',
-    branch: 'deploy/console-local',
-    file: 'deploy/overlays/local/console-image/kustomization.yaml',
-    images: [{ name: 'console', image: 'mrogan/cv-software-factory/console' }],
-  },
-  {
-    repo: 'mrogan/cv-software-factory',
-    what: 'the factory',
-    profile: 'local',
-    branch: 'deploy/factory-local',
-    file: 'deploy/overlays/local/factory-image/kustomization.yaml',
-    images: [
-      { name: 'factory', image: 'mrogan/cv-software-factory/factory' },
-      { name: 'factory-browser', image: 'mrogan/cv-software-factory/factory-browser' },
-      { name: 'factory-runner', image: 'mrogan/cv-software-factory/factory-runner' },
+    branch: 'deploy/local',
+    pins: [
+      {
+        what: 'console',
+        file: 'deploy/overlays/local/console-image/kustomization.yaml',
+        images: [{ name: 'console', image: 'mrogan/cv-software-factory/console' }],
+      },
+      {
+        what: 'the factory',
+        file: 'deploy/overlays/local/factory-image/kustomization.yaml',
+        images: [
+          { name: 'factory', image: 'mrogan/cv-software-factory/factory' },
+          { name: 'factory-browser', image: 'mrogan/cv-software-factory/factory-browser' },
+          { name: 'factory-runner', image: 'mrogan/cv-software-factory/factory-runner' },
+        ],
+      },
     ],
   },
   {
     repo: 'mrogan/cv-worlds-worst-website',
-    what: '',
     profile: 'local',
     branch: 'deploy/local',
-    file: 'deploy/overlays/local/image/kustomization.yaml',
-    images: [{ name: 'website', image: 'mrogan/cv-worlds-worst-website' }],
+    pins: [
+      {
+        what: '',
+        file: 'deploy/overlays/local/image/kustomization.yaml',
+        images: [{ name: 'website', image: 'mrogan/cv-worlds-worst-website' }],
+      },
+    ],
   },
 ];
 
@@ -102,7 +124,7 @@ export function deployTarget(repo: string, branch: string): DeployTarget {
 
 /** An image one of a repository's deploys pins, as GHCR names it; any other is refused. */
 export function deployedImage(repo: string, image: string): string {
-  if (!DEPLOYS.some((t) => t.repo === repo && t.images.some((i) => i.image === image))) {
+  if (!DEPLOYS.some((t) => t.repo === repo && t.pins.some((p) => p.images.some((i) => i.image === image)))) {
     throw new DeployRefused(`${image} is not an image ${repo} deploys.`);
   }
   return image;
@@ -111,14 +133,33 @@ export function deployedImage(repo: string, image: string): string {
 /** How long after it first sees a build with no signature the watch warns of it: longer than the signing job takes. */
 export const SIGNING_GRACE_MS = 30 * 60_000;
 
-/** Where a target's new pins are committed before its deploy branch moves to them. */
+/** Where a deploy's new pins are committed before its deploy branch moves to them. */
 export const scratchBranch = (target: DeployTarget) => `factory/${target.branch}`;
 
 /** The label that marks a deploy pull request apart from the release pull request and Martin's own. */
 export const deployLabel = (target: DeployTarget) => `deploy: ${target.profile}`;
 
-export const deployTitle = (target: DeployTarget, commit: string) =>
-  `chore(deploy): run ${target.what ? `${target.what} ` : ''}${commit.slice(0, 7)} on the ${target.profile} cluster`;
+/** A pin and the commit a deploy pull request runs it at. */
+export interface Runs {
+  pin: Pin;
+  commit: string;
+}
+
+/** How a title names one pin at its commit: `console 1f14f44`, or the commit alone for the app's one image. */
+const named = ({ pin, commit }: Runs) => `${pin.what ? `${pin.what} ` : ''}${commit.slice(0, 7)}`;
+
+/**
+ * A deploy pull request's title, naming each pin it moves at its commit, as the build workflow's `changes` job reads
+ * them back: `chore(deploy): run console 1f14f44 and the factory 9e0b2d1 on the local cluster`.
+ */
+export const deployTitle = (target: DeployTarget, runs: readonly Runs[]) =>
+  `chore(deploy): run ${runs.map(named).join(' and ')} on the ${target.profile} cluster`;
+
+/** Whether a deploy pull request's title says it runs this pin at this commit, alone or beside another. */
+export function titleRuns(target: DeployTarget, title: string, runs: Runs): boolean {
+  const said = /^chore\(deploy\): run (.+) on the (\S+) cluster$/.exec(title);
+  return said?.[2] === target.profile && (said[1] ?? '').split(' and ').includes(named(runs));
+}
 
 /** What a deploy proposes: the commit, and each image's digest built from it. */
 export interface Proposal {
@@ -128,7 +169,13 @@ export interface Proposal {
   digests: { name: string; image: string; digest: string }[];
 }
 
-/** A target's open deploy pull request, as its watch last saw or made it. */
+/** A newer build of one of a deploy's pins, which its pull request moves the pin to. */
+export interface Move {
+  pin: Pin;
+  proposal: Proposal;
+}
+
+/** A deploy of one pin file's open pull request, as its watch last saw or made it. */
 export interface DeployProposal {
   number: number;
   /** The commit it runs, and the one pinned on main now, when the pinned images' labels say. */
@@ -138,17 +185,18 @@ export interface DeployProposal {
 }
 
 /**
- * The open deploy pull request of each target, by repository and branch, as the watches last saw or made them: what
- * the line reads to say what a deploy carries. It lives as long as the worker; a worker started again knows each one
- * after its watch's first pass that finds the newest build signed. For a minute after Martin merges one, it is still
- * here, until the watch's next pass.
+ * The open deploy pull request of each deploy of one pin file, by repository and branch, as the watches last saw or
+ * made them: what the line reads to say what the app's deploy carries. A deploy of several pin files has no one range
+ * of commits, and is not kept. It lives as long as the worker; a worker started again knows each one after its watch's
+ * first pass that finds the newest build signed. For a minute after Martin merges one, it is still here, until the
+ * watch's next pass.
  */
 export class DeployProposals {
   readonly #open = new Map<string, DeployProposal>();
 
   set(target: DeployTarget, proposal: DeployProposal | undefined): void {
     const key = `${target.repo} ${target.branch}`;
-    if (proposal) this.#open.set(key, proposal);
+    if (proposal && target.pins.length === 1) this.#open.set(key, proposal);
     else this.#open.delete(key);
   }
 
@@ -268,26 +316,35 @@ export function repin(file: string, proposal: Proposal): string {
 }
 
 /**
- * What a deploy pull request says: the commit it runs, linked, with the changes since the one pinned now; each image
- * with the start of its digest, since the diff holds them in full; and where Argo CD deploys them from. With the body
- * it had, it keeps that body's Carries section, until the line says what the newer build carries.
+ * What a deploy pull request says: the commit each pin file runs, linked, with the changes since the one pinned now;
+ * each image with the start of its digest, since the diff holds them in full; and where Argo CD deploys them from.
+ * With the body it had, it keeps that body's Carries section, until the line says what the newer build carries.
  */
-export function deployBody(target: DeployTarget, proposal: Proposal, before?: string | null): string {
+export function deployBody(target: DeployTarget, moves: readonly Move[], before?: string | null): string {
   const url = `https://github.com/${target.repo}`;
   const short = (sha: string) => sha.slice(0, 7);
-  const since = proposal.pinned
-    ? `: [the changes since \`${short(proposal.pinned)}\`](${url}/compare/${proposal.pinned}...${proposal.commit})`
-    : '';
-  const rows = proposal.digests.map((d) => `| \`${d.name}\` | \`${d.digest.slice(0, 'sha256:'.length + 12)}…\` |`);
-  const overlay = target.file.split('/').slice(0, 3).join('/');
-  const them = proposal.digests.length === 1 ? 'it' : 'them';
-  const body = `Runs [\`${short(proposal.commit)}\`](${url}/commit/${proposal.commit}) on the ${target.profile} cluster${since}.
+  const at = ({ commit }: Proposal) => `[\`${short(commit)}\`](${url}/commit/${commit})`;
+  const since = ({ commit, pinned }: Proposal) =>
+    pinned ? `: [the changes since \`${short(pinned)}\`](${url}/compare/${pinned}...${commit})` : '';
+  const [first] = moves;
+  // One pin says its commit in a sentence; several are listed, each at its own commit.
+  const runs =
+    moves.length === 1 && first
+      ? `Runs ${at(first.proposal)} on the ${target.profile} cluster${since(first.proposal)}.`
+      : `Runs on the ${target.profile} cluster:
+
+${moves.map(({ pin, proposal }) => `- ${pin.what} at ${at(proposal)}${since(proposal)}`).join('\n')}`;
+  const digests = moves.flatMap((m) => m.proposal.digests);
+  const rows = digests.map((d) => `| \`${d.name}\` | \`${d.digest.slice(0, 'sha256:'.length + 12)}…\` |`);
+  const overlays = [...new Set(moves.map((m) => `\`${m.pin.file.split('/').slice(0, 3).join('/')}\``))];
+  const them = digests.length === 1 ? 'it' : 'them';
+  const body = `${runs}
 
 | Image | Digest |
 |---|---|
 ${rows.join('\n')}
 
-Argo CD deploys ${them} from \`${overlay}\` once this merges. A newer build moves this pull request on rather than opening another.`;
+Argo CD deploys ${them} from ${overlays.join(' and ')} once this merges. A newer build moves this pull request on rather than opening another.`;
   const carries = carriesIn(before);
   return carries ? `${body}\n\n${carries}` : body;
 }
@@ -323,23 +380,20 @@ const REVIEWS = z.array(z.object({ state: z.string() }));
 
 /**
  * The newest commit on main, up to `head`, that every image the pin file pins was built from, with each image's
- * digest; or undefined when there is none newer than the pinned one. An image of the target the file does not pin
- * yet is left out: the change that brings it in pins it.
+ * digest; or undefined when there is none newer than the pinned one. An image of the pin the file does not pin yet is
+ * left out: the change that brings it in pins it.
  */
 export async function newerBuild(
   { github, registry }: Pick<Dependencies, 'github' | 'registry'>,
-  target: DeployTarget,
+  repo: string,
+  pin: Pin,
   pinFile: string,
   head: string,
 ): Promise<Proposal | undefined> {
   const pins = pinned(pinFile);
-  const images = target.images.filter((i) => pins.has(i.name));
+  const images = pin.images.filter((i) => pins.has(i.name));
   if (!images.length) return undefined;
-  const { body: commits } = await github.poll(
-    target.repo,
-    `/repos/${target.repo}/commits?sha=${head}&per_page=100`,
-    COMMITS,
-  );
+  const { body: commits } = await github.poll(repo, `/repos/${repo}/commits?sha=${head}&per_page=100`, COMMITS);
   const tags = await Promise.all(images.map(async (i) => new Set(await registry.tags(i.image))));
   const newest = commits.findIndex((c) => tags.every((t) => t.has(c.sha)));
   if (newest === -1) return undefined;
@@ -350,7 +404,7 @@ export async function newerBuild(
   const pinnedCommit = first && pinnedDigest ? await registry.revision(first.image, pinnedDigest) : undefined;
   if (pinnedCommit) {
     const at = commits.findIndex((c) => c.sha === pinnedCommit);
-    // The pin is this build, or a newer one than any this target has a full set of images for.
+    // The pin is this build, or a newer one than any this pin has a full set of images for.
     if (at !== -1 && at <= newest) return undefined;
   }
   const digests = await Promise.all(
@@ -359,23 +413,28 @@ export async function newerBuild(
   return { commit, pinned: pinnedCommit, digests };
 }
 
+const runsOf = ({ pin, proposal }: Move): Runs => ({ pin, commit: proposal.commit });
+
 /**
- * Watches one target, and opens or moves its deploy pull request when main has a newer build than the pin, or makes
+ * Watches one deploy, and opens or moves its pull request when main has a newer build of any of its pins, or makes
  * its commit again on main's head when main has moved on with no newer build.
  */
 export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
   const { github, signatures, actions, log, now = Date.now, proposals = new DeployProposals() } = deps;
   const { repo } = target;
   const label = deployLabel(target);
-  // What this worker last proposed, and at which head of main: a pass does nothing more until either moves, and a dry
-  // run, which changes nothing in GitHub, records each proposal once.
-  let proposed: { title: string; head: string } | undefined;
+  // What this worker last proposed, from which newer builds, and at which head of main: a pass does nothing more until
+  // any of them moves, and a dry run, which changes nothing in GitHub, records each proposal once.
+  let proposed: { found: string; title: string; head: string } | undefined;
   // When it first saw each digest with no signature, and the digests it has warned of, so each is said once.
   const waiting = new Map<string, number>();
   const warned = new Set<string>();
 
-  /** Whether every image of a build carries its pipeline's signature; when one does not, says so, once. */
-  const signed = async (proposal: Proposal): Promise<boolean> => {
+  /**
+   * Whether every image of a build carries its pipeline's signature: `waiting` while one may yet, `refused` once it
+   * is signed by anyone else or has waited longer than signing takes, which is said once.
+   */
+  const signed = async (proposal: Proposal): Promise<'signed' | 'waiting' | 'refused'> => {
     for (const { image, digest } of proposal.digests) {
       try {
         await signatures.verify(image, digest, pipeline(repo));
@@ -391,10 +450,10 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
           warned.add(digest);
           log.warn(about, 'did not propose a build its pipeline did not sign');
         }
-        return false;
+        return late ? 'refused' : 'waiting';
       }
     }
-    return true;
+    return 'signed';
   };
 
   /** Whether a deploy pull request's branch is behind main's head and nobody has approved it, so it is the watch's to move. */
@@ -408,24 +467,29 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
   };
 
   return async () => {
-    // One head of main for the whole pass: the pin file, the commits and the branch all come from it.
+    // One head of main for the whole pass: the pin files, the commits and the branch all come from it.
     const { body: main } = await github.poll(repo, `/repos/${repo}/git/ref/heads/main`, HEAD);
     const head = main.object.sha;
-    const { body: file } = await github.poll(repo, `/repos/${repo}/contents/${target.file}?ref=${head}`, CONTENT);
-    const pinFile = Buffer.from(file.content, 'base64').toString('utf-8');
-    const proposal = await newerBuild(deps, target, pinFile, head);
-    // Nothing newer than the pin: whatever was proposed has merged.
-    if (!proposal) return proposals.set(target, undefined);
-    // An unsigned build is not proposed, and the pull request for the one before stays as it is.
-    if (!(await signed(proposal))) return;
-    const open = (number: number): DeployProposal => ({
-      number,
-      commit: proposal.commit,
-      pinned: proposal.pinned ?? null,
-      digests: proposal.digests,
-    });
-    const title = deployTitle(target, proposal.commit);
-    if (proposed?.title === title && proposed.head === head) return;
+    const files = new Map<Pin, string>();
+    const found: Move[] = [];
+    for (const pin of target.pins) {
+      const { body: file } = await github.poll(repo, `/repos/${repo}/contents/${pin.file}?ref=${head}`, CONTENT);
+      const pinFile = Buffer.from(file.content, 'base64').toString('utf-8');
+      files.set(pin, pinFile);
+      const proposal = await newerBuild(deps, repo, pin, pinFile, head);
+      if (proposal) found.push({ pin, proposal });
+    }
+    // Nothing newer than any pin: whatever was proposed has merged.
+    if (!found.length) return proposals.set(target, undefined);
+    // A build still being signed is waited for, and the pull request for the builds before stays as it is: the others
+    // are not proposed without it only to move a minute later. One its pipeline did not sign is left out.
+    const states: Awaited<ReturnType<typeof signed>>[] = [];
+    for (const move of found) states.push(await signed(move.proposal));
+    if (states.includes('waiting')) return;
+    const ready = found.filter((_, i) => states[i] === 'signed');
+    if (!ready.length) return;
+    const all = deployTitle(target, ready.map(runsOf));
+    if (proposed?.found === all && proposed.head === head) return;
 
     const [owner] = repo.split('/');
     const { body: pulls } = await github.poll(
@@ -433,33 +497,52 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
       `/repos/${repo}/pulls?state=all&sort=created&direction=desc&per_page=20&head=${owner}:${encodeURIComponent(target.branch)}`,
       PULLS,
     );
-    if (pulls.some((p) => p.state === 'closed' && !p.merged_at && p.title === title)) {
-      if (proposed?.title !== title) {
-        log.info(
-          { repo, commit: proposal.commit },
-          'this build’s deploy pull request was closed; waiting for the next',
-        );
-      }
-      proposed = { title, head };
+    // A build whose pull request Martin closed without merging is not proposed again, alone or beside another; the
+    // next build of that pin is.
+    const closed = pulls.filter((p) => p.state === 'closed' && !p.merged_at);
+    const moves = ready.filter((m) => !closed.some((p) => titleRuns(target, p.title, runsOf(m))));
+    if (moves.length < ready.length && proposed?.found !== all) {
+      log.info(
+        { repo, commits: ready.filter((m) => !moves.includes(m)).map((m) => m.proposal.commit) },
+        'this build’s deploy pull request was closed; waiting for the next',
+      );
+    }
+    if (!moves.length) {
+      proposed = { found: all, title: '', head };
       proposals.set(target, undefined);
       return;
     }
+    const title = deployTitle(target, moves.map(runsOf));
+    const commits = moves.map((m) => m.proposal.commit);
+    // Kept for a deploy of one pin file, the one move there is.
+    const open = (number: number): DeployProposal | undefined => {
+      const [only] = moves;
+      return (
+        only && {
+          number,
+          commit: only.proposal.commit,
+          pinned: only.proposal.pinned ?? null,
+          digests: only.proposal.digests,
+        }
+      );
+    };
     const existing = pulls.find((p) => p.state === 'open');
     if (existing?.title === title) {
       // Opened by an earlier pass that did not get as far as its label.
       if (!existing.labels.some((l) => l.name === label)) await actions.addLabels(repo, existing.number, [label]);
       proposals.set(target, open(existing.number));
       if (!(await behind(existing.number, existing.head.sha, head))) {
-        proposed = { title, head };
+        proposed = { found: all, title, head };
         return;
       }
     } else if (!existing && proposed?.title === title) {
       // A dry run's pull request, which GitHub has never heard of: recorded once, and not again as main moves.
-      proposed = { title, head };
+      proposed = { found: all, title, head };
       return;
     }
 
     // Committed off to the side, so the deploy branch goes from its older commit straight to this one (see above).
+    // Each pin file moves in the one commit, so that they merge, and deploy, together.
     const scratch = scratchBranch(target);
     await actions.setBranch(repo, scratch, head, { force: true });
     const pins = await actions.commit(repo, {
@@ -467,37 +550,34 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
       expectedHead: head,
       message: title,
       changes: {
-        additions: [{ path: target.file, contents: new TextEncoder().encode(repin(pinFile, proposal)) }],
+        additions: moves.map(({ pin, proposal }) => ({
+          path: pin.file,
+          contents: new TextEncoder().encode(repin(files.get(pin) as string, proposal)),
+        })),
         deletions: [],
       },
     });
     await actions.setBranch(repo, target.branch, pins, { force: true });
     await actions.deleteBranch(repo, scratch);
     if (existing?.title === title) {
-      log.info(
-        { repo, number: existing.number, commit: proposal.commit },
-        'brought the deploy pull request up to date',
-      );
+      log.info({ repo, number: existing.number, commits }, 'brought the deploy pull request up to date');
     } else if (existing) {
       // Moved, it keeps what the line said it carries, which the newer build carries too, until the line says again.
-      const body = deployBody(target, proposal, existing.body);
+      const body = deployBody(target, moves, existing.body);
       await actions.updatePullRequest(repo, existing.number, { title, body });
       proposals.set(target, open(existing.number));
-      log.info(
-        { repo, number: existing.number, commit: proposal.commit },
-        'moved the deploy pull request to a newer build',
-      );
+      log.info({ repo, number: existing.number, commits }, 'moved the deploy pull request to a newer build');
     } else {
       const made = await actions.openPullRequest(repo, {
         head: target.branch,
         base: 'main',
         title,
-        body: deployBody(target, proposal),
+        body: deployBody(target, moves),
         labels: [label],
       });
       proposals.set(target, open(made.number));
-      log.info({ repo, number: made.number, commit: proposal.commit }, 'opened a deploy pull request');
+      log.info({ repo, number: made.number, commits }, 'opened a deploy pull request');
     }
-    proposed = { title, head };
+    proposed = { found: all, title, head };
   };
 }

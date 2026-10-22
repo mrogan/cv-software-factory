@@ -20,7 +20,7 @@ import { z } from 'zod';
 import { guardBranch } from './branches.ts';
 import { type GitHub, GitHubError } from './client.ts';
 import { APP_LOGIN } from './current.ts';
-import { carriesSection, type Deploy, DeployRefused, deployTarget, deployTitle, withCarries } from './deploys.ts';
+import { carriesSection, type Deploy, DeployRefused, deployTarget, titleRuns, withCarries } from './deploys.ts';
 import { applyTo, filesIn, PatchRefused } from './patches.ts';
 import { CODEOWNERS_PATHS, inScope, protectedFrom } from './paths.ts';
 
@@ -391,7 +391,11 @@ export class LiveActions implements Actions {
       if (pull.head.repo?.full_name !== repo) throw new DeployRefused(`Pull request #${number} is not from ${repo}.`);
       const target = deployTarget(repo, pull.head.ref);
       // Moved on to a newer build since the line looked, or merged: the line looks again.
-      if (pull.state !== 'open' || pull.base.ref !== 'main' || pull.title !== deployTitle(target, commit)) {
+      if (
+        pull.state !== 'open' ||
+        pull.base.ref !== 'main' ||
+        !target.pins.some((pin) => titleRuns(target, pull.title, { pin, commit }))
+      ) {
         throw new GitHubError('conflict', `Pull request #${number} is not open for ${commit.slice(0, 7)}.`, 409);
       }
       const body = withCarries(pull.body ?? '', carriesSection(carries, more));

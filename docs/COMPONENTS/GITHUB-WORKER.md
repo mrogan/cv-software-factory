@@ -57,7 +57,7 @@ The line reads through it too, `POST /v1/reads/<read>` (`github/reads.ts`):
   - `commits`: the commits between two, oldest first, and whether one is the other's ancestor. A commit GitHub never had, a dry run's, is a 404;
   - `imageRevision`: the commit an image of a repository's deploy was built from, by its OCI revision label in GHCR;
   - `imageSigned`: whether that image carries its repository's signature;
-  - `deployProposal`: the open deploy pull request for a deploy branch, as the deploy watch last saw it.
+  - `deployProposal`: the open deploy pull request for a deploy branch of one pin file, as the deploy watch last saw it.
 
   An image that is not one of that repository's deploys is refused.
 
@@ -80,25 +80,27 @@ Three watches act on their own: deploys, releases, and keeping pull requests cur
 
 ### Deploys
 
-`github/deploys.ts`. One open deploy pull request per pin file.
+`github/deploys.ts`. One open deploy pull request per repository and profile, on its deploy branch, `deploy/local`. It moves each pin file that has a newer build: the app's one; in this repository the console's, the factory's images', or both together.
 
 ```mermaid
 flowchart TD
   build[Main has a newer commit that every image of a pin file was built from] --> signed{Every image signed by its repository's build.yml on main?}
   signed -- "not yet" --> wait["Wait, and warn once it has waited longer than signing takes"]
-  signed -- "by anyone else" --> warn[Warn at once]
-  signed -- yes --> commit[Commit the new digests on main's head, through a scratch branch under factory/]
-  commit --> move[Move the pin file's deploy branch to that commit, in one forced update]
-  move --> pr[Open its pull request, or retitle the one open for an older build]
+  signed -- "by anyone else" --> warn[Warn at once, and leave that pin file out]
+  signed -- yes --> commit[Commit the new digests of every such pin file on main's head, through a scratch branch under factory/]
+  commit --> move[Move the deploy branch to that commit, in one forced update]
+  move --> pr[Open its pull request, or retitle the one open for older builds or other pin files]
 ```
 
-- **The pull request** is labelled with the profile, and links the changes since the commit pinned now.
+- **The pull request** is labelled with the profile, names each pin file's commit in its title (`run console 1f14f44 and the factory 9e0b2d1 on the local cluster`), and links the changes since each commit pinned now.
+- **One, not one each.** The ruleset merges only a branch that is up to date with main, so a second pull request would fall behind when the first merged, and wait to be pinned again, checked again and approved again. Together they deploy in the order of Argo CD's sync waves: the console's image runs the store's migrations before the factory starts.
+- **Waits for every signature.** While one pin file's build waits to be signed, none is proposed, so the pull request does not open for the others only to move a minute later. A build still being pushed is not seen yet: the pull request opens without it, and moves once it is there.
 - **Never at main's head.** The deploy branch is never at main's head, where GitHub would close the pull request for having nothing to merge.
-- **Closed unmerged.** A build whose pull request was closed unmerged is not proposed again.
+- **Closed unmerged.** A build whose pull request was closed unmerged is not proposed again, alone or beside another; the next build of that pin file is.
 - **Main moves on.** When main moves on with no newer build, the commit is made again on main's new head the same way, unless Martin has approved the pull request.
 - **One writer.** The deploy branch has this one writer.
 - **One head.** A pass reads everything at one head of main.
-- **In memory.** Which deploy pull request is open is kept in memory, so a restarted worker knows it after its first pass.
+- **In memory.** Which deploy pull request is open is kept in memory, so a restarted worker knows it after its first pass. The line reads the app's, to say what it carries.
 
 #### Signatures
 
