@@ -143,7 +143,7 @@ Each task is its own pull request, in order, each demonstrable.
 ### 0. Settled before the start
 
 - Martin has agreed the decisions above.
-- The holds waiting in the store, 1002's at Plan among them, stay as they are, to be answered from the console in task 12.
+- No hold waits in the store: Martin closed work item 1002 on 2026-10-09 (`work-item.closed`, `no-change`). The holds answered from the console in task 12 are ones a run on the local cluster makes.
 
 ### 1. A store role for each worker (#435)
 
@@ -155,7 +155,7 @@ Each task is its own pull request, in order, each demonstrable.
 ### 2. Local HTTPS
 
 - `step` in `mise.toml`; `make up` makes the local authority, constrained to `localhost` names, has the Mac trust it, and gives Traefik its certificate as a Secret. A test shows the authority refuses to sign for any other name.
-- `deploy/k3d/cluster.yaml` maps `127.0.0.1:8443` to Traefik's 443. On a cluster made before this, `make up` adds the port in place (`k3d cluster edit`, which makes only the load balancer again), so the holds in the store wait for task 12; it says so where people will see it.
+- `deploy/k3d/cluster.yaml` maps `127.0.0.1:8443` to Traefik's 443. On a cluster made before this, `make up` adds the port in place (`k3d cluster edit`, which makes only the load balancer again), so the store keeps its work items; it says so where people will see it.
 - The console on `https://console.localhost:8443`, with plain HTTP redirecting: its ingress in `deploy/overlays/local/`, the addresses `make up`, `make samples`, `make real-store` and `make status` print, `AGENTS.md`, the e2e tests and the `try-the-line` skill.
 - `make up` on a fresh clone still works for someone who declines the trust prompt, and says what they lose.
 
@@ -233,7 +233,7 @@ Each task is its own pull request, in order, each demonstrable.
 
 On the local cluster, on Claude, at Supervised:
 
-- Every hold in the store answered from the console, 1002's included, and the line acting on each answer.
+- The holds a time-boxed run on the local cluster makes, at least one with a guardrail cause so step-up is proved, answered from the console, and the line acting on each answer. Nothing is seeded into the store.
 - The line stopped and started from the console, and a canary paused, promoted, aborted and retried from it.
 - An agent's model changed in the settings, and its next step running on the new one.
 - Martin uses it all on a laptop and a phone, and approves it against `INTENT.md`.
@@ -249,7 +249,7 @@ On the local cluster, on Claude, at Supervised:
 
 - [x] Every worker uses the store with a role of its own, `factory_writer` has no grant on its tables, and the test of the grants passes.
 - [ ] Martin signs in with a passkey on a laptop and a phone, in Safari and Chrome, and no write succeeds without his session: the access tests and the ZAP scan pass.
-- [ ] Every hold in the store is answered from the console, and the line acts on each.
+- [ ] Every hold a run on the local cluster makes is answered from the console, a guardrail's among them, and the line acts on each.
 - [ ] Stop the line, autonomy, the switches, the take settings, the release controls, the models and the caps are each changed from the console, recorded as events, and shown read-only to a visitor.
 - [ ] A sign-in pages Martin's phone.
 - [ ] The audit log shows every action, with nothing a visitor wrote in its public form.

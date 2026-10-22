@@ -1,15 +1,17 @@
 /**
- * The console: events in, the page out. Everything below is drawn from `project(events, t)`. The doors, signing in
- * and enrolling a passkey, are pages of their own on the same address (`?view=sign-in`, `?view=enrol`).
+ * The console: events in, the page out. Everything below is drawn from `project(events, t)`, of the full events for
+ * Martin signed in and of the public ones for everyone else, Martin previewing as a visitor among them. The doors,
+ * signing in and enrolling a passkey, are pages of their own on the same address (`?view=sign-in`, `?view=enrol`).
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type Admin, type Door, useAdmin } from './admin.ts';
+import { type Admin, type Door, stillSignedIn, useAdmin } from './admin.ts';
 import { OriginContext } from './artifacts.ts';
 import { Canary } from './components/Canary.tsx';
 import { Footer } from './components/Footer.tsx';
 import { Header, LineStatus, Scoreboard } from './components/Header.tsx';
 import { Line } from './components/Line.tsx';
 import { LogoSymbols } from './components/Logos.tsx';
+import { PreviewBanner } from './components/Preview.tsx';
 import { Reel } from './components/Reel.tsx';
 
 import { EmptyReel, States } from './components/States.tsx';
@@ -62,7 +64,18 @@ interface ConsoleProps {
 }
 
 function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setMotion }: ConsoleProps) {
-  const source = useEvents(from);
+  // Martin, signed in, reads the full events, until he previews as a visitor or his session ends. A reload ends a
+  // preview: it is a look, not a mode to come back to.
+  const [previewing, setPreviewing] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const martin = admin.kind === 'martin' && !ended;
+  const expiresAt = admin.kind === 'martin' ? admin.session.expiresAt : undefined;
+  const lost = useCallback(async () => {
+    const live = expiresAt !== undefined && (await stillSignedIn(expiresAt));
+    if (!live) setEnded(true);
+    return live;
+  }, [expiresAt]);
+  const source = useEvents(from, martin && !previewing ? 'full' : 'public', lost);
   const latest = source.events.length ? Date.parse(source.events.at(-1)?.ts ?? '') : undefined;
   const t = useTime(latest, from.kind === 'live');
   const view = useMemo(() => project(source.events, t), [source.events, t]);
@@ -111,12 +124,19 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
     performance.mark('sf:first-view');
   }, [n]);
 
+  const preview = (on: boolean) => {
+    setPreviewing(on);
+    setOpen(undefined);
+    window.scrollTo(0, 0);
+  };
+
   const sheet = useMemo(() => (open ? projectSheet(source.events, open, t) : undefined), [open, source.events, t]);
   const sheetIndex = sheet ? view.cards.findIndex((card) => card.number === sheet.card.number) : -1;
 
   return (
     <OriginContext.Provider value={from}>
       <LogoSymbols />
+      {martin && previewing && <PreviewBanner onBack={() => preview(false)} />}
       <Header
         line={view.header}
         connection={source.connection}
@@ -124,7 +144,9 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
         onTheme={setTheme}
         motion={motion}
         onMotion={setMotion}
-        admin={admin}
+        admin={martin ? admin : { kind: 'visitor' }}
+        previewing={previewing}
+        onPreview={() => preview(true)}
       />
       <main id="top">
         <div className="wrap">

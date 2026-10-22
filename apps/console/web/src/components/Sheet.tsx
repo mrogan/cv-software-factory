@@ -285,24 +285,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                   real app, with this sample’s change made in a copy that went nowhere.
                 </p>
               )}
-              {sheet.report &&
-                (sheet.report.by === 'planner' ? (
-                  <p className="report withheld">
-                    {sheet.report.times > 1
-                      ? `The planner’s findings on ${sheet.report.page}, ${sheet.report.times} of them, each noticed while it planned another ticket. Their words are untrusted, as a visitor’s are, so they are shown only to Martin; what triage made of them is below.`
-                      : `The planner’s finding on ${sheet.report.page}, noticed while it planned another ticket. Its words are untrusted, as a visitor’s are, so they are shown only to Martin; what triage made of them is below.`}
-                  </p>
-                ) : sheet.report.quarantined ? (
-                  <p className="report withheld">
-                    A visitor’s report from {sheet.report.page}. It gave orders to the system, so it is quarantined. Its
-                    text is kept, and shown only to Martin and to the visitor who sent it.
-                  </p>
-                ) : (
-                  <p className="report withheld">
-                    A visitor’s report from {sheet.report.page}. Its text is shown only to the visitor who sent it and
-                    to Martin; what triage made of it is below.
-                  </p>
-                ))}
+              {sheet.report && <Report report={sheet.report} />}
               <Section
                 title="How it went"
                 help="Step through the stages. The console shows only what had happened by then: replay and the live view are the same code."
@@ -785,6 +768,55 @@ function RoundRow({ attempt: a }: { attempt: Attempt }) {
         </>
       )}
     </>
+  );
+}
+
+/**
+ * A visitor's report, or the planner's finding: where it came from, and that its words are withheld. For Martin, what
+ * each visitor wrote is quoted under it: only the full events carry it, made plain and short (`reportText`), and React
+ * inserts it as text.
+ */
+function Report({ report }: { report: NonNullable<SheetData['report']> }) {
+  const withheld =
+    report.by === 'planner' ? (
+      <p className="report withheld">
+        {report.times > 1
+          ? `The planner’s findings on ${report.page}, ${report.times} of them, each noticed while it planned another ticket. Their words are untrusted, as a visitor’s are, so they are shown only to Martin; what triage made of them is below.`
+          : `The planner’s finding on ${report.page}, noticed while it planned another ticket. Its words are untrusted, as a visitor’s are, so they are shown only to Martin; what triage made of them is below.`}
+      </p>
+    ) : report.quarantined ? (
+      <p className="report withheld">
+        A visitor’s report from {report.page}. It gave orders to the system, so it is quarantined. Its text is kept, and
+        shown only to Martin and to the visitor who sent it.
+      </p>
+    ) : (
+      <p className="report withheld">
+        A visitor’s report from {report.page}. Its text is shown only to the visitor who sent it and to Martin; what
+        triage made of it is below.
+      </p>
+    );
+  if (!report.texts.length) return withheld;
+  return (
+    <div className="report-own">
+      {withheld}
+      <ReportTexts texts={report.texts} />
+    </div>
+  );
+}
+
+function ReportTexts({ texts }: { texts: string[] }) {
+  return (
+    <figure className="report-said">
+      <figcaption>
+        {texts.length > 1 ? 'Only you see these: visitors wrote them' : 'Only you see this: a visitor wrote it'}
+      </figcaption>
+      {texts.map((text, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: the reports keep their order, and two may say the same
+        <blockquote key={i}>
+          <q>{text}</q>
+        </blockquote>
+      ))}
+    </figure>
   );
 }
 

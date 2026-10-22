@@ -118,9 +118,22 @@ interface HeaderProps {
   motion: boolean;
   onMotion: (on: boolean) => void;
   admin: Admin;
+  /** Martin, signed in, sees the console as a visitor does (`Preview.tsx`). */
+  previewing: boolean;
+  onPreview: () => void;
 }
 
-export function Header({ line, connection, theme, onTheme, motion, onMotion, admin }: HeaderProps) {
+export function Header({
+  line,
+  connection,
+  theme,
+  onTheme,
+  motion,
+  onMotion,
+  admin,
+  previewing,
+  onPreview,
+}: HeaderProps) {
   return (
     <header className="top">
       <div className="wrap">
@@ -152,7 +165,16 @@ export function Header({ line, connection, theme, onTheme, motion, onMotion, adm
               STILL
             </button>
           </fieldset>
-          {admin.kind === 'martin' && <Account session={admin.session} />}
+          {admin.kind === 'martin' && previewing && <span className="pill-visitor">VISITOR VIEW</span>}
+          {admin.kind === 'martin' && !previewing && (
+            <>
+              {/* On a phone it is in the account menu instead. */}
+              <button type="button" className="btn preview-btn" onClick={onPreview}>
+                Preview as visitor
+              </button>
+              <Account session={admin.session} onPreview={onPreview} />
+            </>
+          )}
         </div>
       </div>
     </header>

@@ -1,7 +1,8 @@
 /**
  * Where the console's events come from. The page's `sf-events` meta tag says: "live" reads this server's events
- * and follows them as they arrive; "log:<folder>" reads an event-log folder once, as the replay site does. The
- * projection cannot tell which; this module is the only part that knows.
+ * and follows them as they arrive; "log:<folder>" reads an event-log folder once, as the replay site does. Live, the
+ * events are the public ones from the console's server, or, for Martin signed in, the full ones from the admin
+ * service. The projection cannot tell which; this module is the only part that knows.
  */
 import { type PublicEvent, parseLog, type RawEvent, upcast } from '@software-factory/events';
 import { useEffect, useRef, useState } from 'react';
@@ -33,6 +34,12 @@ export interface Source {
 }
 
 export type Origin = { kind: 'live' } | { kind: 'log'; base: string };
+
+/**
+ * Which events, live: the public ones every visitor gets from the console's server (`/api/events`, then
+ * `/api/events/stream`), or the full ones the admin service streams to Martin's session (`/admin/events/stream`).
+ */
+export type Stream = 'public' | 'full';
 
 /** How long to wait before trying the server again. */
 const RETRY_MS = 5000;
@@ -73,22 +80,36 @@ function merge(held: PublicEvent[], incoming: RawEvent[]): { events: PublicEvent
   return { events, newer };
 }
 
-export function useEvents(from: Origin): Source {
+/**
+ * The events, as they arrive. `want` says which, live; `lost` is asked when the full stream ends or is refused, and
+ * says whether Martin is still signed in, to open it again, or not, when the page goes back to the public events.
+ */
+export function useEvents(from: Origin, want: Stream = 'public', lost?: () => Promise<boolean>): Source {
   const [source, setSource] = useState<Source>({ events: [], connection: 'loading', newer: [], store: undefined });
   // Events arriving together (a load of hundreds, say) are drawn once a frame, not once each.
   const pending = useRef<RawEvent[]>([]);
   const frame = useRef(0);
+  // What is drawn now, for the full stream to take over from without a blank page between.
+  const drawn = useRef(source.events);
+  drawn.current = source.events;
+  // Whether any full event has been drawn: going back to the public events then starts again from nothing.
+  const full = useRef(false);
+  const onLost = useRef(lost);
+  onLost.current = lost;
 
   useEffect(() => {
     let closed = false;
-    const flush = () => {
-      frame.current = 0;
-      const incoming = pending.current;
-      pending.current = [];
+    // How incoming events join what is drawn: the public ones after it, the full ones in its place (below).
+    let apply = (incoming: RawEvent[]) =>
       setSource((current) => {
         const { events, newer } = merge(current.events, incoming);
         return { ...current, events, newer: [...current.newer, ...newer] };
       });
+    const flush = () => {
+      frame.current = 0;
+      const incoming = pending.current;
+      pending.current = [];
+      apply(incoming);
     };
     const queue = (raw: RawEvent) => {
       pending.current.push(raw);
@@ -113,6 +134,69 @@ export function useEvents(from: Origin): Source {
     let stream: EventSource | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let last = 0;
+    const stop = () => {
+      closed = true;
+      stream?.close();
+      clearTimeout(retry);
+      cancelAnimationFrame(frame.current);
+      frame.current = 0;
+      pending.current = [];
+    };
+
+    if (want === 'full') {
+      // The full events take over from the public ones as they arrive, event by event: each has the same seq as its
+      // public view, so until the stream has caught up the page shows the public events after the last full one.
+      full.current = true;
+      const before = drawn.current;
+      let held: PublicEvent[] = [];
+      let notUnderstood: Source['newer'] = [];
+      apply = (incoming) => {
+        const merged = merge(held, incoming);
+        held = merged.events;
+        notUnderstood = [...notUnderstood, ...merged.newer];
+        // Every event the stream has sent so far, understood or not, replaces its public view.
+        const rest = before.filter((event) => event.seq > last);
+        setSource((current) => ({ ...current, events: [...held, ...rest], newer: notUnderstood }));
+      };
+      const follow = () => {
+        stream = new EventSource(`/admin/events/stream?after=${last}`);
+        stream.onopen = () =>
+          !closed &&
+          setSource((current) => ({
+            ...current,
+            connection: 'live',
+            store: current.store === undefined ? null : current.store,
+          }));
+        // The session ended (signed out, revoked or expired), or the service is stopping: ask before going on.
+        const ask = () => {
+          stream?.close();
+          set('reconnecting');
+          void (onLost.current?.() ?? Promise.resolve(false)).then((live) => {
+            if (live && !closed) retry = setTimeout(follow, RETRY_MS);
+          });
+        };
+        stream.addEventListener('ended', ask);
+        stream.onerror = () => {
+          set('reconnecting');
+          // Refused (no session: a 401), or the service failed: the browser gives up, and so asks.
+          if (stream?.readyState === EventSource.CLOSED) ask();
+        };
+        stream.onmessage = (message) => {
+          const raw = JSON.parse(message.data) as RawEvent;
+          note([raw]);
+          last = Math.max(last, raw.seq ?? 0);
+          queue(raw);
+        };
+      };
+      follow();
+      return stop;
+    }
+
+    // Back from the full events (a preview, or a session that ended): nothing of them stays drawn.
+    if (full.current) {
+      full.current = false;
+      setSource((current) => ({ ...current, events: [], newer: [], connection: 'loading' }));
+    }
     // From the first read on, the stream carries everything after the last event held. If it drops, the browser
     // reconnects with the last ID it saw and the server sends what was missed, once. If the browser gives up (the
     // server answered with an error), this starts a new stream from the last event held.
@@ -156,13 +240,8 @@ export function useEvents(from: Origin): Source {
         });
     };
     read();
-    return () => {
-      closed = true;
-      stream?.close();
-      clearTimeout(retry);
-      cancelAnimationFrame(frame.current);
-    };
-  }, [from]);
+    return stop;
+  }, [from, want]);
 
   return source;
 }
