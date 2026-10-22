@@ -87,23 +87,26 @@ jobs:
           decide console 'console' "$console"
           decide factory 'the factory' "$factory"
 
-  image:
-    name: build and push
+  # Each image is built for each platform on a runner of that platform, side by side, and pushed by digest alone. A
+  # job for each pair of builds then makes the image the cluster pins: an index of the two, tagged with the commit.
+  # Laptops are arm64; cloud nodes are amd64. Each platform's layers are cached apart, and only here: check.yml's
+  # builds read them and write none, so the repository's 10 GB of cache holds main's.
+  console:
+    name: build the console (${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.console == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 15
     permissions:
       contents: read
       packages: write
-    outputs:
-      digest: ${{ steps.push.outputs.digest }}
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Laptops are arm64; cloud nodes are amd64.
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -113,43 +116,62 @@ jobs:
       # Each base image a Dockerfile pins, from CI's copy of it (scripts/ci-images.sh): the same digest, so the same image.
       - id: bases
         run: scripts/ci-images.sh contexts console
-      - id: push
+      - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: apps/console/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/${{ matrix.arch }}
           build-contexts: ${{ steps.bases.outputs.console }}
-          push: true
-          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           build-args: GIT_COMMIT=${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.title=Software Factory console
             org.opencontainers.image.licenses=MIT
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=console-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=console-${{ matrix.arch }}
+      - env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          ARCH: ${{ matrix.arch }}
+        run: mkdir digests && echo "$DIGEST" > "digests/console-$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-console-${{ matrix.arch }}
+          path: digests
+          retention-days: 1
 
-  factory-images:
-    name: build and push the factory images
+  # The factory's three images, each for each platform, all from one commit: the runners' image moves with the factory's.
+  factory:
+    name: build ${{ matrix.image }} (${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.factory == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
-    outputs:
-      factory: ${{ steps.factory.outputs.digest }}
-      browser: ${{ steps.browser.outputs.digest }}
-      runner: ${{ steps.runner.outputs.digest }}
+    strategy:
+      matrix:
+        image: [factory, factory-browser, factory-runner]
+        arch: [amd64, arm64]
+        include:
+          - image: factory
+            file: apps/factory/Dockerfile
+            bases: factory
+            title: Software Factory workers
+          - image: factory-browser
+            file: apps/factory/Dockerfile.browser
+            title: Software Factory browser workers
+          - image: factory-runner
+            file: apps/runner/Dockerfile
+            bases: runner
+            title: Software Factory runner
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Laptops are arm64; cloud nodes are amd64.
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -157,64 +179,105 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       # Each base image a Dockerfile pins, from CI's copy of it (scripts/ci-images.sh): the same digest, so the same image.
+      # The browser's one base is Playwright's, from Microsoft's registry, which has no copy.
       - id: bases
-        run: scripts/ci-images.sh contexts factory runner
-      - id: factory
+        if: matrix.bases
+        env:
+          BASES: ${{ matrix.bases }}
+        run: scripts/ci-images.sh contexts "$BASES"
+      - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: apps/factory/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          build-contexts: ${{ steps.bases.outputs.factory }}
-          push: true
-          tags: ${{ env.FACTORY_IMAGE }}:${{ github.sha }}
+          file: ${{ matrix.file }}
+          platforms: linux/${{ matrix.arch }}
+          build-contexts: ${{ matrix.bases && steps.bases.outputs[matrix.bases] || '' }}
+          outputs: type=image,name=ghcr.io/${{ github.repository }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.title=Software Factory workers
+            org.opencontainers.image.title=${{ matrix.title }}
             org.opencontainers.image.licenses=MIT
-          cache-from: type=gha,scope=factory
-          cache-to: type=gha,mode=max,scope=factory
-      - id: browser
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+      - env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          NAME: ${{ matrix.image }}-${{ matrix.arch }}
+        run: mkdir digests && echo "$DIGEST" > "digests/$NAME"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          context: .
-          file: apps/factory/Dockerfile.browser
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.BROWSER_IMAGE }}:${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.title=Software Factory browser workers
-            org.opencontainers.image.licenses=MIT
-          cache-from: type=gha,scope=factory-browser
-          cache-to: type=gha,mode=max,scope=factory-browser
-      # The runners' image, built with the factory's so the three always come from one commit.
-      - id: runner
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+          name: digest-${{ matrix.image }}-${{ matrix.arch }}
+          path: digests
+          retention-days: 1
+
+  # Each image the cluster pins: an index of its two platforms' builds, tagged with the commit, made only when every
+  # build of its group finished.
+  push:
+    name: push the images
+    needs: [console, factory]
+    if: ${{ !cancelled() && (needs.console.result == 'success' || needs.factory.result == 'success') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      console: ${{ steps.push.outputs.console }}
+      factory: ${{ steps.push.outputs.factory }}
+      browser: ${{ steps.push.outputs.factory-browser }}
+      runner: ${{ steps.push.outputs.factory-runner }}
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
-          context: .
-          file: apps/runner/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          build-contexts: ${{ steps.bases.outputs.runner }}
-          push: true
-          tags: ${{ env.RUNNER_IMAGE }}:${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.title=Software Factory runner
-            org.opencontainers.image.licenses=MIT
-          cache-from: type=gha,scope=factory-runner
-          cache-to: type=gha,mode=max,scope=factory-runner
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - id: push
+        env:
+          CONSOLE: ${{ needs.console.result }}
+          FACTORY: ${{ needs.factory.result }}
+        run: |
+          set -uo pipefail
+          # $1: an image. Makes its index from its two builds, tags it with the commit, and prints its digest.
+          index() {
+            local ref="ghcr.io/$GITHUB_REPOSITORY/$1" builds=() arch digest
+            for arch in amd64 arm64; do
+              digest=$(cat "digests/$1-$arch" 2> /dev/null)
+              [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$1 ($arch) has no digest: $digest"; return 1; }
+              builds+=("$ref@$digest")
+            done
+            docker buildx imagetools create --tag "$ref:$GITHUB_SHA" "${builds[@]}" >&2 || return 1
+            docker buildx imagetools inspect "$ref:$GITHUB_SHA" --format '{{ json .Manifest }}' | jq -r .digest
+          }
+          # A group's digests are output only once every one of its indexes is made, so the factory's three are signed
+          # together or not at all, and one group failing leaves the other's to be signed.
+          group() {
+            local made=() image digest
+            for image in "$@"; do
+              digest=$(index "$image") && [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+              echo "ghcr.io/$GITHUB_REPOSITORY/$image@$digest"
+              made+=("$image=$digest")
+            done
+            printf '%s\n' "${made[@]}" >> "$GITHUB_OUTPUT"
+          }
+          failed=0
+          if [ "$CONSOLE" = success ]; then group console || failed=1; fi
+          if [ "$FACTORY" = success ]; then group factory factory-browser factory-runner || failed=1; fi
+          exit "$failed"
 
   # Signs each image the jobs above pushed, by digest, and attests an SBOM of each of its platforms, made by Syft. A job
   # of its own, so that only it can ask for the workflow's OIDC token, and nothing an image's build runs ever can. If it
   # fails, the images are in GHCR unsigned, and the deploy watch will not propose them until it is run again.
   sign:
     name: sign and attest
-    needs: [image, factory-images]
-    if: ${{ !cancelled() && (needs.image.result == 'success' || needs.factory-images.result == 'success') }}
+    needs: push
+    if: ${{ !cancelled() && needs.push.result != 'skipped' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -233,12 +296,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      # Only what a job that finished pushed: one that failed partway may have pushed an image it never tested.
+      # Only the images the push job output: each group's when every index of it was made, from builds that all finished.
       - env:
-          CONSOLE: ${{ needs.image.result == 'success' && needs.image.outputs.digest || '' }}
-          FACTORY: ${{ needs.factory-images.result == 'success' && needs.factory-images.outputs.factory || '' }}
-          BROWSER: ${{ needs.factory-images.result == 'success' && needs.factory-images.outputs.browser || '' }}
-          RUNNER: ${{ needs.factory-images.result == 'success' && needs.factory-images.outputs.runner || '' }}
+          CONSOLE: ${{ needs.push.outputs.console }}
+          FACTORY: ${{ needs.push.outputs.factory }}
+          BROWSER: ${{ needs.push.outputs.browser }}
+          RUNNER: ${{ needs.push.outputs.runner }}
           SYFT: ${{ steps.syft.outputs.cmd }}
         run: |
           set -euo pipefail
