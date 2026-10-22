@@ -249,8 +249,8 @@ jobs:
             docker buildx imagetools create --tag "$ref:$GITHUB_SHA" "${builds[@]}" >&2 || return 1
             docker buildx imagetools inspect "$ref:$GITHUB_SHA" --format '{{ json .Manifest }}' | jq -r .digest
           }
-          # A group's digests are output only once every one of its indexes is made, so the factory's three are signed
-          # together or not at all, and one group failing leaves the other's to be signed.
+          # A group's digests are output only once every one of its indexes is made, so none of the factory's three is
+          # signed unless all three were pushed, and one group failing leaves the other's to be signed.
           group() {
             local made=() image digest
             for image in "$@"; do
@@ -274,7 +274,7 @@ jobs:
     needs: push
     if: ${{ !cancelled() && needs.push.result != 'skipped' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       packages: write # cosign keeps the signatures and attestations beside the images
       id-token: write # the workflow's identity, which Fulcio certifies
@@ -324,7 +324,10 @@ jobs:
             "$SYFT" scan --quiet --platform "linux/$arch" "registry:$ref" --output "spdx-json=sbom-$arch.spdx.json" &
             scans+=("$!")
           done
-          for scan in "${scans[@]}"; do wait "$scan"; done
+          # Every scan is waited for, so a failure of each is reported, and nothing is attested unless both finished.
+          failed=0
+          for scan in "${scans[@]}"; do wait "$scan" || failed=1; done
+          [ "$failed" = 0 ] || exit 1
           # Each attested on the image index that the cluster pins. The signature comes last, so an image that carries
           # one has its SBOMs too: the deploy watch looks for the signature alone.
           for arch in amd64 arm64; do

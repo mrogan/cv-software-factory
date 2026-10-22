@@ -18,7 +18,7 @@ flowchart LR
 
 ## Building and signing
 
-Each public repository's `build.yml` pushes its images to GHCR from `main`. Then, in a job of its own, the only one that may ask for the workflow's OIDC token, it:
+Each public repository's `build.yml` pushes its images to GHCR from `main`. Then, in a job for each image, side by side, the only jobs that may ask for the workflow's OIDC token, it:
 
 1. attests an SPDX SBOM of each platform, made by Syft;
 2. signs each image by digest with cosign's keyless signing, signature last.
