@@ -439,11 +439,11 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       await expect(page).toHaveScreenshot(`m07-enrol-wrong-${width}.png`);
     });
 
-    test('Martin, signed in menu', async ({ page }) => {
+    test('Martin’s account menu', async ({ page }) => {
       await adminService(page, 'martin');
       await page.goto(consoleUrl());
       await ready(page);
-      await page.getByRole('button', { name: 'Martin, signed in' }).click();
+      await page.getByRole('button', { name: 'Martin', exact: true }).click();
       await page.locator('#account-menu').waitFor();
       await expect(page).toHaveScreenshot(`m07-account-menu-${width}.png`, {
         clip: { x: 0, y: 0, width: viewport.width, height: 320 },

@@ -23,7 +23,7 @@ test.afterAll(async () => {
 
 test('a visitor finds Martin’s sign-in in the footer, and a door with a way back', async ({ page }) => {
   await page.goto('/?motion=off');
-  await expect(page.getByRole('button', { name: 'Martin, signed in' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Martin', exact: true })).toHaveCount(0);
   await page.getByRole('link', { name: 'Martin’s sign-in' }).click();
   await expect(page).toHaveURL(/\?view=sign-in$/);
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeFocused();
@@ -65,7 +65,7 @@ test('enrols a passkey with a one-time code, and is signed in; then signs out, i
   });
 
   await test.step('the console knows Martin: his account, and no way to sign in again', async () => {
-    const account = page.getByRole('button', { name: 'Martin, signed in' });
+    const account = page.getByRole('button', { name: 'Martin', exact: true });
     await expect(account).toBeVisible();
     await expect(page.getByRole('link', { name: 'Martin’s sign-in' })).toHaveCount(0);
     await account.click();
@@ -87,7 +87,7 @@ test('enrols a passkey with a one-time code, and is signed in; then signs out, i
   });
 
   await test.step('signs out, and the door says so', async () => {
-    await page.getByRole('button', { name: 'Martin, signed in' }).click();
+    await page.getByRole('button', { name: 'Martin', exact: true }).click();
     await page.getByRole('button', { name: 'Sign out', exact: true }).click();
     await expect(page).toHaveURL(/\?view=sign-in&ended=here$/);
     await expect(page.getByRole('status')).toHaveText('Signed out. This browser holds no session now.');
@@ -96,12 +96,12 @@ test('enrols a passkey with a one-time code, and is signed in; then signs out, i
 
   await test.step('signs in again with the same passkey', async () => {
     await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
-    await expect(page.getByRole('button', { name: 'Martin, signed in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Martin', exact: true })).toBeVisible();
     await expect(page).toHaveURL(`http://localhost:${PORT}/`);
   });
 
   await test.step('signs out everywhere', async () => {
-    await page.getByRole('button', { name: 'Martin, signed in' }).click();
+    await page.getByRole('button', { name: 'Martin', exact: true }).click();
     await page.getByRole('button', { name: /Sign out everywhere/ }).click();
     await expect(page.getByRole('status')).toHaveText(
       'Signed out everywhere: every session on every device has ended, this one too.',

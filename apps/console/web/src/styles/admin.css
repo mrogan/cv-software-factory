@@ -247,8 +247,14 @@ input.code::placeholder {
 }
 
 @media (max-width: 720px) {
+  /* Only the disc shows; the name is still the button's, for a screen reader. */
   .account-btn .name {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
   .account-btn {
     padding: 0 6px;

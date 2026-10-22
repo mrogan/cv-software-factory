@@ -10,7 +10,7 @@ test('offers no sign-in where there is no admin service to sign in to', async ({
   await page.goto(consoleUrl());
   await ready(page);
   await expect(page.getByRole('link', { name: 'Martin’s sign-in' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Martin, signed in' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Martin', exact: true })).toHaveCount(0);
 });
 
 test('offers a visitor Martin’s sign-in in the footer, and nothing more', async ({ page }) => {
@@ -18,14 +18,14 @@ test('offers a visitor Martin’s sign-in in the footer, and nothing more', asyn
   await page.goto(consoleUrl());
   await ready(page);
   await expect(page.getByRole('link', { name: 'Martin’s sign-in' })).toHaveAttribute('href', '/?view=sign-in');
-  await expect(page.getByRole('button', { name: 'Martin, signed in' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Martin', exact: true })).toHaveCount(0);
 });
 
 test('shows Martin his account, whose menu closes on a click outside', async ({ page }) => {
   await adminService(page, 'martin');
   await page.goto(consoleUrl());
   await ready(page);
-  const account = page.getByRole('button', { name: 'Martin, signed in' });
+  const account = page.getByRole('button', { name: 'Martin', exact: true });
   await expect(account).toHaveAttribute('aria-expanded', 'false');
   await account.click();
   await expect(account).toHaveAttribute('aria-expanded', 'true');
@@ -55,7 +55,7 @@ test('signs out with a POST of JSON carrying the session’s token, and lands on
   });
   await page.goto(consoleUrl());
   await ready(page);
-  await page.getByRole('button', { name: 'Martin, signed in' }).click();
+  await page.getByRole('button', { name: 'Martin', exact: true }).click();
   // The door asks the service again, which now finds no session.
   await page.unroute('**/admin/session');
   await adminService(page, 'visitor');
@@ -79,7 +79,7 @@ test('sends a signed-in browser from the sign-in door to the console', async ({ 
   await adminService(page, 'martin');
   await page.goto('/?view=sign-in');
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('button', { name: 'Martin, signed in' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Martin', exact: true })).toBeVisible();
 });
 
 test('says the service’s own words when it refuses, and ours when it cannot be reached', async ({ page }) => {

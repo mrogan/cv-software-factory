@@ -62,7 +62,7 @@ for (const width of ['phone', 'desktop'] as const) {
         await adminService(page, 'martin');
         await page.goto(consoleUrl({ theme }));
         await ready(page);
-        await page.getByRole('button', { name: 'Martin, signed in' }).click();
+        await page.getByRole('button', { name: 'Martin', exact: true }).click();
         expect((await axe(page).include('header.top').analyze()).violations).toEqual([]);
       });
     });

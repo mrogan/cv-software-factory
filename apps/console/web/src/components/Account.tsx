@@ -53,7 +53,6 @@ export function Account({ session }: { session: Session }) {
         ref={button}
         aria-expanded={open}
         aria-controls="account-menu"
-        aria-label="Martin, signed in"
         onClick={() => setOpen(!open)}
       >
         <span className="me" aria-hidden="true">
