@@ -18,10 +18,10 @@ flowchart LR
 
 ## Building and signing
 
-Each public repository's `build.yml` pushes its images to GHCR from `main`. Then, in a job of its own, the only one that may ask for the workflow's OIDC token, it:
+Each public repository's `build.yml` pushes its images to GHCR from `main`. Then a job for each image, side by side, and the only jobs that may ask for the workflow's OIDC token:
 
 1. attests an SPDX SBOM of each platform, made by Syft;
-2. signs each image by digest with cosign's keyless signing, signature last.
+2. signs the image by digest with cosign's keyless signing, signature last.
 
 Fulcio certifies the workflow's identity for minutes, and the signature goes into Rekor, so there is no key to keep or steal.
 
