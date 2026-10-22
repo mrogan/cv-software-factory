@@ -74,10 +74,30 @@ jobs:
           echo "$kind"
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
 
-  check:
-    name: lint, types, tests
+  # `make check` in two halves side by side, the tests in three parts, each on a runner of its own. A part that fails
+  # stops none of the others, so a run shows every failure.
+  static:
+    name: lint, types, generated files, manifests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        with:
+          install_args: node pnpm kustomize
+      - run: pnpm install --frozen-lockfile
+      - run: make check-static
+
+  tests:
+    name: tests (${{ matrix.shard }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1/3, 2/3, 3/3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -87,10 +107,30 @@ jobs:
       - run: echo "TEST_POSTGRES_IMAGE=$(scripts/ci-images.sh postgres)" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
-          # step for the local certificate authority's tests (scripts/local-ca.test.ts).
+          # kustomize and step for the tests that render the manifests and make a local certificate authority
+          # (scripts/image-pins.test.ts, scripts/local-ca.test.ts).
           install_args: node pnpm kustomize step
       - run: pnpm install --frozen-lockfile
-      - run: make check
+      - run: make check-tests SHARD="$SHARD"
+        env:
+          SHARD: ${{ matrix.shard }}
+
+  # The one check the ruleset requires of `make check` (scripts/github-settings.ts), so that it need not change when it
+  # is split differently. It passes when both halves passed, every part of the tests included. It runs whatever they
+  # did, a cancelled run included, since a skipped job counts as passed.
+  check:
+    name: lint, types, tests
+    needs: [static, tests]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - env:
+          STATIC: ${{ needs.static.result }}
+          TESTS: ${{ needs.tests.result }}
+        run: |
+          echo "static: $STATIC, tests: $TESTS"
+          [ "$STATIC" = success ] && [ "$TESTS" = success ]
 
   # The browser tests run side by side: the console's, in parts, and the factory's senses (the crawler and the probes).
   # Each needs the pinned Playwright image, on arm64 like the laptops the snapshots are made on, so they match.

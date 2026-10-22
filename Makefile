@@ -38,7 +38,7 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down gateway-key github-key scoreboard-secrets worker-secrets check status e2e zap egress admission-ready eval samples real-store stop-the-line start-the-line enrol
+.PHONY: help up down gateway-key github-key scoreboard-secrets worker-secrets check check-static check-tests status e2e zap egress admission-ready eval samples real-store stop-the-line start-the-line enrol
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -162,12 +162,16 @@ egress: ## Prove the fences: only the gateway, the GitHub worker and Kyverno lea
 admission-ready: ## Say whether every image the guarded namespaces run is signed, so admission control can enforce
 	scripts/admission-ready.sh
 
-check: ## Lint, type-check, test, build the browser code, check generated files are current, render the manifests
+# All of the tests, whatever SHARD the shell or the command line says.
+check: override SHARD :=
+check: check-static check-tests ## Lint, type-check, test, build the browser code, check generated files are current, render the manifests
+
+# CI runs the two halves of `make check` side by side, and the tests in parts (check.yml).
+check-static: ## All of `make check` but the tests
 	pnpm exec biome ci
 	pnpm exec tsc
 	pnpm exec tsc -p apps/console/web
 	pnpm exec tsc -p apps/console/e2e
-	pnpm exec vitest run --project unit --project database
 	node docs/design/system/build.ts --check
 	node packages/samples/src/export.ts --check
 	node apps/factory/src/alerts/rules.ts --check
@@ -176,6 +180,9 @@ check: ## Lint, type-check, test, build the browser code, check generated files 
 	node apps/console/scripts/budget.ts
 	@# Argo CD renders each profile's overlay from main, so one that doesn't render must not get there.
 	@for overlay in deploy/overlays/*/; do kustomize build $$overlay >/dev/null || exit 1; done
+
+check-tests: ## The unit and database tests; SHARD=1/3 runs the first of three parts
+	pnpm exec vitest run --project unit --project database $(if $(SHARD),--shard $(SHARD))
 
 e2e: ## Run the browser tests (the console's, and the probes') in the pinned Playwright image; UPDATE=1 rewrites the snapshots
 	docker run --rm --init --ipc=host -e UPDATE=$(UPDATE) -v "$(CURDIR):/src:ro" \
