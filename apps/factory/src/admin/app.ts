@@ -128,18 +128,19 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
     recorded: ReturnType<typeof adminEvent>[],
   ): Promise<Reply> => {
     const id = newSessionId();
-    await store.record(
+    const { ended } = await store.record(
       async (tx) => {
         await act(tx);
         return store.startSession(tx, passkey.id, sessionHash(id), replaces);
       },
       ({ ended }) => [
-        ...recorded,
         ...(ended ? [adminEvent('admin.signed-out', 'Martin signed out', { everywhere: false })] : []),
+        ...recorded,
         adminEvent('admin.signed-in', 'Martin signed in with a passkey', { passkey: passkey.name }),
       ],
     );
-    if (replaces) events.end('signed-out', [replaces]);
+    // One that had already ended closes its stream at the stream's next check, saying why.
+    if (replaces && ended) events.end('signed-out', [replaces]);
     const session = await store.session(sessionHash(id));
     if (!session) throw new Error('A session just started is not live');
     return { status: 200, body: await described(session, id), cookie: sessionCookie(id) };
@@ -254,7 +255,8 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
         async (tx) => {
           await store.used(tx, passkey.id, signCount);
           const [row] = await tx<{ stepped_up_at: Date }[]>`
-            update sessions set stepped_up_at = now() where id_sha256 = ${live.hash} and ended_at is null
+            update sessions set stepped_up_at = now()
+            where id_sha256 = ${live.hash} and ended_at is null and expires_at > now()
             returning stepped_up_at`;
           if (!row) throw new Refused('session', 401, 'Sign in first: the session has ended.');
           return row.stepped_up_at;
@@ -266,10 +268,11 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
 
     'sign-out': async ({ session }) => {
       const live = session as Session;
+      // One that signing in again, from another tab, ended meanwhile was recorded then, and is not again here.
       await store.record(
         (tx) => tx`update sessions set ended_at = now(), ended_by = 'sign-out'
                    where id_sha256 = ${live.hash} and ended_at is null`,
-        () => [adminEvent('admin.signed-out', 'Martin signed out', { everywhere: false })],
+        ({ count }) => (count ? [adminEvent('admin.signed-out', 'Martin signed out', { everywhere: false })] : []),
       );
       events.end('signed-out', [live.hash]);
       return { status: 200, body: { signedOut: 'here' }, cookie: clearedCookie };
