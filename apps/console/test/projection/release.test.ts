@@ -707,6 +707,15 @@ describe('Martin’s controls of the canary', () => {
       until: undefined,
       paused: { at: paused.at(2), weight: 25 },
     });
+    // A step measured after he paused it moves it no further.
+    const measured = paused.add(4, 'canary.stepped', 'rollouts', {
+      release: 'r1',
+      version: 'v1.0.1',
+      weight: 25,
+      analysis: { phase: 'successful', requests: 225, measures: [] },
+      dryRun: false,
+    });
+    expect(releases(measured.events, [], measured.at(5))[0]).toMatchObject({ step: 0, weight: 25 });
     const resumed = paused.add(5, 'release.controlled', 'martin', control('resume', 25));
     expect(releases(resumed.events, [], resumed.at(5))[0]).toMatchObject({ paused: undefined });
   });

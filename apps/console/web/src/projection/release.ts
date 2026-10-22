@@ -231,7 +231,8 @@ function position(r: Building, now: number): Pick<Release, 'step' | 'weight' | '
   // holds it there, with no end to wait for. Martin's promotion moves it to the step that sets the weight it went to.
   let holding = false;
   const moves = [
-    ...r.measured.map((m) => ({ at: m.at, m, to: undefined })),
+    // Paused, it moves no further, whatever is recorded after.
+    ...r.measured.filter((m) => m.at <= asOf).map((m) => ({ at: m.at, m, to: undefined })),
     ...r.promotions.filter((p) => p.at <= asOf).map((p) => ({ at: p.at, m: undefined, to: p.to })),
   ].sort((a, b) => a.at - b.at);
   for (const { at, m, to } of moves) {

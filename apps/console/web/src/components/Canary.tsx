@@ -430,10 +430,17 @@ function Controls({ r, admin, lineStopped }: { r: Release; admin: Admin; lineSto
     const asked = ASKED[c.action]?.(r, c);
     const route = c.action === 'promote-fully' ? 'promote' : c.action;
     const body = { release: r.id, ...(c.action === 'promote-fully' && { fully: true }) };
-    const got = await write(`/admin/release/${route}`, body, token, asked && (() => stepUp.ask(asked)));
+    let cancelled = false;
+    const ask =
+      asked &&
+      (async () => {
+        cancelled = !(await stepUp.ask(asked));
+        return !cancelled;
+      });
+    const got = await write(`/admin/release/${route}`, body, token, ask);
     setBusy(false);
     // Cancelled at the passkey: nothing was asked of the canary, and nothing to say.
-    if (got.status === 403 && got.body?.refused === 'step-up') return;
+    if (cancelled) return;
     if (got.status !== 200) setRefusal(said(got));
   };
   const off = controls.find((c) => c.off)?.off;
@@ -447,8 +454,14 @@ function Controls({ r, admin, lineStopped }: { r: Release; admin: Admin; lineSto
             type="button"
             className="btn"
             title={c.what}
-            disabled={busy || c.off !== undefined}
-            onClick={() => (c.action === 'abort' ? setAborting(true) : void act(c))}
+            disabled={c.off !== undefined}
+            // Busy, it stays focusable, so focus comes back to it when a dialog it opened closes.
+            aria-disabled={busy || undefined}
+            onClick={() => {
+              if (busy) return;
+              if (c.action === 'abort') setAborting(true);
+              else void act(c);
+            }}
           >
             {c.label}
             {c.stepUp && !stepUp.fresh && <Key />}
@@ -597,7 +610,8 @@ export function Canary({ view, t, onOpen, admin, lineStopped }: CanaryProps) {
         </div>
         {right && <div>{right}</div>}
       </div>
-      <Controls r={r} admin={admin} lineStopped={lineStopped} />
+      {/* A release of its own: what was pressed for another, and refused, is not said under this one. */}
+      <Controls key={r.id} r={r} admin={admin} lineStopped={lineStopped} />
       <p className="help">
         The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody
         needs to press anything.

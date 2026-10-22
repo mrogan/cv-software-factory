@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { VERSIONS } from '@software-factory/events';
 import { appendMartins } from '../../factory/src/admin/store.ts';
-import type { KubeWriter } from '../../factory/src/runners/kube.ts';
+import { KubeError, type KubeWriter } from '../../factory/src/runners/kube.ts';
 import { enrolThroughTheDoor, type Harness, startHarness, virtualPasskey } from './admin.ts';
 import { expect, test } from './support.ts';
 
@@ -55,14 +55,30 @@ class Rollout implements KubeWriter {
   }
 
   async patch(_path: string, body: unknown): Promise<void> {
-    const { metadata: _precondition, ...rest } = body as { metadata?: object };
+    const { metadata, ...rest } = body as { metadata?: { resourceVersion?: string } };
+    if (metadata?.resourceVersion && metadata.resourceVersion !== String(this.version)) {
+      throw new KubeError(409, 'the object has been modified');
+    }
     this.patches.push(rest);
+    this.object = merged(this.object, rest) as Record<string, unknown>;
     this.version += 1;
   }
 
   text = async () => undefined;
   create = async () => {};
   remove = async () => {};
+}
+
+/** A JSON merge patch (RFC 7386). */
+function merged(target: unknown, patch: unknown): unknown {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return patch;
+  const out: Record<string, unknown> =
+    target && typeof target === 'object' && !Array.isArray(target) ? { ...(target as object) } : {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) delete out[key];
+    else out[key] = merged(out[key], value);
+  }
+  return out;
 }
 
 let harness: Harness;
@@ -147,6 +163,10 @@ test('Martin pauses at once, promotes with his passkey again, and aborts behind 
     // Fresh for five minutes: the pill counts it down, and the keys are gone.
     await expect(page.locator('.top-right .fresh')).toHaveText('Passkey given · 5min left');
     await expect(controls.getByRole('button', { name: 'Promote fully', exact: true })).toBeVisible();
+    // Promoted, the canary he paused was resumed too, while the same release was in the Rollout.
+    expect(rollout.patches.slice(1)).toEqual([{ status: { promoteFull: true } }, { spec: { paused: false } }]);
+    // Focus came back to the control that asked.
+    await expect(controls.getByRole('button', { name: 'Promote fully', exact: true })).toBeFocused();
   });
 
   await test.step('Abort asks first, and Cancel or Escape does nothing', async () => {

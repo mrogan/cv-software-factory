@@ -27,50 +27,80 @@ export interface StepUp {
   fresh: boolean;
   /** Until when, if it is. */
   until: number | undefined;
+  /** The provider's clock, which the pill counts down by. */
+  now: number;
   /** Asks for the passkey, for this action: true once given, false if Martin cancels. */
   ask(asked: Asked): Promise<boolean>;
 }
 
-const NONE: StepUp = { fresh: false, until: undefined, ask: async () => false };
+const NONE: StepUp = { fresh: false, until: undefined, now: 0, ask: async () => false };
 const StepUpContext = createContext<StepUp>(NONE);
 
 /** The passkey's freshness, and the way to ask for it, anywhere under Martin's console. */
 export const useStepUp = () => useContext(StepUpContext);
 
-/** Holds the passkey's freshness for a session, and draws the step-up dialog when an action asks for it. */
-export function StepUpProvider({ session, children }: { session: Session; children: ReactNode }) {
-  const [until, setUntil] = useState<number | undefined>(() =>
-    session.steppedUp && session.steppedUpAt ? Date.parse(session.steppedUpAt) + FRESH_MINUTES * 60_000 : undefined,
-  );
+/**
+ * Holds the passkey's freshness for Martin's session, and draws the step-up dialog when an action asks for it. With no
+ * session (a visitor, the replay site) it holds nothing and asks nothing: it is always there, so the page under it is
+ * never made again when the session check answers.
+ */
+export function StepUpProvider({ session, children }: { session: Session | undefined; children: ReactNode }) {
+  const [given, setGiven] = useState<number | undefined>(undefined);
+  // Fresh from the session's own step-up, as the service said, or from one given on this page since.
+  const steppedUpAt = session?.steppedUp && session.steppedUpAt ? Date.parse(session.steppedUpAt) : undefined;
+  const until = Math.max(given ?? 0, steppedUpAt ?? 0) + FRESH_MINUTES * 60_000;
   const [now, setNow] = useState(() => Date.now());
   // The pill counts down in whole minutes, so a look every few seconds is enough, and none once it has run out.
   useEffect(() => {
-    if (until === undefined || now >= until) return;
+    if (now >= until) return;
     const timer = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(timer);
   }, [until, now]);
-  const [asking, setAsking] = useState<{ asked: Asked; answer: (given: boolean) => void } | undefined>(undefined);
+  const [asking, setAsking] = useState<{ id: number; asked: Asked; answer: (given: boolean) => void } | undefined>(
+    undefined,
+  );
+  const asks = useRef(0);
+  const hasSession = session !== undefined;
   const ask = useCallback(
     (asked: Asked) =>
       new Promise<boolean>((resolve) => {
-        setAsking({ asked, answer: resolve });
+        if (!hasSession) return resolve(false);
+        asks.current += 1;
+        const id = asks.current;
+        // One dialog at a time: an action that asks while another is asking takes its place, and the other's answer is
+        // no, so nothing waits for an answer that never comes.
+        setAsking((before) => {
+          before?.answer(false);
+          return { id, asked, answer: resolve };
+        });
       }),
-    [],
+    [hasSession],
   );
-  const answered = (given: boolean) => {
-    if (given) {
-      setUntil(Date.now() + FRESH_MINUTES * 60_000);
+  /** An answer to one ask: it settles that ask alone, though a passkey given late still counts as given. */
+  const answered = (id: number, yes: boolean) => {
+    if (yes) {
+      setGiven(Date.now());
       setNow(Date.now());
     }
-    asking?.answer(given);
-    setAsking(undefined);
+    setAsking((current) => {
+      if (current?.id !== id) return current;
+      current.answer(yes);
+      return undefined;
+    });
   };
-  const fresh = until !== undefined && now < until;
-  const value = useMemo(() => ({ fresh, until: fresh ? until : undefined, ask }), [fresh, until, ask]);
+  const fresh = now < until;
+  const value = useMemo(() => ({ fresh, until: fresh ? until : undefined, now, ask }), [fresh, until, now, ask]);
   return (
     <StepUpContext.Provider value={value}>
       {children}
-      {asking && <StepUpDialog asked={asking.asked} token={session.token} onAnswer={answered} />}
+      {asking && session && (
+        <StepUpDialog
+          key={asking.id}
+          asked={asking.asked}
+          token={session.token}
+          onAnswer={(yes) => answered(asking.id, yes)}
+        />
+      )}
     </StepUpContext.Provider>
   );
 }
@@ -163,17 +193,17 @@ export function Key() {
 }
 
 /** Whole minutes left, never nought while any is: "5min". */
-const left = (until: number) => `${Math.max(1, Math.ceil((until - Date.now()) / 60_000))}min`;
+const left = (until: number, now: number) => `${Math.max(1, Math.ceil((until - now) / 60_000))}min`;
 
 /** The header's pill while the passkey is fresh: "Passkey given · 5min", counting down. Nothing otherwise. */
 export function StepUpPill() {
-  const { until } = useStepUp();
+  const { until, now } = useStepUp();
   if (until === undefined) return null;
   return (
     <span className="fresh" role="status">
       <Glyph name="key" className="glyph key" />
       <span className="long">Passkey given · </span>
-      {left(until)}
+      {left(until, now)}
       <span className="sr"> left</span>
     </span>
   );
@@ -181,12 +211,12 @@ export function StepUpPill() {
 
 /** The same, as a line in the account menu, where a phone shows it. */
 export function StepUpLine() {
-  const { until } = useStepUp();
+  const { until, now } = useStepUp();
   if (until === undefined) return null;
   return (
     <>
       <br />
-      Passkey given again: {left(until)} left
+      Passkey given again: {left(until, now)} left
     </>
   );
 }

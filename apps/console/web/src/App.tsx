@@ -49,11 +49,12 @@ export function App() {
       </>
     );
   }
-  const console_ = (
-    <Console from={from} admin={admin} theme={theme} onTheme={setTheme} motion={motion} onMotion={setMotion} />
-  );
   // Martin's writes ask for his passkey again where the access table says, through one dialog for the whole page.
-  return admin.kind === 'martin' ? <StepUpProvider session={admin.session}>{console_}</StepUpProvider> : console_;
+  return (
+    <StepUpProvider session={admin.kind === 'martin' ? admin.session : undefined}>
+      <Console from={from} admin={admin} theme={theme} onTheme={setTheme} motion={motion} onMotion={setMotion} />
+    </StepUpProvider>
+  );
 }
 
 interface ConsoleProps {

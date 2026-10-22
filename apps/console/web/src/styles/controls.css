@@ -71,7 +71,8 @@
   font-weight: 600;
 }
 .dialog .btn:disabled,
-.canary-controls .btn:disabled {
+.canary-controls .btn:disabled,
+.canary-controls .btn[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;
 }
