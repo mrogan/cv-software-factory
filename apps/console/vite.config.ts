@@ -7,7 +7,7 @@
  * http://localhost:5173. The cluster's ingress has :8443.
  */
 import prefresh from '@prefresh/vite';
-import { defineConfig } from 'vite';
+import { defineConfig, type ProxyOptions } from 'vite';
 
 /**
  * Development only: Vite injects styles as <style> elements and Fast Refresh runs an inline script,
@@ -29,6 +29,15 @@ const SERVER = `http://localhost:${process.env.SERVER_PORT ?? 5174}`;
 
 /** An admin service on the host, if one is running: the page finds none otherwise, and offers no sign-in. */
 const ADMIN = process.env.ADMIN_URL;
+
+/**
+ * To the console's server without `Cookie`, as Traefik's `console-no-cookies` does in the cluster: the session cookie's
+ * path is `/`, so the browser sends it to Vite with every request, and the console's server never holds a session.
+ */
+const WITHOUT_COOKIES: ProxyOptions = {
+  target: SERVER,
+  configure: (proxy) => proxy.on('proxyReq', (request) => request.removeHeader('cookie')),
+};
 
 export default defineConfig({
   root: 'web',
@@ -58,7 +67,7 @@ export default defineConfig({
     strictPort: true,
     headers: { 'content-security-policy': DEVELOPMENT_POLICY },
     proxy: {
-      ...Object.fromEntries(['/api', '/artifacts', '/health', '/version'].map((path) => [path, SERVER])),
+      ...Object.fromEntries(['/api', '/artifacts', '/health', '/version'].map((path) => [path, WITHOUT_COOKIES])),
       // The browser's Origin goes through as it is, which the service matches against its own ADMIN_ORIGIN.
       ...(ADMIN && { '/admin': ADMIN }),
     },

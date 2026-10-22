@@ -24,7 +24,7 @@ Martin's side of the console is the [admin service](ADMIN-SERVICE.md)'s, on the 
 - **The doors.** Signing in (`/?view=sign-in`) and enrolling a passkey (`/?view=enrol`) are pages of their own, as the design system draws them, whose code and passkey ceremonies ([SimpleWebAuthn](https://simplewebauthn.dev)'s browser half) load only there. Each ceremony asks the service for its options, has the browser's own passkey sheet answer, and sends the answer back.
 - **The account menu** says when Martin signed in and when the session ends, and signs out here or everywhere.
 - **Writes** are `POST`s of JSON with the session's token in `X-CSRF-Token`, the one the service gave with the session.
-- **In development,** `pnpm dev` passes `/admin/` to an admin service on the host when `ADMIN_URL` names one, started with `ADMIN_ORIGIN=http://localhost:5173`: `localhost` is a secure context, so a passkey and the `Secure` cookie work there in Chrome; Safari drops the cookie over plain HTTP.
+- **In development,** `pnpm dev` passes `/admin/` to an admin service on the host when `ADMIN_URL` names one, and keeps `Cookie` from the console's server as Traefik does, started with `ADMIN_ORIGIN=http://localhost:5173`: `localhost` is a secure context, so a passkey and the `Secure` cookie work there in Chrome; Safari drops the cookie over plain HTTP.
 
 The browser tests take the doors through the real service on a throwaway store, behind a proxy standing in for Traefik, with a virtual passkey; ZAP's baseline scan runs against the same in CI, signed in that way ([CI pipeline](CI-PIPELINE.md#zaps-baseline-scan)).
 
