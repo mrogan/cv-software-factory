@@ -14,6 +14,20 @@ The Node server serves, to anyone, and with `GET` or `HEAD` alone:
 
 Each is a route the access table ([`policy/access.ts`](../../policy/access.ts)) gives the console, which it answers through the table and nothing else: the table is the one list of every route and every action Martin can take, with the role each needs, whether it writes, and whether it needs his passkey again. A test fails when the server answers a route the table does not give it.
 
+Every response carries a strict Content Security Policy (the page's own scripts, styles, fonts and pictures, and connections to its own origin, nothing inline), opener, embedder and resource policies that keep other origins' pages and resources away from it, and a permissions policy that gives away no camera, microphone, location, payment or USB.
+
+## Signing in
+
+Martin's side of the console is the [admin service](ADMIN-SERVICE.md)'s, on the same origin under `/admin/`. The console's server never holds a session or sees the cookie that names one; the page asks the service.
+
+- **Who is looking.** As it opens, the page asks `GET /admin/session`: a session is Martin's, which puts his account button in the header; the service's own refusal is a visitor's, whose footer offers "Martin's sign-in"; anything else (the replay site, `pnpm dev` with no service, a cluster before the service's Deployment) is no service, and offers no sign-in. When the session's eight hours are up, the page sends him to the sign-in page, which says so.
+- **The doors.** Signing in (`/?view=sign-in`) and enrolling a passkey (`/?view=enrol`) are pages of their own, as the design system draws them, whose code and passkey ceremonies ([SimpleWebAuthn](https://simplewebauthn.dev)'s browser half) load only there. Each ceremony asks the service for its options, has the browser's own passkey sheet answer, and sends the answer back.
+- **The account menu** says when Martin signed in and when the session ends, and signs out here or everywhere.
+- **Writes** are `POST`s of JSON with the session's token in `X-CSRF-Token`, the one the service gave with the session.
+- **In development,** `pnpm dev` passes `/admin/` to an admin service on the host when `ADMIN_URL` names one, started with `ADMIN_ORIGIN=http://localhost:5173`: `localhost` is a secure context, so a passkey and the `Secure` cookie work there in Chrome; Safari drops the cookie over plain HTTP.
+
+The browser tests take the doors through the real service on a throwaway store, behind a proxy standing in for Traefik, with a virtual passkey; ZAP's baseline scan runs against the same in CI, signed in that way ([CI pipeline](CI-PIPELINE.md#zaps-baseline-scan)).
+
 ## The browser
 
 - **It projects.** `project(events, t)` is plain TypeScript, so live and replay are the same code.

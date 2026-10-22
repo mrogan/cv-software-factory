@@ -262,7 +262,7 @@ describe('enrolment', () => {
     const used = await newCode();
     expect((await enrolWith(new Browser(), new Authenticator(ORIGIN, RP_ID), used)).status).toBe(200);
     const again = await new Browser().post('/admin/enrol/options', { code: used });
-    expect(again).toMatchObject({ status: 403, body: { refused: 'code' } });
+    expect(again).toMatchObject({ status: 403, body: { refused: 'code', left: 0 } });
 
     const expired = await newCode();
     await db.owner`
@@ -280,13 +280,14 @@ describe('enrolment', () => {
     // Four wrong codes from four browsers, then the right one: five tries.
     for (let i = 0; i < 4; i++) {
       const wrong = await new Browser().post('/admin/enrol/options', { code: 'ZZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ' });
-      expect(wrong.status).toBe(403);
+      // Each says how many tries the live code has left, so the page can say so.
+      expect(wrong).toMatchObject({ status: 403, body: { refused: 'code', left: 4 - i } });
     }
     expect((await new Browser().post('/admin/enrol/options', { code })).status).toBe(200);
-    // The sixth is refused, however right.
+    // The sixth is refused, however right, as a code that can no longer be used.
     expect(await new Browser().post('/admin/enrol/options', { code })).toMatchObject({
       status: 403,
-      body: { refused: 'code' },
+      body: { refused: 'code', left: 0 },
     });
   });
 

@@ -17,7 +17,7 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import { z } from 'zod';
-import { ACCESS, PASSKEYS, routeOf, SESSION, type ServedBy } from '../../../../policy/access.ts';
+import { ACCESS, ENROLMENT_CODE, PASSKEYS, routeOf, SESSION, type ServedBy } from '../../../../policy/access.ts';
 import type { Logger } from '../log.ts';
 import { clientAddress, LIMITS, RateLimit } from './client.ts';
 import type { AdminConfig } from './config.ts';
@@ -158,12 +158,19 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
           return refused(400, 'code', 'Enter the code `factory admin enrol` printed.');
         }
         const hash = codeHash(code);
-        if (!(await store.tryCode(hash))) {
-          return refused(
-            403,
-            'code',
-            'That code is not one, or it is used, out of tries or more than ten minutes old.',
-          );
+        const tried = await store.tryCode(hash);
+        if (!tried.match) {
+          // How many tries the live code has left, across every browser, so the page can tell a mistyped code from
+          // one that can no longer be used. ADR 0012 weighs what that tells anyone else.
+          const reply = tried.left
+            ? refused(403, 'code', `That code isn’t right: ${tries(tried.left)} left for it, across every browser.`)
+            : refused(
+                403,
+                'code',
+                `That code can’t be used any more: it has expired, been used or had its ${ENROLMENT_CODE.tries} tries. ` +
+                  'Run `factory admin enrol` again for a new one.',
+              );
+          return { ...reply, body: { ...reply.body, left: tried.left } };
         }
         const held = await store.passkeys();
         if (held.length >= PASSKEYS.most) return refused(409, 'passkeys', TOO_MANY_PASSKEYS);
@@ -367,6 +374,8 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
     return handlers[route]({ req, res, url, values, body, id, session });
   }
 }
+
+const tries = (n: number) => (n === 1 ? '1 try' : `${n} tries`);
 
 const refused = (status: number, why: string, message: string): Exclude<Reply, 'streaming'> => ({
   status,

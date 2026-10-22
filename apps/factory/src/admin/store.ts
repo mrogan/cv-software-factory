@@ -116,14 +116,19 @@ export class AdminStore {
 
   /**
    * Counts a try of an enrolment code against every code still live, as the policy counts them across every client,
-   * and says whether this one is among them. A code past its tries, used or expired is no longer live.
+   * and says whether this one is among them, and how many tries the live codes have left after it: none when no code
+   * is live, so a wrong code can be told from one that can no longer be used. A code past its tries, used or expired
+   * is no longer live.
    */
-  async tryCode(hash: string): Promise<boolean> {
-    const rows = await this.#sql<{ code_sha256: string }[]>`
+  async tryCode(hash: string): Promise<{ match: boolean; left: number }> {
+    const rows = await this.#sql<{ code_sha256: string; tries: number }[]>`
       update enrolment_codes set tries = tries + 1
       where used_at is null and expires_at > now() and tries < ${ENROLMENT_CODE.tries}
-      returning code_sha256`;
-    return rows.some((row) => row.code_sha256 === hash);
+      returning code_sha256, tries`;
+    return {
+      match: rows.some((row) => row.code_sha256 === hash),
+      left: Math.max(0, ...rows.map((row) => ENROLMENT_CODE.tries - row.tries)),
+    };
   }
 
   /** A new challenge for a ceremony, bound to the session or the code it is for. Expired ones go as it is made. */
