@@ -41,6 +41,10 @@
 # the exporter reaches Postgres, and nothing else: not the collector, the gateway, the app, the Kubernetes API or the
 # internet.
 #
+# Then the admin service (milestone 7), which believes forwarded headers from the pod network because only Traefik may
+# reach it: a worker, an agent pod and the scoreboard cannot, and it reaches Postgres and the collector, and not the
+# gateway, the Kubernetes API or the internet.
+#
 # Then the scoreboard, which holds the answer key (milestone 6): it reaches Postgres, and nothing else: not the
 # collector, the gateway, the GitHub worker, the console, the probes, Prometheus, Loki, the app, the Kubernetes API, the
 # host, the metadata address or the internet. Nothing can reach it, as it serves nothing; its fence's ingress is
@@ -83,7 +87,7 @@ runners=(kubectl --context "$context" -n runners)
 # The workers whose own checks run from a probe pod made from their Deployment (start_probe), as
 # <namespace>/<deployment>.
 workers=(factory/gateway factory/github factory/triage factory/intake factory/logs factory/line factory/traffic
-  factory/probes factory/crawler scoreboard/scoreboard)
+  factory/probes factory/crawler factory/admin scoreboard/scoreboard)
 
 # What Prometheus's server scrapes beyond `telemetry`, behind fences that let in its server alone.
 scraped=(kyverno/kyverno-admission-controller kyverno/kyverno-reports-controller argo-rollouts/argo-rollouts
@@ -536,6 +540,16 @@ expect "the exporter cannot reach the gateway" egress-postgres-exporter http://g
 expect "the exporter cannot reach the app" egress-postgres-exporter http://website.website blocked
 expect "the exporter cannot reach the Kubernetes API" egress-postgres-exporter "https://$api_ip/version" blocked
 expect "the exporter cannot reach a public address" egress-postgres-exporter https://1.1.1.1 blocked
+
+echo "The admin service:"
+expect "the admin service reaches Postgres" egress-admin tcp://postgres:5432 reached
+expect "the admin service reaches the collector" egress-admin http://otel-collector.telemetry:4318 reached
+expect "the admin service cannot reach the gateway" egress-admin http://gateway:8080/health blocked
+expect "the admin service cannot reach the Kubernetes API" egress-admin "https://$api_ip/version" blocked
+expect "the admin service cannot reach a public address" egress-admin https://1.1.1.1 blocked
+expect "the worker cannot reach the admin service" "$pod" http://admin:8080/admin/health blocked
+expect "the agent pod cannot reach the admin service" runners:egress-agent http://admin.factory:8080/admin/health blocked
+expect "the scoreboard cannot reach the admin service" scoreboard:egress-scoreboard http://admin.factory:8080/admin/health blocked
 
 echo "The scoreboard:"
 expect "the scoreboard reaches Postgres" scoreboard:egress-scoreboard tcp://postgres.factory:5432 reached
