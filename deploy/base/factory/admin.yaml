@@ -1,0 +1,112 @@
+# The admin service (`factory admin`): Martin's sign-in, sessions and writes, and the one write path into the store for his
+# commands (docs/COMPONENTS/ADMIN-SERVICE.md). The browser reaches it under /admin/ on the console's own host, so it sees one
+# origin (deploy/overlays/local/console-ingress.yaml).
+#
+# One replica, replaced and never doubled: its rate limits are held in memory, so two would each count half.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin
+  labels: &labels
+    app.kubernetes.io/name: admin
+    app.kubernetes.io/part-of: software-factory
+    app.kubernetes.io/component: admin
+  annotations:
+    # After Postgres (wave 0) and the migrations (wave 1), which set its role's password, with the console.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: admin
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: admin
+          # Each profile pins the image by digest (kustomize `images:`), so a deploy is always a commit.
+          image: factory
+          args:
+            - --import
+            - ./src/telemetry.ts
+            - src/cli.ts
+            - admin
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.telemetry:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "admin"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=software-factory"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "15000"
+            # The event store, as the admin service's own role (policy/store-grants.ts): it appends Martin's commands and
+            # nothing else, and alone reads and writes the passkeys, codes and sessions. `make up` makes the Secret.
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              value: factory
+            - name: PGUSER
+              value: factory_admin
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-admin
+                  key: password
+            # The console's origin as the browser sees it, which passkeys are bound to and every write's Origin must
+            # match exactly: the local cluster's (deploy/overlays/local/console-ingress.yaml).
+            - name: ADMIN_ORIGIN
+              value: https://console.localhost:8443
+            # Whose forwarded headers it believes, for the client's address its rate limits key on: k3s's pod network,
+            # since its network policy lets only the ingress controller in. Locally every request reaches Traefik
+            # through k3d's load balancer, so the limits key on that one address: they hold for the Mac as a whole.
+            - name: ADMIN_TRUSTED_PROXIES
+              value: 10.42.0.0/16
+          readinessProbe:
+            httpGet:
+              path: /admin/health
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /admin/health
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app.kubernetes.io/name: admin
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
