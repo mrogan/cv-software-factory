@@ -13,6 +13,15 @@ test('offers no sign-in where there is no admin service to sign in to', async ({
   await expect(page.getByRole('button', { name: 'Martin', exact: true })).toHaveCount(0);
 });
 
+test('takes nothing less than a whole session for Martin’s', async ({ page }) => {
+  // A token and nothing else, as something other than the service might answer: not Martin, and not the service.
+  await page.route('**/admin/session', (route) => route.fulfill({ json: { token: 'test-token' } }));
+  await page.goto(consoleUrl());
+  await ready(page);
+  await expect(page.getByRole('button', { name: 'Martin', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Martin’s sign-in' })).toHaveCount(0);
+});
+
 test('offers a visitor Martin’s sign-in in the footer, and nothing more', async ({ page }) => {
   await adminService(page, 'visitor');
   await page.goto(consoleUrl());

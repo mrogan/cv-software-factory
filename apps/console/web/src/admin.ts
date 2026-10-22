@@ -47,13 +47,36 @@ async function answer(res: Response): Promise<Answer> {
   return { status: res.status, body };
 }
 
+const isString = (value: unknown): value is string => typeof value === 'string';
+const isTime = (value: unknown): value is string => isString(value) && !Number.isNaN(Date.parse(value));
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+const isPasskey = (value: unknown): boolean => isRecord(value) && isString(value.id) && isString(value.name);
+
+/** Whether an answer is a whole session, every field the page reads in place, before the page takes it for Martin's. */
+export const isSession = (body: unknown): body is Session =>
+  isRecord(body) &&
+  isString(body.token) &&
+  isTime(body.signedInAt) &&
+  isTime(body.expiresAt) &&
+  (body.steppedUpAt === null || isTime(body.steppedUpAt)) &&
+  typeof body.steppedUp === 'boolean' &&
+  isPasskey(body.passkey) &&
+  Array.isArray(body.passkeys) &&
+  body.passkeys.every(
+    (passkey: unknown) =>
+      isRecord(passkey) &&
+      isPasskey(passkey) &&
+      isTime(passkey.enrolledAt) &&
+      (passkey.lastUsedAt === null || isTime(passkey.lastUsedAt)) &&
+      typeof passkey.current === 'boolean',
+  );
+
 /** Asks the admin service whether this browser is signed in. */
 export async function check(): Promise<Admin> {
   try {
     const got = await answer(await fetch('/admin/session', { cache: 'no-store', credentials: 'same-origin' }));
-    if (got.status === 200 && typeof got.body?.token === 'string') {
-      return { kind: 'martin', session: got.body as unknown as Session };
-    }
+    // Anything less than a whole session is not the service's answer, and offers no sign-in.
+    if (got.status === 200 && isSession(got.body)) return { kind: 'martin', session: got.body };
     // The service refuses with a reason of its own; no reason means something else answered.
     if (got.status === 401 && got.body?.refused === 'session') return { kind: 'visitor' };
     return { kind: 'none' };
