@@ -426,6 +426,28 @@ describe('describing a deploy', () => {
     }
   });
 
+  it('refuses a deploy of several pin files, which has no one range of commits to say it carries', async () => {
+    const factory = DEPLOYS.find((t) => t.pins.length > 1) as (typeof DEPLOYS)[number];
+    const { github, sent } = client([
+      {
+        method: 'GET',
+        path: `/repos/${factory.repo}/pulls/30`,
+        answer: () => ({
+          body: {
+            state: 'open',
+            title: deployTitle(factory, [{ pin: factory.pins[0] as Pin, commit: SHA }]),
+            body: '',
+            head: { ref: factory.branch, repo: { full_name: factory.repo } },
+            base: { ref: 'main' },
+          },
+        }),
+      },
+    ]);
+    const describing = new LiveActions(github).describeDeploy(factory.repo, 30, { commit: SHA, carries: CARRIES });
+    await expect(describing).rejects.toThrow(/more than one pin file/);
+    expect(calls(sent).filter((c) => c.method === 'PATCH')).toEqual([]);
+  });
+
   it('waits for the watch’s write to the same body, so neither writes over the other with a body it read before', async () => {
     const pull = deployPull();
     const sent: Sent[] = [];

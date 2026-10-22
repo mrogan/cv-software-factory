@@ -652,6 +652,22 @@ describe('the deploy watch and signatures', () => {
     expect(committed(gh.sent).message.headline).toBe(CONSOLE_TITLE);
   });
 
+  it('leaves the pull request as it is while it runs an older build of a pin file whose newest was refused', async () => {
+    const gh = github(FACTORY, {
+      pins: BOTH,
+      pulls: [{ number: 69, title: BOTH_TITLE, state: 'open', merged_at: null, labels: [{ name: 'deploy: local' }] }],
+    });
+    // The factory's newest build, b, is signed by someone else: the pull request keeps the factory at the one it runs.
+    await watch(gh, FACTORY, ghcr(), undefined, signatures([], [digest('8')]))();
+    expect(writes(gh.sent)).toEqual([]);
+  });
+
+  it('reads main’s commits once a pass, however many pin files it reads', async () => {
+    const gh = github(FACTORY, { pins: BOTH });
+    await watch(gh, FACTORY)();
+    expect(calls(gh.sent).filter((c) => c.path.includes('/commits?'))).toHaveLength(1);
+  });
+
   it('warns at once, and once, of a build signed by anyone but its pipeline', async () => {
     const { lines, log } = kept();
     const gh = github(FACTORY);
