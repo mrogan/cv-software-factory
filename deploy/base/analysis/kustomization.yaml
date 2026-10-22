@@ -1,6 +1,7 @@
 # The canary's analysis: the ClusterAnalysisTemplates the app's Rollout names, generated from policy/release.ts
 # (templates.yaml). Cluster-scoped, so nothing in the app's repository can change them. With them, the fence around the
-# journeys' Job (network-policy.yaml), and the line's right to read the Rollout and its runs (line-reads-release.yaml).
+# journeys' Job (network-policy.yaml), the line's right to read the Rollout and its runs (line-reads-release.yaml), and
+# the admin service's to control the release, for Martin (admin-controls-release.yaml).
 #
 # Not listed in deploy/base/kustomization.yaml: the journeys run on the `factory-browser` image, so a profile brings
 # these in with the images it pins (deploy/overlays/local/factory-image).
@@ -10,3 +11,4 @@ resources:
   - templates.yaml
   - network-policy.yaml
   - line-reads-release.yaml
+  - admin-controls-release.yaml

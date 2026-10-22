@@ -1,7 +1,9 @@
 /**
  * The Kubernetes API, as much of it as the line needs to run jobs in the `runners` namespace: create, read and delete
- * a Job, create a work item's volume, and read a Job's pods and their logs. In the cluster it uses the pod's service account; on a host, the address
- * `kubectl proxy` serves (KUBE_API_URL), which carries the person's own credentials.
+ * a Job, create a work item's volume, and read a Job's pods and their logs; and as much as the admin service needs to
+ * control the app's Rollout: read it, and patch it or its status. In the cluster it uses the pod's service account; on
+ * a host, the address `kubectl proxy` serves (KUBE_API_URL), which carries the person's own credentials. What each may
+ * do is its service account's Role, not this client's.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { request as httpsRequest } from 'node:https';
@@ -16,6 +18,16 @@ export interface Kube {
   text(path: string): Promise<string | undefined>;
   create(path: string, body: unknown): Promise<void>;
   remove(path: string): Promise<void>;
+}
+
+/** The API, with patching: the admin service's, for the app's Rollout. */
+export interface KubeWriter extends Kube {
+  /**
+   * A JSON merge patch of an object, or of its subresource with `subresource`, and the object it made, read through
+   * its schema. A `metadata.resourceVersion` in the patch makes it conditional: the API answers 409 if the object has
+   * changed since.
+   */
+  patch<T>(path: string, body: unknown, schema: z.ZodType<T>): Promise<T>;
 }
 
 export type KubeErrorKind = 'refused' | 'invalid' | 'server' | 'malformed';
@@ -34,9 +46,11 @@ export class KubeError extends Error {
   }
 }
 
-type Send = (method: string, path: string, body?: unknown) => Promise<{ status: number; text: string }>;
+type Send = (method: string, path: string, body?: unknown, type?: string) => Promise<{ status: number; text: string }>;
 
-export function client(send: Send): Kube {
+const MERGE_PATCH = 'application/merge-patch+json';
+
+export function client(send: Send): KubeWriter {
   const check = (method: string, path: string, { status, text }: { status: number; text: string }) => {
     if (status >= 400) {
       const message = (() => {
@@ -76,17 +90,24 @@ export function client(send: Send): Kube {
       if (answer.status === 404) return;
       check('DELETE', path, answer);
     },
+    async patch<T>(path: string, body: unknown, schema: z.ZodType<T>) {
+      const answer = await send('PATCH', path, body, MERGE_PATCH);
+      check('PATCH', path, answer);
+      const parsed = schema.safeParse(JSON.parse(answer.text));
+      if (!parsed.success) throw new KubeError(0, `PATCH ${path} answered with something else`);
+      return parsed.data;
+    },
   };
 }
 
 /** The API from inside the cluster, as the pod's service account, or through `kubectl proxy` on a host. */
-export function kubeFrom(env = process.env): Kube {
+export function kubeFrom(env = process.env): KubeWriter {
   if (env.KUBE_API_URL) {
     const base = env.KUBE_API_URL.replace(/\/$/, '');
-    return client(async (method, path, body) => {
+    return client(async (method, path, body, type = 'application/json') => {
       const response = await fetch(`${base}${path}`, {
         method,
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': type },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.timeout(30_000),
       });
@@ -124,7 +145,7 @@ export function accountSend({
   token: () => string;
   request?: typeof httpsRequest;
 }): Send {
-  return (method, path, body) =>
+  return (method, path, body, type = 'application/json') =>
     new Promise((resolve, reject) => {
       const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
       const req = request(
@@ -136,7 +157,7 @@ export function accountSend({
           ...(ca && { ca }),
           headers: {
             authorization: `Bearer ${token()}`,
-            ...(payload && { 'content-type': 'application/json', 'content-length': payload.length }),
+            ...(payload && { 'content-type': type, 'content-length': payload.length }),
           },
           timeout: 30_000,
         },

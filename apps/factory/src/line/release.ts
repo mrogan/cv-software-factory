@@ -9,10 +9,12 @@
  *   work item no release has carried whose fix is already in it. A commit GitHub never had (a dry run's) is in neither.
  * - for each step, each version's figures from Prometheus, and how many of the journeys' checks passed of how many ran,
  *   from the Job's termination message; for a rollback, the series of each failed measure.
- * - for an abort, who made it: Stop the line, which records the line's stop and then aborts every release in flight,
- *   when the line's last word before the abort is that it stopped, within the minute before; otherwise Martin, by
- *   hand. Argo Rollouts keeps the abort's time to the second, cut short, so a stop recorded within the second after
- *   it counts as before it.
+ * - for an abort, who made it: Martin, when he aborted this release from the console, whose control
+ *   (`release.controlled`, appended by one of his roles just before its patch) is within the minute before the abort;
+ *   otherwise Stop the line, which records the line's stop and then aborts every release in flight, when the line's
+ *   last word before the abort is that it stopped, within the minute before; otherwise Martin, by hand with his own
+ *   credentials, the one other way a Rollout is aborted. Argo Rollouts keeps the abort's time to the second, cut
+ *   short, so a control or a stop recorded within the second after it counts as before it.
  *
  * A figure or series it could not read is left out, and the step or rollback recorded without it.
  *
@@ -176,7 +178,8 @@ export class Releases {
     const lastRelease = last?.release;
     const start = needs.start && (await this.#start(needs.start));
     const lastPromoted = needs.start && last?.version;
-    const abortedBy = needs.aborted && o.abortedAt ? await this.#abortedBy(o.abortedAt) : undefined;
+    const aborting = needs.aborted ? namedReleases(o, recorded, lastRelease).current : undefined;
+    const abortedBy = aborting && o.abortedAt ? await this.#abortedBy(o.abortedAt, aborting) : undefined;
     const figures = new Map<string, Figures>();
     for (const run of needs.steps) {
       const hashes = hashesOf(run);
@@ -410,9 +413,19 @@ export class Releases {
     return row && { release: row.release ?? undefined, version: row.version };
   }
 
-  /** Who aborted the Rollout at `at`: Stop the line, if the line had just stopped, or Martin. */
-  async #abortedBy(at: string): Promise<'stop' | 'martin'> {
+  /**
+   * Who aborted a release at `at`: Martin, if his control from the console aborted it; Stop the line, if the line had
+   * just stopped; or else Martin, by hand.
+   */
+  async #abortedBy(at: string, release: string): Promise<'stop' | 'martin'> {
     const { sql } = this.#o;
+    const [control] = await sql<{ seq: string }[]>`
+      select e.seq from events e
+      where e.type = 'release.controlled' and e.payload->>'action' = 'abort' and e.payload->>'release' = ${release}
+        and e.ts < ${at}::timestamptz + interval '1 second' and e.ts >= ${at}::timestamptz - interval '1 minute'
+        and ${fromMartin(sql, 'e')}
+      limit 1`;
+    if (control) return 'martin';
     const [last] = await sql<{ type: string; ts: Date }[]>`
       select e.type, e.ts from events e
       where e.type in ('line.started', 'line.stopped') and e.ts < ${at}::timestamptz + interval '1 second'

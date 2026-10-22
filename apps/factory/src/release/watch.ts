@@ -22,10 +22,11 @@
  *   before Argo Rollouts acted on the abort: the analysis could not judge the canary, and aborted the Rollout itself.
  *   That says neither that the canary was worse nor that anybody stopped it, so it is an end of its own, with the run's
  *   words and the measures it could not take, and no signal.
- * - **It is aborted** when the Rollout is aborted and no run of the release has failed or erred: Martin aborted it, by
- *   stopping the line (`make stop-the-line`) or by hand. His abort terminates the runs, which fails none (and a
- *   terminated step run is no step). To Argo Rollouts both are the same patch of the Rollout's status, so who aborted
- *   it is the line's to say, from whether the line was stopped then (`Facts.abortedBy`). His abort within the minute
+ * - **It is aborted** when the Rollout is aborted and no run of the release has failed or erred: Martin aborted it,
+ *   from the console's Canary panel, by stopping the line (`make stop-the-line`) or by hand. His abort terminates the
+ *   runs, which fails none (and a terminated step run is no step). To Argo Rollouts each is the same patch of the
+ *   Rollout's status, so who aborted it is the line's to say (`Facts.abortedBy`), from his control's own event
+ *   (`release.controlled`), or else from whether the line was stopped then. His abort within the minute
  *   after a run ended in Error, before Argo Rollouts acted on the Error, reads as the Error's: the time is all the
  *   Rollout keeps of either.
  * - **Retried after a rollback, an Error or an abort**, a release starts again, under the same name (a retry keeps the
@@ -412,7 +413,10 @@ export interface Facts {
   lastPromoted?: string;
   /** The release the line recorded promoted last, dry runs aside, by its name (`namedReleases`). */
   lastRelease?: string;
-  /** Who aborted the Rollout, when it is aborted: Stop the line, if the line was stopped then, or Martin. */
+  /**
+   * Who aborted the Rollout, when it is aborted: Martin, from the console, as his control recorded; Stop the line, if
+   * the line was stopped then; or Martin, by hand.
+   */
   abortedBy?: PayloadOf<'release.aborted'>['by'];
 }
 

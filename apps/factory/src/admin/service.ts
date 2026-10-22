@@ -4,8 +4,10 @@ import type { AddressInfo } from 'node:net';
 import { connect } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { log } from '../log.ts';
+import { type KubeWriter, kubeFrom } from '../runners/kube.ts';
 import { createAdminApp } from './app.ts';
 import type { AdminConfig } from './config.ts';
+import { ReleaseControls } from './rollout.ts';
 import { AdminStore } from './store.ts';
 import { FullEvents, RECHECK_MS } from './stream.ts';
 
@@ -22,18 +24,24 @@ export async function startAdmin(
     sql = connect(process.env.DATABASE_URL),
     port = config.port,
     recheckMs = RECHECK_MS,
-  }: { sql?: Sql; port?: number; recheckMs?: number } = {},
+    kube,
+  }: { sql?: Sql; port?: number; recheckMs?: number; kube?: KubeWriter } = {},
 ): Promise<AdminService> {
   const store = new AdminStore(sql);
   const events = new FullEvents(sql, store, log, recheckMs);
   await events.start();
-  const server = createServer(createAdminApp({ config, store, events, log }));
+  // The app's Rollout, through the admin service's own service account (or `kubectl proxy` on a host), when it has one.
+  const controls = config.rollout && new ReleaseControls(kube ?? kubeFrom(), config.rollout, sql, log);
+  const server = createServer(createAdminApp({ config, store, events, log, ...(controls && { controls }) }));
   // Slow requests are cut off: nothing here takes long to send.
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
   await new Promise<void>((resolve) => server.listen(port, resolve));
   const bound = (server.address() as AddressInfo).port;
-  log.info({ port: bound, origin: config.origin, rpId: config.rpId }, `admin service listening on :${bound}`);
+  log.info(
+    { port: bound, origin: config.origin, rpId: config.rpId, rollout: config.rollout ?? null },
+    `admin service listening on :${bound}`,
+  );
 
   const stop = async () => {
     await events.stop();

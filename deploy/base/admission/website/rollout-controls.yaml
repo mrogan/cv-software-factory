@@ -1,0 +1,104 @@
+# The admin service may change the app's Rollout only as the Canary panel's controls do (milestone 7). Its Role
+# (deploy/base/analysis/admin-controls-release.yaml) may get and patch the Rollout and its status, by name; a Role names
+# objects, not fields, so this policy holds each of the admin service's changes to the fields the controls set, the
+# same patches `kubectl argo rollouts` makes:
+#
+#   pause, resume            spec.paused
+#   abort, retry             status.abort, true or false
+#   promote, to a weight     status.currentStepIndex, forward only, and status.pauseConditions and
+#                            status.controllerPause, cleared
+#   promote fully            status.promoteFull, set
+#
+# Anything else in the spec or the status, and the Rollout's labels, annotations, finalizers and owners, must be as they
+# were, and nothing may be made or deleted. So a session stolen from Martin, or a fault in the admin service, can do no
+# more to the app's traffic than his controls can: it cannot change the image, the steps, the analysis or the routing.
+#
+# A ValidatingAdmissionPolicy, Kubernetes's own, rather than a Kyverno policy as the app's routes are (routes.yaml):
+# the API server evaluates it in process, so it holds whether or not Kyverno is up, and needs no webhook. It matches
+# the admin service's service account alone: the line only reads, Argo Rollouts' controller writes the status all the
+# time, and Argo CD writes the spec from the app's repository, and none of them is held here.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: rollout-controls
+  annotations:
+    # With the other admission policies, before anything they guard.
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: [website]
+    resourceRules:
+      - apiGroups: [argoproj.io]
+        apiVersions: ["*"]
+        operations: ["*"]
+        resources: [rollouts, rollouts/status]
+  matchConditions:
+    - name: admin-service
+      expression: request.userInfo.username == 'system:serviceaccount:factory:admin'
+  variables:
+    # The fields of the spec and of the status that the controls set; every other must be as it was.
+    - name: spec
+      expression: "['paused']"
+    - name: status
+      expression: "['abort', 'currentStepIndex', 'pauseConditions', 'controllerPause', 'promoteFull']"
+  validations:
+    - expression: request.operation == 'UPDATE'
+      message: the admin service may only patch the app's Rollout, never make or delete one
+    - expression: >-
+        object.spec.all(k, k in variables.spec || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
+        oldObject.spec.all(k, k in variables.spec || k in object.spec)
+      message: the admin service may change only spec.paused of the app's Rollout
+    - expression: >-
+        (!has(object.status) && !has(oldObject.status)) ||
+        (has(object.status) && has(oldObject.status) &&
+          object.status.all(k, k in variables.status ||
+            (k in oldObject.status && object.status[k] == oldObject.status[k])) &&
+          oldObject.status.all(k, k in variables.status || k in object.status))
+      message: >-
+        the admin service may change only status.abort, status.currentStepIndex, status.pauseConditions,
+        status.controllerPause and status.promoteFull of the app's Rollout
+    - expression: >-
+        !has(object.status) || !has(object.status.currentStepIndex) ||
+        ((!has(oldObject.status) || !has(oldObject.status.currentStepIndex) ||
+          object.status.currentStepIndex >= oldObject.status.currentStepIndex) &&
+         object.status.currentStepIndex <= (has(object.spec.strategy.canary) && has(object.spec.strategy.canary.steps) ?
+           size(object.spec.strategy.canary.steps) : 0))
+      message: the admin service may move the canary forward only, to a step it has, or past the last
+    - expression: >-
+        !has(object.status) || !has(object.status.pauseConditions) || size(object.status.pauseConditions) == 0 ||
+        (has(oldObject.status) && has(oldObject.status.pauseConditions) &&
+          object.status.pauseConditions == oldObject.status.pauseConditions)
+      message: the admin service may clear the canary's pauses, never add one
+    - expression: >-
+        !has(object.status) || !has(object.status.controllerPause) || !object.status.controllerPause ||
+        (has(oldObject.status) && has(oldObject.status.controllerPause) && oldObject.status.controllerPause)
+      message: the admin service may clear the controller's pause, never set it
+    - expression: >-
+        !has(object.status) || !has(object.status.promoteFull) || object.status.promoteFull ||
+        !has(oldObject.status) || !has(oldObject.status.promoteFull) || !oldObject.status.promoteFull
+      message: the admin service may promote the canary fully, never take a full promotion back
+    - expression: >-
+        (has(object.metadata.labels) ? object.metadata.labels : {}) ==
+          (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) &&
+        (has(object.metadata.annotations) ? object.metadata.annotations : {}) ==
+          (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}) &&
+        (has(object.metadata.finalizers) ? object.metadata.finalizers : []) ==
+          (has(oldObject.metadata.finalizers) ? oldObject.metadata.finalizers : []) &&
+        (has(object.metadata.ownerReferences) ? object.metadata.ownerReferences : []) ==
+          (has(oldObject.metadata.ownerReferences) ? oldObject.metadata.ownerReferences : [])
+      message: the admin service may not change the app's Rollout's labels, annotations, finalizers or owners
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: rollout-controls
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  policyName: rollout-controls
+  validationActions: [Deny]

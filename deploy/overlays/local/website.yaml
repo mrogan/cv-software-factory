@@ -21,13 +21,20 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: website
-  # Argo Rollouts sets the traffic split's weights at each step of a release. They are its to set: Argo CD neither
-  # reports them as drift nor puts them back, even when it syncs something else mid-release.
+  # Argo Rollouts sets the traffic split's weights at each step of a release, and Martin pauses a canary. They are
+  # theirs to set: Argo CD neither reports them as drift nor puts them back, even when it syncs something else
+  # mid-release.
   ignoreDifferences:
     - group: traefik.io
       kind: TraefikService
       jqPathExpressions:
         - .spec.weighted.services[].weight
+    # Martin pauses a canary from the console (the admin service, deploy/base/analysis/admin-controls-release.yaml),
+    # which sets the Rollout's `spec.paused`: it is his to set, and self-healing must not resume the canary.
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/paused
   syncPolicy:
     automated:
       prune: true

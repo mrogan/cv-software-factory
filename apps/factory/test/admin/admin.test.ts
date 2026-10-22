@@ -12,6 +12,7 @@
  * - forwarded headers from anywhere but the proxy are ignored.
  */
 import type { AddressInfo } from 'node:net';
+import { type NewEvent, VERSIONS } from '@software-factory/events';
 import postgres, { type Sql } from 'postgres';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
@@ -33,6 +34,9 @@ import { refuseWrite } from '../../src/admin/guard.ts';
 import { sha256, tokenOf } from '../../src/admin/secrets.ts';
 import { type AdminService, startAdmin } from '../../src/admin/service.ts';
 import type { Session } from '../../src/admin/store.ts';
+import { appendMartins } from '../../src/admin/store.ts';
+import { KubeError, type KubeWriter } from '../../src/runners/kube.ts';
+import { CANARY, commitOf, digestOf, type RolloutState, releaseOf, rollout, STABLE } from '../release/fixtures.ts';
 import { Authenticator, type Ceremony } from './authenticator.ts';
 
 const ORIGIN = 'https://console.localhost:8443';
@@ -56,10 +60,10 @@ const as = (username: string, password: string): Sql => {
   });
 };
 
-const start = async (config: Partial<AdminConfig> = {}) => {
+const start = async (config: Partial<AdminConfig> = {}, kube?: KubeWriter) => {
   service = await startAdmin(
     { origin: ORIGIN, rpId: RP_ID, trusted: proxies(''), port: 0, ...config },
-    { sql: as('factory_admin', PASSWORDS.admin), port: 0, recheckMs: 100 },
+    { sql: as('factory_admin', PASSWORDS.admin), port: 0, recheckMs: 100, ...(kube && { kube }) },
   );
   base = `http://127.0.0.1:${(service.server.address() as AddressInfo).port}`;
 };
@@ -483,6 +487,12 @@ const WRITES: [string, Body][] = [
   ['/admin/step-up/options', {}],
   ['/admin/step-up', {}],
   ['/admin/passkeys/whichever-passkey/revoke', {}],
+  ['/admin/release/promote', { release: 'whichever-1' }],
+  ['/admin/release/promote', { release: 'whichever-1', fully: true }],
+  ['/admin/release/pause', { release: 'whichever-1' }],
+  ['/admin/release/resume', { release: 'whichever-1' }],
+  ['/admin/release/abort', { release: 'whichever-1' }],
+  ['/admin/release/retry', { release: 'whichever-1' }],
 ];
 
 describe('every write route', () => {
@@ -705,6 +715,281 @@ describe('the full-event stream', () => {
     await other.read('admin.signed-in');
     await enrol(db.enrol, { revokeOthers: true });
     expect(await other.closed()).toContain('"why":"ended"');
+  });
+});
+
+/**
+ * The app's Rollout, as Kubernetes keeps it for the admin service: read, and merge-patched, each patch conditional on
+ * the `resourceVersion` it names, as the API server makes it.
+ */
+class RolloutKube implements KubeWriter {
+  object: Record<string, unknown>;
+  version = 1;
+  readonly patches: { path: string; body: Record<string, unknown> }[] = [];
+  /** Answers the next patches with these statuses, in turn, as the API server would. */
+  readonly failing: number[] = [];
+
+  constructor(state: RolloutState, paused = false) {
+    const r = rollout(state);
+    this.object = { ...r, spec: { ...r.spec, paused } };
+  }
+
+  async get<T>(_path: string, schema: { parse(v: unknown): T }): Promise<T> {
+    const object = this.object as { metadata: object };
+    return schema.parse({ ...object, metadata: { ...object.metadata, resourceVersion: String(this.version) } });
+  }
+
+  async patch<T>(path: string, body: unknown, schema: { parse(v: unknown): T }): Promise<T> {
+    const status = this.failing.shift();
+    if (status) throw new KubeError(status, `PATCH ${path} answered ${status}`);
+    const { metadata, ...rest } = body as { metadata?: { resourceVersion?: string } };
+    if (metadata?.resourceVersion && metadata.resourceVersion !== String(this.version)) {
+      throw new KubeError(409, 'the object has been modified');
+    }
+    this.patches.push({ path, body: rest });
+    this.object = merged(this.object, rest) as Record<string, unknown>;
+    this.version += 1;
+    return this.get(path, schema);
+  }
+
+  text = async () => undefined;
+  create = async () => {};
+  remove = async () => {};
+}
+
+/** A JSON merge patch (RFC 7386). */
+function merged(target: unknown, patch: unknown): unknown {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return patch;
+  const out: Record<string, unknown> =
+    target && typeof target === 'object' && !Array.isArray(target) ? { ...(target as object) } : {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) delete out[key];
+    else out[key] = merged(out[key], value);
+  }
+  return out;
+}
+
+describe('the release controls', () => {
+  const ROLLOUT = { namespace: 'website', name: 'website' };
+  const at = (n: number) => new Date(Date.now() - n * 1000).toISOString();
+  // Events are append-only, so each test's release is a release of its own: the canary at a revision of its own.
+  let revision = 20;
+  let RELEASE = releaseOf(CANARY, revision);
+
+  /** Appends events as a role, as the line or Martin's command line would. */
+  const append = (sql: Sql, events: { type: string; payload: object; actor?: string }[]) =>
+    sql.begin((tx) =>
+      appendMartins(
+        sql,
+        tx,
+        events.map(({ type, payload, actor = 'rollouts' }) => ({
+          id: crypto.randomUUID(),
+          ts: new Date().toISOString(),
+          work_item: null,
+          type,
+          version: VERSIONS[type as keyof typeof VERSIONS],
+          actor,
+          summary: `${type} for the test`,
+          payload,
+          artifacts: [],
+        })) as NewEvent[],
+      ),
+    );
+
+  const started = () => ({
+    type: 'release.started',
+    payload: {
+      release: RELEASE,
+      version: commitOf(CANARY),
+      previous: commitOf(STABLE),
+      image: { digest: digestOf(CANARY), signed: true, admitted: true },
+      watched: true,
+      steps: null,
+      dryRun: false,
+    },
+  });
+  const ended = (type: 'release.aborted' | 'release.rolled-back') => ({
+    type,
+    payload:
+      type === 'release.aborted'
+        ? { release: RELEASE, version: commitOf(CANARY), restored: commitOf(STABLE), abortedAt: at(30), by: 'stop' }
+        : {
+            release: RELEASE,
+            version: commitOf(CANARY),
+            restored: commitOf(STABLE),
+            weight: 25,
+            reason: 'Metric "errors" assessed Failed',
+            failed: [],
+            dryRun: false,
+          },
+  });
+
+  /**
+   * The service, with the app's Rollout in this state, at a revision of its own, and the line's record of its release:
+   * its start, then each end given, or nothing.
+   */
+  const withRollout = async (
+    state: Omit<RolloutState, 'revision'>,
+    {
+      paused = false,
+      ends = [],
+      recorded = true,
+    }: { paused?: boolean; ends?: Parameters<typeof ended>[0][]; recorded?: boolean } = {},
+  ) => {
+    revision += 1;
+    RELEASE = releaseOf(CANARY, revision);
+    if (recorded) await append(db.as.line, [started(), ...ends.map(ended)]);
+    const kube = new RolloutKube({ ...state, revision }, paused);
+    await service.stop();
+    await start({ rollout: ROLLOUT }, kube);
+    return kube;
+  };
+
+  const controls = async () =>
+    db.owner<{ actor: string; appended_by: string; summary: string; payload: Body; public: Body }[]>`
+      select actor, appended_by, summary, payload, public from events where type = 'release.controlled'
+      order by seq`;
+
+  it('pauses, resumes and aborts, each recorded as Martin’s, with nothing of his session in the public view', async () => {
+    const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    const { browser } = await signedIn();
+    const before = (await controls()).length;
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
+      status: 200,
+      body: { action: 'pause', release: RELEASE, weight: 25 },
+    });
+    expect(await browser.post('/admin/release/resume', { release: RELEASE })).toMatchObject({ status: 200 });
+    expect(await browser.post('/admin/release/abort', { release: RELEASE })).toMatchObject({ status: 200 });
+    expect(kube.patches).toEqual([
+      { path: '/apis/argoproj.io/v1alpha1/namespaces/website/rollouts/website', body: { spec: { paused: true } } },
+      { path: '/apis/argoproj.io/v1alpha1/namespaces/website/rollouts/website', body: { spec: { paused: false } } },
+      {
+        path: '/apis/argoproj.io/v1alpha1/namespaces/website/rollouts/website/status',
+        body: { status: { abort: true } },
+      },
+    ]);
+    const recorded = (await controls()).slice(before);
+    expect(recorded.map((c) => [c.payload.action, c.actor, c.appended_by])).toEqual([
+      ['pause', 'martin', 'factory_admin'],
+      ['resume', 'martin', 'factory_admin'],
+      ['abort', 'martin', 'factory_admin'],
+    ]);
+    expect(recorded[0]).toMatchObject({
+      summary: `Martin paused the canary of ${commitOf(CANARY).slice(0, 7)} at 25%`,
+      payload: { release: RELEASE, version: commitOf(CANARY), weight: 25 },
+    });
+    expect(recorded[0]?.public).toMatchObject({ summary: recorded[0]?.summary, payload: recorded[0]?.payload });
+  });
+
+  it('asks for the passkey again to promote, to the next step’s weight or fully', async () => {
+    const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { paused: true });
+    const { browser, passkey } = await signedIn();
+    for (const body of [{ release: RELEASE }, { release: RELEASE, fully: true }]) {
+      expect(await browser.post('/admin/release/promote', body)).toMatchObject({
+        status: 403,
+        body: { refused: 'step-up' },
+      });
+    }
+    expect(kube.patches).toEqual([]);
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect(await browser.post('/admin/release/promote', { release: RELEASE })).toMatchObject({
+      status: 200,
+      body: { action: 'promote', weight: 25, to: 50 },
+    });
+    // Moved on to the next step that sets a weight, its pauses cleared, and resumed: it was paused.
+    expect(kube.patches.map((p) => p.body)).toEqual([
+      { status: { pauseConditions: null, controllerPause: false, currentStepIndex: 3 } },
+      { spec: { paused: false } },
+    ]);
+    expect(await browser.post('/admin/release/promote', { release: RELEASE, fully: true })).toMatchObject({
+      status: 200,
+      body: { action: 'promote-fully', to: 100 },
+    });
+    expect(kube.patches.at(-1)?.body).toEqual({ status: { promoteFull: true } });
+    expect((await controls()).slice(-2).map((c) => c.payload)).toEqual([
+      { action: 'promote', release: RELEASE, version: commitOf(CANARY), weight: 25, to: 50 },
+      { action: 'promote-fully', release: RELEASE, version: commitOf(CANARY), weight: 25, to: 100 },
+    ]);
+  });
+
+  it('retries a stopped release with the passkey again, never while the line is stopped or after a rollback', async () => {
+    const stopped = { current: CANARY, stable: STABLE, stepIndex: 0, abort: true };
+    let kube = await withRollout(stopped, { ends: ['release.aborted'] });
+    const { browser, passkey } = await signedIn();
+    expect(await browser.post('/admin/release/retry', { release: RELEASE })).toMatchObject({
+      status: 403,
+      body: { refused: 'step-up' },
+    });
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    await append(db.operator, [
+      { type: 'line.stopped', payload: { reason: 'Martin stopped the line' }, actor: 'martin' },
+    ]);
+    expect(await browser.post('/admin/release/retry', { release: RELEASE })).toMatchObject({
+      status: 409,
+      body: { refused: 'line', message: 'Start the line first: a stopped line starts no canary.' },
+    });
+    await append(db.operator, [{ type: 'line.started', payload: { autonomy: 'supervised' }, actor: 'martin' }]);
+    expect(await browser.post('/admin/release/retry', { release: RELEASE })).toMatchObject({
+      status: 200,
+      body: { action: 'retry', weight: 0 },
+    });
+    expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: false } }]);
+
+    kube = await withRollout(stopped, { ends: ['release.rolled-back'] });
+    expect(await browser.post('/admin/release/retry', { release: RELEASE })).toMatchObject({
+      status: 409,
+      body: { refused: 'release' },
+    });
+    expect(kube.patches).toEqual([]);
+  });
+
+  it('refuses a release that is not the one in the Rollout, or not recorded, and a control its state does not take', async () => {
+    const before = (await controls()).length;
+    let kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    const { browser } = await signedIn();
+    expect(await browser.post('/admin/release/abort', { release: releaseOf(STABLE) })).toMatchObject({
+      status: 409,
+      body: { refused: 'release' },
+    });
+    expect(await browser.post('/admin/release/resume', { release: RELEASE })).toMatchObject({
+      status: 409,
+      body: { refused: 'release', message: 'The canary is not paused.' },
+    });
+    expect(await browser.post('/admin/release/abort', { release: '../x' })).toMatchObject({
+      status: 400,
+      body: { refused: 'body' },
+    });
+    kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { recorded: false });
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
+      status: 409,
+      body: { refused: 'release' },
+    });
+    expect(kube.patches).toEqual([]);
+    expect(await controls()).toHaveLength(before);
+  });
+
+  it('records nothing when Kubernetes refuses the patch, and reads again when the Rollout changed meanwhile', async () => {
+    const before = (await controls()).length;
+    const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    const { browser } = await signedIn();
+    kube.failing.push(422);
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
+      status: 502,
+      body: { refused: 'kubernetes' },
+    });
+    expect(await controls()).toHaveLength(before);
+    kube.failing.push(409);
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({ status: 200 });
+    expect(kube.patches).toHaveLength(1);
+    expect(await controls()).toHaveLength(before + 1);
+  });
+
+  it('refuses every control when the admin service has no Rollout', async () => {
+    const { browser } = await signedIn();
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
+      status: 503,
+      body: { refused: 'rollout' },
+    });
   });
 });
 

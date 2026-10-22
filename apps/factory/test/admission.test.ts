@@ -185,12 +185,14 @@ describe('admission control', () => {
 
   it('refuses in every guarded namespace: nothing in deploy/ switches a copy to Audit', async () => {
     expect((await policy()).spec.validationActions).toEqual(['Deny']);
-    // Only each policy sets its own mode: the images policy, and the app's routes' (admin-fences.test.ts), which denies
-    // too. The `try-the-line` skill switches `factory-images` to Audit on the cluster for a run, and Argo CD puts it
-    // back; no manifest here does. Nothing switches `website-images`, `scoreboard-images` or `website-routes`.
+    // Only each policy sets its own mode: the images policy, the app's routes' (admin-fences.test.ts) and the
+    // admin service's hold on the app's Rollout (release-fences.test.ts), which deny too. The `try-the-line` skill
+    // switches `factory-images` to Audit on the cluster for a run, and Argo CD puts it back; no manifest here does.
+    // Nothing switches `website-images`, `scoreboard-images`, `website-routes` or `website-rollout-controls`.
     const policies = [
       join('base', 'admission', 'images', 'policy.yaml'),
       join('base', 'admission', 'website', 'routes.yaml'),
+      join('base', 'admission', 'website', 'rollout-controls.yaml'),
     ];
     const files = (await readdir(DEPLOY, { recursive: true })).filter(
       (f) => /\.ya?ml$/.test(f) && !policies.includes(f),

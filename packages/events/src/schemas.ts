@@ -897,6 +897,32 @@ export const PAYLOADS = {
    * revokes every passkey and ends every session. Its name is Martin's alone, as above.
    */
   'passkey.revoked': z.strictObject({ passkey: passkeyName.optional(), from: z.enum(['console', 'command-line']) }),
+  /**
+   * Martin controlled the canary from the console, and the admin service made the change to the app's Rollout: promoted
+   * it to the next step's weight or fully, paused it, gave it back to its analysis, aborted it, or retried a release
+   * that was stopped. Appended once the change is made, never for one that failed. The line goes on recording what the
+   * Rollout then does: after his abort, `release.aborted` with `by: martin`.
+   */
+  'release.controlled': z
+    .strictObject({
+      action: z.enum(V.RELEASE_CONTROLS),
+      /** The release he acted on, as the line names it. */
+      release: releaseId,
+      /** Its version: the canary's. */
+      version: appVersion,
+      /** The canary's weight when he acted: 0 for a release that was stopped. */
+      weight: z.number().int().min(0).max(100),
+      /** For a promotion, the weight it goes to: the next step's, or 100 for all of the traffic. */
+      to: z.number().int().min(1).max(100).optional(),
+    })
+    .refine((c) => (c.to !== undefined) === (c.action === 'promote' || c.action === 'promote-fully'), {
+      message: 'a promotion says the weight it goes to, and nothing else does',
+      path: ['to'],
+    })
+    .refine((c) => c.action !== 'promote-fully' || c.to === 100, {
+      message: 'promoting fully sends the canary all of the traffic',
+      path: ['to'],
+    }),
 } satisfies { [K in EventType]: z.ZodType };
 
 /** The envelope of an event about to be appended: everything but `seq` and `public`, which the store adds. */

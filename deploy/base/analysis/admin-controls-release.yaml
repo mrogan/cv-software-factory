@@ -1,0 +1,45 @@
+# The admin service controls the app's release (milestone 7): Martin's Promote, Pause, Resume, Abort and Retry on the
+# console's Canary panel. It is the one service of ours that may change the Rollout, with a service account of its own
+# and this Role: get the app's Rollout, and patch it and its status, by name, and nothing else in any namespace. A Role
+# names objects, not fields, so an admission policy holds each patch to the fields those controls set
+# (deploy/base/admission/website/rollout-controls.yaml). Nothing may make or delete a Rollout, and the analysis's
+# rollback stays its own: there is no control for one.
+#
+# The service account is the admin service's own, made here with what it may do; its Deployment takes it, with its
+# token mounted, once the image that reads RELEASE_ROLLOUT is pinned.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin
+  namespace: factory
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: admin-controls-release
+  namespace: website
+rules:
+  # Read, to act on the release that is there now, and patch: `spec.paused` to pause and resume.
+  - apiGroups: [argoproj.io]
+    resources: [rollouts]
+    resourceNames: [website]
+    verbs: [get, patch]
+  # Abort, retry and promote are the status's: `status.abort`, the step and the pauses, and a full promotion.
+  - apiGroups: [argoproj.io]
+    resources: [rollouts/status]
+    resourceNames: [website]
+    verbs: [patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: admin-controls-release
+  namespace: website
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: admin-controls-release
+subjects:
+  - kind: ServiceAccount
+    name: admin
+    namespace: factory

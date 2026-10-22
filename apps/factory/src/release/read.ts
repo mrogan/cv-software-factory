@@ -14,6 +14,7 @@ import type { Prometheus } from '../clients/prometheus.ts';
 import { comparisonIn, type Regression } from '../gates/journeys.ts';
 import type { Kube } from '../runners/kube.ts';
 import { routeQueries, versionQueries } from './analysis.ts';
+import type { RolloutRef } from './rollout-ref.ts';
 
 const condition = z.object({
   type: z.string(),
@@ -32,6 +33,8 @@ export const rolloutSchema = z.object({
     annotations: z.record(z.string(), z.string()).default({}),
   }),
   spec: z.object({
+    /** Set while Martin has paused the canary from the console (the admin service): it holds its weight. */
+    paused: z.boolean().optional(),
     template: z.object({
       spec: z.object({ containers: z.array(z.object({ name: z.string(), image: z.string() })).min(1) }),
     }),
@@ -132,11 +135,7 @@ export type AnalysisRun = z.infer<typeof analysisRunSchema>;
 
 const analysisRunList = z.object({ items: z.array(analysisRunSchema) });
 
-/** Which Rollout the line watches: the app's, in the namespace its Role reads. */
-export interface RolloutRef {
-  namespace: string;
-  name: string;
-}
+export type { RolloutRef } from './rollout-ref.ts';
 
 /** The Rollout and the AnalysisRuns it owns, or undefined when there is no such Rollout. */
 export async function readRollout(

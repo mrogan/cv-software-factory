@@ -165,12 +165,24 @@ export const ACCESS = {
   'take.widen': admin('Let the line take more work items, or any rather than one', true),
   'take.narrow': admin('Let the line take fewer work items, or just one'),
 
-  // A release in flight.
-  'release.promote': admin("Promote a canary, to the next step's weight or fully", true),
-  'release.pause': admin('Pause a canary'),
-  'release.resume': admin('Give a paused canary back to its analysis'),
-  'release.abort': admin('Abort a canary'),
-  'release.retry': admin('Retry a release that was stopped', true),
+  // A release in flight: the admin service changes the app's Rollout, the one service of ours that may.
+  'release.promote': {
+    ...admin("Promote a canary, to the next step's weight or fully", true),
+    server: 'admin',
+    routes: ['POST /admin/release/promote'],
+  },
+  'release.pause': { ...admin('Pause a canary'), server: 'admin', routes: ['POST /admin/release/pause'] },
+  'release.resume': {
+    ...admin('Give a paused canary back to its analysis'),
+    server: 'admin',
+    routes: ['POST /admin/release/resume'],
+  },
+  'release.abort': { ...admin('Abort a canary'), server: 'admin', routes: ['POST /admin/release/abort'] },
+  'release.retry': {
+    ...admin('Retry a release that was stopped', true),
+    server: 'admin',
+    routes: ['POST /admin/release/retry'],
+  },
 
   // Models and spend, within policy.
   'agent.raise': admin('Give an agent a dearer model, or more effort', true),
