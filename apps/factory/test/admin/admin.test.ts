@@ -377,6 +377,34 @@ describe('enrolment', () => {
     expect(third).toMatchObject({ status: 409, body: { refused: 'passkeys' } });
   });
 
+  it('refuses a code while two passkeys are held before trying it, so it costs none of its tries', async () => {
+    const { browser, passkey } = await signedIn();
+    const phone = await signedIn();
+    const code = await newCode();
+    // The right code, and a wrong one last, which is refused alike, and says nothing of the live code's tries.
+    for (let i = 0; i < ENROLMENT_CODE.tries; i++) {
+      const tried = i < ENROLMENT_CODE.tries - 1 ? code : 'ZZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ';
+      const refusal = await new Browser().post('/admin/enrol/options', { code: tried });
+      expect(refusal).toMatchObject({ status: 409, body: { refused: 'passkeys' } });
+      expect(refusal.body).not.toHaveProperty('left');
+    }
+    expect(
+      await db.owner`select tries from enrolment_codes where code_sha256 = ${sha256(code.replaceAll('-', ''))}`,
+    ).toEqual([{ tries: 0 }]);
+    // One revoked, the same code still has all its tries: a sixth would be refused had any been counted. The service
+    // starts again first, so that its limit on requests from one address, which these tests all share, counts afresh.
+    await service.stop();
+    await start();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await browser.post(`/admin/passkeys/${phone.passkey.credentialId}/revoke`)).status).toBe(200);
+    // A wrong code is the first try counted against it, and says so.
+    expect(await new Browser().post('/admin/enrol/options', { code: 'ZZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ' })).toMatchObject({
+      status: 403,
+      body: { refused: 'code', left: ENROLMENT_CODE.tries - 1 },
+    });
+    expect((await enrolWith(new Browser(), new Authenticator(ORIGIN, RP_ID), code)).status).toBe(200);
+  });
+
   it('refuses a passkey made for another origin or relying party, or without user verification', async () => {
     for (const ceremony of [{ origin: 'https://evil.example' }, { rpId: 'evil.example' }, { verified: false }]) {
       const res = await enrolWith(new Browser(), new Authenticator(ORIGIN, RP_ID), await newCode(), ceremony);
@@ -399,7 +427,19 @@ describe('signing in', () => {
     old.cookie = before;
     expect((await old.get('/admin/session')).status).toBe(401);
     expect((await browser.get('/admin/session')).status).toBe(200);
-    expect((await lastEvents(1))[0]?.type).toBe('admin.signed-in');
+    // The session it ended is recorded as signed out, in the same transaction, as signing out records it.
+    const [now, ended] = await lastEvents(2);
+    expect(ended).toMatchObject({ type: 'admin.signed-out', actor: 'martin', payload: { everywhere: false } });
+    expect(now?.type).toBe('admin.signed-in');
+  });
+
+  it('records no sign-out for a session the browser had that had already ended', async () => {
+    const { browser, passkey } = await signedIn();
+    await expire(browser);
+    expect((await signIn(browser, passkey)).status).toBe(200);
+    const [now, before] = await lastEvents(2);
+    expect(now?.type).toBe('admin.signed-in');
+    expect(before?.type).not.toBe('admin.signed-out');
   });
 
   it('uses each challenge once', async () => {
@@ -531,6 +571,11 @@ describe('the passkey given again', () => {
 
     expect((await stepUp(browser, passkey)).status).toBe(200);
     expect((await browser.get('/admin/session')).body.steppedUp).toBe(true);
+    // Recorded as Martin's, with his passkey's name in the full event and not in the public view.
+    const [stepped] = await lastEvents(1);
+    expect(stepped).toMatchObject({ type: 'admin.stepped-up', actor: 'martin', payload: { passkey: 'Laptop' } });
+    expect(stepped?.public).toMatchObject({ summary: 'Martin gave his passkey again', payload: {} });
+    expect(JSON.stringify(stepped?.public)).not.toContain('Laptop');
     await db.owner`
       update sessions set stepped_up_at = now() - make_interval(mins => ${STEP_UP.minutes + 1})
       where id_sha256 = ${sessionOf(browser)}`;
@@ -549,6 +594,8 @@ describe('the passkey given again', () => {
   it('is only the session’s own passkey, given for its own challenge', async () => {
     const { browser, passkey } = await signedIn();
     const phone = await signedIn();
+    const steppedUp = () => db.owner`select 1 from events where type = 'admin.stepped-up'`;
+    const recorded = (await steppedUp()).length;
     const options = await browser.post('/admin/step-up/options');
     const theirs = phone.passkey.get(options.body as { challenge: string });
     expect((await browser.post('/admin/step-up', { response: theirs })).body.refused).toBe('passkey');
@@ -557,6 +604,7 @@ describe('the passkey given again', () => {
     const crossed = passkey.get(phones.body as { challenge: string });
     expect((await browser.post('/admin/step-up', { response: crossed })).body.refused).toBe('challenge');
     expect((await browser.get('/admin/session')).body.steppedUp).toBe(false);
+    expect(await steppedUp()).toHaveLength(recorded);
   });
 });
 

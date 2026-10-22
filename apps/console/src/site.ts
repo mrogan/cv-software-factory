@@ -48,7 +48,7 @@ export function loadSite(dist = DIST): Site {
     // In development Vite serves the page; this server only answers for events and artifacts.
     const page = {
       type: 'text/plain; charset=utf-8',
-      body: Buffer.from('In development, Vite serves the page on :8080.\n'),
+      body: Buffer.from('In development, Vite serves the page on :5173.\n'),
     };
     return { page, files: new Map() };
   }
