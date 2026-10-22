@@ -11,7 +11,12 @@ import { ENROLMENT_CODE, PASSKEYS, STEP_UP } from '../../../../policy/access.ts'
 import { sha256 } from './secrets.ts';
 
 /** The events the admin service appends, all of them Martin's. */
-export type AdminEvent = 'admin.signed-in' | 'admin.signed-out' | 'passkey.enrolled' | 'passkey.revoked';
+export type AdminEvent =
+  | 'admin.signed-in'
+  | 'admin.signed-out'
+  | 'admin.stepped-up'
+  | 'passkey.enrolled'
+  | 'passkey.revoked';
 
 /** A session that is live: not ended, not expired, and its passkey not revoked. */
 export interface Session {
@@ -173,14 +178,27 @@ export class AdminStore {
     }
   }
 
-  /** Starts a session for a passkey, in a transaction of the caller's, ending the one it replaces if there is one. */
-  async startSession(tx: TransactionSql, passkey: string, hash: string, replaces?: string): Promise<void> {
+  /**
+   * Starts a session for a passkey, in a transaction of the caller's, ending the one it replaces if there is one. Says
+   * whether that one was live, so the caller records its end as signing out does; one already expired, or whose passkey
+   * is revoked, had ended for Martin before.
+   */
+  async startSession(
+    tx: TransactionSql,
+    passkey: string,
+    hash: string,
+    replaces?: string,
+  ): Promise<{ ended: boolean }> {
     await lockSessions(tx);
-    if (replaces) {
-      await tx`update sessions set ended_at = now(), ended_by = 'sign-out'
-               where id_sha256 = ${replaces} and ended_at is null`;
-    }
+    const ended = replaces
+      ? await tx<{ live: boolean }[]>`
+          update sessions s set ended_at = now(), ended_by = 'sign-out'
+          where id_sha256 = ${replaces} and ended_at is null
+          returning s.expires_at > now()
+            and exists (select 1 from passkeys p where p.id = s.passkey and p.revoked_at is null) as live`
+      : [];
     await tx`insert into sessions (id_sha256, passkey) values (${hash}, ${passkey})`;
+    return { ended: ended[0]?.live ?? false };
   }
 
   /** Records a passkey's use: its signature counter, and when. */
