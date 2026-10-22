@@ -75,8 +75,7 @@ describe('keeping the App’s pull requests current', () => {
 
   it('leaves a deploy pull request to the deploy watch, the one writer to its branch', async () => {
     const { github, sent } = repo([
-      { number: 2, login: APP_LOGIN, behind: 1, branch: 'deploy/factory-local' },
-      { number: 3, login: APP_LOGIN, behind: 1, branch: 'deploy/console-local' },
+      { number: 2, login: APP_LOGIN, behind: 1, branch: 'deploy/local' },
       { number: 4, login: APP_LOGIN, behind: 1, branch: 'release-please--branches--main' },
     ]);
     await currentWatch(github, new LiveActions(github), REPO, quiet)();
