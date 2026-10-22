@@ -5,11 +5,11 @@
  *
  *     DATABASE_URL=postgres://factory:…@localhost:5432/factory pnpm migrate
  *
- * Each of the variables in `PASSWORDS`, when set, becomes the password of its role: WRITER_PASSWORD the factory's
- * writer's, CONSOLE_PASSWORD the console's reader's, SCOREBOARD_PASSWORD the scoreboard's writer's, METRICS_PASSWORD
- * the Postgres exporter's reader's, TRIAGE_PASSWORD, LINE_PASSWORD and the like each worker's own, and ADMIN_PASSWORD
- * the admin service's. Martin's command line's and the enrolment's are set by the make targets that use them
- * (`operator.ts`), so no pod holds them. It connects as the database's owner, the only role that may change its schema.
+ * Each of the variables in `PASSWORDS`, when set, becomes the password of its role: CONSOLE_PASSWORD the console's
+ * reader's, SCOREBOARD_PASSWORD the scoreboard's writer's, METRICS_PASSWORD the Postgres exporter's reader's,
+ * TRIAGE_PASSWORD, LINE_PASSWORD and the like each worker's own, and ADMIN_PASSWORD the admin service's. Martin's
+ * command line's and the enrolment's are set by the make targets that use them (`operator.ts`), so no pod holds them.
+ * It connects as the database's owner, the only role that may change its schema.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +46,6 @@ export type Worker = (typeof WORKERS)[number];
 
 /** Each role that logs in, by the name its password goes by here, and the variable that gives it in the cluster. */
 export const PASSWORDS = {
-  writer: { role: 'factory_writer', variable: 'WRITER_PASSWORD' },
   console: { role: 'console_reader', variable: 'CONSOLE_PASSWORD' },
   scoreboard: { role: 'scoreboard_writer', variable: 'SCOREBOARD_PASSWORD' },
   metrics: { role: 'metrics_reader', variable: 'METRICS_PASSWORD' },

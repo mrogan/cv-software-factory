@@ -150,7 +150,7 @@ Each task is its own pull request, in order, each demonstrable.
 - Each worker that uses the store (triage, the line, the gateway, the probes, the crawler, the intake and the log watcher) connects as a role of its own, granted only the tables and columns it uses. The GitHub worker and the traffic generator never connect to the store, and get none. The grants say in one place what each worker may touch, and a test of each role's grants fails if one grows.
 - Every worker may still append events, through a role they are all members of, so task 4's row security names Martin's roles once and refuses every worker's.
 - The roles' passwords come from Secrets `make up` makes and the migrate Job sets, as the scoreboard's do, with a `make` target for a cluster made before.
-- It rolls out in three steps, each a merge and a deploy: the roles, in a migration; each Deployment switched to its own Secret, once the image that migrates them is pinned; then `factory_writer`'s grants on the tables taken away.
+- It rolls out in three steps, each a merge and a deploy: the roles, in a migration; each Deployment switched to its own Secret, once the image that migrates them is pinned; then `factory_writer`'s grants on the tables taken away, and the role with them.
 
 ### 2. Local HTTPS
 
@@ -247,7 +247,7 @@ On the local cluster, on Claude, at Supervised:
 
 ### Part A is done when
 
-- [ ] Every worker uses the store with a role of its own, `factory_writer` has no grant on its tables, and the test of the grants passes.
+- [x] Every worker uses the store with a role of its own, `factory_writer` has no grant on its tables, and the test of the grants passes.
 - [ ] Martin signs in with a passkey on a laptop and a phone, in Safari and Chrome, and no write succeeds without his session: the access tests and the ZAP scan pass.
 - [ ] Every hold in the store is answered from the console, and the line acts on each.
 - [ ] Stop the line, autonomy, the switches, the take settings, the release controls, the models and the caps are each changed from the console, recorded as events, and shown read-only to a visitor.

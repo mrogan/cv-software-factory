@@ -6,7 +6,7 @@
  * Serves `POST /v1/judgements`, `GET /v1/spend` and `GET /health` on PORT (default 8080), and runs until it is
  * stopped. Settings come from the environment (see `gateway/config.ts`): GATEWAY_MODE, TYPESAFE_API_KEY,
  * TYPESAFE_URL, CASSETTES_DIR, CASSETTES_READ and FACTORY_PROFILE, and DATABASE_URL or the PG* variables for the
- * store, which it connects to as the factory's writer.
+ * store, which it connects to as its own role (`factory_gateway`).
  */
 import { configFromEnv } from '../gateway/config.ts';
 

@@ -3,8 +3,10 @@
  * role the password read from stdin, so no pod need hold it, and prints the role to connect as.
  *
  * - `factory_operator` (`as-operator` in the Makefile: `make stop-the-line`, `make start-the-line`, `make samples`). A
- *   store not yet migrated to 0023 has no such role and guards none of Martin's commands, so it prints the writer's,
- *   which may still append them there: `make stop-the-line` stops the line either way.
+ *   store not yet migrated to 0023 has no such role and guards none of Martin's commands, so it prints the owner's
+ *   own, which it connected as: `make stop-the-line` stops the line either way, and the next sync's migrate Job gives
+ *   the store his role. On a store migrated to 0023 whose role cannot append, it fails: a command the owner appended
+ *   there is one the factory ignores.
  * - `factory_enrol` (`make enrol`). A store not yet migrated to 0025 cannot record what the enrolment revokes, so it
  *   fails: there is no other role to enrol with.
  *
@@ -37,9 +39,18 @@ export async function readyRole(sql: Sql, role: MartinsRole, password: string): 
   return true;
 }
 
-/** Gives Martin's role this password, as the owner, and says which role to connect as. */
-export async function readyOperator(sql: Sql, password: string): Promise<'factory_operator' | 'factory_writer'> {
-  return (await readyRole(sql, 'factory_operator', password)) ? 'factory_operator' : 'factory_writer';
+/** Gives Martin's role this password, as the owner, and says which role to connect as: his, or the owner's. */
+export async function readyOperator(sql: Sql, password: string): Promise<string> {
+  if (await readyRole(sql, 'factory_operator', password)) return 'factory_operator';
+  const [store] = await sql<{ migrated: boolean; owner: string }[]>`
+    select exists (select 1 from schema_migrations where version >= 23) as migrated, current_user as owner`;
+  if (!store) throw new Error('The store did not say who it is');
+  if (store.migrated) {
+    throw new Error(
+      "Martin's role cannot append events in this store, which is migrated to give it that: check its grants",
+    );
+  }
+  return store.owner;
 }
 
 if (import.meta.main) {
@@ -50,8 +61,8 @@ if (import.meta.main) {
     const password = (await text(process.stdin)).trim();
     if (role === 'factory_operator') {
       const connectAs = await readyOperator(sql, password);
-      if (connectAs === 'factory_writer') {
-        console.error("This store has no role for Martin yet (migration 0023): connecting as the factory's writer.");
+      if (connectAs !== 'factory_operator') {
+        console.error("This store has no role for Martin yet (migration 0023): connecting as the database's owner.");
       }
       console.log(connectAs);
     } else if (await readyRole(sql, role as MartinsRole, password)) {

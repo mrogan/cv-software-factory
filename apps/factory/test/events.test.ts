@@ -76,7 +76,7 @@ describe('factory events', () => {
   it('refuses samples in a store that holds real events', async () => {
     const real = await freshDatabase('real');
     try {
-      await new EventWriter(real.writer, { kind: 'real', artifacts }).append({
+      await new EventWriter(real.as.triage, { kind: 'real', artifacts }).append({
         id: crypto.randomUUID(),
         ts: new Date().toISOString(),
         work_item: '1',

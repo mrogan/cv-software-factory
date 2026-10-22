@@ -7,10 +7,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DiskArtifacts } from '../src/artifacts.ts';
 import { AppendRefused, EventWriter, listen, readPublic } from '../src/events.ts';
 import { migrate } from '../src/migrate.ts';
+import { readyOperator } from '../src/operator.ts';
 import { type Database, freshDatabase } from './database.ts';
 
 let owner: Sql; // the database's owner, as the migration Job connects
-let writer: Sql;
+let triage: Sql; // a worker's role, which appends events as every worker may
 let reader: Sql;
 let scoreboard: Sql;
 let metrics: Sql;
@@ -19,7 +20,8 @@ const artifacts = new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-')));
 
 beforeAll(async () => {
   database = await freshDatabase('store');
-  ({ owner, writer, reader, scoreboard, metrics } = database);
+  ({ owner, reader, scoreboard, metrics } = database);
+  triage = database.as.triage;
 });
 
 afterAll(() => database?.end());
@@ -64,7 +66,7 @@ function report(item: string): NewEvent<'signal.received'> {
   };
 }
 
-const samples = () => new EventWriter(writer, { kind: 'sample', artifacts });
+const samples = () => new EventWriter(triage, { kind: 'sample', artifacts });
 
 describe('migrations', () => {
   it('apply once: a second run finds nothing to do', async () => {
@@ -93,6 +95,7 @@ describe('migrations', () => {
       { version: 21, name: 'job-token-trace' },
       { version: 22, name: 'worker-roles' },
       { version: 23, name: 'martins-commands' },
+      { version: 24, name: 'drop-writer' },
       { version: 25, name: 'admin-service' },
     ]);
   });
@@ -233,10 +236,12 @@ describe('append-only, by mechanism', () => {
     await expect(owner`truncate events`).rejects.toThrow('append-only, so truncate is refused');
   });
 
-  it('gives the factory’s writer no right to change an event', async () => {
-    await expect(writer`update events set summary = 'rewritten'`).rejects.toThrow('permission denied');
-    await expect(writer`delete from events`).rejects.toThrow('permission denied');
-    await expect(writer`truncate events`).rejects.toThrow('permission denied');
+  it('gives no worker the right to change an event', async () => {
+    for (const [name, sql] of Object.entries(database.as)) {
+      await expect(sql`update events set summary = 'rewritten'`, name).rejects.toThrow('permission denied');
+      await expect(sql`delete from events`, name).rejects.toThrow('permission denied');
+      await expect(sql`truncate events`, name).rejects.toThrow('permission denied');
+    }
   });
 
   it('lets the console read public views and nothing else', async () => {
@@ -304,7 +309,7 @@ describe('append-only, by mechanism', () => {
     // Not the events, or any other table, view or sequence; not another session's query; no role but its own.
     await expect(metrics`select seq from events limit 1`).rejects.toThrow('permission denied');
     await expect(metrics`select count(*) from store`).rejects.toThrow('permission denied');
-    await writer`select 1`;
+    await triage`select 1`;
     const others = await metrics<{ query: string | null }[]>`
       select distinct query from pg_stat_activity where pid <> pg_backend_pid() and usesysid is not null`;
     expect(others).toEqual([{ query: '<insufficient privilege>' }]);
@@ -316,7 +321,7 @@ describe('append-only, by mechanism', () => {
   });
 
   it('never mixes samples with real events', async () => {
-    const real = new EventWriter(writer, { kind: 'real', artifacts });
+    const real = new EventWriter(triage, { kind: 'real', artifacts });
     await expect(real.append(opened(nextItem(), false))).rejects.toThrow(
       'this store holds sample events, so it refuses real ones',
     );
@@ -354,5 +359,24 @@ describe('reading', () => {
     const from = stored[0]?.seq ?? 0;
     const read = await readPublic(reader, from, { limit: 1 });
     expect(read.map(({ event }) => event.seq)).toEqual([from + 1]);
+  });
+});
+
+describe("Martin's command line", () => {
+  // Neither readies his role here, so neither changes its password beside another file's migration (postgres.ts),
+  // which readies it as this file's did.
+  it('connects as the owner on a store not yet migrated to his role, and fails on one migrated without it', async () => {
+    const old = await freshDatabase('before_0023');
+    try {
+      // His role, made by another database on the server, may not append here.
+      await old.owner`revoke insert on events from factory_operator`;
+      await expect(readyOperator(old.owner, 'operator-test')).rejects.toThrow("Martin's role cannot append events");
+      // As a store before 0023 has it.
+      await old.owner`delete from schema_migrations where version >= 23`;
+      const [me] = await old.owner<{ me: string }[]>`select current_user as me`;
+      expect(await readyOperator(old.owner, 'operator-test')).toBe(me?.me);
+    } finally {
+      await old.end();
+    }
   });
 });

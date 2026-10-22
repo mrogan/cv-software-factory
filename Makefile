@@ -21,7 +21,7 @@ LOCAL_CA = $(or $(shell node scripts/local-ca.ts dir),$(error node cannot say wh
 # (packages/store/migrations/0023_martins-commands.sql), and `enrol` for `factory admin enrol`. Its password is in a
 # Secret no pod reads, made here if it is not there, and set on the role here as the database's owner
 # (packages/store/src/operator.ts), so it works on any cluster as soon as it is made. A store not yet migrated has no
-# operator, and the writer appends there; it cannot enrol at all.
+# operator, and the owner appends there; it cannot enrol at all.
 as-martin = $(call secret,factory,postgres-$(1),--from-literal=password="$$(openssl rand -hex 24)") && \
 	{ $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
 	trap 'kill $$forward' EXIT; sleep 2; \
@@ -29,7 +29,8 @@ as-martin = $(call secret,factory,postgres-$(1),--from-literal=password="$$(open
 	export PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory; \
 	role="$$(secret postgres-$(1) | PGUSER=factory PGPASSWORD="$$(secret postgres)" \
 		node packages/store/src/operator.ts factory_$(1))" && \
-	PGUSER="$$role" PGPASSWORD="$$(secret postgres-$${role\#factory_})" $(2); }
+	if [ "$$role" = factory ]; then from=postgres; else from=postgres-$${role\#factory_}; fi && \
+	PGUSER="$$role" PGPASSWORD="$$(secret $$from)" $(2); }
 as-operator = $(call as-martin,operator,$(1))
 
 # $(call secret,namespace,name,data): create a Secret unless it exists.
@@ -55,7 +56,6 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 		--values deploy/argocd/values.yaml --wait --timeout 5m --hide-notes
 	@# Passwords live only in the cluster: made here once, never committed.
 	@$(call secret,factory,postgres,--from-literal=password="$$(openssl rand -hex 24)")
-	@$(call secret,factory,postgres-writer,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-console,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-metrics,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-admin,--from-literal=password="$$(openssl rand -hex 24)")

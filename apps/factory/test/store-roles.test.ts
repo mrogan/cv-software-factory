@@ -40,6 +40,15 @@ describe('the store’s passwords', () => {
     }
   });
 
+  it('include none for the factory’s writer, which is gone (0024), and nothing makes or reads its Secret', async () => {
+    expect(Object.values(PASSWORDS).map((p) => p.role)).not.toContain('factory_writer');
+    for (const { manifest } of await manifests<Job>()) {
+      expect(JSON.stringify(manifest), manifest.metadata?.name).not.toMatch(/postgres-writer|WRITER_PASSWORD/);
+    }
+    const makefile = await readFile(join(DEPLOY, '../Makefile'), 'utf-8');
+    expect(makefile).not.toMatch(/postgres-writer|factory_writer/);
+  });
+
   it('come from a Secret of each worker’s own, optional so a cluster made before them still migrates', async () => {
     const env = await migrateJob();
     for (const worker of WORKERS) {
@@ -75,7 +84,7 @@ describe('each worker that uses the store', () => {
     }
   });
 
-  it('is the only Deployment that reads its Secret, none reads the writer’s, and none names a connection string', async () => {
+  it('is the only Deployment that reads its Secret, and none names a connection string', async () => {
     const secrets = new Set(WORKERS.map((worker) => `postgres-${worker}`));
     for (const { manifest } of (await manifests<Deployment>()).filter((m) => m.manifest.kind === 'Deployment')) {
       const pod = manifest.spec?.template?.spec;
@@ -83,7 +92,6 @@ describe('each worker that uses the store', () => {
         // A connection string would win over PGUSER, and could name any role.
         expect(e.name, manifest.metadata?.name).not.toBe('DATABASE_URL');
         const secret = e.valueFrom?.secretKeyRef?.name;
-        expect(secret, manifest.metadata?.name).not.toBe('postgres-writer');
         if (secret && secrets.has(secret)) expect(secret).toBe(`postgres-${manifest.metadata?.name}`);
       }
     }
@@ -93,10 +101,6 @@ describe('each worker that uses the store', () => {
 describe("Martin's own role", () => {
   it('is what the make targets that append his commands connect as, and no other target or pod', async () => {
     const makefile = await readFile(join(DEPLOY, '../Makefile'), 'utf-8');
-    // The writer's Secret is still made, for the migrate Job; on the host the writer stands in for Martin's role only
-    // on a store not yet migrated to 0023, which has none (operator.ts).
-    expect(makefile).not.toContain('factory_writer');
-    expect(makefile).not.toContain('get secret postgres-writer');
     for (const target of ['samples', 'stop-the-line', 'start-the-line']) {
       const recipe = makefile.match(new RegExp(`^${target}:[^\\n]*\\n((?:\\t[^\\n]*\\n)+)`, 'm'))?.[1] ?? '';
       expect(recipe, target).toContain('$(call as-operator,');

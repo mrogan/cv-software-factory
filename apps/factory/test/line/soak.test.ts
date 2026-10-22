@@ -266,7 +266,7 @@ describe('the spend, as read from the gateway’s audit log', () => {
   });
   afterEach(() => database?.end());
 
-  const call = (workItem: string | null, usd: number, at: string, provider = 'anthropic') => database.writer`
+  const call = (workItem: string | null, usd: number, at: string, provider = 'anthropic') => database.as.gateway`
     insert into model_calls (id, at, agent, work_item, provider, model, question_set, cost_usd, duration_ms, outcome)
     values (${crypto.randomUUID()}, ${at}, 'coder', ${workItem}, ${provider}, 'claude', 'messages', ${usd}, 1000,
             'answered')`;
@@ -278,7 +278,7 @@ describe('the spend, as read from the gateway’s audit log', () => {
     await call('6', 4, at('20:00')); // a work item the soak did not touch
     await call(null, 0.1, at('22:40'), 'typesafe'); // triage, for no work item
     const facts = await soakFacts({
-      sql: database.writer,
+      sql: database.as.line,
       kube: () => {
         throw new Error('No cluster here');
       },

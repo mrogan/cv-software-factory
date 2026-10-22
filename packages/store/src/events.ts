@@ -35,7 +35,7 @@ export interface WriterOptions {
   artifacts: ArtifactStore;
 }
 
-/** The factory's side of the store: it appends, under the writer's role. */
+/** The factory's side of the store: it appends, as whichever role it connects as. */
 export class EventWriter {
   readonly #sql: Sql;
   readonly #options: WriterOptions;

@@ -6,7 +6,7 @@
  * Takes signals from the inbox until it is stopped. Settings come from the environment: GATEWAY_URL (the model
  * gateway), PAGES_URL (the probes' page reader, for a report's screenshot and the page's text; without it a report
  * is judged with neither), ARTIFACTS_DIR (where screenshots are), and DATABASE_URL or the PG* variables for the
- * store, which it connects to as the factory's writer.
+ * store, which it connects to as its own role (`factory_triage`).
  *
  * PROMETHEUS_URL, LOKI_URL and TEMPO_URL are what the senses read besides the app, which triage looks at before it
  * trusts a sense's new problem (`ENVIRONMENT` in policy/triage.ts); the disk is read through Prometheus. Triage looks
