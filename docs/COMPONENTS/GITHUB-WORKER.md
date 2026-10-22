@@ -80,7 +80,7 @@ Three watches act on their own: deploys, releases, and keeping pull requests cur
 
 ### Deploys
 
-`github/deploys.ts`. One open deploy pull request per repository and profile, on its deploy branch, `deploy/local`. It moves each pin file that has a newer build: the app's one; in this repository the console's, the factory's images', or both together.
+`github/deploys.ts`. One open deploy pull request per repository and profile, on its deploy branch, `deploy/local`. It moves each pin file that has a newer build: the app's one; in this repository the console's, the factory images', or both together.
 
 ```mermaid
 flowchart TD

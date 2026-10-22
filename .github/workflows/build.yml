@@ -8,8 +8,8 @@
 #
 # Argo CD deploys only what is in git, so a new image reaches the local cluster through a pull request that pins its
 # digest in deploy/overlays/local. The factory's GitHub worker sees the new image in GHCR and opens that pull request
-# as the factory's App (ADR 0005): one pull request, which moves the console's pin, the factory's images' pin (built
-# together), or both, each to its own newest build.
+# as the factory's App (ADR 0005): one pull request, which moves the console's pin, the pin of the factory images
+# (built together), or both, each to its own newest build.
 name: build
 
 on:
