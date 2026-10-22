@@ -6,11 +6,13 @@ The UI for visitors and admin (spec 5). Part of the [factory plane](README.md#fa
 
 ## The server
 
-The Node server serves:
+The Node server serves, to anyone, and with `GET` or `HEAD` alone:
 
 - the build, by Vite's manifest;
 - the public events, as JSON and as server-sent events resuming from `Last-Event-ID`;
 - the artifacts public events refer to.
+
+Each is a route the access table ([`policy/access.ts`](../../policy/access.ts)) gives the console, which it answers through the table and nothing else: the table is the one list of every route and every action Martin can take, with the role each needs, whether it writes, and whether it needs his passkey again. A test fails when the server answers a route the table does not give it.
 
 ## The browser
 

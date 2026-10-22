@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trace } from '@opentelemetry/api';
 import { type InboxSignal, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
-import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
+import { DiskArtifacts, EventWriter, lineStopped, nextWorkItem } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { Handback } from '../../../runner/src/step.ts';
@@ -21,9 +21,15 @@ import { type Agent, FakeGitHub, FakeProbes, FakeSteps, MAIN } from './fakes.ts'
 const { spans } = recordSpans();
 let database: Database;
 let events: EventWriter;
+/** Martin's commands, from the admin service's role: only his roles may append them. */
+let martin: EventWriter;
 beforeEach(async () => {
   database = await freshDatabase('line');
   events = new EventWriter(database.as.line, {
+    kind: 'real',
+    artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
+  });
+  martin = new EventWriter(database.admin, {
     kind: 'real',
     artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
   });
@@ -494,7 +500,7 @@ describe('the line', () => {
     const before = await types(workItem);
 
     // He sends it back in words, and merges it too, before the line reads GitHub again.
-    await events.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'Name the test' }, 'martin'));
+    await martin.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'Name the test' }, 'martin'));
     github.merge();
     await pass();
     expect((await types(workItem)).slice(before.length)).toEqual(['hold.answered']);
@@ -521,12 +527,46 @@ describe('the line', () => {
     await pass(); // the describer
     await pass(); // the hold for Martin
     expect(github.pulls.get(12)?.draft).toBe(false);
-    await events.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'Name the test' }, 'martin'));
+    await martin.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'Name the test' }, 'martin'));
     await pass();
     expect((await payloads(workItem, 'work.returned')).at(-1)).toMatchObject({ from: 'review', to: 'build' });
     expect(github.acts.map((a) => a.action)).toContain('convertToDraft');
     expect(github.pulls.get(12)?.draft).toBe(true);
     expect(steps.requests.at(-1)).toMatchObject({ agent: 'coder', round: 2 });
+  });
+
+  it('ignores an answer or a stop that says it is Martin’s from any other role, and logs each once', async () => {
+    const workItem = await ticket();
+    const warned: string[] = [];
+    const log = { ...quiet, warn: (_details: object, message: string) => void warned.push(message) } as never;
+    const { pass, steps, github } = line(AGENTS, events, { log });
+    await pass(); // the issue, and the planner
+    await pass(); // the coder
+    github.pass();
+    await pass(); // the gates pass, and the reviewer
+    await pass(); // the describer
+    await pass(); // the hold for Martin
+    const before = await types(workItem);
+    // Were row security on the events ever to fail, the line's own role could append them: it still heeds neither.
+    await database.owner`alter table events disable row level security`;
+    try {
+      await events.append([
+        event(workItem, 'hold.answered', { decision: 'answered', answer: 'Name the test' }, 'martin'),
+        event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin'),
+      ]);
+    } finally {
+      await database.owner`alter table events enable row level security`;
+    }
+    await pass();
+    await pass();
+    expect((await types(workItem)).slice(before.length)).toEqual(['hold.answered']);
+    expect(await stage(workItem)).toBe('held');
+    expect(steps.requests.at(-1)).toMatchObject({ agent: 'describer' });
+    expect(await lineStopped(database.as.line)).toBe(false);
+    expect(warned.filter((message) => message.startsWith('ignored'))).toEqual([
+      "ignored hold.answered: factory_line appended it, and it is not one of Martin's roles",
+      "ignored line.stopped: factory_line appended it, and it is not one of Martin's roles",
+    ]);
   });
 
   it('sends a failing change back to the coder, which resumes its session on a branch that moved on', async () => {
@@ -593,7 +633,7 @@ describe('the line', () => {
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'coder']);
 
     // His answer to a hold of the gates' sends the work back to the coder with his words, as ANSWERS.gates says.
-    await events.append(
+    await martin.append(
       event(workItem, 'hold.answered', { decision: 'answered', answer: 'Fix the total as well' }, 'martin'),
     );
     await pass();
@@ -624,7 +664,7 @@ describe('the line', () => {
       cause: 'nothing-to-fix',
       reason: `The coder found nothing to fix: ${why}`,
     });
-    await events.append(
+    await martin.append(
       event(workItem, 'hold.answered', { decision: 'answered', answer: 'It fails with two quotes' }, 'martin'),
     );
     await pass();
@@ -1079,7 +1119,7 @@ describe('the line', () => {
           : handback({ verdict: 'question', question: 'Should search find sold-out items?', findings: noticed }),
     });
     await pass();
-    await events.append([event(workItem, 'hold.answered', { decision: 'answered', answer: 'Yes.' }, 'martin')]);
+    await martin.append([event(workItem, 'hold.answered', { decision: 'answered', answer: 'Yes.' }, 'martin')]);
     await pass();
     expect(await summaries(workItem, 'spec.written')).toEqual([
       'Spec written: 1 criterion, 2 paths in scope; 2 findings left for triage',
@@ -1105,7 +1145,7 @@ describe('the line', () => {
           : handback({ verdict: 'question', question: 'Should search find sold-out items?' }),
     });
     await pass();
-    await events.append([event(workItem, 'hold.answered', { decision: 'answered', answer: 'Yes.' }, 'martin')]);
+    await martin.append([event(workItem, 'hold.answered', { decision: 'answered', answer: 'Yes.' }, 'martin')]);
     await pass(); // the planner again
     await pass(); // the coder
     github.pass();
@@ -1134,7 +1174,7 @@ describe('the line', () => {
       reason: 'The planner needs an answer to write the spec',
       question: 'Should search find sold-out items?',
     });
-    await events.append([
+    await martin.append([
       event(workItem, 'hold.answered', { decision: 'answered', answer: 'Yes, marked as sold out.' }, 'martin'),
     ]);
     await pass();
@@ -1161,7 +1201,7 @@ describe('the line', () => {
       cause: 'ticket-rejected',
       reason: 'The fix is in the Dockerfile.',
     });
-    await events.append([
+    await martin.append([
       event(workItem, 'hold.answered', { decision: 'answered', answer: 'It is in src/search.ts.' }, 'martin'),
     ]);
     await pass();
@@ -1178,7 +1218,7 @@ describe('the line', () => {
       planner: () => handback({ verdict: 'reject', reason: 'The words are nowhere in the app.' }),
     });
     await pass();
-    await events.append([event(workItem, 'hold.answered', { decision: 'approved' }, 'martin')]);
+    await martin.append([event(workItem, 'hold.answered', { decision: 'approved' }, 'martin')]);
     await pass();
     expect(await types(workItem)).toContain('work-item.closed');
   });
@@ -1238,7 +1278,7 @@ describe('the line', () => {
     expect(github.acts.map((a) => a.action)).toEqual(['openIssue']);
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'coder']);
     // His answer sends it back to the planner, which is told what the fence printed and what he said.
-    await events.append(
+    await martin.append(
       event(workItem, 'hold.answered', { decision: 'answered', answer: 'The server is fine to change' }, 'martin'),
     );
     await pass();
@@ -1436,7 +1476,7 @@ describe('the line', () => {
     } = line({ ...AGENTS, planner: () => (stopped ? (AGENTS.planner?.({} as never) ?? 'fails') : 'works on') });
     await it.tick();
     while (steps.working === 0) await new Promise((resolve) => setTimeout(resolve, 5));
-    await events.append(event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin'));
+    await martin.append(event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin'));
     await it.tick();
     await it.idle();
     expect(steps.working).toBe(0);
@@ -1445,7 +1485,7 @@ describe('the line', () => {
     expect(steps.requests).toHaveLength(1);
 
     stopped = true;
-    await events.append(event(null, 'line.started', { autonomy: 'supervised' }, 'martin'));
+    await martin.append(event(null, 'line.started', { autonomy: 'supervised' }, 'martin'));
     await pass();
     expect(steps.requests.map((r) => r.attempt)).toEqual([1, 2]);
     expect(await types(workItem)).toContain('spec.written');
@@ -1540,10 +1580,10 @@ describe('the line', () => {
     await pass(); // the planner asks
     expect(await stage(workItem)).toBe('held');
     expect((await payloads(workItem, 'hold.started'))[0]).toMatchObject({ kind: 'question', cause: 'question' });
-    await events.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'The home page' }, 'martin'));
+    await martin.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'The home page' }, 'martin'));
     await pass(); // the planner again, which asks again
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'planner']);
-    await events.append(event(workItem, 'hold.answered', { decision: 'rejected' }, 'martin'));
+    await martin.append(event(workItem, 'hold.answered', { decision: 'rejected' }, 'martin'));
     await pass(); // closed, and over
     expect((await payloads(workItem, 'work-item.closed'))[0]).toEqual({
       outcome: 'no-change',
@@ -1817,7 +1857,7 @@ describe('the line', () => {
     expect(await stage(workItem)).toBe('held');
     expect((await payloads(workItem, 'review.submitted'))[1]?.findings).toEqual([{ ...again, holds: 1 }]);
     expect(github.acts.filter((a) => a.action === 'resolveThreads')).toEqual([]);
-    await events.append([event(workItem, 'hold.answered', { decision: 'answered', answer: 'Escape it.' }, 'martin')]);
+    await martin.append([event(workItem, 'hold.answered', { decision: 'answered', answer: 'Escape it.' }, 'martin')]);
     await pass(); // back to the coder
     github.pass();
     await pass(); // the third review answers the second's finding, and with it the first's
@@ -1970,14 +2010,14 @@ describe('the line', () => {
     const slow = Promise.withResolvers<void>();
     github.holdReads = slow.promise;
     await it.tick();
-    await events.append(event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin'));
+    await martin.append(event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin'));
     await it.tick();
     github.holdReads = undefined;
     slow.resolve();
     await it.idle();
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner']);
     expect(await failures(workItem)).toEqual({ failures: 0, failure: null });
-    await events.append(event(null, 'line.started', { autonomy: 'supervised' }, 'martin'));
+    await martin.append(event(null, 'line.started', { autonomy: 'supervised' }, 'martin'));
     await pass();
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
   });

@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import postgres, { type Sql } from 'postgres';
 import type { TestProject } from 'vitest/node';
 import { migrate, type Passwords, PASSWORDS as ROLES, WORKERS, type Worker } from '../src/migrate.ts';
+import { readyOperator } from '../src/operator.ts';
 
 export { WORKERS, type Worker };
 
@@ -15,6 +16,9 @@ export { WORKERS, type Worker };
 export const PASSWORDS = Object.fromEntries(
   Object.keys(ROLES).map((name) => [name, `${name}-test-password`]),
 ) as Required<Record<keyof Passwords, string>>;
+
+/** Roles the migrate Job gives no password, which the tests give one so they can connect as each. */
+const UNSET = { admin: 'factory_admin', enrol: 'factory_enrol' } as const;
 const quiet = { onnotice: () => {}, max: 2 };
 
 export interface Database {
@@ -24,6 +28,11 @@ export interface Database {
   reader: Sql;
   scoreboard: Sql;
   metrics: Sql;
+  /** Martin's roles: his command line's, and the admin service's. */
+  operator: Sql;
+  admin: Sql;
+  /** `factory admin enrol`'s. */
+  enrol: Sql;
   /** A connection as each worker's own role. */
   as: Record<Worker, Sql>;
   end(): Promise<void>;
@@ -146,6 +155,9 @@ export async function createDatabase(server: string, name: string): Promise<Data
     await admin`select pg_advisory_lock(hashtext('test migrations'))`;
     await admin.unsafe(`create database ${database}`);
     await migrate(owner, PASSWORDS);
+    for (const [name, role] of Object.entries(UNSET)) await owner.unsafe(`alter role ${role} password '${name}-test'`);
+    // As `make stop-the-line` gives Martin's role its password.
+    await readyOperator(owner, 'operator-test');
   } finally {
     await admin.end();
   }
@@ -153,6 +165,9 @@ export async function createDatabase(server: string, name: string): Promise<Data
   const reader = as('console_reader', PASSWORDS.console);
   const scoreboard = as('scoreboard_writer', PASSWORDS.scoreboard);
   const metrics = as('metrics_reader', PASSWORDS.metrics);
+  const operator = as('factory_operator', 'operator-test');
+  const service = as(UNSET.admin, 'admin-test');
+  const enrol = as(UNSET.enrol, 'enrol-test');
   const workers = Object.fromEntries(WORKERS.map((w) => [w, as(ROLES[w].role, PASSWORDS[w])])) as Record<Worker, Sql>;
   return {
     name: database,
@@ -161,9 +176,13 @@ export async function createDatabase(server: string, name: string): Promise<Data
     reader,
     scoreboard,
     metrics,
+    operator,
+    admin: service,
+    enrol,
     as: workers,
     end: async () => {
-      await Promise.all([owner, writer, reader, scoreboard, metrics, ...Object.values(workers)].map((c) => c.end()));
+      const all = [owner, writer, reader, scoreboard, metrics, operator, service, enrol, ...Object.values(workers)];
+      await Promise.all(all.map((c) => c.end()));
     },
   };
 }

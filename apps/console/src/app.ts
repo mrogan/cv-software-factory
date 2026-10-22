@@ -1,12 +1,13 @@
 /**
  * The console's HTTP handler: the page and its built files, the events (as JSON and as a stream), the artifacts,
- * `/health` and `/version`.
+ * `/health` and `/version`, each a route `policy/access.ts` gives the console, and nothing else.
  */
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import { pipeline } from 'node:stream';
 import { brotliCompress, constants, gzip } from 'node:zlib';
 import type { ArtifactStore } from '@software-factory/store';
 import { isHash } from '@software-factory/store';
+import { routeOf, type ServedBy } from '../../../policy/access.ts';
 import type { Feed } from './feed.ts';
 import { log } from './log.ts';
 import type { File, Site } from './site.ts';
@@ -68,19 +69,27 @@ export function createApp({ commit, site, feed, artifacts }: AppOptions): Reques
       return;
     }
 
-    if (path === '/health') return send(req, res, 200, 'application/json', '{"status":"ok"}');
-    if (path === '/version') return send(req, res, 200, 'application/json', version);
-    if (path === '/' || path === '/index.html') return serve(req, res, site.page, 'no-cache');
-    if (path === '/api/events') return events(req, res, feed, url);
-    if (path === '/api/events/stream') return stream(feed, req, res, resumeFrom(req, url));
-    if (path.startsWith('/artifacts/'))
-      return void artifact(req, res, feed, artifacts, path.slice('/artifacts/'.length));
-
-    const file = site.files.get(path);
-    if (file) return serve(req, res, file, YEAR);
-    send(req, res, 404, 'text/plain; charset=utf-8', 'Not found. The console lives at /.\n');
+    // Only what the access table gives the console, and every one of those, as a visitor reads it.
+    const route = routeOf('console', req.method ?? 'GET', path);
+    if (!route) return notFound(req, res);
+    const handlers: Record<ServedBy<'console'>, () => void> = {
+      health: () => send(req, res, 200, 'application/json', '{"status":"ok"}'),
+      version: () => send(req, res, 200, 'application/json', version),
+      page: () => serve(req, res, site.page, 'no-cache'),
+      files: () => {
+        const file = site.files.get(path);
+        return file ? serve(req, res, file, YEAR) : notFound(req, res);
+      },
+      events: () => events(req, res, feed, url),
+      stream: () => stream(feed, req, res, resumeFrom(req, url)),
+      artifacts: () => void artifact(req, res, feed, artifacts, route.values.hash ?? ''),
+    };
+    handlers[route.name]();
   };
 }
+
+const notFound = (req: IncomingMessage, res: ServerResponse) =>
+  send(req, res, 404, 'text/plain; charset=utf-8', 'Not found. The console lives at /.\n');
 
 /** The public events after `?after=`, as a JSON array, compressed when the browser accepts it. */
 function events(req: IncomingMessage, res: ServerResponse, feed: Feed, url: URL): void {

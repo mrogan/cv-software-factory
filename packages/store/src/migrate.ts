@@ -7,7 +7,8 @@
  *
  * Each of the variables in `PASSWORDS`, when set, becomes the password of its role: WRITER_PASSWORD the factory's
  * writer's, CONSOLE_PASSWORD the console's reader's, SCOREBOARD_PASSWORD the scoreboard's writer's, METRICS_PASSWORD
- * the Postgres exporter's reader's, and TRIAGE_PASSWORD, LINE_PASSWORD and the like each worker's own. It connects as
+ * the Postgres exporter's reader's, and TRIAGE_PASSWORD, LINE_PASSWORD and the like each worker's own. Martin's own
+ * role's is set by the make targets that use it (`operator.ts`), so no pod holds it. It connects as
  * the database's owner, the only role that may change its schema.
  */
 import { readdirSync, readFileSync } from 'node:fs';

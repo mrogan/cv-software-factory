@@ -61,8 +61,8 @@
  * a host it reads the cluster through KUBE_API_URL (what `kubectl proxy` serves).
  *
  * Every worker checks the line before it takes work, so a stopped line finishes what is in hand and takes nothing
- * new; signals wait in the inbox until it starts again. Connects with DATABASE_URL, or the PG* variables, as the
- * factory's writer.
+ * new; signals wait in the inbox until it starts again. Connects with DATABASE_URL, or the PG* variables, as Martin's
+ * own role (`factory_operator`): only his roles may append his commands, and the workers heed them from no other.
  */
 import { parseArgs } from 'node:util';
 import { AUTONOMY, type Autonomy, type NewEvent, VERSIONS } from '@software-factory/events';

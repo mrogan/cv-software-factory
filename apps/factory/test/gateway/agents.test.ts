@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { NewEvent } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, endJobToken, issueJobToken } from '@software-factory/store';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
@@ -284,22 +285,38 @@ describe('agents through the gateway', () => {
     expect(provider.requests).toHaveLength(2);
   });
 
+  const stop = (): NewEvent => ({
+    id: crypto.randomUUID(),
+    ts: new Date().toISOString(),
+    work_item: null,
+    type: 'line.stopped',
+    version: 1,
+    actor: 'martin',
+    summary: 'The line stopped',
+    payload: { reason: 'testing' },
+    artifacts: [],
+  });
+
   it('refuses every agent call while the line is stopped', async () => {
-    const { token, events } = await start();
-    await events.append({
-      id: crypto.randomUUID(),
-      ts: new Date().toISOString(),
-      work_item: null,
-      type: 'line.stopped',
-      version: 1,
-      actor: 'martin',
-      summary: 'The line stopped',
-      payload: { reason: 'testing' },
-      artifacts: [],
-    });
+    const { token } = await start();
+    // Stopped by one of Martin's roles: the admin service's.
+    await new EventWriter(database.admin, { kind: 'real', artifacts: new DiskArtifacts(cassettesDir) }).append(stop());
     const response = await call(token, agentRequest());
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ error: { message: expect.stringMatching(/line is stopped/) } });
+  });
+
+  it('ignores a stop that says it is Martin’s from any other role, and logs it', async () => {
+    const { token, events } = await start();
+    // Were row security on the events ever to fail, a worker could append one: the gateway still heeds it not.
+    await database.owner`alter table events disable row level security`;
+    try {
+      await events.append(stop());
+    } finally {
+      await database.owner`alter table events enable row level security`;
+    }
+    expect((await call(token, agentRequest())).status).toBe(200);
+    expect(captured.text()).toMatch(/ignored line\.stopped: factory_gateway appended it/);
   });
 
   it('treats spent credit as a cap: it says so once, waits, and clears when the provider answers', async () => {
