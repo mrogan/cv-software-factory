@@ -147,7 +147,7 @@ export interface GitHubPort {
 }
 
 export interface LineOptions {
-  /** As the factory's writer. */
+  /** As the line's role (`factory_line`). */
   sql: Sql;
   events: Pick<EventWriter, 'append'>;
   steps: Steps;

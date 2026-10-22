@@ -83,10 +83,10 @@ flowchart TD
 
 The images go to the artifact store, and the index to Postgres:
 
-| Table | Holds | The writer may |
+| Table | Holds | The probes may |
 |---|---|---|
 | `pictures` | Each page's before, after, share changed, diff and after-rollout shot, by canary and stable version | Add rows, set only the after-rollout shot, and delete them |
-| `looks` | Where each sense's finding was boxed, kept 30 days, which the senses write as they signal | |
+| `looks` | Where each sense's finding was boxed, kept 30 days, which the senses write as they signal | Read every sense's, to box them on their pictures, and add and move only their own |
 
 ### Forgetting them
 

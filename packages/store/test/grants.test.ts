@@ -144,10 +144,14 @@ describe('the grants', () => {
     );
   });
 
-  it('let every worker log in as itself, and nobody as the role they share', async () => {
+  it('let every worker log in as itself, and nobody as the role they share or as the writer', async () => {
     const roles = await db.owner<{ rolname: string; rolcanlogin: boolean }[]>`
-      select rolname, rolcanlogin from pg_roles where rolname like 'factory\\_%' and rolname <> 'factory_writer'`;
-    expect(Object.fromEntries(roles.map((r) => [r.rolname, r.rolcanlogin]))).toEqual({
+      select rolname, rolcanlogin from pg_roles where rolname like 'factory\\_%'`;
+    // 0024 drops the writer, or, where another database on the server still grants it something, leaves it there
+    // unable to log in; the grants above show it holds nothing here.
+    const { factory_writer: writer, ...rest } = Object.fromEntries(roles.map((r) => [r.rolname, r.rolcanlogin]));
+    expect(writer ?? false).toBe(false);
+    expect(rest).toEqual({
       factory_worker: false,
       ...Object.fromEntries(WORKERS.map((w) => [`factory_${w}`, true])),
       factory_admin: true,
@@ -303,28 +307,32 @@ const command = (type: EventType, workItem: string | null = null): NewEvent =>
     version: 1,
     actor: 'martin',
     summary: `${type}, as Martin`,
-    payload:
-      type === 'hold.answered'
-        ? { decision: 'approved' }
-        : type === 'line.stopped'
-          ? { reason: 'Martin stopped the line' }
-          : { autonomy: 'supervised' },
+    payload: PAYLOADS[type] ?? {},
     artifacts: [],
   }) as NewEvent;
+
+/** A payload for each of Martin's commands that has one to give. */
+const PAYLOADS: Partial<Record<EventType, object>> = {
+  'hold.answered': { decision: 'approved' },
+  'line.stopped': { reason: 'Martin stopped the line' },
+  'line.started': { autonomy: 'supervised' },
+  'admin.signed-out': { everywhere: false },
+  'passkey.revoked': { from: 'console' },
+};
 
 const writer = (sql: Sql) => new EventWriter(sql, { kind: 'sample', artifacts });
 
 describe("Martin's commands", () => {
   it('are the same types to the store as to the factory', async () => {
     const rows = await db.owner<{ type: string }[]>`
-      select type from unnest(${[...EVENT_TYPES, 'passkey.enrolled']}::text[]) as type where admin_event(type)`;
+      select type from unnest(${[...EVENT_TYPES, 'not.a-command']}::text[]) as type where admin_event(type)`;
     expect(rows.map((r) => r.type).sort()).toEqual([...ADMIN_TYPES].sort());
   });
 
-  it('are refused from every worker’s role, the writer’s and the scoreboard’s', async () => {
+  it('are refused from every worker’s role and the scoreboard’s', async () => {
     await writer(db.operator).append(opened('3200'));
     for (const type of ADMIN_TYPES) {
-      for (const [name, sql] of [...Object.entries(db.as), ['writer', db.writer], ['scoreboard', db.scoreboard]]) {
+      for (const [name, sql] of [...Object.entries(db.as), ['scoreboard', db.scoreboard]]) {
         // The scoreboard's own trigger (0012) refuses it first.
         await expect(writer(sql as Sql).append(command(type, '3200')), `${type} from ${name}`).rejects.toThrow(
           /row-level security|the scoreboard appends its own figures/,
@@ -351,7 +359,7 @@ describe("Martin's commands", () => {
     await writer(db.operator).append(command('line.started'));
     await expect(writer(db.admin).append(opened('3201'))).rejects.toThrow('row-level security');
     await writer(db.operator).append(opened('3201'));
-    expect(MARTINS_ROLES.sort()).toEqual(['factory_admin', 'factory_operator']);
+    expect(MARTINS_ROLES.sort()).toEqual(['factory_admin', 'factory_enrol', 'factory_operator']);
   });
 
   it('carry the role that appended them, which the store sets and no client may', async () => {
@@ -388,10 +396,9 @@ describe('signing in', () => {
                    values (${key(n)}, '\\x00', ${`Device ${n}`}, ${code})`;
   };
 
-  it('gives no worker, the writer, the console or the scoreboard anything of it', async () => {
+  it('gives no worker, the console or the scoreboard anything of it', async () => {
     for (const [name, sql] of [
       ...Object.entries(db.as),
-      ['writer', db.writer],
       ['console', db.reader],
       ['scoreboard', db.scoreboard],
       ['operator', db.operator],
@@ -413,7 +420,15 @@ describe('signing in', () => {
     await expect(db.enrol`update sessions set expires_at = now() + interval '1 day'`).rejects.toThrow(
       'permission denied',
     );
-    await expect(writer(db.enrol).append(opened('3300'))).rejects.toThrow('permission denied');
+    // Of the events, it appends the passkeys it revokes, and reads back only those.
+    await expect(writer(db.enrol).append(opened('3300'))).rejects.toThrow('row-level security');
+    // A hold's answer is refused sooner: the enrolment cannot see the work item it answers.
+    for (const type of ADMIN_TYPES.filter((t) => t !== 'passkey.revoked' && t !== 'hold.answered')) {
+      await expect(writer(db.enrol).append(command(type)), type).rejects.toThrow('row-level security');
+    }
+    const [revoked] = await writer(db.enrol).append(command('passkey.revoked'));
+    expect(await db.enrol`select seq from events`).toEqual([{ seq: String(revoked?.seq) }]);
+    expect(await db.reader`select seq from events where seq = ${revoked?.seq ?? 0}`).toHaveLength(1);
   });
 
   it('holds a code to the policy’s ten minutes and five tries, used once', async () => {

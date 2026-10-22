@@ -13,6 +13,7 @@ mise install && pnpm install   # the pinned toolchain, dependencies and git hook
 make check                     # what CI requires: lint, types, tests, design tokens, manifests
 pnpm dev                       # the console on :5173 with the samples, reloading on change
 make e2e                       # the console in a browser, in the pinned Playwright image
+make zap                       # ZAP's baseline scan of the console signed in as Martin, as CI runs it
 make up / make samples / make status / make down
 ```
 
@@ -46,6 +47,14 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   (store_role triage && GATEWAY_URL=http://localhost:8080 ARTIFACTS_DIR=/tmp/artifacts node apps/factory/src/cli.ts triage)
   (store_role probes && APP_URL=http://website.localhost:8080 ARTIFACTS_DIR=/tmp/artifacts PORT=8090 node apps/factory/src/cli.ts probes run)
   ```
+
+  The admin service runs on the host too, against the forwarded Postgres, for working on it before its Deployment comes. Its password is in `postgres-admin`, which `make up` makes and the migrate Job sets: on a cluster made before it, run `make up` and let Argo CD sync again. It serves `/admin/` on its own port, so a browser reaches it only through the console's origin, which is the one a passkey and `Origin` are checked against. `make enrol` prints a code to enrol a passkey (`REVOKE_OTHERS=1` revokes every passkey and session first):
+
+  ```sh
+  (store_role admin && ADMIN_ORIGIN=https://console.localhost:8443 PORT=8093 node apps/factory/src/cli.ts admin)
+  ```
+
+  For the console's sign-in pages in `pnpm dev`, start it with `ADMIN_ORIGIN=http://localhost:5173` and run `ADMIN_URL=http://localhost:8093 pnpm dev`, which passes `/admin/` to it as Traefik does. That works in Chrome; Safari drops the `Secure` cookie over plain HTTP.
 
   The GitHub worker acts as the factory's App, with its key from the Keychain; `GITHUB_DRY_RUN=true` records what it would do in the artifact store and touches nothing in GitHub:
 

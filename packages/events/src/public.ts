@@ -108,6 +108,13 @@ export const PUBLIC_VIEWS = {
   'spend.capped': redacted,
   'spend.cleared': redacted,
   'score.updated': redacted,
+  // Martin's own: that he did it, never with which passkey, from where or in which browser.
+  'admin.signed-in': (event) => ({ ...event, summary: 'Martin signed in with a passkey', payload: {} }),
+  'admin.signed-out': redacted,
+  'admin.stepped-up': (event) => ({ ...event, summary: 'Martin gave his passkey again', payload: {} }),
+  'passkey.enrolled': (event) => ({ ...event, summary: 'Martin enrolled a passkey', payload: {} }),
+  'passkey.revoked': ({ payload: { passkey: _name, ...payload }, ...event }) =>
+    redacted({ ...event, summary: 'Martin revoked a passkey', payload }),
 } satisfies { [K in EventType]: PublicViewOf<K> };
 
 /** The public view of an event. Applying it twice changes nothing. */

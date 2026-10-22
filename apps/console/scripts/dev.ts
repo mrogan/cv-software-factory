@@ -3,7 +3,8 @@
  *
  * Vite serves the page on :5173 and passes events, artifacts, /health and /version to the Node server on :5174,
  * which restarts when its code changes. With PGHOST or DATABASE_URL set, the server reads the event store (see
- * AGENTS.md for forwarding the cluster's); otherwise it serves the samples' event log.
+ * AGENTS.md for forwarding the cluster's); otherwise it serves the samples' event log. With ADMIN_URL set, Vite passes
+ * /admin/ to an admin service there, so the page can sign in (vite.config.ts).
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';

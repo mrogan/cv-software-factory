@@ -10,8 +10,8 @@
  * recorded pace, sped up, so the console can be watched live. Both refuse a store that holds the other kind of
  * event: samples and real work never mix. `export` writes a work item's public events and artifacts to a log, or with `--all` every public event in the store.
  *
- * Connects with DATABASE_URL, or the PG* variables, as the factory's writer. Artifacts go in, and come out of,
- * ARTIFACTS_DIR.
+ * Connects with DATABASE_URL, or the PG* variables: as Martin's own role to load (`make samples`), which may append
+ * every event a log holds. Artifacts go in, and come out of, ARTIFACTS_DIR.
  */
 import { parseArgs } from 'node:util';
 import { connect, DiskArtifacts } from '@software-factory/store';

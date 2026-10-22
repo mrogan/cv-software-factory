@@ -390,8 +390,11 @@ export class LiveActions implements Actions {
       // A fork's branch of the same name is not the deploy branch.
       if (pull.head.repo?.full_name !== repo) throw new DeployRefused(`Pull request #${number} is not from ${repo}.`);
       const target = deployTarget(repo, pull.head.ref);
+      // Only a deploy of one pin file has one range of commits to say what it carries.
+      const [pin, ...others] = target.pins;
+      if (!pin || others.length) throw new DeployRefused(`${pull.head.ref} of ${repo} moves more than one pin file.`);
       // Moved on to a newer build since the line looked, or merged: the line looks again.
-      if (pull.state !== 'open' || pull.base.ref !== 'main' || pull.title !== deployTitle(target, commit)) {
+      if (pull.state !== 'open' || pull.base.ref !== 'main' || pull.title !== deployTitle(target, [{ pin, commit }])) {
         throw new GitHubError('conflict', `Pull request #${number} is not open for ${commit.slice(0, 7)}.`, 409);
       }
       const body = withCarries(pull.body ?? '', carriesSection(carries, more));

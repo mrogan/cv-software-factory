@@ -16,25 +16,29 @@ STORE_WORKERS := triage line gateway probes crawler intake logs
 # The local certificate authority behind the console's HTTPS, outside the repository (scripts/local-ca.ts).
 LOCAL_CA = $(or $(shell node scripts/local-ca.ts dir),$(error node cannot say where the local CA is: run 'mise install'))
 
-# $(call as-operator,command): run a command on the host as Martin's own role in the store, through a port-forward to
-# Postgres: only his roles may append his commands (packages/store/migrations/0023_martins-commands.sql). Its password
-# is in a Secret no pod reads, made here if it is not there, and set on the role here as the database's owner, so it
-# works on any cluster as soon as it is made. A store not yet migrated has no such role, and the writer appends there.
-as-operator = $(call secret,factory,postgres-operator,--from-literal=password="$$(openssl rand -hex 24)") && \
+# $(call as-martin,role,command): run a command on the host as one of Martin's own roles in the store, through a
+# port-forward to Postgres: `operator` for his commands, which only his roles may append
+# (packages/store/migrations/0023_martins-commands.sql), and `enrol` for `factory admin enrol`. Its password is in a
+# Secret no pod reads, made here if it is not there, and set on the role here as the database's owner
+# (packages/store/src/operator.ts), so it works on any cluster as soon as it is made. A store not yet migrated has no
+# operator, and the owner appends there; it cannot enrol at all.
+as-martin = $(call secret,factory,postgres-$(1),--from-literal=password="$$(openssl rand -hex 24)") && \
 	{ $(KUBECTL) -n factory port-forward svc/postgres 15432:5432 >/dev/null 2>&1 & forward=$$!; \
 	trap 'kill $$forward' EXIT; sleep 2; \
 	secret() { $(KUBECTL) -n factory get secret "$$1" -o jsonpath='{.data.password}' | base64 -d; }; \
 	export PGHOST=127.0.0.1 PGPORT=15432 PGDATABASE=factory; \
-	role="$$(secret postgres-operator | PGUSER=factory PGPASSWORD="$$(secret postgres)" \
-		node packages/store/src/operator.ts)" && \
-	PGUSER="$$role" PGPASSWORD="$$(secret postgres-$${role\#factory_})" $(1); }
+	role="$$(secret postgres-$(1) | PGUSER=factory PGPASSWORD="$$(secret postgres)" \
+		node packages/store/src/operator.ts factory_$(1))" && \
+	if [ "$$role" = factory ]; then from=postgres; else from=postgres-$${role\#factory_}; fi && \
+	PGUSER="$$role" PGPASSWORD="$$(secret $$from)" $(2); }
+as-operator = $(call as-martin,operator,$(1))
 
 # $(call secret,namespace,name,data): create a Secret unless it exists.
 secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null && \
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down gateway-key github-key scoreboard-secrets worker-secrets check status e2e egress admission-ready eval samples real-store stop-the-line start-the-line
+.PHONY: help up down gateway-key github-key scoreboard-secrets worker-secrets check check-static check-tests status e2e zap egress admission-ready eval samples real-store stop-the-line start-the-line enrol
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -52,9 +56,9 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 		--values deploy/argocd/values.yaml --wait --timeout 5m --hide-notes
 	@# Passwords live only in the cluster: made here once, never committed.
 	@$(call secret,factory,postgres,--from-literal=password="$$(openssl rand -hex 24)")
-	@$(call secret,factory,postgres-writer,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-console,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(call secret,factory,postgres-metrics,--from-literal=password="$$(openssl rand -hex 24)")
+	@$(call secret,factory,postgres-admin,--from-literal=password="$$(openssl rand -hex 24)")
 	@$(MAKE) --no-print-directory worker-secrets
 	@$(MAKE) --no-print-directory gateway-key
 	@$(MAKE) --no-print-directory github-key
@@ -158,12 +162,16 @@ egress: ## Prove the fences: only the gateway, the GitHub worker and Kyverno lea
 admission-ready: ## Say whether every image the guarded namespaces run is signed, so admission control can enforce
 	scripts/admission-ready.sh
 
-check: ## Lint, type-check, test, build the browser code, check generated files are current, render the manifests
+# All of the tests, whatever SHARD the shell or the command line says.
+check: override SHARD :=
+check: check-static check-tests ## Lint, type-check, test, build the browser code, check generated files are current, render the manifests
+
+# CI runs the two halves of `make check` side by side, and the tests in parts (check.yml).
+check-static: ## All of `make check` but the tests
 	pnpm exec biome ci
 	pnpm exec tsc
 	pnpm exec tsc -p apps/console/web
 	pnpm exec tsc -p apps/console/e2e
-	pnpm exec vitest run --project unit --project database
 	node docs/design/system/build.ts --check
 	node packages/samples/src/export.ts --check
 	node apps/factory/src/alerts/rules.ts --check
@@ -173,10 +181,18 @@ check: ## Lint, type-check, test, build the browser code, check generated files 
 	@# Argo CD renders each profile's overlay from main, so one that doesn't render must not get there.
 	@for overlay in deploy/overlays/*/; do kustomize build $$overlay >/dev/null || exit 1; done
 
+check-tests: ## The unit and database tests; SHARD=1/3 runs the first of three parts
+	pnpm exec vitest run --project unit --project database $(if $(SHARD),--shard $(SHARD))
+
 e2e: ## Run the browser tests (the console's, and the probes') in the pinned Playwright image; UPDATE=1 rewrites the snapshots
 	docker run --rm --init --ipc=host -e UPDATE=$(UPDATE) -v "$(CURDIR):/src:ro" \
 		-v "$(CURDIR)/apps/console/e2e/snapshots:/out/snapshots" -v "$(CURDIR)/apps/console/e2e-results:/out/results" \
 		$(PLAYWRIGHT) /src/apps/console/e2e/in-docker.sh
+
+zap: node_modules ## ZAP's baseline scan of the console with Martin's session, as CI runs it (Docker, and Playwright's Chromium)
+	pnpm --filter @software-factory/console exec playwright install --only-shell chromium
+	pnpm --filter @software-factory/console build --logLevel warn
+	node apps/console/zap/scan.ts
 
 eval: node_modules ## Run triage's evaluation set against Jev live, recording its cassettes; RUNS=3 shows the drift
 	@TYPESAFE_API_KEY="$${TYPESAFE_API_KEY:-$$(security find-generic-password -s typesafe-api-key -w 2>/dev/null)}" \
@@ -225,6 +241,9 @@ stop-the-line: node_modules ## Stop the line: agents stop, workers take nothing 
 
 start-the-line: node_modules ## Start the line again; workers take what waited in the inbox
 	@$(call as-operator,node apps/factory/src/cli.ts line start)
+
+enrol: node_modules ## Print a one-time code to enrol a passkey on the console (REVOKE_OTHERS=1: revoke every passkey and session first)
+	@$(call as-martin,enrol,node apps/factory/src/cli.ts admin enrol $(if $(REVOKE_OTHERS),--revoke-others))
 
 # The factory command runs on the host, so loading the samples needs the dependencies: installed on first use, and
 # again when the lockfile changes.

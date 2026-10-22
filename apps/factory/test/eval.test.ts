@@ -29,7 +29,7 @@ afterAll(() => database?.end());
 
 /** The gateway as CI runs it: no key, so it replays and nothing else. */
 function replaying(dir: string) {
-  const sql = database.writer;
+  const sql = database.as.gateway;
   const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts(tmpdir()) });
   const spend = new Spend({ sql, events, profile: 'local', policy: SPEND.local, log });
   const gateway = new Gateway({ sql, spend, cassettes: new Cassettes({ read: [dir] }), mode: 'replay', log });
