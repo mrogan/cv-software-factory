@@ -59,7 +59,10 @@ describe('make check in CI', () => {
 });
 
 /** The required check's script, run with its parts' results, and `gh` answering as main's run of it would. */
-function required(env: { KIND: string; STATIC: string; TESTS: string }, main: { run?: string; state?: string } = {}) {
+function required(
+  env: { KIND: string; STATIC: string; TESTS: string; BASE?: string },
+  main: { run?: string; state?: string; fails?: number } = {},
+) {
   const script = jobs.get('check')?.match(/run: \|\n((?: {10}.*\n|\s*\n)+)/)?.[1] ?? '';
   expect(script).not.toBe('');
   const bin = mkdtempSync(join(tmpdir(), 'check-'));
@@ -67,15 +70,24 @@ function required(env: { KIND: string; STATIC: string; TESTS: string }, main: { 
     writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
     chmodSync(join(bin, name), 0o755);
   };
-  stub('gh', 'case "$*" in *"/jobs"*) printf %s "$MAIN_STATE" ;; *) printf %s "$MAIN_RUN" ;; esac');
+  // GH_FAILS: how many calls fail before it answers, as one would when GitHub's API does.
+  stub(
+    'gh',
+    [
+      'calls=$(($(cat "$0.calls" 2>/dev/null || echo 0) + 1)); echo "$calls" > "$0.calls"',
+      '[ "$calls" -gt "$GH_FAILS" ] || exit 1',
+      'case "$*" in *"/jobs"*) printf %s "$MAIN_STATE" ;; *) printf %s "$MAIN_RUN" ;; esac',
+    ].join('\n'),
+  );
   stub('sleep', 'exit 0');
-  const result = spawnSync('bash', ['-e', '-c', script], {
+  const result = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
     env: {
       PATH: `${bin}:${process.env.PATH}`,
       GITHUB_REPOSITORY: 'mrogan/cv-software-factory',
       BASE: 'abc123',
       MAIN_RUN: main.run ?? '',
       MAIN_STATE: main.state ?? '',
+      GH_FAILS: String(main.fails ?? 0),
       ...env,
     },
     encoding: 'utf-8',
@@ -105,7 +117,13 @@ describe('the required check', () => {
     expect(required(release, { run: '42', state: 'completed failure' })).toBe(1);
     expect(required(release, { run: '42', state: 'completed cancelled' })).toBe(1);
     // Never finished, or never ran: it gives up, failed.
-    expect(required(release, { run: '42', state: 'in_progress ' })).toBe(1);
+    expect(required(release, { run: '42', state: 'in_progress null' })).toBe(1);
     expect(required(release)).toBe(1);
+    expect(required({ ...release, BASE: '' }, { run: '42', state: 'completed success' })).toBe(1);
+  });
+
+  it("asks again when GitHub's API fails", () => {
+    const release = { KIND: 'release', STATIC: 'success', TESTS: 'skipped' };
+    expect(required(release, { run: '42', state: 'completed success', fails: 3 })).toBe(0);
   });
 });

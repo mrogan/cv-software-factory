@@ -146,14 +146,15 @@ jobs:
           echo "kind: $KIND, static: $STATIC, tests: $TESTS"
           [ "$STATIC" = success ] || exit 1
           [ "$KIND" = release ] || { [ "$TESTS" = success ]; exit; }
-          # This check in this workflow's latest run on the base, from its push to main.
+          [ -n "$BASE" ] || exit 1
+          # This check in this workflow's latest run on the base, from its push to main. A call that fails is tried again.
           runs="repos/$GITHUB_REPOSITORY/actions/workflows/check.yml/runs?event=push&branch=main&head_sha=$BASE"
           for _ in $(seq 72); do
-            run=$(gh api "$runs" --jq '.workflow_runs[0].id // empty')
+            run=$(gh api "$runs" --jq '.workflow_runs[0].id // empty' || true)
             state=""
             if [ -n "$run" ]; then
               state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" \
-                --jq '.jobs[] | select(.name == "lint, types, tests") | "\(.status) \(.conclusion)"')
+                --jq '.jobs[] | select(.name == "lint, types, tests") | "\(.status) \(.conclusion)"' || true)
             fi
             echo "$BASE on main: ${state:-not started}"
             case "$state" in
