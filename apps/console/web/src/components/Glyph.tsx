@@ -25,6 +25,8 @@ const PATHS = {
   right: 'm6 3 5 5-5 5',
   arrows: 'M5.5 4.5 2 8l3.5 3.5 M10.5 4.5 14 8l-3.5 3.5',
   back: 'M13 11V8a4 4 0 0 0-4-4H3 M6 1 3 4l3 3',
+  /** A key: an action that asks for Martin's passkey, and signing in with one. */
+  key: 'M4.5 5.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 1 0 0-5.5 M7.25 8H14.25 M11.75 8v2.5 M14 8v2',
   /** A laptop: a model run on Martin's own machine, where what matters is where it ran, not whose model it is. */
   local: 'M3 4h10v6.5H3z M1.5 12.5h13',
 } satisfies Record<Category | string, string>;

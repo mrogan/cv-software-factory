@@ -37,11 +37,22 @@ export const CONTENT_SECURITY_POLICY = [
   "frame-ancestors 'none'",
 ].join('; ');
 
-/** Sent with every response. */
-const SECURITY_HEADERS = {
+/**
+ * The browser features the page may use: none of these. Passkeys are left to their default, this origin alone, which
+ * signing in needs.
+ */
+export const PERMISSIONS_POLICY = 'camera=(), microphone=(), geolocation=(), payment=(), usb=()';
+
+/**
+ * Sent with every response. The opener and embedder policies isolate the page from other origins' windows and
+ * resources, so another site's page shares no process with it; everything it loads is its own.
+ */
+export const SECURITY_HEADERS = {
   'content-security-policy': CONTENT_SECURITY_POLICY,
   'cross-origin-opener-policy': 'same-origin',
+  'cross-origin-embedder-policy': 'require-corp',
   'cross-origin-resource-policy': 'same-origin',
+  'permissions-policy': PERMISSIONS_POLICY,
   'referrer-policy': 'no-referrer',
   'x-content-type-options': 'nosniff',
 };

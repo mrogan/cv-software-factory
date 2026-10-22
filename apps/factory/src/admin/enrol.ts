@@ -68,7 +68,8 @@ export function described({ code, expiresAt, held, revoked }: Enrolment): string
     `  ${code}`,
     '',
     `Enter it on the console's enrolment page by about ${expiresAt.toISOString().slice(11, 16)} UTC, in ` +
-      `${ENROLMENT_CODE.minutes} minutes. It allows ${ENROLMENT_CODE.tries} tries, from anywhere, and makes one passkey.`,
+      `${ENROLMENT_CODE.minutes} minutes. It allows ${ENROLMENT_CODE.tries} tries, from anywhere, and makes one passkey. ` +
+      'Any code printed before it can no longer be used.',
   );
   return lines.join('\n');
 }

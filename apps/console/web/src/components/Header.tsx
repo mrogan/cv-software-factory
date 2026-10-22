@@ -1,8 +1,10 @@
 import type { Autonomy } from '@software-factory/events';
+import type { Admin } from '../admin.ts';
 import { duration } from '../format.ts';
 import type { Header as LineState, Score } from '../projection/index.ts';
 import type { Theme } from '../settings.ts';
 import type { Connection } from '../source.ts';
+import { Account } from './Account.tsx';
 import { Mark } from './Mark.tsx';
 
 const AUTONOMY: Record<Autonomy, string> = { supervised: 'Supervised', guarded: 'Guarded', 'lights-out': 'Lights-out' };
@@ -115,9 +117,10 @@ interface HeaderProps {
   onTheme: (theme: Theme) => void;
   motion: boolean;
   onMotion: (on: boolean) => void;
+  admin: Admin;
 }
 
-export function Header({ line, connection, theme, onTheme, motion, onMotion }: HeaderProps) {
+export function Header({ line, connection, theme, onTheme, motion, onMotion, admin }: HeaderProps) {
   return (
     <header className="top">
       <div className="wrap">
@@ -149,6 +152,7 @@ export function Header({ line, connection, theme, onTheme, motion, onMotion }: H
               STILL
             </button>
           </fieldset>
+          {admin.kind === 'martin' && <Account session={admin.session} />}
         </div>
       </div>
     </header>
