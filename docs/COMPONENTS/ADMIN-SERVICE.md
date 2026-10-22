@@ -2,8 +2,8 @@
 
 Martin's sign-in, his sessions, and the one way a browser changes the factory (spec 5.4). Part of the [factory plane](README.md#factory-plane).
 
-- **v1:** `factory admin` (`apps/factory/src/admin`), with passkeys through [SimpleWebAuthn](https://simplewebauthn.dev); `factory admin enrol` adds a passkey.
-- **Later:** the console's sign-in and enrolment pages, the ZAP baseline scan in CI and ADR 0012's threat model (the next pull request of milestone 7's task 4), its Deployment, and the actions of tasks 5 to 10, each a write route in the access table.
+- **v1:** `factory admin` (`apps/factory/src/admin`), with passkeys through [SimpleWebAuthn](https://simplewebauthn.dev); `factory admin enrol` adds a passkey. One replica in `factory` (`deploy/base/factory/admin.yaml`), routed under `/admin/` on the console's host (`deploy/overlays/local/console-ingress.yaml`).
+- **Later:** the console's sign-in and enrolment pages, the ZAP baseline scan in CI and ADR 0012's threat model (the next pull request of milestone 7's task 4), and the actions of tasks 5 to 10, each a write route in the access table.
 
 ```mermaid
 flowchart LR
@@ -64,3 +64,9 @@ Every action is an event with Martin as its actor, appended in the same transact
 | `ADMIN_TRUSTED_PROXIES` | The proxy in front, as addresses or CIDR ranges; none by default. |
 | `PORT` | Where it listens, 8080 by default. |
 | `DATABASE_URL`, `PG*` | The store, as `factory_admin`, whose password is in `postgres-admin`. |
+
+## On the cluster
+
+- **One origin.** Traefik sends `/admin/` on the console's host to the admin service and everything else to the console's server, with the `Cookie` header removed (the `console-no-cookies` middleware), so the session cookie, whose path is `/`, never reaches the console's server.
+- **One replica, replaced and never doubled,** since the rate limits are held in memory.
+- **Fenced.** Its network policy lets in Traefik alone, and lets it reach the store and the collector, nothing else. That is why it believes forwarded headers from the whole pod network (`ADMIN_TRUSTED_PROXIES=10.42.0.0/16`, k3s's default range): only Traefik can connect. `apps/factory/test/admin-fences.test.ts` holds the route, the cookie's removal and the fence.
