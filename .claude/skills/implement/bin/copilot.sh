@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Waits for Copilot's one review of a pull request, then lists the unresolved threads: copilot.sh <pr> [minutes]
-# The wait counts from when the pull request opened (15 minutes by default). Exit 0 once Copilot has reviewed, 4 if it
+# The wait counts from when the pull request opened (an hour by default: Copilot has taken half an hour). Exit 0 once Copilot has reviewed, 4 if it
 # did not in time; the threads are listed either way, one block each: thread id, path:line, author, url, the first
 # comment. A thread someone other than Copilot started is marked NOT COPILOT: it is theirs to resolve, not the worker's.
 # Then Copilot's review summary, as written, with only its HTML tags taken out (by name, so `Result<T>` stays): it can
 # name findings that have no thread, and its shape changes, so it is printed for the worker to read rather than parsed.
 set -euo pipefail
-pr=${1:?usage: copilot.sh <pr> [minutes]} minutes=${2:-15}
+pr=${1:?usage: copilot.sh <pr> [minutes]} minutes=${2:-60}
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 opened=$(gh pr view "$pr" --json createdAt -q '.createdAt | fromdateiso8601')
 deadline=$(( opened + minutes * 60 ))
