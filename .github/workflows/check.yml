@@ -268,8 +268,11 @@ jobs:
           install_args: node pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm --filter @software-factory/console build
-      # The browser that signs in: Playwright's own build of Chromium, the version the lockfile pins.
-      - run: pnpm --filter @software-factory/console exec playwright install --with-deps --only-shell chromium
+      # The browser that signs in: Playwright's own headless build of Chromium, the version the lockfile pins, from its
+      # CDN. Not --with-deps: the runner's image already has the libraries it needs (it ships Chrome), and installing
+      # Chromium's fonts and packages from Ubuntu's mirror took minutes on a bad day for nothing the scan reads.
+      - run: pnpm --filter @software-factory/console exec playwright install --only-shell chromium
+        timeout-minutes: 3
       - run: node apps/console/zap/scan.ts
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
