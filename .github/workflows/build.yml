@@ -243,23 +243,33 @@ jobs:
           CONSOLE: ${{ needs.console.result }}
           FACTORY: ${{ needs.factory.result }}
         run: |
-          set -euo pipefail
-          images=()
-          [ "$CONSOLE" = success ] && images+=(console)
-          [ "$FACTORY" = success ] && images+=(factory factory-browser factory-runner)
-          for image in "${images[@]}"; do
-            ref="ghcr.io/$GITHUB_REPOSITORY/$image"
-            builds=()
+          set -uo pipefail
+          # $1: an image. Makes its index from its two builds, tags it with the commit, and prints its digest.
+          index() {
+            local ref="ghcr.io/$GITHUB_REPOSITORY/$1" builds=() arch digest
             for arch in amd64 arm64; do
-              digest=$(cat "digests/$image-$arch")
-              [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$image ($arch) has no digest: $digest"; exit 1; }
+              digest=$(cat "digests/$1-$arch" 2> /dev/null)
+              [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$1 ($arch) has no digest: $digest"; return 1; }
               builds+=("$ref@$digest")
             done
-            docker buildx imagetools create --tag "$ref:$GITHUB_SHA" "${builds[@]}"
-            index=$(docker buildx imagetools inspect "$ref:$GITHUB_SHA" --format '{{ json .Manifest }}' | jq -r .digest)
-            echo "$ref@$index: ${builds[*]}"
-            echo "$image=$index" >> "$GITHUB_OUTPUT"
-          done
+            docker buildx imagetools create --tag "$ref:$GITHUB_SHA" "${builds[@]}" >&2 || return 1
+            docker buildx imagetools inspect "$ref:$GITHUB_SHA" --format '{{ json .Manifest }}' | jq -r .digest
+          }
+          # A group's digests are output only once every one of its indexes is made, so the factory's three are signed
+          # together or not at all, and one group failing leaves the other's to be signed.
+          group() {
+            local made=() image digest
+            for image in "$@"; do
+              digest=$(index "$image") && [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+              echo "ghcr.io/$GITHUB_REPOSITORY/$image@$digest"
+              made+=("$image=$digest")
+            done
+            printf '%s\n' "${made[@]}" >> "$GITHUB_OUTPUT"
+          }
+          failed=0
+          if [ "$CONSOLE" = success ]; then group console || failed=1; fi
+          if [ "$FACTORY" = success ]; then group factory factory-browser factory-runner || failed=1; fi
+          exit "$failed"
 
   # Signs each image the jobs above pushed, by digest, and attests an SBOM of each of its platforms, made by Syft. A job
   # of its own, so that only it can ask for the workflow's OIDC token, and nothing an image's build runs ever can. If it
@@ -267,7 +277,7 @@ jobs:
   sign:
     name: sign and attest
     needs: push
-    if: ${{ !cancelled() && needs.push.result == 'success' }}
+    if: ${{ !cancelled() && needs.push.result != 'skipped' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -286,7 +296,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      # Only the images the push job made, and only when it finished: each from builds that all finished.
+      # Only the images the push job output: each group's when every index of it was made, from builds that all finished.
       - env:
           CONSOLE: ${{ needs.push.outputs.console }}
           FACTORY: ${{ needs.push.outputs.factory }}
