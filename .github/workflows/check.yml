@@ -21,7 +21,8 @@ jobs:
   # Which checks can see what a pull request changes. A skipped job counts as passed for the ruleset, so only these skip
   # any, each tested on the exact files that change:
   # - `release` and `deploy`: the factory's App opened it and nobody has changed it, so the test is the author too, and
-  #   for a release the lines that change.
+  #   for a release the lines that change, and that it merges into main. A release runs no tests: nothing they read
+  #   changes (scripts/release-files.test.ts), so the commit it is made on passing them on main stands for it.
   # - `manifests`: anyone's, changing only files under deploy/. No image copies anything from there
   #   (scripts/dockerfiles.test.ts), and nothing the browser tests run reads it (scripts/browser-tests.test.ts), but
   #   for the Postgres the console's run beside: a change to its pin is `code`.
@@ -32,6 +33,7 @@ jobs:
     timeout-minutes: 3
     outputs:
       kind: ${{ steps.which.outputs.kind }}
+      base: ${{ steps.which.outputs.base }}
       postgres: ${{ steps.postgres.outputs.image }}
       playwright: ${{ steps.playwright.outputs.image }}
     steps:
@@ -59,7 +61,8 @@ jobs:
             if [ "$AUTHOR" = 'mrogan-software-factory[bot]' ]; then
               # Every changed line of package.json is its version.
               other_lines=$(git diff --unified=0 HEAD^1 HEAD -- package.json | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | grep -vE '^[-+]  "version": "[^"]+",$' || true)
-              if [ -n "$files" ] && ! grep -vqxE 'CHANGELOG\.md|package\.json|\.release-please-manifest\.json' <<< "$files" && [ -z "$other_lines" ]; then
+              if [ "$GITHUB_BASE_REF" = main ] && [ -n "$files" ] && [ -z "$other_lines" ] \
+                && ! grep -vqxE 'CHANGELOG\.md|package\.json|\.release-please-manifest\.json' <<< "$files"; then
                 kind=release
               elif [ -n "$files" ] && ! grep -vqxE 'deploy/overlays/local/(console|factory)-image/kustomization\.yaml' <<< "$files"; then
                 kind=deploy
@@ -73,6 +76,7 @@ jobs:
           fi
           echo "$kind"
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "base=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
 
   # `make check` in two halves side by side, the tests in three parts, each on a runner of its own. A part that fails
   # stops none of the others, so a run shows every failure.
@@ -92,6 +96,9 @@ jobs:
 
   tests:
     name: tests (${{ matrix.shard }})
+    needs: kind
+    # Skipped only for a release pull request: the required check below stands on its base's tests instead.
+    if: ${{ !cancelled() && needs.kind.outputs.kind != 'release' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
@@ -116,21 +123,46 @@ jobs:
           SHARD: ${{ matrix.shard }}
 
   # The one check the ruleset requires of `make check` (scripts/github-settings.ts), so that it need not change when it
-  # is split differently. It passes when both halves passed, every part of the tests included. It runs whatever they
-  # did, a cancelled run included, since a skipped job counts as passed.
+  # is split differently. It passes when both halves passed, every part of the tests included; for a release, when the
+  # static half passed and the commit on main it is made on passed this check. It runs whatever they did, a cancelled
+  # run included, since a skipped job counts as passed.
   check:
     name: lint, types, tests
-    needs: [static, tests]
+    needs: [kind, static, tests]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 3
+    # Long enough for a release to wait for main's run of this check, which starts as the release pull request does.
+    timeout-minutes: 20
+    permissions:
+      actions: read
     steps:
       - env:
+          KIND: ${{ needs.kind.result == 'success' && needs.kind.outputs.kind || 'code' }}
+          BASE: ${{ needs.kind.outputs.base }}
           STATIC: ${{ needs.static.result }}
           TESTS: ${{ needs.tests.result }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "static: $STATIC, tests: $TESTS"
-          [ "$STATIC" = success ] && [ "$TESTS" = success ]
+          echo "kind: $KIND, static: $STATIC, tests: $TESTS"
+          [ "$STATIC" = success ] || exit 1
+          [ "$KIND" = release ] || { [ "$TESTS" = success ]; exit; }
+          # This check in this workflow's latest run on the base, from its push to main.
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/check.yml/runs?event=push&branch=main&head_sha=$BASE"
+          for _ in $(seq 72); do
+            run=$(gh api "$runs" --jq '.workflow_runs[0].id // empty')
+            state=""
+            if [ -n "$run" ]; then
+              state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" \
+                --jq '.jobs[] | select(.name == "lint, types, tests") | "\(.status) \(.conclusion)"')
+            fi
+            echo "$BASE on main: ${state:-not started}"
+            case "$state" in
+              'completed success') exit 0 ;;
+              completed*) exit 1 ;;
+            esac
+            sleep 15
+          done
+          exit 1
 
   # The browser tests run side by side: the console's, in parts, and the factory's senses (the crawler and the probes).
   # Each needs the pinned Playwright image, on arm64 like the laptops the snapshots are made on, so they match.

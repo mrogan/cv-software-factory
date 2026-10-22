@@ -1,4 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -42,12 +45,67 @@ describe('make check in CI', () => {
     );
   });
 
-  it('passes the required check only when every part passed, and runs it when one failed', () => {
+  it('runs the required check whatever its parts did, a cancelled run included', () => {
     const check = jobs.get('check') ?? '';
     expect(check).toMatch(/^ {4}name: lint, types, tests$/m);
-    expect(check).toMatch(/^ {4}needs: \[static, tests\]$/m);
+    expect(check).toMatch(/^ {4}needs: \[kind, static, tests\]$/m);
     // Otherwise a part that failed, or a run cancelled, would skip the check, and a skipped job counts as passed.
     expect(check).toMatch(/^ {4}if: \$\{\{ always\(\) \}\}$/m);
-    expect(check).toContain('[ "$STATIC" = success ] && [ "$TESTS" = success ]');
+    // The tests are skipped for a release and nothing else.
+    expect(jobs.get('tests')).toMatch(
+      /^ {4}if: \$\{\{ !cancelled\(\) && needs\.kind\.outputs\.kind != 'release' \}\}$/m,
+    );
+  });
+});
+
+/** The required check's script, run with its parts' results, and `gh` answering as main's run of it would. */
+function required(env: { KIND: string; STATIC: string; TESTS: string }, main: { run?: string; state?: string } = {}) {
+  const script = jobs.get('check')?.match(/run: \|\n((?: {10}.*\n|\s*\n)+)/)?.[1] ?? '';
+  expect(script).not.toBe('');
+  const bin = mkdtempSync(join(tmpdir(), 'check-'));
+  const stub = (name: string, body: string) => {
+    writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
+    chmodSync(join(bin, name), 0o755);
+  };
+  stub('gh', 'case "$*" in *"/jobs"*) printf %s "$MAIN_STATE" ;; *) printf %s "$MAIN_RUN" ;; esac');
+  stub('sleep', 'exit 0');
+  const result = spawnSync('bash', ['-e', '-c', script], {
+    env: {
+      PATH: `${bin}:${process.env.PATH}`,
+      GITHUB_REPOSITORY: 'mrogan/cv-software-factory',
+      BASE: 'abc123',
+      MAIN_RUN: main.run ?? '',
+      MAIN_STATE: main.state ?? '',
+      ...env,
+    },
+    encoding: 'utf-8',
+  });
+  return result.status;
+}
+
+describe('the required check', () => {
+  it.each(['failure', 'cancelled', 'skipped'])('fails a pull request when a part of its tests was %s', (tests) => {
+    expect(required({ KIND: 'code', STATIC: 'success', TESTS: tests })).toBe(1);
+    expect(required({ KIND: 'deploy', STATIC: 'success', TESTS: tests })).toBe(1);
+  });
+
+  it('fails any pull request whose static half did not pass, a release too', () => {
+    expect(required({ KIND: 'code', STATIC: 'failure', TESTS: 'success' })).toBe(1);
+    const passed = { run: '42', state: 'completed success' };
+    expect(required({ KIND: 'release', STATIC: 'cancelled', TESTS: 'skipped' }, passed)).toBe(1);
+  });
+
+  it('passes a pull request whose parts all passed', () => {
+    expect(required({ KIND: 'code', STATIC: 'success', TESTS: 'success' })).toBe(0);
+  });
+
+  it('passes a release only once main has passed it on the commit the release is made on', () => {
+    const release = { KIND: 'release', STATIC: 'success', TESTS: 'skipped' };
+    expect(required(release, { run: '42', state: 'completed success' })).toBe(0);
+    expect(required(release, { run: '42', state: 'completed failure' })).toBe(1);
+    expect(required(release, { run: '42', state: 'completed cancelled' })).toBe(1);
+    // Never finished, or never ran: it gives up, failed.
+    expect(required(release, { run: '42', state: 'in_progress ' })).toBe(1);
+    expect(required(release)).toBe(1);
   });
 });
