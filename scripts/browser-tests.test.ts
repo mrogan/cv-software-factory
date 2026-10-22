@@ -273,7 +273,7 @@ describe('what the browser tests run', () => {
         'pnpm --filter @software-factory/console build',
         'pnpm exec playwright test $TESTS',
         'pnpm exec vitest run --project browser',
-        'pnpm --filter @software-factory/console exec playwright install --with-deps --only-shell chromium',
+        'pnpm --filter @software-factory/console exec playwright install --only-shell chromium',
         'node apps/console/zap/scan.ts',
         '|',
       ]),
