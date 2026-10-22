@@ -15,6 +15,7 @@ import { publicView } from '@software-factory/events/public';
 import { validate } from '@software-factory/events/schemas';
 import type { JSONValue, Sql, TransactionSql } from 'postgres';
 import type { ArtifactStore } from './artifacts.ts';
+import { fromMartin } from './commands.ts';
 
 /** An append the store refused, with every reason it found. Nothing in the batch was stored. */
 export class AppendRefused extends Error {
@@ -50,40 +51,54 @@ export class EventWriter {
    * may or may not have committed; the same id with different content is refused.
    */
   async append(events: NewEvent | readonly NewEvent[]): Promise<StoredEvent[]> {
+    const batch = await this.#checked(events);
+    return this.#sql.begin((tx) => this.#write(tx, batch)) as Promise<StoredEvent[]>;
+  }
+
+  /**
+   * Appends as `append` does, within a transaction of the caller's, so the events commit with whatever else it does,
+   * or not at all. The store's lock on appends is held until it ends: keep it short.
+   */
+  async appendWithin(tx: TransactionSql, events: NewEvent | readonly NewEvent[]): Promise<StoredEvent[]> {
+    return this.#write(tx, await this.#checked(events));
+  }
+
+  async #checked(events: NewEvent | readonly NewEvent[]): Promise<readonly NewEvent[]> {
     const batch: readonly NewEvent[] = Array.isArray(events) ? events : [events as NewEvent];
     const problems = [...batch.flatMap(checkShape), ...(await this.#checkArtifacts(batch))];
     if (problems.length) throw new AppendRefused(problems);
+    return batch;
+  }
 
-    return this.#sql.begin(async (tx) => {
-      // The insert takes this lock too; taking it first means the checks below see what the insert will see.
-      await tx`select pg_advisory_xact_lock(hashtext('events'))`;
-      const { stored, retried } = await this.#checkRetries(tx, batch);
-      if (retried.length) throw new AppendRefused(retried);
-      const fresh = batch.filter((event) => !stored.has(event.id));
-      const sequence = await this.#checkSequence(tx, fresh);
-      if (sequence.length) throw new AppendRefused(sequence);
+  async #write(tx: TransactionSql, batch: readonly NewEvent[]): Promise<StoredEvent[]> {
+    // The insert takes this lock too; taking it first means the checks below see what the insert will see.
+    await tx`select pg_advisory_xact_lock(hashtext('events'))`;
+    const { stored, retried } = await this.#checkRetries(tx, batch);
+    if (retried.length) throw new AppendRefused(retried);
+    const fresh = batch.filter((event) => !stored.has(event.id));
+    const sequence = await this.#checkSequence(tx, fresh);
+    if (sequence.length) throw new AppendRefused(sequence);
 
-      const rows = fresh.map((event) => ({
-        id: event.id,
-        ts: event.ts,
-        work_item: event.work_item,
-        type: event.type,
-        version: event.version,
-        actor: event.actor,
-        summary: event.summary,
-        payload: tx.json(event.payload as JSONValue),
-        artifacts: tx.json(event.artifacts as JSONValue),
-        public: tx.json(publicView(event.type, event) as unknown as JSONValue),
-        sample: this.#options.kind === 'sample',
-      }));
-      const inserted = rows.length
-        ? await tx<{ id: string; seq: string }[]>`insert into events ${tx(rows)} returning id, seq`
-        : [];
-      const seqs = new Map([...stored, ...inserted.map((row) => [row.id, Number(row.seq)] as const)]);
-      return batch.map(
-        (event) => ({ ...event, seq: seqs.get(event.id), public: publicView(event.type, event) }) as StoredEvent,
-      );
-    }) as Promise<StoredEvent[]>;
+    const rows = fresh.map((event) => ({
+      id: event.id,
+      ts: event.ts,
+      work_item: event.work_item,
+      type: event.type,
+      version: event.version,
+      actor: event.actor,
+      summary: event.summary,
+      payload: tx.json(event.payload as JSONValue),
+      artifacts: tx.json(event.artifacts as JSONValue),
+      public: tx.json(publicView(event.type, event) as unknown as JSONValue),
+      sample: this.#options.kind === 'sample',
+    }));
+    const inserted = rows.length
+      ? await tx<{ id: string; seq: string }[]>`insert into events ${tx(rows)} returning id, seq`
+      : [];
+    const seqs = new Map([...stored, ...inserted.map((row) => [row.id, Number(row.seq)] as const)]);
+    return batch.map(
+      (event) => ({ ...event, seq: seqs.get(event.id), public: publicView(event.type, event) }) as StoredEvent,
+    );
   }
 
   /** The events of the batch already stored, by id with their seq, and a reason for each stored differently. */
@@ -275,6 +290,46 @@ export async function readPublic(
       summary: row.public.summary,
       payload: row.public.payload,
       artifacts: row.public.artifacts,
+    };
+    const result = upcast(raw, catalogue);
+    return {
+      event: result.ok ? (result.event as RawEvent & { seq: number }) : raw,
+      appendedAt: row.appended_at,
+      understood: result.ok,
+    };
+  });
+}
+
+interface FullRow extends Omit<PublicRow, 'public'> {
+  summary: string;
+  payload: unknown;
+  artifacts: unknown[];
+}
+
+/**
+ * Reads full events in seq order, after the one given: Martin's view, which the admin service streams to his session
+ * and nobody else's. An admin event that none of his roles appended is left out, as the factory ignores it.
+ */
+export async function readFull(
+  sql: Sql,
+  after: number,
+  { limit = 1000, catalogue = CATALOGUE }: { limit?: number; catalogue?: Catalogue } = {},
+): Promise<ReadEvent[]> {
+  const rows = await sql<FullRow[]>`
+    select e.seq, e.id, e.ts, e.work_item, e.type, e.version, e.actor, e.summary, e.payload, e.artifacts, e.appended_at
+    from events e where e.seq > ${after} and ${fromMartin(sql, 'e')} order by e.seq limit ${limit}`;
+  return rows.map((row) => {
+    const raw = {
+      id: row.id,
+      seq: Number(row.seq),
+      ts: row.ts.toISOString(),
+      work_item: row.work_item,
+      type: row.type,
+      version: row.version,
+      actor: row.actor,
+      summary: row.summary,
+      payload: row.payload,
+      artifacts: row.artifacts,
     };
     const result = upcast(raw, catalogue);
     return {

@@ -49,6 +49,11 @@ export const VERSIONS = {
   'spend.capped': 2,
   'spend.cleared': 2,
   'score.updated': 1,
+  // Martin signing in and out, and his passkeys (the admin service, and `factory admin enrol`)
+  'admin.signed-in': 1,
+  'admin.signed-out': 1,
+  'passkey.enrolled': 1,
+  'passkey.revoked': 1,
 } as const;
 
 export type EventType = keyof typeof VERSIONS;
@@ -62,6 +67,10 @@ export const LINE_TYPES: readonly EventType[] = [
   'spend.capped',
   'spend.cleared',
   'score.updated',
+  'admin.signed-in',
+  'admin.signed-out',
+  'passkey.enrolled',
+  'passkey.revoked',
 ];
 
 /**
@@ -79,12 +88,21 @@ export const RELEASE_TYPES: readonly EventType[] = [
 
 /**
  * Martin's commands: the types only his roles may append (row security on `events`, `0023_martins-commands.sql`), and
- * that the line, triage and the gateway act on only when one of his roles appended it. Each of the admin service's
- * commands (signing in, passkeys, autonomy, the switches, the settings, the release controls) joins this list when its
- * type joins the catalogue, and a migration adds it to the store's own list (`admin_event`): the store's tests fail
- * until the two agree. `release.aborted` is not one yet: the line records an abort it reads from the Rollout, Martin's
+ * that the line, triage and the gateway act on only when one of his roles appended it. Signing in and out and his
+ * passkeys are among them, so no worker can forge one (`0025_admin-service.sql`). Each of the admin service's commands
+ * still to come (autonomy, the switches, the settings, the release controls) joins this list when its type joins the
+ * catalogue, and a migration adds it to the store's own list (`admin_event`): the store's tests fail until the two
+ * agree. `release.aborted` is not one yet: the line records an abort it reads from the Rollout, Martin's
  * included, until the console's own abort records his (milestone 7, task 7).
  */
-export const ADMIN_TYPES: readonly EventType[] = ['hold.answered', 'line.started', 'line.stopped'];
+export const ADMIN_TYPES: readonly EventType[] = [
+  'hold.answered',
+  'line.started',
+  'line.stopped',
+  'admin.signed-in',
+  'admin.signed-out',
+  'passkey.enrolled',
+  'passkey.revoked',
+];
 
 export const isEventType = (type: string): type is EventType => Object.hasOwn(VERSIONS, type);

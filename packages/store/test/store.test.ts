@@ -96,6 +96,7 @@ describe('migrations', () => {
       { version: 22, name: 'worker-roles' },
       { version: 23, name: 'martins-commands' },
       { version: 24, name: 'drop-writer' },
+      { version: 25, name: 'admin-service' },
     ]);
   });
 });
