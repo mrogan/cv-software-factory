@@ -10,7 +10,7 @@
  * - for each step, each version's figures from Prometheus, and how many of the journeys' checks passed of how many ran,
  *   from the Job's termination message; for a rollback, the series of each failed measure.
  * - for an abort, who made it: Martin, when he aborted this release from the console, whose control
- *   (`release.controlled`, appended by one of his roles just before its patch) is within the minute before the abort;
+ *   (`release.controlled`, appended by one of his roles once its patch is made) is within the minute before the abort;
  *   otherwise Stop the line, which records the line's stop and then aborts every release in flight, when the line's
  *   last word before the abort is that it stopped, within the minute before; otherwise Martin, by hand with his own
  *   credentials, the one other way a Rollout is aborted. The admin service records a control just after its patch, so
