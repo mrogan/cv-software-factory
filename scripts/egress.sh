@@ -235,7 +235,7 @@ start_probe() {
 ip() { kubectl --context "$context" -n "$1" get service "$2" -o jsonpath='{.spec.clusterIP}'; }
 gateway_ip=$(ip factory gateway) line_ip=$(ip factory line) github_ip=$(ip factory github)
 api_ip=$(ip default kubernetes) postgres_ip=$(ip factory postgres) console_ip=$(ip factory console)
-website_ip=$(ip website website)
+website_ip=$(ip website website) admin_ip=$(ip factory admin)
 # Argo Rollouts' controller, the Postgres exporter and the pod log collector have no Service: their pods are scraped
 # where they are. A pod a ReplicaSet made has its template's hash ($3, by default), one a DaemonSet made its revision's,
 # and the pods this starts have neither; one shutting down is passed over, and a ready one is taken before one that is
@@ -548,7 +548,7 @@ expect "the admin service cannot reach the gateway" egress-admin http://gateway:
 expect "the admin service cannot reach the Kubernetes API" egress-admin "https://$api_ip/version" blocked
 expect "the admin service cannot reach a public address" egress-admin https://1.1.1.1 blocked
 expect "the worker cannot reach the admin service" "$pod" http://admin:8080/admin/health blocked
-expect "the agent pod cannot reach the admin service" runners:egress-agent http://admin.factory:8080/admin/health blocked
+expect "the agent pod cannot reach the admin service" runners:egress-agent "http://$admin_ip:8080/admin/health" blocked
 expect "the scoreboard cannot reach the admin service" scoreboard:egress-scoreboard http://admin.factory:8080/admin/health blocked
 
 echo "The scoreboard:"
