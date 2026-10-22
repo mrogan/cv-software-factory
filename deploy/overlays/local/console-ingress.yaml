@@ -1,6 +1,9 @@
 # Local only: the console at https://console.localhost:8443. Public profiles are reached through a tunnel instead.
 # Traefik ends TLS with the certificate `make up` gives it in the `console-tls` Secret, from a local authority that may
 # sign for `localhost` names only (scripts/local-ca.ts). Until the Secret exists, Traefik serves its own default one.
+#
+# Everything but /admin/ goes to the console's server, without the browser's cookies: Martin's session cookie has the
+# path `/`, as `__Host-` requires, and the console's server must never hold it.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -8,6 +11,7 @@ metadata:
   namespace: factory
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: factory-console-no-cookies@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:
@@ -23,6 +27,44 @@ spec:
             backend:
               service:
                 name: console
+                port:
+                  name: http
+---
+# Traefik removes a request header it is given as empty.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: console-no-cookies
+  namespace: factory
+spec:
+  headers:
+    customRequestHeaders:
+      Cookie: ""
+---
+# /admin/ on the console's host goes to the admin service, so the browser sees one origin, and its cookie and its
+# passkeys are the console's. The longer path wins over the console's `/`.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin
+  namespace: factory
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - console.localhost
+      secretName: console-tls
+  rules:
+    - host: console.localhost
+      http:
+        paths:
+          - path: /admin/
+            pathType: Prefix
+            backend:
+              service:
+                name: admin
                 port:
                   name: http
 ---
@@ -47,7 +89,7 @@ metadata:
   namespace: factory
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
-    traefik.ingress.kubernetes.io/router.middlewares: factory-console-https@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: factory-console-https@kubernetescrd,factory-console-no-cookies@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:

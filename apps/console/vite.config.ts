@@ -2,10 +2,12 @@
  * Builds the console's browser code: `web/` in, `dist/` out. The Node server serves `dist/` by its manifest.
  *
  * In development (`pnpm dev`), Vite serves the page with hot reloading on :5173 and passes events, artifacts
- * and the health and version endpoints to the Node server on :5174. The cluster's ingress has :8080.
+ * and the health and version endpoints to the Node server on :5174. With ADMIN_URL set, it passes `/admin/` to an admin
+ * service there too, as Traefik does in the cluster, so the page can sign in: start `factory admin` with ADMIN_ORIGIN
+ * http://localhost:5173. The cluster's ingress has :8443.
  */
 import prefresh from '@prefresh/vite';
-import { defineConfig } from 'vite';
+import { defineConfig, type ProxyOptions } from 'vite';
 
 /**
  * Development only: Vite injects styles as <style> elements and Fast Refresh runs an inline script,
@@ -24,6 +26,18 @@ const DEVELOPMENT_POLICY = [
 ].join('; ');
 
 const SERVER = `http://localhost:${process.env.SERVER_PORT ?? 5174}`;
+
+/** An admin service on the host, if one is running: the page finds none otherwise, and offers no sign-in. */
+const ADMIN = process.env.ADMIN_URL;
+
+/**
+ * To the console's server without `Cookie`, as Traefik's `console-no-cookies` does in the cluster: the session cookie's
+ * path is `/`, so the browser sends it to Vite with every request, and the console's server never holds a session.
+ */
+const WITHOUT_COOKIES: ProxyOptions = {
+  target: SERVER,
+  configure: (proxy) => proxy.on('proxyReq', (request) => request.removeHeader('cookie')),
+};
 
 export default defineConfig({
   root: 'web',
@@ -52,7 +66,11 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     headers: { 'content-security-policy': DEVELOPMENT_POLICY },
-    proxy: Object.fromEntries(['/api', '/artifacts', '/health', '/version'].map((path) => [path, SERVER])),
+    proxy: {
+      ...Object.fromEntries(['/api', '/artifacts', '/health', '/version'].map((path) => [path, WITHOUT_COOKIES])),
+      // The browser's Origin goes through as it is, which the service matches against its own ADMIN_ORIGIN.
+      ...(ADMIN && { '/admin': ADMIN }),
+    },
     // The design system's tokens and station live outside web/.
     fs: { allow: ['../../..'] },
   },

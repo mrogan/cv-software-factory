@@ -1,6 +1,6 @@
 import { AxeBuilder } from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { consoleUrl, expect, ready, THEMES, test, WIDTHS } from './support.ts';
+import { adminService, consoleUrl, expect, ready, THEMES, test, WIDTHS } from './support.ts';
 
 /**
  * The reel's neighbours either side of the centre card are faded previews of inactive slides: WCAG 1.4.3 exempts
@@ -40,6 +40,32 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         });
       });
     }
+  }
+}
+
+// The doors and the account menu, at a phone's width and a desktop's, in both themes.
+for (const width of ['phone', 'desktop'] as const) {
+  for (const theme of THEMES) {
+    test.describe(`${width}, ${theme}, signing in`, () => {
+      test.use({ viewport: WIDTHS[width] });
+
+      for (const view of ['sign-in', 'enrol']) {
+        test(`the ${view} door has nothing for axe to find`, async ({ page }) => {
+          await adminService(page, 'visitor');
+          await page.goto(`/?view=${view}&theme=${theme}`);
+          await page.locator('.door').waitFor();
+          expect((await axe(page).analyze()).violations).toEqual([]);
+        });
+      }
+
+      test('Martin’s open account menu has nothing for axe to find', async ({ page }) => {
+        await adminService(page, 'martin');
+        await page.goto(consoleUrl({ theme }));
+        await ready(page);
+        await page.getByRole('button', { name: 'Martin', exact: true }).click();
+        expect((await axe(page).include('header.top').analyze()).violations).toEqual([]);
+      });
+    });
   }
 }
 

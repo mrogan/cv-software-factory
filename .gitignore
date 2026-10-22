@@ -13,9 +13,10 @@ coverage/
 .obsidian/
 .claude/settings.local.json
 
-# Browser test output
+# Browser test and scan output
 apps/console/e2e-results/
 apps/console/e2e-report/
+apps/console/zap-report/
 
 # Working notes that are never committed. `.ignore` keeps them searchable.
 /scratch/

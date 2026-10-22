@@ -7,7 +7,7 @@ import pino from 'pino';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { GitHub } from '../../src/github/client.ts';
-import { carriesIn, carriesSection, DEPLOYS, DeployRefused, deployTitle } from '../../src/github/deploys.ts';
+import { carriesIn, carriesSection, DEPLOYS, DeployRefused, deployTitle, type Pin } from '../../src/github/deploys.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
 import { GitHubWorker } from '../../src/github/worker-client.ts';
 import {
@@ -37,7 +37,7 @@ function deployPull(pull: { state?: string; head?: string; fork?: boolean; body?
       answer: () => ({
         body: {
           state: pull.state ?? 'open',
-          title: deployTitle(APP_DEPLOY, SHA),
+          title: deployTitle(APP_DEPLOY, [{ pin: APP_DEPLOY.pins[0] as Pin, commit: SHA }]),
           body,
           head: { ref: pull.head ?? APP_DEPLOY.branch, repo: { full_name: pull.fork ? 'someone/fork' : REPO } },
           base: { ref: 'main' },
@@ -424,6 +424,28 @@ describe('describing a deploy', () => {
       else await expect(describing).rejects.toMatchObject(refusal);
       expect(calls(sent).filter((c) => c.method === 'PATCH')).toEqual([]);
     }
+  });
+
+  it('refuses a deploy of several pin files, which has no one range of commits to say it carries', async () => {
+    const factory = DEPLOYS.find((t) => t.pins.length > 1) as (typeof DEPLOYS)[number];
+    const { github, sent } = client([
+      {
+        method: 'GET',
+        path: `/repos/${factory.repo}/pulls/30`,
+        answer: () => ({
+          body: {
+            state: 'open',
+            title: deployTitle(factory, [{ pin: factory.pins[0] as Pin, commit: SHA }]),
+            body: '',
+            head: { ref: factory.branch, repo: { full_name: factory.repo } },
+            base: { ref: 'main' },
+          },
+        }),
+      },
+    ]);
+    const describing = new LiveActions(github).describeDeploy(factory.repo, 30, { commit: SHA, carries: CARRIES });
+    await expect(describing).rejects.toThrow(/more than one pin file/);
+    expect(calls(sent).filter((c) => c.method === 'PATCH')).toEqual([]);
   });
 
   it('waits for the watch’s write to the same body, so neither writes over the other with a body it read before', async () => {

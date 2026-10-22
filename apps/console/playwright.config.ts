@@ -1,7 +1,7 @@
 /**
  * The console's browser tests, against the production build, fed from the samples' event log with no Postgres
- * behind it, and from the milestone 4 test data by a second server (the live test, which needs a store, starts
- * its own). Snapshots are taken in the pinned Playwright
+ * behind it, and from the milestone 4 test data by a second server (the live test and the sign-in test, which need a
+ * store, start their own). Snapshots are taken in the pinned Playwright
  * image, so they match from one machine to the next: `make e2e` runs them there.
  */
 import { defineConfig, devices } from '@playwright/test';
@@ -30,9 +30,10 @@ export default defineConfig({
     {
       name: 'console',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: pinned ? /(live|speed)\.spec\.ts/ : /(live|speed|visual)\.spec\.ts/,
+      testIgnore: pinned ? /(live|signing-in|speed)\.spec\.ts/ : /(live|signing-in|speed|visual)\.spec\.ts/,
     },
-    { name: 'live', use: { ...devices['Desktop Chrome'] }, testMatch: /live\.spec\.ts/ },
+    // The tests that need a store: the console live, and signing in against the admin service.
+    { name: 'live', use: { ...devices['Desktop Chrome'] }, testMatch: /(live|signing-in)\.spec\.ts/ },
     // Timed alone, so other tests' browsers don't share its CPU: after the rest, or on its own with `--no-deps` as CI
     // and `make e2e` run it.
     { name: 'speed', testMatch: /speed\.spec\.ts/, dependencies: ['console', 'live'] },

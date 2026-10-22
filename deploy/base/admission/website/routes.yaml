@@ -1,0 +1,43 @@
+# The app's routes may name the app's hosts and no other (milestone 7). The app's repository, which agents write to,
+# may make Traefik routes in `website` (deploy/base/website/project.yaml), and Traefik serves a route on any host it
+# names, from any namespace, with the certificate it holds for that host. A route on the console's host would take
+# Martin's session cookie and serve pages on the console's origin; a route that names no host would match every host.
+# So each route of an IngressRoute in `website` must begin with one of the app's hosts, `Host(...)`, and join anything
+# else to it with `&&` alone: with no `||` anywhere, nothing can widen the route beyond that host.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: routes
+  annotations:
+    # After Kyverno, whose CRDs it needs (wave -3), before anything it guards.
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: [website]
+    resourceRules:
+      - apiGroups: [traefik.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [ingressroutes]
+  variables:
+    # The app's hosts on this profile.
+    - name: hosts
+      expression: "['website.localhost']"
+  validations:
+    - expression: >-
+        has(object.spec.routes) && object.spec.routes.all(r,
+          has(r.match) && !r.match.contains('||') &&
+          variables.hosts.exists(h, r.match == 'Host(`' + h + '`)' || r.match.startsWith('Host(`' + h + '`) && ')))
+      messageExpression: >-
+        'each route of an IngressRoute in website must begin with Host(`<host>`) for one of the app’s hosts (' +
+        variables.hosts.join(', ') + '), joined to the rest with && alone'

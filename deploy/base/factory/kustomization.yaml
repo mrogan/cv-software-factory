@@ -1,7 +1,8 @@
-# The factory's workers: the gateway, the GitHub worker, the line, triage, the intake, the log watcher and the traffic
-# generator (the `factory` image), and the probes and crawler (the `factory-browser` image). One replica each. Most write
-# to the artifacts volume the console reads, and all but the GitHub worker and the traffic generator to the event store
-# as the factory's writer. The network policies, the cluster's first, fence them in.
+# The factory's admin service (`factory admin`, Martin's sign-in and writes) and its workers: the gateway, the GitHub
+# worker, the line, triage, the intake, the log watcher and the traffic generator (the `factory` image), and the probes
+# and crawler (the `factory-browser` image). One replica each. Most write to the artifacts volume the console reads, and
+# all but the GitHub worker and the traffic generator to the event store, each as a role of its own. The network
+# policies, the cluster's first, fence them in.
 #
 # Not listed in deploy/base/kustomization.yaml: a profile brings them in with the images it pins
 # (deploy/overlays/local/factory-image), because they cannot run without an image.
@@ -10,6 +11,7 @@ kind: Kustomization
 namespace: factory
 resources:
   - network-policies.yaml
+  - admin.yaml
   - cassettes.yaml
   - services.yaml
   - gateway.yaml

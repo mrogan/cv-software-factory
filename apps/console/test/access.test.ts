@@ -1,7 +1,7 @@
 /**
  * The access table (`policy/access.ts`) against what it answers to: the spec's list of what needs the passkey again,
- * the design's list of guardrail holds, and the routes the console's server answers. The admin service's routes join
- * it with the service.
+ * the design's list of guardrail holds, and the routes the console's server answers. The admin service's routes are
+ * held to it by `apps/factory/test/admin/admin.test.ts`.
  */
 import { readFileSync } from 'node:fs';
 import { HOLD_CAUSES } from '@software-factory/events';

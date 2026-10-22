@@ -48,10 +48,10 @@ function runner(answer: (env: NodeJS.ProcessEnv) => Promise<unknown>, patches: s
       expect(options.checkFence).toBe(false);
       seen.agent = env;
       seen.home = existsSync(join(String(env.HOME), '.claude')) ? ['.claude'] : [];
-      seen.token = await jobForToken(database.writer, env.ANTHROPIC_API_KEY ?? '');
+      seen.token = await jobForToken(database.as.gateway, env.ANTHROPIC_API_KEY ?? '');
       const { job, workItem } = seen.token as { job: string; workItem: string };
       for (const outcome of ['answered', 'replayed', 'replayed']) {
-        await database.writer`
+        await database.as.gateway`
           insert into model_calls (id, agent, work_item, provider, model, question_set, duration_ms, outcome, job)
           values (${crypto.randomUUID()}, 'coder', ${workItem}, 'local', 'qwen/qwen3.8-27b', 'messages', 10,
                   ${outcome}, ${job})`;
@@ -72,7 +72,7 @@ describe('the bench', () => {
     const benched = await bench({
       agent: 'coder',
       fixture,
-      sql: database.writer,
+      sql: database.as.line,
       gateway: 'http://localhost:8180',
       dir,
       runner: steps,
@@ -106,7 +106,7 @@ describe('the bench', () => {
     // The prompt names the fixture's work item; the token, and so the spend it is capped by, one of the run's own.
     expect(step.prompt).toContain(`#${FIXTURE_WORK_ITEM}`);
     expect(seen.token).toMatchObject({ workItem: expect.stringMatching(/^bench-/), agent: 'coder' });
-    expect(await jobForToken(database.writer, seen.agent?.ANTHROPIC_API_KEY ?? '')).toBeUndefined();
+    expect(await jobForToken(database.as.gateway, seen.agent?.ANTHROPIC_API_KEY ?? '')).toBeUndefined();
 
     expect(benched.result).toEqual({ fits: true, value: CODED });
     expect(benched.calls).toEqual({ answered: 1, replayed: 2 });
@@ -116,7 +116,7 @@ describe('the bench', () => {
     await bench({
       agent: 'coder',
       fixture,
-      sql: database.writer,
+      sql: database.as.line,
       gateway: 'http://gw',
       dir,
       runner: second.steps,
@@ -137,7 +137,7 @@ describe('the bench', () => {
     const options = {
       agent: 'coder' as const,
       fixture,
-      sql: database.writer,
+      sql: database.as.line,
       gateway: 'http://gw',
       dir,
       log: () => {},
@@ -153,7 +153,7 @@ describe('the bench', () => {
     });
     await expect(bench({ ...options, commit: 'b'.repeat(40), runner: steps })).rejects.toThrow('The SDK fell over.');
     expect(stepFrom(seen.agent).commit).toBe('b'.repeat(40));
-    expect(await jobForToken(database.writer, seen.agent?.ANTHROPIC_API_KEY ?? '')).toBeUndefined();
+    expect(await jobForToken(database.as.gateway, seen.agent?.ANTHROPIC_API_KEY ?? '')).toBeUndefined();
   });
 
   it('sends a coder’s patch the fence refuses back once, resuming its session in the same home', async () => {
@@ -173,7 +173,7 @@ describe('the bench', () => {
     const benched = await bench({
       agent: 'coder',
       fixture,
-      sql: database.writer,
+      sql: database.as.line,
       gateway: 'http://gw',
       dir,
       runner: {
@@ -201,7 +201,7 @@ describe('the bench', () => {
     const benched = await bench({
       agent: 'coder',
       fixture,
-      sql: database.writer,
+      sql: database.as.line,
       gateway: 'http://gw',
       dir,
       runner: {
@@ -264,7 +264,7 @@ describe('the bench', () => {
     const options = {
       agent: 'reviewer' as const,
       fixture: review,
-      sql: database.writer,
+      sql: database.as.line,
       gateway: 'http://gw',
       dir,
       log: () => {},

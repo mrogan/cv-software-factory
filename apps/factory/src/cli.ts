@@ -5,6 +5,7 @@
  *
  *     factory <group> <command> [options]
  */
+import * as admin from './commands/admin.ts';
 import * as crawler from './commands/crawler.ts';
 import * as events from './commands/events.ts';
 import * as gate from './commands/gate.ts';
@@ -25,6 +26,7 @@ interface Group {
 }
 
 const GROUPS: Record<string, Group> = {
+  admin,
   crawler,
   events,
   gate,

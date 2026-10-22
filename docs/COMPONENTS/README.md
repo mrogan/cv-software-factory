@@ -54,6 +54,7 @@ flowchart TB
 | [Defect injector](DEFECT-INJECTOR.md) | Opens regression pull requests from the private catalogue |
 | [Red-team harness](RED-TEAM-HARNESS.md) | Runs curated attacks against real mechanisms and records the refusals |
 | [Console](CONSOLE.md) | The UI for visitors and admin (spec 5) |
+| [Admin service](ADMIN-SERVICE.md) | Martin's sign-in with a passkey, his sessions, and the one write path a browser reaches (spec 5.4) |
 | [Workers and images](WORKERS-AND-IMAGES.md) | Where the workers run, and the three images |
 | [Network policies](NETWORK-POLICIES.md) | Each pod reaches only what it needs |
 | [Factory command](FACTORY-COMMAND.md) | `factory`: events, probes, crawler, GitHub, gates, the line and traffic (spec 5.6) |

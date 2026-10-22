@@ -73,6 +73,8 @@ const releaseId = z
   .string()
   .regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, 'a release, such as the canary’s pod-template hash and revision');
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'an image digest');
+/** What Martin called a passkey as he made it ("iPhone"), so the settings can list it. */
+const passkeyName = text(40);
 
 /**
  * One step of a canary as its Rollout plans it: a weight the canary holds, how long it pauses there, and whether a step
@@ -875,6 +877,26 @@ export const PAYLOADS = {
       .refine((s) => (s.medianMs === null) === (s.verified === 0), 'a median exactly when an entry is verified'),
     z.strictObject({ keyed: z.literal(false) }),
   ]),
+
+  /**
+   * Martin signed in, with a passkey or by enrolling one (the admin service). The passkey's name is his alone: the public
+   * view says that he signed in, never with which passkey, from where or in which browser.
+   */
+  'admin.signed-in': z.strictObject({ passkey: passkeyName.optional() }),
+  /** Martin signed out: on the one device, or everywhere, which ends every session. */
+  'admin.signed-out': z.strictObject({ everywhere: z.boolean() }),
+  /**
+   * Martin gave his passkey again in a session, the one it signed in with, so for five minutes it may do what the access
+   * table marks as needing it. Its name is Martin's alone, as above.
+   */
+  'admin.stepped-up': z.strictObject({ passkey: passkeyName.optional() }),
+  /** A passkey made with a one-time code from `factory admin enrol`. Its name is Martin's alone, as above. */
+  'passkey.enrolled': z.strictObject({ passkey: passkeyName.optional() }),
+  /**
+   * A passkey revoked: from the console, with the passkey given again, or by `factory admin enrol --revoke-others`, which
+   * revokes every passkey and ends every session. Its name is Martin's alone, as above.
+   */
+  'passkey.revoked': z.strictObject({ passkey: passkeyName.optional(), from: z.enum(['console', 'command-line']) }),
 } satisfies { [K in EventType]: z.ZodType };
 
 /** The envelope of an event about to be appended: everything but `seq` and `public`, which the store adds. */
