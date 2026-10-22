@@ -726,8 +726,8 @@ class RolloutKube implements KubeWriter {
   object: Record<string, unknown>;
   version = 1;
   readonly patches: { path: string; body: Record<string, unknown> }[] = [];
-  /** Answers the next patches with these statuses, in turn, as the API server would. */
-  readonly failing: number[] = [];
+  /** Answers the next patches with these statuses, in turn, as the API server would, or makes one and loses its answer. */
+  readonly failing: (number | 'lost' | undefined)[] = [];
 
   constructor(state: RolloutState, paused = false) {
     const r = rollout(state);
@@ -739,9 +739,9 @@ class RolloutKube implements KubeWriter {
     return schema.parse({ ...object, metadata: { ...object.metadata, resourceVersion: String(this.version) } });
   }
 
-  async patch<T>(path: string, body: unknown, schema: { parse(v: unknown): T }): Promise<T> {
-    const status = this.failing.shift();
-    if (status) throw new KubeError(status, `PATCH ${path} answered ${status}`);
+  async patch(path: string, body: unknown): Promise<void> {
+    const failing = this.failing.shift();
+    if (typeof failing === 'number') throw new KubeError(failing, `PATCH ${path} answered ${failing}`);
     const { metadata, ...rest } = body as { metadata?: { resourceVersion?: string } };
     if (metadata?.resourceVersion && metadata.resourceVersion !== String(this.version)) {
       throw new KubeError(409, 'the object has been modified');
@@ -749,7 +749,8 @@ class RolloutKube implements KubeWriter {
     this.patches.push({ path, body: rest });
     this.object = merged(this.object, rest) as Record<string, unknown>;
     this.version += 1;
-    return this.get(path, schema);
+    // Made, and its answer lost on the way back.
+    if (failing === 'lost') throw new Error('socket hang up');
   }
 
   text = async () => undefined;
@@ -982,6 +983,17 @@ describe('the release controls', () => {
     expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({ status: 200 });
     expect(kube.patches).toHaveLength(1);
     expect(await controls()).toHaveLength(before + 1);
+    // A patch made whose answer was lost is read back, found made, and recorded.
+    kube.failing.push('lost');
+    expect(await browser.post('/admin/release/resume', { release: RELEASE })).toMatchObject({ status: 200 });
+    expect(await controls()).toHaveLength(before + 2);
+  });
+
+  it('resumes a paused canary it aborts, so no pause outlives it', async () => {
+    const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { paused: true });
+    const { browser } = await signedIn();
+    expect(await browser.post('/admin/release/abort', { release: RELEASE })).toMatchObject({ status: 200 });
+    expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }, { spec: { paused: false } }]);
   });
 
   it('refuses every control when the admin service has no Rollout', async () => {

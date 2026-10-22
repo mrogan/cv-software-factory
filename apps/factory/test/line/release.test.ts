@@ -732,6 +732,8 @@ describe('a rollback, as signals to triage', () => {
     const abortedAt = new Date(now).toISOString();
     kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt });
     kube.runs = terminated();
+    // A pass after the control's lag: no control from the console claimed it.
+    now += 20_000;
     await it.tick();
     expect(await inbox()).toEqual([]);
     expect(await typesOf(carried)).toEqual(['release.started by rollouts', 'release.aborted by martin']);
@@ -782,6 +784,7 @@ describe('a rollback, as signals to triage', () => {
       abortedAt: new Date(now).toISOString(),
     });
     kube.runs = terminated();
+    now += 20_000;
     await it.tick();
     expect(await typesOf(carried)).toEqual(['release.started by rollouts', 'release.aborted by martin']);
     expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'stop' }]);
@@ -800,6 +803,33 @@ describe('a rollback, as signals to triage', () => {
     ]);
     await it.tick();
     expect(await stage(carried)).toBe('release');
+  });
+
+  it('waits a pass for the console’s control before it says who made a fresh abort', async () => {
+    const { line: it, kube, carried } = await underWay();
+    kube.rollout = rollout({
+      current: CANARY,
+      stable: STABLE,
+      stepIndex: 0,
+      abort: true,
+      abortedAt: new Date(now).toISOString(),
+    });
+    kube.runs = terminated();
+    await it.tick();
+    expect(await payloads(carried, 'release.aborted')).toEqual([]);
+    await martin.append([
+      {
+        ...event(
+          null,
+          'release.controlled',
+          { action: 'abort', release: releaseOf(CANARY), version: commitOf(CANARY), weight: 25 },
+          'martin',
+        ),
+        ts: new Date(now - 500).toISOString(),
+      },
+    ]);
+    await it.tick();
+    expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'martin' }]);
   });
 
   it('takes Martin’s abort from his control on the console, even just after the line stopped', async () => {
@@ -853,6 +883,7 @@ describe('a rollback, as signals to triage', () => {
       abortedAt: new Date(now - 1_000).toISOString(),
     });
     kube.runs = terminated();
+    now += 20_000;
     await it.tick();
     expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'stop' }]);
   });
@@ -868,6 +899,7 @@ describe('a rollback, as signals to triage', () => {
       abortedAt: new Date(now + 10 * 60_000).toISOString(),
     });
     kube.runs = terminated();
+    now += 11 * 60_000;
     await it.tick();
     expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'martin' }]);
   });

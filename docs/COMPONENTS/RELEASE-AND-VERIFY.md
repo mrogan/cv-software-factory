@@ -71,7 +71,7 @@ The same function decides what a release carries, so while a release is in its c
 A figure or series Prometheus did not give is left out. The journeys' counts are null when the step's Job or its pod cannot be read, is gone, has not ended, or wrote no counts; the step's other figures are kept either way.
 
 - **Who aborted it.** Martin's abort terminates the runs, which fails none, and is no signal. To Argo Rollouts, his abort from the console, Stop the line's (`scripts/abort-canaries.sh`) and his by hand are the same patch of the Rollout's status, so the line says which, in this order:
-  - `martin` when one of his roles recorded his control of this release from the console's Canary panel, `release.controlled` with `abort`, within the minute before the abort ([admin service](ADMIN-SERVICE.md#the-canarys-controls)): the control says so, not the time;
+  - `martin` when one of his roles recorded his control of this release from the console's Canary panel, `release.controlled` with `abort`, within the minute before the abort ([admin service](ADMIN-SERVICE.md#the-canarys-controls)): the control says so, not the time. The admin service records it just after its patch, so an abort less than fifteen seconds old that no control has claimed waits a pass;
   - `stop` when the last `line.started` or `line.stopped` before the abort is a stop recorded within the minute before it (`make stop-the-line` records the stop, then aborts);
   - `martin` otherwise: an abort by hand, with his own credentials, the one other way a Rollout is aborted.
 

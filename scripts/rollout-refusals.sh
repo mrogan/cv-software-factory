@@ -7,20 +7,20 @@
 # seconds after a change: the API server takes a moment to load a policy.
 #
 # Each request is a server-side dry run: it passes through authorisation and admission exactly as a real one does, and
-# nothing is changed. The status's cases name the status's step as it is, so a canary in flight or not, each asks the
-# same of the policy.
+# nothing is changed. Promote moves the status's step on by one, or to past the last step when it is there already, so a
+# canary in flight or not, each asks the same of the policy.
 #
 #   pause             spec.paused set                                                  admitted
 #   resume            spec.paused cleared                                              admitted
 #   abort             status.abort set                                                 admitted
 #   retry             status.abort cleared                                             admitted
-#   promote           the status's step, as it is, and its pauses cleared              admitted
+#   promote           the status's step moved on, and its pauses cleared               admitted
 #   promote-fully     status.promoteFull set                                           admitted
 #   image             another image                                                    refused
 #   steps             the canary's steps, straight to all of the traffic               refused
 #   replicas          another number of replicas                                       refused
 #   label             a label added                                                    refused
-#   step-back         the status's step sent back to the first                         refused
+#   step-back         the status's step sent back by one                               refused
 #   stable            the status's stable version changed                              refused
 #   weights           the traffic split's weights in the status                        refused
 #   pause-condition   a pause added                                                    refused
@@ -33,8 +33,10 @@ as=system:serviceaccount:factory:admin
 out="$(dirname "$0")/../deploy/test/rollout-refusals.json"
 kc() { kubectl --context "$context" --as "$as" -n website "$@"; }
 
-step=$(kubectl --context "$context" -n website get rollout website -o jsonpath='{.status.currentStepIndex}')
-step=${step:-0}
+at=$(kubectl --context "$context" -n website get rollout website -o jsonpath='{.status.currentStepIndex}')
+at=${at:-0}
+steps=$(kubectl --context "$context" -n website get rollout website -o json | jq '.spec.strategy.canary.steps | length')
+step=$(( at < steps ? at + 1 : steps ))
 
 record() { # case outcome answer: one JSON line
   jq -cn --arg kind "$1" --arg outcome "$2" --arg answer "$3" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -62,7 +64,7 @@ try() { # case subresource patch
   try steps '' '{"spec":{"strategy":{"canary":{"steps":[{"setWeight":100}]}}}}'
   try replicas '' '{"spec":{"replicas":5}}'
   try label '' '{"metadata":{"labels":{"rollout-refusal":"x"}}}'
-  try step-back status '{"status":{"currentStepIndex":-1}}'
+  try step-back status "{\"status\":{\"currentStepIndex\":$(( at - 1 ))}}"
   try stable status '{"status":{"stableRS":"rollout-refusal"}}'
   try weights status '{"status":{"canary":{"weights":{"canary":{"weight":100,"podTemplateHash":"x","serviceName":"website-canary"},"stable":{"weight":0,"podTemplateHash":"x","serviceName":"website"}}}}}'
   try pause-condition status '{"status":{"pauseConditions":[{"reason":"PausedByUser","startTime":"2026-01-01T00:00:00Z"}]}}'

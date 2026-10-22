@@ -13,8 +13,9 @@
  *   (`release.controlled`, appended by one of his roles just before its patch) is within the minute before the abort;
  *   otherwise Stop the line, which records the line's stop and then aborts every release in flight, when the line's
  *   last word before the abort is that it stopped, within the minute before; otherwise Martin, by hand with his own
- *   credentials, the one other way a Rollout is aborted. Argo Rollouts keeps the abort's time to the second, cut
- *   short, so a control or a stop recorded within the second after it counts as before it.
+ *   credentials, the one other way a Rollout is aborted. The admin service records a control just after its patch, so
+ *   an abort less than fifteen seconds old that no control has claimed waits a pass. Argo Rollouts keeps the abort's
+ *   time to the second, cut short, so a control or a stop recorded within the second after it counts as before it.
  *
  * A figure or series it could not read is left out, and the step or rollback recorded without it.
  *
@@ -417,8 +418,8 @@ export class Releases {
    * Who aborted a release at `at`: Martin, if his control from the console aborted it; Stop the line, if the line had
    * just stopped; or else Martin, by hand.
    */
-  async #abortedBy(at: string, release: string): Promise<'stop' | 'martin'> {
-    const { sql } = this.#o;
+  async #abortedBy(at: string, release: string): Promise<'stop' | 'martin' | undefined> {
+    const { sql, now } = this.#o;
     const [control] = await sql<{ seq: string }[]>`
       select e.seq from events e
       where e.type = 'release.controlled' and e.payload->>'action' = 'abort' and e.payload->>'release' = ${release}
@@ -426,6 +427,8 @@ export class Releases {
         and ${fromMartin(sql, 'e')}
       limit 1`;
     if (control) return 'martin';
+    // The admin service records its control just after its patch: an abort only seconds old waits a pass for it.
+    if (now().getTime() - Date.parse(at) < CONTROL_LAG_MS) return undefined;
     const [last] = await sql<{ type: string; ts: Date }[]>`
       select e.type, e.ts from events e
       where e.type in ('line.started', 'line.stopped') and e.ts < ${at}::timestamptz + interval '1 second'
@@ -495,6 +498,9 @@ export class Releases {
     );
   }
 }
+
+/** How long after an abort the line waits for the console's control that made it to be recorded. */
+const CONTROL_LAG_MS = 15_000;
 
 /** A release span's attributes: which release, when the Rollout names one, and whether it is a dry run's. */
 const releaseAttributes = (release: string | undefined, dryRun = false) => ({

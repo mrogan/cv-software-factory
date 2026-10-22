@@ -65,14 +65,14 @@ The Canary panel's controls (`admin/rollout.ts`), each the patch `kubectl argo r
 | Promote | the status's step, on to the next step that sets a weight short of 100%, and its pauses cleared | a canary in flight with such a step; the passkey again |
 | Promote fully (`fully: true`) | `status.promoteFull` | a canary in flight; the passkey again |
 | Pause, Resume | `spec.paused` | a canary in flight, not paused or paused |
-| Abort | `status.abort` | a canary in flight |
-| Retry | `status.abort`, cleared | a release that was stopped (aborted, or stopped with the line or by an analysis error), not rolled back, and the line not stopped; the passkey again |
+| Abort | `status.abort`, and `spec.paused` cleared if Martin had paused it | a canary in flight |
+| Retry | `status.abort`, cleared, and `spec.paused` too if it was left set | a release that was stopped (aborted, or stopped with the line or by an analysis error), not rolled back, and the line not stopped; the passkey again |
 
-- **Promote** moves the canary on wherever it is in its step, setting its weight, pausing or being analysed: Argo Rollouts stops the analysis of the step it leaves. A promotion also resumes a paused canary, as `kubectl argo rollouts promote` does. Resuming gives a paused canary back to its own analysis, and promotes nothing.
+- **Promote** moves the canary on wherever it is in its step, setting its weight, pausing or being analysed: Argo Rollouts stops the analysis of the step it leaves. A promotion also resumes a paused canary, as `kubectl argo rollouts promote` does, and so do an abort and a retry, so no pause outlives its canary. Resuming gives a paused canary back to its own analysis, and promotes nothing.
 - **No rollback.** A rollback stays the analysis's alone; a rolled-back release is never retried, and goes out with the next release that carries its work items.
 - **The release the panel showed.** Each control names it (`{"release": "<hash>-<revision>"}`, as the line names releases), and is refused (409) when the Rollout's is another, when the line has not recorded its start yet, or when its state does not take the control. The first patch is conditional on the Rollout as it was read (its `resourceVersion`): a Rollout that changed in between is read again, and the control decided again, up to three times.
 - **Retry while the line is stopped** is refused by the service, not only disabled on the page: a stopped line starts no canary.
-- **Recorded once made.** Its event, `release.controlled`, is appended in a transaction that commits only after the patch, so a patch Kubernetes refuses leaves none (502). If the commit fails after the patch, the event is appended again on its own, and logged if that fails too. The line then records what the Rollout did: after an abort, [`release.aborted` with `by: martin`](RELEASE-AND-VERIFY.md#its-events).
+- **Recorded once made.** Its event, `release.controlled`, is checked before the patch and appended after it, in a transaction of its own, so a patch Kubernetes refuses leaves none (502), and no connection to the store waits on Kubernetes. A patch whose answer never came is read back, and counts as made if the Rollout shows it. An append that fails is tried once more, and logged if that fails too. The line then records what the Rollout did: after an abort, [`release.aborted` with `by: martin`](RELEASE-AND-VERIFY.md#its-events).
 - **Unset,** with no `RELEASE_ROLLOUT`, every control is refused (503), and the service reaches nothing in Kubernetes.
 
 ## What it records

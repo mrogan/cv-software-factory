@@ -23,11 +23,11 @@ export interface Kube {
 /** The API, with patching: the admin service's, for the app's Rollout. */
 export interface KubeWriter extends Kube {
   /**
-   * A JSON merge patch of an object, or of its subresource with `subresource`, and the object it made, read through
-   * its schema. A `metadata.resourceVersion` in the patch makes it conditional: the API answers 409 if the object has
-   * changed since.
+   * A JSON merge patch of an object, or of a subresource by its path (`…/status`). A `metadata.resourceVersion` in the
+   * patch makes it conditional: the API answers 409 if the object has changed since. Its answer is not read: once the
+   * API says it was made, it was.
    */
-  patch<T>(path: string, body: unknown, schema: z.ZodType<T>): Promise<T>;
+  patch(path: string, body: unknown): Promise<void>;
 }
 
 export type KubeErrorKind = 'refused' | 'invalid' | 'server' | 'malformed';
@@ -90,12 +90,8 @@ export function client(send: Send): KubeWriter {
       if (answer.status === 404) return;
       check('DELETE', path, answer);
     },
-    async patch<T>(path: string, body: unknown, schema: z.ZodType<T>) {
-      const answer = await send('PATCH', path, body, MERGE_PATCH);
-      check('PATCH', path, answer);
-      const parsed = schema.safeParse(JSON.parse(answer.text));
-      if (!parsed.success) throw new KubeError(0, `PATCH ${path} answered with something else`);
-      return parsed.data;
+    async patch(path: string, body: unknown) {
+      check('PATCH', path, await send('PATCH', path, body, MERGE_PATCH));
     },
   };
 }

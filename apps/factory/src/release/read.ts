@@ -33,8 +33,6 @@ export const rolloutSchema = z.object({
     annotations: z.record(z.string(), z.string()).default({}),
   }),
   spec: z.object({
-    /** Set while Martin has paused the canary from the console (the admin service): it holds its weight. */
-    paused: z.boolean().optional(),
     template: z.object({
       spec: z.object({ containers: z.array(z.object({ name: z.string(), image: z.string() })).min(1) }),
     }),
