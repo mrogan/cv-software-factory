@@ -11,7 +11,7 @@
   Query options: ?mode=visitor  ?theme=ink  ?motion=off  ?item=1288 (start the reel there)  &sheet (and open its sheet)
   Admin, and each control's read-only form for visitors (README, "Admin"):
     ?view=signin | enrol | settings | audit (pages of their own; the console is the default)
-    ?signin=ready (default) | none (no passkey on this device) | expired (the session ended) | out | everywhere (signed out)
+    ?signin=ready (default) | none (no passkey was used) | expired (the session ended) | out | everywhere (signed out)
     ?enrol=code (default) | passkey (the code took; make the passkey) | done | wrong | spent (expired, used or out of tries)
     ?dialog=stop | start | stepup | abort (open one, as a click would)   ?fresh (the passkey was given in the last five minutes)
     ?needs=none (nothing waits)   ?menu (the account menu open)   ?profile=local (default) | cloud (no local model to choose)
@@ -2479,7 +2479,7 @@ function renderMenu() {
 function signinPage() {
   const k = q.get('signin') || 'ready';
   const note = {
-    none: `<div class="refusal">This device has no passkey for the factory.<small>Each device is enrolled once, from the command line: <code>factory admin enrol</code> prints a one-time code for the <a href="?view=enrol">enrolment page</a>.</small></div>`,
+    none: `<div class="refusal">No passkey was used.<small>Either the passkey sheet was closed, or this device has no passkey for the factory. Each device is enrolled once, from the command line: <code>factory admin enrol</code> prints a one-time code for the <a href="?view=enrol">enrolment page</a>.</small></div>`,
     expired: `<div class="done" style="border-left-color: var(--line-strong)">Your session ended at 23:40. A session lasts eight hours from signing in, however busy.</div>`,
     out: `<div class="done" style="border-left-color: var(--line-strong)">Signed out. This browser holds no session now.</div>`,
     everywhere: `<div class="done" style="border-left-color: var(--line-strong)">Signed out everywhere: every session on every device has ended, this one too.</div>`,

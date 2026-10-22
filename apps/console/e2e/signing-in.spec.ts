@@ -114,11 +114,15 @@ test('enrols a passkey with a one-time code, and is signed in; then signs out, i
   expect(harness.cookiesToConsole).toBeGreaterThan(0);
 });
 
-test('a device with no passkey is told how to enrol one', async ({ page }) => {
+test('a device with no passkey is told how to enrol one, without being told it has none', async ({ page }) => {
+  // The browser answers a closed sheet and a device with no passkey alike, so the page cannot tell them apart.
   await virtualPasskey(page);
   await page.goto('/?view=sign-in');
   await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
-  await expect(page.getByRole('alert')).toContainText('This device has no passkey for the factory.');
+  await expect(page.getByRole('alert')).toContainText('No passkey was used.');
+  await expect(page.getByRole('alert')).toContainText(
+    'Either the passkey sheet was closed, or this device has no passkey',
+  );
   await page.getByRole('link', { name: 'enrolment page' }).click();
   await expect(page.getByRole('heading', { name: 'Enrol a passkey' })).toBeVisible();
 });

@@ -115,10 +115,11 @@ function SignIn({ heading }: Heading) {
       {note?.kind === 'ended' && <Note tone="fact">{ENDED[note.ended](note.at)}</Note>}
       {note?.kind === 'none' && (
         <Note tone="refusal">
-          This device has no passkey for the factory.
+          No passkey was used.
           <small>
-            Each device is enrolled once, from the command line: <code>factory admin enrol</code> prints a one-time code
-            for the <a href={doorHref('enrol')}>enrolment page</a>.
+            Either the passkey sheet was closed, or this device has no passkey for the factory. Each device is enrolled
+            once, from the command line: <code>factory admin enrol</code> prints a one-time code for the{' '}
+            <a href={doorHref('enrol')}>enrolment page</a>.
           </small>
         </Note>
       )}
