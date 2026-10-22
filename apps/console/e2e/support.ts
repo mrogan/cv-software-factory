@@ -207,6 +207,37 @@ export async function picturesShown(part: Locator): Promise<void> {
   });
 }
 
+/** A session as the admin service describes it (`GET /admin/session`), for pages drawn as Martin's. */
+export const SESSION = {
+  signedInAt: '2026-10-06T14:40:00Z',
+  expiresAt: '2026-10-06T22:40:00Z',
+  steppedUpAt: null,
+  steppedUp: false,
+  token: 'test-token',
+  passkey: { id: 'passkey-laptop', name: 'MacBook Air' },
+  passkeys: [
+    {
+      id: 'passkey-laptop',
+      name: 'MacBook Air',
+      enrolledAt: '2026-10-01T09:00:00Z',
+      lastUsedAt: '2026-10-06T14:40:00Z',
+      current: true,
+    },
+  ],
+};
+
+/**
+ * The admin service as the page meets it, standing in for the real one (`signing-in.spec.ts` uses that): none at all,
+ * as the console's server alone answers; there, with no session for this browser; or Martin's session.
+ */
+export async function adminService(page: Page, as: 'visitor' | 'martin'): Promise<void> {
+  await page.route('**/admin/session', (route) =>
+    as === 'martin'
+      ? route.fulfill({ json: SESSION })
+      : route.fulfill({ status: 401, json: { refused: 'session', message: 'Sign in first.' } }),
+  );
+}
+
 interface Guard {
   violations: string[];
   foreign: string[];

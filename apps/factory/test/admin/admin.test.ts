@@ -262,7 +262,7 @@ describe('enrolment', () => {
     const used = await newCode();
     expect((await enrolWith(new Browser(), new Authenticator(ORIGIN, RP_ID), used)).status).toBe(200);
     const again = await new Browser().post('/admin/enrol/options', { code: used });
-    expect(again).toMatchObject({ status: 403, body: { refused: 'code' } });
+    expect(again).toMatchObject({ status: 403, body: { refused: 'code', left: 0 } });
 
     const expired = await newCode();
     await db.owner`
@@ -280,14 +280,50 @@ describe('enrolment', () => {
     // Four wrong codes from four browsers, then the right one: five tries.
     for (let i = 0; i < 4; i++) {
       const wrong = await new Browser().post('/admin/enrol/options', { code: 'ZZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ' });
-      expect(wrong.status).toBe(403);
+      // Each says how many tries the live code has left, so the page can say so.
+      expect(wrong).toMatchObject({ status: 403, body: { refused: 'code', left: 4 - i } });
     }
     expect((await new Browser().post('/admin/enrol/options', { code })).status).toBe(200);
-    // The sixth is refused, however right.
+    // The sixth is refused, however right, as a code that can no longer be used.
     expect(await new Browser().post('/admin/enrol/options', { code })).toMatchObject({
+      status: 403,
+      body: { refused: 'code', left: 0 },
+    });
+  });
+
+  it('keeps one code live, the newest, whose tries are its own', async () => {
+    const older = await newCode();
+    const newer = await newCode();
+    // A new code replaces the one before it, which is refused as one that can no longer be used.
+    expect(await new Browser().post('/admin/enrol/options', { code: older })).toMatchObject({
+      status: 403,
+      body: { refused: 'code', left: 4 },
+    });
+    // The tries a wrong code says are left are the live code's: the one just typed counted against it alone.
+    expect(await new Browser().post('/admin/enrol/options', { code: 'ZZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ' })).toMatchObject({
+      status: 403,
+      body: { refused: 'code', left: 3 },
+    });
+    expect((await enrolWith(new Browser(), new Authenticator(ORIGIN, RP_ID), newer)).status).toBe(200);
+    // Used, the newest code leaves none live: the older one does not take its place.
+    expect(await new Browser().post('/admin/enrol/options', { code: older })).toMatchObject({
+      status: 403,
+      body: { refused: 'code', left: 0 },
+    });
+  });
+
+  it('refuses a ceremony begun with a code that a newer one has replaced since', async () => {
+    const older = await newCode();
+    const browser = new Browser();
+    const options = await browser.post('/admin/enrol/options', { code: older });
+    expect(options.status).toBe(200);
+    await newCode();
+    const response = new Authenticator(ORIGIN, RP_ID).create(options.body as { challenge: string });
+    expect(await browser.post('/admin/enrol', { response, name: 'Laptop' })).toMatchObject({
       status: 403,
       body: { refused: 'code' },
     });
+    expect(await db.owner`select 1 from passkeys where revoked_at is null`).toHaveLength(0);
   });
 
   it('counts no try for what cannot be a code, so junk cannot burn Martin’s', async () => {
@@ -345,11 +381,12 @@ describe('enrolment', () => {
     const { browser, passkey } = await signedIn();
     const phone = await signedIn();
     const code = await newCode();
+    // The right code, and a wrong one last, which is refused alike, and says nothing of the live code's tries.
     for (let i = 0; i < ENROLMENT_CODE.tries; i++) {
-      expect(await new Browser().post('/admin/enrol/options', { code })).toMatchObject({
-        status: 409,
-        body: { refused: 'passkeys' },
-      });
+      const tried = i < ENROLMENT_CODE.tries - 1 ? code : 'ZZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ';
+      const refusal = await new Browser().post('/admin/enrol/options', { code: tried });
+      expect(refusal).toMatchObject({ status: 409, body: { refused: 'passkeys' } });
+      expect(refusal.body).not.toHaveProperty('left');
     }
     expect(
       await db.owner`select tries from enrolment_codes where code_sha256 = ${sha256(code.replaceAll('-', ''))}`,
@@ -360,6 +397,11 @@ describe('enrolment', () => {
     await start();
     expect((await stepUp(browser, passkey)).status).toBe(200);
     expect((await browser.post(`/admin/passkeys/${phone.passkey.credentialId}/revoke`)).status).toBe(200);
+    // A wrong code is the first try counted against it, and says so.
+    expect(await new Browser().post('/admin/enrol/options', { code: 'ZZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ' })).toMatchObject({
+      status: 403,
+      body: { refused: 'code', left: ENROLMENT_CODE.tries - 1 },
+    });
     expect((await enrolWith(new Browser(), new Authenticator(ORIGIN, RP_ID), code)).status).toBe(200);
   });
 

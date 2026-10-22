@@ -38,7 +38,7 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down gateway-key github-key scoreboard-secrets worker-secrets check status e2e egress admission-ready eval samples real-store stop-the-line start-the-line enrol
+.PHONY: help up down gateway-key github-key scoreboard-secrets worker-secrets check status e2e zap egress admission-ready eval samples real-store stop-the-line start-the-line enrol
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -181,6 +181,11 @@ e2e: ## Run the browser tests (the console's, and the probes') in the pinned Pla
 	docker run --rm --init --ipc=host -e UPDATE=$(UPDATE) -v "$(CURDIR):/src:ro" \
 		-v "$(CURDIR)/apps/console/e2e/snapshots:/out/snapshots" -v "$(CURDIR)/apps/console/e2e-results:/out/results" \
 		$(PLAYWRIGHT) /src/apps/console/e2e/in-docker.sh
+
+zap: node_modules ## ZAP's baseline scan of the console with Martin's session, as CI runs it (Docker, and Playwright's Chromium)
+	pnpm --filter @software-factory/console exec playwright install --only-shell chromium
+	pnpm --filter @software-factory/console build --logLevel warn
+	node apps/console/zap/scan.ts
 
 eval: node_modules ## Run triage's evaluation set against Jev live, recording its cassettes; RUNS=3 shows the drift
 	@TYPESAFE_API_KEY="$${TYPESAFE_API_KEY:-$$(security find-generic-password -s typesafe-api-key -w 2>/dev/null)}" \

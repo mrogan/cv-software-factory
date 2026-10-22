@@ -1,0 +1,5 @@
+# ZAP's baseline rules for the console with Martin's session (scan.ts). Any finding not listed here fails the scan.
+# An exception is one line of four, separated by tabs, as `zap-baseline.py -g` writes them and its `-c` reads them: the
+# rule's id, IGNORE (or INFO, to report it and pass), its name in brackets, and the reason it does not hold here, which
+# ZAP prints beside the finding. A test fails if a line has no reason.
+2	INFO	(Private IP Disclosure)	A release stopped by an analysis error carries the analysis's own words, which the console shows as they are. In the samples those quote a Service's address inside the local cluster (10.43.0.0/16), which leads nowhere from outside it.

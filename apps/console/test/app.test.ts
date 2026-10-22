@@ -9,7 +9,7 @@ import type { RawEvent } from '@software-factory/events';
 import { type ArtifactStore, DiskArtifacts } from '@software-factory/store';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ACCESS, type Access, type Name, routeOf, type ServedBy } from '../../../policy/access.ts';
-import { createApp } from '../src/app.ts';
+import { createApp, PERMISSIONS_POLICY, SECURITY_HEADERS } from '../src/app.ts';
 import { Feed } from '../src/feed.ts';
 import { loadSite } from '../src/site.ts';
 
@@ -122,6 +122,21 @@ describe('the console server', () => {
     expect(policy).toContain("script-src 'self';");
     expect(policy).toContain("connect-src 'self';");
     expect(policy).not.toContain('unsafe');
+  });
+
+  it('isolates the page from other origins, and gives away no browser feature it does not use', async () => {
+    for (const path of ['/', '/assets/index-AbC123.js', '/api/events?after=0', '/nowhere']) {
+      const res = await fetch(`${base}${path}`);
+      await res.body?.cancel();
+      for (const [name, value] of Object.entries(SECURITY_HEADERS)) expect(res.headers.get(name), path).toBe(value);
+    }
+    expect(SECURITY_HEADERS).toMatchObject({
+      'cross-origin-opener-policy': 'same-origin',
+      'cross-origin-embedder-policy': 'require-corp',
+      'cross-origin-resource-policy': 'same-origin',
+    });
+    // Passkeys keep their default, this origin alone: signing in needs them.
+    expect(PERMISSIONS_POLICY).not.toContain('publickey-credentials');
   });
 
   it('serves the events after a seq, as JSON', async () => {

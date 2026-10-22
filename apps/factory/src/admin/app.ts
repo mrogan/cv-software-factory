@@ -17,7 +17,7 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import { z } from 'zod';
-import { ACCESS, PASSKEYS, routeOf, SESSION, type ServedBy } from '../../../../policy/access.ts';
+import { ACCESS, ENROLMENT_CODE, PASSKEYS, routeOf, SESSION, type ServedBy } from '../../../../policy/access.ts';
 import type { Logger } from '../log.ts';
 import { clientAddress, LIMITS, RateLimit } from './client.ts';
 import type { AdminConfig } from './config.ts';
@@ -27,6 +27,7 @@ import {
   type AdminStore,
   adminEvent,
   lockSessions,
+  newestCode,
   Refused,
   type Session,
   sessionHash,
@@ -170,12 +171,19 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
         const held = await store.passkeys();
         if (held.length >= PASSKEYS.most) return refused(409, 'passkeys', TOO_MANY_PASSKEYS);
         const hash = codeHash(code);
-        if (!(await store.tryCode(hash))) {
-          return refused(
-            403,
-            'code',
-            'That code is not one, or it is used, out of tries or more than ten minutes old.',
-          );
+        const tried = await store.tryCode(hash);
+        if (!tried.match) {
+          // How many tries the live code has left, across every browser, so the page can tell a mistyped code from
+          // one that can no longer be used. ADR 0012 weighs what that tells anyone else.
+          const reply = tried.left
+            ? refused(403, 'code', `That code isn’t right: ${tries(tried.left)} left for it, across every browser.`)
+            : refused(
+                403,
+                'code',
+                `That code can’t be used any more: it has expired, been used or had its ${ENROLMENT_CODE.tries} tries. ` +
+                  'Run `factory admin enrol` again for a new one.',
+              );
+          return { ...reply, body: { ...reply.body, left: tried.left } };
         }
         const challenge = newChallenge();
         await store.challenge(challenge, 'enrol', { code: hash });
@@ -200,8 +208,11 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
         async (tx) => {
           const spent = await tx`
             update enrolment_codes set used_at = now()
-            where code_sha256 = ${code} and used_at is null and expires_at > now()`;
-          if (spent.count !== 1) throw new Refused('code', 403, 'That code is used, or more than ten minutes old.');
+            where code_sha256 = ${code} and code_sha256 = (${newestCode(tx)})
+              and used_at is null and expires_at > now()`;
+          if (spent.count !== 1) {
+            throw new Refused('code', 403, 'That code is used, more than ten minutes old, or replaced by a newer one.');
+          }
           await tx`
             insert into passkeys (id, public_key, sign_count, transports, name, enrolled_with)
             values (${passkey.id}, ${passkey.publicKey}, ${passkey.signCount}, ${passkey.transports},
@@ -384,6 +395,8 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
     return handlers[route]({ req, res, url, values, body, id, session });
   }
 }
+
+const tries = (n: number) => (n === 1 ? '1 try' : `${n} tries`);
 
 const refused = (status: number, why: string, message: string): Exclude<Reply, 'streaming'> => ({
   status,

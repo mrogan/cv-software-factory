@@ -13,6 +13,7 @@ mise install && pnpm install   # the pinned toolchain, dependencies and git hook
 make check                     # what CI requires: lint, types, tests, design tokens, manifests
 pnpm dev                       # the console on :5173 with the samples, reloading on change
 make e2e                       # the console in a browser, in the pinned Playwright image
+make zap                       # ZAP's baseline scan of the console signed in as Martin, as CI runs it
 make up / make samples / make status / make down
 ```
 
@@ -52,6 +53,8 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   ```sh
   (store_role admin && ADMIN_ORIGIN=https://console.localhost:8443 PORT=8093 node apps/factory/src/cli.ts admin)
   ```
+
+  For the console's sign-in pages in `pnpm dev`, start it with `ADMIN_ORIGIN=http://localhost:5173` and run `ADMIN_URL=http://localhost:8093 pnpm dev`, which passes `/admin/` to it as Traefik does. That works in Chrome; Safari drops the `Secure` cookie over plain HTTP.
 
   The GitHub worker acts as the factory's App, with its key from the Keychain; `GITHUB_DRY_RUN=true` records what it would do in the artifact store and touches nothing in GitHub:
 
