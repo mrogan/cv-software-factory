@@ -4,8 +4,11 @@
  * line holds at; and, once a step has run, the effort the gateway sent its calls at, which its `model.called` records.
  * Under `ALL_LOCAL`, as on the gateway, every agent's calls go to the local model, which takes no effort.
  */
-import type { InForce } from '../../../../policy/settings.ts';
-import type { SettingsReader } from '../settings.ts';
+import type { NewEvent } from '@software-factory/events';
+import type { EventWriter } from '@software-factory/store';
+import type { Sql } from 'postgres';
+import { type InForce, inForce } from '../../../../policy/settings.ts';
+import { latestChosen, type SettingsReader } from '../settings.ts';
 import type { LineAgent } from './machine.ts';
 import type { LineSettings } from './worker.ts';
 
@@ -13,8 +16,27 @@ import type { LineSettings } from './worker.ts';
 export const providerUnder = (settings: InForce, allLocal: boolean) => (agent: LineAgent) =>
   allLocal ? ('local' as const) : settings.agents[agent].provider;
 
-export function lineSettings(reader: SettingsReader, allLocal: boolean): LineSettings {
+/**
+ * The line's settings. With the store and a writer, a spend hold is appended only while the work item's cap in force
+ * still holds it, read under the lock every append takes: a save of the settings that raises the cap is appended
+ * under it too, so it lands either before (no hold) or after (and answers the hold), never between.
+ */
+export function lineSettings(
+  reader: SettingsReader,
+  allLocal: boolean,
+  store?: { sql: Sql; events: Pick<EventWriter, 'appendWithin'> },
+): LineSettings {
   return {
+    ...(store && {
+      holdForSpend: (hold: NewEvent, spentUsd: number) =>
+        store.sql.begin(async (tx) => {
+          await tx`select pg_advisory_xact_lock(hashtext('events'))`;
+          const cap = inForce(reader.profile, await latestChosen(tx)).caps.workItemUsd;
+          if (spentUsd < cap) return false;
+          await store.events.appendWithin(tx, hold);
+          return true;
+        }) as Promise<boolean>,
+    }),
     now: async () => {
       const now = await reader.now();
       return { providerOf: providerUnder(now, allLocal), workItemLimitUsd: now.caps.workItemUsd };

@@ -59,10 +59,10 @@ export class SettingsReader {
     return this.#profile;
   }
 
-  /** The settings in force now, read again once they are `freshMs` old. */
-  now(): Promise<InForce> {
+  /** The settings in force now, read again once they are `freshMs` old, or at once when `fresh`. */
+  now(fresh = false): Promise<InForce> {
     const at = this.#clock().getTime();
-    if (!this.#now || at - this.#now.at >= this.#freshMs) {
+    if (fresh || !this.#now || at - this.#now.at >= this.#freshMs) {
       const settings = settingsNow(this.#sql, this.#profile);
       // A read that failed is read again next time, not kept.
       settings.catch(() => {

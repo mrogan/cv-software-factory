@@ -27,7 +27,7 @@ const MILLION = 1_000_000;
 interface Setup {
   mode?: Mode;
   key?: boolean;
-  policy?: SpendPolicy | (() => Promise<SpendPolicy>);
+  policy?: SpendPolicy | ((fresh: boolean) => Promise<SpendPolicy>);
   clock?: Date;
   read?: string[];
 }
@@ -342,6 +342,19 @@ describe('spend caps', () => {
     await h.ledger.reconcile();
     expect((await h.lineEvents()).map((event) => event.type)).toEqual(['spend.capped', 'spend.cleared']);
     expect((await h.ledger.report()).day.limitUsd).toBe(25);
+    await h.database.end();
+  });
+
+  it('reads the caps afresh before it refuses, so a cap raised a moment ago refuses nothing', async () => {
+    // The caps a few seconds old say $0.04 a day; those in force this moment, $25.
+    const h = await harness({
+      policy: async (fresh) => ({ dayUsd: fresh ? 25 : 0.04, monthUsd: null, workItemUsd: 2 }),
+      clock: day(),
+    });
+    fake.inputTokens = MILLION;
+    await h.gateway.judge(request());
+    expect((await h.gateway.judge(request())).source).toBe('provider');
+    expect(await h.lineEvents()).toEqual([]);
     await h.database.end();
   });
 

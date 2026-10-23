@@ -22,7 +22,7 @@ import { fromMartin } from '@software-factory/store';
 import type { TransactionSql } from 'postgres';
 import { z } from 'zod';
 import { ACCESS } from '../../../../policy/access.ts';
-import { MODEL_AGENTS, MODELS, type ModelAgent } from '../../../../policy/models.ts';
+import { MODEL_AGENTS, MODELS, type ModelAgent, offered } from '../../../../policy/models.ts';
 import {
   CAP_NAMES,
   type CapField,
@@ -72,9 +72,13 @@ function asked(profile: Profile, before: InForce, save: Save): { agents: Record<
   const agents: Record<string, object> = { ...next.agents };
   for (const agent of MODEL_AGENTS) {
     const given = save.agents?.[agent];
-    // A local model in force has no effort to keep: a move to Claude that names none starts at the agent's default.
-    const effort = next.agents[agent].effort ?? MODELS[profile].agents[agent].default.effort;
-    if (given) agents[agent] = { ...next.agents[agent], effort, ...given };
+    if (!given) continue;
+    const model = given.model ?? next.agents[agent].model;
+    // A local model takes no effort, so a move to one drops it; a local model in force has none to keep, so a move to
+    // Claude that names none starts at the agent's default.
+    const effort = given.effort ?? next.agents[agent].effort ?? MODELS[profile].agents[agent].default.effort;
+    const local = offered(profile, model)?.provider === 'local' && given.effort === undefined;
+    agents[agent] = local ? { model } : { model, effort };
   }
   // A month's cap of none is the profile's default: none on `local`, a figure elsewhere.
   const caps = { ...next.caps, ...save.caps };
@@ -85,19 +89,15 @@ function asked(profile: Profile, before: InForce, save: Save): { agents: Record<
 /** Each part of a save that policy does not allow, in words; none for a save within it. */
 export function outsidePolicy(profile: Profile, before: InForce, save: Save): string[] {
   const after = inForce(profile, asked(profile, before, save));
-  const words: string[] = after.outside.map((field) => {
+  return after.outside.map((field) => {
     const [owner = '', what = ''] = field.split('.');
-    const name =
-      owner === 'caps' ? `the ${CAP_NAMES[what as CapField].replace('-', ' ')}'s cap` : `the ${owner}'s ${what}`;
-    return `${name} is outside policy`;
-  });
-  for (const [agent, given] of Object.entries(save.agents ?? {})) {
-    const model = after.agents[agent as ModelAgent];
-    if (given?.effort !== undefined && model.provider === 'local') {
-      words.push(`the ${agent}'s effort is set in LM Studio for ${model.model}, not here`);
+    if (owner === 'caps') return `the ${CAP_NAMES[what as CapField].replace('-', ' ')}'s cap is outside policy`;
+    const model = after.agents[owner as ModelAgent];
+    if (what === 'effort' && model?.provider === 'local') {
+      return `the ${owner}'s effort is set in LM Studio for ${model.model}, not here`;
     }
-  }
-  return words;
+    return `the ${owner}'s ${what} is outside policy`;
+  });
 }
 
 /** A change in words, as the summary says it: "the coder's effort, medium → high". */
@@ -121,20 +121,21 @@ function summaryOf(changes: Change[]): string {
 
 /**
  * The work items held for spend whose hold a work item's cap of `capUsd` clears, as they stand: a hold started, and
- * not answered, closed or reopened since, with less spent than the new cap. A hold from before the line recorded the
+ * not answered, merged, closed or reopened since, with less spent than the new cap. A hold from before the line recorded the
  * spend is cleared when the new cap is above the one it reached.
  */
 async function spendHoldsCleared(
   tx: TransactionSql,
   capUsd: number,
 ): Promise<{ workItem: string; spentUsd: number }[]> {
-  // A work item's latest hold, answer, close or reopening: a hold still open is the last of them.
+  // A work item's latest hold, answer, merge (which answers whatever held it), close or reopening: a hold still open is
+  // the last of them.
   const rows = await tx<{ work_item: string; spent: number | null; limit: number | null }[]>`
     with last as (
       select distinct on (e.work_item) e.work_item, e.type, e.payload
       from events e
       where e.work_item is not null
-        and e.type in ('hold.started', 'hold.answered', 'work-item.closed', 'work-item.reopened')
+        and e.type in ('hold.started', 'hold.answered', 'pull-request.merged', 'work-item.closed', 'work-item.reopened')
         and ${fromMartin(tx, 'e')}
       order by e.work_item, e.seq desc
     )
@@ -171,8 +172,9 @@ export async function saveSettings(store: AdminStore, profile: Profile, session:
   return store
     .record(
       async (tx) => {
-        // One save at a time, each against what is in force as it is taken.
-        await tx`select pg_advisory_xact_lock(hashtext('settings'))`;
+        // One save at a time, each against what is in force as it is taken, and under the lock every append takes, so
+        // a spend hold the line appends lands wholly before this save (and is answered) or after it (and reads its cap).
+        await tx`select pg_advisory_xact_lock(hashtext('events'))`;
         const before = inForce(profile, await latestChosen(tx));
         const outside = outsidePolicy(profile, before, save);
         if (outside.length) throw new Refused('policy', 422, `That is outside policy: ${outside.join('; ')}.`);

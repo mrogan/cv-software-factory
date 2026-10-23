@@ -75,6 +75,8 @@ export function inForce(profile: Profile, chosen?: unknown): InForce {
     const offer = policy.models.find((m) => m.model === model);
     if (!offer) throw new Error(`policy/models.ts: ${agent}'s model ${model} is not one the ${profile} profile offers`);
     if (offer.provider === 'local') {
+      // LM Studio sets a local model's effort: one given for it is outside policy, and none is in force.
+      if (given && asked.effort !== undefined) outside.push(`${agent}.effort`);
       agents[agent] = { provider: 'local', model };
       continue;
     }
