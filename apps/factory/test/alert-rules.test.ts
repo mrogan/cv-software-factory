@@ -281,6 +281,13 @@ describe('the alerts to Martin', () => {
     expect(by('HoldStarted')[0]?.expr).toMatch(/^max by \(cause\) \(increase\(line_holds_stored_total\{/);
   });
 
+  it('set a level Alertmanager routes, or none: a mistyped one would reach no one', () => {
+    const generated = [...rulesFor(objectives), ...rules];
+    for (const rule of generated) {
+      expect([undefined, LEVELS.page, LEVELS.notify], rule.alert).toContain(rule.labels.level);
+    }
+  });
+
   it('never carry an objective, so none reaches the intake', () => {
     for (const rule of rules) expect(Object.keys(rule.labels), rule.alert).not.toContain('objective');
     for (const rule of rulesFor(objectives)) expect(Object.keys(rule.labels)).not.toContain('level');

@@ -100,10 +100,13 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
 };
 
 /** The line's count of Martin's security events, and of the holds started, as only the line's pods send them. */
-export const SECURITY_EVENTS = `line_security_events_total{${METRICS_FROM_THE_LINE}}`;
-export const HOLDS_STORED = `line_holds_stored_total{${METRICS_FROM_THE_LINE}}`;
+/** One of the line's series, with any matcher given first, as only the line's pods send it. */
+const fromTheLine = (name: string, matcher?: string) =>
+  `${name}{${matcher ? `${matcher}, ` : ''}${METRICS_FROM_THE_LINE}}`;
+export const SECURITY_EVENTS = fromTheLine('line_security_events_total');
+export const HOLDS_STORED = fromTheLine('line_holds_stored_total');
 /** Whether the line's last read of them from the store succeeded. */
-const COUNTING = `line_security_events_counting{${METRICS_FROM_THE_LINE}}`;
+const COUNTING = fromTheLine('line_security_events_counting');
 
 /** How far back an alert to Martin looks for a new event: one or several in it are one message. */
 const RECENT = '5m';
@@ -126,7 +129,7 @@ const RECENT = '5m';
 export function martinRules(): Rule[] {
   const security = SECURITY_KINDS.map((kind) => ({
     alert: 'SecurityEvent',
-    expr: `max(increase(line_security_events_total{kind="${kind}", ${METRICS_FROM_THE_LINE}}[${RECENT}])) > 0`,
+    expr: `max(increase(${fromTheLine('line_security_events_total', `kind="${kind}"`)}[${RECENT}])) > 0`,
     for: '0s',
     labels: { level: LEVELS.page, kind },
     annotations: SECURITY_WORDS[kind],

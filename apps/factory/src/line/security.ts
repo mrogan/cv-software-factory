@@ -12,7 +12,8 @@
  * - `setting-changed`: every `settings.changed`;
  * - the actions the access table marks as needing the passkey again: `stepped-up` (`admin.stepped-up` itself),
  *   `release-control` (a `release.controlled` that promotes or retries), `guardrail-approved` (a `hold.answered`
- *   approving a hold whose cause is a guardrail, read from the hold it answers: the latest on its work item before it),
+ *   approving a hold whose cause is a guardrail, read from the hold it answers: the latest on its work item before it,
+ *   which is the hold the line takes it to answer, so an approval counts as what it does),
  *   and `line-started`.
  *
  * And every hold started, by its cause, whoever started it.
@@ -25,7 +26,7 @@
  * and the log: the alert on the count going stale or missing pages instead.
  */
 import { type BatchObservableResult, metrics } from '@opentelemetry/api';
-import { HOLD_CAUSES, type HoldCause, type ReleaseControl } from '@software-factory/events';
+import { HOLD_CAUSES, type HoldCause, type ReleaseControl, upcast } from '@software-factory/events';
 import type { Sql } from 'postgres';
 import { GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
 import type { Logger } from '../log.ts';
@@ -73,6 +74,16 @@ export interface Stored {
   decision?: string | null;
   /** A hold's cause; for an answer, the cause of the hold it answers. */
   cause?: string | null;
+}
+
+/**
+ * A hold's cause, as the factory reads it: upcast, so a hold stored before holds had causes reads as the cause its kind
+ * and stage imply, as the line itself reads it.
+ */
+function causeOf(row: { hold_version: number | null; hold_payload: Record<string, unknown> | null }): string | null {
+  if (row.hold_version === null || row.hold_payload === null) return null;
+  const read = upcast({ type: 'hold.started', version: row.hold_version, payload: row.hold_payload });
+  return read.ok ? String((read.event.payload as { cause?: unknown }).cause ?? '') : null;
 }
 
 /** What a stored event counts as: a security event of a kind, a hold of a cause, or nothing. */
@@ -123,20 +134,33 @@ export const emptyTally = (): Tally => ({
  * counts and the last `seq` it says it read are of one snapshot; an answer's hold is read by its work item's index.
  */
 export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
-  const rows = await sql<(Stored & { last: string | null })[]>`
+  const rows = await sql<
+    {
+      last: string | null;
+      type: string | null;
+      action: string | null;
+      decision: string | null;
+      hold_version: number | null;
+      hold_payload: Record<string, unknown> | null;
+    }[]
+  >`
     with upto as (select max(seq) as last from events)
     select upto.last::text as last, e.type, e.payload->>'action' as action, e.payload->>'decision' as decision,
-           case when e.type = 'hold.answered' then
-             (select h.payload->>'cause' from events h
-              where h.work_item = e.work_item and h.type = 'hold.started' and h.seq < e.seq
-              order by h.seq desc limit 1)
-           else e.payload->>'cause' end as cause
-    from upto left join events e
-      on e.seq > ${tally.seq}::bigint and e.seq <= upto.last and e.type in ${sql([...TYPES])}`;
+           h.version as hold_version, h.payload as hold_payload
+    from upto
+    left join events e
+      on e.seq > ${tally.seq}::bigint and e.seq <= upto.last and e.type in ${sql([...TYPES])} and not e.sample
+    left join lateral (
+      select e.version, e.payload where e.type = 'hold.started'
+      union all
+      (select a.version, a.payload from events a
+       where e.type = 'hold.answered' and a.work_item = e.work_item and a.type = 'hold.started' and a.seq < e.seq
+       order by a.seq desc limit 1)
+    ) h on true`;
   const next: Tally = { seq: rows[0]?.last ?? tally.seq, kinds: { ...tally.kinds }, holds: { ...tally.holds } };
   for (const row of rows) {
     if (!row.type) continue;
-    const counted = countAs(row);
+    const counted = countAs({ type: row.type, action: row.action, decision: row.decision, cause: causeOf(row) });
     if (counted && 'kind' in counted) next.kinds[counted.kind] += 1;
     else if (counted) next.holds[counted.hold] += 1;
   }

@@ -5,7 +5,7 @@
  */
 import { metrics as api } from '@opentelemetry/api';
 import { metrics } from '@opentelemetry/sdk-node';
-import { HOLD_CAUSES, RELEASE_CONTROLS } from '@software-factory/events';
+import { HOLD_CAUSES, RELEASE_CONTROLS, VERSIONS } from '@software-factory/events';
 import pino from 'pino';
 import type { Sql } from 'postgres';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -34,11 +34,17 @@ beforeEach(async () => {
 afterEach(() => database?.end());
 
 /** Appends an event straight to the store as `sql`'s role, unchecked: what is counted is what the store holds. */
-async function append(sql: Sql, type: string, payload: object, workItem: string | null = null): Promise<void> {
+async function append(
+  sql: Sql,
+  type: string,
+  payload: object,
+  workItem: string | null = null,
+  { version = VERSIONS[type as keyof typeof VERSIONS] ?? 1, sample = false } = {},
+): Promise<void> {
   await sql`
     insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
-    values (${crypto.randomUUID()}, now(), ${workItem}, ${type}, 1, 'martin', ${type}, ${sql.json(payload as never)},
-            '[]', '{}', false)`;
+    values (${crypto.randomUUID()}, now(), ${workItem}, ${type}, ${version}, 'martin', ${type},
+            ${sql.json(payload as never)}, '[]', '{}', ${sample})`;
 }
 
 /** Each kind's and each cause's figure, as the SDK collects them now. */
@@ -126,6 +132,25 @@ describe('the count of Martin’s security events', () => {
     const tally = await readOn(database.as.line, emptyTally());
     expect(tally.kinds['guardrail-approved']).toBe(1);
     expect(tally.holds).toMatchObject({ scope: 1, spec: 1, merge: 1, question: 1, spend: 1, review: 0 });
+  });
+
+  it('reads a hold stored before holds had causes as the factory does, upcast', async () => {
+    // A version 1 approval at Review implies a merge hold, a guardrail; a question implies none.
+    await append(database.as.line, 'hold.started', { stage: 'review', kind: 'approval' }, 'WI-5', { version: 1 });
+    await append(database.admin, 'hold.answered', { decision: 'approved' }, 'WI-5');
+    await append(database.as.line, 'hold.started', { stage: 'plan', kind: 'question' }, 'WI-6', { version: 1 });
+    await append(database.admin, 'hold.answered', { decision: 'approved' }, 'WI-6');
+    const tally = await readOn(database.as.line, emptyTally());
+    expect(tally.kinds['guardrail-approved']).toBe(1);
+    expect(tally.holds).toMatchObject({ merge: 1, question: 1 });
+  });
+
+  it('counts nothing in a store of samples, which never happened', async () => {
+    await append(database.operator, 'admin.signed-in', {}, null, { sample: true });
+    await append(database.operator, 'hold.started', { cause: 'merge' }, 'WI-7', { sample: true });
+    const tally = await readOn(database.as.line, emptyTally());
+    expect(tally.kinds['sign-in']).toBe(0);
+    expect(tally.holds.merge).toBe(0);
   });
 
   it('reads on from the last event it read, and reports the same figure from the start', async () => {
