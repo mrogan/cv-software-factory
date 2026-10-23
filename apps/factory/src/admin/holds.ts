@@ -69,7 +69,7 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<OpenHold 
   const rows = await tx<(RawEvent & { id: string })[]>`
     select e.id, e.seq, e.type, e.version, e.payload from events e
     where e.work_item = ${workItem} and ${fromMartin(tx, 'e')}
-      and e.type in ('hold.started', 'hold.answered', 'gates.started', 'gates.finished', 'pull-request.merged',
+      and e.type in ('hold.started', 'hold.answered', 'gates.started', 'gates.finished', 'pull-request.merged', 'work.returned',
                      'release.started', 'release.rolled-back', 'release.aborted', 'release.errored',
                      'work-item.closed', 'work-item.reopened')
     order by e.seq`;
@@ -77,6 +77,9 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<OpenHold 
   // The release carrying the merged change, while it has not ended, and the commit the latest gates ran on.
   let release: { name: string; ended: boolean } | undefined;
   let gates: string | undefined;
+  // Whether the change has merged since the work item last went back to Plan or reopened: a release before it carries
+  // nothing.
+  let merged = false;
   for (const row of rows) {
     const read = upcast({ ...row, seq: Number(row.seq) });
     if (!read.ok) continue;
@@ -104,10 +107,18 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<OpenHold 
       case 'pull-request.merged':
         open = undefined;
         release = undefined;
+        merged = true;
+        break;
+      // A fresh pass, as the line starts one: a new pull request, with its own gates, merge and release.
+      case 'work.returned':
+        if (event.payload.to !== 'plan') break;
+        merged = false;
+        release = undefined;
+        gates = undefined;
         break;
       // A release that carries the merged change ends a wait for its deploy.
       case 'release.started':
-        if (!rows.some((r) => r.type === 'pull-request.merged' && Number(r.seq) < Number(row.seq))) break;
+        if (!merged) break;
         release = { name: event.payload.release, ended: false };
         if (open?.cause === 'deploy') open = undefined;
         break;
@@ -117,8 +128,13 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<OpenHold 
         if (release?.name === event.payload.release) release = { ...release, ended: true };
         break;
       case 'work-item.closed':
+        open = undefined;
+        break;
       case 'work-item.reopened':
         open = undefined;
+        merged = false;
+        release = undefined;
+        gates = undefined;
         break;
     }
   }

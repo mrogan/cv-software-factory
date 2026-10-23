@@ -192,12 +192,8 @@ export interface WorkItemState {
         stage: Stage;
         decision: HoldAnswer;
         resolution: Resolution;
+        /** His words, unless they stay his, on a work item a visitor's report opened. */
         text: string | undefined;
-        /**
-         * His words are on a work item a visitor's report opened, so they stay his: what the line writes for anyone to
-         * read (a return's or a close's reason, a comment on GitHub) leaves them out. The agents still read them.
-         */
-        own: boolean;
       }
     | undefined;
   /**
@@ -399,9 +395,11 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (!state.hold) break;
         const { cause, stage } = state.hold;
         const resolution = ANSWERS[cause][event.payload.decision];
-        const said =
-          event.payload.answer ??
-          (cause === 'scope' && event.payload.decision === 'approved' ? FENCE_APPROVED : undefined);
+        // His words on a work item a visitor's report opened stay his: no agent reads them, as none reads a report,
+        // since what an agent writes is public and a paraphrase of a report would pass any redactor. His answer still
+        // does what it does.
+        const words = event.payload.report ? undefined : event.payload.answer;
+        const said = words ?? (cause === 'scope' && event.payload.decision === 'approved' ? FENCE_APPROVED : undefined);
         // Words settle nothing for triage's holds: the hold stands, and the work item waits as it did.
         if (event.payload.decision === 'answered' && WORDS_LEAVE_HELD.includes(cause)) break;
         if ((stage === 'plan' || resolution === 'replan') && said) {
@@ -414,8 +412,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
           stage,
           decision: event.payload.decision,
           resolution,
-          text: event.payload.answer,
-          own: event.payload.report === true,
+          text: words,
         };
         state.fenceRefusals = 0;
         if (resolution === 'replan') state.spec = undefined;
@@ -883,8 +880,7 @@ export function unchangedHold(state: WorkItemState, why: string): PayloadOf<'hol
 
 /** What the line does straight after Martin's answer, or undefined to carry on as the work item's events say. */
 function afterAnswer(answer: NonNullable<WorkItemState['answer']>, merged: boolean): Decision | undefined {
-  // Only words that are public go into what the line writes: a reason, or a comment on GitHub.
-  const words = answer.own ? undefined : answer.text;
+  const words = answer.text;
   const said = words ? `: ${words}` : '';
   switch (answer.resolution) {
     case 'verified':

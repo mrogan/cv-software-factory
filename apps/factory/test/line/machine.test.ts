@@ -845,7 +845,7 @@ describe('Martin’s answer to a hold', () => {
     }
   });
 
-  it('leaves his words out of what it writes on a work item a visitor’s report opened, and still acts on them', () => {
+  it('keeps his words on a work item a visitor’s report opened from what it writes and from every agent, and acts on them', () => {
     const own = (decision: PayloadOf<'hold.answered'>['decision'], text: string): LineEvent => ({
       type: 'hold.answered',
       payload: { decision, answer: text, report: true },
@@ -857,7 +857,10 @@ describe('Martin’s answer to a hold', () => {
       to: 'build',
       reason: 'Martin sent it back',
     });
-    expect(fold(waiting).answer).toMatchObject({ text: 'The visitor at 4 Elm Road', own: true });
+    // No agent reads them either.
+    expect(fold(waiting).answer).toMatchObject({ decision: 'answered', resolution: 'return', text: undefined });
+    const planned = [ticket, held('question', 'plan'), own('answered', 'The visitor at 4 Elm Road')];
+    expect(fold(planned).answers).toEqual([]);
     expect(
       decide([ticket, spec, held('gates', 'build'), own('rejected', 'The visitor at 4 Elm Road')], facts).next,
     ).toEqual({ do: 'close', reason: 'Martin rejected it', merged: false });
