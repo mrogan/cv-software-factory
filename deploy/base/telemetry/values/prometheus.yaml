@@ -39,6 +39,8 @@ alertmanager:
   extraSecretMounts:
     - name: pushover
       mountPath: /etc/pushover
+      # The chart writes a subPath for every mount: empty, the whole Secret is the folder.
+      subPath: ""
       secretName: pushover
       readOnly: true
       optional: true

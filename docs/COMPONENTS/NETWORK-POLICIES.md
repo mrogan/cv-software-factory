@@ -1,6 +1,6 @@
 # Network policies
 
-Each pod reaches only what it needs. Of the factory's workers, only the gateway and the GitHub worker may leave the cluster; beyond them, only Kyverno's admission controller and Alertmanager. Part of the [factory plane](README.md#factory-plane).
+Each pod reaches only what it needs. Of the factory's workers, only the gateway and the GitHub worker may leave the cluster; beyond them, only the runners' prepare pods, Kyverno's admission controller and Alertmanager. Part of the [factory plane](README.md#factory-plane).
 
 - **v1:** Kubernetes NetworkPolicies, which k3s enforces.
 - **Later:** egress by host name (#176).

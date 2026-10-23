@@ -662,8 +662,9 @@ if [ -n "$answers" ]; then echo "$answers"; failed=1; else
 fi
 
 if [ "$failed" = 0 ]; then
-  echo "Only the gateway, the GitHub worker, Kyverno's admission controller and Alertmanager leave the cluster; the readers"
-  echo "of telemetry only query the backends; only Prometheus's server scrapes the platform's metrics; a stranger cannot reach"
-  echo "Alertmanager; the runners, the release, the traffic, the app, the Postgres exporter and the scoreboard are fenced."
+  echo "Only the gateway, the GitHub worker, a runner's prepare pod, Kyverno's admission controller and Alertmanager leave"
+  echo "the cluster; the readers of telemetry only query the backends; only Prometheus's server scrapes the platform's"
+  echo "metrics; a stranger cannot reach Alertmanager; the runners, the release, the traffic, the app, the Postgres exporter"
+  echo "and the scoreboard are fenced."
 else echo "The network policies do not hold."; fi
 exit "$failed"

@@ -134,7 +134,8 @@ pushover-key: ## Give Alertmanager Pushover's keys from the Keychain (pushover-a
 			printf 'app-token=%s\nuser-key=%s\n' "$$token" "$$user" | \
 				$(KUBECTL) -n telemetry create secret generic pushover --from-env-file=/dev/stdin --dry-run=client -o yaml | \
 				$(KUBECTL) apply -f - >/dev/null && echo "  Alertmanager has Pushover's keys, so pages and notifications reach Martin's phone."; \
-		else $(KUBECTL) -n telemetry delete secret pushover --ignore-not-found >/dev/null 2>&1; \
+		else $(KUBECTL) -n telemetry delete secret pushover --ignore-not-found >/dev/null || \
+				echo "  Could not delete the old pushover Secret: Alertmanager may still page with the keys it had."; \
 			echo "  No Pushover keys (the Keychain's pushover-app-token and pushover-user-key): nothing reaches Martin's phone."; fi
 
 # The scoreboard's Secrets (deploy/base/scoreboard). Its role's password, made once, is in two: `factory`'s, for the

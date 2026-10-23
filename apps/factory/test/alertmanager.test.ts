@@ -37,7 +37,14 @@ interface Receiver {
 interface Values {
   alertmanager: {
     extraArgs?: Record<string, string>;
-    extraSecretMounts?: { name: string; mountPath: string; secretName: string; readOnly: boolean; optional: boolean }[];
+    extraSecretMounts?: {
+      name: string;
+      mountPath: string;
+      subPath: string;
+      secretName: string;
+      readOnly: boolean;
+      optional: boolean;
+    }[];
     config: { route: Route; receivers: Receiver[] };
   };
 }
@@ -134,7 +141,14 @@ describe('Alertmanager’s Pushover receivers', () => {
     }
     // Optional, so a cluster with no Pushover account still comes up, and still routes to the intake.
     expect(alertmanager.extraSecretMounts).toEqual([
-      { name: 'pushover', mountPath: '/etc/pushover', secretName: 'pushover', readOnly: true, optional: true },
+      {
+        name: 'pushover',
+        mountPath: '/etc/pushover',
+        subPath: '',
+        secretName: 'pushover',
+        readOnly: true,
+        optional: true,
+      },
     ]);
   });
 
