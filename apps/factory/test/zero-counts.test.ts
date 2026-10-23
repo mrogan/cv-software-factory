@@ -89,9 +89,18 @@ describe('the counts', () => {
     expect(await zeros('line.verifications')).toHaveLength((SENSES.length + 1) * 2 * 2);
   });
 
-  it('start at 0 for each route the gateway sends calls on, and triage’s judgements', async () => {
+  it('start at 0 for each route the gateway may send calls on, and triage’s judgements', async () => {
     const messages = routes('local', false);
-    expect(messages).toEqual(AGENTS.map((agent) => ({ agent, provider: 'anthropic', model: 'claude-sonnet-5-5' })));
+    // Every model an agent may be given on the profile, the local one among them.
+    const models = [
+      'local qwen/qwen3.8-27b',
+      'anthropic claude-haiku-4-5',
+      'anthropic claude-sonnet-5-5',
+      'anthropic claude-opus-5-5',
+    ];
+    expect(messages.map((r) => `${r.agent} ${r.provider} ${r.model}`)).toEqual(
+      AGENTS.flatMap((agent) => models.map((model) => `${agent} ${model}`)),
+    );
     expect(routes('local', true).map((r) => `${r.provider} ${r.model}`)).toEqual(
       AGENTS.map(() => 'local qwen/qwen3.8-27b'),
     );
@@ -106,8 +115,9 @@ describe('the counts', () => {
     );
     expect(await zeros('factory_gateway_spend_usd')).toEqual(every.map(key).sort());
     const tokens = await zeros('gateway.tokens');
-    // An agent's: three outcomes that use tokens, four kinds; a judgement's: answered or replayed, input or output.
-    expect(tokens).toHaveLength(4 * 3 * 4 + 2 * 2);
+    // An agent's on each of its four models: three outcomes that use tokens, four kinds; a judgement's: answered or
+    // replayed, input or output.
+    expect(tokens).toHaveLength(4 * 4 * 3 * 4 + 2 * 2);
     expect(tokens.filter((t) => t.includes('agent=triage'))).toEqual(
       product({
         agent: ['triage'],
@@ -119,14 +129,15 @@ describe('the counts', () => {
     );
     expect(tokens.filter((t) => t.includes('outcome=refused'))).toEqual([]);
     const errors = await zeros('gateway.provider.errors');
-    expect(errors.filter((e) => e.includes('agent=coder')).map((e) => /status=([^,]+)/.exec(e)?.[1])).toEqual(
+    const sonnet = (e: string) => e.includes('agent=coder') && e.includes('model=claude-sonnet-5-5');
+    expect(errors.filter(sonnet).map((e) => /status=([^,]+)/.exec(e)?.[1])).toEqual(
       ['broken', 'malformed', 'network', 'timeout'].sort(),
     );
     expect(errors.filter((e) => e.includes('agent=triage')).map((e) => /status=([^,]+)/.exec(e)?.[1])).toEqual(
       ['malformed', 'network', 'timeout'].sort(),
     );
     const refusals = await zeros('gateway.cap.refusals');
-    expect(refusals).toHaveLength(4 * 4 + 3);
+    expect(refusals).toHaveLength(4 * 4 * 4 + 3);
     expect(refusals.filter((r) => r.includes('agent=triage') && r.includes('cap=provider'))).toEqual([]);
   });
 

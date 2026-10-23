@@ -1,17 +1,20 @@
 /**
- * Which model each agent uses, per profile (spec section 7.1). The gateway reads this and sends an agent's calls to
- * the provider and the pinned model named here, at the effort named here for Claude, whatever the runner asked for: a
- * runner cannot choose a dearer model, and every call is priced by a model the gateway knows.
+ * The models each agent may use, per profile (spec section 7.1), and the most effort it may be given: the bounds
+ * within which Martin chooses from the console's settings (`settings.ts` turns his latest choice into what is in
+ * force). The gateway sends an agent's calls to the provider, the pinned model and, for Claude, the effort in force,
+ * whatever the runner asked for: a runner cannot choose a dearer model, and every call is priced by a model the
+ * gateway knows. Adding a model, or raising an agent's most effort, is a pull request.
  *
  * Human-owned: see `README.md`. Triage is not here: it asks Jev through the gateway's judgements, by question set.
  */
+import type { Effort, ModelAgent } from '../packages/events/src/vocabulary.ts';
 import type { Profile } from './spend.ts';
 
-/** The agents that call a model through the gateway's Messages API, each from a runner. */
-export const MODEL_AGENTS = ['planner', 'coder', 'reviewer', 'describer'] as const;
-export type ModelAgent = (typeof MODEL_AGENTS)[number];
-
-export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/**
+ * The agents that call a model through the gateway's Messages API, each from a runner, and Claude's efforts, least
+ * first: the events' own words, so a settings event names the same.
+ */
+export { EFFORTS, type Effort, MODEL_AGENTS, type ModelAgent } from '../packages/events/src/vocabulary.ts';
 
 /** A Claude model, at the effort the gateway sends with each call. */
 export interface ClaudeModel {
@@ -33,37 +36,72 @@ export interface LocalModel {
 
 export type AgentModel = ClaudeModel | LocalModel;
 
+/** A model a profile offers: where its calls go, and the pinned model. */
+export interface Offered {
+  provider: AgentModel['provider'];
+  model: string;
+}
+
+/** What one agent may use on a profile, and what it uses until Martin chooses. */
+export interface AgentBounds {
+  /** The models it may use, each one the profile offers. */
+  models: readonly string[];
+  /** The most effort it may be given on a Claude model. */
+  maxEffort: Effort;
+  /** Its model and effort until Martin chooses, within these bounds. */
+  default: { model: string; effort: Effort };
+}
+
 export interface ModelPolicy {
-  agents: Record<ModelAgent, AgentModel>;
   /**
-   * The local model, where a profile has one. Starting the gateway with `ALL_LOCAL=true` sends every agent to it:
-   * for the unattended runs that test the plumbing rather than the agents, at no cost.
+   * The models this profile offers, cheapest first by the gateway's prices (`apps/factory/src/gateway/prices.ts`), so a
+   * later one is dearer: a local model costs nothing, and comes first. A test holds the order to the prices.
+   */
+  models: readonly Offered[];
+  agents: Record<ModelAgent, AgentBounds>;
+  /**
+   * The local model, where a profile has one. Starting the gateway with `ALL_LOCAL=true` sends every agent to it,
+   * whatever the settings say: for the unattended runs that test the plumbing rather than the agents, at no cost.
    */
   local: { model: string } | null;
 }
 
-const CLAUDE: Record<ModelAgent, ClaudeModel> = {
-  planner: { provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'medium' },
-  coder: { provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'medium' },
-  // High effort flags more minor findings, and each one is work for the coder.
-  reviewer: { provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'medium' },
-  // Measured against Claude Haiku 4.5 in milestone 5.
-  describer: { provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'low' },
-};
+const QWEN: Offered = { provider: 'local', model: 'qwen/qwen3.8-27b' };
+
+// Bedrock joins in milestone 11; until then every profile calls Anthropic's API for Claude.
+const CLAUDE: readonly Offered[] = [
+  { provider: 'anthropic', model: 'claude-haiku-4-5' },
+  { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+  { provider: 'anthropic', model: 'claude-opus-5-5' },
+];
+
+/** Every agent may use every model its profile offers. */
+function agentsOn(models: readonly Offered[]): Record<ModelAgent, AgentBounds> {
+  const all = models.map((m) => m.model);
+  const sonnet = (effort: Effort) => ({ model: 'claude-sonnet-5-5', effort });
+  return {
+    planner: { models: all, maxEffort: 'high', default: sonnet('medium') },
+    coder: { models: all, maxEffort: 'high', default: sonnet('medium') },
+    // High effort flags more minor findings, and each one is work for the coder.
+    reviewer: { models: all, maxEffort: 'high', default: sonnet('medium') },
+    // Measured against Claude Haiku 4.5 in milestone 5. A description needs no more than medium.
+    describer: { models: all, maxEffort: 'medium', default: sonnet('low') },
+  };
+}
+
+const LOCAL_MODELS = [QWEN, ...CLAUDE];
 
 export const MODELS: Record<Profile, ModelPolicy> = {
   // Qwen 3.8 27B in LM Studio on Martin's Mac.
-  local: { agents: CLAUDE, local: { model: 'qwen/qwen3.8-27b' } },
-  do: { agents: CLAUDE, local: null },
-  // Bedrock joins in milestone 11; until then `aws` calls Anthropic's API too.
-  aws: { agents: CLAUDE, local: null },
+  local: { models: LOCAL_MODELS, agents: agentsOn(LOCAL_MODELS), local: { model: QWEN.model } },
+  do: { models: CLAUDE, agents: agentsOn(CLAUDE), local: null },
+  aws: { models: CLAUDE, agents: agentsOn(CLAUDE), local: null },
 };
 
-/** The model an agent's calls go to on a profile, with every agent sent to the local model when asked. */
-export function modelFor(profile: Profile, agent: ModelAgent, allLocal = false): AgentModel {
-  const policy = MODELS[profile];
-  const chosen = policy.agents[agent];
-  if (!allLocal) return chosen;
-  if (!policy.local) throw new Error(`The ${profile} profile has no local model to send every agent to.`);
-  return { provider: 'local', model: policy.local.model };
-}
+/** The model a profile offers by its name, if it offers it. */
+export const offered = (profile: Profile, model: string): Offered | undefined =>
+  MODELS[profile].models.find((m) => m.model === model);
+
+/** How dear a model is on a profile: its place in the profile's models, cheapest first; -1 if it is not offered. */
+export const dearness = (profile: Profile, model: string): number =>
+  MODELS[profile].models.findIndex((m) => m.model === model);

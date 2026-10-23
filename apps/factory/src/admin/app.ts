@@ -10,6 +10,8 @@
  * - `POST /admin/sign-out`, `POST /admin/sign-out-everywhere` and `POST /admin/passkeys/:id/revoke`.
  * - The Canary panel's controls (`rollout.ts`): `POST /admin/release/promote` (with `fully` to send the canary all of
  *   the traffic), `/pause`, `/resume`, `/abort` and `/retry`, each naming the release the panel showed.
+ * - The settings (`settings.ts`): `POST /admin/settings` with what the save changes, each agent's model and effort and
+ *   the spend caps, within policy, with the passkey again when anything in it raises.
  * - `GET /admin/session`, with the token the session's writes carry, and `GET /admin/events/stream`.
  * - `GET /admin/health`.
  *
@@ -27,6 +29,7 @@ import type { AdminConfig } from './config.ts';
 import { fromConsole, type Guard, guardOf, refuseWrite } from './guard.ts';
 import type { ReleaseControls } from './rollout.ts';
 import { codeHash, isSessionId, newChallenge, newSessionId, normalCode, tokenOf } from './secrets.ts';
+import { SAVE, saveSettings } from './settings.ts';
 import {
   type AdminStore,
   adminEvent,
@@ -336,6 +339,12 @@ export function createAdminApp({
     'release.resume': ({ body }) => control('resume', body),
     'release.abort': ({ body }) => control('abort', body),
     'release.retry': ({ body }) => control('retry', body),
+
+    'settings.save': async ({ body, session }) => {
+      const given = SAVE.safeParse(body);
+      if (!given.success) return refused(400, 'body', 'Send the settings the save changes.');
+      return { status: 200, body: await saveSettings(store, config.profile, session as Session, given.data) };
+    },
 
     'passkey.revoke': async ({ values, session }) => {
       const live = session as Session;

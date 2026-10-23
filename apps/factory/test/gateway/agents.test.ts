@@ -18,6 +18,8 @@ import { ProviderCaps } from '../../src/gateway/provider-caps.ts';
 import { Anthropic, capOf, LocalModels, type ProviderName, systemInPlace } from '../../src/gateway/providers.ts';
 import { createGatewayServer } from '../../src/gateway/server.ts';
 import { Spend } from '../../src/gateway/spend.ts';
+import { SettingsReader } from '../../src/settings.ts';
+import { appendSettings, settingsPayload } from '../settings-events.ts';
 import { capturingLog } from './helpers.ts';
 
 /** A stream as Anthropic sends one, with the usage split between its start and its last delta. */
@@ -123,6 +125,8 @@ interface Options {
   policy?: SpendPolicy;
   allLocal?: boolean;
   local?: string;
+  /** Martin's settings from the store, read afresh at every look, in place of `policy`. */
+  settings?: boolean;
 }
 
 async function start({
@@ -130,12 +134,24 @@ async function start({
   policy = { dayUsd: 20, monthUsd: null, workItemUsd: 5 },
   allLocal = false,
   local,
+  settings: fromStore = false,
 }: Options = {}) {
   database = await freshDatabase('agents');
   cassettesDir = mkdtempSync(join(tmpdir(), 'cassettes-'));
   const sql = database.as.gateway;
   const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts(cassettesDir) });
-  const spend = new Spend({ sql, events, profile: 'local', policy, log: captured.log });
+  // A clock a minute on at every look, so the settings in force are read again each time.
+  let looks = 0;
+  const settings = fromStore
+    ? new SettingsReader(sql, 'local', () => new Date(Date.UTC(2026, 9, 4) + looks++ * 60_000))
+    : undefined;
+  const spend = new Spend({
+    sql,
+    events,
+    profile: 'local',
+    policy: settings ? async () => (await settings.now()).caps : policy,
+    log: captured.log,
+  });
   const providers: Partial<Record<ProviderName, Anthropic | LocalModels>> = {
     anthropic: new Anthropic({ apiKey: 'sk-ant-real-key', base: provider.url }),
     local: new LocalModels({ base: local ?? provider.url }),
@@ -154,6 +170,7 @@ async function start({
     mode,
     profile: 'local',
     allLocal,
+    ...(settings && { settings }),
     providers,
     log: captured.log,
   });
@@ -401,6 +418,70 @@ describe('agents through the gateway', () => {
       'answered',
       'refused',
     ]);
+  });
+
+  it('sends the model and effort Martin chose from a job’s next step, and nothing outside policy', async () => {
+    provider.requests.length = 0;
+    const { token } = await start({ settings: true });
+    // Each call asks something new, so none is replayed.
+    let asks = 0;
+    const sent = async (job: string) => {
+      provider.requests.length = 0;
+      const ask = `Ask ${++asks}.`;
+      await (await call(job, { ...agentRequest(), messages: [{ role: 'user', content: ask }] })).text();
+      const body = provider.requests[0]?.body;
+      return { model: body?.model, effort: (body?.output_config as { effort?: string } | undefined)?.effort };
+    };
+    const job = (n: number) =>
+      issueJobToken(database.as.line, { job: `coder-1001-${n}`, workItem: '1001', agent: 'coder' });
+    const opus = settingsPayload({ agents: { coder: { model: 'claude-opus-5-5', effort: 'high' } } });
+    await appendSettings(database.admin, opus);
+    // The job running as he chose goes on as it began.
+    expect(await sent(token)).toEqual({ model: 'claude-sonnet-5-5', effort: 'medium' });
+    const second = await job(2);
+    expect(await sent(second)).toEqual({ model: 'claude-opus-5-5', effort: 'high' });
+
+    // One outside policy, appended straight to the store as one of his roles, so row security lets it in.
+    await appendSettings(
+      database.operator,
+      settingsPayload({ agents: { coder: { model: 'claude-opus-9', effort: 'max' } }, caps: { workItemUsd: 0 } }),
+    );
+    expect(await sent(await job(3))).toEqual({ model: 'claude-sonnet-5-5', effort: 'medium' });
+    // The job before it still runs as it began.
+    expect(await sent(second)).toEqual({ model: 'claude-opus-5-5', effort: 'high' });
+    const local = settingsPayload({ agents: { coder: { model: 'qwen/qwen3.8-27b' } } });
+    await appendSettings(database.admin, local);
+    expect(await sent(await job(4))).toEqual({ model: 'qwen/qwen3.8-27b', effort: undefined });
+  });
+
+  it('sends every agent to the local model under ALL_LOCAL, whatever the settings say', async () => {
+    provider.requests.length = 0;
+    const { sql } = await start({ settings: true, allLocal: true });
+    await appendSettings(
+      database.admin,
+      settingsPayload({ agents: { coder: { model: 'claude-opus-5-5', effort: 'high' } } }),
+    );
+    const token = await issueJobToken(database.as.line, { job: 'coder-1001-2', workItem: '1001', agent: 'coder' });
+    await (await call(token, agentRequest())).text();
+    expect(provider.requests[0]?.body.model).toBe('qwen/qwen3.8-27b');
+    expect(await sql`select provider, model from model_calls`).toEqual([
+      { provider: 'local', model: 'qwen/qwen3.8-27b' },
+    ]);
+  });
+
+  it('refuses calls at the caps Martin set, and holds to policy’s where what he set is outside it', async () => {
+    const { token } = await start({ settings: true });
+    await appendSettings(database.admin, settingsPayload({ caps: { workItemUsd: 0.001 } }));
+    await (await call(token, agentRequest())).text();
+    const more = { ...agentRequest(), messages: [{ role: 'user', content: 'More.' }] };
+    expect((await call(token, more)).status).toBe(403);
+    // Zero is never no cap, nor is a figure past the ceiling: policy's $1 is in force, which the call is well under.
+    await appendSettings(database.operator, settingsPayload({ caps: { workItemUsd: 0 } }));
+    expect((await call(token, more)).status).toBe(200);
+    await appendSettings(database.operator, settingsPayload({ caps: { dayUsd: 0.000001, workItemUsd: 1e6 } }));
+    const capped = await call(token, { ...more, messages: [{ role: 'user', content: 'Again.' }] });
+    expect(capped.status).toBe(429);
+    expect(await capped.json()).toMatchObject({ error: { message: expect.stringMatching(/day/) } });
   });
 
   it('replays only, without a cassette, as an error the SDK does not retry', async () => {

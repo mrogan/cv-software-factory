@@ -9,7 +9,7 @@
  * whose calls went to more than one model is recorded under the one most of them went to, with every call's tokens and
  * cost.
  */
-import type { ModelProvider, PayloadOf } from '@software-factory/events';
+import type { Effort, ModelProvider, PayloadOf } from '@software-factory/events';
 import type { Sql } from 'postgres';
 import type { LineAgent } from './machine.ts';
 
@@ -25,12 +25,16 @@ interface Row {
   ms: number;
 }
 
-/** The step's calls as `model.called`'s payload, or null when it made none. */
+/**
+ * The step's calls as `model.called`'s payload, or null when it made none, with the settings it ran under: its turns,
+ * and the effort the gateway sent, when its calls went to Claude (a local model takes none).
+ */
 export async function stepCalls(
   sql: Sql,
   job: string,
   agent: LineAgent,
   maxTurns: number,
+  effort?: Effort,
 ): Promise<PayloadOf<'model.called'> | null> {
   const rows = await sql<Row[]>`
     select provider, model, count(*)::int as calls,
@@ -50,7 +54,7 @@ export async function stepCalls(
     // The gateway's providers are the events' (`gateway/providers.ts`); the store checks it on append.
     provider: main.provider as ModelProvider,
     model: main.model,
-    settings: { maxTurns },
+    settings: { ...(effort && main.provider !== 'local' ? { effort } : {}), maxTurns },
     tokens: {
       input: sum('input'),
       output: sum('output'),

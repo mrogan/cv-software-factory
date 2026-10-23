@@ -319,6 +319,16 @@ const PAYLOADS: Partial<Record<EventType, object>> = {
   'admin.signed-out': { everywhere: false },
   'passkey.revoked': { from: 'console' },
   'release.controlled': { action: 'pause', release: '68ff668868-4', version: 'v0.9.4', weight: 25 },
+  'settings.changed': {
+    agents: {
+      planner: { model: 'claude-sonnet-5-5', effort: 'medium' },
+      coder: { model: 'claude-opus-5-5', effort: 'high' },
+      reviewer: { model: 'claude-sonnet-5-5', effort: 'medium' },
+      describer: { model: 'claude-sonnet-5-5', effort: 'low' },
+    },
+    caps: { dayUsd: 20, monthUsd: null, workItemUsd: 1 },
+    changes: [{ field: 'model', agent: 'coder', before: 'claude-sonnet-5-5', after: 'claude-opus-5-5' }],
+  },
 };
 
 const writer = (sql: Sql) => new EventWriter(sql, { kind: 'sample', artifacts });

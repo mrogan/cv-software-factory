@@ -57,6 +57,8 @@ export const VERSIONS = {
   'passkey.revoked': 1,
   // Martin's controls of a release in flight (the admin service)
   'release.controlled': 1,
+  // Martin's settings: each agent's model and effort, and the spend caps (the admin service)
+  'settings.changed': 1,
 } as const;
 
 export type EventType = keyof typeof VERSIONS;
@@ -76,6 +78,7 @@ export const LINE_TYPES: readonly EventType[] = [
   'passkey.enrolled',
   'passkey.revoked',
   'release.controlled',
+  'settings.changed',
 ];
 
 /**
@@ -96,9 +99,9 @@ export const RELEASE_TYPES: readonly EventType[] = [
  * that the line, triage and the gateway act on only when one of his roles appended it. Signing in and out, giving his
  * passkey again, and his passkeys are among them, so no worker can forge one (`0025_admin-service.sql`,
  * `0026_admin-stepped-up.sql`), and so are his controls of a release (`release.controlled`,
- * `0027_release-controls.sql`). Each of the admin service's commands still to come (autonomy, the switches, the
- * settings) joins this list when its type joins the catalogue, and a migration adds it to the store's own list
- * (`admin_event`): the store's tests fail until the two agree. `release.aborted` is not one: it is the line's record of
+ * `0027_release-controls.sql`), and his settings (`settings.changed`, `0028_settings.sql`). Each of the admin
+ * service's commands still to come (autonomy, the switches) joins this list when its type joins the catalogue, and a
+ * migration adds it to the store's own list (`admin_event`): the store's tests fail until the two agree. `release.aborted` is not one: it is the line's record of
  * what the Rollout did, and says `by: martin` when his control came first.
  */
 export const ADMIN_TYPES: readonly EventType[] = [
@@ -111,6 +114,7 @@ export const ADMIN_TYPES: readonly EventType[] = [
   'passkey.enrolled',
   'passkey.revoked',
   'release.controlled',
+  'settings.changed',
 ];
 
 export const isEventType = (type: string): type is EventType => Object.hasOwn(VERSIONS, type);

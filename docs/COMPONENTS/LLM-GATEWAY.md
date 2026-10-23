@@ -32,7 +32,7 @@ See [`TYPESAFE.md`](../TYPESAFE.md).
 `POST /v1/messages` is Anthropic's Messages API, with streaming, for [runners](AGENT-RUNNERS.md) (`gateway/agents.ts`).
 
 - **The job token** (`packages/store`, `job_tokens`, kept as a hash) stands where the API key would be, and names the work item and agent, and the step's span the call's span goes under. The gateway refuses it once its job has ended, and refuses every agent call while the line is stopped, by a stop one of [Martin's roles](EVENT-STORE.md#martins-commands) appended.
-- **Routing is the gateway's.** The provider, the pinned model and, for Claude, the effort come from `policy/models.ts`, whatever the runner asked.
+- **Routing is the gateway's.** The provider, the pinned model and, for Claude, the effort are those in force for the agent ([below](#settings)), whatever the runner asked.
 - **Prompt caching** passes through untouched.
 - **What gets through** is only the request fields, betas and tools the Agent SDK sends (`REQUEST`, `BETAS`). A server tool, such as web search, would be a way past the runners' fence, and is refused.
 
@@ -41,7 +41,7 @@ See [`TYPESAFE.md`](../TYPESAFE.md).
 | Provider | Key | Notes |
 |---|---|---|
 | Anthropic | From the Keychain | |
-| LM Studio, on `local` | None; costs nothing | `ALL_LOCAL=true` sends every agent there |
+| LM Studio, on `local` | None; costs nothing | One of each agent's models; `ALL_LOCAL=true` sends every agent there |
 | TypeSafe (Jev) | `TYPESAFE_API_KEY` or the Keychain ([workers](WORKERS-AND-IMAGES.md#secrets)) | Judgements only |
 
 LM Studio speaks the same API as Anthropic. For it, the gateway:
@@ -85,10 +85,23 @@ In `record`, as on the cluster, nothing is replayed from the folder: a cassette 
 
 A file written in the last two weeks always stays. Rows in `model_calls` are never changed, so a call may name a cassette that has gone. A gateway that replays from its folder keeps every cassette; one in `record` with no TypeSafe key replays Jev's calls from it, so it prunes only the agents' cassettes.
 
+## Settings
+
+Martin chooses each agent's model and effort, and the spend caps, from the console, within the bounds policy sets (`FACTORY_PROFILE`'s):
+
+- [`policy/models.ts`](../../policy/models.ts) names the models each agent may use (Claude Haiku, Sonnet and Opus, and Qwen on `local`, each priced in `gateway/prices.ts`, cheapest first) and its most effort, with its default;
+- [`policy/spend.ts`](../../policy/spend.ts) names each cap's default and ceiling.
+
+His choice is a `settings.changed` event, which the [admin service](ADMIN-SERVICE.md#the-settings) appends. The gateway reads the latest that one of [Martin's roles](EVENT-STORE.md#martins-commands) appended (`apps/factory/src/settings.ts`), and checks it against policy as it reads it (`policy/settings.ts`, the one check the line and the admin service make too): anything outside policy is not in force, and policy's default is, field by field. Zero, null and anything not a finite number are never "no cap".
+
+- **From an agent's next step.** A job runs under the settings in force when its token was issued, read at its first call and kept for the job, never changed part-way through it. The step's `model.called` records the model and effort.
+- **The caps** are read again at every check, a few seconds old at most, so a cap Martin raises or lowers applies from the next call, and a day's or month's cap raised past the spend clears its `spend.capped`.
+- **`ALL_LOCAL=true`** sends every agent to the profile's local model whatever the settings say: a night on Qwen, the bench and `soak-check --no-spend` spend nothing, whatever is chosen.
+
 ## Spend
 
-- **One cap across every provider** (`policy/spend.ts`), counted from the `model_calls` table: the audit log of every call, with its tokens, cache reads and writes, cost and job.
-- **At a day or month cap** the gateway refuses, and appends `spend.capped` to the line; `spend.cleared` follows when the window ends.
+- **One cap across every provider** (the day's and the month's [in force](#settings)), counted from the `model_calls` table: the audit log of every call, with its tokens, cache reads and writes, cost and job.
+- **At a day or month cap** the gateway refuses, and appends `spend.capped` to the line; `spend.cleared` follows when the window ends, or the cap is raised past the spend.
 - **Each work item** has a cap of its own ([the line](ORCHESTRATOR.md#spend)).
 - **Prices** include the cache's (`gateway/prices.ts`).
 
@@ -96,4 +109,4 @@ A file written in the last two weeks always stays. Rows in `model_calls` are nev
 
 - It never logs a state, a prompt or a provider's body.
 - Each agent call is a `model call` span under its step's, with the agent, model, tokens, cost and outcome ([telemetry](TELEMETRY.md#the-factorys-own-traces)).
-- Metrics go over OpenTelemetry: calls, latency and spend, tokens by kind, the providers' errors by status, refusals by cap, and spend against the profile's caps ([telemetry](TELEMETRY.md#the-gateways-metrics)).
+- Metrics go over OpenTelemetry: calls, latency and spend, tokens by kind, the providers' errors by status, refusals by cap, and spend against the caps in force ([telemetry](TELEMETRY.md#the-gateways-metrics)).

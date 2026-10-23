@@ -10,8 +10,11 @@
  * 2. Takes only what it knows: the request's fields, its betas and its tools are allow-listed (`REQUEST`, `BETAS`).
  *    A server tool, such as web search, would let a fenced agent reach the web through the gateway and would cost
  *    what the caps do not count, so only the runner's own tools are allowed.
- * 3. Sends the call where policy says (`policy/models.ts`): the provider, the pinned model and, for Claude, the
- *    effort, whatever the runner asked for. The local model is sent no effort: LM Studio's own setting decides it.
+ * 3. Sends the call where the settings in force say (Martin's, within `policy/models.ts`; `settings.ts`): the provider,
+ *    the pinned model and, for Claude, the effort, whatever the runner asked for. A job runs under the settings in force
+ *    when its token was issued, read at its first call and kept for it, so a change applies from an agent's next step,
+ *    never part-way through one. `ALL_LOCAL` sends every agent to the profile's local model, whatever the settings say.
+ *    The local model is sent no effort: LM Studio's own setting decides it.
  * 4. Answers from a cassette, keyed as `agent-cassettes.ts` says, when its mode replays; otherwise checks the spend
  *    caps, asks the provider, relays the answer as it arrives, and records a cassette.
  * 5. Writes one audit row in `model_calls` for every call, answered or not, with its tokens, cache use and cost. A
@@ -28,9 +31,11 @@ import { context, propagation, ROOT_CONTEXT, type Span, SpanStatusCode, trace } 
 import { IgnoredCommands, jobForToken, lineStopped } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { type AgentModel, MODEL_AGENTS, type ModelAgent, modelFor } from '../../../../policy/models.ts';
+import { type AgentModel, MODEL_AGENTS, MODELS, type ModelAgent } from '../../../../policy/models.ts';
+import { type InForce, inForce } from '../../../../policy/settings.ts';
 import type { Profile } from '../../../../policy/spend.ts';
 import type { Logger } from '../log.ts';
+import type { SettingsReader } from '../settings.ts';
 import { ATTRIBUTES as A, tracer } from '../spans.ts';
 import { type AgentCassettes, agentCassetteKey, keyedRequest } from './agent-cassettes.ts';
 import { SpendCapped } from './errors.ts';
@@ -111,8 +116,10 @@ export interface AgentCallsOptions {
   /** What was asked for. A provider the gateway has no way to reach is replayed only. */
   mode: Mode;
   profile: Profile;
-  /** Every agent to the profile's local model. */
+  /** Every agent to the profile's local model, whatever the settings say. */
   allLocal: boolean;
+  /** Martin's settings, as each job's are read; without them, policy's defaults are in force. */
+  settings?: SettingsReader;
   providers: Partial<Record<ProviderName, MessagesProvider>>;
   log: Logger;
   clock?: () => Date;
@@ -122,6 +129,9 @@ export interface AgentCallsOptions {
 
 type Headers = Record<string, string | string[] | undefined>;
 
+/** Whose call it is: the job its token was issued for, and when, which decides the settings the job runs under. */
+type Who = Pick<Call, 'job' | 'workItem' | 'agent'> & { issuedAt: Date };
+
 interface Call {
   job: string;
   workItem: string;
@@ -130,21 +140,35 @@ interface Call {
   model: string;
 }
 
-/** Where an agent's calls go on a profile: Bedrock's go to Anthropic's API until Bedrock has a provider here. */
+/**
+ * Where an agent's calls go under the settings in force, or to the profile's local model under `ALL_LOCAL`: Bedrock's
+ * go to Anthropic's API until Bedrock has a provider here.
+ */
 function routeOf(
   profile: Profile,
+  settings: InForce,
   agent: ModelAgent,
   allLocal: boolean,
 ): { chosen: AgentModel; provider: ProviderName } {
-  const chosen = modelFor(profile, agent, allLocal);
+  const local = MODELS[profile].local;
+  if (allLocal && !local) throw new Error(`The ${profile} profile has no local model to send every agent to.`);
+  const chosen: AgentModel = allLocal && local ? { provider: 'local', model: local.model } : settings.agents[agent];
   return { chosen, provider: chosen.provider === 'local' ? 'local' : 'anthropic' };
 }
 
-/** Every agent's route on a profile, as its calls' series are labelled. */
+const providerOf = (model: AgentModel['provider']): ProviderName => (model === 'local' ? 'local' : 'anthropic');
+
+/** Every route an agent's calls may take on a profile, each model policy lets it use, as its calls' series are labelled. */
 export function routes(profile: Profile, allLocal: boolean): instruments.Route[] {
-  return MODEL_AGENTS.map((agent) => {
-    const { chosen, provider } = routeOf(profile, agent, allLocal);
-    return { agent, provider, model: chosen.model };
+  const policy = MODELS[profile];
+  return MODEL_AGENTS.flatMap((agent) => {
+    if (allLocal) {
+      const { chosen, provider } = routeOf(profile, inForce(profile), agent, true);
+      return [{ agent, provider, model: chosen.model }];
+    }
+    return policy.models
+      .filter((m) => policy.agents[agent].models.includes(m.model))
+      .map((m) => ({ agent, provider: providerOf(m.provider), model: m.model }));
   });
 }
 
@@ -233,18 +257,24 @@ export class AgentCalls {
 
   /** A call whose request the gateway takes, inside its span, which its audit ends. */
   async #call(
-    who: Pick<Call, 'job' | 'workItem' | 'agent'>,
+    who: Who,
     body: z.infer<typeof REQUEST>,
     headers: Headers,
     span: Span,
     started: number,
     gone?: AbortSignal,
   ): Promise<Reply> {
-    const { chosen, provider } = routeOf(this.#o.profile, who.agent, this.#o.allLocal);
-    const call: Call = { ...who, provider, model: chosen.model };
+    const { profile, settings, allLocal } = this.#o;
+    const { chosen, provider } = routeOf(
+      profile,
+      settings ? await settings.at(who.job, who.issuedAt) : inForce(profile),
+      who.agent,
+      allLocal,
+    );
+    const call: Call = { job: who.job, workItem: who.workItem, agent: who.agent, provider, model: chosen.model };
     span.setAttributes({ [A.provider]: provider, [A.model]: chosen.model });
     priceOf(chosen.model);
-    // The policy's model and effort, whatever the runner asked for. The local model takes no effort (LM Studio's own
+    // The model and effort in force, whatever the runner asked for. The local model takes no effort (LM Studio's own
     // setting decides), so none is sent, and none reaches its cassettes' keys.
     const sent: Record<string, unknown> =
       chosen.provider === 'local'
@@ -406,9 +436,7 @@ export class AgentCalls {
     return json(200, { input_tokens: Math.ceil((await read()).length / 4) });
   }
 
-  async #authorise(
-    headers: Headers,
-  ): Promise<(Pick<Call, 'job' | 'workItem' | 'agent'> & { traceparent?: string }) | Reply> {
+  async #authorise(headers: Headers): Promise<(Who & { traceparent?: string }) | Reply> {
     const token = header(headers, 'x-api-key') ?? header(headers, 'authorization')?.replace(/^Bearer\s+/i, '');
     const job = token ? await jobForToken(this.#o.sql, token) : undefined;
     if (!job) return apiError(401, 'authentication_error', 'This is not the token of a job that is running.');
@@ -422,6 +450,7 @@ export class AgentCalls {
       job: job.job,
       workItem: job.workItem,
       agent: job.agent as ModelAgent,
+      issuedAt: job.issuedAt,
       ...(job.traceparent ? { traceparent: job.traceparent } : {}),
     };
   }

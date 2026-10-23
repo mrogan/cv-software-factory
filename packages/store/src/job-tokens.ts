@@ -18,6 +18,11 @@ export interface JobToken {
   traceparent?: string;
 }
 
+/** A job token the store holds, with when it was issued: the settings a job runs under are those in force then. */
+export interface IssuedJobToken extends JobToken {
+  issuedAt: Date;
+}
+
 /**
  * A token is 32 random bytes, not a password: nobody can guess one, so a fast hash keeps it safe at rest, as GitHub
  * keeps its tokens. A slow, salted hash would cost every model call a few hundred milliseconds and protect nothing more.
@@ -43,16 +48,19 @@ export async function issueJobToken(sql: Sql, job: JobToken): Promise<string> {
 }
 
 /** The job a token is for, while the job has not ended; otherwise undefined. */
-export async function jobForToken(sql: Sql, token: string): Promise<JobToken | undefined> {
+export async function jobForToken(sql: Sql, token: string): Promise<IssuedJobToken | undefined> {
   if (!token.startsWith('sfj_')) return undefined;
-  const [row] = await sql<{ job: string; work_item: string; agent: string; traceparent: string | null }[]>`
-    select job, work_item, agent, to_jsonb(t) ->> 'traceparent' as traceparent from job_tokens t
+  const [row] = await sql<
+    { job: string; work_item: string; agent: string; issued_at: Date; traceparent: string | null }[]
+  >`
+    select job, work_item, agent, issued_at, to_jsonb(t) ->> 'traceparent' as traceparent from job_tokens t
     where token_sha256 = ${hashOf(token)} and ended_at is null`;
   return (
     row && {
       job: row.job,
       workItem: row.work_item,
       agent: row.agent,
+      issuedAt: row.issued_at,
       ...(row.traceparent ? { traceparent: row.traceparent } : {}),
     }
   );

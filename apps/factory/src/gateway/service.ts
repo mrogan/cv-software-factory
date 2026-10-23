@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os';
 import { connect, DiskArtifacts, EventWriter } from '@software-factory/store';
 import { MODEL as TRIAGE_MODEL } from '@software-factory/triage';
 import { MODELS } from '../../../../policy/models.ts';
-import { SPEND } from '../../../../policy/spend.ts';
 import { sendCounts } from '../counts.ts';
 import { log } from '../log.ts';
+import { SettingsReader } from '../settings.ts';
 import { AgentCassettes } from './agent-cassettes.ts';
 import { AgentCalls, routes, usageOf } from './agents.ts';
 import { Cassettes } from './cassettes.ts';
@@ -27,7 +27,15 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
   const sql = connect(env.DATABASE_URL, { max: 4 });
   // The line events the gateway appends have no artifacts, so the store it is given is never read.
   const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts(tmpdir()) });
-  const spend = new Spend({ sql, events, profile: config.profile, policy: SPEND[config.profile], log });
+  // Martin's settings within policy: the caps in force at each check, and each job's model and effort.
+  const settings = new SettingsReader(sql, config.profile);
+  const spend = new Spend({
+    sql,
+    events,
+    profile: config.profile,
+    policy: async () => (await settings.now()).caps,
+    log,
+  });
   const typesafe = config.apiKey
     ? new TypeSafe({ apiKey: config.apiKey, log, ...(config.typesafeUrl ? { baseUrl: config.typesafeUrl } : {}) })
     : undefined;
@@ -82,6 +90,7 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
     mode: config.mode,
     profile: config.profile,
     allLocal: config.allLocal,
+    settings,
     providers,
     log,
   });

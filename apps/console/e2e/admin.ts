@@ -54,7 +54,14 @@ export async function startHarness(
   // The admin service as its Deployment runs it, connected as its own role; `localhost` is a secure context, so a
   // passkey and a `Secure` cookie work over plain HTTP here.
   const admin: AdminService = await startAdmin(
-    { origin, rpId: 'localhost', trusted: proxies(''), port: 0, ...(release && { rollout: release.rollout }) },
+    {
+      origin,
+      rpId: 'localhost',
+      trusted: proxies(''),
+      port: 0,
+      profile: 'local',
+      ...(release && { rollout: release.rollout }),
+    },
     { sql: database.admin, port: 0, ...(release && { kube: release.kube }) },
   );
   const adminPort = (admin.server.address() as AddressInfo).port;

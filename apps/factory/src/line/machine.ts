@@ -156,7 +156,8 @@ export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
   // At Verify, when no sense can tell or the signal persisted again: approving says the fix is verified, and answering
   // sends the work back to the planner with what he said.
   verify: { approved: 'verified', rejected: 'close', answered: 'replan' },
-  // The cap is policy's: approving carries on, and the line holds again until the cap is raised.
+  // The cap is Martin's, within policy: approving carries on, and the line holds again until the cap is raised. Raising
+  // the work item's cap past what it has spent approves it (the admin service, `admin/settings.ts`).
   spend: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
   // The line makes no such hold yet: approving accepts the tests as they are, answering says what to test.
   'tests-first': { approved: 'carry-on', rejected: 'close', answered: 'return' },
@@ -682,7 +683,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
       const reason = `The work item has spent $${spentUsd.toFixed(2)} on models, and may spend $${limitUsd.toFixed(2)}`;
       return {
         stage: 'held',
-        next: { do: 'hold', hold: { stage, kind: 'held', cause: 'spend', reason, limitUsd } },
+        next: { do: 'hold', hold: { stage, kind: 'held', cause: 'spend', reason, limitUsd, spentUsd } },
       };
     }
     if (facts.failures >= LIMITS.failures) {

@@ -1,12 +1,14 @@
 /**
- * Counting spend against the caps in `policy/spend.ts`, from the `model_calls` table, so it survives a restart.
+ * Counting spend against the caps in force (Martin's settings within `policy/spend.ts`, or its defaults), from the
+ * `model_calls` table, so it survives a restart. The caps are read again at each check, so one Martin changes applies
+ * from the next call.
  *
  * A window is a UTC day or a UTC calendar month. Before a provider call, `check` refuses when the day's, the
  * month's or the work item's spend has reached its cap. The check and the call are not one step, so calls already
  * in flight when a cap is reached finish and may take the total a little past it.
  *
  * The line hears of a day or month cap too: `spend.capped` is appended once when one is reached, and
- * `spend.cleared` when it no longer is (the window moved on, or the policy was raised). Which caps are marked is
+ * `spend.cleared` when it no longer is (the window moved on, or the cap was raised). Which caps are marked is
  * read from the store at start, so a restart neither repeats nor forgets. A work item's cap writes no line event:
  * the caller deals with it.
  */
@@ -40,7 +42,8 @@ export interface SpendOptions {
   sql: Sql;
   events: EventWriter;
   profile: Profile;
-  policy: SpendPolicy;
+  /** The caps: fixed, or read as they are in force at each check. */
+  policy: SpendPolicy | (() => Promise<SpendPolicy>);
   log: Logger;
   clock?: () => Date;
 }
@@ -58,21 +61,21 @@ export class Spend {
   readonly #sql: Sql;
   readonly #events: EventWriter;
   readonly #profile: Profile;
-  readonly #policy: SpendPolicy;
+  readonly #policy: () => Promise<SpendPolicy>;
   readonly #log: Logger;
   readonly #clock: () => Date;
   readonly #marked = new Set<Cap>();
   #queue: Promise<void> = Promise.resolve();
   #timer: NodeJS.Timeout | undefined;
   /** The day's and month's spend as the last reconcile counted it, for the metrics: a minute old at most once started. */
-  #counted: { day: number; month: number } | undefined;
+  #counted: { day: number; month: number; caps: SpendPolicy } | undefined;
   #unobserve: (() => void) | undefined;
 
   constructor({ sql, events, profile, policy, log, clock = () => new Date() }: SpendOptions) {
     this.#sql = sql;
     this.#events = events;
     this.#profile = profile;
-    this.#policy = policy;
+    this.#policy = typeof policy === 'function' ? policy : async () => policy;
     this.#log = log;
     this.#clock = clock;
   }
@@ -96,39 +99,40 @@ export class Spend {
 
   /** Throws `SpendCapped` for the cap that is reached: the month's before the day's, which resets sooner. */
   async check(workItem: string | null): Promise<void> {
-    const reached = await this.#reached();
+    const caps = await this.#policy();
+    const reached = await this.#reached(caps);
     if (reached.length) {
       await this.reconcile();
       throw reached.at(-1) as SpendCapped;
     }
     if (workItem !== null) {
       const spent = await this.#workItem(workItem);
-      if (spent >= this.#policy.workItemUsd) throw new SpendCapped('work-item', this.#policy.workItemUsd, spent, null);
+      if (spent >= caps.workItemUsd) throw new SpendCapped('work-item', caps.workItemUsd, spent, null);
     }
   }
 
   /** The day and month caps now reached, the day's first. */
-  async #reached(totals?: { day: number; month: number }): Promise<SpendCapped[]> {
+  async #reached(caps: SpendPolicy, totals?: { day: number; month: number }): Promise<SpendCapped[]> {
     totals ??= await this.#totals();
     const { day, month } = windowsAt(this.#clock());
     const reached: SpendCapped[] = [];
-    if (totals.day >= this.#policy.dayUsd) {
-      reached.push(new SpendCapped('day', this.#policy.dayUsd, totals.day, day.end.toISOString()));
+    if (totals.day >= caps.dayUsd) {
+      reached.push(new SpendCapped('day', caps.dayUsd, totals.day, day.end.toISOString()));
     }
-    if (this.#policy.monthUsd !== null && totals.month >= this.#policy.monthUsd) {
-      reached.push(new SpendCapped('month', this.#policy.monthUsd, totals.month, month.end.toISOString()));
+    if (caps.monthUsd !== null && totals.month >= caps.monthUsd) {
+      reached.push(new SpendCapped('month', caps.monthUsd, totals.month, month.end.toISOString()));
     }
     return reached;
   }
 
   async report(): Promise<SpendReport> {
-    const totals = await this.#totals();
+    const [caps, totals] = await Promise.all([this.#policy(), this.#totals()]);
     const { day, month } = windowsAt(this.#clock());
     return {
       profile: this.#profile,
-      day: { spentUsd: totals.day, limitUsd: this.#policy.dayUsd, resets: day.end.toISOString() },
-      month: { spentUsd: totals.month, limitUsd: this.#policy.monthUsd, resets: month.end.toISOString() },
-      workItemLimitUsd: this.#policy.workItemUsd,
+      day: { spentUsd: totals.day, limitUsd: caps.dayUsd, resets: day.end.toISOString() },
+      month: { spentUsd: totals.month, limitUsd: caps.monthUsd, resets: month.end.toISOString() },
+      workItemLimitUsd: caps.workItemUsd,
       capped: [...this.#marked],
     };
   }
@@ -149,9 +153,9 @@ export class Spend {
 
   async #reconcile(): Promise<void> {
     // Counted here alone, one reconcile at a time, so the metrics never go back to an older count.
-    const totals = await this.#totals();
-    this.#counted = totals;
-    const reached = new Map((await this.#reached(totals)).map((cap) => [cap.cap as Cap, cap]));
+    const [caps, totals] = await Promise.all([this.#policy(), this.#totals()]);
+    this.#counted = { ...totals, caps };
+    const reached = new Map((await this.#reached(caps, totals)).map((cap) => [cap.cap as Cap, cap]));
     for (const [cap, refusal] of reached) {
       if (this.#marked.has(cap)) continue;
       const event: NewEvent<'spend.capped'> = {
@@ -219,11 +223,7 @@ export class Spend {
             profile: this.#profile,
             dayUsd: this.#counted.day,
             monthUsd: this.#counted.month,
-            limits: {
-              dayUsd: this.#policy.dayUsd,
-              monthUsd: this.#policy.monthUsd,
-              workItemUsd: this.#policy.workItemUsd,
-            },
+            limits: { ...this.#counted.caps },
           }
         : undefined,
     );

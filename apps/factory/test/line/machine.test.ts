@@ -366,7 +366,7 @@ describe('what the line does next', () => {
     expect(decide([ticket, hold, answered], facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
   });
 
-  it('holds a work item that has spent its cap before its next step, with the cap, and not before', () => {
+  it('holds a work item that has spent its cap before its next step, with the cap and its spend, and not before', () => {
     const spend = { spentUsd: 5.03, limitUsd: 5 };
     expect(decide([ticket, spec], { ...facts, spend })).toEqual({
       stage: 'held',
@@ -378,6 +378,7 @@ describe('what the line does next', () => {
           cause: 'spend',
           reason: 'The work item has spent $5.03 on models, and may spend $5.00',
           limitUsd: 5,
+          spentUsd: 5.03,
         },
       },
     });
