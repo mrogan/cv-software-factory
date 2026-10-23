@@ -32,7 +32,7 @@ describe('the samples, projected', () => {
     expect(new Set(view.cards.map((c) => c.picture.type))).toEqual(
       new Set([
         ...['wipe', 'metric', 'logs', 'package', 'scan', 'rollback', 'refusal', 'judgement', 'spec', 'http'],
-        ...['merge', 'deploy', 'scope', 'tests-pass', 'spend', 'blocking', 'none'],
+        ...['merge', 'deploy', 'scope', 'tests-pass', 'spend', 'blocking', 'suggestion', 'none'],
       ]),
     );
   });
@@ -106,7 +106,14 @@ describe('the samples, projected', () => {
 
   it('say which work a visitor started, and nothing about the visitor', () => {
     const cards = project(SAMPLES, END).cards;
-    expect(cards.filter((c) => c.byVisitor).map((c) => c.number)).toEqual(['1268', '1274', '1293', '1296', '1302']);
+    expect(cards.filter((c) => c.byVisitor).map((c) => c.number)).toEqual([
+      '1268',
+      '1274',
+      '1293',
+      '1296',
+      '1302',
+      '1329',
+    ]);
     expect(SAMPLES.some((e) => e.type === 'work-item.opened' && 'visitor' in e.payload)).toBe(false);
   });
 

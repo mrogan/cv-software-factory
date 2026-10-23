@@ -36,13 +36,16 @@ export type Outcome =
   | 'in-progress';
 
 export interface Hold {
+  /** Its `hold.started` event's id, which an answer to it names. */
+  id: string;
   stage: Stage;
   kind: 'approval' | 'question' | 'held';
   /** Why the line holds it, which decides the picture the card draws for it. */
   cause: HoldCause;
   reason: string;
-  /** A spend hold's cap. */
+  /** A spend hold's cap, and what the work item had spent when it reached it. */
   limitUsd: number | undefined;
+  spentUsd: number | undefined;
   question: string | undefined;
   since: number;
 }
@@ -420,11 +423,13 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.sentBack = undefined;
         state.cleared = undefined;
         state.hold = {
+          id: event.id,
           stage: event.payload.stage,
           kind: event.payload.kind,
           cause: event.payload.cause,
           reason: event.payload.reason,
           limitUsd: event.payload.limitUsd,
+          spentUsd: event.payload.spentUsd,
           question: event.payload.question,
           since: time,
         };

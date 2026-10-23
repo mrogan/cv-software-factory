@@ -4,7 +4,7 @@
  * will ask. The console's image is built without `policy/access.ts`, so it keeps these copies, and a test holds them to
  * the table.
  */
-import type { ReleaseControl } from '@software-factory/events';
+import type { HoldCause, ReleaseControl } from '@software-factory/events';
 
 /** How long the passkey, given again, is fresh: `STEP_UP.minutes`. */
 export const FRESH_MINUTES = 5;
@@ -32,3 +32,17 @@ export const SETTINGS_STEP_UP = {
   'caps.raise': true,
   'caps.lower': false,
 } as const;
+
+/**
+ * The holds whose cause is a guardrail, `GUARDRAIL_HOLDS`: approving one overrides it, so it asks for the passkey again
+ * (`hold.approve-guardrail`). Rejecting one, or answering it in words, never does.
+ */
+export const GUARDRAIL_HOLDS: readonly HoldCause[] = [
+  'scope',
+  'beyond-ticket',
+  'review',
+  'gates',
+  'verify',
+  'spend',
+  'merge',
+];

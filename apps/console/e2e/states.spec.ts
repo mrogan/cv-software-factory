@@ -43,7 +43,7 @@ test('the stations take their states as the events arrive, and keep still when m
   arrive();
   const drawn = [
     ['sense', 'idle', null],
-    ['triage', 'idle', null],
+    ['triage', 'blocked', null],
     ['plan', 'blocked', null],
     ['build', 'working', 'needs-you'],
     ['gates', 'blocked', null],
@@ -111,7 +111,7 @@ test('events from a newer factory are left out, with a note', async ({ page, req
   });
   await page.goto(consoleUrl());
   await expect(page.getByText('One event was written by a newer version of the factory')).toBeVisible();
-  await expect(page.locator('.transport .count')).toHaveText('25 of 25');
+  await expect(page.locator('.transport .count')).toHaveText('26 of 26');
   // The stream carries on after the event left out, so it is never sent, or counted, twice.
   await expect.poll(() => after).toBe(String(last.seq + 1));
 });

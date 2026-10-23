@@ -13,6 +13,7 @@ import { Footer } from './components/Footer.tsx';
 import { Header, LineStatus, Scoreboard } from './components/Header.tsx';
 import { Line } from './components/Line.tsx';
 import { LogoSymbols } from './components/Logos.tsx';
+import { NeedsYou } from './components/NeedsYou.tsx';
 import { PreviewBanner } from './components/Preview.tsx';
 import { Reel } from './components/Reel.tsx';
 import { EmptyReel, States } from './components/States.tsx';
@@ -233,7 +234,15 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
               motion={motion}
             />
           )}
-          {settled && <Controls spend={settings.spend} martin={admin.kind === 'martin'} />}
+          {settled && (
+            <section
+              className="bottom"
+              aria-label={admin.kind === 'martin' ? 'Needs you and controls' : 'Waiting on Martin, and controls'}
+            >
+              <NeedsYou needs={view.needs} admin={admin} onOpen={setOpen} />
+              <Controls spend={settings.spend} martin={admin.kind === 'martin'} />
+            </section>
+          )}
         </div>
       </main>
       <Footer signIn={signedIn.kind === 'visitor'} />

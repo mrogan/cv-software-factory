@@ -12,7 +12,10 @@ export const REPORT_TEXT =
 /** The same, as Martin reads it on the sheet. */
 export const REPORT_SHOWN = 'The contact form ate my message twice, so I gave up. bMail me/b at or see';
 
-/** An event as its full version carries it: a report with its text. */
+/** What Martin answered on a hold about a visitor's report, which only his full events carry. */
+export const MARTINS_WORDS = 'Worth having: I’ll ask for colour in search from Plan once improvements ship.';
+
+/** An event as its full version carries it: a report with its text, and Martin's words on a hold about one. */
 export function full<T extends RawEvent>(event: T): T {
   const payload = event.payload as { report?: { page: string }; state?: { report?: { page: string } } };
   if (event.type === 'signal.received' && payload.report) {
@@ -21,6 +24,10 @@ export function full<T extends RawEvent>(event: T): T {
   if (event.type === 'judgement.made' && payload.state?.report) {
     const state = { ...payload.state, report: { ...payload.state.report, text: REPORT_TEXT } };
     return { ...event, payload: { ...payload, state } };
+  }
+  const answer = event.payload as { report?: boolean; answer?: string };
+  if (event.type === 'hold.answered' && answer.report && answer.answer === undefined) {
+    return { ...event, payload: { ...answer, answer: MARTINS_WORDS } };
   }
   return event;
 }

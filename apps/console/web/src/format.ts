@@ -121,3 +121,6 @@ export const AGENT_NAME: Record<string, string> = {
   describer: 'Describer',
   'red-team': 'Red-team agent',
 };
+
+/** The app's repository, where the factory's pull requests are. */
+export const APP_REPO = 'https://github.com/mrogan/cv-worlds-worst-website';

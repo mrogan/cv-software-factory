@@ -9,7 +9,8 @@
  * sheet's releases, the scrubber for work that goes round three times, and the timeline's versions, a release with no
  * work item's among them. Milestone 7's from a stand-in for the admin service: the sign-in and enrolment doors, a code
  * refused, Martin's account menu, a visitor's report quoted on his sheet, Preview as visitor, the settings for Martin
- * with a change unsaved and for a visitor, and Controls.
+ * with a change unsaved and for a visitor, and the bottom row: Needs you (Waiting on Martin for a visitor, his words
+ * being written for him, and nothing waiting) beside Controls.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -31,6 +32,9 @@ import {
   test,
   WIDTHS,
 } from './support.ts';
+
+/** A time in the samples when nothing waits on Martin: the first work item is open, and its hold has not started. */
+const NOTHING_WAITS = Date.parse('2026-09-29T08:32:00Z');
 
 test.beforeEach(({ page }) => picturesDecodeAsDrawn(page));
 
@@ -486,7 +490,7 @@ test.describe('the doors in Ink', () => {
   });
 });
 
-/** Milestone 7: the settings, for Martin with a change unsaved and for a visitor, and Controls' Spend group. */
+/** Milestone 7: the settings, for Martin with a change unsaved and for a visitor, and the bottom row. */
 for (const [width, viewport] of Object.entries(WIDTHS)) {
   test.describe(`${width}, the settings`, () => {
     test.use({ viewport });
@@ -504,11 +508,31 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       await expect(page).toHaveScreenshot(`m07-settings-visitor-${width}.png`, { fullPage: true });
     });
 
-    test('Controls', async ({ page }) => {
+    test('the bottom row, for a visitor', async ({ page }) => {
       await adminService(page, 'visitor');
       await page.goto(consoleUrl());
       await ready(page);
-      await expect(page.locator('.bottom')).toHaveScreenshot(`m07-controls-${width}.png`);
+      await expect(page.locator('.bottom')).toHaveScreenshot(`m07-bottom-visitor-${width}.png`);
+    });
+
+    test('the bottom row, for Martin, answering in words', async ({ page }) => {
+      await adminService(page, 'martin');
+      await page.goto(consoleUrl());
+      await ready(page);
+      await page.locator('article.needs h2', { hasText: 'Needs you' }).waitFor();
+      const card = page.locator('.need').filter({ hasText: '#1300 ·' });
+      await card.getByRole('button', { name: 'Answer in words' }).click();
+      await card.getByLabel('Your answer to #1300').fill('Out of stock last, whatever the price.');
+      await card.getByLabel('Your answer to #1300').blur();
+      await expect(page.locator('.bottom')).toHaveScreenshot(`m07-bottom-martin-${width}.png`);
+    });
+
+    test('Needs you, with nothing waiting', async ({ page }) => {
+      await adminService(page, 'martin');
+      await page.goto(consoleUrl({ at: NOTHING_WAITS }));
+      await ready(page);
+      await page.locator('article.needs h2', { hasText: 'Needs you' }).waitFor();
+      await expect(page.locator('article.needs')).toHaveScreenshot(`m07-needs-empty-${width}.png`);
     });
   });
 }
@@ -523,11 +547,19 @@ test.describe('the settings in Ink', () => {
     await expect(page).toHaveScreenshot('m07-settings-ink.png', { fullPage: true });
   });
 
-  test('Controls', async ({ page }) => {
+  test('the bottom row, for a visitor', async ({ page }) => {
     await adminService(page, 'visitor');
     await page.goto(consoleUrl({ theme: 'ink' }));
     await ready(page);
-    await expect(page.locator('.bottom')).toHaveScreenshot('m07-controls-ink.png');
+    await expect(page.locator('.bottom')).toHaveScreenshot('m07-bottom-visitor-ink.png');
+  });
+
+  test('the bottom row, for Martin', async ({ page }) => {
+    await adminService(page, 'martin');
+    await page.goto(consoleUrl({ theme: 'ink' }));
+    await ready(page);
+    await page.locator('article.needs h2', { hasText: 'Needs you' }).waitFor();
+    await expect(page.locator('.bottom')).toHaveScreenshot('m07-bottom-martin-ink.png');
   });
 });
 

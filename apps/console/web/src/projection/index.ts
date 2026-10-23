@@ -20,6 +20,7 @@ import {
   score,
   station,
 } from './line.ts';
+import { type NeedsView, needsView } from './needs.ts';
 import { type Card, card, type Timeline, timeline } from './reel.ts';
 import { type CanaryView, canaryView, releases } from './release.ts';
 import { type Sheet, sheet } from './sheet.ts';
@@ -40,6 +41,8 @@ export type {
   Status,
 } from './line.ts';
 export { whileSending } from './line.ts';
+export type { Answered, AnswerRow, Evidence, Need, NeedsView } from './needs.ts';
+export { stageName } from './needs.ts';
 export type { Card, Picture, Segment, Source, Tag, Timeline, Versions } from './reel.ts';
 export { QUARANTINE_AT, segmentsLabel } from './reel.ts';
 export type { CanaryView, Carried, End, Measured, Release, Signalled, Step } from './release.ts';
@@ -76,6 +79,8 @@ export interface View {
   canary: CanaryView;
   cards: Card[];
   timeline: Timeline;
+  /** Needs you: every open hold, and Martin's answers today. */
+  needs: NeedsView;
 }
 
 /** The events that had happened by t, in seq order. */
@@ -102,6 +107,7 @@ export function project(events: readonly PublicEvent[], t: number): View {
     canary: canaryView(shipped, t),
     cards,
     timeline: timeline(cards, shipped),
+    needs: needsView(items, t),
   };
 }
 

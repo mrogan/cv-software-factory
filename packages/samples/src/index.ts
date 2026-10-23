@@ -36,6 +36,7 @@ import pino105 from './items/1321-pino.ts';
 import discountCodes from './items/1323-discount-codes.ts';
 import repeatedResult from './items/1325-repeated-result.ts';
 import searchPages from './items/1327-search-pages.ts';
+import searchByColour from './items/1329-search-by-colour.ts';
 import releases from './items/line.ts';
 import { scoreEvents } from './score.ts';
 
@@ -65,6 +66,7 @@ export const ITEMS = [
   discountCodes,
   repeatedResult,
   searchPages,
+  searchByColour,
 ];
 
 /** The line, running at Guarded autonomy from before the first sample. */

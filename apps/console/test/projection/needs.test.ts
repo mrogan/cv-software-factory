@@ -1,0 +1,170 @@
+/**
+ * Needs you (`projection/needs.ts`): a card per open hold, oldest first, each answer it takes beside what it does from
+ * the line's own `ANSWERS`, Approve keyed on a guardrail's hold; Martin's answers today, his words kept from visitors on
+ * a hold about a visitor's report; and the samples' own holds. And the console's copy of the guardrails' holds, held to
+ * the access table.
+ */
+import { answersTo, HOLD_CAUSES, type HoldCause, type PayloadOf } from '@software-factory/events';
+import { describe, expect, it } from 'vitest';
+import { GUARDRAIL_HOLDS as TABLE } from '../../../../policy/access.ts';
+import { GUARDRAIL_HOLDS } from '../../web/src/access.ts';
+import { project } from '../../web/src/projection/index.ts';
+import { foldItems } from '../../web/src/projection/items.ts';
+import { needsView } from '../../web/src/projection/needs.ts';
+import { END, payloads, SAMPLES, work } from './support.ts';
+
+const START = Date.parse('2026-10-03T09:00:00Z');
+const hold = (cause: HoldCause, extra: Partial<PayloadOf<'hold.started'>> = {}): PayloadOf<'hold.started'> => ({
+  stage: 'build',
+  kind: 'held',
+  cause,
+  reason: `Held: ${cause}`,
+  ...extra,
+});
+
+describe('Needs you', () => {
+  it('keeps the console’s list of the guardrails’ holds to the access table', () => {
+    expect([...GUARDRAIL_HOLDS]).toEqual([...TABLE]);
+  });
+
+  it('draws a card per open hold, oldest first, each with the hold’s id and the answers it takes', () => {
+    const gates = work('2001', START)
+      .open()
+      .add(30, 'hold.started', 'factory', hold('gates', { stage: 'gates' }));
+    const question = work('2002', START)
+      .open()
+      .add(10, 'hold.started', 'planner', hold('question', { stage: 'plan', kind: 'question', question: 'Which?' }));
+    const answered = work('2003', START)
+      .open()
+      .add(5, 'hold.started', 'factory', hold('failures'))
+      .add(6, 'hold.answered', 'martin', { decision: 'approved' });
+    const events = [...gates.events, ...question.events, ...answered.events];
+    const t = START + 90 * 60_000;
+    const { holds } = needsView(foldItems(events), t);
+    expect(holds.map((need) => need.workItem)).toEqual(['2002', '2001']);
+    const [planner, gate] = holds;
+    expect(planner).toMatchObject({
+      hold: question.events[1]?.id,
+      kicker: 'The planner asks',
+      stage: 'plan',
+      waited: '1h',
+      evidence: { kind: 'question', question: 'Which?' },
+    });
+    expect(planner?.answers.map((a) => [a.answer, a.stepUp])).toEqual([
+      ['approved', false],
+      ['answered', false],
+      ['rejected', false],
+    ]);
+    expect(gate).toMatchObject({ kicker: 'Held by a gate', waited: '1h' });
+    // Approving a guardrail's hold asks for the passkey; its other answers never do.
+    expect(gate?.answers.map((a) => [a.answer, a.stepUp])).toEqual([
+      ['approved', true],
+      ['answered', false],
+      ['rejected', false],
+    ]);
+    expect(gate?.answers[0]?.does).toBe('Sends it back to the coder for one more round, past the gates’ limit.');
+    expect(gate?.answers[1]?.does).toBe('Sends it back to the coder, with your words as the reason.');
+  });
+
+  it('offers only the answers that do something, and says what each does for every cause', () => {
+    for (const cause of HOLD_CAUSES) {
+      const item = work('2010', START).open().add(1, 'hold.started', 'factory', hold(cause));
+      const [need] = needsView(foldItems(item.events), START + 3_600_000).holds;
+      expect(
+        need?.answers.map((a) => a.answer),
+        cause,
+      ).toEqual(answersTo(cause));
+      for (const row of need?.answers ?? []) expect(row.does, `${cause}: ${row.answer}`).toMatch(/\.$/);
+      expect(need?.kicker, cause).toBeTruthy();
+    }
+    const deploy = work('2011', START)
+      .open()
+      .add(1, 'hold.started', 'factory', hold('deploy', { stage: 'release', kind: 'approval' }));
+    expect(needsView(foldItems(deploy.events), END).holds[0]?.answers).toEqual([
+      expect.objectContaining({ answer: 'rejected', stepUp: false }),
+    ]);
+  });
+
+  it('keeps a hold of triage’s waiting after words, and says so in Answered today', () => {
+    const t = Date.parse('2026-10-03T15:00:00Z');
+    const finding = work('2020', Date.parse('2026-10-03T10:00:00Z'))
+      .open('planner-finding')
+      .add(
+        1,
+        'hold.started',
+        'triage',
+        hold('finding', {
+          stage: 'triage',
+          defect: { fingerprint: { route: '/about', class: 'broken-link' }, symptom: 'broken-link' },
+        }),
+      )
+      .add(60, 'hold.answered', 'martin', { decision: 'answered', answer: 'Leave it for a sense' });
+    const { holds, answered } = needsView(foldItems(finding.events), t);
+    expect(holds.map((need) => need.workItem)).toEqual(['2020']);
+    expect(holds[0]?.answers[1]?.does).toBe('Kept with the hold. It stays held until you approve or reject it.');
+    expect(answered).toEqual([
+      {
+        at: finding.at(60),
+        workItem: '2020',
+        how: 'Answered in words, still held',
+        words: 'Leave it for a sense',
+        did: undefined,
+      },
+    ]);
+  });
+
+  it('lists today’s answers newest first, with what each did, and keeps a visitor from his words on a report', () => {
+    const day = Date.parse('2026-10-03T12:00:00');
+    const report = work('2030', day)
+      .open('visitor-report')
+      .add(0, 'signal.received', 'widget', { ...payloads.signal, sense: 'report', report: { page: '/search' } })
+      .add(1, 'hold.started', 'triage', hold('suggestion', { stage: 'triage', kind: 'approval' }))
+      .add(30, 'hold.answered', 'martin', { decision: 'answered', report: true });
+    const gates = work('2031', day)
+      .open()
+      .add(1, 'hold.started', 'factory', hold('gates', { stage: 'gates' }))
+      .add(40, 'hold.answered', 'martin', { decision: 'answered', answer: 'Keep the test' });
+    // Yesterday's answer is not today's.
+    const before = work('2032', day - 86_400_000)
+      .open()
+      .add(1, 'hold.started', 'factory', hold('failures'))
+      .add(2, 'hold.answered', 'martin', { decision: 'approved' });
+    const { holds, answered } = needsView(
+      foldItems([...before.events, ...report.events, ...gates.events]),
+      day + 3_600_000,
+    );
+    expect(holds.map((need) => [need.workItem, need.kicker])).toEqual([['2030', 'A visitor suggests']]);
+    expect(answered).toEqual([
+      {
+        at: gates.at(40),
+        workItem: '2031',
+        how: 'Answered in words',
+        words: 'Keep the test',
+        did: 'Sent back to the coder.',
+      },
+      { at: report.at(30), workItem: '2030', how: 'Answered in words, still held', words: 'kept', did: undefined },
+    ]);
+  });
+
+  it('shows the samples’ holds, the visitor’s suggestion among them, and its words answered today', () => {
+    const { needs } = project(SAMPLES, END);
+    expect(needs.holds.map((need) => [need.workItem, need.cause])).toEqual([
+      ['1274', 'gates'],
+      ['1300', 'question'],
+      ['1311', 'merge'],
+      ['1315', 'scope'],
+      ['1317', 'tests-first'],
+      ['1319', 'spend'],
+      ['1329', 'suggestion'],
+      ['1323', 'review'],
+      ['1321', 'deploy'],
+    ]);
+    const merge = needs.holds.find((need) => need.cause === 'merge');
+    expect(merge?.answers.map((a) => a.answer)).toEqual(['answered', 'rejected']);
+    expect(merge?.link?.href).toMatch(/\/pull\/\d+$/);
+    expect(needs.holds.find((need) => need.cause === 'spend')?.link?.href).toBe('?view=settings');
+    expect(needs.answered).toEqual([
+      expect.objectContaining({ workItem: '1329', how: 'Answered in words, still held', words: 'kept' }),
+    ]);
+  });
+});
