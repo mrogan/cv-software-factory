@@ -427,6 +427,7 @@ export class Releases {
         and e.ts >= coalesce((
           select max((p.payload->>'abortedAt')::timestamptz) from events p
           where p.type in ('release.aborted', 'release.errored') and p.payload->>'release' = ${release}
+            and (p.payload->>'abortedAt')::timestamptz < ${at}::timestamptz
         ) + interval '1 second', '-infinity')
       limit 1`;
     if (control) return 'martin';

@@ -737,6 +737,8 @@ class RolloutKube implements KubeWriter {
    * (`omitempty`), so a patch that sets one false leaves it absent.
    */
   dropsFalse = false;
+  /** What the controller does to the Rollout as soon as a patch is made, before anyone reads it again. */
+  controller: ((object: Record<string, unknown>) => Record<string, unknown>) | undefined;
 
   constructor(state: RolloutState, paused = false) {
     const r = rollout(state);
@@ -758,6 +760,7 @@ class RolloutKube implements KubeWriter {
     this.patches.push({ path, body: rest });
     this.object = merged(this.object, rest) as Record<string, unknown>;
     if (this.dropsFalse) this.object = withoutFalse(this.object);
+    if (this.controller) this.object = this.controller(this.object);
     this.version += 1;
     // Made, and its answer lost on the way back.
     if (failing === 'lost') throw new Error('socket hang up');
@@ -1087,6 +1090,29 @@ describe('the release controls', () => {
     expect((await controls()).slice(before).map((c) => c.payload)).toEqual([
       { action: 'abort', release: RELEASE, version: commitOf(CANARY), weight: 25 },
     ]);
+  });
+
+  it('counts a promotion whose answer was lost as made, though the controller moved the canary on at once', async () => {
+    const before = (await controls()).length;
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    // On to the next step, and on again to the pause after it, which sets its pauses again.
+    let kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    kube.controller = (object) =>
+      merged(object, {
+        status: { currentStepIndex: 4, controllerPause: true, pauseConditions: [{ reason: 'CanaryPauseStep' }] },
+      }) as Record<string, unknown>;
+    kube.failing.push('lost');
+    expect(await browser.post('/admin/release/promote', { release: RELEASE })).toMatchObject({ status: 200 });
+    // Promoted fully, it is all of the traffic already, and the flag is cleared.
+    kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    kube.controller = (object) =>
+      merged(object, { status: { promoteFull: null, stableRS: CANARY } }) as Record<string, unknown>;
+    kube.failing.push('lost');
+    expect(await browser.post('/admin/release/promote', { release: RELEASE, fully: true })).toMatchObject({
+      status: 200,
+    });
+    expect((await controls()).slice(before).map((c) => c.payload.action)).toEqual(['promote', 'promote-fully']);
   });
 
   it('refuses every control when the admin service has no Rollout', async () => {
