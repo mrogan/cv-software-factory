@@ -13,6 +13,7 @@ resources:
   - grafana.yaml
   - query.yaml
   - prometheus-fence.yaml
+  - alertmanager-fence.yaml
 configMapGenerator:
   # The proxy's configuration. Its name gains a hash of the file, so a change to it rolls the proxy.
   - name: query
