@@ -88,6 +88,59 @@
   color: var(--text-2);
 }
 
+.menu hr {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* Preview as visitor: the header's button, the banner across the top while it lasts, and the pill in Martin's place. */
+.btn.preview-btn {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.preview-banner {
+  background: var(--ok-wash);
+  border-bottom: 1px solid var(--ok-line);
+  color: var(--ok-text);
+  font-size: 13px;
+}
+.preview-banner .wrap {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.preview-banner p {
+  margin: 0;
+  padding: 8px 0;
+}
+.preview-banner button {
+  white-space: nowrap;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ok-line);
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: var(--ok-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.pill-visitor {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--ok-wash);
+  color: var(--ok-text);
+  border: 1px solid var(--ok-line);
+  font: 11px / 1.4 var(--font-mono);
+  letter-spacing: 0.8px;
+  white-space: nowrap;
+}
+
 /* The doors: one card in the middle of the page. */
 .door {
   max-width: 460px;
@@ -246,7 +299,24 @@ input.code::placeholder {
   letter-spacing: 1px;
 }
 
+/* Narrower than a desktop, Preview as visitor is in the account menu alone: the header has no room for it beside the
+   line's status and the switches. */
+@media (max-width: 1100px) {
+  .preview-btn {
+    display: none;
+  }
+}
+
 @media (max-width: 720px) {
+  .preview-banner .wrap {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+    padding-bottom: 10px;
+  }
+  .preview-banner p {
+    padding-bottom: 0;
+  }
   /* Only the disc shows; the name is still the button's, for a screen reader. */
   .account-btn .name {
     position: absolute;

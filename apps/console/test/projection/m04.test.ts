@@ -84,7 +84,7 @@ describe('a report', () => {
     expect(card('1007')).toMatchObject({ outcome: 'quarantined', category: 'red-team', from: '/about' });
     expect(card('1007')?.picture.type).toBe('quarantine');
     expect(card('1007')?.segments.slice(0, 2)).toEqual(['passed', 'closed']);
-    expect(sheet('1007')?.report).toEqual({ page: '/about', quarantined: true, by: 'visitor', times: 1 });
+    expect(sheet('1007')?.report).toEqual({ page: '/about', quarantined: true, by: 'visitor', times: 1, texts: [] });
     expect(sheet('1007')?.chapters.find((c) => c.label === 'QUARANTINED')?.tone).toBe('faint');
   });
 
@@ -260,6 +260,7 @@ describe('Triage’s panel', () => {
       quarantined: false,
       by: 'planner',
       times: 1,
+      texts: [],
     });
     expect(projectSheet(finding, '2001', t)?.chapters.map((c) => c.label)).toContain('FINDING');
     expect(project(finding, t).cards[0]?.picture.type).toBe('judgement');
