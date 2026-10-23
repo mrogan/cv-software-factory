@@ -50,7 +50,7 @@ Each stage can also hold for Martin (see [Holds](#holds-and-martins-answers)).
 
 - It takes the oldest open ticket of the highest severity into Plan when nothing is in Plan or waiting for Build. A work item that waits for overlapping work (below) is at a stage of its own, `waiting`, so the line still takes the next ticket.
 - It runs one step at a time in each of Plan, Build and Review.
-- It runs one step at a time on the local model, whatever its stage, since LM Studio answers one prediction at a time. A step whose agent `policy/models.ts` sends there (every agent, under `ALL_LOCAL`) waits while another such step runs, and the line tries again on its next pass. A step on Claude never waits for one on the local model, so a mixed profile keeps its pace.
+- It runs one step at a time on the local model, whatever its stage, since LM Studio answers one prediction at a time. A step whose agent the settings in force send there ([below](#settings); every agent, under `ALL_LOCAL`) waits while another such step runs, and the line tries again on its next pass. A step on Claude never waits for one on the local model, so a mixed profile keeps its pace.
 - As a ticket enters Plan, it opens the ticket's issue through the App, from the ticket's public view. The fix's pull request refers to that issue.
 - After Martin's merge, it carries the work item through Release and Verify until it closes.
 
@@ -100,7 +100,7 @@ The line reports the work items at each stage and how long the oldest has been t
 - **State is derived.** What a work item does next is a pure function of its events (`line/machine.ts`), so after a stop or a crash the line carries on from the last event.
 - **One module per agent.** Each agent's module (`line/agents/`) says what its step is given, its prompt and schema, and what its result does in GitHub and as events. The worker runs them all one way.
 - **Runners.** Each step runs in an [agent runner](AGENT-RUNNERS.md).
-- **Turns and deadlines** are set for Claude. When `policy/models.ts` sends an agent's calls to the local model (the profile's, under `ALL_LOCAL`, which the line reads as the [gateway](LLM-GATEWAY.md) does), its step has twice the turns and four times as long.
+- **Turns and deadlines** are set for Claude. When the settings in force send an agent's calls to the local model (or every agent's, under `ALL_LOCAL`, which the line reads as the [gateway](LLM-GATEWAY.md) does), its step has twice the turns and four times as long.
 - **Model calls.** Each step's calls become one `model.called`, summed from `model_calls` by the step's job, with the turns it was given. It counts only the calls a model answered, a cassette replayed, or that failed part way with tokens to show for it; none the gateway or the provider refused.
 
 ### When a step fails
@@ -157,7 +157,7 @@ Each hold names its cause, and Martin's answer does what `ANSWERS` in `line/mach
 | `merge` | The fix has passed its gates and review | Waits for his merge | Sends the work back to the coder |
 | `deploy` | The merged fix waits for a release ([Release](RELEASE-AND-VERIFY.md#release)) | Waits: he settles it by merging the deploy pull request | Waits |
 | `verify` | The signal persisted a second time, Verify could not tell for 24 hours, or nothing can judge the fix ([Verify](RELEASE-AND-VERIFY.md#verify)) | Closes the work item as verified, with his words | Sends it back to Plan |
-| `spend` | The work item has spent its cap on models | Carries on, and holds again until the cap is raised | Carries on |
+| `spend` | The work item has spent its cap on models | Carries on, and holds again until the cap is raised; raising it answers the hold | Carries on |
 
 ### A held work item whose defect went another way
 
@@ -170,9 +170,18 @@ A signal seen since on that version or a later one, or a later look that finds i
 
 Triage's own holds, `finding`, `suggestion`, `burst` and `environment`, are on [its page](TRIAGE.md). An answer in words to one of them settles nothing, so the hold stands and Needs you still lists it (`WORDS_LEAVE_HELD` in the events package, which the line and the console both read).
 
+## Settings
+
+The line reads Martin's settings as the [gateway](LLM-GATEWAY.md#settings) does, from the same store and with the same check against `FACTORY_PROFILE`'s policy (`line/settings.ts`), afresh at every pass; his saving them wakes it, as any append does, so the pass it wakes sees them. Each step starts under the settings in force as it starts, and keeps them:
+
+- where its agent's calls go, so a step on the local model has its longer bounds and waits its turn there;
+- a work item's cap, which the line holds at. It appends a spend hold under the lock every append takes, reading the cap in force again as it does, so a raise Martin saves meanwhile either answers the hold or keeps it from being made.
+
+A step's `model.called` records the settings it ran under: its turns, and the effort the gateway sent its calls at, read for its job as the gateway read them (none for a local model).
+
 ## Spend
 
-- **A work item's cap.** Each work item has a cap on models (the gateway's, from the same `FACTORY_PROFILE`). A work item that has spent it holds before its next step, with the cap on the hold.
+- **A work item's cap.** Each work item has a cap on models: the gateway's, [in force](#settings) from Martin's settings within the profile's policy. A work item that has spent it holds before its next step, with the cap and its spend on the hold. Martin raising the cap past that spend answers the hold ([admin service](ADMIN-SERVICE.md#the-settings)), and the work item carries on.
 - **The gateway's caps.** A cap the gateway has set and not cleared (`spend.capped`: the factory's own day or month cap, or the provider an agent's calls go to refusing) starts no step for that agent, since every call would be refused.
   - A step that hands back an error while such a cap is set, or after one was set while it ran, counts for nothing and runs again once the cap clears.
   - The `spend.cleared` that clears it wakes the line (`line/caps.ts`).
@@ -194,5 +203,5 @@ A stopped line still watches the app's releases: it records whatever they do (a 
 - leases held past their expiry;
 - runners' Jobs and volumes left for ended work items, and volumes left for merged ones;
 - events that are not valid once upcast;
-- the spend: each work item's within the profile's cap on one, or nothing at all with `--no-spend`, for a night on the local model;
+- the spend: each work item's within the highest cap on one in force since the soak began, or nothing at all with `--no-spend`, for a night on the local model;
 - the work items taken, by how each ended, with their minutes in each stage.

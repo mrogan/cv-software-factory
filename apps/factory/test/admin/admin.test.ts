@@ -7,13 +7,13 @@
  * - the cookie's flags, and a new id at sign-in;
  * - a challenge cannot be used twice, and an assertion with the wrong origin, the wrong relying party or no user
  *   verification is refused;
- * - step-up is enforced on every action the table marks;
+ * - step-up is enforced on every action the table marks, and on a save of the settings that raises anything;
  * - signing out, revoking and expiry close an open full-event stream;
  * - forwarded headers from anywhere but the proxy are ignored.
  */
 import type { AddressInfo } from 'node:net';
 import { type NewEvent, VERSIONS } from '@software-factory/events';
-import { DiskArtifacts, EventWriter, readPublic } from '@software-factory/store';
+import { DiskArtifacts, EventWriter, nextWorkItem, readPublic } from '@software-factory/store';
 import postgres, { type Sql } from 'postgres';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
@@ -38,6 +38,7 @@ import { type AdminService, startAdmin } from '../../src/admin/service.ts';
 import type { Session } from '../../src/admin/store.ts';
 import { appendMartins } from '../../src/admin/store.ts';
 import { KubeError, type KubeWriter } from '../../src/runners/kube.ts';
+import { settingsNow } from '../../src/settings.ts';
 import { CANARY, commitOf, digestOf, type RolloutState, releaseOf, rollout, STABLE } from '../release/fixtures.ts';
 import { Authenticator, type Ceremony } from './authenticator.ts';
 
@@ -64,7 +65,7 @@ const as = (username: string, password: string): Sql => {
 
 const start = async (config: Partial<AdminConfig> = {}, kube?: KubeWriter) => {
   service = await startAdmin(
-    { origin: ORIGIN, rpId: RP_ID, trusted: proxies(''), port: 0, ...config },
+    { origin: ORIGIN, rpId: RP_ID, trusted: proxies(''), port: 0, profile: 'local', ...config },
     { sql: as('factory_admin', PASSWORDS.admin), port: 0, recheckMs: 100, ...(kube && { kube }) },
   );
   base = `http://127.0.0.1:${(service.server.address() as AddressInfo).port}`;
@@ -495,6 +496,7 @@ const WRITES: [string, Body][] = [
   ['/admin/release/resume', { release: 'whichever-1' }],
   ['/admin/release/abort', { release: 'whichever-1' }],
   ['/admin/release/retry', { release: 'whichever-1' }],
+  ['/admin/settings', { caps: { dayUsd: 10 } }],
 ];
 
 describe('every write route', () => {
@@ -1164,6 +1166,213 @@ describe('the release controls', () => {
     expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
       status: 503,
       body: { refused: 'rollout' },
+    });
+  });
+});
+
+describe('the settings', () => {
+  /** Policy's defaults on `local`, every field given, as a save that puts them all back. */
+  const DEFAULTS = {
+    agents: {
+      planner: { model: 'claude-sonnet-5-5', effort: 'medium' },
+      coder: { model: 'claude-sonnet-5-5', effort: 'medium' },
+      reviewer: { model: 'claude-sonnet-5-5', effort: 'medium' },
+      describer: { model: 'claude-sonnet-5-5', effort: 'low' },
+    },
+    caps: { dayUsd: 20, monthUsd: null, workItemUsd: 1 },
+  };
+  /** Martin signed in, with the settings put back to policy's defaults, and the passkey no longer fresh. */
+  async function atDefaults() {
+    const signed = await signedIn();
+    expect((await stepUp(signed.browser, signed.passkey)).status).toBe(200);
+    expect((await signed.browser.post('/admin/settings', DEFAULTS)).status).toBe(200);
+    await db.owner`update sessions set stepped_up_at = null where id_sha256 = ${sessionOf(signed.browser)}`;
+    return signed;
+  }
+  const settingsEvents = async () => (await db.owner`select 1 from events where type = 'settings.changed'`).length;
+  const inForceNow = () => settingsNow(db.owner, 'local');
+
+  it('saves a cheaper model, less effort and a lower cap without the passkey again, as one public event', async () => {
+    const { browser } = await atDefaults();
+    const saved = await browser.post('/admin/settings', {
+      agents: { coder: { model: 'claude-haiku-4-5' }, reviewer: { effort: 'low' } },
+      caps: { dayUsd: 10.5, monthUsd: 90 },
+    });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    const changes = [
+      { field: 'model', agent: 'coder', before: 'claude-sonnet-5-5', after: 'claude-haiku-4-5' },
+      { field: 'effort', agent: 'reviewer', before: 'medium', after: 'low' },
+      { field: 'cap', cap: 'day', beforeUsd: 20, afterUsd: 10.5 },
+      { field: 'cap', cap: 'month', beforeUsd: null, afterUsd: 90 },
+    ];
+    expect(saved.body).toMatchObject({ changes, answered: [] });
+    const [event] = await lastEvents(1);
+    expect(event).toMatchObject({ type: 'settings.changed', actor: 'martin', payload: { changes } });
+    expect(event?.summary).toBe(
+      "Martin changed the coder's model, claude-sonnet-5-5 → claude-haiku-4-5; the reviewer's effort, medium → low; " +
+        "the day's cap, $20.00 → $10.50; the month's cap, none → $90.00",
+    );
+    // Everyone sees the settings: the public view is the event.
+    expect(event?.public).toMatchObject({ payload: event?.payload });
+    const settings = await inForceNow();
+    expect(settings.agents.coder).toEqual({ provider: 'anthropic', model: 'claude-haiku-4-5', effort: 'medium' });
+    expect(settings.caps).toEqual({ dayUsd: 10.5, monthUsd: 90, workItemUsd: 1 });
+    // No month's cap is policy's default: on `local`, none, which is a raise from $90.
+    expect((await browser.post('/admin/settings', { caps: { monthUsd: null } })).body.refused).toBe('step-up');
+    // Saving what is already in force changes nothing, and records nothing.
+    const before = await settingsEvents();
+    expect((await browser.post('/admin/settings', { caps: { dayUsd: 10.5 } })).body).toMatchObject({ changes: [] });
+    expect(await settingsEvents()).toBe(before);
+  });
+
+  it('asks for the passkey again for a dearer model, more effort or a higher cap, alone or with a lower one', async () => {
+    const { browser, passkey } = await atDefaults();
+    const raises = [
+      { agents: { coder: { model: 'claude-opus-5-5' } } },
+      { agents: { planner: { effort: 'high' } } },
+      // Qwen costs nothing, so Claude from it is dearer.
+      { agents: { describer: { model: 'claude-sonnet-5-5' } }, caps: { workItemUsd: 2 } },
+      { caps: { dayUsd: 25 } },
+      { agents: { coder: { model: 'claude-opus-5-5', effort: 'low' } }, caps: { dayUsd: 5 } },
+    ];
+    const before = await settingsEvents();
+    for (const save of raises) {
+      expect(await browser.post('/admin/settings', save), JSON.stringify(save)).toMatchObject({
+        status: 403,
+        body: { refused: 'step-up' },
+      });
+    }
+    expect(await settingsEvents()).toBe(before);
+    // To Qwen is cheaper; back to Claude is dearer.
+    expect(
+      (await browser.post('/admin/settings', { agents: { describer: { model: 'qwen/qwen3.8-27b' } } })).status,
+    ).toBe(200);
+    expect(
+      (await browser.post('/admin/settings', { agents: { describer: { model: 'claude-haiku-4-5' } } })).body.refused,
+    ).toBe('step-up');
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    const saved = await browser.post('/admin/settings', raises[4] as Body);
+    expect(saved.status).toBe(200);
+    expect((await inForceNow()).agents.coder).toEqual({
+      provider: 'anthropic',
+      model: 'claude-opus-5-5',
+      effort: 'low',
+    });
+  });
+
+  it('refuses a save outside policy whole, having changed nothing, passkey or no', async () => {
+    const { browser, passkey } = await atDefaults();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    const before = await settingsEvents();
+    for (const save of [
+      { agents: { coder: { model: 'gpt-9' } } },
+      { agents: { describer: { effort: 'high' } } },
+      { agents: { coder: { effort: 'ultra' } } },
+      { agents: { coder: { model: 'qwen/qwen3.8-27b', effort: 'low' } } },
+      { caps: { dayUsd: 25.01 } },
+      { caps: { dayUsd: 0 } },
+      { caps: { monthUsd: 251 } },
+      { caps: { workItemUsd: -1 } },
+      { caps: { workItemUsd: 11 }, agents: { coder: { model: 'claude-haiku-4-5' } } },
+    ]) {
+      expect(await browser.post('/admin/settings', save), JSON.stringify(save)).toMatchObject({
+        status: 422,
+        body: { refused: 'policy' },
+      });
+    }
+    for (const save of [{ caps: { dayUsd: '25' } }, { agents: { triage: { model: 'claude-opus-5-5' } } }, { all: 1 }]) {
+      expect(await browser.post('/admin/settings', save), JSON.stringify(save)).toMatchObject({
+        status: 400,
+        body: { refused: 'body' },
+      });
+    }
+    expect(await settingsEvents()).toBe(before);
+  });
+
+  it('answers each spend hold a raised work item cap clears, with the settings, and none the day’s cap raises', async () => {
+    const { browser, passkey } = await atDefaults();
+    const writer = (workItem: string, type: string, payload: object) => ({
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      work_item: workItem,
+      type,
+      version: VERSIONS[type as keyof typeof VERSIONS],
+      actor: 'factory',
+      summary: `${type} for the test`,
+      payload,
+      artifacts: [],
+    });
+    const hold = (spentUsd?: number) => ({
+      stage: 'build',
+      kind: 'held',
+      cause: 'spend',
+      reason: 'The work item has spent its cap',
+      limitUsd: 1,
+      ...(spentUsd !== undefined && { spentUsd }),
+    });
+    const sql = db.as.triage;
+    // Numbered one after another, so they sort as they were opened.
+    const numbers: string[] = [];
+    for (let i = 0; i < 7; i++) numbers.push(await nextWorkItem(sql));
+    const [a, b, c, d, e, f, g] = numbers;
+    const opened = (workItem: string) =>
+      writer(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'Server errors', sample: false });
+    await sql.begin((tx) =>
+      appendMartins(sql, tx, [
+        ...[a, b, c, d, e, f, g].map((workItem) => opened(workItem as string)),
+        writer(a as string, 'hold.started', hold(1.4)),
+        writer(b as string, 'hold.started', hold(3.2)),
+        // From before the line recorded the spend: the cap it reached is all there is to go on.
+        writer(c as string, 'hold.started', hold()),
+        writer(d as string, 'hold.started', { ...hold(1.1), cause: 'failures' }),
+        writer(e as string, 'hold.started', hold(1.2)),
+        writer(e as string, 'work-item.closed', { outcome: 'no-change', reason: 'Martin rejected it' }),
+        // Held, closed with the hold unanswered, then reopened: no hold is open on it.
+        // Held, then merged by Martin, which answers whatever held it.
+        writer(g as string, 'hold.started', hold(1.1)),
+        writer(g as string, 'pull-request.merged', { number: 7, commit: 'a'.repeat(40), by: 'martin' }),
+        writer(f as string, 'hold.started', hold(1.3)),
+        writer(f as string, 'work-item.closed', { outcome: 'verified', reason: 'Cleared' }),
+        writer(f as string, 'work-item.reopened', {
+          sense: 'probe',
+          check: 'search answers',
+          route: '/search',
+          version: 'v0.9.4',
+          reason: 'It came back',
+          dryRun: false,
+        }),
+      ] as NewEvent[]),
+    );
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await browser.post('/admin/settings', { caps: { dayUsd: 25 } })).body).toMatchObject({ answered: [] });
+    const saved = await browser.post('/admin/settings', { caps: { workItemUsd: 2 } });
+    expect(saved.body).toMatchObject({ answered: [a, c] });
+    const answers = await db.owner<{ work_item: string; type: string; actor: string; payload: Body }[]>`
+      select work_item, type, actor, payload from events
+      where type = 'hold.answered' and work_item in (${a as string}, ${b as string}, ${c as string}, ${d as string})
+      order by seq`;
+    expect(answers).toEqual([
+      {
+        work_item: a,
+        type: 'hold.answered',
+        actor: 'martin',
+        payload: {
+          decision: 'approved',
+          answer: "Martin raised a work item's cap to $2.00, past the $1.40 this one has spent.",
+        },
+      },
+      expect.objectContaining({ work_item: c, payload: expect.objectContaining({ decision: 'approved' }) }),
+    ]);
+    // One transaction: the settings and the answers it made are appended together, the settings first.
+    const [settings, ...rest] = await lastEvents(3).then((events) => events.reverse());
+    expect([settings?.type, ...rest.map((e) => e.type)]).toEqual([
+      'settings.changed',
+      'hold.answered',
+      'hold.answered',
+    ]);
+    // Answered once: raising it again answers only the one the new cap clears now.
+    expect((await browser.post('/admin/settings', { caps: { workItemUsd: 5 } })).body).toMatchObject({
+      answered: [b],
     });
   });
 });

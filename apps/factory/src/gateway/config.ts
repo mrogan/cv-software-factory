@@ -6,12 +6,12 @@
  *     TYPESAFE_URL      the provider's address, for a stand-in (default https://api.typesafe.ai)
  *     CASSETTES_DIR     where cassettes are recorded; also read
  *     CASSETTES_READ    more folders to read, separated by colons, such as the committed evaluation cassettes
- *     FACTORY_PROFILE   local, do or aws (default local), which chooses the spend caps in policy/spend.ts and the
- *                       agents' models in policy/models.ts
+ *     FACTORY_PROFILE   local, do or aws (default local), which chooses the bounds in policy/spend.ts and
+ *                       policy/models.ts that Martin's settings are held to, and their defaults
  *     ANTHROPIC_API_KEY Anthropic's key, for agents. Without it, agents' calls to Claude replay only
  *     ANTHROPIC_URL     Anthropic's address, for a stand-in (default https://api.anthropic.com)
  *     LOCAL_MODELS_URL  LM Studio's address, where the profile has a local model (default http://127.0.0.1:1234)
- *     ALL_LOCAL         true: every agent to the profile's local model, for unattended runs
+ *     ALL_LOCAL         true: every agent to the profile's local model, whatever the settings say, for unattended runs
  *     PORT              default 8080
  *     DATABASE_URL, or the PG* variables, for the store
  */

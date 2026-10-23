@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { InboxSignal, NewEvent, PayloadOf, Screenshot } from '@software-factory/events';
+import { type InboxSignal, type NewEvent, type PayloadOf, type Screenshot, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, lastEnd, lineStopped, sendSignal } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -761,7 +761,13 @@ describe('triage', () => {
             version: 2,
             payload: { kind: 'planner-finding', title: 'A finding', sample: false },
           },
-          { ...closed(other), id: crypto.randomUUID(), type: 'hold.started', version: 7, payload: hold?.payload },
+          {
+            ...closed(other),
+            id: crypto.randomUUID(),
+            type: 'hold.started',
+            version: VERSIONS['hold.started'],
+            payload: hold?.payload,
+          },
         ] as NewEvent[]);
         return other;
       };

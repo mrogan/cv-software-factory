@@ -27,7 +27,7 @@ const MILLION = 1_000_000;
 interface Setup {
   mode?: Mode;
   key?: boolean;
-  policy?: SpendPolicy;
+  policy?: SpendPolicy | ((fresh: boolean) => Promise<SpendPolicy>);
   clock?: Date;
   read?: string[];
 }
@@ -327,6 +327,34 @@ describe('spend caps', () => {
       { type: 'spend.cleared', cap: 'day' },
     ]);
     expect((await h.gateway.judge(request())).source).toBe('provider');
+    await h.database.end();
+  });
+
+  it('reads the caps in force at each call, and clears the day’s cap once it is raised past the spend', async () => {
+    const caps = { dayUsd: 0.04, monthUsd: null, workItemUsd: 2 };
+    const h = await harness({ policy: async () => caps, clock: day() });
+    fake.inputTokens = MILLION;
+    await h.gateway.judge(request());
+    expect(await failure(h.gateway.judge(request()))).toMatchObject({ cap: 'day', limitUsd: 0.04 });
+    // Martin raises the day's cap: the next call goes ahead, and the line hears the cap has cleared.
+    caps.dayUsd = 25;
+    expect((await h.gateway.judge(request())).source).toBe('provider');
+    await h.ledger.reconcile();
+    expect((await h.lineEvents()).map((event) => event.type)).toEqual(['spend.capped', 'spend.cleared']);
+    expect((await h.ledger.report()).day.limitUsd).toBe(25);
+    await h.database.end();
+  });
+
+  it('reads the caps afresh before it refuses, so a cap raised a moment ago refuses nothing', async () => {
+    // The caps a few seconds old say $0.04 a day; those in force this moment, $25.
+    const h = await harness({
+      policy: async (fresh) => ({ dayUsd: fresh ? 25 : 0.04, monthUsd: null, workItemUsd: 2 }),
+      clock: day(),
+    });
+    fake.inputTokens = MILLION;
+    await h.gateway.judge(request());
+    expect((await h.gateway.judge(request())).source).toBe('provider');
+    expect(await h.lineEvents()).toEqual([]);
     await h.database.end();
   });
 

@@ -120,6 +120,18 @@ export type Actor = (typeof ACTORS)[number];
 export const MODEL_PROVIDERS = ['anthropic', 'bedrock', 'local'] as const;
 export type ModelProvider = (typeof MODEL_PROVIDERS)[number];
 
+/** The agents that call a model through the gateway, from a runner: each has a model and effort Martin chooses. */
+export const MODEL_AGENTS = ['planner', 'coder', 'reviewer', 'describer'] as const satisfies readonly Agent[];
+export type ModelAgent = (typeof MODEL_AGENTS)[number];
+
+/** Claude's efforts, least first. A local model takes none. */
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type Effort = (typeof EFFORTS)[number];
+
+/** The spend caps Martin sets, as a settings change names them. */
+export const SPEND_CAPS = ['day', 'month', 'work-item'] as const;
+export type SpendCap = (typeof SPEND_CAPS)[number];
+
 /** Why a provider refused to answer, when it is a cap the factory does not own. */
 export const PROVIDER_CAPS = ['credit', 'workspace-limit', 'unreachable'] as const;
 export type ProviderCap = (typeof PROVIDER_CAPS)[number];

@@ -2,8 +2,10 @@
  * What the factory may spend on models (spec section 6, guardrail 7). One cap covers every model provider, so
  * Jev and the Anthropic API draw on the same budget. A day is a UTC day and a month is a UTC calendar month.
  *
- * Human-owned: see `README.md`. The gateway reads this file and refuses a call that would start once a cap
- * has been reached.
+ * Each cap has a default, in force until Martin sets it in the console's settings, and a ceiling he may set it up to
+ * (`settings.ts` turns his latest choice into what is in force). Raising a ceiling is a pull request.
+ *
+ * Human-owned: see `README.md`. The gateway refuses a call that would start once a cap in force has been reached.
  */
 
 /** The deployment profiles that call models. `FACTORY_PROFILE` names one. */
@@ -19,6 +21,7 @@ export interface SpendPolicy {
   workItemUsd: number;
 }
 
+/** Each cap's default: in force until Martin sets it, and whenever what he set is outside policy. */
 export const SPEND: Record<Profile, SpendPolicy> = {
   // $1 a work item, set from milestone 5's measurements: its first fix on Claude cost $0.33, of which $0.12 was two
   // rounds of a coder that changed nothing, so a clean fix costs about $0.21 and the cap leaves room for a second
@@ -27,3 +30,17 @@ export const SPEND: Record<Profile, SpendPolicy> = {
   do: { dayUsd: 20, monthUsd: 100, workItemUsd: 1 },
   aws: { dayUsd: 20, monthUsd: 100, workItemUsd: 1 },
 };
+
+/**
+ * The most Martin may set each cap to, the same on every profile. A month's cap may be set on `local` too, where the
+ * default is none; it is never more than this.
+ */
+export interface SpendCeilings {
+  dayUsd: number;
+  monthUsd: number;
+  workItemUsd: number;
+}
+
+const CEILING: SpendCeilings = { dayUsd: 25, monthUsd: 250, workItemUsd: 10 };
+
+export const CEILINGS: Record<Profile, SpendCeilings> = { local: CEILING, do: CEILING, aws: CEILING };
