@@ -25,8 +25,14 @@ export function full<T extends RawEvent>(event: T): T {
     const state = { ...payload.state, report: { ...payload.state.report, text: REPORT_TEXT } };
     return { ...event, payload: { ...payload, state } };
   }
-  const answer = event.payload as { report?: boolean; answer?: string };
-  if (event.type === 'hold.answered' && answer.report && answer.answer === undefined) {
+  const answer = event.payload as { decision?: string; report?: boolean; answer?: string };
+  // Only an answer in words had words to leave out.
+  if (
+    event.type === 'hold.answered' &&
+    answer.report &&
+    answer.decision === 'answered' &&
+    answer.answer === undefined
+  ) {
     return { ...event, payload: { ...answer, answer: MARTINS_WORDS } };
   }
   return event;

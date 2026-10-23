@@ -1,12 +1,12 @@
 /**
- * The samples: twenty-five hand-written work items over eight days, with work still on the line at the end, and the
+ * The samples: twenty-six hand-written work items over eight days, with work still on the line at the end, and the
  * line's own events beside them. They cover every kind of work item but a planner's finding, every outcome, every
  * picture the design system draws and every station state. Seven are fixes as milestone 5's line makes them: rounds
  * of review, a wait for Martin's merge, the four ways a mechanism holds a fix, and a run on the local model. The
  * rest of the last week ships as milestone 6's line does: waits for Martin's deploy, releases step by step (one
  * carrying two work items, some carrying none), a rollback with no series and the ticket it opened, a fix that
  * persisted and went round again, a reopened ticket, a dry run, the line stopped with a canary in flight, and a
- * canary in flight at the end, and a spec waiting for work in flight on the same page. The scoreboard counts them against an invented key. Nothing in them happened: the
+ * canary in flight at the end, a spec waiting for work in flight on the same page, and a visitor's suggestion Martin answered in words, which keep it held. The scoreboard counts them against an invented key. Nothing in them happened: the
  * console labels each as a sample.
  */
 import type { NewEvent } from '@software-factory/events';
