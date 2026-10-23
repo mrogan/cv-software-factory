@@ -129,8 +129,8 @@ export interface AgentCallsOptions {
 
 type Headers = Record<string, string | string[] | undefined>;
 
-/** Whose call it is: the job its token was issued for, and when, which decides the settings the job runs under. */
-type Who = Pick<Call, 'job' | 'workItem' | 'agent'> & { issuedAt: Date };
+/** Whose call it is: the job its token was issued for, whose issue decides the settings the job runs under. */
+type Who = Pick<Call, 'job' | 'workItem' | 'agent'>;
 
 interface Call {
   job: string;
@@ -267,7 +267,7 @@ export class AgentCalls {
     const { profile, settings, allLocal } = this.#o;
     const { chosen, provider } = routeOf(
       profile,
-      settings ? await settings.at(who.job, who.issuedAt) : inForce(profile),
+      settings ? await settings.ofJob(who.job) : inForce(profile),
       who.agent,
       allLocal,
     );
@@ -450,7 +450,6 @@ export class AgentCalls {
       job: job.job,
       workItem: job.workItem,
       agent: job.agent as ModelAgent,
-      issuedAt: job.issuedAt,
       ...(job.traceparent ? { traceparent: job.traceparent } : {}),
     };
   }
