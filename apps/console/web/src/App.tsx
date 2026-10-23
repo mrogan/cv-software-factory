@@ -1,11 +1,13 @@
 /**
  * The console: events in, the page out. Everything below is drawn from `project(events, t)`. The doors, signing in
- * and enrolling a passkey, are pages of their own on the same address (`?view=sign-in`, `?view=enrol`).
+ * and enrolling a passkey, are pages of their own on the same address (`?view=sign-in`, `?view=enrol`), and so are
+ * the settings (`?view=settings`), under the console's own header.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Admin, type Door, useAdmin } from './admin.ts';
 import { OriginContext } from './artifacts.ts';
 import { Canary } from './components/Canary.tsx';
+import { Controls } from './components/Controls.tsx';
 import { Footer } from './components/Footer.tsx';
 import { Header, LineStatus, Scoreboard } from './components/Header.tsx';
 import { Line } from './components/Line.tsx';
@@ -13,7 +15,8 @@ import { LogoSymbols } from './components/Logos.tsx';
 import { Reel } from './components/Reel.tsx';
 import { EmptyReel, States } from './components/States.tsx';
 import { StepUpProvider } from './components/StepUp.tsx';
-import { project, projectSheet } from './projection/index.ts';
+import { factoryOf } from './profile.ts';
+import { project, projectSheet, settingsView } from './projection/index.ts';
 import { type Theme, useMotion, useTheme, useTime } from './settings.ts';
 import { type Origin, origin, useEvents } from './source.ts';
 
@@ -25,8 +28,14 @@ const Sheet = lazy(() => import('./components/Sheet.tsx').then((module) => ({ de
 /** The doors' code, and the passkey ceremonies', arrive only on a door. */
 const Doors = lazy(() => import('./components/Doors.tsx').then((module) => ({ default: module.Doors })));
 
+/** The settings' code arrives only on their page. */
+const Settings = lazy(() => import('./components/Settings.tsx').then((module) => ({ default: module.Settings })));
+
 const asked = params.get('view');
 const door: Door | undefined = asked === 'sign-in' || asked === 'enrol' ? asked : undefined;
+const settingsPage = asked === 'settings';
+/** The profile whose policy bounds the settings, and whether every agent goes to the local model, as the server says. */
+const factory = factoryOf();
 
 export function App() {
   const from = useMemo(() => origin(), []);
@@ -71,6 +80,7 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
   const latest = source.events.length ? Date.parse(source.events.at(-1)?.ts ?? '') : undefined;
   const t = useTime(latest, from.kind === 'live');
   const view = useMemo(() => project(source.events, t), [source.events, t]);
+  const settings = useMemo(() => settingsView(source.events, factory.profile, t), [source.events, t]);
   const n = view.cards.length;
   // The reel draws just after the line, not with it: it is most of the page's work, and the line is what a visitor
   // reads first. An effect runs after the frame that drew the line, so the reel comes in the next.
@@ -118,6 +128,31 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
 
   const sheet = useMemo(() => (open ? projectSheet(source.events, open, t) : undefined), [open, source.events, t]);
   const sheetIndex = sheet ? view.cards.findIndex((card) => card.number === sheet.card.number) : -1;
+
+  if (settingsPage) {
+    return (
+      <OriginContext.Provider value={from}>
+        <LogoSymbols />
+        <Header
+          line={view.header}
+          connection={source.connection}
+          theme={theme}
+          onTheme={setTheme}
+          motion={motion}
+          onMotion={setMotion}
+          admin={admin}
+        />
+        <main id="top">
+          <div className="wrap">
+            <Suspense fallback={null}>
+              <Settings view={settings} allLocal={factory.allLocal} admin={admin} />
+            </Suspense>
+          </div>
+        </main>
+        <Footer signIn={admin.kind === 'visitor'} />
+      </OriginContext.Provider>
+    );
+  }
 
   return (
     <OriginContext.Provider value={from}>
@@ -168,6 +203,7 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
               motion={motion}
             />
           )}
+          {settled && <Controls spend={settings.spend} martin={admin.kind === 'martin'} />}
         </div>
       </main>
       <Footer signIn={admin.kind === 'visitor'} />

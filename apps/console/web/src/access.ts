@@ -20,3 +20,14 @@ export const STEP_UP: Record<ReleaseControl, boolean> = {
   abort: false,
   retry: true,
 };
+
+/**
+ * Which of what a save of the settings does asks for the passkey again: a dearer model or more effort
+ * (`agent.raise`), and a higher cap (`caps.raise`). A save that does any of them asks.
+ */
+export const SETTINGS_STEP_UP = {
+  'agent.raise': true,
+  'agent.lower': false,
+  'caps.raise': true,
+  'caps.lower': false,
+} as const;

@@ -61,6 +61,17 @@ export const isCommit = (version: string) => /^[0-9a-f]{7,40}$/.test(version);
 /** A version as the console writes it: a release as it is, a commit by its first seven characters, as GitHub does. */
 export const shortVersion = (version: string) => (isCommit(version) ? version.slice(0, 7) : version);
 
+/** Pinned models by a readable name. A local model the console does not know shows as its id, still labelled local. */
+const MODEL_NAME: Record<string, string> = {
+  'claude-opus-5-5': 'Claude Opus 5.5',
+  'claude-sonnet-5-5': 'Claude Sonnet 5.5',
+  'claude-haiku-4-5': 'Claude Haiku 4.5',
+  'qwen/qwen3.8-27b': 'Qwen3.8 27B',
+};
+
+/** Claude Sonnet 5.5, Qwen3.8 27B: a pinned model as the sheet and the settings name it. */
+export const modelTitle = (model: string) => MODEL_NAME[model] ?? model;
+
 /** $0.31, or <$0.01 for less than a cent. */
 export const money = (usd: number) => (usd > 0 && usd < 0.01 ? '<$0.01' : `$${usd.toFixed(2)}`);
 
