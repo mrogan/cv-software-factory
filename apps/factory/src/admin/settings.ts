@@ -121,20 +121,21 @@ function summaryOf(changes: Change[]): string {
 
 /**
  * The work items held for spend whose hold a work item's cap of `capUsd` clears, as they stand: a hold started, and
- * not answered, closed or reopened since, with less spent than the new cap. A hold from before the line recorded the
+ * not answered, merged, closed or reopened since, with less spent than the new cap. A hold from before the line recorded the
  * spend is cleared when the new cap is above the one it reached.
  */
 async function spendHoldsCleared(
   tx: TransactionSql,
   capUsd: number,
 ): Promise<{ workItem: string; spentUsd: number }[]> {
-  // A work item's latest hold, answer, close or reopening: a hold still open is the last of them.
+  // A work item's latest hold, answer, merge (which answers whatever held it), close or reopening: a hold still open is
+  // the last of them.
   const rows = await tx<{ work_item: string; spent: number | null; limit: number | null }[]>`
     with last as (
       select distinct on (e.work_item) e.work_item, e.type, e.payload
       from events e
       where e.work_item is not null
-        and e.type in ('hold.started', 'hold.answered', 'work-item.closed', 'work-item.reopened')
+        and e.type in ('hold.started', 'hold.answered', 'pull-request.merged', 'work-item.closed', 'work-item.reopened')
         and ${fromMartin(tx, 'e')}
       order by e.work_item, e.seq desc
     )

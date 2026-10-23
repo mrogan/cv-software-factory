@@ -42,8 +42,11 @@ export interface SpendOptions {
   sql: Sql;
   events: EventWriter;
   profile: Profile;
-  /** The caps: fixed, or read as they are in force at each check. */
-  policy: SpendPolicy | (() => Promise<SpendPolicy>);
+  /**
+   * The caps: fixed, or read as they are in force at each check, from a cache of a few seconds, or `fresh` from the
+   * store before a call is refused, so a cap raised a moment ago never refuses a call.
+   */
+  policy: SpendPolicy | ((fresh: boolean) => Promise<SpendPolicy>);
   log: Logger;
   clock?: () => Date;
 }
@@ -61,7 +64,7 @@ export class Spend {
   readonly #sql: Sql;
   readonly #events: EventWriter;
   readonly #profile: Profile;
-  readonly #policy: () => Promise<SpendPolicy>;
+  readonly #policy: (fresh: boolean) => Promise<SpendPolicy>;
   readonly #log: Logger;
   readonly #clock: () => Date;
   readonly #marked = new Set<Cap>();
@@ -99,15 +102,21 @@ export class Spend {
 
   /** Throws `SpendCapped` for the cap that is reached: the month's before the day's, which resets sooner. */
   async check(workItem: string | null): Promise<void> {
-    const caps = await this.#policy();
-    const reached = await this.#reached(caps);
+    const refusal = await this.#refusal(await this.#policy(false), workItem);
+    // Refused by the caps as read a moment ago: read them again, so a cap Martin has just raised refuses nothing.
+    const final = refusal && (await this.#refusal(await this.#policy(true), workItem));
     // A cap marked and no longer reached (raised, or its window over) is cleared at once, not at the next tick.
-    if (reached.length || this.#marked.size) await this.reconcile();
-    if (reached.length) throw reached.at(-1) as SpendCapped;
-    if (workItem !== null) {
-      const spent = await this.#workItem(workItem);
-      if (spent >= caps.workItemUsd) throw new SpendCapped('work-item', caps.workItemUsd, spent, null);
-    }
+    if (final || this.#marked.size) await this.reconcile();
+    if (final) throw final;
+  }
+
+  /** The cap that refuses a call now, if any: the month's before the day's, then the work item's. */
+  async #refusal(caps: SpendPolicy, workItem: string | null): Promise<SpendCapped | undefined> {
+    const reached = await this.#reached(caps);
+    if (reached.length) return reached.at(-1);
+    if (workItem === null) return undefined;
+    const spent = await this.#workItem(workItem);
+    return spent >= caps.workItemUsd ? new SpendCapped('work-item', caps.workItemUsd, spent, null) : undefined;
   }
 
   /** The day and month caps now reached, the day's first. */
@@ -125,7 +134,7 @@ export class Spend {
   }
 
   async report(): Promise<SpendReport> {
-    const [caps, totals] = await Promise.all([this.#policy(), this.#totals()]);
+    const [caps, totals] = await Promise.all([this.#policy(false), this.#totals()]);
     const { day, month } = windowsAt(this.#clock());
     return {
       profile: this.#profile,
@@ -152,7 +161,8 @@ export class Spend {
 
   async #reconcile(): Promise<void> {
     // Counted here alone, one reconcile at a time, so the metrics never go back to an older count.
-    const [caps, totals] = await Promise.all([this.#policy(), this.#totals()]);
+    // The line hears of a cap only as it is in force this moment, never a cache's.
+    const [caps, totals] = await Promise.all([this.#policy(true), this.#totals()]);
     this.#counted = { ...totals, caps };
     const reached = new Map((await this.#reached(caps, totals)).map((cap) => [cap.cap as Cap, cap]));
     for (const [cap, refusal] of reached) {

@@ -149,7 +149,7 @@ async function start({
     sql,
     events,
     profile: 'local',
-    policy: settings ? async () => (await settings.now()).caps : policy,
+    policy: settings ? async (fresh: boolean) => (await settings.now(fresh)).caps : policy,
     log: captured.log,
   });
   const providers: Partial<Record<ProviderName, Anthropic | LocalModels>> = {

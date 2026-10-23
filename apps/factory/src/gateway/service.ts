@@ -33,7 +33,7 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
     sql,
     events,
     profile: config.profile,
-    policy: async () => (await settings.now()).caps,
+    policy: async (fresh) => (await settings.now(fresh)).caps,
     log,
   });
   const typesafe = config.apiKey
