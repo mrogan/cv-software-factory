@@ -13,7 +13,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import { type InForce, inForce } from '../../../policy/settings.ts';
 import type { Profile } from '../../../policy/spend.ts';
 
-/** How long the settings in force now are trusted before they are read again. */
+/** How long the gateway trusts the settings in force now before it reads them again, at a check before every call. */
 const FRESH_MS = 5_000;
 /** How many jobs' settings are kept: more than ever run at once. */
 const JOBS_KEPT = 200;
@@ -40,23 +40,29 @@ export class SettingsReader {
   readonly #sql: Sql;
   readonly #profile: Profile;
   readonly #clock: () => Date;
+  readonly #freshMs: number;
   #now: { at: number; settings: Promise<InForce> } | undefined;
   readonly #jobs = new Map<string, Promise<InForce>>();
 
-  constructor(sql: Sql, profile: Profile, clock: () => Date = () => new Date()) {
+  /**
+   * `freshMs` is how long a read of the settings now is kept: the gateway's few seconds by default, or 0 for the line,
+   * which reads them once a pass, and must see a save in the pass the save wakes.
+   */
+  constructor(sql: Sql, profile: Profile, { clock = () => new Date(), freshMs = FRESH_MS } = {}) {
     this.#sql = sql;
     this.#profile = profile;
     this.#clock = clock;
+    this.#freshMs = freshMs;
   }
 
   get profile(): Profile {
     return this.#profile;
   }
 
-  /** The settings in force now, read again once they are a few seconds old. */
+  /** The settings in force now, read again once they are `freshMs` old. */
   now(): Promise<InForce> {
     const at = this.#clock().getTime();
-    if (!this.#now || at - this.#now.at >= FRESH_MS) {
+    if (!this.#now || at - this.#now.at >= this.#freshMs) {
       const settings = settingsNow(this.#sql, this.#profile);
       // A read that failed is read again next time, not kept.
       settings.catch(() => {
@@ -94,4 +100,20 @@ export class SettingsReader {
     }
     return settings;
   }
+}
+
+/**
+ * The highest cap on a work item in force at any time since `since`: the gateway holds each work item to the cap in
+ * force at each call, so none can have spent more than this.
+ */
+export async function highestWorkItemCap(sql: Sql, profile: Profile, since: Date): Promise<number> {
+  const rows = await sql<{ payload: unknown }[]>`
+    select e.payload from events e
+    where e.type = 'settings.changed' and e.version <= ${VERSIONS['settings.changed']} and ${fromMartin(sql, 'e')}
+      and e.appended_at > ${since.toISOString()}::timestamptz
+    order by e.seq`;
+  const caps = [await latestChosen(sql, since), ...rows.map((row) => row.payload)].map(
+    (chosen) => inForce(profile, chosen).caps.workItemUsd,
+  );
+  return Math.max(...caps);
 }

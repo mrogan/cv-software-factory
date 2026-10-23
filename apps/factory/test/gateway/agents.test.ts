@@ -143,7 +143,7 @@ async function start({
   // A clock a minute on at every look, so the settings in force are read again each time.
   let looks = 0;
   const settings = fromStore
-    ? new SettingsReader(sql, 'local', () => new Date(Date.UTC(2026, 9, 4) + looks++ * 60_000))
+    ? new SettingsReader(sql, 'local', { clock: () => new Date(Date.UTC(2026, 9, 4) + looks++ * 60_000) })
     : undefined;
   const spend = new Spend({
     sql,

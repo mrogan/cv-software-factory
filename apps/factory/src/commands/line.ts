@@ -56,7 +56,7 @@
  * `soak-check` reads the store and the cluster the morning after a soak (`line/soak.ts`): leases held past their
  * expiry, runners' Jobs and volumes left for ended work items and volumes for merged ones, events that are not valid,
  * the spend, and the work items taken since `--since` (an ISO time; by default a day ago), by how each ended, with
- * their minutes in each stage. The spend is as it should be when each work item's is within the cap on one in force (Martin's, within FACTORY_PROFILE's policy), as on Claude;
+ * their minutes in each stage. The spend is as it should be when each work item's is within the highest cap on one in force since `--since` (Martin's, within FACTORY_PROFILE's policy), as on Claude;
  * `--no-spend`, for a soak on the local model, allows nothing at all. It prints a few lines, or the report as JSON, and exits 1 if anything is not as a soak should leave it. On
  * a host it reads the cluster through KUBE_API_URL (what `kubectl proxy` serves).
  *
@@ -199,7 +199,7 @@ async function serve(): Promise<number> {
   const kube = kubeFrom(env);
   const { SettingsReader } = await import('../settings.ts');
   const { lineSettings, providerUnder } = await import('../line/settings.ts');
-  const settings = lineSettings(new SettingsReader(sql, profile), allLocal);
+  const settings = lineSettings(new SettingsReader(sql, profile, { freshMs: 0 }), allLocal);
   const defaults = inForce(profile);
   const { StepLogs } = await import('../runners/logs.ts');
   const artifactsDir = env.ARTIFACTS_DIR?.trim();
@@ -328,7 +328,7 @@ async function soakCheck(args: string[]): Promise<number> {
     return 2;
   }
   const { soakFacts, soakReport, soakText } = await import('../line/soak.ts');
-  const { settingsNow } = await import('../settings.ts');
+  const { highestWorkItemCap } = await import('../settings.ts');
   const { kubeFrom } = await import('../runners/kube.ts');
   const { DATABASE_URL } = process.env;
   const sql = connect(DATABASE_URL);
@@ -337,7 +337,7 @@ async function soakCheck(args: string[]): Promise<number> {
       await soakFacts({ sql, kube: () => kubeFrom(process.env), now, since }),
       values['no-spend']
         ? { kind: 'none' }
-        : { kind: 'capped', profile, workItemUsd: (await settingsNow(sql, profile)).caps.workItemUsd },
+        : { kind: 'capped', profile, workItemUsd: await highestWorkItemCap(sql, profile, since) },
     );
     console.log(values.json ? JSON.stringify(report, null, 2) : soakText(report));
     return report.ok ? 0 : 1;

@@ -172,7 +172,7 @@ Triage's own holds, `finding`, `suggestion`, `burst` and `environment`, are on [
 
 ## Settings
 
-The line reads Martin's settings as the [gateway](LLM-GATEWAY.md#settings) does, from the same store and with the same check against `FACTORY_PROFILE`'s policy (`line/settings.ts`), at every pass; his saving them wakes it, as any append does. Each step starts under the settings in force as it starts, and keeps them:
+The line reads Martin's settings as the [gateway](LLM-GATEWAY.md#settings) does, from the same store and with the same check against `FACTORY_PROFILE`'s policy (`line/settings.ts`), afresh at every pass; his saving them wakes it, as any append does, so the pass it wakes sees them. Each step starts under the settings in force as it starts, and keeps them:
 
 - where its agent's calls go, so a step on the local model has its longer bounds and waits its turn there;
 - a work item's cap, which the line holds at.
@@ -203,5 +203,5 @@ A stopped line still watches the app's releases: it records whatever they do (a 
 - leases held past their expiry;
 - runners' Jobs and volumes left for ended work items, and volumes left for merged ones;
 - events that are not valid once upcast;
-- the spend: each work item's within the cap on one in force, or nothing at all with `--no-spend`, for a night on the local model;
+- the spend: each work item's within the highest cap on one in force since the soak began, or nothing at all with `--no-spend`, for a night on the local model;
 - the work items taken, by how each ended, with their minutes in each stage.

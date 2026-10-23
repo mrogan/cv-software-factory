@@ -12,7 +12,7 @@ import { CEILINGS, PROFILES, SPEND } from '../../../policy/spend.ts';
 import { PRICES } from '../src/gateway/prices.ts';
 import { stepCalls } from '../src/line/model-calls.ts';
 import { lineSettings } from '../src/line/settings.ts';
-import { latestChosen, SettingsReader } from '../src/settings.ts';
+import { highestWorkItemCap, latestChosen, SettingsReader } from '../src/settings.ts';
 import { appendSettings, settingsPayload } from './settings-events.ts';
 
 /** What a price ranks a model by: what its calls cost, output first, as the gateway counts them. */
@@ -252,7 +252,7 @@ describe('the factory reading the settings', () => {
   afterAll(() => database?.end());
 
   it('reads the latest Martin’s roles appended, and holds what it reads to policy', async () => {
-    const reader = (now = 0) => new SettingsReader(database.as.gateway, 'local', () => new Date(now));
+    const reader = (now = 0) => new SettingsReader(database.as.gateway, 'local', { clock: () => new Date(now) });
     expect(await reader().now()).toEqual(inForce('local'));
     // No worker may append one: row security refuses it.
     await expect(appendSettings(database.as.line, settingsPayload({ caps: { dayUsd: 25 } }))).rejects.toThrow(
@@ -309,6 +309,13 @@ describe('the factory reading the settings', () => {
       );
       expect((await reader.now()).agents.coder.model).toBe('claude-opus-5-5');
       expect(await reader.forJob('no-such-job')).toBeUndefined();
+      // A soak's spend is judged against the highest cap on a work item in force since it began.
+      const since = new Date();
+      expect(await highestWorkItemCap(db.as.line, 'local', since)).toBe(1);
+      await appendSettings(db.admin, settingsPayload({ caps: { workItemUsd: 4 } }));
+      await appendSettings(db.admin, settingsPayload({ caps: { workItemUsd: 2 } }));
+      expect(await highestWorkItemCap(db.as.line, 'local', since)).toBe(4);
+      expect(await highestWorkItemCap(db.as.line, 'local', new Date())).toBe(2);
       expect(await latestChosen(db.as.line, new Date(0))).toBeUndefined();
 
       // The line records the effort the gateway sent, read the same way; none for a local model, or under ALL_LOCAL.

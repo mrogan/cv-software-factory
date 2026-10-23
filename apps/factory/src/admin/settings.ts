@@ -120,30 +120,27 @@ function summaryOf(changes: Change[]): string {
 }
 
 /**
- * The work items held for spend whose hold a work item's cap of `capUsd` clears, as they stand: the last hold
- * started, not answered, of a work item not closed, with less spent than the new cap. A hold from before the line
- * recorded the spend is cleared when the new cap is above the one it reached.
+ * The work items held for spend whose hold a work item's cap of `capUsd` clears, as they stand: a hold started, and
+ * not answered, closed or reopened since, with less spent than the new cap. A hold from before the line recorded the
+ * spend is cleared when the new cap is above the one it reached.
  */
 async function spendHoldsCleared(
   tx: TransactionSql,
   capUsd: number,
 ): Promise<{ workItem: string; spentUsd: number }[]> {
+  // A work item's latest hold, answer, close or reopening: a hold still open is the last of them.
   const rows = await tx<{ work_item: string; spent: number | null; limit: number | null }[]>`
     with last as (
       select distinct on (e.work_item) e.work_item, e.type, e.payload
       from events e
-      where e.work_item is not null and e.type in ('hold.started', 'hold.answered') and ${fromMartin(tx, 'e')}
-      order by e.work_item, e.seq desc
-    ), ended as (
-      select distinct on (e.work_item) e.work_item, e.type
-      from events e where e.work_item is not null and e.type in ('work-item.closed', 'work-item.reopened')
+      where e.work_item is not null
+        and e.type in ('hold.started', 'hold.answered', 'work-item.closed', 'work-item.reopened')
+        and ${fromMartin(tx, 'e')}
       order by e.work_item, e.seq desc
     )
-    select l.work_item, (l.payload->>'spentUsd')::float8 as spent, (l.payload->>'limitUsd')::float8 as limit
-    from last l left join ended d on d.work_item = l.work_item
-    where l.type = 'hold.started' and l.payload->>'cause' = 'spend'
-      and d.type is distinct from 'work-item.closed'
-    order by length(l.work_item), l.work_item`;
+    select work_item, (payload->>'spentUsd')::float8 as spent, (payload->>'limitUsd')::float8 as limit
+    from last where type = 'hold.started' and payload->>'cause' = 'spend'
+    order by length(work_item), work_item`;
   return rows.flatMap((row) => {
     const spentUsd = row.spent ?? row.limit;
     return spentUsd !== null && spentUsd < capUsd ? [{ workItem: row.work_item, spentUsd }] : [];

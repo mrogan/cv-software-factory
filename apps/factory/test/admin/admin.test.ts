@@ -1154,13 +1154,13 @@ describe('the settings', () => {
     const sql = db.as.triage;
     // Numbered one after another, so they sort as they were opened.
     const numbers: string[] = [];
-    for (let i = 0; i < 5; i++) numbers.push(await nextWorkItem(sql));
-    const [a, b, c, d, e] = numbers;
+    for (let i = 0; i < 6; i++) numbers.push(await nextWorkItem(sql));
+    const [a, b, c, d, e, f] = numbers;
     const opened = (workItem: string) =>
       writer(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'Server errors', sample: false });
     await sql.begin((tx) =>
       appendMartins(sql, tx, [
-        ...[a, b, c, d, e].map((workItem) => opened(workItem as string)),
+        ...[a, b, c, d, e, f].map((workItem) => opened(workItem as string)),
         writer(a as string, 'hold.started', hold(1.4)),
         writer(b as string, 'hold.started', hold(3.2)),
         // From before the line recorded the spend: the cap it reached is all there is to go on.
@@ -1168,6 +1168,17 @@ describe('the settings', () => {
         writer(d as string, 'hold.started', { ...hold(1.1), cause: 'failures' }),
         writer(e as string, 'hold.started', hold(1.2)),
         writer(e as string, 'work-item.closed', { outcome: 'no-change', reason: 'Martin rejected it' }),
+        // Held, closed with the hold unanswered, then reopened: no hold is open on it.
+        writer(f as string, 'hold.started', hold(1.3)),
+        writer(f as string, 'work-item.closed', { outcome: 'verified', reason: 'Cleared' }),
+        writer(f as string, 'work-item.reopened', {
+          sense: 'probe',
+          check: 'search answers',
+          route: '/search',
+          version: 'v0.9.4',
+          reason: 'It came back',
+          dryRun: false,
+        }),
       ] as NewEvent[]),
     );
     expect((await stepUp(browser, passkey)).status).toBe(200);

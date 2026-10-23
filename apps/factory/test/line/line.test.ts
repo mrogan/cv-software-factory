@@ -1250,9 +1250,8 @@ describe('the line', () => {
 
   it('starts each step under Martin’s settings as each pass reads them, and none outside policy', async () => {
     const workItem = await ticket();
-    // A clock a minute on at every look, so each pass reads the settings again.
-    let looks = 0;
-    const reader = new SettingsReader(database.as.line, 'local', () => new Date(now + looks++ * 60_000));
+    // As the line reads them: afresh at every pass.
+    const reader = new SettingsReader(database.as.line, 'local', { freshMs: 0 });
     const { pass, steps, github } = line(AGENTS, events, { settings: lineSettings(reader, false) });
     // Outside policy, straight to the store as one of his roles: a cap of nothing is no cap of nothing, and a model
     // the profile does not offer is none. Policy's $1 and Claude are in force.
