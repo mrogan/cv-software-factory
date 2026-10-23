@@ -162,6 +162,15 @@ describe('the settings in force', () => {
     }
   });
 
+  it('take no effort for a local model, which LM Studio sets, and say one given for it is outside policy', () => {
+    const settings = inForce(
+      'local',
+      settingsPayload({ agents: { coder: { model: 'qwen/qwen3.8-27b', effort: 'low' } } }),
+    );
+    expect(settings.agents.coder).toEqual({ provider: 'local', model: 'qwen/qwen3.8-27b' });
+    expect(settings.outside).toEqual(['coder.effort']);
+  });
+
   it('take every default from a payload that is not settings at all', () => {
     for (const payload of [null, 'opus everywhere', 42, [], { agents: [], caps: 'none' }, {}]) {
       const settings = inForce('do', payload);

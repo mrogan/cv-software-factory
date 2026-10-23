@@ -95,7 +95,7 @@ Martin chooses each agent's model and effort, and the spend caps, from the conso
 His choice is a `settings.changed` event, which the [admin service](ADMIN-SERVICE.md#the-settings) appends. The gateway reads the latest that one of [Martin's roles](EVENT-STORE.md#martins-commands) appended (`apps/factory/src/settings.ts`), and checks it against policy as it reads it (`policy/settings.ts`, the one check the line and the admin service make too): anything outside policy is not in force, and policy's default is, field by field. Zero, null and anything not a finite number are never "no cap".
 
 - **From an agent's next step.** A job runs under the settings in force when its token was issued, read at its first call and kept for the job, never changed part-way through it. The step's `model.called` records the model and effort.
-- **The caps** are read again at every check, a few seconds old at most, so a cap Martin raises or lowers applies from the next call, and a day's or month's cap raised past the spend clears its `spend.capped`.
+- **The caps** are read again at every check, a few seconds old at most, so a cap Martin raises or lowers applies from the next call, and a day's or month's cap raised past the spend clears its `spend.capped` at the next call or within a minute, which wakes the line.
 - **`ALL_LOCAL=true`** sends every agent to the profile's local model whatever the settings say: a night on Qwen, the bench and `soak-check --no-spend` spend nothing, whatever is chosen.
 
 ## Spend

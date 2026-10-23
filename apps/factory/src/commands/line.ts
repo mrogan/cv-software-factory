@@ -199,7 +199,6 @@ async function serve(): Promise<number> {
   const kube = kubeFrom(env);
   const { SettingsReader } = await import('../settings.ts');
   const { lineSettings, providerUnder } = await import('../line/settings.ts');
-  const settings = lineSettings(new SettingsReader(sql, profile, { freshMs: 0 }), allLocal);
   const defaults = inForce(profile);
   const { StepLogs } = await import('../runners/logs.ts');
   const artifactsDir = env.ARTIFACTS_DIR?.trim();
@@ -231,10 +230,13 @@ async function serve(): Promise<number> {
   const { Line } = await import('../line/worker.ts');
   const { ProbesClient } = await import('../line/verify.ts');
   const { IndexedArtifacts, PictureIndex } = await import('../pictures/index.ts');
+  // The line's only artifacts are the pictures the probes worker took, which its index vouches for.
+  const events = new EventWriter(sql, { kind: 'real', artifacts: new IndexedArtifacts(sql) });
+  // A spend hold is appended by the same writer, under the lock a save of the settings takes too.
+  const settings = lineSettings(new SettingsReader(sql, profile, { freshMs: 0 }), allLocal, { sql, events });
   const line = new Line({
     sql,
-    // The line's only artifacts are the pictures the probes worker took, which its index vouches for.
-    events: new EventWriter(sql, { kind: 'real', artifacts: new IndexedArtifacts(sql) }),
+    events,
     pictures: new PictureIndex(sql),
     steps: runners,
     github: new GitHubWorker(env.GITHUB_WORKER_URL ?? 'http://github:8080', { dryRun: mode !== 'live' }),

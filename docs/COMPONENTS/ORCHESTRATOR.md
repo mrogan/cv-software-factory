@@ -175,7 +175,7 @@ Triage's own holds, `finding`, `suggestion`, `burst` and `environment`, are on [
 The line reads Martin's settings as the [gateway](LLM-GATEWAY.md#settings) does, from the same store and with the same check against `FACTORY_PROFILE`'s policy (`line/settings.ts`), afresh at every pass; his saving them wakes it, as any append does, so the pass it wakes sees them. Each step starts under the settings in force as it starts, and keeps them:
 
 - where its agent's calls go, so a step on the local model has its longer bounds and waits its turn there;
-- a work item's cap, which the line holds at.
+- a work item's cap, which the line holds at. It appends a spend hold under the lock every append takes, reading the cap in force again as it does, so a raise Martin saves meanwhile either answers the hold or keeps it from being made.
 
 A step's `model.called` records the settings it ran under: its turns, and the effort the gateway sent its calls at, read for its job as the gateway read them (none for a local model).
 

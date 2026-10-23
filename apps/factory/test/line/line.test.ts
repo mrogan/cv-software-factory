@@ -1252,7 +1252,8 @@ describe('the line', () => {
     const workItem = await ticket();
     // As the line reads them: afresh at every pass.
     const reader = new SettingsReader(database.as.line, 'local', { freshMs: 0 });
-    const { pass, steps, github } = line(AGENTS, events, { settings: lineSettings(reader, false) });
+    const settings = lineSettings(reader, false, { sql: database.as.line, events });
+    const { pass, steps, github } = line(AGENTS, events, { settings });
     // Outside policy, straight to the store as one of his roles: a cap of nothing is no cap of nothing, and a model
     // the profile does not offer is none. Policy's $1 and Claude are in force.
     await appendSettings(
@@ -1273,6 +1274,25 @@ describe('the line', () => {
     expect(await payloads(workItem, 'hold.started')).toEqual([
       expect.objectContaining({ cause: 'spend', limitUsd: 0.05 }),
     ]);
+  });
+
+  it('holds for spend only while the cap in force still holds the work item, read as the hold is appended', async () => {
+    const workItem = await ticket();
+    const chosen = settingsPayload({ caps: { workItemUsd: 5 } });
+    await martin.append(event(null, 'settings.changed', chosen as PayloadOf<'settings.changed'>, 'martin'));
+    // The pass reads $0.05, as if Martin raised the cap to $5 just after it read the settings.
+    const real = lineSettings(new SettingsReader(database.as.line, 'local', { freshMs: 0 }), false, {
+      sql: database.as.line,
+      events,
+    });
+    const stale = { ...real, now: async () => ({ ...(await real.now()), workItemLimitUsd: 0.05 }) };
+    const { pass, steps, github } = line(AGENTS, events, { settings: stale });
+    await pass(); // the planner
+    await pass(); // the coder
+    github.pass(12);
+    await pass(); // the gates pass; the pass would hold for spend, and the cap in force says not to
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
+    expect(await payloads(workItem, 'hold.started')).toEqual([]);
   });
 
   it('refuses a patch outside the spec’s scope back to the coder once, then holds, and none reaches GitHub', async () => {

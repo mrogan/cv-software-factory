@@ -101,10 +101,9 @@ export class Spend {
   async check(workItem: string | null): Promise<void> {
     const caps = await this.#policy();
     const reached = await this.#reached(caps);
-    if (reached.length) {
-      await this.reconcile();
-      throw reached.at(-1) as SpendCapped;
-    }
+    // A cap marked and no longer reached (raised, or its window over) is cleared at once, not at the next tick.
+    if (reached.length || this.#marked.size) await this.reconcile();
+    if (reached.length) throw reached.at(-1) as SpendCapped;
     if (workItem !== null) {
       const spent = await this.#workItem(workItem);
       if (spent >= caps.workItemUsd) throw new SpendCapped('work-item', caps.workItemUsd, spent, null);

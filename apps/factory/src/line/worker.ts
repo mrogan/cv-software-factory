@@ -62,7 +62,15 @@
  */
 import { hostname } from 'node:os';
 import { trace } from '@opentelemetry/api';
-import type { Effort, Evidence, PayloadOf, RawEvent, SignalSource, SymptomClass } from '@software-factory/events';
+import type {
+  Effort,
+  Evidence,
+  NewEvent,
+  PayloadOf,
+  RawEvent,
+  SignalSource,
+  SymptomClass,
+} from '@software-factory/events';
 import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD, workItemsWords } from '@software-factory/events';
 import { type EventWriter, fromMartin, IgnoredCommands, lineStopped, sendSignal } from '@software-factory/store';
 import { uuidFrom } from '@software-factory/triage';
@@ -223,6 +231,11 @@ export interface LineSettings {
   now(): Promise<{ providerOf: (agent: LineAgent) => Provider; workItemLimitUsd: number }>;
   /** The effort a job's calls were sent at, if its agent was on Claude: the settings the gateway read for it. */
   effortOf(job: string, agent: LineAgent): Promise<Effort | undefined>;
+  /**
+   * Appends a spend hold only while the cap in force still holds the work item, read as the hold is appended, so a
+   * save that raises the cap meanwhile is not missed; false, and nothing appended, when it no longer does.
+   */
+  holdForSpend?(hold: NewEvent, spentUsd: number): Promise<boolean>;
 }
 
 export const APP_REPOSITORY = 'mrogan/cv-worlds-worst-website';
@@ -782,10 +795,18 @@ export class Line {
         if (next.to === 'plan') await this.#queue.setSession(workItem, null);
         return;
       }
-      case 'hold':
-        await this.#append(workItem, [holdDraft('factory', next.hold)]);
+      case 'hold': {
+        const draft = holdDraft('factory', next.hold);
+        const { spentUsd } = next.hold;
+        const guard = this.#o.settings?.holdForSpend;
+        if (next.hold.cause === 'spend' && spentUsd !== undefined && guard) {
+          // The cap was raised since this pass read it: no hold, and the next pass decides again under the new one.
+          if (!(await guard(asEvent(workItem, draft, this.#o.now().toISOString()), spentUsd))) return false;
+          countRecorded([draft]);
+        } else await this.#append(workItem, [draft]);
         await this.#queue.moved(workItem);
         return;
+      }
       case 'wait-on': {
         const reason = waitReason(next.on, next.files);
         await this.#append(workItem, [
