@@ -23,11 +23,15 @@
  * Each control names the release the panel showed Martin, and is refused if another is in flight now. The first patch
  * is conditional on the Rollout being as it was read (its `resourceVersion`), so a release that moved on in between is
  * read again, and the control decided again, rather than applied to what Martin did not see.
+ * A resume that follows a status patch is conditional too, and tried again while the Rollout keeps changing; one that
+ * still cannot be made leaves the control made, and its answer tells Martin his pause is still set.
  *
- * The control's event, `release.controlled`, is checked before the patch and appended once it is made, in a
- * transaction of its own, so a patch that fails leaves no event and no connection to the store waits on Kubernetes. A
- * patch whose answer never came is read back, and counts as made if the Rollout shows it. An append that fails is
- * tried once more, and if that fails too, the control is logged as made without its event.
+ * The control's event, `release.controlled`, is checked before the patch and appended once the first is made, before
+ * any resume, in a transaction of its own, so a patch that fails leaves no event, no connection to the store waits on
+ * Kubernetes, and the line finds the control as soon as the Rollout acts on it. A patch whose answer never came is
+ * read back, and counts as made if the Rollout shows it, or shows the controller has acted on it (a promotion's
+ * canary at or past its step, or all of the traffic). An append that fails is tried once more, and if that fails too,
+ * the control is logged as made without its event.
  */
 import { type NewEvent, RELEASE_TYPES, type ReleaseControl } from '@software-factory/events';
 import { validate } from '@software-factory/events/schemas';
@@ -64,6 +68,7 @@ const rolloutWithVersion = z.object({
       stableRS: z.string().optional(),
       currentStepIndex: z.number().int().optional(),
       abort: z.boolean().optional(),
+      promoteFull: z.boolean().optional(),
       canary: z.object({ weights: z.object({ canary: z.object({ weight: z.number().int() }) }).optional() }).optional(),
     })
     .default({}),
@@ -88,6 +93,8 @@ export interface Canary {
   aborted: boolean;
   /** Whether Martin has paused it (`spec.paused`). */
   paused: boolean;
+  /** Whether it is being promoted fully already (`status.promoteFull`), by Martin or by `kubectl argo rollouts`. */
+  promotingFully: boolean;
   /** The canary's share of the traffic now. */
   weight: number;
   /** The next step that sets a weight short of 100%, if there is one after the step it is at. */
@@ -120,6 +127,7 @@ export function canaryOf(rollout: Rollout): Canary | undefined {
     inFlight: out && !aborted,
     aborted: out && aborted,
     paused: spec.paused === true,
+    promotingFully: status.promoteFull === true,
     weight: aborted ? 0 : weight,
     next,
   };
@@ -135,6 +143,7 @@ export interface Plan {
 /** What a control does to the canary as it is, or why it cannot. */
 export function planOf(action: ReleaseControl, canary: Canary): Plan | { refused: string } {
   const notInFlight = { refused: 'No canary is in flight: the release has ended, or was stopped.' };
+  const promotingFully = { refused: 'The canary is being promoted fully already.' };
   // A promotion gives a paused canary back to Argo Rollouts too, as `kubectl argo rollouts promote` does.
   const resume = canary.paused ? { spec: { paused: false } } : {};
   switch (action) {
@@ -152,6 +161,7 @@ export function planOf(action: ReleaseControl, canary: Canary): Plan | { refused
       return { status: { abort: true }, ...resume };
     case 'promote':
       if (!canary.inFlight) return notInFlight;
+      if (canary.promotingFully) return promotingFully;
       if (!canary.next) return { refused: 'The canary has no step before all of the traffic: promote it fully.' };
       return {
         status: { pauseConditions: null, controllerPause: false, currentStepIndex: canary.next.index },
@@ -160,6 +170,7 @@ export function planOf(action: ReleaseControl, canary: Canary): Plan | { refused
       };
     case 'promote-fully':
       if (!canary.inFlight) return notInFlight;
+      if (canary.promotingFully) return promotingFully;
       return { status: { promoteFull: true }, ...resume, to: 100 };
     case 'retry':
       if (!canary.aborted) return { refused: 'Only a release that was stopped can be retried.' };
@@ -177,6 +188,19 @@ export interface Controlled {
   to?: number;
 }
 
+/** A control as the service answers it: the control made, and what it left undone, which its event does not carry. */
+export interface Answered extends Controlled {
+  warning?: string;
+}
+
+/** What a control that was made says when the pause Martin set could not be cleared after it. */
+export const STILL_PAUSED =
+  'Done, but your pause is still set: the Rollout kept changing. Resume the canary when the panel offers it, ' +
+  'or the next release starts paused.';
+
+/** The same, after a control that was made and could not be recorded either. */
+const PAUSE_TOO = 'Your pause is still set too: resume the canary when the panel offers it.';
+
 export class ReleaseControls {
   readonly #kube: KubeWriter;
   readonly #path: string;
@@ -193,7 +217,7 @@ export class ReleaseControls {
   }
 
   /** Makes a control of the release the panel showed, and records it; or refuses, having changed nothing. */
-  async control(action: ReleaseControl, release: string): Promise<Controlled> {
+  async control(action: ReleaseControl, release: string): Promise<Answered> {
     for (let attempt = 1; ; attempt++) {
       try {
         return await this.#once(action, release);
@@ -206,7 +230,7 @@ export class ReleaseControls {
     }
   }
 
-  async #once(action: ReleaseControl, release: string): Promise<Controlled> {
+  async #once(action: ReleaseControl, release: string): Promise<Answered> {
     const rollout = await this.#kube.get(this.#path, rolloutWithVersion);
     if (!rollout) throw new Refused('rollout', 404, 'There is no Rollout of the app to control.');
     const canary = canaryOf(rollout);
@@ -250,50 +274,87 @@ export class ReleaseControls {
     });
     const valid = validate(event);
     if (!valid.ok) throw new Error(`a control's event is not valid: ${valid.problems.join('; ')}`);
-    await this.#patch(plan, canary);
-    // Made: recorded after it, in a transaction of its own, so no connection waits on Kubernetes.
-    await this.#record(event);
+    await this.#first(plan, canary);
+    // Made: recorded at once, in a transaction of its own, so no connection waits on Kubernetes, and the line finds
+    // Martin's control before it says who made what the Rollout did. Then the resume, if one follows, whatever the
+    // record came to: Martin's pause outlives its canary otherwise.
+    const recording = await this.#record(event).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    const resumed = plan.status && plan.spec ? await this.#resume(plan.spec, canary) : true;
+    if (recording instanceof Refused && !resumed) {
+      throw new Refused(recording.refused, recording.status, `${recording.message} ${PAUSE_TOO}`);
+    }
+    if (recording) throw recording;
     this.#log.info({ action, release, weight: canary.weight, to: plan.to }, `Martin's ${action} of the canary`);
-    return controlled;
+    return resumed ? controlled : { ...controlled, warning: STILL_PAUSED };
   }
 
   /**
-   * The plan's patches, status first, each conditional on the Rollout as it was read for it, so nothing is applied to a
-   * release that moved on. A spec patch after a status patch (a promotion's or an abort's resume, a retry's) reads the
-   * Rollout again, and is made only while the same release is in it: if it cannot be, the control was made, and the
-   * canary stays paused until Martin resumes it.
+   * The plan's first patch, status first when it has one, conditional on the Rollout as it was read, so nothing is
+   * applied to a release that moved on.
    *
    * A patch whose answer never came (the connection failed, or timed out), or came as a server error, may have been
-   * made: the Rollout is read again, and the control counts as made if it shows the patch.
+   * made: the Rollout is read again, and counts as made if it shows the patch.
    */
-  async #patch(plan: Plan, canary: Canary): Promise<void> {
+  async #first(plan: Plan, canary: Canary): Promise<void> {
     const precondition = { metadata: { resourceVersion: canary.resourceVersion } };
-    const [first, then] = plan.status
-      ? [{ path: `${this.#path}/status`, body: { ...precondition, status: plan.status } }, plan.spec]
-      : [{ path: this.#path, body: { ...precondition, spec: plan.spec } }, undefined];
+    const [path, part, set] = plan.status
+      ? [`${this.#path}/status`, 'status' as const, plan.status]
+      : [this.#path, 'spec' as const, plan.spec ?? {}];
     try {
-      await this.#kube.patch(first.path, first.body);
+      await this.#kube.patch(path, { ...precondition, [part]: set });
     } catch (error) {
       const answered = error instanceof KubeError && error.kind !== 'server';
-      if (answered || !(await this.#shows(plan))) throw kubeRefusal(error) ?? error;
-    }
-    if (!then) return;
-    try {
-      const now = await this.#kube.get(this.#path, rolloutWithVersion);
-      const still = now && canaryOf(now);
-      if (still?.release !== canary.release) throw new Error('another release is in the Rollout now');
-      await this.#kube.patch(this.#path, { metadata: { resourceVersion: still.resourceVersion }, spec: then });
-    } catch (error) {
-      this.#log.error({ err: error }, 'made a control of the canary, and could not resume it: it stays paused');
+      if (answered || !(await this.#shows(set, part))) throw kubeRefusal(error) ?? error;
     }
   }
 
-  /** Whether the Rollout now shows a plan's first patch: each field it sets, as it sets it. */
-  async #shows(plan: Plan): Promise<boolean> {
+  /**
+   * A spec patch after a status patch (a promotion's or an abort's resume, a retry's): it reads the Rollout again, and
+   * is made only while the same release is in it. When the Rollout changed in between, as the controller's writes to
+   * its status often change it, it is read and tried again, up to `TRIES` times. Whether it was made is the answer: if
+   * not, the control was made, and the canary stays paused until Martin resumes it.
+   */
+  async #resume(spec: Record<string, unknown>, canary: Canary): Promise<boolean> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const now = await this.#kube.get(this.#path, rolloutWithVersion);
+        const still = now && canaryOf(now);
+        if (still?.release !== canary.release) {
+          this.#log.error('made a control of the canary, and another release is in the Rollout now: it stays paused');
+          return false;
+        }
+        await this.#kube.patch(this.#path, { metadata: { resourceVersion: still.resourceVersion }, spec });
+        return true;
+      } catch (error) {
+        const conflict = error instanceof KubeError && error.status === 409;
+        if (conflict && attempt < TRIES) continue;
+        const unanswered = !(error instanceof KubeError) || error.kind === 'server';
+        if (!conflict && unanswered && (await this.#shows(spec, 'spec'))) return true;
+        this.#log.error({ err: error }, 'made a control of the canary, and could not resume it: it stays paused');
+        return false;
+      }
+    }
+  }
+
+  /**
+   * Whether the Rollout now shows a patch to its spec or its status: each field it sets, as it sets it. The controller
+   * acts on a promotion at once, so one shows by where the canary is: at or past the step it moved to, whatever the
+   * pauses there say now, or, promoted fully, already all of the traffic, which clears `promoteFull`.
+   */
+  async #shows(set: Record<string, unknown>, part: 'spec' | 'status'): Promise<boolean> {
     const now = await this.#kube.get(this.#path, rolloutRaw).catch(() => undefined);
     if (!now) return false;
-    const [set, of] = plan.status ? [plan.status, now.status] : [plan.spec ?? {}, now.spec];
-    return Object.entries(set).every(([field, value]) => shown(of[field], field) === value);
+    const { status } = now;
+    if (part === 'status' && typeof set.currentStepIndex === 'number') {
+      return typeof status.currentStepIndex === 'number' && status.currentStepIndex >= set.currentStepIndex;
+    }
+    if (part === 'status' && set.promoteFull === true && status.promoteFull !== true) {
+      return typeof status.currentPodHash === 'string' && status.currentPodHash === status.stableRS;
+    }
+    return Object.entries(set).every(([field, value]) => shown(now[part][field], field) === value);
   }
 
   /**
@@ -322,11 +383,23 @@ export class ReleaseControls {
       where type in ${this.#sql(RELEASE_TYPES as string[])} and payload->>'release' = ${release}
       order by seq`;
     const recorded = recordedFrom(rows.map((row) => ({ ...row, ts: new Date(row.ts).toISOString() })));
-    // A release carries the same record on every work item it is on; any one will do.
-    const record = [...(recorded.get(release)?.values() ?? [])].at(-1);
+    const record = latestRecord([...(recorded.get(release)?.values() ?? [])]);
     if (!record || record.started.dryRun) return undefined;
     return { version: record.started.version, ended: record.ended };
   }
+}
+
+/**
+ * The record of a release, of the records on each target it carries. Each carries the same, but a work item closed
+ * meanwhile has none of what came after: the record of the latest attempt, and of those one that has ended, is the
+ * release's.
+ */
+export function latestRecord(records: readonly TargetRecord[]): TargetRecord | undefined {
+  return records.reduce<TargetRecord | undefined>((best, record) => {
+    if (!best) return record;
+    if (record.attempts !== best.attempts) return record.attempts > best.attempts ? record : best;
+    return best.ended === undefined && record.ended !== undefined ? record : best;
+  }, undefined);
 }
 
 /**

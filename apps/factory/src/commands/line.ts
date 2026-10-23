@@ -67,6 +67,7 @@
 import { parseArgs } from 'node:util';
 import { AUTONOMY, type Autonomy, type NewEvent, VERSIONS } from '@software-factory/events';
 import { connect, DiskArtifacts, EventWriter } from '@software-factory/store';
+import { rolloutRefOf } from '../release/rollout-ref.ts';
 
 export const USAGE = `  factory line stop [--reason <why>]
   factory line start [--autonomy supervised|guarded|lights-out]
@@ -154,7 +155,6 @@ async function serve(): Promise<number> {
   const take = takeSetting === '' ? null : Number(takeSetting);
   // The Rollout to watch, or none: a name of another shape stops it starting, rather than the line watching nothing.
   const rolloutSetting = (process.env.RELEASE_ROLLOUT ?? '').trim();
-  const { rolloutRefOf } = await import('../release/rollout-ref.ts');
   const rollout = rolloutRefOf(rolloutSetting);
   if (rollout === undefined) {
     console.error(`RELEASE_ROLLOUT is ${JSON.stringify(rolloutSetting)}; it must be <namespace>/<name>, or unset.`);

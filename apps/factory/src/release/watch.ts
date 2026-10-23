@@ -61,8 +61,6 @@ import {
   type TargetRecord,
 } from './recorded.ts';
 
-export { type Recorded, recordedFrom, releaseName, short, type Target, type TargetRecord };
-
 type Started = PayloadOf<'release.started'>;
 export type CanaryStep = NonNullable<Started['steps']>[number];
 type Stepped = PayloadOf<'canary.stepped'>;

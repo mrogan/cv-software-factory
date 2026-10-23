@@ -23,7 +23,8 @@ import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/eve
 import { uuidFrom } from '@software-factory/triage';
 import type { Regression } from '../gates/journeys.ts';
 import type { AnalysisRun, RoutesWorse } from './read.ts';
-import { measuresOf, type Observed, type Recorded, recordOf, type Series, short } from './watch.ts';
+import { type Recorded, short } from './recorded.ts';
+import { measuresOf, type Observed, recordOf, type Series } from './watch.ts';
 
 type Started = PayloadOf<'release.started'>;
 type Measure = PayloadOf<'canary.stepped'>['analysis']['measures'][number];

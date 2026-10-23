@@ -442,6 +442,8 @@ function Controls({ r, admin, lineStopped }: { r: Release; admin: Admin; lineSto
     // Cancelled at the passkey: nothing was asked of the canary, and nothing to say.
     if (cancelled) return;
     if (got.status !== 200) setRefusal(said(got));
+    // Made, with something left undone that Martin must know of: his pause, still set after the control.
+    else if (typeof got.body?.warning === 'string') setRefusal(got.body.warning);
   };
   const off = controls.find((c) => c.off)?.off;
   return (

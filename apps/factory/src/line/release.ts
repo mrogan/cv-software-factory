@@ -51,11 +51,12 @@ import {
   hashesOf,
   journeysCounted,
   journeysOf,
-  type RolloutRef,
   readRollout,
   routesWorse,
   seriesOf,
 } from '../release/read.ts';
+import { type Recorded, recordedFrom, type Target } from '../release/recorded.ts';
+import type { RolloutRef } from '../release/rollout-ref.ts';
 import { canarySignal, type FailedMeasure, failedMeasures, keyOf, type Read } from '../release/signals.ts';
 import {
   dryRunEvents,
@@ -68,14 +69,11 @@ import {
   type Observed,
   observe,
   podHashes,
-  type Recorded,
-  recordedFrom,
   releaseEvents,
   releaseNeeds,
   type Series,
   type Start,
   startOf,
-  type Target,
 } from '../release/watch.ts';
 import type { Kube } from '../runners/kube.ts';
 import { ATTRIBUTES as A, inSpan } from '../spans.ts';
@@ -429,6 +427,7 @@ export class Releases {
         and e.ts >= coalesce((
           select max((p.payload->>'abortedAt')::timestamptz) from events p
           where p.type in ('release.aborted', 'release.errored') and p.payload->>'release' = ${release}
+            and (p.payload->>'abortedAt')::timestamptz < ${at}::timestamptz
         ) + interval '1 second', '-infinity')
       limit 1`;
     if (control) return 'martin';
