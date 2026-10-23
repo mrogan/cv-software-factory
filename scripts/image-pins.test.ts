@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
  * whole update. Pins of one image share a name, a major version and a tag suffix (node 24's alpine3.24 and
  * trixie-slim are two images, and so are Postgres 18 and 19 side by side during an upgrade). Prose is left out.
  * Each is named on Docker Hub, with no registry, as a Dockerfile's FROM or a manifest's image: scripts/ci-images.sh
- * finds them the same way, to copy them into CI's GHCR.
+ * finds them the same way, with Playwright's (below), to copy them into CI's GHCR.
  */
 const PIN = /(?:^FROM|image:) +(([a-z0-9._-]+)(?::([A-Za-z0-9._-]+))?@(sha256:[0-9a-f]{64}))/gm;
 const POSTGRES = 'deploy/base/postgres/statefulset.yaml';

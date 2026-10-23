@@ -157,6 +157,7 @@ jobs:
             title: Software Factory workers
           - image: factory-browser
             file: apps/factory/Dockerfile.browser
+            bases: browser
             title: Software Factory browser workers
           - image: factory-runner
             file: apps/runner/Dockerfile
@@ -173,9 +174,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       # Each base image a Dockerfile pins, from CI's copy of it (scripts/ci-images.sh): the same digest, so the same image.
-      # The browser's one base is Playwright's, from Microsoft's registry, which has no copy.
       - id: bases
-        if: matrix.bases
         env:
           BASES: ${{ matrix.bases }}
         run: scripts/ci-images.sh contexts "$BASES"
@@ -185,7 +184,7 @@ jobs:
           context: .
           file: ${{ matrix.file }}
           platforms: linux/${{ matrix.arch }}
-          build-contexts: ${{ matrix.bases && steps.bases.outputs[matrix.bases] || '' }}
+          build-contexts: ${{ steps.bases.outputs[matrix.bases] }}
           outputs: type=image,name=ghcr.io/${{ github.repository }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
