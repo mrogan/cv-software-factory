@@ -202,9 +202,10 @@ test('Martin pauses at once, promotes with his passkey again, and aborts behind 
   });
 
   await test.step('a refusal shows where he pressed', async () => {
-    // The stand-in's release moved on: the service refuses, and the panel says why.
+    // The stand-in's release moved on: the service refuses, and the panel says why. Promote fully is offered whether
+    // or not the panel has drawn his pause yet, and the passkey is still fresh, so it asks for nothing.
     (rollout.object.status as { currentPodHash: string }).currentPodHash = 'zzzzzzzzzz';
-    await controls.getByRole('button', { name: 'Pause' }).click();
+    await controls.getByRole('button', { name: 'Promote fully', exact: true }).click();
     await expect(controls.getByRole('alert')).toHaveText(
       'That release is no longer the one in the Rollout: look again.',
     );
