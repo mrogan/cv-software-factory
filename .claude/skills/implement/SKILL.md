@@ -26,7 +26,7 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
    - **Related**: issues, pull requests and commits named.
 
    Write down what was said, not what you would add. If the conversation left open a decision that changes what gets built, ask Martin now, in one question, while he is here.
-4. **Read every issue** far enough to brief it. Note work items that touch the same files or depend on each other, and order them so that one another builds on goes first. Each pull request branches from `origin/main` unless it truly cannot be done without another; then stack it and say so.
+4. **Read every issue** far enough to brief it. Note work items that touch the same files or depend on each other, and order them so that one another builds on goes first. Each pull request branches from `origin/main`. When several work items need the same piece (a component, a helper they all reuse), make that piece a small work item of its own, branched from `origin/main` and done first, rather than stacking one item's pull requests on another's. Martin can merge a small piece quickly, and the items that use it then branch from `main`; while it waits, each stacks on it alone, not on one another. Stack only what truly cannot be done without another's unmerged work, and say so, with the order to merge in.
 
 ## Each work item, one at a time
 
@@ -40,6 +40,8 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 Never run two sub-agents at once, and never give a worktree to a second agent while the first can still run.
 
 When Martin merges one pull request and another then conflicts with `main`, send a sub-agent to fetch and merge `origin/main` into it and resolve, briefed with what merged: it owns the worktree for that, as the first did.
+
+In a stack, Martin merges each pull request the moment it is green, and each merge squashes the branch the next one is built on. Bring only the next one up to date: once the one below it has merged, a sub-agent merges `origin/main` into it, waits for its checks, and you tell Martin it is ready to merge. Leave the ones above it until their turn: a whole stack brought up to date at once has to be done again after every merge.
 
 ## Finishing the work, not filing it
 
