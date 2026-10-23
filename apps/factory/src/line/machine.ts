@@ -88,9 +88,12 @@
  */
 import {
   ALWAYS_HELD,
+  ANSWERS,
+  type HoldAnswer,
   type HoldCause,
   LIMITS,
   type PayloadOf,
+  type Resolution,
   type SignalSource,
   STAGES,
   type Stage,
@@ -105,64 +108,6 @@ export type LineAgent = 'planner' | 'coder' | 'reviewer' | 'describer';
 
 /** The bounds on the loop, shared with the console, which draws how near a work item is to them. */
 export { LIMITS };
-
-type Answer = PayloadOf<'hold.answered'>['decision'];
-
-/** What Martin's answer to a hold does to the work item. */
-export type Resolution =
-  /** It carries on from where it was held: the step it was held at runs again, with his answer. */
-  | 'carry-on'
-  /** The planner writes the spec again, with his answer. */
-  | 'replan'
-  /** His approval stands in for the reviewer's, and the change goes on to its description and his merge. */
-  | 'approve'
-  /** The work goes back to the coder, with his answer as the reason. */
-  | 'return'
-  /** Nothing for the line to do: it waits for him, as for his merge. */
-  | 'wait'
-  /** He judges the fix verified in production, and the work item closes as verified. */
-  | 'verified'
-  /** The work item closes unmerged. */
-  | 'close';
-
-/**
- * What each answer does, for each cause of a hold. Rejecting closes the work item, whatever the cause. Where the
- * planner rejected the ticket, approving agrees with it and closes the work item too; only an answer, which tells the
- * planner what it missed, sends the ticket back to it. Where the fence kept refusing the coder's patch, approving
- * says the coder needed those files and answering says what to do instead: either way the planner writes the spec
- * again, told both. Where the coder's first round found nothing to fix, approving agrees with it and closes the work
- * item; answering sends the spec back to the planner, told what the coder said and what Martin did.
- */
-export const ANSWERS: Record<HoldCause, Record<Answer, Resolution>> = {
-  // Triage's: a suggestion never comes onto the line, nor does a defect only the planner has seen until Martin approves
-  // it, nor a burst's problems, or those seen while what their sense reads was not healthy, until he lets them through.
-  // Triage then opens their tickets (`settleOne`), and the line carries each on from there as any other.
-  suggestion: { approved: 'wait', rejected: 'close', answered: 'wait' },
-  finding: { approved: 'carry-on', rejected: 'close', answered: 'wait' },
-  burst: { approved: 'carry-on', rejected: 'close', answered: 'wait' },
-  environment: { approved: 'carry-on', rejected: 'close', answered: 'wait' },
-  spec: { approved: 'carry-on', rejected: 'close', answered: 'replan' },
-  question: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
-  'ticket-rejected': { approved: 'close', rejected: 'close', answered: 'carry-on' },
-  scope: { approved: 'replan', rejected: 'close', answered: 'replan' },
-  'nothing-to-fix': { approved: 'close', rejected: 'close', answered: 'replan' },
-  failures: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
-  gates: { approved: 'return', rejected: 'close', answered: 'return' },
-  review: { approved: 'approve', rejected: 'close', answered: 'return' },
-  'beyond-ticket': { approved: 'approve', rejected: 'close', answered: 'replan' },
-  merge: { approved: 'wait', rejected: 'close', answered: 'return' },
-  // A deploy is merged by Martin, not answered: a release that carries the change ends the hold by itself.
-  deploy: { approved: 'wait', rejected: 'close', answered: 'wait' },
-  // At Verify, when no sense can tell or the signal persisted again: approving says the fix is verified, and answering
-  // sends the work back to the planner with what he said.
-  verify: { approved: 'verified', rejected: 'close', answered: 'replan' },
-  // The cap is Martin's, within policy: approving carries on, and the line holds again until the cap is raised. Raising
-  // the work item's cap past what it has spent approves it (the admin service, `admin/settings.ts`).
-  spend: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
-  // The line makes no such hold yet: approving accepts the tests as they are, answering says what to test.
-  'tests-first': { approved: 'carry-on', rejected: 'close', answered: 'return' },
-  unknown: { approved: 'carry-on', rejected: 'close', answered: 'carry-on' },
-};
 
 /** An event as the line reads it: its type and payload, upcast to the current version. */
 export type LineEvent = { [K in keyof Payloads]: { type: K; payload: Payloads[K] } }[keyof Payloads];
@@ -242,7 +187,7 @@ export interface WorkItemState {
   hold: PayloadOf<'hold.started'> | undefined;
   /** Martin's answer to the last hold, until the work item moves on from it: what it does, and what he said. */
   answer:
-    | { cause: HoldCause; stage: Stage; decision: Answer; resolution: Resolution; text: string | undefined }
+    | { cause: HoldCause; stage: Stage; decision: HoldAnswer; resolution: Resolution; text: string | undefined }
     | undefined;
   /**
    * Martin's answers to the holds at Plan, and to those that send the work item back to it, each with what he was

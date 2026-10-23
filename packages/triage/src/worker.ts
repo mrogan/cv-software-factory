@@ -25,6 +25,8 @@
  *   fingerprint closes it into that ticket; Martin approving it opens its ticket, by the policy's table as a sense's
  *   would be, or joins it to an open ticket that has it; his rejection closes it (`settleOne`). Nothing else opens a
  *   ticket from a finding.
+ * - A suggestion, a visitor's or the planner's, is parked for Martin, who alone asks for improvements. His rejection
+ *   closes it; his words leave it waiting, and nothing acts on his approval until improvements do.
  * - An answer of Martin's to one of these holds that triage cannot act on, in as many tries as a signal gets, is left:
  *   the hold starts again, with its cause, saying so (`askedAgain`). Needs you asks him again, a restart finds nothing
  *   answered to try, and his next answer is tried afresh.
@@ -58,6 +60,7 @@ import {
   burstEvents,
   closedFinding,
   closedHeld,
+  closedSuggestion,
   environmentEvents,
   findingEvents,
   healthy,
@@ -237,6 +240,7 @@ export class Triage {
     await this.#ignored.check();
     if (await lineStopped(sql)) return false;
     if (await this.#settleHeld()) return true;
+    if (await this.#settleSuggestion()) return true;
     const answered = (await parkedFindings(sql)).find((parked) => parked.decision !== null);
     if (!answered?.decision) return false;
     const { workItem, defect, decision, late } = answered;
@@ -321,6 +325,25 @@ export class Triage {
     }
     this.#settleFailures.delete(settleKey(answered));
     log.info({ workItem, cause, decision }, 'settled held signals, as Martin answered');
+    return true;
+  }
+
+  /**
+   * Closes a suggestion Martin rejected, a visitor's or the planner's. Nothing acts on his approval of one until
+   * improvements do (Needs you does not offer it), and his words leave it waiting.
+   */
+  async #settleSuggestion(): Promise<boolean> {
+    const { sql, events, log } = this.#o;
+    const rejected = (await heldSuggestions(sql)).find((held) => held.decision === 'rejected');
+    if (!rejected) return false;
+    try {
+      await events.append(closedSuggestion(rejected.workItem, this.#o.now()));
+    } catch (error) {
+      await this.#failedToSettle(rejected, { cause: 'suggestion' }, 'rejected', error);
+      return false;
+    }
+    this.#settleFailures.delete(settleKey(rejected));
+    log.info({ workItem: rejected.workItem }, 'closed a suggestion, as Martin rejected it');
     return true;
   }
 
@@ -671,6 +694,27 @@ async function parkedFindings(sql: Sql): Promise<Parked[]> {
     answered: row.answered,
     late: row.late,
   }));
+}
+
+/**
+ * Every suggestion still held, oldest first, with Martin's last answer to it: its hold, and his answers after it, from
+ * his roles alone.
+ */
+async function heldSuggestions(sql: Sql): Promise<Answerable[]> {
+  const rows = await sql<{ work_item: string; decision: string | null; answered: string | null }[]>`
+    select h.work_item, a.decision, a.seq as answered
+    from events h
+    left join lateral (
+      select a.payload->>'decision' as decision, a.seq from events a
+      where a.work_item = h.work_item and a.type = 'hold.answered' and a.seq > h.seq and ${fromMartin(sql, 'a')}
+      order by a.seq desc limit 1
+    ) a on true
+    where h.type = 'hold.started' and h.payload->>'cause' = 'suggestion'
+      and not exists (select 1 from events e where e.work_item = h.work_item and e.type = 'work-item.closed')
+      and not exists (select 1 from events n where n.work_item = h.work_item and n.type = 'hold.started'
+                      and n.seq > h.seq)
+    order by h.seq`;
+  return rows.map((row) => ({ workItem: row.work_item, decision: decisionOf(row.decision), answered: row.answered }));
 }
 
 const decisionOf = (decision: string | null) => (decision === 'approved' || decision === 'rejected' ? decision : null);

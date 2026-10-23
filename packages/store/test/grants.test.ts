@@ -6,7 +6,14 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ADMIN_TYPES, EVENT_TYPES, type EventType, type InboxSignal, type NewEvent } from '@software-factory/events';
+import {
+  ADMIN_TYPES,
+  EVENT_TYPES,
+  type EventType,
+  type InboxSignal,
+  type NewEvent,
+  VERSIONS,
+} from '@software-factory/events';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ENROLMENT_CODE, PASSKEYS, SESSION } from '../../../policy/access.ts';
@@ -304,7 +311,7 @@ const command = (type: EventType, workItem: string | null = null): NewEvent =>
     ts: new Date().toISOString(),
     work_item: type === 'hold.answered' ? workItem : null,
     type,
-    version: 1,
+    version: VERSIONS[type],
     actor: 'martin',
     summary: `${type}, as Martin`,
     payload: PAYLOADS[type] ?? {},

@@ -51,6 +51,13 @@ const pathOf = (page: string) => page.split(/[?#]/)[0] || '/';
 /** The view of an event with nothing to leave out but secrets. */
 const redacted = <K extends EventType>(event: View<K>): View<K> => redactDeep(event);
 
+/** How Martin answered a hold, in words of the factory's own. */
+const ANSWERED = {
+  approved: 'Martin approved the hold',
+  rejected: 'Martin rejected the hold',
+  answered: 'Martin answered the hold in words',
+} as const;
+
 export const PUBLIC_VIEWS = {
   'work-item.opened': ({ payload: { visitor: _key, ...payload }, ...event }) => redacted({ ...event, payload }),
   'work-item.summarised': redacted,
@@ -100,7 +107,13 @@ export const PUBLIC_VIEWS = {
   'signal.rechecked': redacted,
   'work.returned': redacted,
   'hold.started': redacted,
-  'hold.answered': redacted,
+  // Martin's answer, through the redactor, but for his words on a hold about a visitor's report, which stay his: the
+  // summary too says only how he answered.
+  'hold.answered': (event) => {
+    if (!event.payload.report) return redacted(event);
+    const { answer: _words, ...payload } = event.payload;
+    return redacted({ ...event, summary: ANSWERED[payload.decision], payload });
+  },
   'action.refused': redacted,
   'model.called': redacted,
   'line.started': redacted,

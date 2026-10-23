@@ -1,7 +1,6 @@
-import { HOLD_CAUSES, type HoldCause, type PayloadOf, WORDS_LEAVE_HELD } from '@software-factory/events';
+import { ANSWERS, HOLD_CAUSES, type HoldCause, type PayloadOf, WORDS_LEAVE_HELD } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import {
-  ANSWERS,
   closesWhenCleared,
   decide,
   dryRunLeft,

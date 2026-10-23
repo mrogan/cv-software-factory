@@ -12,6 +12,8 @@
  *   the traffic), `/pause`, `/resume`, `/abort` and `/retry`, each naming the release the panel showed.
  * - The settings (`settings.ts`): `POST /admin/settings` with what the save changes, each agent's model and effort and
  *   the spend caps, within policy, with the passkey again when anything in it raises.
+ * - Needs you (`holds.ts`): `POST /admin/holds/:workItem/approve`, `/reject` and `/answer` (with his words), each
+ *   naming the hold the card showed, with the passkey again to approve a guardrail's.
  * - `GET /admin/session`, with the token the session's writes carry, and `GET /admin/events/stream`.
  * - `GET /admin/health`.
  *
@@ -20,13 +22,14 @@
  */
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
-import type { ReleaseControl } from '@software-factory/events';
+import type { HoldAnswer, ReleaseControl } from '@software-factory/events';
 import { z } from 'zod';
 import { ACCESS, ENROLMENT_CODE, PASSKEYS, routeOf, SESSION, type ServedBy } from '../../../../policy/access.ts';
 import type { Logger } from '../log.ts';
 import { clientAddress, LIMITS, RateLimit } from './client.ts';
 import type { AdminConfig } from './config.ts';
 import { fromConsole, type Guard, guardOf, refuseWrite } from './guard.ts';
+import { ANSWER, answerHold, WORK_ITEM } from './holds.ts';
 import type { ReleaseControls } from './rollout.ts';
 import { codeHash, isSessionId, newChallenge, newSessionId, normalCode, tokenOf } from './secrets.ts';
 import { SAVE, saveSettings } from './settings.ts';
@@ -177,6 +180,16 @@ export function createAdminApp({
     if (!controls) return refused(503, 'rollout', 'The admin service has no Rollout to control.');
     const done = await controls.control(action, given.data.release);
     return { status: 200, body: done };
+  };
+
+  /** Martin's answer to the hold the card showed: appended, or refused having changed nothing. */
+  const answer = async (decision: HoldAnswer, { values, body, session }: Context): Promise<Reply> => {
+    const workItem = values.workItem ?? '';
+    const given = ANSWER[decision].safeParse(body);
+    if (!WORK_ITEM.test(workItem) || !given.success) {
+      return refused(400, 'body', decision === 'answered' ? 'Send the hold, and your words.' : 'Send the hold.');
+    }
+    return { status: 200, body: await answerHold(store, session as Session, workItem, decision, given.data) };
   };
 
   const handlers: Record<ServedBy<'admin'>, (context: Context) => Promise<Reply>> = {
@@ -345,6 +358,10 @@ export function createAdminApp({
       if (!given.success) return refused(400, 'body', 'Send the settings the save changes.');
       return { status: 200, body: await saveSettings(store, config.profile, session as Session, given.data) };
     },
+
+    'hold.approve': (context) => answer('approved', context),
+    'hold.reject': (context) => answer('rejected', context),
+    'hold.answer': (context) => answer('answered', context),
 
     'passkey.revoke': async ({ values, session }) => {
       const live = session as Session;

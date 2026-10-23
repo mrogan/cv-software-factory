@@ -313,7 +313,7 @@ export function closedHeld(
 }
 
 /** A hold of triage's that Martin answers, as it starts again: its cause, and a finding's defect. */
-export type AskedAgain = { cause: 'finding'; defect: ParkedDefect } | { cause: 'burst' | 'environment' };
+export type AskedAgain = { cause: 'finding'; defect: ParkedDefect } | { cause: 'burst' | 'environment' | 'suggestion' };
 
 /**
  * Triage could not do as Martin answered one of its holds, in as many tries as it gives a signal, and leaves his
@@ -615,6 +615,19 @@ export function closedFinding(
     martin: `Ticket #${why.joined} already has it`,
   }[why.by];
   return writer.add('work-item.closed', 'triage', reason, { outcome: 'no-change', reason }).events;
+}
+
+/**
+ * A suggestion closes when Martin rejects it, a visitor's or the planner's, with no ticket: it was never a defect, and
+ * only he asks for improvements. Written once for each, whatever the try.
+ */
+export function closedSuggestion(workItem: string, now: Date): NewEvent[] {
+  return new Writer(`suggestion:${workItem}:rejected`, workItem, now).add(
+    'work-item.closed',
+    'triage',
+    'Closed: Martin rejected the suggestion',
+    { outcome: 'discarded', reason: 'Martin rejected the suggestion: nothing is built' },
+  ).events;
 }
 
 /**

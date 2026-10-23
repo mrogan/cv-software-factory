@@ -29,7 +29,7 @@ flowchart TD
 
 - **A sense's signal** takes its category and severity from `policy/triage.ts`, and repeats by fingerprint.
 - **Only reports and the planner's findings go to Jev** (`triage/v2`), with routing as plain code.
-- It quarantines injection attempts, and parks suggestions for Martin.
+- It quarantines injection attempts, and parks suggestions for Martin, which close when he [rejects them](#a-suggestion).
 - **One fingerprint, one ticket.**
 - **More new problems than a handful from one sense at once** wait for Martin as one [burst](#a-burst), before any has a ticket.
 - **A new problem seen while what its sense reads was not healthy** waits for Martin too, its cause [the environment](#what-a-sense-reads).
@@ -84,6 +84,17 @@ Each sense reads something besides the app, and when that fails a sense can see 
 - **The look is evidence.** Each sense's signal records it (`environment` on `signal.received`): a ticket that opens shows how its sense's dependencies stood when it was seen.
 - **What it holds.** A signal that would open or reopen a ticket while anything its sense reads was not healthy is held for Martin as a burst is, with cause `environment`: one work item with no ticket, which every new problem the sense finds while it waits joins. A signal on an open ticket adds its evidence as ever. Martin answers it as [a burst](#martins-answer-to-a-burst).
 - **Where it looks.** `factory triage` looks at the backends it has an address for (`PROMETHEUS_URL`, `LOKI_URL`, `TEMPO_URL`; the disk through Prometheus). With none, it looks at nothing and holds nothing for the environment. The cluster's triage has all three.
+
+## A suggestion
+
+A report or a planner's finding that Jev judges a suggestion (a request for something new, not a fault) is parked for Martin (cause `suggestion`), with no ticket: only he asks for improvements.
+
+| Answer | Does |
+|---|---|
+| Reject | Closes it, with no ticket |
+| Answer in words | Leaves it waiting: it is still held, and Needs you lists it, until he rejects it |
+
+Approving one means nothing yet, so Needs you does not offer it: the "+" on Plan (milestone 7 Part B) is where Martin asks for an improvement. Triage acts on his rejection once an event is appended, reading the suggestion holds by an index of their own, and leaves an answer it cannot act on as it leaves [a finding's](#martins-answer-to-a-finding).
 
 ## The planner's findings
 

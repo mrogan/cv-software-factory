@@ -127,29 +127,29 @@ function summaryOf(changes: Change[]): string {
 async function spendHoldsCleared(
   tx: TransactionSql,
   capUsd: number,
-): Promise<{ workItem: string; spentUsd: number }[]> {
+): Promise<{ workItem: string; hold: string; spentUsd: number }[]> {
   // A work item's latest hold, answer, merge (which answers whatever held it), close or reopening: a hold still open is
   // the last of them.
-  const rows = await tx<{ work_item: string; spent: number | null; limit: number | null }[]>`
+  const rows = await tx<{ work_item: string; id: string; spent: number | null; limit: number | null }[]>`
     with last as (
-      select distinct on (e.work_item) e.work_item, e.type, e.payload
+      select distinct on (e.work_item) e.work_item, e.id, e.type, e.payload
       from events e
       where e.work_item is not null
         and e.type in ('hold.started', 'hold.answered', 'pull-request.merged', 'work-item.closed', 'work-item.reopened')
         and ${fromMartin(tx, 'e')}
       order by e.work_item, e.seq desc
     )
-    select work_item, (payload->>'spentUsd')::float8 as spent, (payload->>'limitUsd')::float8 as limit
+    select work_item, id, (payload->>'spentUsd')::float8 as spent, (payload->>'limitUsd')::float8 as limit
     from last where type = 'hold.started' and payload->>'cause' = 'spend'
     order by length(work_item), work_item`;
   return rows.flatMap((row) => {
     const spentUsd = row.spent ?? row.limit;
-    return spentUsd !== null && spentUsd < capUsd ? [{ workItem: row.work_item, spentUsd }] : [];
+    return spentUsd !== null && spentUsd < capUsd ? [{ workItem: row.work_item, hold: row.id, spentUsd }] : [];
   });
 }
 
 /** Martin's approval of a work item's `spend` hold, since its cap was raised past what it has spent. */
-function holdAnswered(workItem: string, capUsd: number, spentUsd: number): NewEvent {
+function holdAnswered(workItem: string, hold: string, capUsd: number, spentUsd: number): NewEvent {
   const cap = `$${capUsd.toFixed(2)}`;
   return {
     id: randomUUID(),
@@ -162,6 +162,7 @@ function holdAnswered(workItem: string, capUsd: number, spentUsd: number): NewEv
     payload: {
       decision: 'approved',
       answer: `Martin raised a work item's cap to ${cap}, past the $${spentUsd.toFixed(2)} this one has spent.`,
+      hold,
     },
     artifacts: [],
   } as NewEvent;
@@ -191,7 +192,7 @@ export async function saveSettings(store: AdminStore, profile: Profile, session:
         changes.length
           ? [
               adminEvent('settings.changed', summaryOf(changes), { ...chosenOf(after), changes }),
-              ...holds.map((hold) => holdAnswered(hold.workItem, after.caps.workItemUsd, hold.spentUsd)),
+              ...holds.map((hold) => holdAnswered(hold.workItem, hold.hold, after.caps.workItemUsd, hold.spentUsd)),
             ]
           : [],
     )

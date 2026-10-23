@@ -509,9 +509,36 @@ describe('triage', () => {
     };
     await sendSignal(database.owner, finding('/delivery'));
     expect(await triage({ judge: suggests }).takeOne()).toBe('finding');
-    const [held] = await writer<{ payload: { cause: string } }[]>`
-      select payload from events where type = 'hold.started' order by seq desc limit 1`;
+    const [held] = await writer<{ work_item: string; payload: { cause: string } }[]>`
+      select work_item, payload from events where type = 'hold.started' order by seq desc limit 1`;
     expect(held?.payload.cause).toBe('suggestion');
+    // His words leave it waiting, and his approval means nothing until improvements do; his rejection closes it.
+    const suggestion = held?.work_item ?? '';
+    const answer = (decision: 'approved' | 'rejected' | 'answered') =>
+      martin.append({
+        id: crypto.randomUUID(),
+        ts: at,
+        work_item: suggestion,
+        type: 'hold.answered',
+        version: VERSIONS['hold.answered'],
+        actor: 'martin',
+        summary: `Martin ${decision} it`,
+        payload: { decision },
+        artifacts: [],
+      } as NewEvent<'hold.answered'>);
+    await answer('answered');
+    await answer('approved');
+    expect(await triage().settleOne()).toBe(false);
+    expect(await types(suggestion)).not.toContain('work-item.closed');
+    await answer('rejected');
+    expect(await triage().settleOne()).toBe(true);
+    const [closing] = await writer<{ payload: PayloadOf<'work-item.closed'> }[]>`
+      select payload from events where work_item = ${suggestion} and type = 'work-item.closed'`;
+    expect(closing?.payload).toEqual({
+      outcome: 'discarded',
+      reason: 'Martin rejected the suggestion: nothing is built',
+    });
+    expect(await triage().settleOne()).toBe(false);
 
     await sendSignal(database.owner, found());
     expect(await triage().takeOne()).toBe('opened');
@@ -561,7 +588,7 @@ describe('triage', () => {
         ts: at,
         work_item: item,
         type: 'hold.answered',
-        version: 1,
+        version: VERSIONS['hold.answered'],
         actor: 'martin',
         summary: `Martin ${decision} it`,
         payload: { decision },
@@ -938,7 +965,7 @@ describe('triage', () => {
         ts: at,
         work_item: null,
         type,
-        version: 1,
+        version: VERSIONS[type],
         actor: 'martin',
         summary: type === 'line.stopped' ? 'Martin stopped the line' : 'Martin started the line',
         payload,
@@ -1057,7 +1084,7 @@ describe('triage', () => {
         ts: at,
         work_item: item,
         type: 'hold.answered',
-        version: 1,
+        version: VERSIONS['hold.answered'],
         actor: 'martin',
         summary: `Martin ${decision} it`,
         payload: { decision },
@@ -1280,7 +1307,7 @@ describe('triage', () => {
         ts: at,
         work_item: item,
         type: 'hold.answered',
-        version: 1,
+        version: VERSIONS['hold.answered'],
         actor: 'martin',
         summary: `Martin ${decision} it`,
         payload: { decision },

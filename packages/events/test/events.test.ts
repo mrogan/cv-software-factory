@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { returnWords, sameVersion, scopesOverlap } from '../src/line.ts';
+import { ANSWERS, answersTo, returnWords, sameVersion, scopesOverlap, WORDS_LEAVE_HELD } from '../src/line.ts';
 import { formatLog, parseLog } from '../src/log-format.ts';
 import { PUBLIC_VIEWS, publicView, redactSecrets } from '../src/public.ts';
 import { validate, validateSignal } from '../src/schemas.ts';
 import type { NewEvent, PublicEvent } from '../src/types.ts';
 import { type Catalogue, upcast } from '../src/upcast.ts';
 import { EVENT_TYPES } from '../src/versions.ts';
+import { HOLD_CAUSES } from '../src/vocabulary.ts';
 import { gate, judgement, opened, REPORT_TEXT, signal, VISITOR_KEY } from './fixtures.ts';
 
 /** An event read back, as one about to be appended again: what it reads as must be valid now. */
@@ -469,6 +470,34 @@ describe('public views', () => {
     expect(JSON.stringify(viewOf(opened))).not.toContain(VISITOR_KEY);
   });
 
+  it('carry Martin’s answer to a hold through the redactor, but not his words on a hold about a visitor’s report', () => {
+    const answer = (payload: object) =>
+      ({
+        ...opened,
+        type: 'hold.answered',
+        version: 2,
+        actor: 'martin',
+        summary: 'Martin answered #1306 in words',
+        payload,
+      }) as NewEvent;
+    const words = 'Keep the old error page; the key is sk-ant-api03-abcdefghijklmnop';
+    const open = viewOf(answer({ decision: 'answered', answer: words, hold: opened.id }));
+    expect(open.payload).toEqual({
+      decision: 'answered',
+      answer: 'Keep the old error page; the key is [redacted]',
+      hold: opened.id,
+    });
+    const report = answer({ decision: 'answered', answer: words, hold: opened.id, report: true });
+    const kept = viewOf(report);
+    expect(kept).toMatchObject({
+      summary: 'Martin answered the hold in words',
+      payload: { decision: 'answered', report: true },
+    });
+    expect(JSON.stringify(kept)).not.toContain('old error page');
+    expect(validate({ ...report, ...kept })).toEqual({ ok: true });
+    expect(viewOf({ ...report, ...kept } as NewEvent)).toEqual(kept);
+  });
+
   it('redact anything secret-shaped, wherever it is', () => {
     const view = JSON.stringify(viewOf(gate));
     expect(view).not.toContain('sk-ant-api03');
@@ -723,6 +752,18 @@ describe('upcasting the real catalogue', () => {
     expect(hold(8)).toEqual({ ok: true });
   });
 
+  it('reads version 1 of hold.answered as it was, and names the hold and a report’s at 2', () => {
+    const approved = { decision: 'approved', answer: 'Go on' };
+    expect(upcast({ type: 'hold.answered', version: 1, payload: approved })).toMatchObject({
+      event: { version: 2, payload: approved },
+    });
+    const answer = (payload: object) =>
+      validate({ ...opened, type: 'hold.answered', version: 2, actor: 'martin', payload });
+    expect(answer({ ...approved, hold: opened.id, report: true })).toEqual({ ok: true });
+    expect(answer({ ...approved, hold: 'hold-1' }).ok).toBe(false);
+    expect(answer({ ...approved, report: false }).ok).toBe(false);
+  });
+
   it('reads version 3 of signal.received as it was, and takes triage’s look at what the sense reads at 4', () => {
     const logs = { sense: 'logs', check: 'every request leaves a record', route: '/about', version: 'v0.9.2' };
     expect(upcast({ type: 'signal.received', version: 3, payload: logs })).toMatchObject({
@@ -944,6 +985,27 @@ describe('the event-log format', () => {
 
   it('names the line that is not JSON', () => {
     expect(() => parseLog('{}\n{nope}\n')).toThrow('Line 2 of the event log is not JSON');
+  });
+});
+
+describe('the answers a hold takes', () => {
+  it('are each that does something, and words on one of triage’s holds, kept with it', () => {
+    for (const cause of HOLD_CAUSES) {
+      const offered = answersTo(cause);
+      expect(offered, cause).toContain('rejected');
+      for (const answer of offered) {
+        const kept = answer === 'answered' && WORDS_LEAVE_HELD.includes(cause);
+        if (!kept) expect(ANSWERS[cause][answer], `${cause}: ${answer}`).not.toBe('wait');
+      }
+    }
+    expect(answersTo('gates')).toEqual(['approved', 'answered', 'rejected']);
+    // A fix waiting for Martin's deploy, which a release carrying it ends by itself, takes only his rejection.
+    expect(answersTo('deploy')).toEqual(['rejected']);
+    // He merges on GitHub: his words send the work back, and nothing here approves it.
+    expect(answersTo('merge')).toEqual(['answered', 'rejected']);
+    // Approving a suggestion means nothing until improvements do.
+    expect(answersTo('suggestion')).toEqual(['answered', 'rejected']);
+    expect(answersTo('finding')).toEqual(['approved', 'answered', 'rejected']);
   });
 });
 

@@ -22,6 +22,7 @@ import {
   ACCESS,
   type Access,
   ENROLMENT_CODE,
+  GUARDRAIL_HOLDS,
   type Name,
   routeOf,
   SESSION,
@@ -497,6 +498,9 @@ const WRITES: [string, Body][] = [
   ['/admin/release/abort', { release: 'whichever-1' }],
   ['/admin/release/retry', { release: 'whichever-1' }],
   ['/admin/settings', { caps: { dayUsd: 10 } }],
+  ['/admin/holds/1/approve', { hold: crypto.randomUUID() }],
+  ['/admin/holds/1/reject', { hold: crypto.randomUUID() }],
+  ['/admin/holds/1/answer', { hold: crypto.randomUUID(), words: 'Go on' }],
 ];
 
 describe('every write route', () => {
@@ -729,7 +733,7 @@ describe('a command a role not Martin’s appended', () => {
       ts: new Date().toISOString(),
       work_item: type === 'line.started' ? null : '4100',
       type,
-      version: type === 'work-item.opened' ? 2 : 1,
+      version: VERSIONS[type],
       actor: type === 'work-item.opened' ? 'probe' : 'martin',
       summary: `${type}, as Martin`,
       payload,
@@ -1317,10 +1321,11 @@ describe('the settings', () => {
     const [a, b, c, d, e, f, g] = numbers;
     const opened = (workItem: string) =>
       writer(workItem, 'work-item.opened', { kind: 'defect-fix', title: 'Server errors', sample: false });
+    const holdOfA = writer(a as string, 'hold.started', hold(1.4));
     await sql.begin((tx) =>
       appendMartins(sql, tx, [
         ...[a, b, c, d, e, f, g].map((workItem) => opened(workItem as string)),
-        writer(a as string, 'hold.started', hold(1.4)),
+        holdOfA,
         writer(b as string, 'hold.started', hold(3.2)),
         // From before the line recorded the spend: the cap it reached is all there is to go on.
         writer(c as string, 'hold.started', hold()),
@@ -1359,6 +1364,7 @@ describe('the settings', () => {
         payload: {
           decision: 'approved',
           answer: "Martin raised a work item's cap to $2.00, past the $1.40 this one has spent.",
+          hold: holdOfA.id,
         },
       },
       expect.objectContaining({ work_item: c, payload: expect.objectContaining({ decision: 'approved' }) }),
@@ -1374,6 +1380,219 @@ describe('the settings', () => {
     expect((await browser.post('/admin/settings', { caps: { workItemUsd: 5 } })).body).toMatchObject({
       answered: [b],
     });
+  });
+});
+
+describe('Needs you', () => {
+  const event = (workItem: string, type: string, actor: string, payload: object) =>
+    ({
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      work_item: workItem,
+      type,
+      version: VERSIONS[type as keyof typeof VERSIONS],
+      actor,
+      summary: `${type} for the test`,
+      payload,
+      artifacts: [],
+    }) as NewEvent;
+  const append = (sql: Sql, events: NewEvent[]) =>
+    new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts('/nonexistent') }).append(events);
+
+  /**
+   * A work item held for this cause, as the line or triage holds it, opened by a sense's signal or a visitor's report:
+   * its number, and its hold's id.
+   */
+  async function held(
+    cause: string,
+    { report = false, stage = 'build' }: { report?: boolean; stage?: string } = {},
+  ): Promise<{ workItem: string; hold: string }> {
+    const triage = ['suggestion', 'finding', 'burst', 'environment'].includes(cause);
+    const workItem = await nextWorkItem(db.as.triage);
+    const hold = event(workItem, 'hold.started', triage ? 'triage' : 'factory', {
+      stage: triage ? 'triage' : stage,
+      kind: 'held',
+      cause,
+      reason: `Held for the test: ${cause}`,
+      ...(cause === 'finding' && {
+        defect: { fingerprint: { route: '/about', class: 'broken-link' }, symptom: 'broken-link' },
+      }),
+    });
+    await append(db.as.triage, [
+      event(workItem, 'work-item.opened', report ? 'visitor' : 'probe', {
+        kind: report ? 'visitor-report' : 'defect-fix',
+        title: 'A page for the test',
+        sample: false,
+      }),
+      event(workItem, 'signal.received', report ? 'visitor' : 'probe', {
+        sense: report ? 'report' : 'probe',
+        check: report ? 'a visitor’s report' : 'search answers',
+        route: '/search',
+        version: 'v0.9.4',
+        ...(report
+          ? { report: { page: '/search', text: 'The search box ate my words' } }
+          : { symptom: 'server-error' }),
+      }),
+    ]);
+    await append(triage ? db.as.triage : db.as.line, [hold]);
+    return { workItem, hold: hold.id };
+  }
+  const answers = (workItem: string) => db.owner<{ actor: string; payload: Body; public: Body }[]>`
+    select actor, payload, public from events where work_item = ${workItem} and type = 'hold.answered' order by seq`;
+
+  it('appends Martin’s answer to the hold the card showed, naming it, and refuses one to a hold no longer open', async () => {
+    const { browser } = await signedIn();
+    const { workItem, hold } = await held('question', { stage: 'plan' });
+    const said = await browser.post(`/admin/holds/${workItem}/answer`, { hold, words: '  The home page first  ' });
+    expect(said, JSON.stringify(said.body)).toMatchObject({
+      status: 200,
+      body: { workItem, hold, decision: 'answered', report: false },
+    });
+    expect(await answers(workItem)).toEqual([
+      {
+        actor: 'martin',
+        payload: { decision: 'answered', answer: 'The home page first', hold },
+        public: expect.objectContaining({ payload: { decision: 'answered', answer: 'The home page first', hold } }),
+      },
+    ]);
+    // Answered: a second answer, from this card or another tab, finds no hold waiting.
+    for (const [path, body] of [
+      ['approve', { hold }],
+      ['reject', { hold }],
+      ['answer', { hold, words: 'Again' }],
+    ] as const) {
+      expect(await browser.post(`/admin/holds/${workItem}/${path}`, body)).toMatchObject({
+        status: 409,
+        body: { refused: 'hold' },
+      });
+    }
+    expect(await answers(workItem)).toHaveLength(1);
+  });
+
+  it('refuses an answer to a hold ended, replaced or never there, having appended nothing', async () => {
+    const { browser } = await signedIn();
+    const closed = await held('failures');
+    await append(db.as.line, [
+      event(closed.workItem, 'work-item.closed', 'factory', { outcome: 'no-change', reason: 'Gone' }),
+    ]);
+    const replaced = await held('failures');
+    await append(db.as.line, [
+      event(replaced.workItem, 'hold.started', 'factory', {
+        stage: 'build',
+        kind: 'held',
+        cause: 'failures',
+        reason: 'Held again',
+      }),
+    ]);
+    const merged = await held('failures');
+    await append(db.as.line, [
+      event(merged.workItem, 'pull-request.merged', 'factory', { number: 7, commit: 'a'.repeat(40), by: 'martin' }),
+    ]);
+    const other = await held('failures');
+    for (const [workItem, hold] of [
+      [closed.workItem, closed.hold],
+      [replaced.workItem, replaced.hold],
+      [merged.workItem, merged.hold],
+      // Another work item's hold, named on this one.
+      [other.workItem, closed.hold],
+    ]) {
+      expect(await browser.post(`/admin/holds/${workItem}/reject`, { hold }), workItem).toMatchObject({
+        status: 409,
+        body: { refused: 'hold' },
+      });
+      expect(await answers(workItem as string)).toEqual([]);
+    }
+    // A work item with no hold at all, and one that is not a number.
+    const none = await nextWorkItem(db.as.triage);
+    expect((await browser.post(`/admin/holds/${none}/reject`, { hold: other.hold })).status).toBe(409);
+    expect((await browser.post('/admin/holds/1a/reject', { hold: other.hold })).status).toBe(400);
+    expect((await browser.post(`/admin/holds/${other.workItem}/reject`, { hold: 'not-a-hold' })).status).toBe(400);
+    expect((await browser.post(`/admin/holds/${other.workItem}/answer`, { hold: other.hold })).status).toBe(400);
+    expect(
+      (await browser.post(`/admin/holds/${other.workItem}/answer`, { hold: other.hold, words: 'x'.repeat(301) }))
+        .status,
+    ).toBe(400);
+  });
+
+  it('asks for the passkey again to approve a guardrail’s hold, decided by the stored cause, and for nothing else', async () => {
+    const { browser, passkey } = await signedIn();
+    await db.owner`update sessions set stepped_up_at = null where id_sha256 = ${sessionOf(browser)}`;
+    for (const cause of GUARDRAIL_HOLDS.filter((cause) => cause !== 'merge')) {
+      const { workItem, hold } = await held(cause);
+      expect(await browser.post(`/admin/holds/${workItem}/approve`, { hold }), cause).toMatchObject({
+        status: 403,
+        body: { refused: 'step-up' },
+      });
+      expect(await answers(workItem)).toEqual([]);
+      // Words and a rejection never ask.
+      expect((await browser.post(`/admin/holds/${workItem}/answer`, { hold, words: 'Try again' })).status, cause).toBe(
+        200,
+      );
+    }
+    const rejected = await held('gates');
+    expect((await browser.post(`/admin/holds/${rejected.workItem}/reject`, { hold: rejected.hold })).status).toBe(200);
+    // Approving any other cause never asks.
+    const question = await held('question', { stage: 'plan' });
+    expect((await browser.post(`/admin/holds/${question.workItem}/approve`, { hold: question.hold })).status).toBe(200);
+    // Given again, it approves a guardrail's.
+    const gates = await held('gates');
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await browser.post(`/admin/holds/${gates.workItem}/approve`, { hold: gates.hold })).status).toBe(200);
+    expect(await answers(gates.workItem)).toMatchObject([{ actor: 'martin', payload: { decision: 'approved' } }]);
+  });
+
+  it('refuses an answer that would do nothing: approving a merge, a deploy or a suggestion, or words on a deploy', async () => {
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    for (const [cause, path, body] of [
+      ['merge', 'approve', {}],
+      ['deploy', 'approve', {}],
+      ['deploy', 'answer', { words: 'Ship it' }],
+      ['suggestion', 'approve', {}],
+    ] as const) {
+      const { workItem, hold } = await held(cause, { stage: 'release' });
+      expect(await browser.post(`/admin/holds/${workItem}/${path}`, { hold, ...body }), cause).toMatchObject({
+        status: 422,
+        body: { refused: 'answer' },
+      });
+      expect(await answers(workItem)).toEqual([]);
+      expect((await browser.post(`/admin/holds/${workItem}/reject`, { hold })).status, cause).toBe(200);
+    }
+  });
+
+  it('leaves one of triage’s holds open after words, for his approval or rejection', async () => {
+    const { browser } = await signedIn();
+    const { workItem, hold } = await held('finding');
+    expect(
+      (await browser.post(`/admin/holds/${workItem}/answer`, { hold, words: 'Leave it for a sense' })).status,
+    ).toBe(200);
+    expect((await browser.post(`/admin/holds/${workItem}/answer`, { hold, words: 'Still waiting' })).status).toBe(200);
+    expect((await browser.post(`/admin/holds/${workItem}/approve`, { hold })).status).toBe(200);
+    expect((await browser.post(`/admin/holds/${workItem}/reject`, { hold })).status).toBe(409);
+    expect((await answers(workItem)).map((answer) => answer.payload.decision)).toEqual([
+      'answered',
+      'answered',
+      'approved',
+    ]);
+  });
+
+  it('keeps his words from the public view on a work item a visitor’s report opened, at any stage', async () => {
+    const { browser } = await signedIn();
+    for (const cause of ['suggestion', 'question'] as const) {
+      const { workItem, hold } = await held(cause, { report: true, stage: 'plan' });
+      const said = await browser.post(`/admin/holds/${workItem}/answer`, { hold, words: 'Search should keep them' });
+      expect(said.body).toMatchObject({ report: true });
+      const [answer] = await answers(workItem);
+      expect(answer?.payload).toEqual({ decision: 'answered', answer: 'Search should keep them', hold, report: true });
+      expect(answer?.public).toMatchObject({
+        summary: 'Martin answered the hold in words',
+        payload: { decision: 'answered', hold, report: true },
+      });
+      expect(JSON.stringify(answer?.public)).not.toContain('Search should keep them');
+      const read = (await readPublic(db.reader, 0)).map(({ event }) => event as { payload?: Body; work_item?: string });
+      expect(read.find((e) => e.work_item === workItem && e.payload?.decision)).toBeDefined();
+      expect(JSON.stringify(read)).not.toContain('Search should keep them');
+    }
   });
 });
 
