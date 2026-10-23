@@ -182,8 +182,8 @@ describe('the admin service', () => {
         return [manifest.metadata?.name, value('FACTORY_PROFILE'), value('ALL_LOCAL')];
       });
     expect(settings).toHaveLength(4);
-    const [gateway] = settings.filter(([name]) => name === 'gateway');
-    for (const each of settings) expect(each.slice(1), each[0]).toEqual(gateway?.slice(1));
+    // The local cluster's: the local profile, with every agent on the model Martin chose.
+    for (const each of settings) expect(each.slice(1), each[0]).toEqual(['local', undefined]);
   });
 
   it('serves the console’s origin, and trusts forwarded headers from the pod network only', async () => {

@@ -62,23 +62,19 @@ send() { # case method path [patch]: admitted on a 2xx, refused with the API's r
   local kind=$1 method=$2 path=$3 code
   code=$(curl -s -o "$work/answer" -w '%{http_code}' -X "$method" -H 'content-type: application/merge-patch+json' \
     "http://127.0.0.1:$port$path?dryRun=All" ${4:+--data "$4"})
-  case $code in
-    2*) record "$kind" admitted "HTTP $code" ;;
-    # RBAC answers 403; an admission policy 403 on the status and 422 on the Rollout itself.
-    403) record "$kind" refused "$(jq -r .message "$work/answer")" ;;
-    422) if grep -q ValidatingAdmissionPolicy "$work/answer"; then
-      record "$kind" refused "$(jq -r .message "$work/answer")"
-    else
-      echo "$kind: HTTP 422, refused by something other than the policy:" >&2
-      cat "$work/answer" >&2
-      exit 1
-    fi ;;
-    *)
-      echo "$kind: HTTP $code, neither admitted nor refused:" >&2
-      cat "$work/answer" >&2
-      exit 1
-      ;;
-  esac
+  # RBAC answers 403; the policy 403 on the status and 422 on the Rollout itself. Each is told by its message.
+  local message
+  message=$(jq -r '.message // empty' "$work/answer" 2>/dev/null || true)
+  if [[ $code == 2* ]]; then
+    record "$kind" admitted "HTTP $code"
+  elif [[ $code =~ ^(403|422)$ && ($message == *"ValidatingAdmissionPolicy 'website-rollout-controls'"* ||
+    $message == *"User \"$as\" cannot"*) ]]; then
+    record "$kind" refused "$message"
+  else
+    echo "$kind: HTTP $code, neither admitted nor refused by the Role or the policy:" >&2
+    cat "$work/answer" >&2
+    exit 1
+  fi
 }
 
 try() { # case subresource patch: the patch made conditional on the Rollout as it was read
