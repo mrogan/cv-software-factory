@@ -292,7 +292,7 @@ export class ReleaseControls {
     const now = await this.#kube.get(this.#path, rolloutRaw).catch(() => undefined);
     if (!now) return false;
     const [set, of] = plan.status ? [plan.status, now.status] : [plan.spec ?? {}, now.spec];
-    return Object.entries(set).every(([field, value]) => (of[field] ?? null) === value);
+    return Object.entries(set).every(([field, value]) => shown(of[field], field) === value);
   }
 
   /**
@@ -326,6 +326,19 @@ export class ReleaseControls {
     if (!record || record.started.dryRun) return undefined;
     return { version: record.started.version, ended: record.ended };
   }
+}
+
+/**
+ * The fields a plan sets that Argo Rollouts leaves out of the Rollout when they are false (`omitempty` on a Go bool:
+ * `status.abort`, `status.controllerPause`, `status.promoteFull` and `spec.paused`), so one that is absent is false, as
+ * the controller reads it. A Rollout written back from Go's types loses a false flag (a retry's `abort: false`), and
+ * a control that was made would otherwise read back as not made.
+ */
+const FLAGS = new Set(['abort', 'controllerPause', 'promoteFull', 'paused']);
+
+/** A field of the Rollout as a plan would set it: a flag that is absent is false, and anything else absent is null. */
+function shown(value: unknown, field: string): unknown {
+  return value ?? (FLAGS.has(field) ? false : null);
 }
 
 /** A refusal from Kubernetes, as the service says it: the policy or the Role refused the patch, and nothing changed. */
