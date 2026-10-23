@@ -23,6 +23,8 @@
  * Each control names the release the panel showed Martin, and is refused if another is in flight now. The first patch
  * is conditional on the Rollout being as it was read (its `resourceVersion`), so a release that moved on in between is
  * read again, and the control decided again, rather than applied to what Martin did not see.
+ * A resume that follows a status patch is conditional too, and tried again while the Rollout keeps changing; one that
+ * still cannot be made leaves the control made, and its answer tells Martin his pause is still set.
  *
  * The control's event, `release.controlled`, is checked before the patch and appended once it is made, in a
  * transaction of its own, so a patch that fails leaves no event and no connection to the store waits on Kubernetes. A
@@ -177,6 +179,16 @@ export interface Controlled {
   to?: number;
 }
 
+/** A control as the service answers it: the control made, and what it left undone, which its event does not carry. */
+export interface Answered extends Controlled {
+  warning?: string;
+}
+
+/** What a control that was made says when the pause Martin set could not be cleared after it. */
+export const STILL_PAUSED =
+  'Done, but your pause is still set: the Rollout kept changing. Resume the canary when the panel offers it, ' +
+  'or the next release starts paused.';
+
 export class ReleaseControls {
   readonly #kube: KubeWriter;
   readonly #path: string;
@@ -193,7 +205,7 @@ export class ReleaseControls {
   }
 
   /** Makes a control of the release the panel showed, and records it; or refuses, having changed nothing. */
-  async control(action: ReleaseControl, release: string): Promise<Controlled> {
+  async control(action: ReleaseControl, release: string): Promise<Answered> {
     for (let attempt = 1; ; attempt++) {
       try {
         return await this.#once(action, release);
@@ -206,7 +218,7 @@ export class ReleaseControls {
     }
   }
 
-  async #once(action: ReleaseControl, release: string): Promise<Controlled> {
+  async #once(action: ReleaseControl, release: string): Promise<Answered> {
     const rollout = await this.#kube.get(this.#path, rolloutWithVersion);
     if (!rollout) throw new Refused('rollout', 404, 'There is no Rollout of the app to control.');
     const canary = canaryOf(rollout);
@@ -250,23 +262,24 @@ export class ReleaseControls {
     });
     const valid = validate(event);
     if (!valid.ok) throw new Error(`a control's event is not valid: ${valid.problems.join('; ')}`);
-    await this.#patch(plan, canary);
+    const resumed = await this.#patch(plan, canary);
     // Made: recorded after it, in a transaction of its own, so no connection waits on Kubernetes.
     await this.#record(event);
     this.#log.info({ action, release, weight: canary.weight, to: plan.to }, `Martin's ${action} of the canary`);
-    return controlled;
+    return resumed ? controlled : { ...controlled, warning: STILL_PAUSED };
   }
 
   /**
    * The plan's patches, status first, each conditional on the Rollout as it was read for it, so nothing is applied to a
    * release that moved on. A spec patch after a status patch (a promotion's or an abort's resume, a retry's) reads the
-   * Rollout again, and is made only while the same release is in it: if it cannot be, the control was made, and the
-   * canary stays paused until Martin resumes it.
+   * Rollout again, and is made only while the same release is in it; when the Rollout changed in between, as the
+   * controller's writes to its status often change it, it is read and tried again, up to `TRIES` times. Whether it was
+   * made is the answer: if not, the control was made, and the canary stays paused until Martin resumes it.
    *
    * A patch whose answer never came (the connection failed, or timed out), or came as a server error, may have been
-   * made: the Rollout is read again, and the control counts as made if it shows the patch.
+   * made: the Rollout is read again, and counts as made if it shows the patch.
    */
-  async #patch(plan: Plan, canary: Canary): Promise<void> {
+  async #patch(plan: Plan, canary: Canary): Promise<boolean> {
     const precondition = { metadata: { resourceVersion: canary.resourceVersion } };
     const [first, then] = plan.status
       ? [{ path: `${this.#path}/status`, body: { ...precondition, status: plan.status } }, plan.spec]
@@ -275,25 +288,33 @@ export class ReleaseControls {
       await this.#kube.patch(first.path, first.body);
     } catch (error) {
       const answered = error instanceof KubeError && error.kind !== 'server';
-      if (answered || !(await this.#shows(plan))) throw kubeRefusal(error) ?? error;
+      const [set, part] = plan.status ? [plan.status, 'status' as const] : [plan.spec ?? {}, 'spec' as const];
+      if (answered || !(await this.#shows(set, part))) throw kubeRefusal(error) ?? error;
     }
-    if (!then) return;
-    try {
-      const now = await this.#kube.get(this.#path, rolloutWithVersion);
-      const still = now && canaryOf(now);
-      if (still?.release !== canary.release) throw new Error('another release is in the Rollout now');
-      await this.#kube.patch(this.#path, { metadata: { resourceVersion: still.resourceVersion }, spec: then });
-    } catch (error) {
-      this.#log.error({ err: error }, 'made a control of the canary, and could not resume it: it stays paused');
+    if (!then) return true;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const now = await this.#kube.get(this.#path, rolloutWithVersion);
+        const still = now && canaryOf(now);
+        if (still?.release !== canary.release) throw new Error('another release is in the Rollout now');
+        await this.#kube.patch(this.#path, { metadata: { resourceVersion: still.resourceVersion }, spec: then });
+        return true;
+      } catch (error) {
+        const conflict = error instanceof KubeError && error.status === 409;
+        if (conflict && attempt < TRIES) continue;
+        const unanswered = !(error instanceof KubeError) || error.kind === 'server';
+        if (!conflict && unanswered && (await this.#shows(then, 'spec'))) return true;
+        this.#log.error({ err: error }, 'made a control of the canary, and could not resume it: it stays paused');
+        return false;
+      }
     }
   }
 
-  /** Whether the Rollout now shows a plan's first patch: each field it sets, as it sets it. */
-  async #shows(plan: Plan): Promise<boolean> {
+  /** Whether the Rollout now shows a patch to its spec or its status: each field it sets, as it sets it. */
+  async #shows(set: Record<string, unknown>, part: 'spec' | 'status'): Promise<boolean> {
     const now = await this.#kube.get(this.#path, rolloutRaw).catch(() => undefined);
     if (!now) return false;
-    const [set, of] = plan.status ? [plan.status, now.status] : [plan.spec ?? {}, now.spec];
-    return Object.entries(set).every(([field, value]) => shown(of[field], field) === value);
+    return Object.entries(set).every(([field, value]) => shown(now[part][field], field) === value);
   }
 
   /**

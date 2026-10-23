@@ -31,6 +31,7 @@ import type { AdminConfig } from '../../src/admin/config.ts';
 import { proxies } from '../../src/admin/config.ts';
 import { described, enrol } from '../../src/admin/enrol.ts';
 import { refuseWrite } from '../../src/admin/guard.ts';
+import { STILL_PAUSED } from '../../src/admin/rollout.ts';
 import { sha256, tokenOf } from '../../src/admin/secrets.ts';
 import { type AdminService, startAdmin } from '../../src/admin/service.ts';
 import type { Session } from '../../src/admin/store.ts';
@@ -1050,6 +1051,42 @@ describe('the release controls', () => {
     const { browser } = await signedIn();
     expect(await browser.post('/admin/release/abort', { release: RELEASE })).toMatchObject({ status: 200 });
     expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }, { spec: { paused: false } }]);
+  });
+
+  it('reads the Rollout again and resumes once more when it changed between the abort and the resume', async () => {
+    const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { paused: true });
+    const { browser } = await signedIn();
+    // The abort is made; the controller writes the status before the resume, which conflicts once.
+    kube.failing.push(undefined, 409);
+    const answer = await browser.post('/admin/release/abort', { release: RELEASE });
+    expect(answer).toMatchObject({ status: 200, body: { action: 'abort' } });
+    expect(answer.body).not.toHaveProperty('warning');
+    expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }, { spec: { paused: false } }]);
+    expect(kube.object.spec).toMatchObject({ paused: false });
+    // A resume made and answered with a server error is read back, and found made.
+    const next = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { paused: true });
+    next.failing.push(undefined, 'made-504');
+    const read = await browser.post('/admin/release/abort', { release: RELEASE });
+    expect(read).toMatchObject({ status: 200 });
+    expect(read.body).not.toHaveProperty('warning');
+  });
+
+  it('says the pause is still set when the Rollout keeps changing after the control was made', async () => {
+    const before = (await controls()).length;
+    const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { paused: true });
+    const { browser } = await signedIn();
+    kube.failing.push(undefined, 409, 409, 409);
+    expect(await browser.post('/admin/release/abort', { release: RELEASE })).toMatchObject({
+      status: 200,
+      body: { action: 'abort', warning: STILL_PAUSED },
+    });
+    // The abort was made, and is recorded; the resume was tried three times, and never made.
+    expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }]);
+    expect(kube.failing).toEqual([]);
+    expect(kube.object.spec).toMatchObject({ paused: true });
+    expect((await controls()).slice(before).map((c) => c.payload)).toEqual([
+      { action: 'abort', release: RELEASE, version: commitOf(CANARY), weight: 25 },
+    ]);
   });
 
   it('refuses every control when the admin service has no Rollout', async () => {

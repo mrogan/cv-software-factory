@@ -51,11 +51,12 @@ import {
   hashesOf,
   journeysCounted,
   journeysOf,
-  type RolloutRef,
   readRollout,
   routesWorse,
   seriesOf,
 } from '../release/read.ts';
+import { type Recorded, recordedFrom, type Target } from '../release/recorded.ts';
+import type { RolloutRef } from '../release/rollout-ref.ts';
 import { canarySignal, type FailedMeasure, failedMeasures, keyOf, type Read } from '../release/signals.ts';
 import {
   dryRunEvents,
@@ -68,14 +69,11 @@ import {
   type Observed,
   observe,
   podHashes,
-  type Recorded,
-  recordedFrom,
   releaseEvents,
   releaseNeeds,
   type Series,
   type Start,
   startOf,
-  type Target,
 } from '../release/watch.ts';
 import type { Kube } from '../runners/kube.ts';
 import { ATTRIBUTES as A, inSpan } from '../spans.ts';
