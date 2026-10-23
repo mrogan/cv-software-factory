@@ -63,8 +63,8 @@ async function intoTelemetry() {
 describe('the factory’s reach into telemetry', () => {
   it('names each namespace it reaches by name, and leaves none open by omission', async () => {
     // A rule with no peer reaches everywhere, and an empty or expression namespace selector reaches every namespace or
-    // whichever match: each would take in `telemetry` unnamed. An address block is the line's, to the API server's port, or the local gateway's,
-    // to LM Studio on the host.
+    // whichever match: each would take in `telemetry` unnamed. An address block is the line's or the admin service's, to the API server's port,
+    // or the local gateway's, to LM Studio on the host.
     const open = (await factoryEgress()).filter(
       ({ peer }) =>
         Object.keys(peer).length === 0 ||
@@ -75,7 +75,7 @@ describe('the factory’s reach into telemetry', () => {
       ({ peer }) => peer.ipBlock && !peer.ipBlock.cidr.startsWith('0.0.0.0'),
     );
     expect(new Set(blocks.map(({ policy, ports }) => `${policy} ${ports}`))).toEqual(
-      new Set(['line 6443', 'gateway-local-models 1234']),
+      new Set(['line 6443', 'admin 6443', 'gateway-local-models 1234']),
     );
   });
 

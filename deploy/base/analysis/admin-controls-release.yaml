@@ -5,8 +5,8 @@
 # (deploy/base/admission/website/rollout-controls.yaml). Nothing may make or delete a Rollout, and the analysis's
 # rollback stays its own: there is no control for one.
 #
-# The service account is the admin service's own, made here with what it may do; its Deployment takes it, with its
-# token mounted, once the image that reads RELEASE_ROLLOUT is pinned.
+# The service account is the admin service's own, made here with what it may do; its Deployment runs as it, with its
+# token mounted (deploy/base/factory/admin.yaml).
 apiVersion: v1
 kind: ServiceAccount
 metadata:

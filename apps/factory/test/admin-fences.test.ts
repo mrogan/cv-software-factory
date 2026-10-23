@@ -19,10 +19,16 @@ interface Manifest {
     headers?: { customRequestHeaders?: Record<string, string> };
     podSelector?: Selector;
     ingress?: { from?: unknown[]; ports?: unknown[] }[];
+    egress?: { to?: unknown[]; ports?: unknown[] }[];
     template?: {
       metadata?: { labels?: Record<string, string> };
-      spec?: { containers?: { env?: { name: string; value?: string }[] }[] };
+      spec?: {
+        serviceAccountName?: string;
+        automountServiceAccountToken?: boolean;
+        containers?: { env?: { name: string; value?: string }[] }[];
+      };
     };
+    jobTemplate?: { spec?: { template?: { spec?: { automountServiceAccountToken?: boolean } } } };
     namespaceResourceWhitelist?: { group: string; kind: string }[];
     matchConstraints?: { resourceRules?: { apiGroups?: string[]; resources?: string[] }[] };
     variables?: { name: string; expression: string }[];
@@ -107,6 +113,77 @@ describe('the admin service', () => {
     );
     const from = policies.flatMap(({ manifest }) => (manifest.spec?.ingress ?? []).flatMap((rule) => rule.from ?? []));
     expect(from).toEqual([TRAEFIK]);
+  });
+
+  it('reaches the store, the collector and the API server’s port, and nothing else', async () => {
+    const policy = (await manifests()).find(
+      ({ manifest, namespace }) =>
+        manifest.kind === 'NetworkPolicy' && namespace === 'factory' && manifest.metadata?.name === 'admin',
+    );
+    expect(policy?.manifest.spec?.egress).toEqual([
+      {
+        to: [{ podSelector: { matchLabels: { 'app.kubernetes.io/name': 'postgres' } } }],
+        ports: [{ protocol: 'TCP', port: 5432 }],
+      },
+      {
+        to: [
+          {
+            namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'telemetry' } },
+            podSelector: { matchLabels: { 'app.kubernetes.io/name': 'opentelemetry-collector' } },
+          },
+        ],
+        ports: [{ protocol: 'TCP', port: 4318 }],
+      },
+      // The API server, on the node's private address once the `kubernetes` Service has translated it, as the line's.
+      {
+        to: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'].map((cidr) => ({ ipBlock: { cidr } })),
+        ports: [{ protocol: 'TCP', port: 6443 }],
+      },
+    ]);
+  });
+
+  it('runs as its own service account, with its token, for the app’s Rollout alone', async () => {
+    const all = await manifests();
+    const deployment = all.find(
+      ({ manifest }) => manifest.kind === 'Deployment' && manifest.metadata?.name === 'admin',
+    );
+    const spec = deployment?.manifest.spec?.template?.spec;
+    expect(spec?.serviceAccountName).toBe('admin');
+    expect(spec?.automountServiceAccountToken).toBe(true);
+    const env = Object.fromEntries((spec?.containers?.[0]?.env ?? []).map((e) => [e.name, e.value]));
+    expect(env.RELEASE_ROLLOUT).toBe('website/website');
+    // In `factory`, only the line and the admin service hold a token for the API: every other pod, of any workload,
+    // says it holds none, and a pod that does not say counts as holding one.
+    const pods = all
+      .filter(({ namespace }) => namespace === 'factory')
+      .map(({ manifest }) => ({
+        name: manifest.metadata?.name,
+        pod: manifest.spec?.template?.spec ?? manifest.spec?.jobTemplate?.spec?.template?.spec,
+      }))
+      .filter(({ pod }) => pod !== undefined);
+    expect(pods.length).toBeGreaterThan(10);
+    const withToken = pods.filter(({ pod }) => pod?.automountServiceAccountToken !== false).map(({ name }) => name);
+    expect(withToken.sort()).toEqual(['admin', 'line']);
+  });
+
+  it('holds Martin’s settings to the profile the gateway enforces, and says so on the console', async () => {
+    // FACTORY_PROFILE and ALL_LOCAL as each Deployment that reads them sets them: the gateway enforces them, the line
+    // bounds a step by them, the admin service holds a save to them, and the console shows them.
+    const settings = (await manifests())
+      .filter(
+        ({ manifest, namespace }) =>
+          manifest.kind === 'Deployment' &&
+          namespace === 'factory' &&
+          ['gateway', 'line', 'admin', 'console'].includes(manifest.metadata?.name ?? ''),
+      )
+      .map(({ manifest }) => {
+        const env = (manifest.spec?.template?.spec?.containers ?? []).flatMap((c) => c.env ?? []);
+        const value = (name: string) => env.find((e) => e.name === name)?.value;
+        return [manifest.metadata?.name, value('FACTORY_PROFILE'), value('ALL_LOCAL')];
+      });
+    expect(settings).toHaveLength(4);
+    // The local cluster's: the local profile, with every agent on the model Martin chose.
+    for (const each of settings) expect(each.slice(1), each[0]).toEqual(['local', undefined]);
   });
 
   it('serves the console’s origin, and trusts forwarded headers from the pod network only', async () => {
