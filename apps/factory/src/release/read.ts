@@ -133,8 +133,6 @@ export type AnalysisRun = z.infer<typeof analysisRunSchema>;
 
 const analysisRunList = z.object({ items: z.array(analysisRunSchema) });
 
-export type { RolloutRef } from './rollout-ref.ts';
-
 /** The Rollout and the AnalysisRuns it owns, or undefined when there is no such Rollout. */
 export async function readRollout(
   kube: Kube,

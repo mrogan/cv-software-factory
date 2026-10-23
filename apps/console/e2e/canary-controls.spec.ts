@@ -3,7 +3,8 @@
  * throwaway store, on one origin behind a proxy standing in for Traefik (`admin.ts`), with a virtual passkey. The
  * Rollout is a stand-in that merge-patches as Kubernetes does, at the samples' release in flight (v0.9.13 at 50%),
  * which the store records as the line would. Pausing acts at once; promoting asks for the passkey again, then the
- * header's pill counts it down and the keys are gone; aborting asks first in a dialog. Needs Postgres:
+ * header's pill counts it down and the keys are gone; aborting asks first in a dialog, and says when Martin's pause
+ * could not be cleared after it. Needs Postgres:
  * TEST_DATABASE_URL, or Docker.
  */
 import { randomUUID } from 'node:crypto';
@@ -24,6 +25,8 @@ test.describe.configure({ mode: 'serial' });
 class Rollout implements KubeWriter {
   version = 1;
   readonly patches: unknown[] = [];
+  /** How many of the next patches to the spec find the Rollout changed, as the controller's writes to it would. */
+  specConflicts = 0;
   object: Record<string, unknown> = {
     metadata: { generation: 1, annotations: { 'rollout.argoproj.io/revision': '913' } },
     spec: {
@@ -56,7 +59,9 @@ class Rollout implements KubeWriter {
 
   async patch(_path: string, body: unknown): Promise<void> {
     const { metadata, ...rest } = body as { metadata?: { resourceVersion?: string } };
-    if (metadata?.resourceVersion && metadata.resourceVersion !== String(this.version)) {
+    const conflicts = 'spec' in rest && this.specConflicts > 0;
+    if (conflicts) this.specConflicts -= 1;
+    if (conflicts || (metadata?.resourceVersion && metadata.resourceVersion !== String(this.version))) {
       throw new KubeError(409, 'the object has been modified');
     }
     this.patches.push(rest);
@@ -170,6 +175,12 @@ test('Martin pauses at once, promotes with his passkey again, and aborts behind 
   });
 
   await test.step('Abort asks first, and Cancel or Escape does nothing', async () => {
+    // Paused again, so the abort clears the pause, which finds the Rollout changed every time it is tried.
+    await controls.getByRole('button', { name: 'Pause' }).click();
+    await expect
+      .poll(async () => (await controlled()).map((c) => c.payload.action))
+      .toEqual(['pause', 'promote-fully', 'pause']);
+    rollout.specConflicts = 3;
     await controls.getByRole('button', { name: 'Abort' }).click();
     const dialog = page.getByRole('dialog', { name: 'Abort the canary' });
     await expect(dialog).toContainText(
@@ -182,7 +193,12 @@ test('Martin pauses at once, promotes with his passkey again, and aborts behind 
     await dialog.getByRole('button', { name: 'Abort' }).click();
     await expect
       .poll(async () => (await controlled()).map((c) => c.payload.action))
-      .toEqual(['pause', 'promote-fully', 'abort']);
+      .toEqual(['pause', 'promote-fully', 'pause', 'abort']);
+    // Made, and recorded, with the pause still set: the panel says so where he pressed.
+    await expect(controls.getByRole('alert')).toHaveText(
+      'Done, but your pause is still set: the Rollout kept changing. Resume the canary when the panel offers it, or the next release starts paused.',
+    );
+    expect(rollout.patches.at(-1)).toEqual({ status: { abort: true } });
   });
 
   await test.step('a refusal shows where he pressed', async () => {
