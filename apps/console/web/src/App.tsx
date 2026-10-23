@@ -63,19 +63,22 @@ interface ConsoleProps {
   onMotion: (on: boolean) => void;
 }
 
-function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setMotion }: ConsoleProps) {
+function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMotion: setMotion }: ConsoleProps) {
   // Martin, signed in, reads the full events, until he previews as a visitor or his session ends. A reload ends a
   // preview: it is a look, not a mode to come back to.
   const [previewing, setPreviewing] = useState(false);
   const [ended, setEnded] = useState(false);
-  const martin = admin.kind === 'martin' && !ended;
-  const expiresAt = admin.kind === 'martin' ? admin.session.expiresAt : undefined;
+  const martin = signedIn.kind === 'martin' && !ended;
+  const expiresAt = signedIn.kind === 'martin' ? signedIn.session.expiresAt : undefined;
+  // Who everything under the header is drawn for: Martin, until he previews as a visitor or his session ends, so
+  // nothing of his shows in a preview. Only the header and the footer go by whether he is signed in.
+  const admin: Admin = martin && !previewing ? signedIn : { kind: 'visitor' };
   const lost = useCallback(async () => {
     const live = expiresAt !== undefined && (await stillSignedIn(expiresAt));
     if (!live) setEnded(true);
     return live;
   }, [expiresAt]);
-  const source = useEvents(from, martin && !previewing ? 'full' : 'public', lost);
+  const source = useEvents(from, admin.kind === 'martin' ? 'full' : 'public', lost);
   const latest = source.events.length ? Date.parse(source.events.at(-1)?.ts ?? '') : undefined;
   const t = useTime(latest, from.kind === 'live');
   const view = useMemo(() => project(source.events, t), [source.events, t]);
@@ -146,7 +149,7 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
         onTheme={setTheme}
         motion={motion}
         onMotion={setMotion}
-        admin={martin ? admin : { kind: 'visitor' }}
+        admin={martin ? signedIn : { kind: 'visitor' }}
         previewing={previewing}
         onPreview={() => preview(true)}
       />
@@ -181,7 +184,7 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
           )}
         </div>
       </main>
-      <Footer signIn={admin.kind === 'visitor'} />
+      <Footer signIn={signedIn.kind === 'visitor'} />
       {sheet && (
         <Suspense fallback={null}>
           <Sheet
