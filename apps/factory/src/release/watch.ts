@@ -51,15 +51,7 @@
 import { MAX_CANARY_STEPS, type PayloadOf } from '@software-factory/events';
 import type { Draft } from '../line/gates.ts';
 import type { AnalysisRun, Rollout } from './read.ts';
-import {
-  REVISION,
-  type Recorded,
-  recordedFrom,
-  releaseName,
-  short,
-  type Target,
-  type TargetRecord,
-} from './recorded.ts';
+import { REVISION, type Recorded, releaseName, short, type Target, type TargetRecord } from './recorded.ts';
 
 type Started = PayloadOf<'release.started'>;
 export type CanaryStep = NonNullable<Started['steps']>[number];
