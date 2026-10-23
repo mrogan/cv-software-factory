@@ -726,8 +726,16 @@ class RolloutKube implements KubeWriter {
   object: Record<string, unknown>;
   version = 1;
   readonly patches: { path: string; body: Record<string, unknown> }[] = [];
-  /** Answers the next patches with these statuses, in turn, as the API server would, or makes one and loses its answer. */
-  readonly failing: (number | 'lost' | undefined)[] = [];
+  /**
+   * Answers the next patches with these statuses, in turn, as the API server would, or makes one and loses its answer
+   * (`lost`), or makes one and answers with a server error (`made-504`).
+   */
+  readonly failing: (number | 'lost' | 'made-504' | undefined)[] = [];
+  /**
+   * Whether the Rollout is written back as Argo Rollouts' Go types write it, each flag that is false left out
+   * (`omitempty`), so a patch that sets one false leaves it absent.
+   */
+  dropsFalse = false;
 
   constructor(state: RolloutState, paused = false) {
     const r = rollout(state);
@@ -748,14 +756,23 @@ class RolloutKube implements KubeWriter {
     }
     this.patches.push({ path, body: rest });
     this.object = merged(this.object, rest) as Record<string, unknown>;
+    if (this.dropsFalse) this.object = withoutFalse(this.object);
     this.version += 1;
     // Made, and its answer lost on the way back.
     if (failing === 'lost') throw new Error('socket hang up');
+    if (failing === 'made-504') throw new KubeError(504, `PATCH ${path} answered 504`);
   }
 
   text = async () => undefined;
   create = async () => {};
   remove = async () => {};
+}
+
+/** The Rollout's spec and status with each flag that is false left out, as `omitempty` leaves it out. */
+function withoutFalse(object: Record<string, unknown>): Record<string, unknown> {
+  const drop = (part: unknown) =>
+    Object.fromEntries(Object.entries((part ?? {}) as object).filter(([, value]) => value !== false));
+  return { ...object, spec: drop(object.spec), status: drop(object.status) };
 }
 
 /** A JSON merge patch (RFC 7386). */
@@ -990,6 +1007,42 @@ describe('the release controls', () => {
     kube.failing.push('lost');
     expect(await browser.post('/admin/release/resume', { release: RELEASE })).toMatchObject({ status: 200 });
     expect(await controls()).toHaveLength(before + 2);
+  });
+
+  it('reads a flag Argo Rollouts leaves out when false as false, when a patch’s answer was lost', async () => {
+    const before = (await controls()).length;
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    let kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { paused: true });
+    kube.dropsFalse = true;
+    // A resume (`spec.paused`) and a promotion (`status.controllerPause`), each made and its answer lost.
+    kube.failing.push('lost');
+    expect(await browser.post('/admin/release/resume', { release: RELEASE })).toMatchObject({ status: 200 });
+    expect(kube.object.spec).not.toHaveProperty('paused');
+    kube.failing.push('lost');
+    expect(await browser.post('/admin/release/promote', { release: RELEASE })).toMatchObject({ status: 200 });
+    expect(kube.object.status).not.toHaveProperty('controllerPause');
+    // One that was not made is still not made: a pause, answered with a server error, reads back as no pause.
+    kube.failing.push(503);
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({ status: 500 });
+    // One that was made, answered with a server error, is read back too.
+    kube.failing.push('made-504');
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({ status: 200 });
+    // A retry (`status.abort`), made and its answer lost: the Rollout shows no abort, which is no abort.
+    kube = await withRollout(
+      { current: CANARY, stable: STABLE, stepIndex: 0, abort: true },
+      { ends: ['release.aborted'] },
+    );
+    kube.dropsFalse = true;
+    kube.failing.push('lost');
+    expect(await browser.post('/admin/release/retry', { release: RELEASE })).toMatchObject({ status: 200 });
+    expect(kube.object.status).not.toHaveProperty('abort');
+    expect((await controls()).slice(before).map((c) => c.payload.action)).toEqual([
+      'resume',
+      'promote',
+      'pause',
+      'retry',
+    ]);
   });
 
   it('resumes a paused canary it aborts, so no pause outlives it', async () => {
