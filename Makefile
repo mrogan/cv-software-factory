@@ -124,7 +124,7 @@ github-key:
 
 # Pushover's application token and Martin's user key, from the macOS Keychain, go to Alertmanager the same way: through
 # stdin, as one Secret's two entries, never written to a file or put on a command line. Without both there is no
-# Secret: Alertmanager still comes up and still sends the app's objective alerts to the intake, but nothing reaches
+# Secret, and any made before is deleted: Alertmanager still comes up and still sends the app's objective alerts to the intake, but nothing reaches
 # Martin's phone. Alertmanager reads the keys each time it sends, so a change needs no restart.
 pushover-key: ## Give Alertmanager Pushover's keys from the Keychain (pushover-app-token, pushover-user-key)
 	@token="$$(security find-generic-password -s pushover-app-token -w 2>/dev/null)"; \
@@ -134,7 +134,8 @@ pushover-key: ## Give Alertmanager Pushover's keys from the Keychain (pushover-a
 			printf 'app-token=%s\nuser-key=%s\n' "$$token" "$$user" | \
 				$(KUBECTL) -n telemetry create secret generic pushover --from-env-file=/dev/stdin --dry-run=client -o yaml | \
 				$(KUBECTL) apply -f - >/dev/null && echo "  Alertmanager has Pushover's keys, so pages and notifications reach Martin's phone."; \
-		else echo "  No Pushover keys (the Keychain's pushover-app-token and pushover-user-key): nothing reaches Martin's phone."; fi
+		else $(KUBECTL) -n telemetry delete secret pushover --ignore-not-found >/dev/null 2>&1; \
+			echo "  No Pushover keys (the Keychain's pushover-app-token and pushover-user-key): nothing reaches Martin's phone."; fi
 
 # The scoreboard's Secrets (deploy/base/scoreboard). Its role's password, made once, is in two: `factory`'s, for the
 # migrations that set it, and the scoreboard's own, for its pod. The answer key, each entry's id and fingerprint and

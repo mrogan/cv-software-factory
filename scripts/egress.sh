@@ -43,8 +43,10 @@
 #
 # Then Alertmanager (milestone 7), which sends Martin's pages: a pod labelled like it reaches the intake and the
 # internet on 443, for Pushover, and nothing else: not Prometheus, Postgres, the gateway, the admin service, the
-# Kubernetes API, the host, the metadata address or the internet on another port. Only Prometheus's server reaches it,
-# as anything that did could silence a page: not the stranger in `telemetry`, nor a worker.
+# Kubernetes API, the host, the metadata address or the internet on another port. Only Prometheus's server and Grafana
+# reach it, as anything that did could silence a page: Prometheus's server does, and the stranger in `telemetry`, whose
+# own egress is open, does not, so only Alertmanager's fence stops it. A worker cannot either, though its own fence
+# would stop it first.
 #
 # Then the admin service (milestone 7), which believes forwarded headers from the pod network because only Traefik may
 # reach it: a worker, an agent pod and the scoreboard cannot, nor the stranger in `telemetry`, whose own egress is
@@ -661,7 +663,7 @@ fi
 
 if [ "$failed" = 0 ]; then
   echo "Only the gateway, the GitHub worker, Kyverno's admission controller and Alertmanager leave the cluster; the readers"
-  echo "of telemetry only query the backends; only Prometheus's server scrapes the platform's metrics or reaches"
+  echo "of telemetry only query the backends; only Prometheus's server scrapes the platform's metrics; a stranger cannot reach"
   echo "Alertmanager; the runners, the release, the traffic, the app, the Postgres exporter and the scoreboard are fenced."
 else echo "The network policies do not hold."; fi
 exit "$failed"

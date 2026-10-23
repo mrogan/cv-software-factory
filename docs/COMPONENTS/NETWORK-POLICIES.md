@@ -119,7 +119,7 @@ It starts a pod labelled like each fenced part, and shows what each reaches and 
 - the pod log collector;
 - Prometheus's server, which reaches the platform's metrics beyond `telemetry`: Kyverno's two controllers on 8000, Argo Rollouts' controller on 8090, the Postgres exporter on 9187 and the pod log collector on 8888;
 - Tempo, which reaches Prometheus's remote-write receiver;
-- Alertmanager, which reaches the intake and the internet on 443, and nothing else: not Prometheus, Postgres, the gateway, the admin service, the Kubernetes API, the host or the internet on another port; and which only Prometheus's server reaches, not a worker or the pod in `telemetry` below;
+- Alertmanager, which reaches the intake and the internet on 443, and nothing else: not Prometheus, Postgres, the gateway, the admin service, the Kubernetes API, the host or the internet on another port; and which Prometheus's server reaches, and not the pod in `telemetry` below, whose own egress is open, nor a worker;
 - the Postgres exporter, which reaches Postgres and nothing else;
 - a pod in `telemetry` that is none of its backends, answering on their ports, which no reader of telemetry reaches, and which itself reaches neither Prometheus nor any of the platform's metrics.
 
