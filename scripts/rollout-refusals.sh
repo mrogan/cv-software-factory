@@ -6,11 +6,13 @@
 # them, whenever either changes, with credentials that may impersonate a service account (Martin's own), and a few
 # seconds after a change: the API server takes a moment to load a policy.
 #
-# Each request is the one the service makes, a merge patch straight to the API, sent through `kubectl proxy` as its
-# account (`kubectl patch` reads a subresource before it patches it, which the Role does not grant and the service does
-# not need), and a server-side dry run: it passes through authorisation and admission exactly as a real one does, and
-# nothing is changed. Promote moves the status's step on by one, or to past the last step when it is there already, so a
-# canary in flight or not, each asks the same of the policy.
+# Each patch is a merge patch straight to the API, conditional on the Rollout's resourceVersion as the service's are,
+# sent through `kubectl proxy` as its account (`kubectl patch` reads a subresource before it patches it, which the Role
+# does not grant and the service does not need), and a server-side dry run: it passes through authorisation and
+# admission exactly as a real one does, and nothing is changed. A refusal is the Role's or the policy's; any other
+# answer that is not a success (no connection, no Rollout, a conflict, a patch the schema refuses) stops the script,
+# so the record holds only the answers of the two gates it is about. Promote moves the status's step on by one, or to
+# past the last step when it is there already, so a canary in flight or not, each asks the same of the policy.
 #
 #   pause             spec.paused set                                                  admitted
 #   resume            spec.paused cleared                                              admitted
@@ -40,14 +42,15 @@ at=$(kubectl --context "$context" -n website get rollout website -o jsonpath='{.
 at=${at:-0}
 steps=$(kubectl --context "$context" -n website get rollout website -o json | jq '.spec.strategy.canary.steps | length')
 step=$(( at < steps ? at + 1 : steps ))
+version=$(kubectl --context "$context" -n website get rollout website -o jsonpath='{.metadata.resourceVersion}')
 
 # The API as the admin service's account, on a port of the proxy's choosing, stopped when this ends.
 work=$(mktemp -d)
 kubectl --context "$context" --as "$as" proxy --port=0 >"$work/proxy" 2>&1 &
 proxy=$!
 trap '{ kill "$proxy" && wait "$proxy"; } 2>/dev/null || true; rm -rf "$work"' EXIT
-for _ in $(seq 50); do grep -q 'Starting to serve' "$work/proxy" && break; sleep 0.1; done
-port=$(sed -n 's/.*127\.0\.0\.1:\([0-9]*\).*/\1/p' "$work/proxy")
+for _ in $(seq 300); do grep -q 'Starting to serve' "$work/proxy" && break; sleep 0.1; done
+port=$(sed -n 's/^Starting to serve on 127\.0\.0\.1:\([0-9]*\)$/\1/p' "$work/proxy" | head -n 1)
 [[ -n $port ]] || { cat "$work/proxy" >&2; exit 1; }
 
 record() { # case outcome answer: one JSON line
@@ -59,15 +62,28 @@ send() { # case method path [patch]: admitted on a 2xx, refused with the API's r
   local kind=$1 method=$2 path=$3 code
   code=$(curl -s -o "$work/answer" -w '%{http_code}' -X "$method" -H 'content-type: application/merge-patch+json' \
     "http://127.0.0.1:$port$path?dryRun=All" ${4:+--data "$4"})
-  if [[ $code == 2* ]]; then
-    record "$kind" admitted "HTTP $code"
-  else
-    record "$kind" refused "$(jq -r '.message // empty' "$work/answer" 2>/dev/null || cat "$work/answer")"
-  fi
+  case $code in
+    2*) record "$kind" admitted "HTTP $code" ;;
+    # RBAC answers 403; an admission policy 403 on the status and 422 on the Rollout itself.
+    403) record "$kind" refused "$(jq -r .message "$work/answer")" ;;
+    422) if grep -q ValidatingAdmissionPolicy "$work/answer"; then
+      record "$kind" refused "$(jq -r .message "$work/answer")"
+    else
+      echo "$kind: HTTP 422, refused by something other than the policy:" >&2
+      cat "$work/answer" >&2
+      exit 1
+    fi ;;
+    *)
+      echo "$kind: HTTP $code, neither admitted nor refused:" >&2
+      cat "$work/answer" >&2
+      exit 1
+      ;;
+  esac
 }
 
-try() { # case subresource patch
-  send "$1" PATCH "$rollout${2:+/$2}" "$3"
+try() { # case subresource patch: the patch made conditional on the Rollout as it was read
+  send "$1" PATCH "$rollout${2:+/$2}" "$(jq -cn --argjson patch "$3" --arg version "$version" \
+    '$patch * {metadata: {resourceVersion: $version}}')"
 }
 
 {
@@ -89,5 +105,6 @@ try() { # case subresource patch
   send delete DELETE "$rollout"
   send traffic PATCH /apis/traefik.io/v1alpha1/namespaces/website/traefikservices/website \
     '{"spec":{"weighted":{"services":[]}}}'
-} | jq -s . >"$out"
+} >"$work/answers"
+jq -s . "$work/answers" >"$out"
 jq -r '.[] | "\(.outcome)  \(.case): \(.message)"' "$out"

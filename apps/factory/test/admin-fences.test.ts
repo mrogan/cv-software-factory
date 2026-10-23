@@ -28,6 +28,7 @@ interface Manifest {
         containers?: { env?: { name: string; value?: string }[] }[];
       };
     };
+    jobTemplate?: { spec?: { template?: { spec?: { automountServiceAccountToken?: boolean } } } };
     namespaceResourceWhitelist?: { group: string; kind: string }[];
     matchConstraints?: { resourceRules?: { apiGroups?: string[]; resources?: string[] }[] };
     variables?: { name: string; expression: string }[];
@@ -151,17 +152,38 @@ describe('the admin service', () => {
     expect(spec?.automountServiceAccountToken).toBe(true);
     const env = Object.fromEntries((spec?.containers?.[0]?.env ?? []).map((e) => [e.name, e.value]));
     expect(env.RELEASE_ROLLOUT).toBe('website/website');
-    // In `factory`, only the line and the admin service hold a token for the API.
-    const withToken = all
+    // In `factory`, only the line and the admin service hold a token for the API: every other pod, of any workload,
+    // says it holds none, and a pod that does not say counts as holding one.
+    const pods = all
+      .filter(({ namespace }) => namespace === 'factory')
+      .map(({ manifest }) => ({
+        name: manifest.metadata?.name,
+        pod: manifest.spec?.template?.spec ?? manifest.spec?.jobTemplate?.spec?.template?.spec,
+      }))
+      .filter(({ pod }) => pod !== undefined);
+    expect(pods.length).toBeGreaterThan(10);
+    const withToken = pods.filter(({ pod }) => pod?.automountServiceAccountToken !== false).map(({ name }) => name);
+    expect(withToken.sort()).toEqual(['admin', 'line']);
+  });
+
+  it('holds Martin’s settings to the profile the gateway enforces, and says so on the console', async () => {
+    // FACTORY_PROFILE and ALL_LOCAL as each Deployment that reads them sets them: the gateway enforces them, the line
+    // bounds a step by them, the admin service holds a save to them, and the console shows them.
+    const settings = (await manifests())
       .filter(
         ({ manifest, namespace }) =>
           manifest.kind === 'Deployment' &&
           namespace === 'factory' &&
-          manifest.spec?.template?.spec?.automountServiceAccountToken !== false,
+          ['gateway', 'line', 'admin', 'console'].includes(manifest.metadata?.name ?? ''),
       )
-      .map(({ manifest }) => manifest.metadata?.name)
-      .sort();
-    expect(withToken).toEqual(['admin', 'line']);
+      .map(({ manifest }) => {
+        const env = (manifest.spec?.template?.spec?.containers ?? []).flatMap((c) => c.env ?? []);
+        const value = (name: string) => env.find((e) => e.name === name)?.value;
+        return [manifest.metadata?.name, value('FACTORY_PROFILE'), value('ALL_LOCAL')];
+      });
+    expect(settings).toHaveLength(4);
+    const [gateway] = settings.filter(([name]) => name === 'gateway');
+    for (const each of settings) expect(each.slice(1), each[0]).toEqual(gateway?.slice(1));
   });
 
   it('serves the console’s origin, and trusts forwarded headers from the pod network only', async () => {
