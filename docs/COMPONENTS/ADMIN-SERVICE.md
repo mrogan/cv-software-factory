@@ -54,7 +54,7 @@ A write's four checks, in order: `Origin` exactly the console's origin in config
 
 ## The full events
 
-`GET /admin/events/stream` sends a signed-in session every event whole, the public stream's twin, with its seq as its ID. It checks the session every five seconds, and closes, saying why, when the session is signed out, revoked or expires: at once when the service itself ends it, and at the next check when `make enrol` revokes it or its eight hours run out. An admin event none of Martin's roles appended is left out, as the factory ignores it.
+`GET /admin/events/stream` sends a signed-in session every event whole, the public stream's twin, with its seq as its ID. It checks the session every five seconds, and closes, saying why, when the session is signed out, revoked or expires: at once when the service itself ends it, and at the next check when `make enrol` revokes it or its eight hours run out. An admin event none of Martin's roles appended is left out, as the factory ignores it and the console's server's public stream leaves it out too; a test appends one with row security switched off and finds it in neither. The console reads this stream while Martin is signed in and not previewing as a visitor ([console](CONSOLE.md#signing-in)), and shows a report's text from it, made plain, as text.
 
 ## The canary's controls
 

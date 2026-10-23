@@ -149,6 +149,33 @@ html[data-motion="off"] .scrim {
   border-style: dashed;
 }
 
+/* What visitors wrote, for Martin alone, quoted under the report's public line. */
+.report-own {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.report-said {
+  margin: 0;
+  max-width: 760px;
+  padding: 2px 0 2px 16px;
+  border-left: var(--stroke-rule) solid var(--line-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.report-said figcaption {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.report-said blockquote {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 /* How it went: the site at each step beside the scrubber and the events so far. */
 .replay {
   display: grid;

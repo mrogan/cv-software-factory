@@ -1,13 +1,13 @@
 /**
  * Martin's account button, at the right of the header while he is signed in, and its menu: who is signed in, since
- * when and until when, then signing out here or everywhere. Escape or a click outside closes it.
+ * when and until when, Preview as visitor, then signing out here or everywhere. Escape or a click outside closes it.
  */
 import { useEffect, useRef, useState } from 'react';
-import { doorHref, post, type Session, said } from '../admin.ts';
+import { doorHref, leave, post, type Session, said } from '../admin.ts';
 import { clock } from '../format.ts';
 import { StepUpLine } from './StepUp.tsx';
 
-export function Account({ session }: { session: Session }) {
+export function Account({ session, onPreview }: { session: Session; onPreview: () => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | undefined>(undefined);
@@ -39,7 +39,7 @@ export function Account({ session }: { session: Session }) {
     // Signed out, or the session had already ended (signed out elsewhere, or its passkey revoked): either way this
     // browser holds none now, though only a sign-out that went through ended every other.
     if (got.status === 200 || got.status === 401) {
-      location.assign(doorHref('sign-in', got.status === 200 && everywhere ? 'everywhere' : 'here'));
+      leave(doorHref('sign-in', got.status === 200 && everywhere ? 'everywhere' : 'here'));
       return;
     }
     setBusy(false);
@@ -71,6 +71,10 @@ export function Account({ session }: { session: Session }) {
             <StepUpLine />
           </small>
         </div>
+        <button type="button" onClick={onPreview}>
+          Preview as visitor
+        </button>
+        <hr />
         <button type="button" disabled={busy} onClick={() => void signOut(false)}>
           Sign out
         </button>

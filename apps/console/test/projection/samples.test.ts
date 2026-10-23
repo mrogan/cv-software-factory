@@ -299,6 +299,7 @@ describe('a sheet', () => {
       quarantined: false,
       by: 'visitor',
       times: 1,
+      texts: [],
     });
   });
 
