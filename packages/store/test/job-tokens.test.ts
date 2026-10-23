@@ -20,7 +20,7 @@ describe('job tokens', () => {
     const job = { job: 'coder-1001-1', workItem: '1001', agent: 'coder' };
     const token = await issueJobToken(line, job);
     expect(token).toMatch(/^sfj_[A-Za-z0-9_-]{43}$/);
-    expect(await jobForToken(gateway, token)).toEqual({ ...job, issuedAt: expect.any(Date) });
+    expect(await jobForToken(gateway, token)).toEqual(job);
     const rows = await line`select * from job_tokens`;
     expect(JSON.stringify(rows)).not.toContain(token.slice(4));
 
@@ -34,7 +34,7 @@ describe('job tokens', () => {
     const traceparent = `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01`;
     const job = { job: 'coder-1003-1', workItem: '1003', agent: 'coder', traceparent };
     const token = await issueJobToken(line, job);
-    expect(await jobForToken(gateway, token)).toEqual({ ...job, issuedAt: expect.any(Date) });
+    expect(await jobForToken(gateway, token)).toEqual(job);
     // The line may not change it, and the trigger refuses even the owner.
     await expect(line`update job_tokens set traceparent = null where job = 'coder-1003-1'`).rejects.toThrow();
     await expect(database.owner`update job_tokens set traceparent = null where job = 'coder-1003-1'`).rejects.toThrow(
@@ -75,7 +75,7 @@ describe('job tokens in a store not yet migrated to keep their trace', () => {
         ...job,
         traceparent: `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01`,
       });
-      expect(await jobForToken(old.as.gateway, token)).toEqual({ ...job, issuedAt: expect.any(Date) });
+      expect(await jobForToken(old.as.gateway, token)).toEqual(job);
     } finally {
       await old.end();
     }

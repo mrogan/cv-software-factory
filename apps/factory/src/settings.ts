@@ -19,14 +19,20 @@ const FRESH_MS = 5_000;
 const JOBS_KEPT = 200;
 
 /**
- * The payload of the latest settings event one of Martin's roles appended, up to `at` if given, that this code can
- * read; undefined if there is none.
+ * The payload of the latest settings event one of Martin's roles appended, that this code can read: up to `at` if
+ * given, or up to when a job's token was issued, compared in the store at its own precision; undefined if there is none.
  */
-export async function latestChosen(sql: Sql | TransactionSql, at?: Date): Promise<unknown> {
+export async function latestChosen(sql: Sql | TransactionSql, at?: Date | { job: string }): Promise<unknown> {
+  const upTo =
+    at instanceof Date
+      ? sql`and e.appended_at <= ${at.toISOString()}::timestamptz`
+      : at
+        ? sql`and e.appended_at <= (select max(t.issued_at) from job_tokens t where t.job = ${at.job})`
+        : sql``;
   const [row] = await sql<{ payload: unknown }[]>`
     select e.payload from events e
     where e.type = 'settings.changed' and e.version <= ${VERSIONS['settings.changed']} and ${fromMartin(sql, 'e')}
-      ${at ? sql`and e.appended_at <= ${at.toISOString()}::timestamptz` : sql``}
+      ${upTo}
     order by e.seq desc limit 1`;
   return row?.payload;
 }
@@ -80,17 +86,16 @@ export class SettingsReader {
   async forJob(job: string): Promise<InForce | undefined> {
     const kept = this.#jobs.get(job);
     if (kept) return kept;
-    const [row] = await this.#sql<{ issued_at: Date }[]>`
-      select issued_at from job_tokens where job = ${job} order by issued_at desc limit 1`;
+    const [row] = await this.#sql`select 1 from job_tokens where job = ${job} limit 1`;
     if (!row) return undefined;
-    return this.at(job, row.issued_at);
+    return this.ofJob(job);
   }
 
-  /** The settings a job runs under, given when its token was issued. */
-  at(job: string, issuedAt: Date): Promise<InForce> {
+  /** The settings a job whose token the caller holds runs under, read once and kept for the job. */
+  ofJob(job: string): Promise<InForce> {
     const kept = this.#jobs.get(job);
     if (kept) return kept;
-    const settings = latestChosen(this.#sql, issuedAt).then((chosen) => inForce(this.#profile, chosen));
+    const settings = latestChosen(this.#sql, { job }).then((chosen) => inForce(this.#profile, chosen));
     settings.catch(() => this.#jobs.delete(job));
     this.#jobs.set(job, settings);
     // The oldest go first: a Map keeps the order they were set in.
