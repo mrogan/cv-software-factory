@@ -14,8 +14,8 @@
  * - **Abort**: `status.abort`, and the pause cleared if Martin had paused it, so none outlives its canary. The version
  *   before takes all of the traffic at once. Nothing failed, so it is no signal; the line records `release.aborted`
  *   with `by: martin`, from this control's event.
- * - **Retry**: `status.abort` cleared (and a pause left set), for a release that was stopped (by Martin, by stopping the line, or by an
- *   analysis error), which starts again from its first step. Not while the line is stopped, which starts no canary,
+ * - **Retry**: `status.abort` cleared, and any pause left set cleared too, for a release that was stopped (by Martin, by
+ *   stopping the line, or by an analysis error), which starts again from its first step. Not while the line is stopped, which starts no canary,
  *   and never after a rollback, which is the analysis's: the fix goes out with the next release that carries it.
  *
  * There is no rollback: that stays the analysis's alone.
@@ -263,8 +263,8 @@ export class ReleaseControls {
    * Rollout again, and is made only while the same release is in it: if it cannot be, the control was made, and the
    * canary stays paused until Martin resumes it.
    *
-   * A patch whose answer never came (the connection failed, or timed out) may have been made: the Rollout is read again,
-   * and the control counts as made if it shows the patch.
+   * A patch whose answer never came (the connection failed, or timed out), or came as a server error, may have been
+   * made: the Rollout is read again, and the control counts as made if it shows the patch.
    */
   async #patch(plan: Plan, canary: Canary): Promise<void> {
     const precondition = { metadata: { resourceVersion: canary.resourceVersion } };
@@ -274,7 +274,8 @@ export class ReleaseControls {
     try {
       await this.#kube.patch(first.path, first.body);
     } catch (error) {
-      if (error instanceof KubeError || !(await this.#shows(plan))) throw kubeRefusal(error) ?? error;
+      const answered = error instanceof KubeError && error.kind !== 'server';
+      if (answered || !(await this.#shows(plan))) throw kubeRefusal(error) ?? error;
     }
     if (!then) return;
     try {
