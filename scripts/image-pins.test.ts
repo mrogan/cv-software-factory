@@ -149,6 +149,10 @@ describe("Playwright's pins", () => {
  * Node is one release on a laptop, in CI and in the dev container, which take it from mise.toml, and in the images,
  * which pin it. Dependabot moves the images' pins and not mise.toml, which moves by hand, so a Node update fails here
  * until mise.toml moves with it.
+ *
+ * Playwright's image, which the factory's browser image is built on, carries a Node of its own that its tag does not
+ * name, so nothing here can check it. When Node moves, see what that image's pin runs (`docker run --rm --entrypoint
+ * node <pin> --version`); if it is behind, pin its tag's latest digest once Microsoft has rebuilt it.
  */
 const MISE_NODE = /^node = "(\d+\.\d+\.\d+)"$/m;
 
