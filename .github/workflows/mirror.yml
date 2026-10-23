@@ -2,8 +2,9 @@
 # official images, since hosted runners share addresses and Docker Hub limits anonymous pulls by address, and
 # Playwright's from Microsoft's registry, which is now and then slow.
 #
-# Every day, so that a new version is copied before Dependabot, which waits three days, proposes it; after each merge,
-# for any pin it brings; and by hand. Only from main, so no branch can publish a package. A pin it has not copied yet
+# Every day, so that a new version of Docker's images is copied before Dependabot, which waits three days, proposes it
+# (Playwright's image has no wait, so its pull request may come first, and take it from Microsoft's registry until the
+# next copy); after each merge, for any pin it brings; and by hand. Only from main, so no branch can publish a package. A pin it has not copied yet
 # still works: CI pulls it from its own registry, with a warning.
 name: mirror
 

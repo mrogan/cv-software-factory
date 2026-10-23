@@ -119,7 +119,8 @@ sync() {
       fi
     done
   done
-  for ref in $(printf '%s\n' "${wanted[@]}" | sort -u); do
+  # Docker's images first: Playwright's is two gigabytes, so a slow copy of it cannot hold the others up.
+  for ref in $(printf '%s\n' "${wanted[@]}" | sort -u | grep -v "^$MCR"; printf '%s\n' "${wanted[@]}" | sort -u | grep "^$MCR"); do
     copy=$(mirror_of "$ref")
     if pullable "$copy"; then
       echo "$copy: copied already"
@@ -131,7 +132,7 @@ sync() {
       "$(upstream_of "$ref")" "docker://${copy%@*}:digest-${ref##*:}"; then
       failed+=("$copy: the copy failed")
     elif ! pullable "$copy"; then
-      # A private package would send every build back to Docker Hub, with only a warning.
+      # A private package would send every build back to the image's own registry, with only a warning.
       failed+=("$copy: copied, but it cannot be pulled with no credentials: make ${copy%@*} public in its settings")
     fi
   done
