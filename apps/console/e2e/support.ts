@@ -6,6 +6,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test as base, expect, type Locator, type Page } from '@playwright/test';
+import type { RawEvent } from '@software-factory/events';
+import { full } from './full.ts';
 
 export const PORT = 18_321;
 /** A second server, with the console's milestone 4 test data (test/fixture) instead of the samples. */
@@ -227,8 +229,8 @@ export const SESSION = {
 };
 
 /**
- * The admin service as the page meets it, standing in for the real one (`signing-in.spec.ts` uses that): none at all,
- * as the console's server alone answers; there, with no session for this browser; or Martin's session.
+ * The admin service as the page meets it, standing in for the real one (`signing-in.spec.ts` and `martin.spec.ts` use
+ * that): there, with no session for this browser; or Martin's session, with the full events streamed to it.
  */
 export async function adminService(page: Page, as: 'visitor' | 'martin'): Promise<void> {
   await page.route('**/admin/session', (route) =>
@@ -236,6 +238,50 @@ export async function adminService(page: Page, as: 'visitor' | 'martin'): Promis
       ? route.fulfill({ json: SESSION })
       : route.fulfill({ status: 401, json: { refused: 'session', message: 'Sign in first.' } }),
   );
+  if (as === 'martin') await fullStream(page);
+}
+
+/**
+ * The full-event stream, standing in for the admin service's: the samples, each visitor's report with its text, sent
+ * once and then held open, as the service's is while nothing new happens. Every other stream is the browser's own.
+ */
+async function fullStream(page: Page): Promise<void> {
+  const events = lines.map((line) => JSON.stringify(full(JSON.parse(line) as RawEvent)));
+  await page.addInitScript((events: string[]) => {
+    const Real = globalThis.EventSource;
+    class Full extends EventTarget {
+      readyState = 0;
+      onopen: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      constructor(url: string) {
+        super();
+        const after = Number(new URL(url, location.href).searchParams.get('after') ?? 0);
+        setTimeout(() => {
+          if (this.readyState === 2) return;
+          this.readyState = 1;
+          this.onopen?.(new Event('open'));
+          for (const data of events) {
+            const seq = (JSON.parse(data) as { seq: number }).seq;
+            if (seq > after) this.onmessage?.(new MessageEvent('message', { data, lastEventId: String(seq) }));
+          }
+        }, 0);
+      }
+      close() {
+        this.readyState = 2;
+      }
+    }
+    class Either {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 2;
+      constructor(url: string, init?: EventSourceInit) {
+        // biome-ignore lint/correctness/noConstructorReturn: one name for two kinds of stream, as the page knows it
+        return url.startsWith('/admin/events/stream') ? new Full(url) : new Real(url, init);
+      }
+    }
+    (globalThis as { EventSource: unknown }).EventSource = Either;
+  }, events);
 }
 
 interface Guard {

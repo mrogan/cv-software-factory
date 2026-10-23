@@ -12,6 +12,8 @@
  * - forwarded headers from anywhere but the proxy are ignored.
  */
 import type { AddressInfo } from 'node:net';
+import type { NewEvent } from '@software-factory/events';
+import { DiskArtifacts, EventWriter, readPublic } from '@software-factory/store';
 import postgres, { type Sql } from 'postgres';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
@@ -705,6 +707,49 @@ describe('the full-event stream', () => {
     await other.read('admin.signed-in');
     await enrol(db.enrol, { revokeOthers: true });
     expect(await other.closed()).toContain('"why":"ended"');
+  });
+});
+
+describe('a command a role not Martin’s appended', () => {
+  const event = (type: 'work-item.opened' | 'hold.answered' | 'line.started', payload: object): NewEvent =>
+    ({
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      work_item: type === 'line.started' ? null : '4100',
+      type,
+      version: type === 'work-item.opened' ? 2 : 1,
+      actor: type === 'work-item.opened' ? 'probe' : 'martin',
+      summary: `${type}, as Martin`,
+      payload,
+      artifacts: [],
+    }) as NewEvent;
+  const writer = (sql: Sql) => new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts('/nonexistent') });
+
+  it('is in neither the full stream nor the public one', async () => {
+    await writer(db.operator).append(
+      event('work-item.opened', { kind: 'defect-fix', title: 'A defect', sample: false, category: 'functional' }),
+    );
+    // Row security refuses it from a worker's role; were that guard to fail, the readers would still leave it out.
+    const forged = event('hold.answered', { decision: 'approved' });
+    await db.owner`alter table events disable row level security`;
+    try {
+      await writer(db.as.line).append(forged);
+    } finally {
+      await db.owner`alter table events enable row level security`;
+    }
+    expect(await db.owner`select 1 from events where id = ${forged.id}`).toHaveLength(1);
+    const genuine = event('line.started', { autonomy: 'supervised' });
+    await writer(db.operator).append(genuine);
+
+    const { browser } = await signedIn();
+    const stream = await openStream(browser);
+    const { text } = await stream.read(genuine.id);
+    await stream.cancel();
+    expect(text).not.toContain(forged.id);
+
+    const read = (await readPublic(db.reader, 0)).map(({ event }) => (event as { id?: string }).id);
+    expect(read).toContain(genuine.id);
+    expect(read).not.toContain(forged.id);
   });
 });
 
