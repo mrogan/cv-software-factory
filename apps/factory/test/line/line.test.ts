@@ -13,8 +13,11 @@ import type { Reads } from '../../src/github/reads.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
 import { GitHubWorker, GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { commentOf } from '../../src/line/review.ts';
+import { lineSettings } from '../../src/line/settings.ts';
 import { APP_REPOSITORY, Line, type LineOptions, signalId } from '../../src/line/worker.ts';
+import { SettingsReader } from '../../src/settings.ts';
 import { quiet } from '../github/fake.ts';
+import { appendSettings, settingsPayload } from '../settings-events.ts';
 import { recordSpans } from '../tracing.ts';
 import { type Agent, FakeGitHub, FakeProbes, FakeSteps, MAIN } from './fakes.ts';
 
@@ -1240,8 +1243,56 @@ describe('the line', () => {
         cause: 'spend',
         reason: 'The work item has spent $0.06 on models, and may spend $0.05',
         limitUsd: 0.05,
+        spentUsd: 0.06,
       },
     ]);
+  });
+
+  it('starts each step under Martin’s settings as each pass reads them, and none outside policy', async () => {
+    const workItem = await ticket();
+    // As the line reads them: afresh at every pass.
+    const reader = new SettingsReader(database.as.line, 'local', { freshMs: 0 });
+    const settings = lineSettings(reader, false, { sql: database.as.line, events });
+    const { pass, steps, github } = line(AGENTS, events, { settings });
+    // Outside policy, straight to the store as one of his roles: a cap of nothing is no cap of nothing, and a model
+    // the profile does not offer is none. Policy's $1 and Claude are in force.
+    await appendSettings(
+      database.operator,
+      settingsPayload({ agents: { planner: { model: 'gpt-9', effort: 'medium' } }, caps: { workItemUsd: 0 } }),
+    );
+    await pass(); // the planner, on Claude
+    expect(steps.requests[0]).toMatchObject({ agent: 'planner', maxTurns: 30, deadlineSeconds: 15 * 60 });
+    // Martin puts the coder on Qwen and a work item's cap at $0.05: the coder's step is given the local model's bounds,
+    // and the reviewer's never starts, as the planner's and the coder's $0.03 each pass the cap.
+    const chosen = settingsPayload({ agents: { coder: { model: 'qwen/qwen3.8-27b' } }, caps: { workItemUsd: 0.05 } });
+    await martin.append(event(null, 'settings.changed', chosen as PayloadOf<'settings.changed'>, 'martin'));
+    await pass(); // the coder, on Qwen
+    expect(steps.requests[1]).toMatchObject({ agent: 'coder', maxTurns: 100, deadlineSeconds: 120 * 60 });
+    github.pass(12);
+    await pass(); // the gates pass, and the reviewer would be next
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
+    expect(await payloads(workItem, 'hold.started')).toEqual([
+      expect.objectContaining({ cause: 'spend', limitUsd: 0.05 }),
+    ]);
+  });
+
+  it('holds for spend only while the cap in force still holds the work item, read as the hold is appended', async () => {
+    const workItem = await ticket();
+    const chosen = settingsPayload({ caps: { workItemUsd: 5 } });
+    await martin.append(event(null, 'settings.changed', chosen as PayloadOf<'settings.changed'>, 'martin'));
+    // The pass reads $0.05, as if Martin raised the cap to $5 just after it read the settings.
+    const real = lineSettings(new SettingsReader(database.as.line, 'local', { freshMs: 0 }), false, {
+      sql: database.as.line,
+      events,
+    });
+    const stale = { ...real, now: async () => ({ ...(await real.now()), workItemLimitUsd: 0.05 }) };
+    const { pass, steps, github } = line(AGENTS, events, { settings: stale });
+    await pass(); // the planner
+    await pass(); // the coder
+    github.pass(12);
+    await pass(); // the gates pass; the pass would hold for spend, and the cap in force says not to
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
+    expect(await payloads(workItem, 'hold.started')).toEqual([]);
   });
 
   it('refuses a patch outside the spec’s scope back to the coder once, then holds, and none reaches GitHub', async () => {

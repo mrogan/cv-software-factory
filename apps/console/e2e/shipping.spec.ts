@@ -1,6 +1,7 @@
 /**
  * Milestone 6's Canary panel, a sheet's releases and the scoreboard in the browser, from the samples: what each state
- * says in words, so it reads without colour, that the panel's work items open their sheets, and WCAG 2.2 AA in both
+ * says in words, so it reads without colour, Martin's controls as a visitor reads them (his own are
+ * `canary-controls.spec.ts`'s), that the panel's work items open their sheets, and WCAG 2.2 AA in both
  * themes at a laptop's width and a phone's.
  */
 import { AxeBuilder } from '@axe-core/playwright';
@@ -18,6 +19,9 @@ test.describe('the Canary panel', () => {
     const canary = panel(page);
     await expect(canary.locator('.kick')).toHaveText('Canary · 50% of traffic');
     await expect(canary.getByRole('heading', { level: 2 })).toHaveText('The contact form loses your message');
+    // Martin's controls, as labels: at 50% the next step is all of the traffic, so there is no step to promote to.
+    await expect(canary.locator('.canary-controls dt')).toHaveText(['Promote fully', 'Pause', 'Abort']);
+    await expect(canary.locator('.canary-controls').getByRole('button')).toHaveCount(0);
     await expect(canary.getByRole('list', { name: 'The canary’s steps' }).getByRole('listitem')).toHaveText([
       /^25%3min, passed$/,
       /^50%3min, measuring now$/,
@@ -104,6 +108,9 @@ test.describe('the Canary panel', () => {
     await shown(page);
     await expect(panel(page).locator('.kick')).toHaveText('Aborted by Martin at 25%');
     await expect(panel(page)).toContainText('Martin aborted the canary at 25%');
+    // A visitor reads Martin's controls as labels, with what each does: here, his retry.
+    await expect(panel(page).locator('.canary-controls .label')).toHaveText('Martin’s controls');
+    await expect(panel(page).locator('.canary-controls dt')).toHaveText(['Retry']);
     await page.goto(consoleUrl({ at: CANARY.errored }));
     await shown(page);
     await expect(panel(page).locator('.kick')).toHaveText('Stopped by an analysis error at 25%');

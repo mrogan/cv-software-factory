@@ -117,6 +117,8 @@ export const PUBLIC_VIEWS = {
     redacted({ ...event, summary: 'Martin revoked a passkey', payload }),
   // What he did to the canary, and nothing of his session: public as it is.
   'release.controlled': redacted,
+  // His settings are everyone's to see: models, efforts and caps, and nothing of his session.
+  'settings.changed': redacted,
 } satisfies { [K in EventType]: PublicViewOf<K> };
 
 /** The public view of an event. Applying it twice changes nothing. */

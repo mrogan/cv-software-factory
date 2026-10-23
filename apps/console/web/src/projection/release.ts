@@ -3,7 +3,9 @@
  * release that carries two work items has its events on each, and is one release here. The Canary panel draws the
  * newest; the Release station takes its figure from the one in flight.
  */
-import type { PayloadOf, PublicEvent } from '@software-factory/events';
+import type { PayloadOf, PublicEvent, ReleaseControl } from '@software-factory/events';
+import { STEP_UP } from '../access.ts';
+import { shortVersion } from '../format.ts';
 import type { ItemState } from './items.ts';
 
 type Started = PayloadOf<'release.started'>;
@@ -73,9 +75,16 @@ export interface Release {
   end: End | undefined;
   /** How each earlier attempt of the same release ended, oldest first: a retry goes again from the first step. */
   retried: End[];
+  /** Martin's pause, while it holds: when he paused the canary, and the weight it keeps. */
+  paused: { at: number; weight: number } | undefined;
+  /** Each of Martin's promotions of this attempt, oldest first: when, and the weight it went to. */
+  promotions: { at: number; to: number }[];
 }
 
-/** What the Canary panel shows: no release yet, the newest one in full, or, once it has ended a while, one line. */
+/**
+ * What the Canary panel shows: no release yet, the newest one in full, or, once it has ended a while, one line. A
+ * release that was stopped stays in full while it is the newest, since it waits for Martin's retry.
+ */
 export type CanaryView = { state: 'none' } | { state: 'shown'; release: Release } | { state: 'idle'; release: Release };
 
 /**
@@ -202,37 +211,75 @@ const ALL: Step = { weight: 100, pauseSeconds: null, analysis: true };
 
 interface Building extends Release {
   listed: Step[] | null;
+  /** Each pause of Martin's that has ended: from when he paused it to when he resumed or promoted it. */
+  held: { from: number; to: number }[];
   stoppedAt: number | undefined;
 }
 
 /**
- * Where the canary is at a time: after the last step measured, and past any step the analysis does not judge whose
- * pause has run out, since such a step records nothing.
+ * Where the canary is at a time: after the last step measured or the step Martin promoted it to, whichever came last,
+ * and past any step the analysis does not judge whose pause has run out, since such a step records nothing. Paused by
+ * Martin, it stays where it was when he paused it, at the weight it kept, with no end to wait for.
  */
 function position(r: Building, now: number): Pick<Release, 'step' | 'weight' | 'until'> {
-  if (!r.listed) return { step: -1, weight: r.measured.at(-1)?.weight ?? 0, until: undefined };
+  if (!r.listed) {
+    // With no steps to place it on, the weight it last went to: measured, or promoted to.
+    const latest = [
+      ...r.measured.map((m) => ({ at: m.at, weight: m.weight })),
+      ...r.promotions.map((p) => ({ at: p.at, weight: p.to })),
+    ]
+      .sort((a, b) => a.at - b.at)
+      .at(-1);
+    return { step: -1, weight: r.paused?.weight ?? latest?.weight ?? 0, until: undefined };
+  }
   const steps = r.steps;
+  const paused = r.paused && r.paused.at <= now ? r.paused : undefined;
+  const asOf = paused ? paused.at : now;
   let step = 0;
   let from = r.startedAt;
   // A plan may hold a weight twice (a pause, then an analysis): a step measured is the next judged one at its weight.
   // Only a step that passed moves the canary on: one that could not be judged, or that waits for someone to decide,
-  // holds it there, with no end to wait for.
+  // holds it there, with no end to wait for. Martin's promotion moves it to the step that sets the weight it went to.
   let holding = false;
-  for (const m of r.measured) {
-    const index = steps.findIndex((s, i) => i >= step && s.analysis && s.weight === m.weight);
-    if (index < 0) continue;
-    holding = m.stepped.analysis.phase !== 'successful';
-    [step, from] = [holding ? index : index + 1, m.at];
+  const moves = [
+    // Paused, it moves no further, whatever is recorded after.
+    ...r.measured.filter((m) => m.at <= asOf).map((m) => ({ at: m.at, m, to: undefined })),
+    ...r.promotions.filter((p) => p.at <= asOf).map((p) => ({ at: p.at, m: undefined, to: p.to })),
+  ].sort((a, b) => a.at - b.at);
+  for (const { at, m, to } of moves) {
+    if (m) {
+      const index = steps.findIndex((s, i) => i >= step && s.analysis && s.weight === m.weight);
+      if (index < 0) continue;
+      holding = m.stepped.analysis.phase !== 'successful';
+      [step, from] = [holding ? index : index + 1, m.at];
+    } else {
+      const index = steps.findIndex((s, i) => i >= step && s.weight === to);
+      if (index < 0) continue;
+      [step, from, holding] = [index, at, false];
+    }
   }
-  if (holding) return { step, weight: steps[step]?.weight ?? 100, until: undefined };
+  if (holding) return { step, weight: paused?.weight ?? steps[step]?.weight ?? 100, until: undefined };
+  // A step's pause counts only the time the canary ran: what Martin held it for is added to its end.
+  const after = (start: number, ms: number) => {
+    let [t, left] = [start, ms];
+    for (const hold of r.held) {
+      if (hold.to <= t) continue;
+      const ran = Math.max(t, hold.from) - t;
+      if (ran >= left) break;
+      [t, left] = [Math.max(t, hold.to), left - ran];
+    }
+    return t + left;
+  };
   for (let s = steps[step]; s && !s.analysis && s.pauseSeconds !== null; s = steps[step]) {
-    if (from + s.pauseSeconds * 1000 > now) break;
-    from += s.pauseSeconds * 1000;
+    const ends = after(from, s.pauseSeconds * 1000);
+    if (ends > asOf) break;
+    from = ends;
     step += 1;
   }
   step = Math.min(step, steps.length - 1);
   const pause = steps[step]?.pauseSeconds;
-  return { step, weight: steps[step]?.weight ?? 100, until: pause == null ? undefined : from + pause * 1000 };
+  if (paused) return { step, weight: paused.weight, until: undefined };
+  return { step, weight: steps[step]?.weight ?? 100, until: pause == null ? undefined : after(from, pause * 1000) };
 }
 
 /** Every release by t, oldest first, each as far as it had got. */
@@ -307,8 +354,26 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
         until: undefined,
         end: undefined,
         retried,
+        paused: undefined,
+        promotions: [],
+        held: [],
         stoppedAt: undefined,
       });
+      continue;
+    }
+    // Martin's controls from the console: a pause holds the canary where it is until he resumes, promotes or aborts it;
+    // a promotion moves it on. What the Rollout then does, the line records.
+    if (event.type === 'release.controlled') {
+      const r = byId.get(event.payload.release);
+      if (!r || r.end) continue;
+      const { action, weight, to } = event.payload;
+      if (action === 'pause') r.paused = { at, weight };
+      // Resumed or promoted, it runs again; aborted, it stays where he held it, which is where it stopped.
+      else if (r.paused && action !== 'abort' && action !== 'retry') {
+        r.held.push({ from: r.paused.at, to: at });
+        r.paused = undefined;
+      }
+      if (to !== undefined) r.promotions.push({ at, to });
       continue;
     }
     if (
@@ -342,7 +407,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     if (event.type === 'release.aborted') r.end = abortedAt(r, Date.parse(event.payload.abortedAt), event.payload.by);
   }
   return [...byId.values()].map((r): Release => {
-    const { listed: _listed, stoppedAt: _stoppedAt, ...release } = r;
+    const { listed: _listed, stoppedAt: _stoppedAt, held: _held, ...release } = r;
     if (!r.planned) release.steps = measuredSteps(r);
     const end = endOf(r);
     const place = position(r, end?.at ?? t);
@@ -374,7 +439,75 @@ const abortedAt = (r: Building, at: number, by: AbortedBy): End => ({
 export function canaryView(all: readonly Release[], t: number): CanaryView {
   const release = all.at(-1);
   if (!release) return { state: 'none' };
-  return { state: !release.end || t - release.end.at <= SHOWN_MS ? 'shown' : 'idle', release };
+  const waits = !release.dryRun && (release.end?.kind === 'aborted' || release.end?.kind === 'errored');
+  return { state: !release.end || waits || t - release.end.at <= SHOWN_MS ? 'shown' : 'idle', release };
+}
+
+/**
+ * One of Martin's controls of the canary, as the panel offers it: the action, its label, what it does, whether it asks
+ * for the passkey again (`policy/access.ts`'s `release.promote` and `release.retry`; the console's image is built
+ * without policy/, so it keeps this copy, and a test holds the two together), and why it cannot be pressed now, if it
+ * cannot.
+ */
+export interface Control {
+  action: ReleaseControl;
+  label: string;
+  what: string;
+  stepUp: boolean;
+  /** For a promotion, the weight it goes to. */
+  to?: number;
+  off?: string;
+}
+
+/**
+ * Martin's controls of a release, as it stands: in flight, promote it to the next step's weight (when there is a step
+ * before all of the traffic) or fully, pause or resume it, and abort it; stopped (by him, with the line, or by an
+ * analysis error), retry it, but not while the line is stopped, which starts no canary. Promoted, rolled back or a dry
+ * run's: none. There is never a rollback: that is the analysis's alone.
+ */
+export function controlsOf(r: Release, lineStopped: boolean): Control[] {
+  if (r.dryRun) return [];
+  const version = shortVersion(r.version);
+  const control = (action: ReleaseControl, label: string, what: string, off?: string): Control => ({
+    action,
+    label,
+    what,
+    stepUp: STEP_UP[action],
+    ...(off && { off }),
+  });
+  if (r.end) {
+    if (r.end.kind !== 'aborted' && r.end.kind !== 'errored') return [];
+    const off = lineStopped ? 'Start the line first: a stopped line starts no canary.' : undefined;
+    return [control('retry', 'Retry', `Starts ${version}’s canary again from its first step.`, off)];
+  }
+  const next = r.steps.slice(r.step + 1).find((s) => s.weight > r.weight && s.weight < 100)?.weight;
+  return [
+    ...(next === undefined
+      ? []
+      : [
+          {
+            ...control(
+              'promote',
+              `Promote to ${next}%`,
+              'Moves the canary to its next step now, without waiting out this one.',
+            ),
+            to: next,
+          },
+        ]),
+    control(
+      'promote-fully',
+      'Promote fully',
+      `Gives ${version} all the traffic now${next ? ', skipping the steps left' : ''}.`,
+    ),
+    r.paused
+      ? control('resume', 'Resume', 'Gives the canary back to its analysis, to move on by itself again.')
+      : control('pause', 'Pause', `Holds the canary at ${r.weight}% until Martin resumes it.`),
+    control(
+      'abort',
+      'Abort',
+      `Sends all the traffic back to ${shortVersion(r.previous)}. Nothing failed, so it opens no ticket.`,
+    ),
+  ];
 }
 
 /** The release in flight: the newest, while it has not ended. */

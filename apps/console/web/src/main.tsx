@@ -9,6 +9,7 @@ import './styles/reel.css';
 import './styles/pictures.css';
 import './styles/sheet.css';
 import './styles/admin.css';
+import './styles/controls.css';
 import { App } from './App.tsx';
 
 // Development only: Preact's checks on hooks, keys and markup. The build leaves it out.

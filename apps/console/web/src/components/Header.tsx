@@ -6,6 +6,7 @@ import type { Theme } from '../settings.ts';
 import type { Connection } from '../source.ts';
 import { Account } from './Account.tsx';
 import { Mark } from './Mark.tsx';
+import { StepUpPill } from './StepUp.tsx';
 
 const AUTONOMY: Record<Autonomy, string> = { supervised: 'Supervised', guarded: 'Guarded', 'lights-out': 'Lights-out' };
 
@@ -168,6 +169,7 @@ export function Header({
           {admin.kind === 'martin' && previewing && <span className="pill-visitor">VISITOR VIEW</span>}
           {admin.kind === 'martin' && !previewing && (
             <>
+              <StepUpPill />
               {/* On a phone it is in the account menu instead. */}
               <button type="button" className="btn preview-btn" onClick={onPreview}>
                 Preview as visitor

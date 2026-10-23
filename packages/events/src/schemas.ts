@@ -75,6 +75,10 @@ const releaseId = z
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'an image digest');
 /** What Martin called a passkey as he made it ("iPhone"), so the settings can list it. */
 const passkeyName = text(40);
+/** A pinned model: `claude-sonnet-5-5`, or a local one such as `qwen/qwen3.8-27b`. */
+const model = z.string().regex(/^[a-z0-9][a-z0-9./_-]{0,79}$/);
+/** An agent's model as Martin chose it, at an effort for Claude; a local model takes none. */
+const agentSetting = z.strictObject({ model, effort: z.enum(V.EFFORTS).optional() });
 
 /**
  * One step of a canary as its Rollout plans it: a weight the canary holds, how long it pauses there, and whether a step
@@ -782,6 +786,8 @@ export const PAYLOADS = {
       question: text(300).optional(),
       /** A spend hold's cap: the most the work item may spend on models, in the profile the line runs in. */
       limitUsd: usd.optional(),
+      /** A spend hold's spend: what the work item had spent on models when it reached the cap. */
+      spentUsd: usd.optional(),
       /**
        * A `finding` hold's defect: its fingerprint, as triage would give a report's ticket (the route the planner
        * named and the symptom Jev judged, or for wrong words the passage of the page), and the symptom. A ticket
@@ -816,10 +822,9 @@ export const PAYLOADS = {
   'model.called': z.strictObject({
     agent: z.enum(V.AGENTS),
     provider: z.enum(V.MODEL_PROVIDERS),
-    /** A pinned model: `claude-sonnet-5-5`, or a local one such as `qwen/qwen3.8-27b`. */
-    model: z.string().regex(/^[a-z0-9][a-z0-9./_-]{0,79}$/),
+    model,
     settings: z.strictObject({
-      effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+      effort: z.enum(V.EFFORTS).optional(),
       maxTurns: z.number().int().positive().optional(),
     }),
     tokens: z.strictObject({ input: count, output: count, cacheRead: count, cacheWrite: count }),
@@ -923,6 +928,48 @@ export const PAYLOADS = {
       message: 'promoting fully sends the canary all of the traffic',
       path: ['to'],
     }),
+  /**
+   * Martin saved his settings in the console, within policy (`policy/settings.ts`): every agent's model and effort and
+   * every spend cap as they now stand, and each field the save changed, with its value before and after. The gateway
+   * and the line read the latest one that his roles appended, at an agent's next step, and check it against policy as
+   * they read it: anything outside it is not in force, and policy's default is.
+   */
+  'settings.changed': z.strictObject({
+    agents: z.strictObject(
+      Object.fromEntries(V.MODEL_AGENTS.map((agent) => [agent, agentSetting])) as Record<
+        V.ModelAgent,
+        typeof agentSetting
+      >,
+    ),
+    caps: z.strictObject({
+      dayUsd: usd,
+      /** None: the profile's default, which on `local` is no cap. */
+      monthUsd: usd.nullable(),
+      workItemUsd: usd,
+    }),
+    changes: z
+      .array(
+        z.discriminatedUnion('field', [
+          z.strictObject({ field: z.literal('model'), agent: z.enum(V.MODEL_AGENTS), before: model, after: model }),
+          z.strictObject({
+            field: z.literal('effort'),
+            agent: z.enum(V.MODEL_AGENTS),
+            /** None for a local model, which takes no effort. */
+            before: z.enum(V.EFFORTS).nullable(),
+            after: z.enum(V.EFFORTS).nullable(),
+          }),
+          z.strictObject({
+            field: z.literal('cap'),
+            cap: z.enum(V.SPEND_CAPS),
+            /** None for no cap. */
+            beforeUsd: usd.nullable(),
+            afterUsd: usd.nullable(),
+          }),
+        ]),
+      )
+      .min(1)
+      .max(20),
+  }),
 } satisfies { [K in EventType]: z.ZodType };
 
 /** The envelope of an event about to be appended: everything but `seq` and `public`, which the store adds. */

@@ -1,0 +1,172 @@
+/*
+ * Martin's writes, and their read-only form: the dialog, the passkey again (its key and the header's pill), the label
+ * an action becomes for a visitor, and the Canary panel's controls.
+ */
+
+/* A dialog: the browser's own modal, a raised card on the scrim, centred on a laptop and a bottom sheet on a phone. */
+.dialog {
+  width: min(480px, calc(100vw - 32px));
+  max-width: none;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--shadow-popover);
+}
+.dialog::backdrop {
+  background: var(--scrim);
+}
+.dialog-card {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dialog h2 {
+  margin: 0;
+  font: 400 28px / 1.05 var(--font-display);
+}
+.dialog h2:focus {
+  outline: none;
+}
+.dialog p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.dialog .row {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.dialog .kickline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dialog .what {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+  font-size: 13.5px;
+}
+.dialog .what b {
+  font-weight: 500;
+}
+.dialog-refusal,
+.canary-refusal {
+  padding: 8px 10px;
+  border-left: var(--stroke-rule) solid var(--attn);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.btn.attn {
+  background: var(--attn);
+  border-color: var(--attn);
+  color: var(--on-attn);
+  font-weight: 600;
+}
+.dialog .btn:disabled,
+.canary-controls .btn:disabled,
+.canary-controls .btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The key after an action that asks for the passkey again, and the pill while it is fresh. */
+.glyph.key {
+  width: 13px;
+  height: 13px;
+}
+.fresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font: 11px / 1.4 var(--font-mono);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* An action, read-only: a plain outlined label beside what it does. No lock, no greyed-out button. */
+.ro {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* The Canary panel's controls, under the steps and the measures, behind a hairline. */
+.canary-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.canary-controls .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.canary-controls .btn {
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.canary-controls dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 14px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.canary-controls dl > div {
+  display: contents;
+}
+.canary-controls dd {
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .dialog {
+    width: 100%;
+    margin: auto 0 0;
+    border-radius: 14px 14px 0 0;
+  }
+  .dialog-card {
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  }
+  .dialog .row .btn {
+    flex: 1;
+  }
+  .canary-controls .row .btn {
+    flex: 1 1 40%;
+  }
+  .canary-controls dl {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .canary-controls dd {
+    margin-bottom: 8px;
+  }
+  /* The pill moves into the account menu, where the header has no room. */
+  .top-right .fresh {
+    display: none;
+  }
+}

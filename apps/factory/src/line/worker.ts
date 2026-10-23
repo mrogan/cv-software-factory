@@ -62,7 +62,15 @@
  */
 import { hostname } from 'node:os';
 import { trace } from '@opentelemetry/api';
-import type { Evidence, PayloadOf, RawEvent, SignalSource, SymptomClass } from '@software-factory/events';
+import type {
+  Effort,
+  Evidence,
+  NewEvent,
+  PayloadOf,
+  RawEvent,
+  SignalSource,
+  SymptomClass,
+} from '@software-factory/events';
 import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD, workItemsWords } from '@software-factory/events';
 import { type EventWriter, fromMartin, IgnoredCommands, lineStopped, sendSignal } from '@software-factory/store';
 import { uuidFrom } from '@software-factory/triage';
@@ -194,15 +202,18 @@ export interface LineOptions {
    */
   takesWork?: boolean;
   /**
-   * The most one work item may spend on models: the gateway's cap, from the same profile (policy/spend.ts). Null, as
-   * by default, holds nothing for spend: the gateway still refuses the calls, and the step fails.
+   * The most one work item may spend on models: the gateway's cap, from the same profile (policy/spend.ts), until
+   * `settings` gives the one in force. Null, as by default, holds nothing for spend: the gateway still refuses the
+   * calls, and the step fails.
    */
   workItemLimitUsd?: number | null;
   /**
-   * Where each agent's calls go, as `policy/models.ts` decides for the gateway's profile: a step on a local model has
-   * longer bounds (`boundsOn`). By default, a provider that is not local.
+   * Where each agent's calls go, as the gateway sends them, until `settings` says where they go now: a step on a local
+   * model has longer bounds (`boundsOn`). By default, a provider that is not local.
    */
-  providerOf?: (agent: LineAgent) => 'anthropic' | 'bedrock' | 'local';
+  providerOf?: (agent: LineAgent) => Provider;
+  /** Martin's settings, read at each pass, so each step starts under those in force; null, as by default, for none. */
+  settings?: LineSettings | null;
   /** The one work item the line acts on, leaving every other as it is; null, as by default, for them all. */
   only?: string | null;
   /**
@@ -210,6 +221,21 @@ export interface LineOptions {
    * default, for no limit. Those already on it go on to their end.
    */
   take?: number | null;
+}
+
+type Provider = 'anthropic' | 'bedrock' | 'local';
+
+/** Martin's settings, as the line reads them (`../settings.ts`): checked against policy, as the gateway checks them. */
+export interface LineSettings {
+  /** Where each agent's calls go now, and a work item's cap now. */
+  now(): Promise<{ providerOf: (agent: LineAgent) => Provider; workItemLimitUsd: number }>;
+  /** The effort a job's calls were sent at, if its agent was on Claude: the settings the gateway read for it. */
+  effortOf(job: string, agent: LineAgent): Promise<Effort | undefined>;
+  /**
+   * Appends a spend hold only while the cap in force still holds the work item, read as the hold is appended, so a
+   * save that raises the cap meanwhile is not missed; false, and nothing appended, when it no longer does.
+   */
+  holdForSpend?(hold: NewEvent, spentUsd: number): Promise<boolean>;
 }
 
 export const APP_REPOSITORY = 'mrogan/cv-worlds-worst-website';
@@ -262,6 +288,8 @@ export class Line {
   readonly #dryRunLeft = new Set<string>();
   /** Martin's commands that a role not his appended: ignored, and each logged once. */
   readonly #ignored: IgnoredCommands;
+  /** The settings in force, as this pass read them; until the first pass, the options'. */
+  #inForce: Awaited<ReturnType<LineSettings['now']>> | undefined;
 
   constructor(options: LineOptions) {
     this.#o = {
@@ -281,6 +309,7 @@ export class Line {
       takesWork: true,
       workItemLimitUsd: null,
       providerOf: () => 'anthropic',
+      settings: null,
       only: null,
       take: null,
       ...options,
@@ -328,6 +357,8 @@ export class Line {
     }
     this.#stopped = false;
     if (!this.#o.takesWork) return;
+    // Every step this pass starts runs under the settings in force now: an append, Martin's settings among them, wakes it.
+    if (this.#o.settings) this.#inForce = await this.#o.settings.now();
     this.#promotion = undefined;
     this.#flight = undefined;
     if (!this.#dryRunsEnded) {
@@ -608,7 +639,7 @@ export class Line {
         // One step at a time in each of Plan, Build and Review.
         if ([...this.#inFlight.values()].some((s) => s.stage === STAGE_OF[next.agent])) return;
         // And one at a time on the local model, which answers one prediction at a time. A kept handback calls no model.
-        const provider = this.#o.providerOf(next.agent);
+        const provider = this.#providerOf(next.agent);
         const localBusy = () => provider === 'local' && [...this.#inFlight.values()].some((s) => s.local);
         if (!kept && localBusy()) {
           this.#o.log.debug({ workItem: item.workItem, agent: next.agent }, 'a step waits for the local model');
@@ -764,10 +795,18 @@ export class Line {
         if (next.to === 'plan') await this.#queue.setSession(workItem, null);
         return;
       }
-      case 'hold':
-        await this.#append(workItem, [holdDraft('factory', next.hold)]);
+      case 'hold': {
+        const draft = holdDraft('factory', next.hold);
+        const { spentUsd } = next.hold;
+        const guard = this.#o.settings?.holdForSpend;
+        if (next.hold.cause === 'spend' && spentUsd !== undefined && guard) {
+          // The cap was raised since this pass read it: no hold, and the next pass decides again under the new one.
+          if (!(await guard(asEvent(workItem, draft, this.#o.now().toISOString()), spentUsd))) return false;
+          countRecorded([draft]);
+        } else await this.#append(workItem, [draft]);
         await this.#queue.moved(workItem);
         return;
+      }
       case 'wait-on': {
         const reason = waitReason(next.on, next.files);
         await this.#append(workItem, [
@@ -1190,7 +1229,9 @@ export class Line {
   ): Promise<void> {
     const { workItem } = item;
     const definition = this.#o.agents[agent];
-    const bounds = this.#bounds(agent);
+    // Where its calls go as it starts, which a later pass's settings do not change.
+    const provider = this.#providerOf(agent);
+    const bounds = boundsOn(definition, provider);
     try {
       // A cap set after this, while the step runs, ends it without a result: that is the cap's, not the step's.
       const from = await lastSeq(this.#o.sql);
@@ -1239,20 +1280,21 @@ export class Line {
         [A.outcome]: outcome.kind === 'handed-back' ? outcome.handback.ending : outcome.kind,
       });
       if (outcome.kind === 'stopped') {
-        countStep(agent, this.#o.providerOf(agent), 'stopped');
+        countStep(agent, provider, 'stopped');
         this.#o.log.info({ workItem, agent, job: outcome.job }, 'a step stopped with the line; it runs again on start');
         return;
       }
-      const calls = await stepCalls(this.#o.sql, outcome.job, agent, bounds.maxTurns);
+      const effort = await this.#o.settings?.effortOf(outcome.job, agent);
+      const calls = await stepCalls(this.#o.sql, outcome.job, agent, bounds.maxTurns, effort);
       const called: Draft[] = calls
         ? [{ type: 'model.called', actor: agent, summary: calledLine(agent, calls), payload: calls }]
         : [];
       const unfinished =
         outcome.kind === 'failed' || outcome.handback.ending !== 'finished' || outcome.handback.error !== undefined;
-      const cap = unfinished && capOn(await capsInForce(this.#o.sql, from), this.#o.providerOf(agent));
+      const cap = unfinished && capOn(await capsInForce(this.#o.sql, from), provider);
       if (cap) {
         await this.#append(workItem, called);
-        countStep(agent, providerOfStep(called) ?? this.#o.providerOf(agent), 'capped');
+        countStep(agent, providerOfStep(called) ?? provider, 'capped');
         this.#o.log.info(
           { workItem, agent, job: outcome.job, cap: cap.reason },
           'a step ended at a cap; it runs again when the cap clears',
@@ -1285,7 +1327,7 @@ export class Line {
       await this.#queue.keep(workItem, pending);
       await this.#effects(item, state, pending);
     } catch (error) {
-      countStep(agent, this.#o.providerOf(agent), 'errored');
+      countStep(agent, provider, 'errored');
       throw error;
     } finally {
       await this.#release(workItem);
@@ -1300,7 +1342,7 @@ export class Line {
   async #effects(item: QueueItem, state: WorkItemState, pending: Pending): Promise<void> {
     const { workItem } = item;
     const { agent } = pending;
-    const provider = providerOfStep(pending.called) ?? this.#o.providerOf(agent);
+    const provider = providerOfStep(pending.called) ?? this.#providerOf(agent);
     // The lease outlasts the writes, however long the agent took.
     await this.#queue.claim(workItem, EFFECTS_LEASE_SECONDS);
     let drafts: Draft[];
@@ -1346,7 +1388,12 @@ export class Line {
 
   /** An agent's turns and deadline, on the model its calls go to. */
   #bounds(agent: LineAgent): Bounds {
-    return boundsOn(this.#o.agents[agent], this.#o.providerOf(agent));
+    return boundsOn(this.#o.agents[agent], this.#providerOf(agent));
+  }
+
+  /** Where an agent's calls go under the settings in force. */
+  #providerOf(agent: LineAgent): Provider {
+    return (this.#inForce?.providerOf ?? this.#o.providerOf)(agent);
   }
 
   /**
@@ -1365,7 +1412,7 @@ export class Line {
     trace.getActiveSpan()?.setAttribute(A.outcome, 'failed');
     await this.#append(workItem, called);
     await this.#queue.failed(workItem, reason);
-    countStep(agent, providerOfStep(called) ?? this.#o.providerOf(agent), counted);
+    countStep(agent, providerOfStep(called) ?? this.#providerOf(agent), counted);
     this.#o.log.warn({ workItem, agent, job, reason }, 'a step failed');
   }
 
@@ -1572,7 +1619,7 @@ export class Line {
    */
   async #facts(item: QueueItem, events: readonly LineEvent[]): Promise<Facts> {
     const facts: Facts = { ...item };
-    const limitUsd = this.#o.workItemLimitUsd;
+    const limitUsd = this.#inForce?.workItemLimitUsd ?? this.#o.workItemLimitUsd;
     if (limitUsd !== null) facts.spend = { spentUsd: await workItemSpend(this.#o.sql, item.workItem), limitUsd };
     const s = fold(events);
     if (s.closed) return facts;

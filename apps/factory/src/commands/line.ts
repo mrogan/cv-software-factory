@@ -43,9 +43,9 @@
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
  * HANDBACK_PORT (8081); ARTIFACTS_DIR; KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; LINE_TAKE;
  * RELEASE_ROLLOUT, PROMETHEUS_URL and LINE_DRY_RUN_RELEASE_SECONDS; PROBES_URL, LOKI_URL and TEMPO_URL;
- * FACTORY_PROFILE (default local) and ALL_LOCAL, as the gateway's: the profile's cap on a work item's spend, which the
- * line holds at, and where `policy/models.ts` sends each agent's calls, so a step on a local model is given longer to
- * finish.
+ * FACTORY_PROFILE (default local) and ALL_LOCAL, as the gateway's, with Martin's settings within the profile's policy,
+ * read at each pass (`settings.ts`): the cap on a work item's spend, which the line holds at, and where each agent's
+ * calls go, so a step on a local model is given longer to finish. A step records the effort the gateway sent.
  *
  * `bench` runs one agent's step on this machine, on a fixture's invented work (`line/bench/`), against the gateway at
  * GATEWAY_URL (default http://localhost:8180), and prints what the agent handed back, whether its result fits the
@@ -56,7 +56,7 @@
  * `soak-check` reads the store and the cluster the morning after a soak (`line/soak.ts`): leases held past their
  * expiry, runners' Jobs and volumes left for ended work items and volumes for merged ones, events that are not valid,
  * the spend, and the work items taken since `--since` (an ISO time; by default a day ago), by how each ended, with
- * their minutes in each stage. The spend is as it should be when each work item's is within FACTORY_PROFILE's cap on one, as on Claude;
+ * their minutes in each stage. The spend is as it should be when each work item's is within the highest cap on one in force since `--since` (Martin's, within FACTORY_PROFILE's policy), as on Claude;
  * `--no-spend`, for a soak on the local model, allows nothing at all. It prints a few lines, or the report as JSON, and exits 1 if anything is not as a soak should leave it. On
  * a host it reads the cluster through KUBE_API_URL (what `kubectl proxy` serves).
  *
@@ -170,22 +170,21 @@ async function serve(): Promise<number> {
     console.error('LINE_DRY_RUN_RELEASE_SECONDS must be a whole number of seconds, or unset.');
     return 2;
   }
-  // The work item's cap the gateway keeps, from the same profile, so the line holds a work item that reached it.
-  const { PROFILES, SPEND } = await import('../../../../policy/spend.ts');
+  // The work item's cap the gateway keeps, from the same profile and Martin's settings within it, so the line holds a
+  // work item that reached it.
+  const { PROFILES } = await import('../../../../policy/spend.ts');
   const profile = (process.env.FACTORY_PROFILE || 'local').trim() as (typeof PROFILES)[number];
   if (!PROFILES.includes(profile)) {
     console.error(`FACTORY_PROFILE is ${JSON.stringify(profile)}; it must be one of ${PROFILES.join(', ')}.`);
     return 2;
   }
-  // Where the gateway sends each agent's calls, from the same settings: the policy decides, and the line only reads it.
-  const { MODEL_AGENTS, modelFor } = await import('../../../../policy/models.ts');
+  // Where the gateway sends each agent's calls, from the same settings: Martin's within policy, or every agent to the
+  // local model under ALL_LOCAL, as the gateway's. The line only reads them.
+  const { MODELS } = await import('../../../../policy/models.ts');
+  const { inForce } = await import('../../../../policy/settings.ts');
   const allLocal = process.env.ALL_LOCAL === 'true';
-  let providerOf: (agent: Parameters<typeof modelFor>[1]) => 'anthropic' | 'bedrock' | 'local';
-  try {
-    for (const agent of MODEL_AGENTS) modelFor(profile, agent, allLocal);
-    providerOf = (agent) => modelFor(profile, agent, allLocal).provider;
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : error);
+  if (allLocal && !MODELS[profile].local) {
+    console.error(`ALL_LOCAL sends every agent to the local model, and the ${profile} profile has none.`);
     return 2;
   }
   const { shutdownTelemetry } = await import('../telemetry.ts');
@@ -198,6 +197,9 @@ async function serve(): Promise<number> {
   const sql = connect(DATABASE_URL);
   const env = process.env;
   const kube = kubeFrom(env);
+  const { SettingsReader } = await import('../settings.ts');
+  const { lineSettings, providerUnder } = await import('../line/settings.ts');
+  const defaults = inForce(profile);
   const { StepLogs } = await import('../runners/logs.ts');
   const artifactsDir = env.ARTIFACTS_DIR?.trim();
   if (!artifactsDir) log.warn('ARTIFACTS_DIR is unset: no step’s pod logs are kept');
@@ -228,17 +230,21 @@ async function serve(): Promise<number> {
   const { Line } = await import('../line/worker.ts');
   const { ProbesClient } = await import('../line/verify.ts');
   const { IndexedArtifacts, PictureIndex } = await import('../pictures/index.ts');
+  // The line's only artifacts are the pictures the probes worker took, which its index vouches for.
+  const events = new EventWriter(sql, { kind: 'real', artifacts: new IndexedArtifacts(sql) });
+  // A spend hold is appended by the same writer, under the lock a save of the settings takes too.
+  const settings = lineSettings(new SettingsReader(sql, profile, { freshMs: 0 }), allLocal, { sql, events });
   const line = new Line({
     sql,
-    // The line's only artifacts are the pictures the probes worker took, which its index vouches for.
-    events: new EventWriter(sql, { kind: 'real', artifacts: new IndexedArtifacts(sql) }),
+    events,
     pictures: new PictureIndex(sql),
     steps: runners,
     github: new GitHubWorker(env.GITHUB_WORKER_URL ?? 'http://github:8080', { dryRun: mode !== 'live' }),
     log,
     takesWork: mode !== 'off',
-    workItemLimitUsd: SPEND[profile].workItemUsd,
-    providerOf,
+    workItemLimitUsd: defaults.caps.workItemUsd,
+    providerOf: providerUnder(defaults, allLocal),
+    settings,
     only,
     take,
     release: rollout
@@ -317,20 +323,23 @@ async function soakCheck(args: string[]): Promise<number> {
     console.error(`--since is ${JSON.stringify(values.since)}; give a time, such as 2026-10-06T22:00:00Z.`);
     return 2;
   }
-  const { PROFILES, SPEND } = await import('../../../../policy/spend.ts');
+  const { PROFILES } = await import('../../../../policy/spend.ts');
   const profile = (process.env.FACTORY_PROFILE || 'local').trim() as (typeof PROFILES)[number];
   if (!PROFILES.includes(profile)) {
     console.error(`FACTORY_PROFILE is ${JSON.stringify(profile)}; it must be one of ${PROFILES.join(', ')}.`);
     return 2;
   }
   const { soakFacts, soakReport, soakText } = await import('../line/soak.ts');
+  const { highestWorkItemCap } = await import('../settings.ts');
   const { kubeFrom } = await import('../runners/kube.ts');
   const { DATABASE_URL } = process.env;
   const sql = connect(DATABASE_URL);
   try {
     const report = soakReport(
       await soakFacts({ sql, kube: () => kubeFrom(process.env), now, since }),
-      values['no-spend'] ? { kind: 'none' } : { kind: 'capped', profile, workItemUsd: SPEND[profile].workItemUsd },
+      values['no-spend']
+        ? { kind: 'none' }
+        : { kind: 'capped', profile, workItemUsd: await highestWorkItemCap(sql, profile, since) },
     );
     console.log(values.json ? JSON.stringify(report, null, 2) : soakText(report));
     return report.ok ? 0 : 1;

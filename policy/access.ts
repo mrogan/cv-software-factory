@@ -184,11 +184,20 @@ export const ACCESS = {
     routes: ['POST /admin/release/retry'],
   },
 
-  // Models and spend, within policy.
+  // Models and spend, within policy (`settings.ts`). A save is one route, and is each of the four below that it does:
+  // the admin service asks for the passkey again when any of them needs it, so a save that raises anything does.
   'agent.raise': admin('Give an agent a dearer model, or more effort', true),
   'agent.lower': admin('Give an agent a cheaper model, or less effort'),
   'caps.raise': admin('Raise a spend cap', true),
   'caps.lower': admin('Lower a spend cap'),
+  'settings.save': {
+    ...admin(
+      "Save the agents' models and efforts and the spend caps: as `agent.raise` and `caps.raise` when it raises any, " +
+        'with the passkey again, and as `agent.lower` and `caps.lower` when it only lowers',
+    ),
+    server: 'admin',
+    routes: ['POST /admin/settings'],
+  },
 } as const satisfies Record<string, Access>;
 
 export type Name = keyof typeof ACCESS;
