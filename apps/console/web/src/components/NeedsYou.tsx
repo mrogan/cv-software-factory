@@ -137,7 +137,8 @@ function MartinsCard({ need, token, onOpen }: { need: Need; token: string; onOpe
                 className="btn"
                 aria-expanded={writing}
                 aria-controls={`${id}-words`}
-                onClick={() => setWriting(!writing)}
+                aria-disabled={busy || undefined}
+                onClick={() => !busy && setWriting(!writing)}
               >
                 {row.label}
               </button>
@@ -172,7 +173,9 @@ function MartinsCard({ need, token, onOpen }: { need: Need; token: string; onOpe
                 />
                 <div className="row">
                   <span className="help">
-                    Visitors see your words, with anything shaped like a secret left out.{' '}
+                    {need.aboutReport
+                      ? 'Your words stay yours: a visitor’s report opened this, so no visitor and no agent reads them.'
+                      : 'Visitors see your words, with anything shaped like a secret left out.'}{' '}
                     <span className="chars">
                       {words.length} / {WORDS}
                     </span>

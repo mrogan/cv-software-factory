@@ -21,6 +21,7 @@ import {
 import { GUARDRAIL_HOLDS } from '../access.ts';
 import { APP_REPO, clock, duration, money } from '../format.ts';
 import type { ItemState } from './items.ts';
+import { startOfDay } from './line.ts';
 
 /** The one piece of evidence that explains a hold: a check's or the fence's own output, a question, or words. */
 export type Evidence =
@@ -53,6 +54,8 @@ export interface Need {
   /** A link the card offers beside its evidence: the pull request to merge, or the settings to raise a cap. */
   link: { href: string; label: string } | undefined;
   answers: AnswerRow[];
+  /** A visitor's report opened the work item, so Martin's words on it stay his: no visitor and no agent reads them. */
+  aboutReport: boolean;
 }
 
 export interface Answered {
@@ -218,7 +221,10 @@ function evidenceOf(item: ItemState, cause: HoldCause): Evidence {
   if (cause === 'gates') {
     const failed = item.events.findLast(
       (event): event is PublicEvent<'gate.finished'> =>
-        event.type === 'gate.finished' && event.payload.conclusion === 'failure' && event.payload.required,
+        event.type === 'gate.finished' &&
+        event.payload.conclusion === 'failure' &&
+        event.payload.required &&
+        event.payload.pullRequest === item.pullRequest,
     );
     if (failed) {
       const text = firstLines(failed.payload.output ?? failed.payload.summary ?? reason);
@@ -261,14 +267,7 @@ function linkOf(item: ItemState, cause: HoldCause): Need['link'] {
 }
 
 /** Whole units: "1d", "50min", the first part of a duration. */
-const waited = (ms: number) => duration(Math.max(1000, ms)).split(' ')[0] ?? '';
-
-/** Midnight of t's day, where the viewer is. */
-function dayStart(t: number): number {
-  const day = new Date(t);
-  day.setHours(0, 0, 0, 0);
-  return day.getTime();
-}
+const waited = (ms: number) => duration(Math.max(1000, ms)).split(/\s/)[0] ?? '';
 
 /** Needs you at t: every open hold, oldest first, and Martin's answers since the viewer's day began. */
 export function needsView(items: readonly ItemState[], t: number): NeedsView {
@@ -298,12 +297,13 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
             does: doesOf(hold.cause, answer, item.number),
             stepUp: answer === 'approved' && guardrail,
           })),
+          aboutReport: opener?.sense === 'report',
         },
       ];
     })
     .sort((a, b) => a.since - b.since);
 
-  const from = dayStart(t);
+  const from = startOfDay(t);
   const answered: Answered[] = [];
   for (const item of items) {
     let cause: HoldCause | undefined;

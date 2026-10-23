@@ -308,6 +308,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
   const gates: { commit: string | undefined; passed: boolean } = { commit: undefined, passed: false };
   /** Whether the work went back to Build and the coder has not pushed since: gates then leave it at Build. */
   let rebuilding = false;
+  /** Whether the change has merged since the work item last went back to Plan: a release before it carries nothing. */
+  let merged = false;
   for (const event of events) {
     const time = at(event);
     state.lastAt = time;
@@ -391,11 +393,14 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.sentBack = time;
         // Back to Plan, the work comes round again to a release of its own.
         if (event.payload.to === 'plan') {
+          merged = false;
           release = undefined;
           state.canary = undefined;
         }
         break;
       case 'pull-request.merged':
+        merged = true;
+        release = undefined;
         // The merge is Martin's answer to a wait for it: the line writes no other.
         state.hold = undefined;
         // And it leaves Review, even when a round recorded with it, which failed after the gates had passed, took the
@@ -420,6 +425,17 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         }
         break;
       case 'hold.started':
+        // A hold for a deploy decided as a release that carries the fix started is already answered by it, as the line
+        // and the admin service read it: a merged fix's release in flight, not rolled back, aborted or stopped.
+        if (
+          event.payload.cause === 'deploy' &&
+          merged &&
+          release !== undefined &&
+          !state.versions.rolledBack &&
+          state.versions.stopped === undefined
+        ) {
+          break;
+        }
         state.sentBack = undefined;
         state.cleared = undefined;
         state.hold = {
@@ -492,6 +508,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.closedAt = undefined;
         state.hold = undefined;
         state.queued = true;
+        merged = false;
         release = undefined;
         state.canary = undefined;
         state.versions = { from: undefined, to: undefined, rolledBack: false, stopped: undefined, live: false };

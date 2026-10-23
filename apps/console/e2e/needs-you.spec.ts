@@ -59,6 +59,10 @@ test('Martin answers a card, which moves to Answered today, and gives his passke
     await suggestion.getByRole('button', { name: 'Answer in words' }).click();
     const field = suggestion.getByLabel('Your answer to #1329');
     await expect(field).toBeFocused();
+    // A visitor's report opened it: his words stay his, and the field says so.
+    await expect(suggestion).toContainText(
+      'Your words stay yours: a visitor’s report opened this, so no visitor and no agent reads them.',
+    );
     await field.fill('Ask again when improvements ship');
     await expect(suggestion).toContainText('32 / 300');
     await suggestion.getByRole('button', { name: 'Send' }).click();

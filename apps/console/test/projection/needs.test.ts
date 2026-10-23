@@ -56,6 +56,9 @@ describe('Needs you', () => {
       ['rejected', false],
     ]);
     expect(gate).toMatchObject({ kicker: 'Held by a gate', waited: '1h' });
+    // Whole units only: an hour and a half is still "1h", a day and two hours "1d".
+    expect(needsView(foldItems(events), t + 30 * 60_000).holds[1]?.waited).toBe('1h');
+    expect(needsView(foldItems(events), START + 26 * 3_600_000).holds[0]?.waited).toBe('1d');
     // Approving a guardrail's hold asks for the passkey; its other answers never do.
     expect(gate?.answers.map((a) => [a.answer, a.stepUp])).toEqual([
       ['approved', true],
@@ -143,6 +146,63 @@ describe('Needs you', () => {
         did: 'Sent back to the coder.',
       },
       { at: report.at(30), workItem: '2030', how: 'Answered in words, still held', words: 'kept', did: undefined },
+    ]);
+  });
+
+  it('shows a gate’s output from the pull request in hand, and none for a deploy a release in flight already ends', () => {
+    const failed = (pullRequest: number, output: string) =>
+      ({
+        pullRequest,
+        commit: 'a'.repeat(40),
+        check: 'Unit tests',
+        conclusion: 'failure',
+        required: true,
+        durationMs: 1000,
+        output,
+      }) satisfies PayloadOf<'gate.finished'>;
+    const pushed = (number: number) =>
+      ({
+        number,
+        branch: `factory/2040-${number}`,
+        commit: 'a'.repeat(40),
+        files: [],
+        whole: [],
+      }) as unknown as PayloadOf<'pull-request.pushed'>;
+    const gates = work('2040', START)
+      .open()
+      .add(1, 'pull-request.pushed', 'coder', pushed(7))
+      .add(2, 'gate.finished', 'actions', failed(7, 'the first pull request failed'))
+      .add(3, 'pull-request.pushed', 'coder', pushed(8))
+      .add(4, 'hold.started', 'factory', hold('gates', { stage: 'gates' }));
+    const [need] = needsView(foldItems(gates.events), START + 3_600_000).holds;
+    expect(need?.evidence).toEqual({ kind: 'words', text: 'Held: gates' });
+
+    const release = {
+      release: 'r-1',
+      version: 'v0.9.5',
+      previous: 'v0.9.4',
+      watched: true,
+      steps: null,
+      dryRun: true,
+    } as PayloadOf<'release.started'>;
+    const deploy = work('2041', START)
+      .open()
+      .add(1, 'pull-request.merged', 'factory', { number: 9, commit: 'b'.repeat(40), by: 'martin' })
+      .add(2, 'release.started', 'rollouts', release)
+      .add(3, 'hold.started', 'factory', hold('deploy', { stage: 'release', kind: 'approval' }));
+    expect(needsView(foldItems(deploy.events), START + 3_600_000).holds).toEqual([]);
+  });
+
+  it('says when his words stay his, on a work item a visitor’s report opened', () => {
+    const report = work('2050', START)
+      .open('visitor-report')
+      .add(0, 'signal.received', 'widget', { ...payloads.signal, sense: 'report', report: { page: '/search' } })
+      .add(1, 'hold.started', 'factory', hold('question', { stage: 'plan', kind: 'question', question: 'Which?' }));
+    const plain = work('2051', START).open().add(1, 'hold.started', 'factory', hold('failures'));
+    const holds = needsView(foldItems([...report.events, ...plain.events]), START + 3_600_000).holds;
+    expect(holds.map((need) => [need.workItem, need.aboutReport])).toEqual([
+      ['2050', true],
+      ['2051', false],
     ]);
   });
 
