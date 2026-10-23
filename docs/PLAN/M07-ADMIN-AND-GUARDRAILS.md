@@ -8,11 +8,14 @@ He asks for an improvement with the "+" on Plan. It goes down the same line as a
 
 Every guardrail is proved by a test or by a drill that runs from one command, and its refusals are shown as prominently as successes. Autonomy does what the spec says: under Guarded, an untagged change merges and ships with nobody touching it, and a risk-tagged one waits for Martin. The tags come from deterministic checks on the diff, and the decision to merge is a required check, never a model's word.
 
-The milestone is built in three parts, each by its own orchestrating session:
+The app is kept patched. A security release or a fixable vulnerability in what the app runs, and each routine update, becomes a work item of kind dependency update and goes down the same line, a security one ahead of all other waiting work. The factory's own images are watched the same way, and a finding there opens an issue and notifies Martin.
+
+The milestone is built in four parts, each by its own orchestrating session:
 
 - **Part A, admin:** sign-in, the access policy, the admin service and its write path, every control in spec 5.4 but the improvements and flags, alerts to Martin, and the local cluster served over HTTPS.
 - **Part B, improvements and feature flags:** the "+" end to end, OpenFeature and flagd in the app, flags switched from the console in stages, and Verify comparing a flag's two sides.
 - **Part C, guardrails:** every guardrail proved repeatably, the red-team harness, blocked actions in the console, approval routing by autonomy level and risk tag, and the factory run Guarded.
+- **Part D, patching:** a sense for what the running images carry, dependency updates for the app down the line, and an issue and a notification for the factory's own.
 
 Each part starts when the one before has met its criteria and its pull requests are merged. Each leaves `COMPONENTS/` and `AGENTS.md` describing what it built, so the next session starts from this file, those two and the code, and needs nothing from the session before.
 
@@ -99,10 +102,10 @@ Public profiles get their certificates from Cloudflare (milestone 10).
   | Level | For |
   |---|---|
   | Page | the console or the app down, the line stuck, a spend cap reached, a security event |
-  | Notify | a release rolled back or errored, a new hold, autonomy changed |
+  | Notify | a release rolled back or errored, a new hold, autonomy changed, a security release or fixable vulnerability in a factory image |
   | Dashboard only | everything else |
 
-- **Security events come first (Part A):** a sign-in, a passkey enrolled or revoked, every action that needs the passkey again, and every change to a setting. They are counted from the stored events by a worker other than the admin service, so a compromised admin service cannot keep quiet, each count starting at zero so the first of a kind pages too, and an alerting rule pages on any. Factory health, releases and spend follow in Part C.
+- **Security events come first (Part A):** a sign-in, a passkey enrolled or revoked, every action that needs the passkey again, and every change to a setting. They are counted from the stored events by a worker other than the admin service, so a compromised admin service cannot keep quiet, each count starting at zero so the first of a kind pages too, and an alerting rule pages on any. Factory health, releases and spend follow in Part C, and its images' vulnerabilities in Part D.
 - **Whether the factory is up is answered from outside it.** On public profiles, an always-firing alert goes to a dead man's switch, and an outside check watches the site and the console (milestone 10).
 
 ### Feature flags (Part B)
@@ -135,6 +138,15 @@ Public profiles get their certificates from Cloudflare (milestone 10).
 - **The App may bypass the review ruleset only.** That takes away code-owner review as the backstop for the App's pull requests, so the routing check holds code-owned paths in its place. The checks ruleset keeps no bypass, so a fault in the line still cannot merge a tagged change or touch a rule. ADR 0009 changes with it. The bypass's effect on OpenSSF Scorecard's Branch-Protection score is checked before it is made.
 - **Autonomy is set in the console.** Loosening it needs the passkey again and pages Martin; tightening is immediate.
 - **Required checks are GitHub Actions' alone.** `github-settings.ts` already pins every required check to the GitHub Actions integration, so the App's own check runs cannot satisfy one; the routing check is pinned the same way. Lights-out is built and proved, and never the default.
+
+### Patching (Part D)
+
+- **What is running is watched, not what the repositories say.** One sense, daily, reads the digests deployed: Node's security releases on the line `mise.toml` pins (Node's release index), fixable High and Critical findings in each image, and the app's Dependabot pull requests and alerts. The factory's images are scanned from the SBOMs `build.yml` attests, so nothing large is pulled; third-party images come through CI's copies in GHCR, never from Docker Hub directly.
+- **A finding is a ticket like any other.** Kind dependency update, category security for a vulnerability. A fixable High or Critical takes `broken`, the top severity, so the line takes it next: it already takes the oldest open ticket of the highest severity. Work already in flight finishes first. A routine update takes `cosmetic`, behind the defects.
+- **An update moves every pin of what it updates.** Node in the app is pinned in `mise.toml`, the build stage's `node:` image and the distroless runtime's digest, and the runtime's tag does not name its Node. The coder moves them together, and the app gets the factory's test that keeps them in step. A Dependabot pull request for the same update is taken up rather than opened again.
+- **Dependabot's settings stay.** Its cooldowns, the `node` and `playwright` groups and the mirror's lead over them are unchanged: the speed comes from the sense, and a shorter cooldown would only bring a pull request that fails the pin test sooner.
+- **Merging stays Part C's.** A dependency change carries the dependency-change tag, so under Guarded it waits in Needs you with the lockfile change and the image scan's summary. Whether a patch release with every gate passed may merge unattended is settled when Part D is detailed.
+- **The factory is patched by Martin.** The line works only in the app's repository. A finding in a factory image opens an issue here, updated rather than opened again, that `/implement` can take as it stands: the release, its highest severity and each pin to move, the Playwright image's among them, since its tag does not name its Node either. It notifies Martin.
 
 ## Part A: admin
 
@@ -295,9 +307,21 @@ Outlined here, and detailed when Part B is done.
 
 **Done when:** every guardrail has a test or a demo that runs from one command and is shown in the console; a fix goes end to end at Guarded with nobody touching it; a risk-tagged change waits in Needs you until Martin approves; and each red-team attack is stopped by its mechanism, with the refusal shown.
 
+## Part D: patching
+
+Outlined here, and detailed when Part C is done.
+
+- **28. The dependency sense.** The daily read of what each deployed image carries, as Patching (Part D) says, each finding a signal. It is proved on an image it must flag: one on Node 24.22.0 shows CVE-2026-111497.
+- **29. Triage of its signals.** Symptom classes for a vulnerability and a routine update in `policy/triage.ts`, with their severities, and a fingerprint of the package and the advisory, so the next day's repeat counts on its ticket.
+- **30. A dependency update down the line.** Plan writes the spec from the advisory or the release; Build moves every pin, or takes up Dependabot's pull request; the gates are the app's own, dependency review and the image scan among them; Verify checks the running image's scan as well as its journeys. The app gets the test that keeps its Node pins in step.
+- **31. The factory's images.** A finding opens or updates the issue here, and notifies Martin, at task 11's Notify level.
+- **32. The run and its documentation.** A real update of the app from the sense to verified, at Guarded, waiting in Needs you at the merge for its dependency-change tag. `COMPONENTS/`, the spec's senses, and `AGENTS.md` for the issue.
+
+**Done when:** a security release or fixable vulnerability in what the app runs becomes a ticket the day it is published, goes down the line ahead of waiting work and is verified in production; a routine update follows behind; and a finding in a factory image opens an issue and notifies Martin's phone.
+
 ## Exit criteria
 
-- [ ] Parts A, B and C's criteria are met.
+- [ ] Parts A, B, C and D's criteria are met.
 - [ ] Spec 10.1's scenarios 6, 7 and 8 run on the local cluster and are shown in the console: each red-team attack stopped by its mechanism, a risk-tagged change waiting in Needs you until Martin approves, and an improvement requested, approved and shipped.
 - [ ] Spec 10.3's "every guardrail has a test or demo showing it holds" is met.
 - [ ] Martin has used admin mode on a laptop and a phone and approved it against the bar in `INTENT.md`.
@@ -309,6 +333,8 @@ Outlined here, and detailed when Part B is done.
 - Public certificates, the domain, the tunnel, the outside uptime check and the dead man's switch (milestone 10).
 - A/B experiments on what people prefer: with no real shoppers, there is nothing honest to measure.
 - Canaries for the factory's own images.
+- Stopping work in flight for a vulnerability: it goes to the front of the queue.
+- The line working in the factory's own repository: Martin patches the factory from an issue.
 
 ## Risks
 
@@ -318,4 +344,5 @@ Outlined here, and detailed when Part B is done.
 - **Flag state lives outside Git.** It is the one piece of production state Argo CD does not hold. Every change is an event, so the audit log is its history, and a flag's default in the app's code is off.
 - **Alertmanager reaches the internet.** It is allowed out on 443 as Kyverno is, until egress by host name (#176).
 - **The local authority is trusted by the Mac.** It is constrained to `localhost` names, so its key, which anything running as Martin can read, mints nothing for any other site, and removing its trust from the Keychain is one command.
+- **An update can bring in what it was meant to keep out.** Dependabot's cooldowns and pnpm's day still apply, a release with weaker provenance is still refused, a dependency change waits for Martin until Part D decides otherwise, and the canary is the guard after the merge.
 - **Runs on Claude cost money.** Each is time-boxed and within the spend caps, and the results say what each cost.
