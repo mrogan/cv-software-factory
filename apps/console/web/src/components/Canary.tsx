@@ -399,7 +399,7 @@ const ASKED: Partial<Record<ReleaseControl, (r: Release, c: Control) => Asked>> 
  * does. Each names the release the panel shows, so the admin service acts on that one or none. What it did shows in
  * the panel as the events arrive: the kicker, the steps, the note.
  */
-function Controls({ r, admin, lineStopped }: { r: Release; admin: Admin; lineStopped: boolean }) {
+function CanaryControls({ r, admin, lineStopped }: { r: Release; admin: Admin; lineStopped: boolean }) {
   const controls = controlsOf(r, lineStopped);
   const stepUp = useStepUp();
   const [busy, setBusy] = useState(false);
@@ -613,7 +613,7 @@ export function Canary({ view, t, onOpen, admin, lineStopped }: CanaryProps) {
         {right && <div>{right}</div>}
       </div>
       {/* A release of its own: what was pressed for another, and refused, is not said under this one. */}
-      <Controls key={r.id} r={r} admin={admin} lineStopped={lineStopped} />
+      <CanaryControls key={r.id} r={r} admin={admin} lineStopped={lineStopped} />
       <p className="help">
         The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody
         needs to press anything.
