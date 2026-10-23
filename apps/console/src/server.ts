@@ -11,7 +11,8 @@
  *   moved so the last event is now. EVENT_LOG_NOW sets that "now" instead, so tests can pin the time.
  * - Otherwise nothing: the console shows an empty store.
  *
- * PORT sets the port (default 8080); GIT_COMMIT is the commit the build was made from, set by the image.
+ * PORT sets the port (default 8080); GIT_COMMIT is the commit the build was made from, set by the image. FACTORY_PROFILE
+ * (default local) and ALL_LOCAL, as the gateway's, are written into the page (`site.ts`).
  */
 import { mkdtempSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -22,7 +23,7 @@ import { connect, DiskArtifacts } from '@software-factory/store';
 import { createApp } from './app.ts';
 import { Feed, logFeed, storeFeed } from './feed.ts';
 import { log } from './log.ts';
-import { loadSite } from './site.ts';
+import { loadSite, pageSettings } from './site.ts';
 import { sendMetrics, shutdownTelemetry } from './telemetry.ts';
 
 const port = Number(process.env.PORT ?? 8080);
@@ -41,7 +42,7 @@ if (!sql && !EVENT_LOG) log.warn('no event store or event log configured: the co
 const server = createServer(
   createApp({
     commit,
-    site: loadSite(),
+    site: loadSite(undefined, pageSettings(process.env)),
     feed: source.feed,
     artifacts: new DiskArtifacts(source.artifacts ?? mkdtempSync(join(tmpdir(), 'no-artifacts-'))),
   }),

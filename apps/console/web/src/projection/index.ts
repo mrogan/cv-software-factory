@@ -43,6 +43,8 @@ export { whileSending } from './line.ts';
 export type { Card, Picture, Segment, Source, Tag, Timeline, Versions } from './reel.ts';
 export { QUARANTINE_AT, segmentsLabel } from './reel.ts';
 export type { CanaryView, Carried, End, Measured, Release, Signalled, Step } from './release.ts';
+export type { Meter, SettingsView, SpendView } from './settings.ts';
+export { settingsView } from './settings.ts';
 export type {
   After,
   AgentRow,

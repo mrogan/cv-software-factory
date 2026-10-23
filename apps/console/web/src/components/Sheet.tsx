@@ -12,6 +12,7 @@ import {
   duration,
   inWords,
   isCommit,
+  modelTitle,
   money,
   plural,
   shortVersion,
@@ -37,14 +38,6 @@ import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { LogoMark } from './Logos.tsx';
 import { Picture, Shot } from './Pictures.tsx';
 import { ShippedSection } from './Shipped.tsx';
-
-/** Pinned models by a readable name. A local model the console does not know shows as its id, still labelled local. */
-const MODEL_NAME: Record<string, string> = {
-  'claude-opus-5-5': 'Claude Opus 5.5',
-  'claude-sonnet-5-5': 'Claude Sonnet 5.5',
-  'claude-haiku-4-5': 'Claude Haiku 4.5',
-  'qwen/qwen3.8-27b': 'Qwen3.8 27B',
-};
 
 /** The app's repository, where the factory's pull requests are. */
 const APP_REPO = 'https://github.com/mrogan/cv-worlds-worst-website';
@@ -115,7 +108,7 @@ const PROVIDER: Record<AgentRow['provider'], string> = {
 
 /** "Jev 1.13.0 · TypeSafe", "Claude Opus 5.5 · Anthropic". */
 const modelName = (row: AgentRow) =>
-  `${row.provider === 'typesafe' ? `Jev ${row.model.replace(/^jev-/, '')}` : (MODEL_NAME[row.model] ?? row.model)} · ${PROVIDER[row.provider]}`;
+  `${row.provider === 'typesafe' ? `Jev ${row.model.replace(/^jev-/, '')}` : modelTitle(row.model)} · ${PROVIDER[row.provider]}`;
 
 /** A list in words: "a, b and c". */
 const listed = (words: string[]) =>

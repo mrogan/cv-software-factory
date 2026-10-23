@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ACCESS, type Access, type Name, routeOf, type ServedBy } from '../../../policy/access.ts';
 import { createApp, PERMISSIONS_POLICY, SECURITY_HEADERS } from '../src/app.ts';
 import { Feed } from '../src/feed.ts';
-import { loadSite } from '../src/site.ts';
+import { loadSite, pageSettings } from '../src/site.ts';
 
 const COMMIT = '0123456789abcdef0123456789abcdef01234567';
 
@@ -330,5 +330,22 @@ describe('an artifact that goes wrong partway', () => {
     expect(cut).toBe(true);
     expect((await fetch(`${url}/health`)).status).toBe(200);
     await close();
+  });
+});
+
+describe('the page’s settings', () => {
+  it('writes the profile and ALL_LOCAL into the page, from the environment the gateway reads, and refuses a profile it does not know', () => {
+    const dist = fakeBuild();
+    writeFileSync(
+      join(dist, 'index.html'),
+      '<!doctype html><meta name="sf-profile" content="local"><meta name="sf-all-local" content="false">',
+    );
+    const page = loadSite(dist, pageSettings({ FACTORY_PROFILE: 'local', ALL_LOCAL: 'true' })).page.body.toString();
+    expect(page).toContain('<meta name="sf-profile" content="local">');
+    expect(page).toContain('<meta name="sf-all-local" content="true">');
+    expect(pageSettings({})).toEqual({ profile: 'local', allLocal: false });
+    expect(pageSettings({ FACTORY_PROFILE: 'do' })).toEqual({ profile: 'do', allLocal: false });
+    expect(() => pageSettings({ FACTORY_PROFILE: 'mars' })).toThrow(/FACTORY_PROFILE/);
+    expect(() => pageSettings({ FACTORY_PROFILE: 'do', ALL_LOCAL: 'true' })).toThrow(/has none/);
   });
 });

@@ -8,7 +8,8 @@
  * come from the samples too: the Canary panel in each state, a reopened card and one waiting for Martin's deploy, a
  * sheet's releases, the scrubber for work that goes round three times, and the timeline's versions, a release with no
  * work item's among them. Milestone 7's from a stand-in for the admin service: the sign-in and enrolment doors, a code
- * refused, Martin's account menu, a visitor's report quoted on his sheet, and Preview as visitor.
+ * refused, Martin's account menu, a visitor's report quoted on his sheet, Preview as visitor, the settings for Martin
+ * with a change unsaved and for a visitor, and Controls.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -484,3 +485,55 @@ test.describe('the doors in Ink', () => {
     await expect(page).toHaveScreenshot('m07-sign-in-ended-ink.png');
   });
 });
+
+/** Milestone 7: the settings, for Martin with a change unsaved and for a visitor, and Controls' Spend group. */
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, the settings`, () => {
+    test.use({ viewport });
+
+    test('the settings, with a change unsaved', async ({ page }) => {
+      await adminService(page, 'martin');
+      await settingsPage(page);
+      await page.getByLabel('The coder’s effort').selectOption('high');
+      await expect(page).toHaveScreenshot(`m07-settings-${width}.png`, { fullPage: true });
+    });
+
+    test('the settings, for a visitor', async ({ page }) => {
+      await adminService(page, 'visitor');
+      await settingsPage(page);
+      await expect(page).toHaveScreenshot(`m07-settings-visitor-${width}.png`, { fullPage: true });
+    });
+
+    test('Controls', async ({ page }) => {
+      await adminService(page, 'visitor');
+      await page.goto(consoleUrl());
+      await ready(page);
+      await expect(page.locator('.bottom')).toHaveScreenshot(`m07-controls-${width}.png`);
+    });
+  });
+}
+
+test.describe('the settings in Ink', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('the settings, with a change unsaved', async ({ page }) => {
+    await adminService(page, 'martin');
+    await settingsPage(page, 'ink');
+    await page.getByLabel('The coder’s effort').selectOption('high');
+    await expect(page).toHaveScreenshot('m07-settings-ink.png', { fullPage: true });
+  });
+
+  test('Controls', async ({ page }) => {
+    await adminService(page, 'visitor');
+    await page.goto(consoleUrl({ theme: 'ink' }));
+    await ready(page);
+    await expect(page.locator('.bottom')).toHaveScreenshot('m07-controls-ink.png');
+  });
+});
+
+/** The settings page drawn, with the fonts it is set in. */
+async function settingsPage(page: Page, theme: 'paper' | 'ink' = 'paper') {
+  await page.goto(`${consoleUrl({ theme })}&view=settings`);
+  await page.getByRole('heading', { level: 1 }).waitFor();
+  await page.evaluate(() => document.fonts.ready);
+}

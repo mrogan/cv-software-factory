@@ -1,0 +1,284 @@
+/*
+ * The settings page (`?view=settings`): the models and the caps on the left, the passkeys and this session on the
+ * right; one column on a phone. A changed field takes a 2px `signal` rule inside its left edge until it is saved or
+ * discarded, and so does the bar that lists the changes.
+ */
+.settings-page {
+  padding: 40px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.settings-head h1 {
+  margin: 0;
+  font: 400 46px / 1 var(--font-display);
+  letter-spacing: -0.6px;
+}
+.settings-head p {
+  margin: 10px 0 0;
+  max-width: 720px;
+  font-size: 15px;
+  color: var(--text-2);
+}
+.settings-head .crumb {
+  display: inline-flex;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 28px;
+  align-items: start;
+}
+.settings-page .btn.small {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.settings-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.settings .panel h2 {
+  font-size: 26px;
+}
+.settings-page code {
+  font: 12.5px var(--font-mono);
+  padding: 1px 6px;
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  color: var(--text);
+}
+.settings-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: var(--stroke-rule) solid var(--line-strong);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.settings .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+select.field {
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background-color: var(--raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  width: 100%;
+  min-height: 40px;
+  padding: 0 30px 0 10px;
+  appearance: none;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 50%,
+    calc(100% - 11px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+select.field:focus {
+  outline: var(--stroke-rule) solid var(--signal);
+  outline-offset: 1px;
+}
+select.field:disabled {
+  color: var(--text-muted);
+  background-color: transparent;
+  cursor: default;
+}
+
+/* Models: a row per agent, its cells at the top so the two drop-downs line up, each hint beneath. */
+table.agents {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.agents th {
+  text-align: left;
+  font: 10.5px / 1.4 var(--font-mono);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 400;
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.agents td {
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.agents tr:last-child td {
+  border-bottom: 0;
+}
+.agents td b {
+  font-weight: 500;
+}
+.agents .num {
+  font: 12px / 1.5 var(--font-mono);
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+.agents .changed select,
+.cap-row.changed input {
+  border-color: var(--signal);
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+/* Spend caps: a field in dollars, a meter of what has been spent against it, and its ceiling. */
+.caps {
+  display: flex;
+  flex-direction: column;
+}
+.cap-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 6px 16px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.cap-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.cap-row .money {
+  position: relative;
+}
+.cap-row .money::before {
+  content: "$";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 14px var(--font-mono);
+  color: var(--text-muted);
+}
+.cap-row .money input {
+  padding-left: 22px;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+.cap-row .ceil {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.cap-row .ceil > span:last-child {
+  font: 11px / 1.3 var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* Unsaved settings: ruled in ink, the colour of work in hand, until saved or discarded. */
+.save-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  border-left: var(--stroke-rule) solid var(--signal);
+  border-radius: var(--radius-rule) var(--radius-panel) var(--radius-panel) var(--radius-rule);
+}
+.save-bar p {
+  margin: 0;
+  flex: 1 1 320px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.save-bar .row {
+  display: flex;
+  gap: 8px;
+}
+.save-bar .dialog-refusal {
+  flex-basis: 100%;
+}
+
+/* Passkeys: each by its name, with when it was enrolled and last used, and Revoke. */
+.keys {
+  display: flex;
+  flex-direction: column;
+}
+.keys > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.keys > div:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* The small print under a name, a field or a passkey, least specific first. */
+.cap-row small {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.keys small {
+  display: block;
+  font: 11px / 1.45 var(--font-mono);
+  color: var(--text-muted);
+}
+.agents td small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.cap-row small.settings-outside,
+.agents td small.settings-outside {
+  color: var(--text-2);
+}
+
+@media (max-width: 720px) {
+  .settings-page {
+    padding-top: 24px;
+  }
+  .settings-head h1 {
+    font-size: 34px;
+  }
+  .settings {
+    grid-template-columns: 1fr;
+  }
+  /* Each agent's row stacks its model and effort side by side under its name. */
+  table.agents thead {
+    display: none;
+  }
+  .agents tr {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: 8px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .agents td {
+    padding: 0;
+    border: 0;
+  }
+  .agents td:first-child,
+  .agents td.num {
+    grid-column: 1 / -1;
+  }
+  .agents td.num {
+    text-align: left;
+  }
+}
