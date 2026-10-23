@@ -1,0 +1,275 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
+import { DEPLOY, manifests } from './deploy.ts';
+
+/**
+ * Alertmanager as deploy/ declares it (docs/COMPONENTS/ALERTING.md): it sends each alert by its `level` label, to
+ * Martin's phone through Pushover or to no one, and the app's objective alerts, which have no level, to the intake; and
+ * its fence lets in only Prometheus and Grafana, and lets it reach only DNS, the intake and the internet on 443.
+ * `make egress` shows the fence on the cluster.
+ */
+interface Route {
+  receiver?: string;
+  matchers?: string[];
+  continue?: boolean;
+  group_by?: string[];
+  repeat_interval?: string;
+  routes?: Route[];
+}
+interface Pushover {
+  token_file?: string;
+  user_key_file?: string;
+  token?: string;
+  user_key?: string;
+  priority?: string;
+  title?: string;
+  message?: string;
+  send_resolved?: boolean;
+}
+interface Receiver {
+  name: string;
+  webhook_configs?: { url: string; send_resolved?: boolean }[];
+  pushover_configs?: Pushover[];
+  [other: string]: unknown;
+}
+interface Values {
+  alertmanager: {
+    extraArgs?: Record<string, string>;
+    extraSecretMounts?: { name: string; mountPath: string; secretName: string; readOnly: boolean; optional: boolean }[];
+    config: { route: Route; receivers: Receiver[] };
+  };
+}
+
+// The notify receiver is the page receiver's settings merged with its own priority (`<<:`), as Helm reads it.
+const values = async () =>
+  parse(await readFile(join(DEPLOY, 'base/telemetry/values/prometheus.yaml'), 'utf-8'), { merge: true }) as Values;
+
+/** One of Alertmanager's matchers, `name="value"`, `name!="value"`, `name=~"regex"` or `name!~"regex"`. */
+function matches(matcher: string, labels: Record<string, string>): boolean {
+  const [, name = '', op, quoted = ''] = /^(\w+)(=~|!~|!=|=)"(.*)"$/.exec(matcher) ?? [];
+  if (!op) throw new Error(`The test does not read the matcher ${matcher}`);
+  const value = labels[name] ?? '';
+  const wanted = JSON.parse(`"${quoted}"`) as string;
+  // Alertmanager anchors a regular expression at both ends; a label that is not there is the empty string.
+  if (op === '=') return value === wanted;
+  if (op === '!=') return value !== wanted;
+  const regex = new RegExp(`^(?:${wanted})$`);
+  return op === '=~' ? regex.test(value) : !regex.test(value);
+}
+
+/**
+ * The receivers an alert reaches, as Alertmanager walks its routes: depth first, the first child that matches takes it
+ * unless it says to continue, and a route none of whose children match takes it itself.
+ */
+function receivers(route: Route, labels: Record<string, string>): string[] {
+  const reached: string[] = [];
+  for (const child of route.routes ?? []) {
+    if (!(child.matchers ?? []).every((m) => matches(m, labels))) continue;
+    // A child with no receiver of its own inherits its parent's.
+    reached.push(...receivers({ ...child, receiver: child.receiver ?? route.receiver ?? '' }, labels));
+    if (!child.continue) return reached;
+  }
+  return reached.length > 0 ? reached : [route.receiver ?? ''];
+}
+
+describe('Alertmanager’s routes', () => {
+  const cases: [string, Record<string, string>, string[]][] = [
+    ['a page', { alertname: 'SecurityEvent', level: 'page', kind: 'sign-in' }, ['page']],
+    ['a notification', { alertname: 'NewHold', level: 'notify', cause: 'scope' }, ['notify']],
+    [
+      'an objective alert',
+      { alertname: 'RouteLatencyAboveObjective', objective: 'latency', route: '/', symptom: 'slow-response' },
+      ['intake'],
+    ],
+    ['an alert with no level, for the dashboards', { alertname: 'Other' }, ['dashboard']],
+    ['an alert with a level not known', { alertname: 'Other', level: 'urgent' }, ['dashboard']],
+    // A level makes it an alert to Martin, never a signal for the senses.
+    ['an objective alert with a level', { alertname: 'X', objective: 'latency', level: 'page' }, ['page']],
+  ];
+
+  it.each(cases)('send %s to the right receiver', async (_, labels, wanted) => {
+    expect(receivers((await values()).alertmanager.config.route, labels)).toEqual(wanted);
+  });
+
+  it('send nothing from the dashboards’ receiver', async () => {
+    const dashboard = (await values()).alertmanager.config.receivers.find((r) => r.name === 'dashboard');
+    expect(dashboard).toEqual({ name: 'dashboard' });
+  });
+
+  it('send nothing with a level to the intake', async () => {
+    const intake = (await values()).alertmanager.config.route.routes?.find((r) => r.receiver === 'intake');
+    expect(intake?.matchers).toContain('level=""');
+    expect(intake?.continue).toBeFalsy();
+  });
+
+  it('send each page and notification on its own', async () => {
+    for (const receiver of ['page', 'notify']) {
+      const route = (await values()).alertmanager.config.route.routes?.find((r) => r.receiver === receiver);
+      expect(route?.group_by, receiver).toEqual(['...']);
+    }
+  });
+});
+
+describe('Alertmanager’s Pushover receivers', () => {
+  const pushover = async (name: string) =>
+    (await values()).alertmanager.config.receivers.find((r) => r.name === name)?.pushover_configs ?? [];
+
+  it('page at high priority and notify at normal', async () => {
+    expect((await pushover('page')).map((p) => p.priority)).toEqual(['1']);
+    expect((await pushover('notify')).map((p) => p.priority)).toEqual(['0']);
+  });
+
+  it('read the keys from the mounted Secret’s files, never from the configuration', async () => {
+    const { alertmanager } = await values();
+    for (const config of [...(await pushover('page')), ...(await pushover('notify'))]) {
+      expect(config.token).toBeUndefined();
+      expect(config.user_key).toBeUndefined();
+      expect(config.token_file).toBe('/etc/pushover/app-token');
+      expect(config.user_key_file).toBe('/etc/pushover/user-key');
+      // Only what the rule's summary or description says, and when: no label's value, which could be anything.
+      expect(`${config.title} ${config.message}`).not.toMatch(/\.(Common)?Labels\.(?!alertname\b)/);
+      expect(config.send_resolved).toBe(false);
+    }
+    // Optional, so a cluster with no Pushover account still comes up, and still routes to the intake.
+    expect(alertmanager.extraSecretMounts).toEqual([
+      { name: 'pushover', mountPath: '/etc/pushover', secretName: 'pushover', readOnly: true, optional: true },
+    ]);
+  });
+
+  it('are the only receivers that leave the cluster, beside the intake', async () => {
+    const { receivers: all } = (await values()).alertmanager.config;
+    expect(all.map((r) => r.name).sort()).toEqual(['dashboard', 'intake', 'notify', 'page']);
+    for (const receiver of all) {
+      const kinds = Object.keys(receiver).filter((key) => key.endsWith('_configs'));
+      expect(kinds, receiver.name).toEqual(
+        receiver.name === 'intake' ? ['webhook_configs'] : receiver.name === 'dashboard' ? [] : ['pushover_configs'],
+      );
+    }
+    expect(all.find((r) => r.name === 'intake')?.webhook_configs?.map((w) => w.url)).toEqual([
+      'http://intake.factory.svc:8080/v1/alerts',
+    ]);
+  });
+
+  it('listens on no gossip port, as one replica has no peers', async () => {
+    expect((await values()).alertmanager.extraArgs).toEqual({ 'cluster.listen-address': '' });
+  });
+});
+
+interface Peer {
+  namespaceSelector?: { matchLabels?: Record<string, string> };
+  podSelector?: { matchLabels?: Record<string, string> };
+  ipBlock?: { cidr: string; except?: string[] };
+}
+interface Policy {
+  kind?: string;
+  metadata?: { name?: string };
+  spec?: {
+    podSelector?: { matchLabels?: Record<string, string> };
+    policyTypes?: string[];
+    ingress?: { from?: Peer[]; ports?: { protocol: string; port: number }[] }[];
+    egress?: { to?: Peer[]; ports?: { protocol: string; port: number }[] }[];
+  };
+}
+
+describe('Alertmanager’s fence', () => {
+  const fence = async () => {
+    const policies = (await manifests<Policy>()).filter(
+      ({ manifest, namespace }) =>
+        manifest.kind === 'NetworkPolicy' &&
+        namespace === 'telemetry' &&
+        manifest.spec?.podSelector?.matchLabels?.['app.kubernetes.io/name'] === 'alertmanager',
+    );
+    expect(policies.map(({ manifest }) => manifest.metadata?.name)).toEqual(['alertmanager']);
+    return policies[0]?.manifest.spec;
+  };
+
+  it('selects Alertmanager’s pods, in and out', async () => {
+    const spec = await fence();
+    expect(spec?.podSelector).toEqual({ matchLabels: { 'app.kubernetes.io/name': 'alertmanager' } });
+    expect(spec?.policyTypes).toEqual(['Ingress', 'Egress']);
+  });
+
+  it('lets in only Prometheus’s server and Grafana, on its HTTP port', async () => {
+    expect((await fence())?.ingress).toEqual([
+      {
+        from: [
+          {
+            podSelector: {
+              matchLabels: { 'app.kubernetes.io/name': 'prometheus', 'app.kubernetes.io/component': 'server' },
+            },
+          },
+          { podSelector: { matchLabels: { 'app.kubernetes.io/name': 'grafana' } } },
+        ],
+        ports: [{ protocol: 'TCP', port: 9093 }],
+      },
+    ]);
+  });
+
+  it('reaches DNS, the intake, and the internet on 443 outside the cluster’s, the network’s and the host’s addresses', async () => {
+    expect((await fence())?.egress).toEqual([
+      {
+        to: [
+          {
+            namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' } },
+            podSelector: { matchLabels: { 'k8s-app': 'kube-dns' } },
+          },
+        ],
+        ports: [
+          { protocol: 'UDP', port: 53 },
+          { protocol: 'TCP', port: 53 },
+        ],
+      },
+      {
+        to: [
+          {
+            namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'factory' } },
+            podSelector: { matchLabels: { 'app.kubernetes.io/name': 'intake' } },
+          },
+        ],
+        ports: [{ protocol: 'TCP', port: 8080 }],
+      },
+      {
+        to: [
+          {
+            ipBlock: {
+              cidr: '0.0.0.0/0',
+              except: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '100.64.0.0/10', '0.0.0.0/8'],
+            },
+          },
+        ],
+        ports: [{ protocol: 'TCP', port: 443 }],
+      },
+    ]);
+  });
+
+  it('is the same as Kyverno’s admission controller’s way out, until egress by host name (#176)', async () => {
+    const kyverno = (await manifests<Policy>()).find(
+      ({ manifest, namespace }) =>
+        manifest.kind === 'NetworkPolicy' &&
+        namespace === 'kyverno' &&
+        manifest.metadata?.name === 'admission-controller',
+    );
+    const internet = (await fence())?.egress?.find((rule) => rule.to?.some((peer) => peer.ipBlock));
+    expect(internet).toEqual(kyverno?.manifest.spec?.egress?.[0]);
+  });
+
+  it('matches the intake’s, which lets Alertmanager in by the same label', async () => {
+    const intake = (await manifests<Policy>()).find(
+      ({ manifest, namespace }) =>
+        manifest.kind === 'NetworkPolicy' && namespace === 'factory' && manifest.metadata?.name === 'intake',
+    );
+    expect(intake?.manifest.spec?.ingress).toEqual([
+      {
+        from: [
+          {
+            namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'telemetry' } },
+            podSelector: { matchLabels: { 'app.kubernetes.io/name': 'alertmanager' } },
+          },
+        ],
+        ports: [{ protocol: 'TCP', port: 8080 }],
+      },
+    ]);
+  });
+});

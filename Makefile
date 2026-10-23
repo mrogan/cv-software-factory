@@ -38,7 +38,7 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down gateway-key github-key scoreboard-secrets worker-secrets check check-static check-tests status e2e zap egress admission-ready eval samples real-store stop-the-line start-the-line enrol
+.PHONY: help up down gateway-key github-key pushover-key scoreboard-secrets worker-secrets check check-static check-tests status e2e zap egress admission-ready eval samples real-store stop-the-line start-the-line enrol
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -62,6 +62,7 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@$(MAKE) --no-print-directory worker-secrets
 	@$(MAKE) --no-print-directory gateway-key
 	@$(MAKE) --no-print-directory github-key
+	@$(MAKE) --no-print-directory pushover-key
 	@$(MAKE) --no-print-directory scoreboard-secrets
 	@$(call secret,telemetry,grafana-admin,--from-literal=admin-user=admin --from-literal=admin-password="$$(openssl rand -hex 24)")
 	@$(MAKE) --no-print-directory local-tls
@@ -120,6 +121,20 @@ github-key:
 				$(KUBECTL) -n factory create secret generic github-app --from-file=private-key=/dev/stdin --dry-run=client -o yaml | \
 				$(KUBECTL) apply -f - >/dev/null && echo "  The GitHub worker has the App's key, so it acts as the factory in GitHub."; \
 		else echo "  No App key (the Keychain's factory-github-app-key): the GitHub worker reads and writes nothing."; fi
+
+# Pushover's application token and Martin's user key, from the macOS Keychain, go to Alertmanager the same way: through
+# stdin, as one Secret's two entries, never written to a file or put on a command line. Without both there is no
+# Secret: Alertmanager still comes up and still sends the app's objective alerts to the intake, but nothing reaches
+# Martin's phone. Alertmanager reads the keys each time it sends, so a change needs no restart.
+pushover-key: ## Give Alertmanager Pushover's keys from the Keychain (pushover-app-token, pushover-user-key)
+	@token="$$(security find-generic-password -s pushover-app-token -w 2>/dev/null)"; \
+		user="$$(security find-generic-password -s pushover-user-key -w 2>/dev/null)"; \
+		if [ -n "$$token" ] && [ -n "$$user" ]; then \
+			$(KUBECTL) create namespace telemetry --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null && \
+			printf 'app-token=%s\nuser-key=%s\n' "$$token" "$$user" | \
+				$(KUBECTL) -n telemetry create secret generic pushover --from-env-file=/dev/stdin --dry-run=client -o yaml | \
+				$(KUBECTL) apply -f - >/dev/null && echo "  Alertmanager has Pushover's keys, so pages and notifications reach Martin's phone."; \
+		else echo "  No Pushover keys (the Keychain's pushover-app-token and pushover-user-key): nothing reaches Martin's phone."; fi
 
 # The scoreboard's Secrets (deploy/base/scoreboard). Its role's password, made once, is in two: `factory`'s, for the
 # migrations that set it, and the scoreboard's own, for its pod. The answer key, each entry's id and fingerprint and
