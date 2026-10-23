@@ -1,10 +1,11 @@
 /**
- * The console: events in, the page out. Everything below is drawn from `project(events, t)`. The doors, signing in
- * and enrolling a passkey, are pages of their own on the same address (`?view=sign-in`, `?view=enrol`), and so are
- * the settings (`?view=settings`), under the console's own header.
+ * The console: events in, the page out. Everything below is drawn from `project(events, t)`, of the full events for
+ * Martin signed in and of the public ones for everyone else, Martin previewing as a visitor among them. The doors,
+ * signing in and enrolling a passkey, are pages of their own on the same address (`?view=sign-in`, `?view=enrol`),
+ * and so are the settings (`?view=settings`), under the console's own header.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type Admin, type Door, useAdmin } from './admin.ts';
+import { type Admin, type Door, stillSignedIn, useAdmin } from './admin.ts';
 import { OriginContext } from './artifacts.ts';
 import { Canary } from './components/Canary.tsx';
 import { Controls } from './components/Controls.tsx';
@@ -12,6 +13,7 @@ import { Footer } from './components/Footer.tsx';
 import { Header, LineStatus, Scoreboard } from './components/Header.tsx';
 import { Line } from './components/Line.tsx';
 import { LogoSymbols } from './components/Logos.tsx';
+import { PreviewBanner } from './components/Preview.tsx';
 import { Reel } from './components/Reel.tsx';
 import { EmptyReel, States } from './components/States.tsx';
 import { StepUpProvider } from './components/StepUp.tsx';
@@ -75,8 +77,22 @@ interface ConsoleProps {
   onMotion: (on: boolean) => void;
 }
 
-function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setMotion }: ConsoleProps) {
-  const source = useEvents(from);
+function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMotion: setMotion }: ConsoleProps) {
+  // Martin, signed in, reads the full events, until he previews as a visitor or his session ends. A reload ends a
+  // preview: it is a look, not a mode to come back to.
+  const [previewing, setPreviewing] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const martin = signedIn.kind === 'martin' && !ended;
+  const expiresAt = signedIn.kind === 'martin' ? signedIn.session.expiresAt : undefined;
+  // Who everything under the header is drawn for: Martin, until he previews as a visitor or his session ends, so
+  // nothing of his shows in a preview. Only the header and the footer go by whether he is signed in.
+  const admin: Admin = martin && !previewing ? signedIn : { kind: 'visitor' };
+  const lost = useCallback(async () => {
+    const live = expiresAt !== undefined && (await stillSignedIn(expiresAt));
+    if (!live) setEnded(true);
+    return live;
+  }, [expiresAt]);
+  const source = useEvents(from, admin.kind === 'martin' ? 'full' : 'public', lost);
   const latest = source.events.length ? Date.parse(source.events.at(-1)?.ts ?? '') : undefined;
   const t = useTime(latest, from.kind === 'live');
   const view = useMemo(() => project(source.events, t), [source.events, t]);
@@ -126,6 +142,14 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
     performance.mark('sf:first-view');
   }, [n]);
 
+  const preview = (on: boolean) => {
+    setPreviewing(on);
+    setOpen(undefined);
+    window.scrollTo(0, 0);
+    // Back to admin takes its button away: focus goes to the account button, where Preview as visitor is too.
+    if (!on) requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.account-btn')?.focus());
+  };
+
   const sheet = useMemo(() => (open ? projectSheet(source.events, open, t) : undefined), [open, source.events, t]);
   const sheetIndex = sheet ? view.cards.findIndex((card) => card.number === sheet.card.number) : -1;
 
@@ -133,6 +157,7 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
     return (
       <OriginContext.Provider value={from}>
         <LogoSymbols />
+        {martin && previewing && <PreviewBanner onBack={() => preview(false)} />}
         <Header
           line={view.header}
           connection={source.connection}
@@ -140,7 +165,9 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
           onTheme={setTheme}
           motion={motion}
           onMotion={setMotion}
-          admin={admin}
+          admin={martin ? signedIn : { kind: 'visitor' }}
+          previewing={previewing}
+          onPreview={() => preview(true)}
         />
         <main id="top">
           <div className="wrap">
@@ -149,7 +176,7 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
             </Suspense>
           </div>
         </main>
-        <Footer signIn={admin.kind === 'visitor'} />
+        <Footer signIn={signedIn.kind === 'visitor'} />
       </OriginContext.Provider>
     );
   }
@@ -157,6 +184,7 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
   return (
     <OriginContext.Provider value={from}>
       <LogoSymbols />
+      {martin && previewing && <PreviewBanner onBack={() => preview(false)} />}
       <Header
         line={view.header}
         connection={source.connection}
@@ -164,7 +192,9 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
         onTheme={setTheme}
         motion={motion}
         onMotion={setMotion}
-        admin={admin}
+        admin={martin ? signedIn : { kind: 'visitor' }}
+        previewing={previewing}
+        onPreview={() => preview(true)}
       />
       <main id="top">
         <div className="wrap">
@@ -206,7 +236,7 @@ function Console({ from, admin, theme, onTheme: setTheme, motion, onMotion: setM
           {settled && <Controls spend={settings.spend} martin={admin.kind === 'martin'} />}
         </div>
       </main>
-      <Footer signIn={admin.kind === 'visitor'} />
+      <Footer signIn={signedIn.kind === 'visitor'} />
       {sheet && (
         <Suspense fallback={null}>
           <Sheet

@@ -1,9 +1,10 @@
 /**
  * The console and the admin service on one origin, as the cluster serves them, for the browser tests of signing in and
- * for the ZAP scan (`apps/console/zap`): a throwaway store, the admin service on it as its own role, the console's
- * server on the samples, and a small proxy in front standing in for Traefik, which sends `/admin/` to the service and
- * everything else to the console's server without the `Cookie` header. It exists in the tests alone: nothing here is
- * in an image.
+ * of Martin's view, and for the ZAP scan (`apps/console/zap`): a throwaway store holding the samples, each visitor's
+ * report with its text as the full events carry it (`full.ts`), the admin service and the console's server on it, each
+ * as its own role, and a small proxy in front standing in for Traefik, which sends `/admin/` to the service and
+ * everything else to the console's server without the `Cookie` header. So Martin's full events and a visitor's public
+ * ones are the same events, from one store. It exists in the tests alone: nothing here is in an image.
  *
  * A browser signs in as Martin's would, with a virtual passkey (Chrome's WebAuthn domain, through the DevTools
  * Protocol) answering the service's own ceremonies, so the service has no way in made for tests.
@@ -13,13 +14,17 @@ import { createServer, type IncomingMessage, request, type Server, type ServerRe
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import type { CDPSession, Page } from '@playwright/test';
-import { createDatabase, type Database, startPostgres } from '../../../packages/store/test/postgres.ts';
+import type { NewEvent } from '@software-factory/events';
+import { DiskArtifacts, EventWriter } from '@software-factory/store';
+import { createDatabase, type Database, PASSWORDS, startPostgres } from '../../../packages/store/test/postgres.ts';
 import type { AdminService } from '../../factory/src/admin/service.ts';
 import type { RolloutRef } from '../../factory/src/release/rollout-ref.ts';
 import type { KubeWriter } from '../../factory/src/runners/kube.ts';
+import { full } from './full.ts';
 
 const HERE = fileURLToPath(new URL('..', import.meta.url));
 const SAMPLES = fileURLToPath(new URL('../../../packages/samples/log', import.meta.url));
+const ARTIFACTS = fileURLToPath(new URL('../../../packages/samples/log/artifacts', import.meta.url));
 
 export interface Harness {
   /** The one origin the browser sees, such as `http://localhost:18325`. */
@@ -50,6 +55,11 @@ export async function startHarness(
   const { proxies } = await import('../../factory/src/admin/config.ts');
   const { enrol } = await import('../../factory/src/admin/enrol.ts');
   const { startAdmin } = await import('../../factory/src/admin/service.ts');
+  const { endingAt, readLog } = await import('../../factory/src/events.ts');
+
+  // The samples, as `make samples` loads them, by Martin's command line's role, ending now.
+  const events = endingAt(readLog(SAMPLES).map(full<NewEvent>), Date.now());
+  await new EventWriter(database.operator, { kind: 'sample', artifacts: new DiskArtifacts(ARTIFACTS) }).append(events);
 
   // The admin service as its Deployment runs it, connected as its own role; `localhost` is a secure context, so a
   // passkey and a `Secure` cookie work over plain HTTP here.
@@ -67,7 +77,11 @@ export async function startHarness(
   const adminPort = (admin.server.address() as AddressInfo).port;
 
   const consolePort = port + 1;
-  const console_ = await startConsole(consolePort);
+  const reader = new URL(postgres.url);
+  reader.pathname = `/${database.name}`;
+  reader.username = 'console_reader';
+  reader.password = PASSWORDS.console;
+  const console_ = await startConsole(consolePort, reader.href);
 
   const harness: Harness = {
     origin,
@@ -111,14 +125,15 @@ function forward(req: IncomingMessage, res: ServerResponse, port: number, header
   req.pipe(upstream);
 }
 
-/** The console's server on the samples, as the browser tests run it. */
-async function startConsole(port: number): Promise<ChildProcess> {
+/** The console's server on the store, as its read-only role, as the cluster runs it. */
+async function startConsole(port: number, databaseUrl: string): Promise<ChildProcess> {
   const child = spawn(process.execPath, ['src/server.ts'], {
     cwd: HERE,
     env: {
       ...process.env,
       PORT: String(port),
-      EVENT_LOG: SAMPLES,
+      DATABASE_URL: databaseUrl,
+      ARTIFACTS_DIR: ARTIFACTS,
       NODE_ENV: 'production',
       LOG_LEVEL: 'silent',
       OTEL_SDK_DISABLED: 'true',
