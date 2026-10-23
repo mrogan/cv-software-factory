@@ -31,11 +31,16 @@ export default defineConfig({
       name: 'console',
       use: { ...devices['Desktop Chrome'] },
       testIgnore: pinned
-        ? /(live|signing-in|martin|speed)\.spec\.ts/
-        : /(live|signing-in|martin|speed|visual)\.spec\.ts/,
+        ? /(live|signing-in|martin|canary-controls|speed)\.spec\.ts/
+        : /(live|signing-in|martin|canary-controls|speed|visual)\.spec\.ts/,
     },
-    // The tests that need a store: the console live, and signing in and Martin's view against the admin service.
-    { name: 'live', use: { ...devices['Desktop Chrome'] }, testMatch: /(live|signing-in|martin)\.spec\.ts/ },
+    // The tests that need a store: the console live, and signing in, Martin's view and the canary's controls against
+    // the admin service.
+    {
+      name: 'live',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /(live|signing-in|martin|canary-controls)\.spec\.ts/,
+    },
     // Timed alone, so other tests' browsers don't share its CPU: after the rest, or on its own with `--no-deps` as CI
     // and `make e2e` run it.
     { name: 'speed', testMatch: /speed\.spec\.ts/, dependencies: ['console', 'live'] },

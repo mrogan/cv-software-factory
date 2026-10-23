@@ -102,6 +102,22 @@ export async function post(path: string, body: object = {}, token?: string): Pro
   }
 }
 
+/**
+ * One of Martin's writes: a `POST` with his session's token. When the service refuses it because it needs his passkey
+ * again, `stepUp` asks for it (the step-up dialog, `StepUp.tsx`), and the write is sent again once it is given; when
+ * he cancels, the refusal stands.
+ */
+export async function write(
+  path: string,
+  body: object,
+  token: string,
+  stepUp?: () => Promise<boolean>,
+): Promise<Answer> {
+  const got = await post(path, body, token);
+  if (got.status !== 403 || got.body?.refused !== 'step-up' || !stepUp) return got;
+  return (await stepUp()) ? post(path, body, token) : got;
+}
+
 /** The service's own words for a refusal, or ours when it gave none (it was unreachable, or something else answered). */
 export const said = (got: Answer): string =>
   typeof got.body?.message === 'string'

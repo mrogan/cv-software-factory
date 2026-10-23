@@ -13,8 +13,8 @@ import { Line } from './components/Line.tsx';
 import { LogoSymbols } from './components/Logos.tsx';
 import { PreviewBanner } from './components/Preview.tsx';
 import { Reel } from './components/Reel.tsx';
-
 import { EmptyReel, States } from './components/States.tsx';
+import { StepUpProvider } from './components/StepUp.tsx';
 import { project, projectSheet } from './projection/index.ts';
 import { type Theme, useMotion, useTheme, useTime } from './settings.ts';
 import { type Origin, origin, useEvents } from './source.ts';
@@ -51,7 +51,12 @@ export function App() {
       </>
     );
   }
-  return <Console from={from} admin={admin} theme={theme} onTheme={setTheme} motion={motion} onMotion={setMotion} />;
+  // Martin's writes ask for his passkey again where the access table says, through one dialog for the whole page.
+  return (
+    <StepUpProvider session={admin.kind === 'martin' ? admin.session : undefined}>
+      <Console from={from} admin={admin} theme={theme} onTheme={setTheme} motion={motion} onMotion={setMotion} />
+    </StepUpProvider>
+  );
 }
 
 interface ConsoleProps {
@@ -168,7 +173,15 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
           <States source={source} view={view} />
           {/* The stations draw at once, idle, and take their states as the events arrive. */}
           <Line view={view} motion={motion} onOpen={setOpen} pending={!source.events.length && !settled} />
-          {settled && <Canary view={view.canary} t={view.t} onOpen={setOpen} />}
+          {settled && (
+            <Canary
+              view={view.canary}
+              t={view.t}
+              onOpen={setOpen}
+              admin={admin}
+              lineStopped={view.header.stopped !== undefined}
+            />
+          )}
           {/* An empty store waits for the server to say what kind it is, so it is described once, rightly. */}
           {n === 0 && settled && (source.store !== undefined || source.connection !== 'live') && (
             <EmptyReel store={source.store} />

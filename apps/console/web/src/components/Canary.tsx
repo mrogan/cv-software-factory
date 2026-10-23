@@ -1,11 +1,27 @@
 /**
  * The Canary panel: the release in flight against the version it would replace, for everyone, full width under the
- * line. It is always there; idle, it is one line.
+ * line. It is always there; idle, it is one line. Under the steps and the measures are Martin's controls: buttons for
+ * him, and for a visitor the same controls as labels beside what each does.
  */
+import type { ReleaseControl } from '@software-factory/events';
+import { useState } from 'react';
+import { type Admin, said, write } from '../admin.ts';
 import { capital, clock, clockSeconds, duration, isCommit, shortVersion, shortWhen, times } from '../format.ts';
 import type { CanaryView, Carried, Measured, Release } from '../projection/index.ts';
-import { endedWords, failedLooks, MEASURES, ownWords, SIGNALLED, sawOf, stoppedBy } from '../projection/release.ts';
+import {
+  type Control,
+  controlsOf,
+  endedWords,
+  failedLooks,
+  MEASURES,
+  ownWords,
+  SIGNALLED,
+  sawOf,
+  stoppedBy,
+} from '../projection/release.ts';
+import { Dialog } from './Dialog.tsx';
 import { Glyph, type GlyphName } from './Glyph.tsx';
+import { type Asked, Key, useStepUp } from './StepUp.tsx';
 
 export type Tone = 'signal' | 'ok' | 'attn' | 'faint';
 type Phase = Measured['stepped']['analysis']['phase'];
@@ -37,6 +53,8 @@ export function Verdict({ phase, looks }: { phase: keyof typeof VERDICT; looks?:
 export function standing(r: Release): [word: string, tone: Tone, dot: string] {
   const { end, weight } = r;
   if (!end) {
+    // Martin's pause holds it: still, not blinking, until he resumes, promotes or aborts it.
+    if (r.paused && !r.dryRun) return [`Paused by Martin at ${weight}%`, 'signal', ''];
     const word = weight ? `Canary · ${weight}%` : 'Canary · starting';
     return r.dryRun ? [`${word}, as the dry run records it`, 'faint', ''] : [`${word} of traffic`, 'signal', 'blink'];
   }
@@ -319,6 +337,8 @@ function note(r: Release): string {
   if (r.dryRun)
     return 'The dry run answers for this release: its merges were never made, so nothing shipped and nothing was measured. It records each step as the line would see it, so a soak goes round.';
   if (!end) {
+    if (r.paused)
+      return `Martin paused the canary at ${clockSeconds(r.paused.at)}. It keeps ${r.weight}% of the traffic until he resumes it, promotes it or aborts it.`;
     if (!r.planned) return 'This release recorded no steps, so the steps measured so far stand in for them.';
     if (r.weight === 100) return 'Every step has passed: the canary takes all the traffic next.';
     if (!step || r.until === undefined)
@@ -349,7 +369,161 @@ function ended(r: Release, t: number): [word: string, tone: Tone, when: string] 
   return [word, end.kind === 'promoted' ? 'ok' : 'attn', when];
 }
 
-export function Canary({ view, t, onOpen }: { view: CanaryView; t: number; onOpen: (item: string) => void }) {
+/** What the step-up dialog says of each control that asks for the passkey. */
+const ASKED: Partial<Record<ReleaseControl, (r: Release, c: Control) => Asked>> = {
+  promote: (r, c) => ({
+    title: 'Promote the canary',
+    what: `${shortVersion(r.version)} moves to ${c.to}% of the traffic now.`,
+    why: 'Promoting ships to more people',
+  }),
+  'promote-fully': (r) => ({
+    title: 'Promote the canary',
+    what: (
+      <>
+        <b>{shortVersion(r.version)} takes all the traffic now.</b> Verify then asks each ticket’s sense whether it
+        cleared.
+      </>
+    ),
+    why: 'Promoting ships to everyone',
+  }),
+  retry: (r) => ({
+    title: 'Retry the release',
+    what: `${shortVersion(r.version)}’s canary starts again from its first step.`,
+    why: 'Retrying ships again',
+  }),
+};
+
+/**
+ * Martin's controls, under the steps and the measures: his buttons, each with the key while the passkey is not fresh
+ * where it asks for it, and Abort behind a dialog; or for anyone else, the same controls as labels beside what each
+ * does. Each names the release the panel shows, so the admin service acts on that one or none. What it did shows in
+ * the panel as the events arrive: the kicker, the steps, the note.
+ */
+function CanaryControls({ r, admin, lineStopped }: { r: Release; admin: Admin; lineStopped: boolean }) {
+  const controls = controlsOf(r, lineStopped);
+  const stepUp = useStepUp();
+  const [busy, setBusy] = useState(false);
+  const [refusal, setRefusal] = useState<string | undefined>(undefined);
+  const [aborting, setAborting] = useState(false);
+  if (!controls.length) return null;
+  if (admin.kind !== 'martin') {
+    return (
+      <div className="canary-controls">
+        <span className="label">Martin’s controls</span>
+        <dl>
+          {controls.map((c) => (
+            <div key={c.action}>
+              <dt>
+                <span className="ro">{c.label}</span>
+              </dt>
+              <dd>{c.what}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    );
+  }
+  const { token } = admin.session;
+  const act = async (c: Control) => {
+    setBusy(true);
+    setRefusal(undefined);
+    const asked = ASKED[c.action]?.(r, c);
+    const route = c.action === 'promote-fully' ? 'promote' : c.action;
+    const body = { release: r.id, ...(c.action === 'promote-fully' && { fully: true }) };
+    let cancelled = false;
+    const ask =
+      asked &&
+      (async () => {
+        cancelled = !(await stepUp.ask(asked));
+        return !cancelled;
+      });
+    const got = await write(`/admin/release/${route}`, body, token, ask);
+    setBusy(false);
+    // Cancelled at the passkey: nothing was asked of the canary, and nothing to say.
+    if (cancelled) return;
+    if (got.status !== 200) setRefusal(said(got));
+    // Made, with something left undone that Martin must know of: his pause, still set after the control.
+    else if (typeof got.body?.warning === 'string') setRefusal(got.body.warning);
+  };
+  const off = controls.find((c) => c.off)?.off;
+  return (
+    <div className="canary-controls">
+      <span className="label">Your controls</span>
+      <div className="row">
+        {controls.map((c) => (
+          <button
+            key={c.action}
+            type="button"
+            className="btn"
+            title={c.what}
+            disabled={c.off !== undefined}
+            // Busy, it stays focusable, so focus comes back to it when a dialog it opened closes.
+            aria-disabled={busy || undefined}
+            onClick={() => {
+              if (busy) return;
+              if (c.action === 'abort') setAborting(true);
+              else void act(c);
+            }}
+          >
+            {c.label}
+            {c.stepUp && !stepUp.fresh && <Key />}
+          </button>
+        ))}
+        {off && <span className="help">{off}</span>}
+      </div>
+      {refusal && (
+        <p className="canary-refusal" role="alert">
+          {refusal}
+        </p>
+      )}
+      {aborting && (
+        <Dialog
+          title="Abort the canary"
+          onClose={() => setAborting(false)}
+          actions={
+            <>
+              <button type="button" className="btn" onClick={() => setAborting(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn attn"
+                onClick={() => {
+                  setAborting(false);
+                  const abort = controls.find((c) => c.action === 'abort');
+                  if (abort) void act(abort);
+                }}
+              >
+                Abort
+              </button>
+            </>
+          }
+        >
+          <p>
+            {shortVersion(r.previous)}, the version before, takes all the traffic at once. Nothing failed, so it opens
+            no ticket
+            {r.items.length
+              ? `, and ${r.items.map((i) => `#${i.number}`).join(' and ')} waits for your retry or the next deploy`
+              : ''}
+            .
+          </p>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
+interface CanaryProps {
+  view: CanaryView;
+  t: number;
+  onOpen: (item: string) => void;
+  /** Who is looking: Martin's controls are his buttons, and everyone else's labels. */
+  admin: Admin;
+  /** Whether the line is stopped: a stopped line starts no canary, so Retry waits for it to start. */
+  lineStopped: boolean;
+}
+
+export function Canary({ view, t, onOpen, admin, lineStopped }: CanaryProps) {
   if (view.state !== 'shown') {
     const r = view.state === 'idle' ? view.release : undefined;
     const [word, tone, when] = r ? ended(r, t) : [];
@@ -438,6 +612,8 @@ export function Canary({ view, t, onOpen }: { view: CanaryView; t: number; onOpe
         </div>
         {right && <div>{right}</div>}
       </div>
+      {/* A release of its own: what was pressed for another, and refused, is not said under this one. */}
+      <CanaryControls key={r.id} r={r} admin={admin} lineStopped={lineStopped} />
       <p className="help">
         The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody
         needs to press anything.
