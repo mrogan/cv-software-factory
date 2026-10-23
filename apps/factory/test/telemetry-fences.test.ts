@@ -271,8 +271,11 @@ describe('Prometheus', () => {
     const fences = (await manifests()).filter(
       ({ manifest, namespace }) => manifest.kind === 'NetworkPolicy' && namespace === 'telemetry',
     );
-    expect(fences.map(({ manifest }) => manifest.metadata?.name)).toEqual(['prometheus']);
-    const [fence] = fences.map(({ manifest }) => manifest) as {
+    // Prometheus's, and Alertmanager's, which alertmanager.test.ts holds.
+    expect(fences.map(({ manifest }) => manifest.metadata?.name).sort()).toEqual(['alertmanager', 'prometheus']);
+    const [fence] = fences
+      .filter(({ manifest }) => manifest.metadata?.name === 'prometheus')
+      .map(({ manifest }) => manifest) as {
       spec: { podSelector: unknown; policyTypes: string[]; ingress: { from: Peer[]; ports: unknown[] }[] };
     }[];
     expect(fence?.spec.podSelector).toEqual(PROMETHEUS.podSelector);

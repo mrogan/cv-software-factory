@@ -1,0 +1,60 @@
+# Who reaches Alertmanager, and what it reaches. Anything that reached its port could make a silence, and a silence
+# keeps a page from Martin's phone, so it lets in only:
+#
+# - Prometheus's server, which sends it alerts and scrapes its metrics, on 9093;
+# - Grafana, on the same port.
+#
+# Out, it reaches DNS, the intake, which turns the app's objective alerts into signals, and Pushover (api.pushover.net)
+# on 443. Pushover's addresses are not ours to list, so, as for Kyverno's admission controller
+# (deploy/base/admission/network-policies.yaml), the rule is the internet on 443 with the cluster's, the local
+# network's and the host's addresses excepted, until egress by host name (#176). Not Postgres, the gateway, the admin
+# service or the Kubernetes API, and not the internet on any other port.
+#
+# A port-forward, and the kubelet's probes, reach it from the node, as they do Prometheus.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: alertmanager
+  namespace: telemetry
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/component: server
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - { protocol: TCP, port: 9093 }
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: factory
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: intake
+      ports:
+        - { protocol: TCP, port: 8080 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 0.0.0.0/8]
+      ports:
+        - { protocol: TCP, port: 443 }

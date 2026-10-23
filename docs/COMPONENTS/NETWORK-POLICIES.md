@@ -1,6 +1,6 @@
 # Network policies
 
-Each pod reaches only what it needs. Of the factory's workers, only the gateway and the GitHub worker may leave the cluster. Part of the [factory plane](README.md#factory-plane).
+Each pod reaches only what it needs. Of the factory's workers, only the gateway and the GitHub worker may leave the cluster; beyond them, only the runners' prepare pods, Kyverno's admission controller and Alertmanager. Part of the [factory plane](README.md#factory-plane).
 
 - **v1:** Kubernetes NetworkPolicies, which k3s enforces.
 - **Later:** egress by host name (#176).
@@ -15,6 +15,7 @@ flowchart LR
     line[Line]
     triage[Triage]
     probes[Probes and crawler]
+    intake[Intake]
   end
   subgraph kyverno
     admission[Admission controller]
@@ -22,10 +23,15 @@ flowchart LR
   subgraph website
     app[The app]
   end
+  subgraph telemetry
+    alertmanager[Alertmanager]
+  end
   internet((Internet, 443))
   gateway --> internet
   worker --> internet
   admission --> internet
+  alertmanager --> internet
+  alertmanager --> intake
   triage --> gateway
   line --> worker
   line -- verify port --> probes
@@ -76,7 +82,9 @@ The pod log collector reaches Loki's intake and DNS, and only Prometheus calls i
 
 ## `telemetry`
 
-The backends take no policy of their own but Prometheus's server, whose one port answers queries and takes writes: metrics over OTLP, and Tempo's service graph over remote write ([telemetry](TELEMETRY.md#the-service-graph)). A writer could plant the series the alerts and the canary's analysis judge by, so only these reach it, on 9090:
+The backends take no policy of their own but Prometheus's server and Alertmanager.
+
+Prometheus's server has one port, which answers queries and takes writes: metrics over OTLP, and Tempo's service graph over remote write ([telemetry](TELEMETRY.md#the-service-graph)). A writer could plant the series the alerts and the canary's analysis judge by, so only these reach it, on 9090:
 
 - the collector, which writes over OTLP;
 - Tempo, whose metrics generator writes the service graph;
@@ -84,6 +92,8 @@ The backends take no policy of their own but Prometheus's server, whose one port
 - Argo Rollouts' controller, which runs the canary's analysis.
 
 Nothing else in `telemetry` does. Prometheus may still reach out to whatever it scrapes, which each target's own policy fences, and scrapes itself on its own address.
+
+Alertmanager pages Martin, and anything that reached it could silence a page ([alerting](ALERTING.md#who-reaches-alertmanager)). So only Prometheus's server, which sends it alerts and scrapes it, and Grafana reach it, on 9093. It reaches DNS, the intake on 8080, and the internet on 443, for Pushover: by address and port, with the cluster's, the local network's and the host's addresses excepted, as for Kyverno's admission controller.
 
 ## `website`
 
@@ -109,6 +119,7 @@ It starts a pod labelled like each fenced part, and shows what each reaches and 
 - the pod log collector;
 - Prometheus's server, which reaches the platform's metrics beyond `telemetry`: Kyverno's two controllers on 8000, Argo Rollouts' controller on 8090, the Postgres exporter on 9187 and the pod log collector on 8888;
 - Tempo, which reaches Prometheus's remote-write receiver;
+- Alertmanager, which reaches the intake and the internet on 443, and nothing else: not Prometheus, Postgres, the gateway, the admin service, the Kubernetes API, the host or the internet on another port; and which Prometheus's server reaches, and not the pod in `telemetry` below, whose own egress is open, nor a worker;
 - the Postgres exporter, which reaches Postgres and nothing else;
 - a pod in `telemetry` that is none of its backends, answering on their ports, which no reader of telemetry reaches, and which itself reaches neither Prometheus nor any of the platform's metrics.
 
@@ -127,4 +138,5 @@ It has controls, which must reach what they reach:
 - the pod log collector reaches Loki;
 - Prometheus's server reaches the metrics of Kyverno, Argo Rollouts, the Postgres exporter and the pod log collector;
 - Tempo reaches Prometheus's remote-write receiver, and Argo Rollouts' controller reaches Prometheus;
+- Alertmanager reaches the intake and Pushover, and Prometheus's server reaches Alertmanager;
 - Traefik, the probes and the crawler still reach the app.
