@@ -16,7 +16,7 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 1. **Key each work item.** An issue's key is its number. Something from the conversation is a brief, and its key is a short slug (`station-order`). An issue's second pull request is `<n>-2`.
 2. **Make the run directory**: `run.sh <key>...` makes `scratch/implement/<date>-<keys>/` and prints its path. Notes, briefs, PR notes and the summary go there. A run that spans sessions (a milestone's part, with Martin merging between them) keeps three files there as well, which each session reads first and updates last, so that nothing lives only in a reply. A later session takes up the same run directory, named in its handover, rather than making a new one:
    - `LEDGER.md`: a row per work item, with its state, pull requests, what it waits on, and the next action;
-   - `MARTIN.md`: what waits on Martin, in the order to do it, each pull request with what to look at, the files CODEOWNERS gives him, the decisions made for him, the rebase a merge forces, and what to try once it is deployed;
+   - `MARTIN.md`: what waits on Martin, in the order to do it, each pull request with what to look at, the files CODEOWNERS gives him, the decisions made for him, the update a merge forces on another pull request, and what to try once it is deployed;
    - `FOLLOWUPS.md`: each loose end the moment it is found (a `found`, a workflow problem, something only Martin can do), with where it goes, emptied at the end of each work item.
 3. **Write each brief from the conversation** to `<run dir>/brief-<slug>.md`. The sub-agent sees nothing of this conversation, so the brief stands alone:
    - **Goal**: the change, and why, in a paragraph;
@@ -26,7 +26,7 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
    - **Related**: issues, pull requests and commits named.
 
    Write down what was said, not what you would add. If the conversation left open a decision that changes what gets built, ask Martin now, in one question, while he is here.
-4. **Read every issue** far enough to brief it. Note work items that touch the same files or depend on each other, and order them so that one another builds on goes first. Each pull request branches from `origin/main` unless it truly cannot be done without another; then stack it and say so.
+4. **Read every issue** far enough to brief it. Note work items that touch the same files or depend on each other, and order them so that one another builds on goes first. Each pull request branches from `origin/main`. When several work items need the same piece (a component, a helper they all reuse), make that piece a small work item of its own, branched from `origin/main` and done first, rather than stacking one item's pull requests on another's. Martin can merge a small piece quickly. Don't wait for him: until it merges, each item that uses it stacks on it alone, not on one another; once it has, they branch from `main`. Stack only what truly cannot be done without another's unmerged work, and say so, with the order to merge in.
 
 ## Each work item, one at a time
 
@@ -39,7 +39,9 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 
 Never run two sub-agents at once, and never give a worktree to a second agent while the first can still run.
 
-When Martin merges one pull request and another then conflicts with `main`, send a sub-agent to fetch and merge `origin/main` into it and resolve, briefed with what merged: it owns the worktree for that, as the first did.
+When Martin merges one pull request, bring up to date only what that merge forces: a pull request that now conflicts with `main`, and in a stack each one built directly on the one that merged. Send a sub-agent to fetch and merge `origin/main` into it and resolve, briefed with what merged: it owns the worktree for that, as the first did. Where the merge conflicts on the merged pull request's own changes, it starts from `main`'s side, which carries that pull request as reviewed, and carries its own pull request's changes over onto it. Once its checks pass and `verify.sh` passes again, tell Martin it is ready to merge.
+
+In a stack, Martin merges each pull request the moment it is green, and each merge squashes the branch the next one is built on. Leave the ones further up until their turn: a whole stack brought up to date at once has to be done again after every merge.
 
 ## Finishing the work, not filing it
 
@@ -74,7 +76,7 @@ With more than one pull request:
 Then write `<run dir>/SUMMARY.md` and give it to Martin, leaving out what does not apply:
 
 - each work item: its pull requests, or why it was skipped, a line each; mark the issues this run filed, and list what it found but left unfiled;
-- the order to merge in, and why, with any rebase a merge will force on another;
+- the order to merge in, and why, with any update a merge will force on another;
 - the files CODEOWNERS gives Martin that each pull request changes, and why, in a line each;
 - the decisions made on Martin's behalf, and the open threads to look at;
 - anything left after a merge (a deploy pull request, an image pin) and anything that waits on Martin's decision.
