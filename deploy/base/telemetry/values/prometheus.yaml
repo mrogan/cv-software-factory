@@ -126,6 +126,10 @@ server:
       - deployment.environment.name
       # Which of a release's two versions a series is from: the stable's hash or the canary's (otel-collector.yaml).
       - k8s.pod.label.rollouts-pod-template-hash
+      # Which factory worker a series is from, by its pod's namespace and name label, which only the collector sets: the
+      # alerts to Martin read the line's own counts by them (otel-collector.yaml, provenance.ts).
+      - k8s.namespace.name
+      - k8s.pod.label.app.kubernetes.io/name
   resources:
     requests:
       cpu: 100m
@@ -140,7 +144,8 @@ server:
 # be a target behind a fence Prometheus cannot pass, down for as long as it asked; and one Prometheus could reach would
 # keep the labels it sent (`honor_labels`, the chart's default), the one that marks the app's own metrics among them
 # (provenance.ts). A namespace the platform starts to run a target in is a name here. And whatever is scraped, that
-# label is dropped from it: only the collector stamps it, on what arrives over OTLP.
+# label is dropped from it, as are the two that mark the line's own counts, which page Martin: only the collector
+# stamps them, on what arrives over OTLP.
 #
 # `target_info` is a service that sends metrics over OTLP, and triage counts those to see that metrics still arrive
 # (environment.ts). The collector also serves its own where it is scraped, as may any SDK's exporter, which would be
@@ -166,6 +171,8 @@ scrapeConfigs:
         regex: target_info
         action: drop
       - regex: k8s_pod_label_rollouts_pod_template_hash
+        action: labeldrop
+      - regex: k8s_namespace_name|k8s_pod_label_app_kubernetes_io_name
         action: labeldrop
       # Every `pg_settings_*` but `max_connections`: marked, dropped unless marked, and the mark taken off.
       - source_labels: [__name__]

@@ -6,6 +6,7 @@ kind: Kustomization
 resources:
   - otel-collector.yaml
   - collector-reads-website.yaml
+  - collector-reads-factory.yaml
   - prometheus.yaml
   - loki.yaml
   - tempo.yaml

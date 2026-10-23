@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { DEPLOY, manifests as deployManifests, PROMETHEUS } from './deploy.ts';
+import { DEPLOY, manifests as deployManifests, PROMETHEUS, type Relabel, relabel } from './deploy.ts';
 
 /**
  * The platform's own metrics as deploy/ declares them (#385): each component asks Prometheus, through its chart's
@@ -219,6 +219,20 @@ describe('what Prometheus scrapes because it asks', () => {
         action: 'labeldrop',
         regex: 'k8s_pod_label_rollouts_pod_template_hash',
       });
+    }
+  });
+
+  it('never keeps the labels that mark the line’s own counts, which page Martin', async () => {
+    const jobs = await scrapeJobs();
+    for (const job of Object.keys(ASKING)) {
+      const rules = (jobs[job]?.metric_relabel_configs ?? []) as Relabel[];
+      const scraped = relabel(rules, {
+        __name__: 'line_security_events_total',
+        kind: 'sign-in',
+        k8s_namespace_name: 'factory',
+        k8s_pod_label_app_kubernetes_io_name: 'line',
+      });
+      expect(scraped, job).toEqual({ __name__: 'line_security_events_total', kind: 'sign-in' });
     }
   });
 
