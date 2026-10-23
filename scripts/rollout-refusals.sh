@@ -6,7 +6,9 @@
 # them, whenever either changes, with credentials that may impersonate a service account (Martin's own), and a few
 # seconds after a change: the API server takes a moment to load a policy.
 #
-# Each request is a server-side dry run: it passes through authorisation and admission exactly as a real one does, and
+# Each request is the one the service makes, a merge patch straight to the API, sent through `kubectl proxy` as its
+# account (`kubectl patch` reads a subresource before it patches it, which the Role does not grant and the service does
+# not need), and a server-side dry run: it passes through authorisation and admission exactly as a real one does, and
 # nothing is changed. Promote moves the status's step on by one, or to past the last step when it is there already, so a
 # canary in flight or not, each asks the same of the policy.
 #
@@ -32,26 +34,40 @@ set -euo pipefail
 context="${KUBE_CONTEXT:-k3d-software-factory}"
 as=system:serviceaccount:factory:admin
 out="$(dirname "$0")/../deploy/test/rollout-refusals.json"
-kc() { kubectl --context "$context" --as "$as" -n website "$@"; }
+rollout=/apis/argoproj.io/v1alpha1/namespaces/website/rollouts/website
 
 at=$(kubectl --context "$context" -n website get rollout website -o jsonpath='{.status.currentStepIndex}')
 at=${at:-0}
 steps=$(kubectl --context "$context" -n website get rollout website -o json | jq '.spec.strategy.canary.steps | length')
 step=$(( at < steps ? at + 1 : steps ))
 
+# The API as the admin service's account, on a port of the proxy's choosing, stopped when this ends.
+work=$(mktemp -d)
+kubectl --context "$context" --as "$as" proxy --port=0 >"$work/proxy" 2>&1 &
+proxy=$!
+trap '{ kill "$proxy" && wait "$proxy"; } 2>/dev/null || true; rm -rf "$work"' EXIT
+for _ in $(seq 50); do grep -q 'Starting to serve' "$work/proxy" && break; sleep 0.1; done
+port=$(sed -n 's/.*127\.0\.0\.1:\([0-9]*\).*/\1/p' "$work/proxy")
+[[ -n $port ]] || { cat "$work/proxy" >&2; exit 1; }
+
 record() { # case outcome answer: one JSON line
   jq -cn --arg kind "$1" --arg outcome "$2" --arg answer "$3" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{case: $kind, at: $at, outcome: $outcome, message: ($answer | sub("^Error from server[^:]*: "; ""))}'
+    '{case: $kind, at: $at, outcome: $outcome, message: $answer}'
+}
+
+send() { # case method path [patch]: admitted on a 2xx, refused with the API's reason otherwise
+  local kind=$1 method=$2 path=$3 code
+  code=$(curl -s -o "$work/answer" -w '%{http_code}' -X "$method" -H 'content-type: application/merge-patch+json' \
+    "http://127.0.0.1:$port$path?dryRun=All" ${4:+--data "$4"})
+  if [[ $code == 2* ]]; then
+    record "$kind" admitted "HTTP $code"
+  else
+    record "$kind" refused "$(jq -r '.message // empty' "$work/answer" 2>/dev/null || cat "$work/answer")"
+  fi
 }
 
 try() { # case subresource patch
-  local kind=$1 subresource=$2 patch=$3 answer extra=()
-  [[ -n $subresource ]] && extra=(--subresource "$subresource")
-  if answer=$(kc patch rollout website --type merge -p "$patch" --dry-run=server -o name ${extra[@]+"${extra[@]}"} 2>&1); then
-    record "$kind" admitted "$answer"
-  else
-    record "$kind" refused "$answer"
-  fi
+  send "$1" PATCH "$rollout${2:+/$2}" "$3"
 }
 
 {
@@ -70,11 +86,8 @@ try() { # case subresource patch
   try stable status '{"status":{"stableRS":"rollout-refusal"}}'
   try weights status '{"status":{"canary":{"weights":{"canary":{"weight":100,"podTemplateHash":"x","serviceName":"website-canary"},"stable":{"weight":0,"podTemplateHash":"x","serviceName":"website"}}}}}'
   try pause-condition status '{"status":{"pauseConditions":[{"reason":"PausedByUser","startTime":"2026-01-01T00:00:00Z"}]}}'
-  if answer=$(kc delete rollout website --dry-run=server 2>&1); then record delete admitted "$answer"; else record delete refused "$answer"; fi
-  if answer=$(kc patch traefikservice website --type merge -p '{"spec":{"weighted":{"services":[]}}}' --dry-run=server -o name 2>&1); then
-    record traffic admitted "$answer"
-  else
-    record traffic refused "$answer"
-  fi
+  send delete DELETE "$rollout"
+  send traffic PATCH /apis/traefik.io/v1alpha1/namespaces/website/traefikservices/website \
+    '{"spec":{"weighted":{"services":[]}}}'
 } | jq -s . >"$out"
 jq -r '.[] | "\(.outcome)  \(.case): \(.message)"' "$out"

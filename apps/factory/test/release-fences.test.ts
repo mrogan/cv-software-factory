@@ -137,6 +137,42 @@ describe('changing a release is Martin’s: the admin service’s, for his contr
     );
   });
 
+  it('was answered by the cluster as the Role and the policy say (scripts/rollout-refusals.sh)', async () => {
+    const kept = JSON.parse(await readFile(join(DEPLOY, 'test', 'rollout-refusals.json'), 'utf-8')) as {
+      case: string;
+      outcome: string;
+      message: string;
+    }[];
+    expect(Object.fromEntries(kept.map((k) => [k.case, k.outcome]))).toEqual({
+      pause: 'admitted',
+      resume: 'admitted',
+      abort: 'admitted',
+      retry: 'admitted',
+      promote: 'admitted',
+      'promote-fully': 'admitted',
+      image: 'refused',
+      steps: 'refused',
+      replicas: 'refused',
+      label: 'refused',
+      'step-back': 'refused',
+      'step-dropped': 'refused',
+      stable: 'refused',
+      weights: 'refused',
+      'pause-condition': 'refused',
+      delete: 'refused',
+      traffic: 'refused',
+    });
+    // Each refused by what should refuse it: the Role for what it does not name, the policy for the rest.
+    const byRole = ['delete', 'traffic'];
+    for (const refusal of kept.filter((k) => k.outcome === 'refused')) {
+      expect(refusal.message, refusal.case).toContain(
+        byRole.includes(refusal.case)
+          ? 'User "system:serviceaccount:factory:admin" cannot'
+          : "ValidatingAdmissionPolicy 'website-rollout-controls'",
+      );
+    }
+  });
+
   it('binds nobody to the built-in roles that could change one, and adds Rollouts to none of them', async () => {
     const bindings = (await manifests()).filter(({ manifest }) => manifest.kind?.endsWith('RoleBinding'));
     const builtIn = bindings.filter(({ manifest }) =>

@@ -43,8 +43,8 @@
 #
 # Then the admin service (milestone 7), which believes forwarded headers from the pod network because only Traefik may
 # reach it: a worker, an agent pod and the scoreboard cannot, nor the stranger in `telemetry`, whose own egress is
-# open, so only the admin service's fence stops it; and it reaches Postgres and the collector, and not the
-# gateway, the Kubernetes API or the internet.
+# open, so only the admin service's fence stops it; and it reaches Postgres, the collector and the Kubernetes API, for
+# Martin's controls of the canary, and not the gateway, the node's ingress or the internet.
 #
 # Then the scoreboard, which holds the answer key (milestone 6): it reaches Postgres, and nothing else: not the
 # collector, the gateway, the GitHub worker, the console, the probes, Prometheus, Loki, the app, the Kubernetes API, the
@@ -546,7 +546,9 @@ echo "The admin service:"
 expect "the admin service reaches Postgres" egress-admin tcp://postgres:5432 reached
 expect "the admin service reaches the collector" egress-admin http://otel-collector.telemetry:4318 reached
 expect "the admin service cannot reach the gateway" egress-admin http://gateway:8080/health blocked
-expect "the admin service cannot reach the Kubernetes API" egress-admin "https://$api_ip/version" blocked
+expect "the admin service reaches the Kubernetes API" egress-admin "https://$api_ip/version" reached
+expect "the admin service reaches the API server on the node" egress-admin "https://$node_ip:6443/version" reached
+expect "the admin service cannot reach the node's ingress" egress-admin "https://$node_ip:443" blocked
 expect "the admin service cannot reach a public address" egress-admin https://1.1.1.1 blocked
 expect "the worker cannot reach the admin service" "$pod" http://admin:8080/admin/health blocked
 expect "the agent pod cannot reach the admin service" runners:egress-agent "http://$admin_ip:8080/admin/health" blocked

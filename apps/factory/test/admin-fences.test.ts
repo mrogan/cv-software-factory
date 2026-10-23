@@ -19,9 +19,14 @@ interface Manifest {
     headers?: { customRequestHeaders?: Record<string, string> };
     podSelector?: Selector;
     ingress?: { from?: unknown[]; ports?: unknown[] }[];
+    egress?: { to?: unknown[]; ports?: unknown[] }[];
     template?: {
       metadata?: { labels?: Record<string, string> };
-      spec?: { containers?: { env?: { name: string; value?: string }[] }[] };
+      spec?: {
+        serviceAccountName?: string;
+        automountServiceAccountToken?: boolean;
+        containers?: { env?: { name: string; value?: string }[] }[];
+      };
     };
     namespaceResourceWhitelist?: { group: string; kind: string }[];
     matchConstraints?: { resourceRules?: { apiGroups?: string[]; resources?: string[] }[] };
@@ -107,6 +112,56 @@ describe('the admin service', () => {
     );
     const from = policies.flatMap(({ manifest }) => (manifest.spec?.ingress ?? []).flatMap((rule) => rule.from ?? []));
     expect(from).toEqual([TRAEFIK]);
+  });
+
+  it('reaches the store, the collector and the API server’s port, and nothing else', async () => {
+    const policy = (await manifests()).find(
+      ({ manifest, namespace }) =>
+        manifest.kind === 'NetworkPolicy' && namespace === 'factory' && manifest.metadata?.name === 'admin',
+    );
+    expect(policy?.manifest.spec?.egress).toEqual([
+      {
+        to: [{ podSelector: { matchLabels: { 'app.kubernetes.io/name': 'postgres' } } }],
+        ports: [{ protocol: 'TCP', port: 5432 }],
+      },
+      {
+        to: [
+          {
+            namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'telemetry' } },
+            podSelector: { matchLabels: { 'app.kubernetes.io/name': 'opentelemetry-collector' } },
+          },
+        ],
+        ports: [{ protocol: 'TCP', port: 4318 }],
+      },
+      // The API server, on the node's private address once the `kubernetes` Service has translated it, as the line's.
+      {
+        to: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'].map((cidr) => ({ ipBlock: { cidr } })),
+        ports: [{ protocol: 'TCP', port: 6443 }],
+      },
+    ]);
+  });
+
+  it('runs as its own service account, with its token, for the app’s Rollout alone', async () => {
+    const all = await manifests();
+    const deployment = all.find(
+      ({ manifest }) => manifest.kind === 'Deployment' && manifest.metadata?.name === 'admin',
+    );
+    const spec = deployment?.manifest.spec?.template?.spec;
+    expect(spec?.serviceAccountName).toBe('admin');
+    expect(spec?.automountServiceAccountToken).toBe(true);
+    const env = Object.fromEntries((spec?.containers?.[0]?.env ?? []).map((e) => [e.name, e.value]));
+    expect(env.RELEASE_ROLLOUT).toBe('website/website');
+    // In `factory`, only the line and the admin service hold a token for the API.
+    const withToken = all
+      .filter(
+        ({ manifest, namespace }) =>
+          manifest.kind === 'Deployment' &&
+          namespace === 'factory' &&
+          manifest.spec?.template?.spec?.automountServiceAccountToken !== false,
+      )
+      .map(({ manifest }) => manifest.metadata?.name)
+      .sort();
+    expect(withToken).toEqual(['admin', 'line']);
   });
 
   it('serves the console’s origin, and trusts forwarded headers from the pod network only', async () => {

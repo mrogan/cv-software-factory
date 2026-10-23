@@ -45,6 +45,10 @@ spec:
                   key: password
             - name: ARTIFACTS_DIR
               value: /var/lib/factory/artifacts
+            # The gateway's profile (gateway.yaml), written into the page for the settings' bounds and defaults. Set
+            # ALL_LOCAL here too whenever the gateway has it, so the settings page says every agent is on the local model.
+            - name: FACTORY_PROFILE
+              value: local
           readinessProbe:
             httpGet:
               path: /health

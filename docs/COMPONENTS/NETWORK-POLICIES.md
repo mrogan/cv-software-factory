@@ -50,6 +50,7 @@ Everything is denied in and out, then each pod is allowed what it needs.
 | Crawler | The app, the canary's pods included | Nothing |
 | Line | The GitHub worker, the Kubernetes API, the probes' verify port, and Prometheus, Loki and Tempo through the read-only proxy | The runners' agent pods, with their handbacks |
 | Traffic generator | Traefik and the collector, and nothing else but DNS | |
+| Admin service | Postgres, the collector and the Kubernetes API, for Martin's controls of the canary | Traefik, only |
 | Postgres exporter | Postgres | Prometheus's server, on 9187 |
 
 - Only the line may call the probes' verify port, as only triage may call their page reader.

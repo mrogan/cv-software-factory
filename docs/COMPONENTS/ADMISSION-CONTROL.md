@@ -57,5 +57,5 @@ Everything else in the spec and the status, and the Rollout's labels, annotation
 
 - `make admission-ready` says whether every image the guarded namespaces run or will start would be admitted.
 - Kyverno's refusals are kept in `deploy/test/admission-refusals.json` (`scripts/admission-refusals.sh`).
-- `scripts/rollout-refusals.sh` asks the cluster, as the admin service's account, for the controls' patches and for the changes the policy and the Role must refuse, each a server-side dry run, and keeps the answers in `deploy/test/rollout-refusals.json`.
+- `scripts/rollout-refusals.sh` asks the cluster, as the admin service's account, for the controls' patches and for the changes the policy and the Role must refuse, each a server-side dry run, and keeps the answers in `deploy/test/rollout-refusals.json`, which `release-fences.test.ts` reads.
 - `release-fences.test.ts` fails if the Role or the policy grows.

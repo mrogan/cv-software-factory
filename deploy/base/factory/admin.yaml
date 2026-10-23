@@ -25,7 +25,11 @@ spec:
     metadata:
       labels: *labels
     spec:
-      automountServiceAccountToken: false
+      # Its own service account, whose one Role patches the app's Rollout for Martin's controls of the canary, held by
+      # admission to the fields they set (deploy/base/analysis/admin-controls-release.yaml). Its one container reads the
+      # token; the line is the only other pod in `factory` that has one.
+      serviceAccountName: admin
+      automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -75,6 +79,12 @@ spec:
             # through k3d's load balancer, so the limits key on that one address: they hold for the Mac as a whole.
             - name: ADMIN_TRUSTED_PROXIES
               value: 10.42.0.0/16
+            # The app's Rollout, which the canary's controls patch, as the line is given it (line.yaml).
+            - name: RELEASE_ROLLOUT
+              value: website/website
+            # The gateway's profile (gateway.yaml): the bounds Martin's settings are held to, and their defaults.
+            - name: FACTORY_PROFILE
+              value: local
           readinessProbe:
             httpGet:
               path: /admin/health
