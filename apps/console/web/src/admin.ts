@@ -139,6 +139,33 @@ export const doorHref = (door: Door, ended?: Ended, at?: string) => {
   return `/?${params}`;
 };
 
+/** Set once this page is going to a door of its own accord (signing out), so nothing else sends it to another. */
+let leaving = false;
+
+/** Goes to a door, as signing out does, ahead of anything that would notice the session ending. */
+export function leave(href: string): void {
+  leaving = true;
+  location.assign(href);
+}
+
+/**
+ * Asks again whether the session is live, and when it has ended sends the page to the sign-in door, saying why: its
+ * hours ran out, or it ended early (signed out everywhere from another device, or its passkey revoked). Resolves
+ * true while it is live, or while the service cannot be asked, which leaves the page as it is.
+ */
+export async function stillSignedIn(expiresAt: string): Promise<boolean> {
+  const found = await check();
+  // Gone, not unreachable.
+  if (found.kind !== 'visitor') return true;
+  if (!leaving) {
+    leaving = true;
+    location.assign(
+      Date.now() >= Date.parse(expiresAt) ? doorHref('sign-in', 'expired', expiresAt) : doorHref('sign-in', 'here'),
+    );
+  }
+  return false;
+}
+
 /**
  * Whether this browser is signed in, asked as the page opens, and again when the session's eight hours are up or the
  * page is shown again: a session that has ended sends the page to the sign-in door, saying so. Only the live console asks: a recording has no service.
@@ -161,12 +188,7 @@ export function useAdmin(live: boolean): Admin {
     if (!expiresAt) return;
     const ends = Date.parse(expiresAt);
     // Asked again rather than assumed, so a clock that is out says nothing wrong.
-    const ended = () =>
-      void check().then((found) => {
-        // Gone, not unreachable: a service that cannot be asked leaves the page as it is.
-        if (found.kind !== 'visitor') return;
-        location.assign(Date.now() >= ends ? doorHref('sign-in', 'expired', expiresAt) : doorHref('sign-in', 'here'));
-      });
+    const ended = () => void stillSignedIn(expiresAt);
     // A timer sleeps with the laptop, so coming back to the page asks again too: the session may also have ended
     // early, signed out everywhere from another device or its passkey revoked.
     const timer = setTimeout(ended, Math.max(0, ends - Date.now()) + 1000);

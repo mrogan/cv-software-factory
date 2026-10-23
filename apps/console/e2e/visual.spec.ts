@@ -8,7 +8,7 @@
  * come from the samples too: the Canary panel in each state, a reopened card and one waiting for Martin's deploy, a
  * sheet's releases, the scrubber for work that goes round three times, and the timeline's versions, a release with no
  * work item's among them. Milestone 7's from a stand-in for the admin service: the sign-in and enrolment doors, a code
- * refused, and Martin's account menu.
+ * refused, Martin's account menu, a visitor's report quoted on his sheet, and Preview as visitor.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -447,6 +447,29 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       await page.locator('#account-menu').waitFor();
       await expect(page).toHaveScreenshot(`m07-account-menu-${width}.png`, {
         clip: { x: 0, y: 0, width: viewport.width, height: 320 },
+      });
+    });
+
+    test('a visitor’s report, quoted on Martin’s sheet', async ({ page }) => {
+      await adminService(page, 'martin');
+      await page.goto(consoleUrl({ item: '1268', sheet: true }));
+      await page.locator('.report-said').waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForLoadState('networkidle');
+      await expect(page).toHaveScreenshot(`m07-sheet-report-${width}.png`);
+    });
+
+    test('Preview as visitor', async ({ page }) => {
+      await adminService(page, 'martin');
+      await page.goto(consoleUrl());
+      await ready(page);
+      // Narrower than a desktop, it is in the account menu.
+      if (width !== 'desktop') await page.getByRole('button', { name: 'Martin', exact: true }).click();
+      await page.getByRole('button', { name: 'Preview as visitor' }).click();
+      await ready(page);
+      await page.getByRole('button', { name: 'Back to admin' }).blur();
+      await expect(page).toHaveScreenshot(`m07-preview-${width}.png`, {
+        clip: { x: 0, y: 0, width: viewport.width, height: 360 },
       });
     });
   });

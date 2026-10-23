@@ -18,6 +18,7 @@ import { type Attempt, attempts, deployPicture, reviewThread, startsPass, type T
 import { type Capture, clearanceWords, type Hold, type ItemState, summaryOf } from './items.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
 import { endedWords, type Release, releases, type StoppedBy, stoppedBy } from './release.ts';
+import { reportText } from './report.ts';
 
 export interface Chapter {
   label: string;
@@ -153,8 +154,10 @@ export interface Sheet {
   /**
    * A visitor's report, or the planner's finding: shown as withheld here, since only Martin (and a report's author)
    * may read its words. `times` is how often the planner noticed it: a finding with a held one's fingerprint joins it.
+   * `texts` is what each visitor, or the planner, wrote, made plain (`reportText`): only the full events, Martin's,
+   * carry any.
    */
-  report: { page: string; quarantined: boolean; by: 'visitor' | 'planner'; times: number } | undefined;
+  report: { page: string; quarantined: boolean; by: 'visitor' | 'planner'; times: number; texts: string[] } | undefined;
   story: string;
   chapters: Chapter[];
   /** Screenshots taken at the signal, on the canary and at rollout, for the evidence. */
@@ -972,6 +975,11 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
             times: item.events.filter(
               (event) => event.type === 'signal.received' && event.payload.sense === report.payload.sense,
             ).length,
+            texts: item.events.flatMap((event) => {
+              if (event.type !== 'signal.received' || event.payload.sense !== report.payload.sense) return [];
+              const text = reportText(event.payload.report?.text);
+              return text ? [text] : [];
+            }),
           }
         : undefined,
     story: item.story ?? item.description ?? item.title,
