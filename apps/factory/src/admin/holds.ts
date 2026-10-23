@@ -5,8 +5,8 @@
  * `hold.started` event's id).
  *
  * - **Only the hold the card showed.** The answer is refused, having changed nothing, unless that hold is the work
- *   item's open one as the answer is taken: its latest hold, not answered, merged, closed or reopened since, nor a
- *   deploy's ended by a release. Words on one of triage's holds leave it open (`WORDS_LEAVE_HELD`), so it can still be
+ *   item's open one as the answer is taken, as the line reads it: its latest hold, with nothing since that answered
+ *   or ended it (an answer, a merge, a close, a reopening, for a deploy a release, for a merge gates that failed). Words on one of triage's holds leave it open (`WORDS_LEAVE_HELD`), so it can still be
  *   approved or rejected. Answers are taken one at a time, under the lock every append takes, so two cannot both
  *   answer one hold, and a hold the line or triage appends meanwhile is the one answered next.
  * - **Only an answer that does something.** One the line would only wait after is refused (`answersTo`): approving a
@@ -24,7 +24,6 @@ import {
   type HoldAnswer,
   type HoldCause,
   type NewEvent,
-  type PayloadOf,
   type RawEvent,
   upcast,
   VERSIONS,
@@ -33,7 +32,7 @@ import {
 import { fromMartin } from '@software-factory/store';
 import type { TransactionSql } from 'postgres';
 import { z } from 'zod';
-import { ACCESS, GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
+import { ACCESS, GUARDRAIL_HOLDS, STEP_UP } from '../../../../policy/access.ts';
 import { type AdminStore, Refused, type Session } from './store.ts';
 
 /** A work item's number, as the store keeps it. */
@@ -61,31 +60,69 @@ interface OpenHold {
 }
 
 /**
- * The work item's open hold, if it has one: its latest `hold.started`, and nothing since that answers or ends it. Only
- * Martin's roles' answers count, as the line and triage count them.
+ * The work item's open hold, if it has one: its latest `hold.started`, and nothing since that answers or ends it, as the
+ * line's `fold` (`line/machine.ts`) reads them. The admin service keeps its own reading, of these few events, rather
+ * than take in the line's code, its GitHub and Kubernetes clients with it; `admin.test.ts` holds the two to each other
+ * case by case. Only Martin's roles' answers count, as the line and triage count them.
  */
 async function openHold(tx: TransactionSql, workItem: string): Promise<OpenHold | undefined> {
   const rows = await tx<(RawEvent & { id: string })[]>`
     select e.id, e.seq, e.type, e.version, e.payload from events e
     where e.work_item = ${workItem} and ${fromMartin(tx, 'e')}
-      and e.type in ('hold.started', 'hold.answered', 'pull-request.merged', 'release.started', 'work-item.closed',
-                     'work-item.reopened')
-      and e.seq >= (select max(h.seq) from events h where h.work_item = ${workItem} and h.type = 'hold.started')
+      and e.type in ('hold.started', 'hold.answered', 'gates.started', 'gates.finished', 'pull-request.merged',
+                     'release.started', 'release.rolled-back', 'release.aborted', 'release.errored',
+                     'work-item.closed', 'work-item.reopened')
     order by e.seq`;
-  const [first, ...since] = rows;
-  if (!first) return undefined;
-  const started = upcast({ ...first, seq: Number(first.seq) });
-  if (!started.ok || started.event.type !== 'hold.started') return undefined;
-  const { cause } = started.event.payload as PayloadOf<'hold.started'>;
-  for (const event of since) {
-    // Words leave one of triage's holds standing, for his approval or rejection.
-    const words = event.type === 'hold.answered' && (event.payload as { decision?: string }).decision === 'answered';
-    if (words && WORDS_LEAVE_HELD.includes(cause)) continue;
-    // A release that carries a merged change ends a hold for its deploy; any other leaves a hold as it is.
-    if (event.type === 'release.started' && cause !== 'deploy') continue;
-    return undefined;
+  let open: OpenHold | undefined;
+  // The release carrying the merged change, while it has not ended, and the commit the latest gates ran on.
+  let release: { name: string; ended: boolean } | undefined;
+  let gates: string | undefined;
+  for (const row of rows) {
+    const read = upcast({ ...row, seq: Number(row.seq) });
+    if (!read.ok) continue;
+    const { event } = read;
+    switch (event.type) {
+      case 'hold.started':
+        // A hold for a deploy decided as a release started is already answered by it.
+        if (event.payload.cause === 'deploy' && release && !release.ended) break;
+        open = { id: row.id, cause: event.payload.cause };
+        break;
+      case 'hold.answered':
+        // Words leave one of triage's holds standing, for his approval or rejection.
+        if (event.payload.decision === 'answered' && open && WORDS_LEAVE_HELD.includes(open.cause)) break;
+        open = undefined;
+        break;
+      case 'gates.started':
+        gates = event.payload.commit;
+        break;
+      // Gates that fail end a wait for his merge, which GitHub would refuse.
+      case 'gates.finished':
+        if (event.payload.commit === gates && event.payload.conclusion === 'failed' && open?.cause === 'merge') {
+          open = undefined;
+        }
+        break;
+      case 'pull-request.merged':
+        open = undefined;
+        release = undefined;
+        break;
+      // A release that carries the merged change ends a wait for its deploy.
+      case 'release.started':
+        if (!rows.some((r) => r.type === 'pull-request.merged' && Number(r.seq) < Number(row.seq))) break;
+        release = { name: event.payload.release, ended: false };
+        if (open?.cause === 'deploy') open = undefined;
+        break;
+      case 'release.rolled-back':
+      case 'release.aborted':
+      case 'release.errored':
+        if (release?.name === event.payload.release) release = { ...release, ended: true };
+        break;
+      case 'work-item.closed':
+      case 'work-item.reopened':
+        open = undefined;
+        break;
+    }
   }
-  return { id: first.id, cause };
+  return open;
 }
 
 /** Whether a visitor's report opened the work item: its first signal is a report. */
@@ -143,8 +180,12 @@ export async function answerHold(
         throw new Refused('answer', 422, 'That answer does nothing for this hold, so it takes another.');
       }
       const guardrail = (GUARDRAIL_HOLDS as readonly HoldCause[]).includes(open.cause);
-      if (decision === 'approved' && guardrail && ACCESS['hold.approve-guardrail'].stepUp && !session.steppedUp) {
-        throw new Refused('step-up', 403, 'This needs your passkey again.');
+      if (decision === 'approved' && guardrail && ACCESS['hold.approve-guardrail'].stepUp) {
+        // Asked again as the answer is taken, after the lock: the passkey given may have gone stale while it waited.
+        const [fresh] = await tx`
+          select 1 from sessions where id_sha256 = ${session.hash} and ended_at is null
+            and stepped_up_at > now() - make_interval(mins => ${STEP_UP.minutes})`;
+        if (!fresh) throw new Refused('step-up', 403, 'This needs your passkey again.');
       }
       return { report: await openedByReport(tx, workItem) };
     },

@@ -187,7 +187,18 @@ export interface WorkItemState {
   hold: PayloadOf<'hold.started'> | undefined;
   /** Martin's answer to the last hold, until the work item moves on from it: what it does, and what he said. */
   answer:
-    | { cause: HoldCause; stage: Stage; decision: HoldAnswer; resolution: Resolution; text: string | undefined }
+    | {
+        cause: HoldCause;
+        stage: Stage;
+        decision: HoldAnswer;
+        resolution: Resolution;
+        text: string | undefined;
+        /**
+         * His words are on a work item a visitor's report opened, so they stay his: what the line writes for anyone to
+         * read (a return's or a close's reason, a comment on GitHub) leaves them out. The agents still read them.
+         */
+        own: boolean;
+      }
     | undefined;
   /**
    * Martin's answers to the holds at Plan, and to those that send the work item back to it, each with what he was
@@ -398,7 +409,14 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         }
         state.hold = undefined;
         forgetLook(state);
-        state.answer = { cause, stage, decision: event.payload.decision, resolution, text: event.payload.answer };
+        state.answer = {
+          cause,
+          stage,
+          decision: event.payload.decision,
+          resolution,
+          text: event.payload.answer,
+          own: event.payload.report === true,
+        };
         state.fenceRefusals = 0;
         if (resolution === 'replan') state.spec = undefined;
         if (cause === 'spec' && resolution === 'carry-on') state.specApproved = true;
@@ -865,12 +883,14 @@ export function unchangedHold(state: WorkItemState, why: string): PayloadOf<'hol
 
 /** What the line does straight after Martin's answer, or undefined to carry on as the work item's events say. */
 function afterAnswer(answer: NonNullable<WorkItemState['answer']>, merged: boolean): Decision | undefined {
-  const said = answer.text ? `: ${answer.text}` : '';
+  // Only words that are public go into what the line writes: a reason, or a comment on GitHub.
+  const words = answer.own ? undefined : answer.text;
+  const said = words ? `: ${words}` : '';
   switch (answer.resolution) {
     case 'verified':
       return {
         stage: 'verify',
-        next: { do: 'verified', verification: undefined, ...(answer.text ? { answer: answer.text } : {}) },
+        next: { do: 'verified', verification: undefined, ...(words ? { answer: words } : {}) },
       };
     case 'replan':
       // After the merge, the planner's new spec starts a fresh pass: the work goes back to Plan for it.

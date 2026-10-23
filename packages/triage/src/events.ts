@@ -335,7 +335,8 @@ export function askedAgain(
     `Waiting for Martin again: triage could not act on his ${did}`,
     {
       stage: 'triage',
-      kind: 'held',
+      // A suggestion waits for Martin's decision, as it did; the rest are held.
+      kind: held.cause === 'suggestion' ? 'approval' : 'held',
       ...held,
       reason: `Triage tried ${tries} times to act on Martin's ${did} and could not; its log says why. It has stopped trying, and waits for his answer again.`,
     },

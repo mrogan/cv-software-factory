@@ -845,6 +845,26 @@ describe('Martin’s answer to a hold', () => {
     }
   });
 
+  it('leaves his words out of what it writes on a work item a visitor’s report opened, and still acts on them', () => {
+    const own = (decision: PayloadOf<'hold.answered'>['decision'], text: string): LineEvent => ({
+      type: 'hold.answered',
+      payload: { decision, answer: text, report: true },
+    });
+    const waiting = [...approvedAndDescribed, held('merge', 'review'), own('answered', 'The visitor at 4 Elm Road')];
+    expect(decide(waiting, facts).next).toEqual({
+      do: 'return',
+      from: 'review',
+      to: 'build',
+      reason: 'Martin sent it back',
+    });
+    expect(fold(waiting).answer).toMatchObject({ text: 'The visitor at 4 Elm Road', own: true });
+    expect(
+      decide([ticket, spec, held('gates', 'build'), own('rejected', 'The visitor at 4 Elm Road')], facts).next,
+    ).toEqual({ do: 'close', reason: 'Martin rejected it', merged: false });
+    const verify = [...approvedAndDescribed, held('verify', 'verify'), own('approved', 'The visitor at 4 Elm Road')];
+    expect(decide(verify, facts).next).toEqual({ do: 'verified', verification: undefined });
+  });
+
   it('closes the work item when he rejects it, whatever the cause', () => {
     for (const cause of HOLD_CAUSES) {
       expect(decide([ticket, spec, held(cause, 'build'), answer('rejected', 'Not worth it')], facts)).toEqual({

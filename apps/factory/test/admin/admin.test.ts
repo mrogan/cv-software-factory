@@ -12,7 +12,7 @@
  * - forwarded headers from anywhere but the proxy are ignored.
  */
 import type { AddressInfo } from 'node:net';
-import { type NewEvent, VERSIONS } from '@software-factory/events';
+import { type NewEvent, upcast, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, nextWorkItem, readPublic } from '@software-factory/store';
 import postgres, { type Sql } from 'postgres';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
@@ -38,6 +38,7 @@ import { sha256, tokenOf } from '../../src/admin/secrets.ts';
 import { type AdminService, startAdmin } from '../../src/admin/service.ts';
 import type { Session } from '../../src/admin/store.ts';
 import { appendMartins } from '../../src/admin/store.ts';
+import { fold, type LineEvent } from '../../src/line/machine.ts';
 import { KubeError, type KubeWriter } from '../../src/runners/kube.ts';
 import { settingsNow } from '../../src/settings.ts';
 import { CANARY, commitOf, digestOf, type RolloutState, releaseOf, rollout, STABLE } from '../release/fixtures.ts';
@@ -1437,6 +1438,17 @@ describe('Needs you', () => {
     await append(triage ? db.as.triage : db.as.line, [hold]);
     return { workItem, hold: hold.id };
   }
+  /** The hold the line's own fold finds open on a work item, as the line reads its events. */
+  const lineHold = async (workItem: string) => {
+    const rows = await db.owner<{ seq: string; type: string; version: number; payload: unknown }[]>`
+      select seq, type, version, payload from events where work_item = ${workItem} order by seq`;
+    const read = rows.flatMap((row) => {
+      const got = upcast({ ...row, seq: Number(row.seq) });
+      return got.ok ? [{ type: got.event.type, payload: got.event.payload }] : [];
+    });
+    const state = fold(read as LineEvent[]);
+    return state.closed ? undefined : state.hold;
+  };
   const answers = (workItem: string) => db.owner<{ actor: string; payload: Body; public: Body }[]>`
     select actor, payload, public from events where work_item = ${workItem} and type = 'hold.answered' order by seq`;
 
@@ -1488,9 +1500,57 @@ describe('Needs you', () => {
     await append(db.as.line, [
       event(merged.workItem, 'pull-request.merged', 'factory', { number: 7, commit: 'a'.repeat(40), by: 'martin' }),
     ]);
+    const failed = await held('merge', { stage: 'review' });
+    // Gates that ran on the push, then fail on it again (main merged in), end the wait for his merge.
+    await append(db.as.line, [
+      event(failed.workItem, 'gates.started', 'factory', { pullRequest: 7, commit: 'b'.repeat(40), checks: ['test'] }),
+      event(failed.workItem, 'gates.finished', 'factory', {
+        pullRequest: 7,
+        commit: 'b'.repeat(40),
+        conclusion: 'failed',
+        passed: 3,
+        failed: ['test'],
+      }),
+    ]);
+    // A merged fix waiting for its deploy, which a release carrying it ends; and a wait for a deploy decided as a
+    // release started, which the line reads as already ended by it.
+    const released = await held('failures');
+    const merge = event(released.workItem, 'pull-request.merged', 'factory', {
+      number: 8,
+      commit: 'c'.repeat(40),
+      by: 'martin',
+    });
+    const start = (workItem: string) =>
+      event(workItem, 'release.started', 'factory', {
+        release: '68ff668868-4',
+        version: 'v0.9.5',
+        previous: 'v0.9.4',
+        watched: true,
+        steps: null,
+        dryRun: true,
+      });
+    const deploy = (workItem: string) =>
+      event(workItem, 'hold.started', 'factory', {
+        stage: 'release',
+        kind: 'approval',
+        cause: 'deploy',
+        reason: 'Waiting for a deploy',
+      });
+    const late = deploy(released.workItem);
+    await append(db.as.line, [merge, late, start(released.workItem)]);
+    const inFlight = await held('failures');
+    const early = deploy(inFlight.workItem);
+    await append(db.as.line, [
+      { ...merge, id: crypto.randomUUID(), work_item: inFlight.workItem } as NewEvent,
+      start(inFlight.workItem),
+      early,
+    ]);
     const other = await held('failures');
     for (const [workItem, hold] of [
       [closed.workItem, closed.hold],
+      [failed.workItem, failed.hold],
+      [released.workItem, late.id],
+      [inFlight.workItem, early.id],
       [replaced.workItem, replaced.hold],
       [merged.workItem, merged.hold],
       // Another work item's hold, named on this one.
@@ -1501,7 +1561,11 @@ describe('Needs you', () => {
         body: { refused: 'hold' },
       });
       expect(await answers(workItem as string)).toEqual([]);
+      // The line reads it the same way: its hold, if it has one, is not the one named.
+      if (workItem !== other.workItem && workItem !== replaced.workItem)
+        expect(await lineHold(workItem as string)).toBeUndefined();
     }
+    expect(await lineHold(replaced.workItem)).toMatchObject({ reason: 'Held again' });
     // A work item with no hold at all, and one that is not a number.
     const none = await nextWorkItem(db.as.triage);
     expect((await browser.post(`/admin/holds/${none}/reject`, { hold: other.hold })).status).toBe(409);
