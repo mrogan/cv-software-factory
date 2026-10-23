@@ -31,6 +31,7 @@ import type { AdminConfig } from '../../src/admin/config.ts';
 import { proxies } from '../../src/admin/config.ts';
 import { described, enrol } from '../../src/admin/enrol.ts';
 import { refuseWrite } from '../../src/admin/guard.ts';
+import { STILL_PAUSED } from '../../src/admin/rollout.ts';
 import { sha256, tokenOf } from '../../src/admin/secrets.ts';
 import { type AdminService, startAdmin } from '../../src/admin/service.ts';
 import type { Session } from '../../src/admin/store.ts';
@@ -736,6 +737,8 @@ class RolloutKube implements KubeWriter {
    * (`omitempty`), so a patch that sets one false leaves it absent.
    */
   dropsFalse = false;
+  /** What the controller does to the Rollout as soon as a patch is made, before anyone reads it again. */
+  controller: ((object: Record<string, unknown>) => Record<string, unknown>) | undefined;
 
   constructor(state: RolloutState, paused = false) {
     const r = rollout(state);
@@ -757,6 +760,7 @@ class RolloutKube implements KubeWriter {
     this.patches.push({ path, body: rest });
     this.object = merged(this.object, rest) as Record<string, unknown>;
     if (this.dropsFalse) this.object = withoutFalse(this.object);
+    if (this.controller) this.object = this.controller(this.object);
     this.version += 1;
     // Made, and its answer lost on the way back.
     if (failing === 'lost') throw new Error('socket hang up');
@@ -1050,6 +1054,65 @@ describe('the release controls', () => {
     const { browser } = await signedIn();
     expect(await browser.post('/admin/release/abort', { release: RELEASE })).toMatchObject({ status: 200 });
     expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }, { spec: { paused: false } }]);
+  });
+
+  it('reads the Rollout again and resumes once more when it changed between the abort and the resume', async () => {
+    const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { paused: true });
+    const { browser } = await signedIn();
+    // The abort is made; the controller writes the status before the resume, which conflicts once.
+    kube.failing.push(undefined, 409);
+    const answer = await browser.post('/admin/release/abort', { release: RELEASE });
+    expect(answer).toMatchObject({ status: 200, body: { action: 'abort' } });
+    expect(answer.body).not.toHaveProperty('warning');
+    expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }, { spec: { paused: false } }]);
+    expect(kube.object.spec).toMatchObject({ paused: false });
+    // A resume made and answered with a server error is read back, and found made.
+    const next = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { paused: true });
+    next.failing.push(undefined, 'made-504');
+    const read = await browser.post('/admin/release/abort', { release: RELEASE });
+    expect(read).toMatchObject({ status: 200 });
+    expect(read.body).not.toHaveProperty('warning');
+  });
+
+  it('says the pause is still set when the Rollout keeps changing after the control was made', async () => {
+    const before = (await controls()).length;
+    const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { paused: true });
+    const { browser } = await signedIn();
+    kube.failing.push(undefined, 409, 409, 409);
+    expect(await browser.post('/admin/release/abort', { release: RELEASE })).toMatchObject({
+      status: 200,
+      body: { action: 'abort', warning: STILL_PAUSED },
+    });
+    // The abort was made, and is recorded; the resume was tried three times, and never made.
+    expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }]);
+    expect(kube.failing).toEqual([]);
+    expect(kube.object.spec).toMatchObject({ paused: true });
+    expect((await controls()).slice(before).map((c) => c.payload)).toEqual([
+      { action: 'abort', release: RELEASE, version: commitOf(CANARY), weight: 25 },
+    ]);
+  });
+
+  it('counts a promotion whose answer was lost as made, though the controller moved the canary on at once', async () => {
+    const before = (await controls()).length;
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    // On to the next step, and on again to the pause after it, which sets its pauses again.
+    let kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    kube.controller = (object) =>
+      merged(object, {
+        status: { currentStepIndex: 4, controllerPause: true, pauseConditions: [{ reason: 'CanaryPauseStep' }] },
+      }) as Record<string, unknown>;
+    kube.failing.push('lost');
+    expect(await browser.post('/admin/release/promote', { release: RELEASE })).toMatchObject({ status: 200 });
+    // Promoted fully, it is all of the traffic already, and the flag is cleared.
+    kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    kube.controller = (object) =>
+      merged(object, { status: { promoteFull: null, stableRS: CANARY } }) as Record<string, unknown>;
+    kube.failing.push('lost');
+    expect(await browser.post('/admin/release/promote', { release: RELEASE, fully: true })).toMatchObject({
+      status: 200,
+    });
+    expect((await controls()).slice(before).map((c) => c.payload.action)).toEqual(['promote', 'promote-fully']);
   });
 
   it('refuses every control when the admin service has no Rollout', async () => {

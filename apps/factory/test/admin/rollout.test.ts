@@ -8,7 +8,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { type Canary, canaryOf, planOf, summaryOf } from '../../src/admin/rollout.ts';
+import { type Canary, canaryOf, latestRecord, planOf, summaryOf } from '../../src/admin/rollout.ts';
+import type { TargetRecord } from '../../src/release/recorded.ts';
 import { DEPLOY } from '../deploy.ts';
 import { CANARY, type RolloutState, releaseOf, rollout, STABLE } from '../release/fixtures.ts';
 
@@ -25,6 +26,7 @@ describe('the canary, as the controls see it', () => {
       inFlight: true,
       aborted: false,
       paused: false,
+      promotingFully: false,
       weight: 25,
       next: { index: 3, weight: 50 },
     });
@@ -43,6 +45,21 @@ describe('the canary, as the controls see it', () => {
   });
 });
 
+describe('the record of a release', () => {
+  const record = (attempts: number, ended?: TargetRecord['ended']) =>
+    ({ attempts, ended, started: {}, startedAt: '', steps: 0, stepsBefore: 0 }) as unknown as TargetRecord;
+
+  it('is the one that has ended, not a work item’s closed before it ended, in either order', () => {
+    expect(latestRecord([record(1), record(1, 'aborted')])?.ended).toBe('aborted');
+    expect(latestRecord([record(1, 'aborted'), record(1)])?.ended).toBe('aborted');
+  });
+
+  it('is the latest attempt’s, not an earlier attempt’s that a closed work item kept', () => {
+    expect(latestRecord([record(2), record(1, 'aborted')])).toMatchObject({ attempts: 2, ended: undefined });
+    expect(latestRecord([])).toBeUndefined();
+  });
+});
+
 describe('each control', () => {
   const flying: Canary = {
     release: releaseOf(CANARY),
@@ -50,6 +67,7 @@ describe('each control', () => {
     inFlight: true,
     aborted: false,
     paused: false,
+    promotingFully: false,
     weight: 25,
     next: { index: 3, weight: 50 },
   };
@@ -82,6 +100,12 @@ describe('each control', () => {
     expect(planOf('pause', paused)).toHaveProperty('refused');
     expect(planOf('resume', flying)).toHaveProperty('refused');
     expect(planOf('promote', { ...flying, next: undefined })).toHaveProperty('refused');
+    // Being promoted fully already: a second press, or another tab, promotes nothing more.
+    for (const action of ['promote', 'promote-fully'] as const) {
+      expect(planOf(action, { ...flying, promotingFully: true })).toEqual({
+        refused: 'The canary is being promoted fully already.',
+      });
+    }
     expect(planOf('retry', flying)).toHaveProperty('refused');
     expect(planOf('retry', over)).toHaveProperty('refused');
   });

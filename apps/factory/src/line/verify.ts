@@ -60,7 +60,7 @@ import { keptLine } from '../logs/errors.ts';
 import { sameError } from '../logs/patterns.ts';
 import { errorLogs, TIMING } from '../logs/watcher.ts';
 import type { VerifyAnswer, VerifyRequest } from '../probes/verify.ts';
-import { short } from '../release/watch.ts';
+import { short } from '../release/recorded.ts';
 import { requestLogs, routeTemplates } from '../routes.ts';
 
 /** The ticket's first signal, as Verify reads it: never a report's words, which it has no use for. */
