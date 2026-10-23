@@ -340,10 +340,12 @@ describe('the page’s settings', () => {
       join(dist, 'index.html'),
       '<!doctype html><meta name="sf-profile" content="local"><meta name="sf-all-local" content="false">',
     );
-    const page = loadSite(dist, pageSettings({ FACTORY_PROFILE: 'do', ALL_LOCAL: 'true' })).page.body.toString();
-    expect(page).toContain('<meta name="sf-profile" content="do">');
+    const page = loadSite(dist, pageSettings({ FACTORY_PROFILE: 'local', ALL_LOCAL: 'true' })).page.body.toString();
+    expect(page).toContain('<meta name="sf-profile" content="local">');
     expect(page).toContain('<meta name="sf-all-local" content="true">');
     expect(pageSettings({})).toEqual({ profile: 'local', allLocal: false });
+    expect(pageSettings({ FACTORY_PROFILE: 'do' })).toEqual({ profile: 'do', allLocal: false });
     expect(() => pageSettings({ FACTORY_PROFILE: 'mars' })).toThrow(/FACTORY_PROFILE/);
+    expect(() => pageSettings({ FACTORY_PROFILE: 'do', ALL_LOCAL: 'true' })).toThrow(/has none/);
   });
 });

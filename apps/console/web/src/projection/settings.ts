@@ -33,8 +33,8 @@ export interface SpendView {
 export interface SettingsView {
   profile: Profile;
   settings: InForce;
-  /** Martin's last save, if he has made one: when, and what it said of each field, as the event carries it. */
-  last: { at: number; chose: unknown } | undefined;
+  /** Martin's last save, if he has made one: its seq, when, and what it said of each field, as the event carries it. */
+  last: { seq: number; at: number; chose: unknown } | undefined;
   spend: SpendView;
   /** Each agent's steps and spend in the seven days to t. */
   week: Record<ModelAgent, { steps: number; usd: number }>;
@@ -87,7 +87,7 @@ export function settingsView(events: readonly PublicEvent[], profile: Profile, t
   return {
     profile,
     settings,
-    last: latest && { at: Date.parse(latest.ts), chose: latest.payload },
+    last: latest && { seq: latest.seq ?? 0, at: Date.parse(latest.ts), chose: latest.payload },
     spend: {
       today: meter(today, settings.caps.dayUsd),
       month: meter(month, settings.caps.monthUsd),

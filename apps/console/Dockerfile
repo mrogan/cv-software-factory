@@ -41,8 +41,8 @@ COPY packages/events/src packages/events/src
 COPY packages/store/src packages/store/src
 COPY packages/store/migrations packages/store/migrations
 # Who may do what (policy/access.ts), which the server enforces, Martin's roles in the store (store-grants.ts), and the
-# profiles (spend.ts), one of which the server tells the page.
-COPY policy/access.ts policy/store-grants.ts policy/spend.ts policy/
+# profiles and their models (spend.ts, models.ts), one of which the server tells the page.
+COPY policy/access.ts policy/store-grants.ts policy/spend.ts policy/models.ts policy/
 COPY --from=web /repo/apps/console/dist apps/console/dist
 # Readable by the unprivileged runtime user, and by nobody's writes.
 RUN chmod -R a+rX,go-w /repo

@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
+import { MODELS } from '../../../policy/models.ts';
 import { PROFILES, type Profile } from '../../../policy/spend.ts';
 
 export const DIST = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -54,13 +55,21 @@ export interface PageSettings {
   allLocal: boolean;
 }
 
-/** The page's settings from the environment, as the gateway reads them: an unknown profile stops the server. */
+/**
+ * The page's settings from the environment, as the gateway reads them: an unknown profile, or `ALL_LOCAL` on a profile
+ * with no local model, stops the server.
+ */
 export function pageSettings(env: NodeJS.ProcessEnv): PageSettings {
   const profile = (env.FACTORY_PROFILE || 'local').trim() as Profile;
   if (!PROFILES.includes(profile)) {
     throw new Error(`FACTORY_PROFILE is ${JSON.stringify(profile)}; it must be one of ${PROFILES.join(', ')}.`);
   }
-  return { profile, allLocal: env.ALL_LOCAL === 'true' };
+  const allLocal = env.ALL_LOCAL === 'true';
+  // As the gateway refuses it: no page says every agent is on a local model the profile does not have.
+  if (allLocal && !MODELS[profile].local) {
+    throw new Error(`ALL_LOCAL sends every agent to the local model, and the ${profile} profile has none.`);
+  }
+  return { profile, allLocal };
 }
 
 /** The built page with the profile and ALL_LOCAL written into its meta tags. */

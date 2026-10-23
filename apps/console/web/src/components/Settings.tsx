@@ -95,7 +95,7 @@ export function Settings({ view, allLocal, admin }: { view: SettingsView; allLoc
   const [draft, setDraft] = useState<Draft>(EMPTY);
   // A save, this page's or another's, starts the draft again from what is now in force: a draft left over would undo
   // a newer setting.
-  const lastSaved = view.last?.at;
+  const lastSaved = view.last?.seq;
   useEffect(() => {
     if (lastSaved !== undefined) setDraft(EMPTY);
   }, [lastSaved]);
