@@ -3,7 +3,8 @@
 Martin's sign-in, his sessions, and the one way a browser changes the factory (spec 5.4). Part of the [factory plane](README.md#factory-plane).
 
 - **v1:** `factory admin` (`apps/factory/src/admin`), with passkeys through [SimpleWebAuthn](https://simplewebauthn.dev); `factory admin enrol` adds a passkey; the [console](CONSOLE.md#signing-in)'s sign-in and enrolment pages call it. One replica in `factory` (`deploy/base/factory/admin.yaml`), routed under `/admin/` on the console's host (`deploy/overlays/local/console-ingress.yaml`). Held to OWASP ASVS 5.0 level 2, with its threat model, in [ADR 0012](../architecture/adr/0012-martins-sign-in.md).
-- **Later:** the actions of tasks 5 to 10, each a write route in the access table.
+- **v1:** Martin's controls of the canary: Promote, Pause, Resume, Abort and Retry, patching the app's Rollout as the one service of ours that may ([below](#the-canarys-controls)).
+- **Later:** the actions of tasks 6, 8, 9 and 10, each a write route in the access table.
 
 ```mermaid
 flowchart LR
@@ -11,6 +12,7 @@ flowchart LR
   traefik -- "/admin/" --> admin[Admin service]
   traefik -- "everything else, no Cookie" --> console[Console's server]
   admin -- "factory_admin" --> store[(Event store)]
+  admin -- "its service account: get and patch" --> rollout[The app's Rollout]
   cli["make enrol"] -- "factory_enrol" --> store
 ```
 
@@ -28,8 +30,11 @@ Every route it answers is in [`policy/access.ts`](../../policy/access.ts), and i
 | `step-up` | `POST /admin/step-up/options`, `POST /admin/step-up` | a write's four checks, and the session's own passkey |
 | `sign-out`, `sign-out-everywhere` | `POST /admin/sign-out`, `POST /admin/sign-out-everywhere` | a write's four checks |
 | `passkey.revoke` | `POST /admin/passkeys/:id/revoke` | a write's four checks, and the passkey given within five minutes |
+| `release.promote` | `POST /admin/release/promote` | a write's four checks, and the passkey given within five minutes |
+| `release.pause`, `release.resume`, `release.abort` | `POST /admin/release/pause`, `/resume`, `/abort` | a write's four checks |
+| `release.retry` | `POST /admin/release/retry` | a write's four checks, and the passkey given within five minutes |
 
-A write's four checks, in order: `Origin` exactly the console's origin in configuration, never one made from the request's `Host`; a live session; the session's token in `X-CSRF-Token`; and, for an action the table marks, the passkey given again within `STEP_UP.minutes`. Every write is a `POST` with a JSON body, which no form can send. The actions of tasks 5 to 10 plug in the same way: a route on their entry, and a handler; the guard comes from the table.
+A write's four checks, in order: `Origin` exactly the console's origin in configuration, never one made from the request's `Host`; a live session; the session's token in `X-CSRF-Token`; and, for an action the table marks, the passkey given again within `STEP_UP.minutes`. Every write is a `POST` with a JSON body, which no form can send. The actions of tasks 6 to 10 plug in the same way: a route on their entry, and a handler; the guard comes from the table.
 
 ## Signing in
 
@@ -51,9 +56,28 @@ A write's four checks, in order: `Origin` exactly the console's origin in config
 
 `GET /admin/events/stream` sends a signed-in session every event whole, the public stream's twin, with its seq as its ID. It checks the session every five seconds, and closes, saying why, when the session is signed out, revoked or expires: at once when the service itself ends it, and at the next check when `make enrol` revokes it or its eight hours run out. An admin event none of Martin's roles appended is left out, as the factory ignores it and the console's server's public stream leaves it out too; a test appends one with row security switched off and finds it in neither. The console reads this stream while Martin is signed in and not previewing as a visitor ([console](CONSOLE.md#signing-in)), and shows a report's text from it, made plain, as text.
 
+## The canary's controls
+
+The Canary panel's controls (`admin/rollout.ts`), each the patch `kubectl argo rollouts` makes, on the app's Rollout (`RELEASE_ROLLOUT`), and nothing else:
+
+| Control | What it patches | When |
+|---|---|---|
+| Promote | the status's step, on to the next step that sets a weight short of 100%, and its pauses cleared | a canary in flight with such a step, not being promoted fully; the passkey again |
+| Promote fully (`fully: true`) | `status.promoteFull` | a canary in flight, not being promoted fully already; the passkey again |
+| Pause, Resume | `spec.paused` | a canary in flight, not paused or paused |
+| Abort | `status.abort`, and `spec.paused` cleared if Martin had paused it | a canary in flight |
+| Retry | `status.abort`, cleared, and `spec.paused` too if it was left set | a release that was stopped (aborted, or stopped with the line or by an analysis error), not rolled back, and the line not stopped; the passkey again |
+
+- **Promote** moves the canary on wherever it is in its step, setting its weight, pausing or being analysed: Argo Rollouts stops the analysis of the step it leaves. A promotion also resumes a paused canary, as `kubectl argo rollouts promote` does, and so do an abort and a retry, so no pause outlives its canary. Resuming gives a paused canary back to its own analysis, and promotes nothing.
+- **No rollback.** A rollback stays the analysis's alone; a rolled-back release is never retried, and goes out with the next release that carries its work items.
+- **The release the panel showed.** Each control names it (`{"release": "<hash>-<revision>"}`, as the line names releases), and is refused (409) when the Rollout's is another, when the line has not recorded its start yet, or when its state does not take the control. Each patch is conditional on the Rollout as it was read for it (its `resourceVersion`), and a second patch (a resume after a promotion, an abort or a retry) is made only while the same release is in it: a Rollout that changed before the first is read again, and the control decided again, up to three times. A second patch the Rollout changed before, as the controller's writes to its status often change it, is read and tried again, up to three times too; one that still cannot be made leaves the control made, and its answer (200) carries a `warning` that Martin's pause is still set.
+- **Retry while the line is stopped** is refused by the service, not only disabled on the page: a stopped line starts no canary.
+- **Recorded once made.** Its event, `release.controlled`, is checked before the patch and appended after the first, before any resume, in a transaction of its own, so a patch Kubernetes refuses leaves none (502), and no connection to the store waits on Kubernetes. A patch whose answer never came, or came as a server error, is read back, and counts as made if the Rollout shows it (a flag Argo Rollouts leaves out when false, such as `status.abort`, counts as false), or shows the controller acted on it: a promotion's canary at or past its step, whatever its pauses say now, or a full promotion's already all of the traffic. An append that fails is tried once more, and logged if that fails too. The line then records what the Rollout did: after an abort, [`release.aborted` with `by: martin`](RELEASE-AND-VERIFY.md#its-events).
+- **Unset,** with no `RELEASE_ROLLOUT`, every control is refused (503), and the service reaches nothing in Kubernetes.
+
 ## What it records
 
-Every action is an event with Martin as its actor, appended in the same transaction as the action, so it is done and recorded or neither: `passkey.enrolled`, `admin.signed-in`, `admin.signed-out` (here, everywhere, or by signing in again over a live session in the same browser), `admin.stepped-up` (the passkey given again) and `passkey.revoked` (from the console, or the command line). Each is one of [Martin's commands](EVENT-STORE.md#martins-commands), which no worker can append. Their public views say what he did and never with which passkey: no name, id, address or browser.
+Every action is an event with Martin as its actor, appended in the same transaction as the action, so it is done and recorded or neither: `passkey.enrolled`, `admin.signed-in`, `admin.signed-out` (here, everywhere, or by signing in again over a live session in the same browser), `admin.stepped-up` (the passkey given again), `passkey.revoked` (from the console, or the command line) and `release.controlled` (a control of the canary: which, the release, its version, the canary's weight then, and for a promotion the weight it goes to). Each is one of [Martin's commands](EVENT-STORE.md#martins-commands), which no worker can append. Their public views say what he did and never with which passkey: no name, id, address or browser.
 
 ## Settings
 
@@ -62,6 +86,8 @@ Every action is an event with Martin as its actor, appended in the same transact
 | `ADMIN_ORIGIN` | The console's origin, such as `https://console.localhost:8443`: what `Origin` must be, and what a passkey's ceremony must name. Required. |
 | `ADMIN_RP_ID` | The relying party a passkey belongs to; by default the origin's host name. |
 | `ADMIN_TRUSTED_PROXIES` | The proxy in front, as addresses or CIDR ranges; none by default. |
+| `RELEASE_ROLLOUT` | The app's Rollout, as `<namespace>/<name>`, as the line is given it: what the canary's controls patch. Unset, they are refused. |
+| `KUBE_API_URL` | On a host, where `kubectl proxy` serves the API; in the cluster, its service account's token. |
 | `PORT` | Where it listens, 8080 by default. |
 | `DATABASE_URL`, `PG*` | The store, as `factory_admin`, whose password is in `postgres-admin`. |
 
@@ -71,4 +97,5 @@ Every action is an event with Martin as its actor, appended in the same transact
 - **One replica, replaced and never doubled,** since the rate limits are held in memory.
 - **Fenced.** Its network policy lets in Traefik alone, and lets it reach the store and the collector, nothing else. That is why it believes forwarded headers from the whole pod network (`ADMIN_TRUSTED_PROXIES=10.42.0.0/16`, k3s's default range): only Traefik can connect, and Traefik replaces whatever `X-Forwarded-For` a client sends. Locally every request reaches Traefik through k3d's load balancer, so the rate limits key on that one address, and hold for the Mac as a whole. `make egress` proves the fence on the cluster.
 - **No other route on its host.** The app's repository, which agents write to, may make Traefik routes in `website`, and a route on the console's host would take the session cookie. The `website-routes` admission policy (`deploy/base/admission/website/routes.yaml`) admits a route there only if it begins with one of the app's hosts and widens it with no `||`. `scripts/route-refusals.sh` keeps the cluster's answers to the routes that matter (`deploy/test/route-refusals.json`), which the fence test reads.
-- `apps/factory/test/admin-fences.test.ts` holds the route, the cookie's removal, the fence and the admission policy.
+- **The one service of ours that may change a Rollout.** Its service account, `admin`, holds one Role (`deploy/base/analysis/admin-controls-release.yaml`): get and patch the app's Rollout, and patch its status, by name. A Role names objects, not fields, so the `website-rollout-controls` admission policy ([admission control](ADMISSION-CONTROL.md#the-admin-services-hold-on-the-rollout)) refuses any change of the service's but `spec.paused` and the status fields its controls set. The controls need `RELEASE_ROLLOUT` and that service account's token on its Deployment, and its network policy to let it reach the API server.
+- `apps/factory/test/admin-fences.test.ts` holds the route, the cookie's removal, the fence and the admission policy; `release-fences.test.ts` the Role and the policy on the Rollout.

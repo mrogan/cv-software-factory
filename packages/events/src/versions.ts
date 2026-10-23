@@ -55,6 +55,8 @@ export const VERSIONS = {
   'admin.stepped-up': 1,
   'passkey.enrolled': 1,
   'passkey.revoked': 1,
+  // Martin's controls of a release in flight (the admin service)
+  'release.controlled': 1,
 } as const;
 
 export type EventType = keyof typeof VERSIONS;
@@ -73,6 +75,7 @@ export const LINE_TYPES: readonly EventType[] = [
   'admin.stepped-up',
   'passkey.enrolled',
   'passkey.revoked',
+  'release.controlled',
 ];
 
 /**
@@ -92,11 +95,11 @@ export const RELEASE_TYPES: readonly EventType[] = [
  * Martin's commands: the types only his roles may append (row security on `events`, `0023_martins-commands.sql`), and
  * that the line, triage and the gateway act on only when one of his roles appended it. Signing in and out, giving his
  * passkey again, and his passkeys are among them, so no worker can forge one (`0025_admin-service.sql`,
- * `0026_admin-stepped-up.sql`). Each of the admin service's commands still to come (autonomy, the switches, the
- * settings, the release controls) joins this list when its type joins the catalogue, and a migration adds it to the
- * store's own list (`admin_event`): the store's tests fail until the two agree. `release.aborted` is not one yet: the
- * line records an abort it reads from the Rollout, Martin's included, until the console's own abort records his
- * (milestone 7, task 7).
+ * `0026_admin-stepped-up.sql`), and so are his controls of a release (`release.controlled`,
+ * `0027_release-controls.sql`). Each of the admin service's commands still to come (autonomy, the switches, the
+ * settings) joins this list when its type joins the catalogue, and a migration adds it to the store's own list
+ * (`admin_event`): the store's tests fail until the two agree. `release.aborted` is not one: it is the line's record of
+ * what the Rollout did, and says `by: martin` when his control came first.
  */
 export const ADMIN_TYPES: readonly EventType[] = [
   'hold.answered',
@@ -107,6 +110,7 @@ export const ADMIN_TYPES: readonly EventType[] = [
   'admin.stepped-up',
   'passkey.enrolled',
   'passkey.revoked',
+  'release.controlled',
 ];
 
 export const isEventType = (type: string): type is EventType => Object.hasOwn(VERSIONS, type);

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { Draft } from '../../src/line/gates.ts';
 import { asEvent } from '../../src/line/gates.ts';
 import { type AnalysisRun, hashesOf, type Rollout } from '../../src/release/read.ts';
+import { recordedFrom, type Target } from '../../src/release/recorded.ts';
 import {
   dryRunEvents,
   dryRunRelease,
@@ -11,13 +12,11 @@ import {
   observe,
   planOf,
   podHashes,
-  recordedFrom,
   releaseEvents,
   releaseNeeds,
   type Series,
   type Start,
   secondsOf,
-  type Target,
 } from '../../src/release/watch.ts';
 import { ABORTED_AT, CANARY, commitOf, digestOf, releaseOf, rollout, run, STABLE } from './fixtures.ts';
 

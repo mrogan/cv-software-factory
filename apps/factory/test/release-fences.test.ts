@@ -1,17 +1,19 @@
+import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parse } from 'yaml';
+import { parse, parseAllDocuments } from 'yaml';
 import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 
 /**
- * The release's fences as deploy/ declares them: who may change a Rollout, what the line may read of a release, what
- * the analysis Job may reach, and what the app's own pods may reach and be reached by.
+ * The release's fences as deploy/ declares them: who may change a Rollout (the admin service alone, held by admission to
+ * the fields Martin's controls set), what the line may read of a release, what the analysis Job may reach, and what
+ * the app's own pods may reach and be reached by.
  */
 interface Manifest {
   kind?: string;
   metadata?: { name?: string; namespace?: string };
-  rules?: { apiGroups?: string[]; resources?: string[]; verbs?: string[] }[];
+  rules?: { apiGroups?: string[]; resources?: string[]; resourceNames?: string[]; verbs?: string[] }[];
   roleRef?: { kind: string; name: string };
   subjects?: { kind: string; name: string; namespace?: string }[];
   spec?: Record<string, unknown>;
@@ -21,20 +23,118 @@ const manifests = () => deployManifests<Manifest>();
 
 const READ = ['get', 'list', 'watch'];
 
-describe('stopping a release is Martin’s (make stop-the-line)', () => {
-  it('gives no service account the right to change a Rollout: a role may at most read one', async () => {
-    const roles = (await manifests()).filter(({ manifest }) => ['Role', 'ClusterRole'].includes(manifest.kind ?? ''));
-    const changes = roles.flatMap(({ file, manifest }) =>
-      (manifest.rules ?? [])
-        .filter(
-          (rule) =>
-            rule.apiGroups?.some((g) => g === 'argoproj.io' || g === '*') &&
-            rule.resources?.some((r) => r === '*' || r.startsWith('rollouts')) &&
-            rule.verbs?.some((v) => !READ.includes(v)),
-        )
-        .map(() => `${file}: ${manifest.metadata?.name}`),
+describe('changing a release is Martin’s: the admin service’s, for his controls, or make stop-the-line', () => {
+  /** Each rule of a Role or ClusterRole that may change a Rollout, or its status. */
+  const changes = async () =>
+    (await manifests())
+      .filter(({ manifest }) => ['Role', 'ClusterRole'].includes(manifest.kind ?? ''))
+      .flatMap(({ file, manifest }) =>
+        (manifest.rules ?? [])
+          .filter(
+            (rule) =>
+              rule.apiGroups?.some((g) => g === 'argoproj.io' || g === '*') &&
+              rule.resources?.some((r) => r === '*' || r.startsWith('rollouts')) &&
+              rule.verbs?.some((v) => !READ.includes(v)),
+          )
+          .map((rule) => ({ file, kind: manifest.kind, name: manifest.metadata?.name, rule })),
+      );
+
+  it('gives one Role alone the right to change a Rollout: the admin service’s, on the app’s, by name', async () => {
+    expect(await changes()).toEqual([
+      {
+        file: 'base/analysis/admin-controls-release.yaml',
+        kind: 'Role',
+        name: 'admin-controls-release',
+        rule: {
+          apiGroups: ['argoproj.io'],
+          resources: ['rollouts'],
+          resourceNames: ['website'],
+          verbs: ['get', 'patch'],
+        },
+      },
+      {
+        file: 'base/analysis/admin-controls-release.yaml',
+        kind: 'Role',
+        name: 'admin-controls-release',
+        rule: {
+          apiGroups: ['argoproj.io'],
+          resources: ['rollouts/status'],
+          resourceNames: ['website'],
+          verbs: ['patch'],
+        },
+      },
+    ]);
+    const all = await manifests();
+    const role = all.find(
+      ({ manifest }) => manifest.kind === 'Role' && manifest.metadata?.name === 'admin-controls-release',
     );
-    expect(changes).toEqual([]);
+    expect(role?.manifest.metadata?.namespace).toBe('website');
+    // Those two rules, and nothing else: no other kind, and nothing in any other namespace.
+    expect(role?.manifest.rules).toHaveLength(2);
+    // Bound to the admin service's own service account, and to nobody else.
+    const bound = all.filter(({ manifest }) => manifest.roleRef?.name === 'admin-controls-release');
+    expect(bound.map(({ manifest }) => [manifest.kind, manifest.metadata?.namespace, manifest.subjects])).toEqual([
+      ['RoleBinding', 'website', [{ kind: 'ServiceAccount', name: 'admin', namespace: 'factory' }]],
+    ]);
+    // And the admin service's account holds no other right, anywhere.
+    const admins = all.filter(({ manifest }) =>
+      manifest.subjects?.some((s) => s.kind === 'ServiceAccount' && s.name === 'admin' && s.namespace === 'factory'),
+    );
+    expect(admins.map(({ manifest }) => manifest.roleRef?.name)).toEqual(['admin-controls-release']);
+  });
+
+  it('holds the admin service’s every change to the Rollout to the fields the controls set', async () => {
+    type Policy = Omit<Manifest, 'spec'> & {
+      spec: {
+        failurePolicy: string;
+        policyName?: string;
+        validationActions?: string[];
+        matchConstraints: { resourceRules: { apiGroups: string[]; operations: string[]; resources: string[] }[] };
+        matchConditions: { expression: string }[];
+        variables: { name: string; expression: string }[];
+        validations: { expression: string }[];
+      };
+    };
+    const all = await deployManifests<Policy>();
+    const policy = all.find(
+      ({ manifest }) => manifest.kind === 'ValidatingAdmissionPolicy' && manifest.metadata?.name === 'rollout-controls',
+    );
+    expect(policy?.file).toBe('base/admission/website/rollout-controls.yaml');
+    const spec = policy?.manifest.spec;
+    expect(spec?.failurePolicy).toBe('Fail');
+    expect(spec?.matchConstraints.resourceRules).toEqual([
+      { apiGroups: ['argoproj.io'], apiVersions: ['*'], operations: ['*'], resources: ['rollouts', 'rollouts/status'] },
+    ]);
+    // The admin service's account alone, by the name Kubernetes gives its requests.
+    expect(spec?.matchConditions.map((c) => c.expression)).toEqual([
+      "request.userInfo.username == 'system:serviceaccount:factory:admin'",
+    ]);
+    // The fields it may change, and no more: a field added here is a field the admin service may change.
+    const listed = (name: string) =>
+      [...(spec?.variables.find((v) => v.name === name)?.expression ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect(listed('spec')).toEqual(['paused']);
+    expect(listed('status')).toEqual([
+      'abort',
+      'currentStepIndex',
+      'pauseConditions',
+      'controllerPause',
+      'promoteFull',
+    ]);
+    expect(spec?.validations[0]?.expression).toBe("request.operation == 'UPDATE'");
+    const binding = all.find(
+      ({ manifest }) =>
+        manifest.kind === 'ValidatingAdmissionPolicyBinding' && manifest.metadata?.name === 'rollout-controls',
+    );
+    expect(binding?.manifest.spec).toEqual({ policyName: 'rollout-controls', validationActions: ['Deny'] });
+    // As Argo CD renders it, the binding names the policy by the name the directory's prefix gives both.
+    const rendered = parseAllDocuments(
+      execFileSync('kustomize', ['build', join(DEPLOY, 'base/admission/website')], { encoding: 'utf-8' }),
+    ).map((doc) => doc.toJS() as Policy);
+    const names = Object.fromEntries(rendered.map((r) => [r.kind, r.metadata?.name]));
+    expect(names.ValidatingAdmissionPolicy).toBe('website-rollout-controls');
+    expect(rendered.find((r) => r.kind === 'ValidatingAdmissionPolicyBinding')?.spec.policyName).toBe(
+      'website-rollout-controls',
+    );
   });
 
   it('binds nobody to the built-in roles that could change one, and adds Rollouts to none of them', async () => {

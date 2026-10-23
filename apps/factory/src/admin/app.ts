@@ -8,20 +8,24 @@
  * - Signing in: `POST /admin/sign-in/options`, then `POST /admin/sign-in` with the passkey's answer.
  * - The passkey again: `POST /admin/step-up/options`, then `POST /admin/step-up`, for the next five minutes.
  * - `POST /admin/sign-out`, `POST /admin/sign-out-everywhere` and `POST /admin/passkeys/:id/revoke`.
+ * - The Canary panel's controls (`rollout.ts`): `POST /admin/release/promote` (with `fully` to send the canary all of
+ *   the traffic), `/pause`, `/resume`, `/abort` and `/retry`, each naming the release the panel showed.
  * - `GET /admin/session`, with the token the session's writes carry, and `GET /admin/events/stream`.
  * - `GET /admin/health`.
  *
  * The session is a cookie, `__Host-session`, holding a random id the store keeps the hash of. Each action is recorded
- * as an event in the same transaction as the action.
+ * as an event in the same transaction as the action; a control of the canary, once its patch of the Rollout is made.
  */
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
+import type { ReleaseControl } from '@software-factory/events';
 import { z } from 'zod';
 import { ACCESS, ENROLMENT_CODE, PASSKEYS, routeOf, SESSION, type ServedBy } from '../../../../policy/access.ts';
 import type { Logger } from '../log.ts';
 import { clientAddress, LIMITS, RateLimit } from './client.ts';
 import type { AdminConfig } from './config.ts';
 import { fromConsole, type Guard, guardOf, refuseWrite } from './guard.ts';
+import type { ReleaseControls } from './rollout.ts';
 import { codeHash, isSessionId, newChallenge, newSessionId, normalCode, tokenOf } from './secrets.ts';
 import {
   type AdminStore,
@@ -73,6 +77,8 @@ export interface AdminAppOptions {
   store: AdminStore;
   events: FullEvents;
   log: Logger;
+  /** The controls of the app's Rollout; without them, every control is refused. */
+  controls?: ReleaseControls;
   /** The clock the rate limits count by. */
   now?: () => number;
 }
@@ -98,7 +104,17 @@ const clearedCookie = `${COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Strict; Ma
 
 const name = z.string().trim().min(1).max(40);
 
-export function createAdminApp({ config, store, events, log, now = Date.now }: AdminAppOptions): RequestListener {
+/** A control of the canary names the release the panel showed, as the line names releases. */
+const releaseOf = z.strictObject({ release: z.string().regex(/^[a-z0-9][a-z0-9.-]{0,62}$/) });
+
+export function createAdminApp({
+  config,
+  store,
+  events,
+  log,
+  controls,
+  now = Date.now,
+}: AdminAppOptions): RequestListener {
   const limits = { enrol: new RateLimit(LIMITS.enrol, now), 'sign-in': new RateLimit(LIMITS['sign-in'], now) };
 
   /** A session's description, with the token its writes carry. */
@@ -145,6 +161,19 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
     const session = await store.session(sessionHash(id));
     if (!session) throw new Error('A session just started is not live');
     return { status: 200, body: await described(session, id), cookie: sessionCookie(id) };
+  };
+
+  /** A control of the canary: made, and recorded, or refused having changed nothing. */
+  const control = async (action: ReleaseControl, body: unknown): Promise<Reply> => {
+    const given = (
+      action === 'promote' || action === 'promote-fully'
+        ? releaseOf.extend({ fully: z.boolean().optional() })
+        : releaseOf
+    ).safeParse(body);
+    if (!given.success) return refused(400, 'body', 'Send the release the panel shows.');
+    if (!controls) return refused(503, 'rollout', 'The admin service has no Rollout to control.');
+    const done = await controls.control(action, given.data.release);
+    return { status: 200, body: done };
   };
 
   const handlers: Record<ServedBy<'admin'>, (context: Context) => Promise<Reply>> = {
@@ -300,6 +329,13 @@ export function createAdminApp({ config, store, events, log, now = Date.now }: A
       events.end('signed-out');
       return { status: 200, body: { signedOut: 'everywhere' }, cookie: clearedCookie };
     },
+
+    'release.promote': ({ body }) =>
+      control((body as { fully?: unknown }).fully === true ? 'promote-fully' : 'promote', body),
+    'release.pause': ({ body }) => control('pause', body),
+    'release.resume': ({ body }) => control('resume', body),
+    'release.abort': ({ body }) => control('abort', body),
+    'release.retry': ({ body }) => control('retry', body),
 
     'passkey.revoke': async ({ values, session }) => {
       const live = session as Session;

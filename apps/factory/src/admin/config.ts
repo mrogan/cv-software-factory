@@ -8,9 +8,13 @@
  * - ADMIN_RP_ID: the relying party's id, a passkey's host; by default the origin's host name.
  * - ADMIN_TRUSTED_PROXIES: the addresses, or CIDR ranges, of the proxy in front (Traefik's, locally), comma-separated.
  *   `X-Forwarded-For` is believed from these alone; with none, it never is.
+ * - RELEASE_ROLLOUT: the app's Rollout, as `<namespace>/<name>`, as the line is given it: the one the Canary panel's
+ *   controls change, through the admin service's own Role (deploy/base/analysis/admin-controls-release.yaml). Unset,
+ *   the controls are refused, and nothing here reaches Kubernetes.
  * - PORT: where it listens (8080).
  */
 import { BlockList, isIP } from 'node:net';
+import { type RolloutRef, rolloutRefOf } from '../release/rollout-ref.ts';
 
 export interface AdminConfig {
   origin: string;
@@ -18,6 +22,8 @@ export interface AdminConfig {
   /** Whether a connection comes from the proxy in front, whose forwarded headers are believed. */
   trusted: BlockList;
   port: number;
+  /** The app's Rollout, which the release controls change; none, and they are refused. */
+  rollout?: RolloutRef;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv): AdminConfig {
@@ -41,7 +47,19 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AdminConfig {
   }
   const port = Number(env.PORT ?? 8080);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`PORT is not a port: ${env.PORT}`);
-  return { origin: url.origin, rpId, trusted: proxies(env.ADMIN_TRUSTED_PROXIES ?? ''), port };
+  const rollout = rolloutRefOf(env.RELEASE_ROLLOUT ?? '');
+  if (rollout === undefined) {
+    throw new Error(
+      `RELEASE_ROLLOUT is ${JSON.stringify(env.RELEASE_ROLLOUT)}; it must be <namespace>/<name>, or unset.`,
+    );
+  }
+  return {
+    origin: url.origin,
+    rpId,
+    trusted: proxies(env.ADMIN_TRUSTED_PROXIES ?? ''),
+    port,
+    ...(rollout && { rollout }),
+  };
 }
 
 /** The proxies in front, as `10.42.0.0/16, 127.0.0.1`. */

@@ -16,7 +16,8 @@ export type AdminEvent =
   | 'admin.signed-out'
   | 'admin.stepped-up'
   | 'passkey.enrolled'
-  | 'passkey.revoked';
+  | 'passkey.revoked'
+  | 'release.controlled';
 
 /** A session that is live: not ended, not expired, and its passkey not revoked. */
 export interface Session {

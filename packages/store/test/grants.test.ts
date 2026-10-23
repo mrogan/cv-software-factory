@@ -318,6 +318,7 @@ const PAYLOADS: Partial<Record<EventType, object>> = {
   'line.started': { autonomy: 'supervised' },
   'admin.signed-out': { everywhere: false },
   'passkey.revoked': { from: 'console' },
+  'release.controlled': { action: 'pause', release: '68ff668868-4', version: 'v0.9.4', weight: 25 },
 };
 
 const writer = (sql: Sql) => new EventWriter(sql, { kind: 'sample', artifacts });

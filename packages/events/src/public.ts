@@ -115,6 +115,8 @@ export const PUBLIC_VIEWS = {
   'passkey.enrolled': (event) => ({ ...event, summary: 'Martin enrolled a passkey', payload: {} }),
   'passkey.revoked': ({ payload: { passkey: _name, ...payload }, ...event }) =>
     redacted({ ...event, summary: 'Martin revoked a passkey', payload }),
+  // What he did to the canary, and nothing of his session: public as it is.
+  'release.controlled': redacted,
 } satisfies { [K in EventType]: PublicViewOf<K> };
 
 /** The public view of an event. Applying it twice changes nothing. */

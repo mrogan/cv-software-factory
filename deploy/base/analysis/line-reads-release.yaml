@@ -2,8 +2,8 @@
 # records each release on the work items it carries. At each step, and when the journeys fail a release, it reads what
 # their Job counted and found from the termination message of the Job's pod, which it lists by the Job's name.
 # Kubernetes cannot narrow a list to some pods, so the line sees every pod's spec here, though no Secret's data. Read
-# only, and only those kinds, in the app's namespace: the line cannot change a Rollout (stopping a release is
-# Martin's, `make stop-the-line`), nor read a Secret, a Job or a pod's logs here. A Role in `website` rather than a
+# only, and only those kinds, in the app's namespace: the line cannot change a Rollout (that is Martin's, through the
+# admin service, admin-controls-release.yaml, or `make stop-the-line`), nor read a Secret, a Job or a pod's logs here. A Role in `website` rather than a
 # ClusterRole, so it reads no other namespace's.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

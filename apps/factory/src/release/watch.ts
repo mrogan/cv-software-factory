@@ -22,10 +22,11 @@
  *   before Argo Rollouts acted on the abort: the analysis could not judge the canary, and aborted the Rollout itself.
  *   That says neither that the canary was worse nor that anybody stopped it, so it is an end of its own, with the run's
  *   words and the measures it could not take, and no signal.
- * - **It is aborted** when the Rollout is aborted and no run of the release has failed or erred: Martin aborted it, by
- *   stopping the line (`make stop-the-line`) or by hand. His abort terminates the runs, which fails none (and a
- *   terminated step run is no step). To Argo Rollouts both are the same patch of the Rollout's status, so who aborted
- *   it is the line's to say, from whether the line was stopped then (`Facts.abortedBy`). His abort within the minute
+ * - **It is aborted** when the Rollout is aborted and no run of the release has failed or erred: Martin aborted it,
+ *   from the console's Canary panel, by stopping the line (`make stop-the-line`) or by hand. His abort terminates the
+ *   runs, which fails none (and a terminated step run is no step). To Argo Rollouts each is the same patch of the
+ *   Rollout's status, so who aborted it is the line's to say (`Facts.abortedBy`), from his control's own event
+ *   (`release.controlled`), or else from whether the line was stopped then. His abort within the minute
  *   after a run ended in Error, before Argo Rollouts acted on the Error, reads as the Error's: the time is all the
  *   Rollout keeps of either.
  * - **Retried after a rollback, an Error or an abort**, a release starts again, under the same name (a retry keeps the
@@ -50,9 +51,7 @@
 import { MAX_CANARY_STEPS, type PayloadOf } from '@software-factory/events';
 import type { Draft } from '../line/gates.ts';
 import type { AnalysisRun, Rollout } from './read.ts';
-
-/** A work item, or null for the line itself. */
-export type Target = string | null;
+import { REVISION, type Recorded, releaseName, short, type Target, type TargetRecord } from './recorded.ts';
 
 type Started = PayloadOf<'release.started'>;
 export type CanaryStep = NonNullable<Started['steps']>[number];
@@ -62,66 +61,6 @@ type Failed = PayloadOf<'release.rolled-back'>['failed'][number];
 type Ended = NonNullable<TargetRecord['ended']>;
 export type Figures = NonNullable<Stepped['figures']>;
 export type Series = NonNullable<Failed['series']>;
-
-/** What one work item (or the line) has recorded of one release. */
-export interface TargetRecord {
-  /** Its latest start, and when the line recorded it. */
-  started: Started;
-  startedAt: string;
-  /** How many times it started: more than once when it was retried after a rollback. */
-  attempts: number;
-  /** Steps recorded, over every attempt. */
-  steps: number;
-  /** Steps recorded before its latest start: the rest are its latest attempt's. */
-  stepsBefore: number;
-  /** How its latest attempt ended, if it has. */
-  ended: 'promoted' | 'rolled-back' | 'errored' | 'aborted' | undefined;
-  /** When Argo Rollouts acted on its latest abort, if it was aborted or its analysis erred. */
-  abortedAt?: string;
-}
-
-/** What is recorded of each release, by its name, and on each target. */
-export type Recorded = Map<string, Map<Target, TargetRecord>>;
-
-/** The release events recorded, in order, as the store has them, upcast. */
-export function recordedFrom(
-  events: readonly { work_item: string | null; ts: string; type: string; payload: unknown }[],
-): Recorded {
-  const recorded: Recorded = new Map();
-  for (const { work_item: target, ts, type, payload } of events) {
-    const name = (payload as { release?: string }).release;
-    if (!name) continue;
-    const targets = recorded.get(name) ?? new Map<Target, TargetRecord>();
-    recorded.set(name, targets);
-    const record = targets.get(target);
-    if (type === 'release.started') {
-      targets.set(target, {
-        started: payload as Started,
-        startedAt: ts,
-        attempts: (record?.attempts ?? 0) + 1,
-        steps: record?.steps ?? 0,
-        stepsBefore: record?.steps ?? 0,
-        ended: undefined,
-      });
-      continue;
-    }
-    if (!record) continue;
-    if (type === 'canary.stepped') record.steps += 1;
-    if (type === 'release.promoted') record.ended = 'promoted';
-    if (type === 'release.rolled-back') record.ended = 'rolled-back';
-    if (type === 'release.aborted' || type === 'release.errored') {
-      record.ended = type === 'release.aborted' ? 'aborted' : 'errored';
-      record.abortedAt = (payload as PayloadOf<'release.aborted' | 'release.errored'>).abortedAt;
-    }
-  }
-  return recorded;
-}
-
-/** The annotation Argo Rollouts keeps its revision in, on the Rollout and on each run it makes. */
-const REVISION = 'rollout.argoproj.io/revision';
-
-/** A release's name: the canary's pod-template hash and the Rollout's revision when it started. */
-export const releaseName = (hash: string, revision: string) => `${hash}-${revision}`;
 
 /** What the Rollout and its runs say, in the watch's terms. */
 export interface Observed {
@@ -389,9 +328,6 @@ export function measuresOf(run: AnalysisRun): Measure[] {
   });
 }
 
-/** A version as a reader takes it in: a commit by its first seven characters, anything else as it is. */
-export const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);
-
 /** What the line read about a release it starts recording. */
 export interface Start {
   /** The commit the new image runs, from its revision. */
@@ -412,7 +348,10 @@ export interface Facts {
   lastPromoted?: string;
   /** The release the line recorded promoted last, dry runs aside, by its name (`namedReleases`). */
   lastRelease?: string;
-  /** Who aborted the Rollout, when it is aborted: Stop the line, if the line was stopped then, or Martin. */
+  /**
+   * Who aborted the Rollout, when it is aborted: Martin, from the console, as his control recorded; Stop the line, if
+   * the line was stopped then; or Martin, by hand.
+   */
   abortedBy?: PayloadOf<'release.aborted'>['by'];
 }
 

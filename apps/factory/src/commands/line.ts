@@ -67,6 +67,7 @@
 import { parseArgs } from 'node:util';
 import { AUTONOMY, type Autonomy, type NewEvent, VERSIONS } from '@software-factory/events';
 import { connect, DiskArtifacts, EventWriter } from '@software-factory/store';
+import { rolloutRefOf } from '../release/rollout-ref.ts';
 
 export const USAGE = `  factory line stop [--reason <why>]
   factory line start [--autonomy supervised|guarded|lights-out]
@@ -154,10 +155,8 @@ async function serve(): Promise<number> {
   const take = takeSetting === '' ? null : Number(takeSetting);
   // The Rollout to watch, or none: a name of another shape stops it starting, rather than the line watching nothing.
   const rolloutSetting = (process.env.RELEASE_ROLLOUT ?? '').trim();
-  // A namespace is a DNS label; a Rollout's name, a DNS subdomain: labels joined by dots, 253 characters at most.
-  const label = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
-  const rollout = rolloutSetting.match(new RegExp(`^(${label})/(${label}(?:\\.${label})*)$`));
-  if (rolloutSetting !== '' && (!rollout || (rollout[2] ?? '').length > 253)) {
+  const rollout = rolloutRefOf(rolloutSetting);
+  if (rollout === undefined) {
     console.error(`RELEASE_ROLLOUT is ${JSON.stringify(rolloutSetting)}; it must be <namespace>/<name>, or unset.`);
     return 2;
   }
@@ -245,7 +244,7 @@ async function serve(): Promise<number> {
     release: rollout
       ? {
           kube,
-          rollout: { namespace: rollout[1] as string, name: rollout[2] as string },
+          rollout,
           prometheus: telemetryFrom(env).prometheus,
         }
       : null,

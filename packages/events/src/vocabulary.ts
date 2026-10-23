@@ -198,6 +198,14 @@ export type Risk = (typeof RISKS)[number];
  */
 export const ALWAYS_HELD: readonly Risk[] = ['out-of-scope'];
 
+/**
+ * Martin's controls of a canary in flight, from the console's Canary panel (the admin service): promote it to the next
+ * step's weight, or fully; pause it, and give it back to its analysis; abort it; and retry a release that was stopped.
+ * A rollback stays the analysis's alone, so there is no such control.
+ */
+export const RELEASE_CONTROLS = ['promote', 'promote-fully', 'pause', 'resume', 'abort', 'retry'] as const;
+export type ReleaseControl = (typeof RELEASE_CONTROLS)[number];
+
 /** The only types an artifact may have. The console serves each with the type it was stored with, never a guess. */
 export const ARTIFACT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'text/plain', 'application/json'] as const;
 export type ArtifactType = (typeof ARTIFACT_TYPES)[number];

@@ -14,6 +14,7 @@ import type { Prometheus } from '../clients/prometheus.ts';
 import { comparisonIn, type Regression } from '../gates/journeys.ts';
 import type { Kube } from '../runners/kube.ts';
 import { routeQueries, versionQueries } from './analysis.ts';
+import type { RolloutRef } from './rollout-ref.ts';
 
 const condition = z.object({
   type: z.string(),
@@ -131,12 +132,6 @@ export const analysisRunSchema = z.object({
 export type AnalysisRun = z.infer<typeof analysisRunSchema>;
 
 const analysisRunList = z.object({ items: z.array(analysisRunSchema) });
-
-/** Which Rollout the line watches: the app's, in the namespace its Role reads. */
-export interface RolloutRef {
-  namespace: string;
-  name: string;
-}
 
 /** The Rollout and the AnalysisRuns it owns, or undefined when there is no such Rollout. */
 export async function readRollout(
