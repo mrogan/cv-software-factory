@@ -8,11 +8,14 @@ He asks for an improvement with the "+" on Plan. It goes down the same line as a
 
 Every guardrail is proved by a test or by a drill that runs from one command, and its refusals are shown as prominently as successes. Autonomy does what the spec says: under Guarded, an untagged change merges and ships with nobody touching it, and a risk-tagged one waits for Martin. The tags come from deterministic checks on the diff, and the decision to merge is a required check, never a model's word.
 
-The milestone is built in three parts, each by its own orchestrating session:
+The app is kept patched. A security release or a fixable vulnerability in what the app runs, and each routine update, becomes a work item of kind dependency update and goes down the same line, a security one ahead of all other waiting work. A fix its own scans show removes a Critical vulnerability merges and ships with nobody touching it. The factory's own images are watched the same way, and a finding there opens an issue and notifies Martin.
+
+The milestone is built in four parts, each by its own orchestrating session:
 
 - **Part A, admin:** sign-in, the access policy, the admin service and its write path, every control in spec 5.4 but the improvements and flags, alerts to Martin, and the local cluster served over HTTPS.
 - **Part B, improvements and feature flags:** the "+" end to end, OpenFeature and flagd in the app, flags switched from the console in stages, and Verify comparing a flag's two sides.
 - **Part C, guardrails:** every guardrail proved repeatably, the red-team harness, blocked actions in the console, approval routing by autonomy level and risk tag, and the factory run Guarded.
+- **Part D, patching:** a sense for what the running images carry, dependency updates for the app down the line, and an issue and a notification for the factory's own.
 
 Each part starts when the one before has met its criteria and its pull requests are merged. Each leaves `COMPONENTS/` and `AGENTS.md` describing what it built, so the next session starts from this file, those two and the code, and needs nothing from the session before.
 
@@ -99,10 +102,10 @@ Public profiles get their certificates from Cloudflare (milestone 10).
   | Level | For |
   |---|---|
   | Page | the console or the app down, the line stuck, a spend cap reached, a security event |
-  | Notify | a release rolled back or errored, a new hold, autonomy changed |
+  | Notify | a release rolled back or errored, a new hold, autonomy changed, a security release or fixable vulnerability in a factory image |
   | Dashboard only | everything else |
 
-- **Security events come first (Part A):** a sign-in, a passkey enrolled or revoked, every action that needs the passkey again, and every change to a setting. They are counted from the stored events by a worker other than the admin service, so a compromised admin service cannot keep quiet, each count starting at zero so the first of a kind pages too, and an alerting rule pages on any. Factory health, releases and spend follow in Part C.
+- **Security events come first (Part A):** a sign-in, a passkey enrolled or revoked, every action that needs the passkey again, and every change to a setting. They are counted from the stored events by a worker other than the admin service, so a compromised admin service cannot keep quiet, each count starting at zero so the first of a kind pages too, and an alerting rule pages on any. Factory health, releases and spend follow in Part C, and its images' vulnerabilities in Part D.
 - **Whether the factory is up is answered from outside it.** On public profiles, an always-firing alert goes to a dead man's switch, and an outside check watches the site and the console (milestone 10).
 
 ### Feature flags (Part B)
@@ -127,7 +130,7 @@ Public profiles get their certificates from Cloudflare (milestone 10).
   - security-headers, for the header settings.
 
   Out-of-scope is not in a diff, since the scope fence refuses a file beyond the spec's scope before it reaches GitHub. It stays the planner's tag on the spec, and the reviewer's, held for Martin before any code is written in every mode. The planner and the reviewer may add any tag and hold the work for Martin; neither can remove one. The routing check works out the diff's tags itself, never from labels, and fails a pull request whose risk label anyone but Martin has removed.
-- **Merging is decided by a required check.** A human-owned approval-routing check passes for an untagged change under Guarded, any change but `out-of-scope` under Lights-out, and anything Martin has approved. A release pull request waits for Martin in every mode: it publishes a version, and nothing waits on it.
+- **Merging is decided by a required check.** A human-owned approval-routing check passes for an untagged change under Guarded, any change but `out-of-scope` under Lights-out, and anything Martin has approved. From Part D, it also passes a Critical vulnerability's fix under Guarded, as Patching (Part D) says. A release pull request waits for Martin in every mode: it publishes a version, and nothing waits on it.
 - **Martin's approval is his own GitHub review of the head commit.** The App writes labels, comments and check runs, so none of them can carry his approval. The check reads his review and requires its commit to be the pull request's head, so a push after he approved fails it; a test shows that. His Needs-you card for a merge links to the pull request.
 - **A deploy pull request passes only as an exact pin.** The check compares lines: only `digest:` values change, each to an image `build.yml` signed on `main` whose commit descends from the pin it replaces, so nothing else in the file can move and no pin goes backwards. It then passes under Guarded.
 - **In this repository, the App merges nothing but pins unattended.** The factory's own code (its gates, its GitHub worker, the gateway, the admin service, the store's migrations and the redactor) is never merged without Martin, in any mode: any other App pull request here fails the check. The check runs from the base commit and reads CODEOWNERS from it, as the app's gates do, so a pull request cannot rewrite the check that judges it; the check's script and those paths become code-owned.
@@ -135,6 +138,23 @@ Public profiles get their certificates from Cloudflare (milestone 10).
 - **The App may bypass the review ruleset only.** That takes away code-owner review as the backstop for the App's pull requests, so the routing check holds code-owned paths in its place. The checks ruleset keeps no bypass, so a fault in the line still cannot merge a tagged change or touch a rule. ADR 0009 changes with it. The bypass's effect on OpenSSF Scorecard's Branch-Protection score is checked before it is made.
 - **Autonomy is set in the console.** Loosening it needs the passkey again and pages Martin; tightening is immediate.
 - **Required checks are GitHub Actions' alone.** `github-settings.ts` already pins every required check to the GitHub Actions integration, so the App's own check runs cannot satisfy one; the routing check is pinned the same way. Lights-out is built and proved, and never the default.
+
+### Patching (Part D)
+
+- **What is running is watched, not what the repositories say.** One sense, daily, reads the digests deployed: Node's security releases on the line `mise.toml` pins (Node's release index), fixable High and Critical findings in each image, and the app's Dependabot pull requests and alerts. The factory's and the app's images are scanned from the SBOMs each repository's `build.yml` attests, so nothing large is pulled. The third-party images deployed (Postgres, its exporter, the proxy's nginx) have no SBOM of ours, so they are scanned by digest, from CI's copy in GHCR where `mirror.yml` keeps one and from their own registry otherwise. A deployed image the sense cannot scan is a finding in itself, so none is left out silently.
+- **Two ratings, two uses.** A finding's severity, which orders its ticket and its alert, is the higher of the scanner's rating and that of the project that published the fix. Whether a fix merges without Martin is decided by the gate's pinned scanner's rating alone: the publisher is the party whose code would merge, so its rating can hold a change, never release one.
+- **A finding is a ticket like any other.** Kind dependency update, category security for a vulnerability. A fixable High or Critical takes `broken`, the top severity, so the line takes it next: it already takes the oldest open ticket of the highest severity. Work already in flight finishes first. A routine update takes `cosmetic`, behind the defects.
+- **An update moves every pin of what it updates.** Node in the app is pinned in `mise.toml`, the build stage's `node:` image and the distroless runtime's digest, and the runtime's tag does not name its Node. The coder moves them together, and the app gets the factory's test that keeps them in step. A Dependabot pull request for the same update is taken up rather than opened again.
+- **Dependabot's settings stay.** Its cooldowns, the `node` and `playwright` groups and the mirror's lead over them are unchanged: the speed comes from the sense, and a shorter cooldown would only bring a pull request that fails the pin test sooner.
+- **A Critical vulnerability's fix merges without Martin; every other update waits for him.** Under Guarded, the routing check passes a dependency change only when all of these hold, and holds it for Martin otherwise:
+  - **The scans show the fix.** The gate's pinned scanner rates the vulnerability Critical in the base's image. The change's scan still lists the same package, at or above the advisory's fixed version, with the finding gone. A finding that disappears is not a fix: the change's scan must list every package the base's does, and the Node binary, bar the versions that moved. A package removed or renamed, an alias, a tarball or git source, or a report that does not parse holds the change.
+  - **Nothing new.** The change's scan finds nothing new at High or above.
+  - **Only what the fix needs moves.** Every package whose resolved version changes, and every package the lockfile adds, is the one the fixed finding names or a dependency its new version requires. A group pull request, or a change that moves anything else, keeps its tag.
+  - **Pins only.** The diff changes `mise.toml`'s Node, `FROM` and image digests within the same repository, and versions of packages already there, with their lockfile entries. Nothing else: never a workflow's `uses:`, and never an image from another repository.
+  - **Every gate passes.**
+
+  The fix is read from the scans, never from an advisory's or a pull request's words. The canary still guards after the merge, and Martin is notified of each such merge. Any other dependency change keeps its dependency-change tag and waits in Needs you with the lockfile change and the scan's summary. The scanner must see the Node binary itself, not only the packages, proved as task 28 is.
+- **The factory is patched by Martin.** The line works only in the app's repository. A finding in a factory image opens an issue here, updated rather than opened again, that `/implement` can take as it stands: the release, its highest severity and each pin to move, the Playwright image's among them, since its tag does not name its Node either. It notifies Martin. The factory's routine updates stay Dependabot's, and reach Martin as its pull requests do.
 
 ## Part A: admin
 
@@ -295,9 +315,26 @@ Outlined here, and detailed when Part B is done.
 
 **Done when:** every guardrail has a test or a demo that runs from one command and is shown in the console; a fix goes end to end at Guarded with nobody touching it; a risk-tagged change waits in Needs you until Martin approves; and each red-team attack is stopped by its mechanism, with the refusal shown.
 
+## Part D: patching
+
+Outlined here, and detailed when Part C is done.
+
+- **28. The dependency sense.** The daily read of what each deployed image carries, as Patching (Part D) says, each finding a signal. It is proved on an image it must flag: one on Node 24.22.0 shows CVE-2026-111497.
+- **29. Triage of its signals.** A signal's and a ticket's shape for a dependency, since today's name an app route and fingerprint a route or a page: the image, the package, its versions and the advisory, with their event versions and upcasts. Symptom classes for a vulnerability and a routine update in `policy/triage.ts`, with their severities. The fingerprint is the package and the advisory, or the package and its new version for a routine update, so the next day's repeat counts on its ticket, and the line takes a dependency's ticket as it takes a defect's.
+- **30. A dependency update down the line.** Plan writes the spec from the advisory or the release; Build moves every pin, or takes up Dependabot's pull request; the gates are the app's own, dependency review and the image scan among them; Verify scans the running image as well as running its journeys, and records the scans from before and after as the work item's evidence, the picture its card shows. The app gets the test that keeps its Node pins in step. The routing check passes a Critical fix as the decisions say, and its tests hold each of these for Martin:
+  - a change that claims a fix its scans do not show;
+  - a fix that also changes code;
+  - a finding gone because its package was removed or aliased, or the runtime image swapped;
+  - a Critical fix bundled with an unrelated bump;
+  - a fix rated Critical by its publisher and High by the scanner.
+- **31. The factory's images.** A finding opens or updates the issue here, and notifies Martin, at task 11's Notify level.
+- **32. The run and its documentation.** At Guarded, a Critical fix for the app from the sense to verified with nobody touching it, and a routine update waiting in Needs you at the merge. `COMPONENTS/`, the spec's senses, and `AGENTS.md` for the issue.
+
+**Done when:** a security release or fixable vulnerability in what the app runs becomes a ticket within a day of being published, goes down the line ahead of waiting work and is verified in production, merging without Martin when its scans show it fixes a Critical one; a routine update follows behind and waits for him; and a finding in a factory image opens an issue and notifies Martin's phone.
+
 ## Exit criteria
 
-- [ ] Parts A, B and C's criteria are met.
+- [ ] Parts A, B, C and D's criteria are met.
 - [ ] Spec 10.1's scenarios 6, 7 and 8 run on the local cluster and are shown in the console: each red-team attack stopped by its mechanism, a risk-tagged change waiting in Needs you until Martin approves, and an improvement requested, approved and shipped.
 - [ ] Spec 10.3's "every guardrail has a test or demo showing it holds" is met.
 - [ ] Martin has used admin mode on a laptop and a phone and approved it against the bar in `INTENT.md`.
@@ -309,6 +346,8 @@ Outlined here, and detailed when Part B is done.
 - Public certificates, the domain, the tunnel, the outside uptime check and the dead man's switch (milestone 10).
 - A/B experiments on what people prefer: with no real shoppers, there is nothing honest to measure.
 - Canaries for the factory's own images.
+- Stopping work in flight for a vulnerability: it goes to the front of the queue.
+- The line working in the factory's own repository: Martin patches the factory from an issue.
 
 ## Risks
 
@@ -318,4 +357,5 @@ Outlined here, and detailed when Part B is done.
 - **Flag state lives outside Git.** It is the one piece of production state Argo CD does not hold. Every change is an event, so the audit log is its history, and a flag's default in the app's code is off.
 - **Alertmanager reaches the internet.** It is allowed out on 443 as Kyverno is, until egress by host name (#176).
 - **The local authority is trusted by the Mac.** It is constrained to `localhost` names, so its key, which anything running as Martin can read, mints nothing for any other site, and removing its trust from the Keychain is one command.
+- **An update can bring in what it was meant to keep out.** Dependabot's cooldowns and pnpm's day still apply, a release with weaker provenance is still refused, only a change of pins whose scans show it removes a Critical vulnerability merges without Martin, and the canary is the guard after the merge.
 - **Runs on Claude cost money.** Each is time-boxed and within the spend caps, and the results say what each cost.
