@@ -46,10 +46,10 @@ jobs:
       # First, so that the output is set even when the step below fails.
       - id: postgres
         run: echo "image=$(scripts/ci-images.sh postgres)" >> "$GITHUB_OUTPUT"
-      # The Playwright image the browser tests run in. Its one pin is Dockerfile.browser's, which Dependabot moves with
-      # the library.
+      # The Playwright image the browser tests run in, from CI's copy of it (scripts/ci-images.sh). Its one pin is
+      # Dockerfile.browser's, which Dependabot moves with the library.
       - id: playwright
-        run: echo "image=$(grep -oE 'mcr\.microsoft\.com/playwright:\S+' apps/factory/Dockerfile.browser)" >> "$GITHUB_OUTPUT"
+        run: echo "image=$(scripts/ci-images.sh resolve "$(grep -oE 'mcr\.microsoft\.com/playwright:\S+' apps/factory/Dockerfile.browser)")" >> "$GITHUB_OUTPUT"
       - id: which
         env:
           AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -386,7 +386,7 @@ jobs:
       # Each base image a Dockerfile pins, from CI's copy of it (scripts/ci-images.sh).
       - if: env.BUILD == 'true'
         id: bases
-        run: scripts/ci-images.sh contexts console factory runner
+        run: scripts/ci-images.sh contexts console factory browser runner
       - if: env.BUILD == 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -408,6 +408,7 @@ jobs:
         with:
           context: .
           file: apps/factory/Dockerfile.browser
+          build-contexts: ${{ steps.bases.outputs.browser }}
           push: false
           cache-from: type=gha,scope=factory-browser-amd64
       - if: env.BUILD == 'true'
