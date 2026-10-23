@@ -18,3 +18,6 @@
 !docs/design/system/mark/icon.svg
 !policy/access.ts
 !policy/store-grants.ts
+!policy/models.ts
+!policy/spend.ts
+!policy/settings.ts
