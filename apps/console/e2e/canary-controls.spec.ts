@@ -15,7 +15,7 @@ import { KubeError, type KubeWriter } from '../../factory/src/runners/kube.ts';
 import { enrolThroughTheDoor, type Harness, startHarness, virtualPasskey } from './admin.ts';
 import { expect, test } from './support.ts';
 
-const PORT = 18_328;
+const PORT = 18_332;
 const RELEASE = 'v8q7chmx72-913';
 
 test.use({ baseURL: `http://localhost:${PORT}` });
