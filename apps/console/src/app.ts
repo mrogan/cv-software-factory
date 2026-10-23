@@ -93,7 +93,16 @@ export function createApp({ commit, site, feed, artifacts }: AppOptions): Reques
       },
       events: () => events(req, res, feed, url),
       stream: () => stream(feed, req, res, resumeFrom(req, url)),
-      artifacts: () => void artifact(req, res, feed, artifacts, route.values.hash ?? ''),
+      artifacts: () => {
+        const hash = route.values.hash ?? '';
+        // Nothing that goes wrong with one artifact may end the server: it ends that response.
+        artifact(req, res, feed, artifacts, hash).catch((error: unknown) => {
+          log.error({ err: error, hash }, 'An artifact could not be served');
+          if (res.destroyed) return;
+          if (res.headersSent) res.destroy();
+          else send(req, res, 500, 'text/plain; charset=utf-8', 'The artifact could not be read.\n');
+        });
+      },
     };
     handlers[route.name]();
   };
@@ -134,6 +143,11 @@ function events(req: IncomingMessage, res: ServerResponse, feed: Feed, url: URL)
 async function artifact(req: IncomingMessage, res: ServerResponse, feed: Feed, store: ArtifactStore, hash: string) {
   const type = isHash(hash) ? feed.artifactType(hash) : undefined;
   const [size, body] = type ? await Promise.all([store.size(hash), store.open(hash)]) : [null, null];
+  // A browser that left while the file was being found is owed nothing, and piping to its closed response throws.
+  if (res.destroyed) {
+    body?.destroy();
+    return;
+  }
   if (!type || size === null || !body) {
     body?.destroy();
     return send(req, res, 404, 'text/plain; charset=utf-8', 'No such artifact.\n');
