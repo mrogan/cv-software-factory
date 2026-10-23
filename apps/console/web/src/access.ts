@@ -1,7 +1,8 @@
 /**
  * What the console keeps of the access table (`policy/access.ts`), which the admin service enforces: how long the
  * passkey given again is fresh, and which of Martin's controls ask for it, so the page draws the key where the service
- * will ask. The console's image is built without policy/, so it keeps these copies, and a test holds them to the table.
+ * will ask. The console's image is built without `policy/access.ts`, so it keeps these copies, and a test holds them to
+ * the table.
  */
 import type { ReleaseControl } from '@software-factory/events';
 

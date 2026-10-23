@@ -8,7 +8,7 @@
  * whether saving asks for the passkey. The admin service checks the save against policy again, and the gateway and
  * the line again as they read it; the page's check only keeps Martin from asking for what would be refused.
  */
-import { type ChangeEvent, useMemo, useState } from 'react';
+import { type ChangeEvent, useEffect, useMemo, useState } from 'react';
 import { EFFORTS, type Effort, MODEL_AGENTS, MODELS, type ModelAgent } from '../../../../../policy/models.ts';
 import {
   CAP_NAMES,
@@ -93,6 +93,12 @@ export function Settings({ view, allLocal, admin }: { view: SettingsView; allLoc
   const ceilings = CEILINGS[profile];
   const stepUp = useStepUp();
   const [draft, setDraft] = useState<Draft>(EMPTY);
+  // A save, this page's or another's, starts the draft again from what is now in force: a draft left over would undo
+  // a newer setting.
+  const lastSaved = view.last?.at;
+  useEffect(() => {
+    if (lastSaved !== undefined) setDraft(EMPTY);
+  }, [lastSaved]);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | undefined>(undefined);
 
@@ -105,7 +111,9 @@ export function Settings({ view, allLocal, admin }: { view: SettingsView; allLoc
         const model = draft.agents[agent]?.model ?? now.model;
         const effort =
           draft.agents[agent]?.effort ?? (now.provider === 'local' ? policy.agents[agent].default.effort : now.effort);
-        return [agent, { model, effort }];
+        // A local model takes no effort: LM Studio sets it.
+        const local = policy.models.find((m) => m.model === model)?.provider === 'local';
+        return [agent, local ? { model } : { model, effort }];
       }),
     );
     const caps = Object.fromEntries(
@@ -168,7 +176,7 @@ export function Settings({ view, allLocal, admin }: { view: SettingsView; allLoc
     );
     setBusy(false);
     if (cancelled) return;
-    // Saved: the draft stays until the event arrives, when it matches what is in force and shows as no change.
+    // Saved: the draft stays until the event arrives, and then starts again from what is in force.
     if (got.status !== 200) setRefusal(said(got));
   };
 
