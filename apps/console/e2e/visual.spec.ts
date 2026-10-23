@@ -10,7 +10,7 @@
  * work item's among them. Milestone 7's from a stand-in for the admin service: the sign-in and enrolment doors, a code
  * refused, Martin's account menu, a visitor's report quoted on his sheet, Preview as visitor, the settings for Martin
  * with a change unsaved and for a visitor, and the bottom row: Needs you (Waiting on Martin for a visitor, his words
- * being written for him, and nothing waiting) beside Controls.
+ * being written for him, the passkey asked for on a guardrail's Approve, and nothing waiting) beside Controls.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -525,6 +525,19 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       await card.getByLabel('Your answer to #1300').fill('Out of stock last, whatever the price.');
       await card.getByLabel('Your answer to #1300').blur();
       await expect(page.locator('.bottom')).toHaveScreenshot(`m07-bottom-martin-${width}.png`);
+    });
+
+    test('Approve on a gate’s hold, asking for the passkey again', async ({ page }) => {
+      await adminService(page, 'martin');
+      await page.route('**/admin/holds/**', (route) =>
+        route.fulfill({ status: 403, json: { refused: 'step-up', message: 'This needs your passkey again.' } }),
+      );
+      await page.goto(consoleUrl());
+      await ready(page);
+      const card = page.locator('.need').filter({ hasText: '#1274 ·' });
+      await card.getByRole('button', { name: 'Approve (asks for your passkey)' }).click();
+      await page.getByRole('dialog', { name: 'Approve #1274' }).waitFor();
+      await expect(page).toHaveScreenshot(`m07-needs-step-up-${width}.png`);
     });
 
     test('Needs you, with nothing waiting', async ({ page }) => {
