@@ -142,7 +142,16 @@ function events(req: IncomingMessage, res: ServerResponse, feed: Feed, url: URL)
 /** An artifact a public event refers to, with the type recorded when it was stored. Nothing else is served. */
 async function artifact(req: IncomingMessage, res: ServerResponse, feed: Feed, store: ArtifactStore, hash: string) {
   const type = isHash(hash) ? feed.artifactType(hash) : undefined;
-  const [size, body] = type ? await Promise.all([store.size(hash), store.open(hash)]) : [null, null];
+  const body = type ? await store.open(hash) : null;
+  // A file opens after the stream is made, and can fail to (deleted meanwhile): an error with no listener would end the
+  // server. pipeline reports a failed read; a file closed unread has nothing worth reporting.
+  body?.on('error', () => {});
+  const size = body
+    ? await store.size(hash).catch((error: unknown) => {
+        body.destroy();
+        throw error;
+      })
+    : null;
   // A browser that left while the file was being found is owed nothing, and piping to its closed response throws.
   if (res.destroyed) {
     body?.destroy();

@@ -281,12 +281,13 @@ describe('an artifact that goes wrong partway', () => {
   /** A console whose store hands out `body` for any artifact, as if it were a large file. */
   async function consoleWith(
     body: Readable,
-    open: ArtifactStore['open'] = async () => body,
+    overrides: Partial<ArtifactStore> = {},
   ): Promise<{ url: string; app: Server; close: () => Promise<void> }> {
     const store: ArtifactStore = {
       put: () => Promise.reject(new Error('read-only')),
       size: async () => 1_000_000,
-      open,
+      open: async () => body,
+      ...overrides,
     };
     const app = createServer(createApp({ commit: COMMIT, site: loadSite(fakeBuild()), feed, artifacts: store }));
     await new Promise<void>((resolve) => app.listen(0, '127.0.0.1', resolve));
@@ -347,10 +348,12 @@ describe('an artifact that goes wrong partway', () => {
     const opening = new Promise<void>((resolve) => {
       asked = resolve;
     });
-    const { url, app, close } = await consoleWith(body, async () => {
-      asked();
-      await closed;
-      return body;
+    const { url, app, close } = await consoleWith(body, {
+      open: async () => {
+        asked();
+        await closed;
+        return body;
+      },
     });
     app.on('request', (_req, res: ServerResponse) => res.on('close', gone));
     const req = request(`${url}/artifacts/${screenshot}`).on('error', () => {});
@@ -362,12 +365,37 @@ describe('an artifact that goes wrong partway', () => {
     await close();
   });
 
+  it('keeps answering when a file it closes unread then fails to open', async () => {
+    // As a file stream does when its file was deleted after the store found it: it fails once it is closed.
+    const body = new Readable({
+      construct(callback) {
+        setTimeout(() => callback(Object.assign(new Error('no such file'), { code: 'ENOENT' })), 10);
+      },
+      read() {},
+    });
+    const { url, close } = await consoleWith(body);
+    expect((await fetch(`${url}/artifacts/${screenshot}`, { method: 'HEAD' })).status).toBe(200);
+    await expect.poll(() => body.errored).toBeTruthy();
+    expect((await fetch(`${url}/health`)).status).toBe(200);
+    await close();
+  });
+
   it('answers 500, not by stopping, when the store cannot open the file', async () => {
-    const { url, close } = await consoleWith(new Readable({ read() {} }), () =>
-      Promise.reject(Object.assign(new Error('permission denied'), { code: 'EACCES' })),
-    );
+    const { url, close } = await consoleWith(new Readable({ read() {} }), {
+      open: () => Promise.reject(Object.assign(new Error('permission denied'), { code: 'EACCES' })),
+    });
     expect((await fetch(`${url}/artifacts/${screenshot}`)).status).toBe(500);
     expect((await fetch(`${url}/health`)).status).toBe(200);
+    await close();
+  });
+
+  it('closes the file, and answers 500, when the store cannot say how large it is', async () => {
+    const body = new Readable({ read() {} });
+    const { url, close } = await consoleWith(body, {
+      size: () => Promise.reject(Object.assign(new Error('i/o error'), { code: 'EIO' })),
+    });
+    expect((await fetch(`${url}/artifacts/${screenshot}`)).status).toBe(500);
+    expect(body.destroyed).toBe(true);
     await close();
   });
 });
