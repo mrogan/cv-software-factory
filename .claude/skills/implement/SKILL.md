@@ -39,7 +39,7 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 
 Never run two sub-agents at once, and never give a worktree to a second agent while the first can still run.
 
-When Martin merges one pull request, bring up to date only what that merge forces: a pull request that now conflicts with `main`, and in a stack each one built directly on the one that merged. Send a sub-agent to fetch and merge `origin/main` into it and resolve, briefed with what merged: it owns the worktree for that, as the first did. Where the merge conflicts on the merged pull request's own changes, it keeps `main`'s side, which carries that pull request as reviewed. Once its checks pass and `verify.sh` passes again, tell Martin it is ready to merge.
+When Martin merges one pull request, bring up to date only what that merge forces: a pull request that now conflicts with `main`, and in a stack each one built directly on the one that merged. Send a sub-agent to fetch and merge `origin/main` into it and resolve, briefed with what merged: it owns the worktree for that, as the first did. Where the merge conflicts on the merged pull request's own changes, it starts from `main`'s side, which carries that pull request as reviewed, and carries its own pull request's changes over onto it. Once its checks pass and `verify.sh` passes again, tell Martin it is ready to merge.
 
 In a stack, Martin merges each pull request the moment it is green, and each merge squashes the branch the next one is built on. Leave the ones further up until their turn: a whole stack brought up to date at once has to be done again after every merge.
 
