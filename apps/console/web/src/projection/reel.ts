@@ -67,7 +67,8 @@ export type Picture =
   | { type: 'scan'; dependency: Dependency; findings: Findings; unchanged: Screenshot[] }
   /** A canary rolled back: the series of the first measure that failed it, and how much of the traffic saw it. */
   | { type: 'rollback'; dependency: Dependency | undefined; weight: number; restored: string; series: Series }
-  | { type: 'refusal'; mechanism: string; output: string }
+  /** A mechanism's refusal, in its own words; `admission` when admission control (Kyverno) refused an image. */
+  | { type: 'refusal'; mechanism: string; output: string; admission?: true }
   | { type: 'judgement'; page: Screenshot | undefined; judgement: Judgement }
   /** A report quarantined: the answer that decided it, against its threshold, and no page at all. */
   | { type: 'quarantine'; judgement: Judgement }
@@ -309,7 +310,12 @@ export function picture(item: ItemState, { waits = true }: { waits?: boolean } =
   if (item.kind === 'red-team') {
     const refused = last(ofType(item, 'action.refused'), () => true);
     if (refused)
-      return { type: 'refusal', mechanism: MECHANISMS[refused.payload.mechanism], output: refused.payload.output };
+      return {
+        type: 'refusal',
+        mechanism: MECHANISMS[refused.payload.mechanism],
+        output: refused.payload.output,
+        ...(refused.payload.mechanism === 'admission-control' && { admission: true as const }),
+      };
     const gate = last(ofType(item, 'gate.finished'), (event) => event.payload.conclusion === 'failure');
     if (gate?.payload.output) return { type: 'refusal', mechanism: gate.payload.check, output: gate.payload.output };
   }
