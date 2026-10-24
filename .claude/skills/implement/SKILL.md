@@ -31,7 +31,7 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 ## Each work item, one at a time
 
 1. **Brief** a fresh sub-agent to follow `${CLAUDE_SKILL_DIR}/worker.md`, with the key, the issue or the brief's path, the run directory, the scripts' path, and what you know about overlaps with the other work items and their pull requests.
-2. **Wait for it to end, not only to report.** A sub-agent can hand back its report while its own background work is still running, and resume afterwards. Go on only when its task notification says it finished with nothing of its own still running, and `ListAgents` shows neither it nor anything it started still running; `TaskStop` any that is.
+2. **Wait for it to end, not only to report.** A sub-agent can hand back its report while its own background work is still running, and resume afterwards. Go on only when its task notification says it finished with nothing of its own still running, and `ListAgents` shows neither it nor anything it started still running; `TaskStop` any that is. A reviewer a worker started may send its findings to you by mistake: forward them, with SendMessage, to the worker that owns the pull request.
 3. **Verify** before you log or say anything: `verify.sh <key> <pr>` for each pull request, or `verify.sh <key>` for a skip. If the report and the script disagree, the script wins: log what is true, and say so. A pull request is not ready while Copilot may still review, and `verify.sh` says so.
 4. **Settle what it handed back.** A `split` or a `found` is yours to decide, not the sub-agent's (see below).
 5. **Log** the verified outcome and your decisions in `<run dir>/NOTES.md`.
@@ -40,6 +40,8 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 Never run two sub-agents at once, and never give a worktree to a second agent while the first can still run.
 
 When Martin merges one pull request, bring up to date only what that merge forces: a pull request that now conflicts with `main`, and in a stack each one built directly on the one that merged. Send a sub-agent to fetch and merge `origin/main` into it and resolve, briefed with what merged: it owns the worktree for that, as the first did. Where the merge conflicts on the merged pull request's own changes, it starts from `main`'s side, which carries that pull request as reviewed, and carries its own pull request's changes over onto it. Once its checks pass and `verify.sh` passes again, tell Martin it is ready to merge.
+
+A pull request marked `Part of #<n>` closes nothing, so an issue split across several stays open after the last one merges. When it does, close the issue yourself, with a comment naming its pull requests and how it was proved.
 
 In a stack, Martin merges each pull request the moment it is green, and each merge squashes the branch the next one is built on. Leave the ones further up until their turn: a whole stack brought up to date at once has to be done again after every merge.
 
@@ -61,6 +63,7 @@ A worker skips what needs an image pinned first, a migration with an ordered rol
 
 - **A `deploy/` change that waits for an image** (a new Deployment, a migration, a new setting): list it in the summary with what it waits for, and make it in a later run, once Martin has merged the change that builds the image and the App's deploy pull request that pins it. Only the App's deploy watch opens a pin's pull request (ADR 0005); never open one yourself.
 - **A proof or a drill on the local cluster:** run it yourself with the `try-the-line` skill, time-boxed, and log what it showed in `NOTES.md`; until then it is in the summary.
+- **Trying it with Martin:** reviews pass faults that a few minutes at the console find, so try each work item as soon as its pin is synced on the local cluster, not all of them at the end. Give Martin a short list of what to try and what to look for, a few at a time, each with a compact progress line (`#575: 2 of 4 tried, 1 fault`), and turn what he finds into work items of this run.
 
 When a milestone's plan asks for `/security-review` on a task, say so in its brief.
 
