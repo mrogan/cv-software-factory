@@ -148,12 +148,12 @@ export interface Changed {
 
 const AUTONOMY_WORDS = { supervised: 'Supervised', guarded: 'Guarded', 'lights-out': 'Lights-out' } as const;
 
-/** A take in words, as the summary says it. */
+/** A take in words, as the summary says it: the next few count from the change, whatever came before. */
 const takeWords = (take: Take) =>
   take.kind === 'every'
     ? 'every ticket'
     : take.kind === 'next-few'
-      ? `the next ${take.count === 1 ? 'one' : `${take.count}`}`
+      ? `the next ${take.count === 1 ? 'one' : `${take.count}`} from now`
       : `just #${take.workItem}`;
 
 /** The summary of a change, in the console's words. */

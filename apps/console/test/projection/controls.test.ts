@@ -82,10 +82,10 @@ describe('the line’s controls', () => {
     });
     // Only the next few count.
     expect(controlsView([...events, changed(31, { take: { kind: 'every' } })], at(32)).nextFew).toBeUndefined();
-    // Chosen again with the same number, they start again.
+    // Chosen again, as the admin service stamps it, they start again, fewer too.
     const again = [
       ...events,
-      changed(31, { take: { kind: 'next-few', count: 4, since: new Date(at(31)).toISOString() } }),
+      changed(31, { take: { kind: 'next-few', count: 2, since: new Date(at(31)).toISOString() } }),
     ];
     expect(controlsView(again, at(32)).nextFew).toEqual({ since: at(31), taken: 0 });
   });

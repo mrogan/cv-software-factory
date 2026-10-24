@@ -1759,14 +1759,14 @@ describe('the line’s controls', () => {
     expect(Date.now() - Date.parse(since)).toBeLessThan(60_000);
     // To the microsecond, as the line stamps each work item it takes.
     expect(since).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/);
-    expect((await changes()).at(-1)?.summary).toBe('Martin widened what the line takes to the next 3');
+    expect((await changes()).at(-1)?.summary).toBe('Martin widened what the line takes to the next 3 from now');
     // Any number chosen counts again from now, fewer and the same too: with some taken already, that may let the line
     // take more, so each asks for the passkey again.
     const again = await browser.post('/admin/line/controls', { take: { kind: 'next-few', count: 2 } });
     expect(again).toMatchObject({ status: 200, body: { controls: { take: { kind: 'next-few', count: 2 } } } });
     const restarted = (again.body as { controls: { take: { since: string } } }).controls.take.since;
     expect(restarted > since).toBe(true);
-    expect((await changes()).at(-1)?.summary).toBe('Martin widened what the line takes to the next 2');
+    expect((await changes()).at(-1)?.summary).toBe('Martin widened what the line takes to the next 2 from now');
     // Without the passkey again, none of them.
     const other = (await signedIn()).browser;
     for (const take of [

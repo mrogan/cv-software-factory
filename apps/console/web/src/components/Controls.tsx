@@ -411,9 +411,13 @@ function TakeGroup({ controls, viewer, changer }: { controls: ControlsView; view
       'take',
       { take: body },
       {
-        title: 'Take more work',
+        // The next few count again from now, fewer too: with some taken already, that may be more work.
+        title: next.kind === 'next-few' ? 'Count the next few from now' : 'Take more work',
         what: <b>{takeAsked(next)}</b>,
-        why: 'Taking more work raises spend',
+        why:
+          next.kind === 'next-few'
+            ? 'Counting again may take more work, and raise spend'
+            : 'Taking more work raises spend',
       },
     );
     if (done) setDraft(undefined);
