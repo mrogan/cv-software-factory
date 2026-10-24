@@ -21,6 +21,8 @@ Every worker and the console reach the store through [postgres.js](https://githu
 - **`LISTEN`**, on a connection postgres.js keeps open and reconnects itself, which wakes the line and triage when an event lands.
 - **No dependencies of its own.**
 
+A time to the microsecond, such as `storeClock`'s, is bound as text (``${t}::text::timestamptz``): postgres.js makes a `Date` of every `timestamptz` parameter, which keeps only milliseconds.
+
 What it lacks is telemetry: OpenTelemetry instruments `pg` and not postgres.js, which offers no hooks. So `connect()` times each query by wrapping the method all of postgres.js's queries run through, and counts connections by giving the client a socket of its own ([telemetry](TELEMETRY.md#what-each-client-of-the-store-sees)). Both rely on postgres.js's internals:
 
 - **It is on a caret range, not pinned,** so its fixes arrive through Dependabot's pull requests like any other dependency's.

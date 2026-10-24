@@ -361,3 +361,30 @@ Outlined here, and detailed when Part C is done.
 - **The local authority is trusted by the Mac.** It is constrained to `localhost` names, so its key, which anything running as Martin can read, mints nothing for any other site, and removing its trust from the Keychain is one command.
 - **An update can bring in what it was meant to keep out.** Dependabot's cooldowns and pnpm's day still apply, a release with weaker provenance is still refused, only a change of pins whose scans show it removes a Critical vulnerability merges without Martin, and the canary is the guard after the merge.
 - **Runs on Claude cost money.** Each is time-boxed and within the spend caps, and the results say what each cost.
+
+## Retrospective
+
+### Part A
+
+Written as Part A's pull requests (#498 to #590) merged, with the fixes its runs on the local cluster needed. What Part A taught, and where each lesson now lives.
+
+**Learned on the cluster**
+
+- Using it found what review did not. In one afternoon at the console, task 12 found five faults that every pull request's two reviews had passed: stopping the line alerted no one (#575); giving the passkey again alerted at every step-up, which told Martin nothing (#575); Haiku 4.5 refuses the effort the gateway sends, so the first step on it failed (#578); "the next few" kept counting from the first time it was chosen (#581); and a held deploy named no pull request, and said it waited for Martin before one existed (#562: #574, #576). Each was a judgement only use could make, or a fault only a real call could show.
+- A model policy offers must take every parameter the gateway sends. The settings tests ran against the gateway's fake provider, which accepts any; the provider refused on the first real call. Every Claude model offered now takes an effort, and the local one is sent none (`policy/models.ts`).
+- Postgres keeps time to the microsecond and JavaScript to the millisecond, and postgres.js turns every `timestamptz` parameter into a `Date`. A count "since" a moment Martin chose lost the difference, and the line could take one fewer than Martin asked for (#572: the store's clock stamps it, and the queue binds it as text; `docs/COMPONENTS/EVENT-STORE.md`).
+- An OpenTelemetry gauge cannot forget a series under cumulative temporality, and temporality belongs to the reader, not the instrument: a hold's series reads 0 until the line restarts (`docs/COMPONENTS/TELEMETRY.md`, pinned by a test).
+- An alert can say only what its labels carry. The per-hold alert names a work item and a pull request, an exception to closed labels that is bounded by the holds waiting (`TELEMETRY.md`, `ALERTING.md`).
+- A phone cannot use the local cluster: `localhost` is the phone, and a passkey belongs to its host. On the local profile the phone is Pushover, and the console at phone width on the Mac; real use from a phone waits for a public profile (`AGENTS.md`).
+- The docs said a stuck line pages Martin, and no rule did; task 13 made the docs true, and the rule is Part C's.
+
+**How the run worked**
+
+- Trying each task on the cluster as soon as it is deployed, with Martin at the console, finds more than proving them all at the end: the five faults above were found together, late. `/implement` now has Martin try each work item once it is synced and healthy (#590).
+- Two workers at once worked wherever their files did not overlap (#574 with #575, #576 with #578).
+- `/security-review` in a worktree gathers an empty diff from the main checkout, every time: the reviewer reads the worktree's own diff (#590).
+- A reviewer's sub-agent sometimes reported to the orchestrator rather than its worker: reviewers report to their worker alone, and the orchestrator forwards any that stray (#590).
+- A second pull request marked `Part of #n` leaves its issue open after the last merges: the orchestrator closes it, naming its pull requests and how it was proved (#590).
+- Database tests queued behind one migration lock, so a loaded `make check` timed out where CI passed, and workers lost time to it: each run migrates once and gives each test a copy (#586, #588).
+
+**Left open:** Martin's use of the console from a phone waits for a public profile, so that box stays open; the stuck alert is Part C's (task 27).
