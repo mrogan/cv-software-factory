@@ -100,6 +100,7 @@ describe('migrations', () => {
       { version: 26, name: 'admin-stepped-up' },
       { version: 27, name: 'release-controls' },
       { version: 28, name: 'settings' },
+      { version: 29, name: 'suggestion-holds' },
     ]);
   });
 });

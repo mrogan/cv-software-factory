@@ -145,11 +145,23 @@ export const ACCESS = {
     routes: ['POST /admin/passkeys/:id/revoke'],
   },
 
-  // Needs you.
-  'hold.approve': admin('Approve a hold whose cause is not a guardrail'),
+  // Needs you: each answer names the hold the card showed. Approving is one route, and is one of the two below by the
+  // stored hold's cause, never the request's: the admin service asks for the passkey again for a guardrail's.
+  'hold.approve': {
+    ...admin(
+      'Approve a hold: as `hold.approve-guardrail`, with the passkey again, when its cause is a guardrail, and with ' +
+        'nothing more when it is not',
+    ),
+    server: 'admin',
+    routes: ['POST /admin/holds/:workItem/approve'],
+  },
   'hold.approve-guardrail': admin(`Approve a hold whose cause is a guardrail (${GUARDRAIL_HOLDS.join(', ')})`, true),
-  'hold.reject': admin('Reject a hold'),
-  'hold.answer': admin('Answer a hold in words'),
+  'hold.reject': { ...admin('Reject a hold'), server: 'admin', routes: ['POST /admin/holds/:workItem/reject'] },
+  'hold.answer': {
+    ...admin('Answer a hold in words'),
+    server: 'admin',
+    routes: ['POST /admin/holds/:workItem/answer'],
+  },
 
   // The line.
   'line.stop': admin('Stop the line'),

@@ -800,8 +800,15 @@ export const PAYLOADS = {
       path: ['defect'],
     }),
   'hold.answered': z.strictObject({
-    decision: z.enum(['approved', 'rejected', 'answered']),
+    decision: z.enum(V.HOLD_ANSWERS),
     answer: text(300).optional(),
+    /** The hold it answers: its `hold.started` event's id. An answer from before the admin service never named it. */
+    hold: z.uuid().optional(),
+    /**
+     * The hold is on a work item a visitor's report opened, so the answer's words stay Martin's: its public view leaves
+     * them out, since a paraphrase of a report would pass any redactor. An answer from before never said.
+     */
+    report: z.literal(true).optional(),
   }),
   /**
    * A mechanism stopped an action: the platform's (a token's permissions, a ruleset, the egress policy, admission

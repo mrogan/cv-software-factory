@@ -141,7 +141,7 @@ flowchart TD
 
 ## Holds and Martin's answers
 
-Each hold names its cause, and Martin's answer does what `ANSWERS` in `line/machine.ts` says for that cause. Rejecting always closes the work item and its issue. The line reads an answer only from one of [Martin's roles](EVENT-STORE.md#martins-commands), and ignores, and logs, any other.
+Each hold names its cause, and Martin's answer does what `ANSWERS` says for that cause. It is in the events package (`line.ts`), so the console's Needs you says beside each answer what the line will do, from the same table, and offers only the answers that do something (`answersTo`): approving a `merge` or a `deploy`, which the line would only wait after, is not one. He answers from Needs you, through the [admin service](ADMIN-SERVICE.md#needs-you). Rejecting always closes the work item and its issue. The line reads an answer only from one of [Martin's roles](EVENT-STORE.md#martins-commands), and ignores, and logs, any other. On a work item a visitor's report opened, his words stay his (the answer is marked `report`): no agent reads them, as none reads a report, since what an agent writes is public; his answer still does what it does, and the reasons and comments the line writes from it say only that he sent it back, rejected it or judged it cleared.
 
 | Cause | Held when | Approving | Answering |
 |---|---|---|---|

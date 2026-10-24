@@ -5,7 +5,8 @@ Martin's sign-in, his sessions, and the one way a browser changes the factory (s
 - **v1:** `factory admin` (`apps/factory/src/admin`), with passkeys through [SimpleWebAuthn](https://simplewebauthn.dev); `factory admin enrol` adds a passkey; the [console](CONSOLE.md#signing-in)'s sign-in and enrolment pages call it. One replica in `factory` (`deploy/base/factory/admin.yaml`), routed under `/admin/` on the console's host (`deploy/overlays/local/console-ingress.yaml`). Held to OWASP ASVS 5.0 level 2, with its threat model, in [ADR 0012](../architecture/adr/0012-martins-sign-in.md).
 - **v1:** Martin's controls of the canary: Promote, Pause, Resume, Abort and Retry, patching the app's Rollout as the one service of ours that may ([below](#the-canarys-controls)).
 - **v1:** Martin's settings: each agent's model and effort, and the spend caps, within policy ([below](#the-settings)).
-- **Later:** the actions of tasks 6, 8 and 10, each a write route in the access table.
+- **v1:** Martin's answers to holds, from Needs you: approve, reject, or answer in words ([below](#needs-you)).
+- **Later:** the actions of tasks 8 and 10, each a write route in the access table.
 
 ```mermaid
 flowchart LR
@@ -35,8 +36,10 @@ Every route it answers is in [`policy/access.ts`](../../policy/access.ts), and i
 | `release.pause`, `release.resume`, `release.abort` | `POST /admin/release/pause`, `/resume`, `/abort` | a write's four checks |
 | `release.retry` | `POST /admin/release/retry` | a write's four checks, and the passkey given within five minutes |
 | `settings.save` | `POST /admin/settings` | a write's four checks, and the passkey given within five minutes when the save raises anything (`agent.raise`, `caps.raise`) |
+| `hold.approve` | `POST /admin/holds/:workItem/approve` | a write's four checks, and the passkey given within five minutes when the stored hold's cause is a guardrail (`hold.approve-guardrail`) |
+| `hold.reject`, `hold.answer` | `POST /admin/holds/:workItem/reject`, `/answer` | a write's four checks |
 
-A write's four checks, in order: `Origin` exactly the console's origin in configuration, never one made from the request's `Host`; a live session; the session's token in `X-CSRF-Token`; and, for an action the table marks, the passkey given again within `STEP_UP.minutes`. Every write is a `POST` with a JSON body, which no form can send. The actions of tasks 6, 8 and 10 plug in the same way: a route on their entry, and a handler; the guard comes from the table.
+A write's four checks, in order: `Origin` exactly the console's origin in configuration, never one made from the request's `Host`; a live session; the session's token in `X-CSRF-Token`; and, for an action the table marks, the passkey given again within `STEP_UP.minutes`. Every write is a `POST` with a JSON body, which no form can send. The actions of tasks 8 and 10 plug in the same way: a route on their entry, and a handler; the guard comes from the table.
 
 ## Signing in
 
@@ -86,9 +89,18 @@ The Canary panel's controls (`admin/rollout.ts`), each the patch `kubectl argo r
 - **One event a save,** `settings.changed`: every setting as it now stands, and each field the save changed with its value before and after. A save that changes nothing records nothing. Saves are taken one at a time.
 - **Raising a work item's cap answers a `spend` hold** it clears: a hold still open (not answered, closed or reopened since) whose spend, recorded on the hold, is under the new cap. The save takes the lock every append takes, and the line appends a spend hold under it only while the cap in force still holds the work item, so a hold and a raise never cross. Each gets a `hold.answered` approving it, in the same transaction as the settings, saying the cap was raised, and the line carries on with it. Raising the day's or the month's cap answers nothing: the gateway clears its own `spend.capped` once spend is under the new cap, within a minute.
 
+## Needs you
+
+Martin answers a hold from its card in Needs you (`admin/holds.ts`): `POST /admin/holds/:workItem/approve`, `/reject` or `/answer`, each with the hold the card showed, by its `hold.started` event's id (`{"hold": "<id>"}`, and `"words"` to answer, up to 300 characters). Each is one `hold.answered`, naming the hold, which the [line](ORCHESTRATOR.md#holds-and-martins-answers) or [triage](TRIAGE.md#a-suggestion) acts on as `ANSWERS` says for its cause.
+
+- **Only the hold the card showed** (409 otherwise, having appended nothing): the work item's latest hold, with nothing since that answered or ended it (an answer, a merge, a close, a reopening, for a `deploy` hold a release, or for a `merge` hold gates that failed). Words on one of triage's holds leave it open (`WORDS_LEAVE_HELD`), for his approval or rejection. Answers are taken one at a time, under the lock every append takes, so two cannot answer one hold.
+- **Only an answer that does something** (422): `answersTo` in the events package, which Needs you draws its rows from. Approving a `merge` (he merges on GitHub), a `deploy` (a release ends it) or a `suggestion` (until improvements), or words on a `deploy`, is refused.
+- **The passkey again to approve a guardrail's hold**, as the access table's `hold.approve-guardrail` says: `scope`, `beyond-ticket`, `review`, `gates`, `verify`, `spend` and `merge`. One route approves every hold, and the cause comes from the stored hold, never from the request. Rejecting, words, and approving any other cause never ask.
+- **His words on a visitor's report stay his.** On a work item a visitor's report opened (its first signal is a report), at any stage, the answer is marked `report`, and its public view leaves his words out, and says only how he answered: a paraphrase of a report would pass any redactor. The line leaves them out too: no agent reads them, and nothing it writes from the answer (a return's or a close's reason, its comments on GitHub) carries them; the answer still does what it does. Everywhere else his words are public, through the redactor.
+
 ## What it records
 
-Every action is an event with Martin as its actor, appended in the same transaction as the action, so it is done and recorded or neither: `passkey.enrolled`, `admin.signed-in`, `admin.signed-out` (here, everywhere, or by signing in again over a live session in the same browser), `admin.stepped-up` (the passkey given again), `passkey.revoked` (from the console, or the command line) `release.controlled` (a control of the canary: which, the release, its version, the canary's weight then, and for a promotion the weight it goes to), and `settings.changed` (the settings, with each change before and after), with a `hold.answered` for each `spend` hold a raised work item's cap clears. Each is one of [Martin's commands](EVENT-STORE.md#martins-commands), which no worker can append. Their public views say what he did and never with which passkey: no name, id, address or browser.
+Every action is an event with Martin as its actor, appended in the same transaction as the action, so it is done and recorded or neither: `passkey.enrolled`, `admin.signed-in`, `admin.signed-out` (here, everywhere, or by signing in again over a live session in the same browser), `admin.stepped-up` (the passkey given again), `passkey.revoked` (from the console, or the command line) `release.controlled` (a control of the canary: which, the release, its version, the canary's weight then, and for a promotion the weight it goes to), `settings.changed` (the settings, with each change before and after), with a `hold.answered` for each `spend` hold a raised work item's cap clears, and `hold.answered` (his answer to a hold from Needs you, naming the hold). Each is one of [Martin's commands](EVENT-STORE.md#martins-commands), which no worker can append. Their public views say what he did and never with which passkey: no name, id, address or browser.
 
 ## Settings
 

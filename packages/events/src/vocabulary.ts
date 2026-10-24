@@ -197,6 +197,10 @@ export const HOLD_CAUSES = [
 ] as const;
 export type HoldCause = (typeof HOLD_CAUSES)[number];
 
+/** Martin's answers to a hold: approve it, reject it, or answer it in words. */
+export const HOLD_ANSWERS = ['approved', 'rejected', 'answered'] as const;
+export type HoldAnswer = (typeof HOLD_ANSWERS)[number];
+
 export const AUTONOMY = ['supervised', 'guarded', 'lights-out'] as const;
 export type Autonomy = (typeof AUTONOMY)[number];
 

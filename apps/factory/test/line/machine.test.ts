@@ -1,7 +1,6 @@
-import { HOLD_CAUSES, type HoldCause, type PayloadOf, WORDS_LEAVE_HELD } from '@software-factory/events';
+import { ANSWERS, HOLD_CAUSES, type HoldCause, type PayloadOf, WORDS_LEAVE_HELD } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import {
-  ANSWERS,
   closesWhenCleared,
   decide,
   dryRunLeft,
@@ -844,6 +843,29 @@ describe('Martin’s answer to a hold', () => {
     for (const cause of HOLD_CAUSES) {
       expect(Object.keys(ANSWERS[cause]).sort()).toEqual(['answered', 'approved', 'rejected']);
     }
+  });
+
+  it('keeps his words on a work item a visitor’s report opened from what it writes and from every agent, and acts on them', () => {
+    const own = (decision: PayloadOf<'hold.answered'>['decision'], text: string): LineEvent => ({
+      type: 'hold.answered',
+      payload: { decision, answer: text, report: true },
+    });
+    const waiting = [...approvedAndDescribed, held('merge', 'review'), own('answered', 'The visitor at 4 Elm Road')];
+    expect(decide(waiting, facts).next).toEqual({
+      do: 'return',
+      from: 'review',
+      to: 'build',
+      reason: 'Martin sent it back',
+    });
+    // No agent reads them either.
+    expect(fold(waiting).answer).toMatchObject({ decision: 'answered', resolution: 'return', text: undefined });
+    const planned = [ticket, held('question', 'plan'), own('answered', 'The visitor at 4 Elm Road')];
+    expect(fold(planned).answers).toEqual([]);
+    expect(
+      decide([ticket, spec, held('gates', 'build'), own('rejected', 'The visitor at 4 Elm Road')], facts).next,
+    ).toEqual({ do: 'close', reason: 'Martin rejected it', merged: false });
+    const verify = [...approvedAndDescribed, held('verify', 'verify'), own('approved', 'The visitor at 4 Elm Road')];
+    expect(decide(verify, facts).next).toEqual({ do: 'verified', verification: undefined });
   });
 
   it('closes the work item when he rejects it, whatever the cause', () => {

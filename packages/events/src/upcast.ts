@@ -48,6 +48,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
     // Version 8 records a spend hold's spend beside its cap; a version 7 hold reads as it was, its spend unknown.
     7: (payload) => payload,
   },
+  // Version 2 names the hold it answers, and says when its words stay Martin's; a version 1 answer said neither.
+  'hold.answered': { 1: (payload) => payload },
   // Version 2 of a release's events names the release, says whether the line watched it and whether the dry run
   // answers for it, and records the analysis's own measures. A version 1 release was told apart by its version, was
   // watched, and shipped.
