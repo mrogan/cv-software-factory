@@ -214,18 +214,37 @@ describe('what the pages leave on the device, for the gates', () => {
     expect((await observe([], ['home-leads-to-the-catalogue'])).some((o) => o.device)).toBe(false);
   }, 120_000);
 
-  it('names the first check whose pages kept a cookie or stored anything, and the origins they asked', async () => {
+  it('says after each check what is on the device, and the origins its pages asked', async () => {
     const observations = await observe(['keeps-cookie', 'keeps-storage', 'asks-elsewhere'], [], true);
-    expect(devices(observations)).toEqual([
+    // What is on the device is the pass's by the end of each check; the other origins, the check's own pages'.
+    const lines = devices(observations);
+    expect(lines.slice(0, 4)).toEqual([
       'home-leads-to-the-catalogue: cookie visit, http://elsewhere.invalid',
-      // Each check that opens the home page asks there again; the cookie is the first's alone.
-      'home-links-open: http://elsewhere.invalid',
-      'departments-list-their-products: http://elsewhere.invalid',
-      'product-page-agrees-with-the-api: localStorage seen on <shop>, sessionStorage viewed on <shop>',
+      'home-links-open: cookie visit, http://elsewhere.invalid',
+      'departments-list-their-products: cookie visit, http://elsewhere.invalid',
+      'catalogue-agrees-with-the-api: cookie visit',
     ]);
+    expect(lines).toContain(
+      'product-page-agrees-with-the-api: cookie visit, localStorage seen on <shop>, sessionStorage viewed on <shop>',
+    );
+    // Session storage is the page's, and each check has a page of its own; the rest stays for every check after.
+    expect(lines.at(-1)).toMatch(/: cookie visit, localStorage seen on <shop>$/);
+    expect(lines).toHaveLength(observations.filter((o) => o.device).length);
   }, 120_000);
 
   it('fails the probe’s `/device` check when the gates observe the shop, and passes it on a shop that is right', async () => {
+    // Verify, which observes the app too, does not ask.
+    const plain = await startShop('keeps-cookie');
+    try {
+      const { seen } = await observeApp(plain.url, [{ sense: 'probe', check: 'home-leads-to-the-catalogue' }], {
+        store,
+        log,
+        limit: 10,
+      });
+      expect(seen.some((s) => s.check.endsWith('/device'))).toBe(false);
+    } finally {
+      await plain.close();
+    }
     for (const [faults, failed] of [
       [[], []],
       [['keeps-cookie'], ['home-leads-to-the-catalogue/device']],
@@ -236,9 +255,10 @@ describe('what the pages leave on the device, for the gates', () => {
           store,
           log,
           limit: 10,
+          device: true,
         });
         const device = seen.filter((s) => s.check.endsWith('/device'));
-        expect(device.map((s) => s.check)).toEqual(['home-leads-to-the-catalogue/device']);
+        expect(device.map((s) => [s.check, s.route])).toEqual([['home-leads-to-the-catalogue/device', '/']]);
         expect(device.filter((s) => s.failed).map((s) => s.check)).toEqual(failed);
         if (failed.length) expect(device[0]?.message).toBe('The pages left cookie visit on the device.');
       } finally {

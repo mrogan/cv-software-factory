@@ -1,6 +1,6 @@
 /**
  * The figures the privacy page gives, copied from where they are set, since the image is built without them; a test
- * holds each to its source (`test/privacy.test.ts`).
+ * holds each to its source.
  */
 
 /** How many days each backend keeps what the server records: Loki's 168h, Tempo's 72h and Prometheus's 7d. */

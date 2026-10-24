@@ -10,15 +10,16 @@
  * Each of those is a check in its own right, so passing resets its streak, as it should. A finding keeps a screenshot
  * of the page it was made on, with the boxes the check asked for, and a short text of what was expected and seen.
  *
- * Asked to (`device`), it also says, on each check's observation, what the check's pages left on the device that no
- * check before it in the pass had (a cookie, local or session storage, IndexedDB, Cache Storage or a service worker)
- * and which other origins they asked. The gates ask, to fail a change that starts to keep anything on a visitor's
+ * Asked to (`device`), it also says, on each check's observation, what the pass's pages have left on the device by the
+ * end of the check (a cookie, local or session storage, IndexedDB, Cache Storage or a service worker) and which other
+ * origins the check's pages asked. The gates ask, to fail a change that starts to keep anything on a visitor's
  * device or to send them elsewhere (`senses/observe.ts`); the senses that look after the live app do not.
  */
 import type { ArtifactRef, Evidence } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
 import { type Browser, type BrowserContext, chromium, type Page, type Request, type Response } from 'playwright';
 import { capture } from '../capture.ts';
+import { keptOnDevice } from './device.ts';
 import { evidenceOf, pathOf, type RequestHeaders } from './http.ts';
 import { type Device, type Finding, Found, type Observation, type Sense } from './types.ts';
 
@@ -95,12 +96,10 @@ export class BrowserSense<Shared> implements Sense {
     const context = await this.newContext(this.options.headers);
     const shared = this.options.shared();
     const observations: Observation[] = [];
-    // What the pass's pages have left on the device so far, so each check is answerable for what it added.
-    const kept = new Set<string>();
     try {
       for (const check of this.options.checks) {
         if (skip.has(check.id)) continue;
-        observations.push(...(await this.look(check, context, version, shared, kept)));
+        observations.push(...(await this.look(check, context, version, shared)));
       }
     } finally {
       await context.close();
@@ -126,7 +125,6 @@ export class BrowserSense<Shared> implements Sense {
     context: BrowserContext,
     version: string,
     shared: Shared,
-    kept: Set<string>,
   ): Promise<Observation[]> {
     const { app, headers } = this.options;
     const page = await context.newPage();
@@ -141,11 +139,19 @@ export class BrowserSense<Shared> implements Sense {
       else trouble = (error instanceof Error ? error.message : String(error)).split('\n')[0];
     }
     const { console, serverErrors, brokenImages, asked } = await watch.finish();
+    // Everything the pass has left so far, not only what this check added: which check is first to see something
+    // depends on which ran, and a check is compared with itself on the base, run as far as it ran there. Bounded, as
+    // a page whose script never yields would hold an evaluation for ever.
     let device: Device | undefined;
     if (this.options.device) {
-      const now = await keptOnDevice(context, page);
-      device = { kept: now.filter((thing) => !kept.has(thing)), asked };
-      for (const thing of now) kept.add(thing);
+      const onDevice = await within(10_000, keptOnDevice(context, page)).catch(
+        (error) =>
+          `could not read what the pages left on the device: ${error instanceof Error ? error.message : error}`,
+      );
+      device =
+        typeof onDevice === 'string'
+          ? { route: check.route, kept: [], asked, trouble: onDevice }
+          : { route: check.route, kept: onDevice, asked };
     }
     const route = check.route;
     const [error] = serverErrors;
@@ -315,32 +321,6 @@ async function within<T>(ms: number, work: Promise<T>): Promise<T> {
  */
 export const aboutTheConnection = (text: string) =>
   /origin was untrustworthy|potentially trustworthy|insecure context|secure context/i.test(text);
-
-/**
- * Everything the browser keeps for the app, as `<kind> <name>`: the context's cookies, whoever set them, its local
- * storage by origin, and, for the page's origin, its session storage, IndexedDB, Cache Storage and service workers.
- */
-async function keptOnDevice(context: BrowserContext, page: Page): Promise<string[]> {
-  const { cookies, origins } = await context.storageState();
-  const kept = [
-    ...cookies.map((cookie) => `cookie ${cookie.name}`),
-    ...origins.flatMap(({ origin, localStorage }) =>
-      localStorage.map(({ name }) => `localStorage ${name} on ${origin}`),
-    ),
-  ];
-  if (!/^https?:/.test(page.url())) return kept;
-  const origin = new URL(page.url()).origin;
-  // A script, since this package is type-checked for Node.
-  const stored = await page
-    .evaluate(`(async () => [
-      ...Object.keys(sessionStorage).map((key) => 'sessionStorage ' + key),
-      ...(await indexedDB.databases()).map((db) => 'IndexedDB ' + db.name),
-      ...(globalThis.caches ? await caches.keys() : []).map((name) => 'Cache Storage ' + name),
-      ...((await navigator.serviceWorker?.getRegistrations()) ?? []).map((worker) => 'service worker ' + worker.scope),
-    ])()`)
-    .catch(() => []);
-  return [...kept, ...(stored as string[]).map((thing) => `${thing} on ${origin}`)];
-}
 
 /** Listens to a page for what a visitor would suffer without being asked about it. */
 function watching(page: Page, origin: string) {

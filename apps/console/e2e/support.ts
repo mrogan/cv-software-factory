@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test as base, expect, type Locator, type Page } from '@playwright/test';
 import type { RawEvent } from '@software-factory/events';
+import { keptOnDevice as readDevice } from '../../factory/src/senses/device.ts';
 import { full } from './full.ts';
 
 export const PORT = 18_321;
@@ -288,21 +289,17 @@ async function fullStream(page: Page): Promise<void> {
 export const SESSION_COOKIE = 'cookie __Host-session';
 
 /**
- * Everything the browser keeps for the console, as `<kind> <name>`: its cookies, whoever set them and whether a script
- * could read them, and, for the page's origin, local and session storage, IndexedDB, Cache Storage and service workers.
- * The privacy page says the console keeps nothing on a visitor's device: this is what holds it to that.
+ * Everything the browser keeps for the console, as `<kind> <name>`, read as the journeys gate reads the app's
+ * (`apps/factory/src/senses/device.ts`): its cookies, whoever set them and whether a script could read them, and local
+ * and session storage, IndexedDB, Cache Storage and service workers. The privacy page says the console keeps nothing on
+ * a visitor's device: this is what holds it to that. A page between documents is read once it has loaded.
  */
 export async function keptOnDevice(page: Page): Promise<string[]> {
-  const cookies = (await page.context().cookies()).map((cookie) => `cookie ${cookie.name}`);
-  if (!/^https?:/.test(page.url())) return cookies;
-  const stored = await page.evaluate(async () => [
-    ...Object.keys(localStorage).map((key) => `localStorage ${key}`),
-    ...Object.keys(sessionStorage).map((key) => `sessionStorage ${key}`),
-    ...(await indexedDB.databases()).map((db) => `IndexedDB ${db.name}`),
-    ...(globalThis.caches ? await caches.keys() : []).map((name) => `Cache Storage ${name}`),
-    ...((await navigator.serviceWorker?.getRegistrations()) ?? []).map((worker) => `service worker ${worker.scope}`),
-  ]);
-  return [...cookies, ...stored];
+  const read = () => readDevice(page.context(), page);
+  return read().catch(async () => {
+    await page.waitForLoadState('load');
+    return read();
+  });
 }
 
 interface Guard {
@@ -337,10 +334,7 @@ export const test = base.extend<{ guard: Guard }>({
       await use(guard);
       expect(guard.violations, 'content security policy violations').toEqual([]);
       expect(guard.foreign, 'requests to another origin').toEqual([]);
-      // A page that has closed, or is between documents, leaves its cookies to read.
-      const kept = await keptOnDevice(page).catch(async () =>
-        (await page.context().cookies()).map((cookie) => `cookie ${cookie.name}`),
-      );
+      const kept = await keptOnDevice(page);
       expect(
         kept.filter((thing) => thing !== SESSION_COOKIE),
         'kept on the device',
