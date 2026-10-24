@@ -185,8 +185,12 @@ export function planOf(action: ReleaseControl, canary: Canary): Plan | { refused
 /** How many times a control reads the Rollout again when it changed between the read and the patch. */
 const TRIES = 3;
 
-/** What a control is told while the Rollout's status has not caught up with its spec. */
-const BETWEEN = 'The Rollout is between releases: look again in a moment.';
+/** The refusal while the Rollout's status has not caught up with its spec: Stop the line waits it out. */
+class BetweenReleases extends Refused {
+  constructor() {
+    super('release', 409, 'The Rollout is between releases: look again in a moment.');
+  }
+}
 
 /**
  * How long Stop the line waits for the Rollout's status to catch up with its spec, a second at a time: a release just
@@ -264,7 +268,7 @@ export class ReleaseControls {
       try {
         return await this.#tried(() => this.#stopOnce());
       } catch (error) {
-        if (!(error instanceof Refused && error.message === BETWEEN) || wait > STOP_WAITS) throw error;
+        if (!(error instanceof BetweenReleases) || wait > STOP_WAITS) throw error;
         await new Promise((resolve) => setTimeout(resolve, 1_000));
       }
     }
@@ -296,7 +300,7 @@ export class ReleaseControls {
     ]);
     const names = { recorded: recordedFrom(rows), lastRelease: last?.release };
     const canary = canaryOf(rollout, names.recorded, names.lastRelease);
-    if (!canary) throw new Refused('release', 409, BETWEEN);
+    if (!canary) throw new BetweenReleases();
     const record = latestRecord([...(names.recorded.get(canary.release)?.values() ?? [])]);
     return { canary, record: record?.started.dryRun ? undefined : record, names };
   }
