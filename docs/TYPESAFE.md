@@ -106,7 +106,7 @@ A report judged to be about content gets a second request, `passage/v1`: which p
 
 Routing (`packages/triage/src/routing.ts`), in order, against the thresholds in `policy/triage.ts`:
 
-1. Injection at or above the quarantine threshold: **quarantine**. The report is kept as evidence of an attack and never reaches the planner.
+1. Injection at or above the quarantine threshold: **quarantine**. The report is kept as evidence of an attack, its text for [30 days](COMPONENTS/TRIAGE.md#how-long-a-report-is-kept), and never reaches the planner.
 2. `suggestion`: **park for Martin** (spec 4.1).
 3. `not-a-defect`: **discard**, with the events kept.
 4. An open ticket chosen at or above the repeat threshold: **repeat**. The report joins that ticket.

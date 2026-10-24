@@ -5,9 +5,16 @@
  */
 import type { PublicEvent } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
+import { REPORT_TEXT } from '../../../../policy/triage.ts';
 import { project, projectSheet } from '../../web/src/projection/index.ts';
-import { REPORT_CHARS, reportText } from '../../web/src/projection/report.ts';
+import { REPORT_CHARS, REPORT_KEPT_DAYS, reportText } from '../../web/src/projection/report.ts';
 import { END, SAMPLES } from './support.ts';
+
+describe('how long a report’s text is kept', () => {
+  it('is what the policy promises', () => {
+    expect(REPORT_KEPT_DAYS).toBe(REPORT_TEXT.promisedDays);
+  });
+});
 
 describe('a report’s text, for Martin', () => {
   it('keeps plain words and basic punctuation as they are', () => {

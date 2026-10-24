@@ -24,6 +24,11 @@ export interface RoleGrants {
    */
   rows?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /**
+   * The functions it may call that run with their owner's rights (`security definer`), by name and arguments: each
+   * does one thing the role has no grant to do itself, and no other role, nor `PUBLIC`, may call it.
+   */
+  calls?: readonly string[];
+  /**
    * One of Martin's roles: row security lets it append his commands (the admin event types, `ADMIN_TYPES` in the events
    * package), and the line, triage and the gateway act on an admin event only when one of these appended it.
    */
@@ -48,13 +53,16 @@ export const STORE_GRANTS = {
     rows: { events: { select: READ, insert: NOT_HIS } },
   },
   factory_triage: {
-    for: 'Triage: takes each signal, records what it made of it, prunes the repeats it counted, numbers work items.',
+    for:
+      'Triage: takes each signal, records what it made of it, prunes the repeats it counted, numbers work items, and ' +
+      "forgets visitors' reports once they are old enough (0032_forget-reports.sql).",
     memberOf: ['factory_worker'],
     on: {
       inbox: ['select', 'update (attempts, not_before, failure, triaged_at, outcome, work_item)', 'delete'],
       work_items: ['usage'],
     },
     rows: { inbox: { select: 'true', update: 'true', delete: "outcome = 'counted'" } },
+    calls: ['forget_reports(timestamp with time zone)'],
   },
   factory_line: {
     for: "The line: its queue, its runners' job tokens and logs, spend, and the signals it leaves triage.",

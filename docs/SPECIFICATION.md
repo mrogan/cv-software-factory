@@ -163,7 +163,7 @@ One page, read from top to bottom: *is it running → what is happening → what
 
 ### 5.3 Visitor actions (live instance only)
 
-- **Report a problem:** free text via the widget on the site. Goes through triage like any signal; can only ever lead to a defect fix. The console shows a report's text only to Martin and to the visitor whose key sent it: at most 140 characters of plain ASCII letters, digits and basic punctuation, with links, email addresses and long numbers removed, inserted as text and never as markup. Everyone else sees that a report was made and what triage made of it.
+- **Report a problem:** free text via the widget on the site. Goes through triage like any signal; can only ever lead to a defect fix. The console shows a report's text only to Martin and to the visitor whose key sent it: at most 140 characters of plain ASCII letters, digits and basic punctuation, with links, email addresses and long numbers removed, inserted as text and never as markup. Everyone else sees that a report was made and what triage made of it. A report's text, and the page as it was sent, are kept for 30 days from when it was received, wherever the factory keeps them; then they are deleted, and the report's events stay without them.
 - **Inject a defect:** choose from a curated menu of visible breakages (for example "Prices go negative", "Search returns only cats"). No free text.
 - **Red team the factory:** choose a curated attack and watch a real mechanism stop it. The UI shows the mechanism's actual refusal, never an animation:
 

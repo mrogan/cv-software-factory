@@ -151,6 +151,26 @@ describe('the grants', () => {
     );
   });
 
+  it('let only the roles the table names call a function that runs with its owner’s rights', async () => {
+    const callers = await db.owner<{ fn: string; role: string }[]>`
+      select p.oid::regprocedure::text as fn,
+             coalesce(r.rolname, 'PUBLIC') as role
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      cross join aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      left join pg_roles r on r.oid = a.grantee
+      where n.nspname = 'public' and p.prosecdef and a.grantee <> p.proowner and a.privilege_type = 'EXECUTE'`;
+    const found: Record<string, string[]> = {};
+    for (const { fn, role } of callers) found[role] = [...(found[role] ?? []), fn].sort();
+    const declared = Object.fromEntries(
+      Object.entries(STORE_GRANTS as Record<string, { calls?: readonly string[] }>).flatMap(([role, grants]) =>
+        grants.calls ? [[role, [...grants.calls].sort()]] : [],
+      ),
+    );
+    expect(found).toEqual(declared);
+    await expect(db.as.line`select * from forget_reports(now())`).rejects.toThrow('permission denied');
+    await expect(db.as.triage`select * from forget_reports(now())`).resolves.toHaveLength(1);
+  });
+
   it('let every worker log in as itself, and nobody as the role they share or as the writer', async () => {
     const roles = await db.owner<{ rolname: string; rolcanlogin: boolean }[]>`
       select rolname, rolcanlogin from pg_roles where rolname like 'factory\\_%'`;
