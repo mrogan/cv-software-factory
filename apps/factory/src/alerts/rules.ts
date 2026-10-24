@@ -256,7 +256,7 @@ export function martinRules(): Rule[] {
       labels: { level: LEVELS.notify },
       annotations: {
         summary: `The shop's pod is ${SHOP_POD_DAYS} days old`,
-        description: `Its container logs on the node may hold a visitor's report, and they go only with the pod. Release the shop (merge a pending update, or its deploy pull request), or with none pending restart its Rollout, so a new pod replaces it before a report in its logs is ${REPORT_TEXT.promisedDays} days old.`,
+        description: `Its container logs on the node may hold a visitor's report, and they go only with the pod. Release the shop (merge a pending update, or its deploy pull request), so a new pod replaces it before a report in its logs is ${REPORT_TEXT.promisedDays} days old. With none pending, restart its Rollout: with one replica, the shop is down until the new pod is ready.`,
       },
     },
   ];
