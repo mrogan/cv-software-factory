@@ -11,6 +11,8 @@ import {
   budgetRulesFor,
   isBudgetRate,
   LAST_STEP,
+  LEVELS,
+  martinRules,
   OBJECTIVES,
   outOfDate,
   RULES_FILE,
@@ -25,7 +27,9 @@ import { describer } from '../src/line/agents/describer.ts';
 import { planner } from '../src/line/agents/planner.ts';
 import { reviewer } from '../src/line/agents/reviewer.ts';
 import { OPEN_STAGES } from '../src/line/metrics.ts';
+import { SECURITY_KINDS } from '../src/line/security.ts';
 import { leaseFor } from '../src/line/worker.ts';
+import { METRICS_FROM_THE_LINE } from '../src/provenance.ts';
 
 describe('alerting rules', () => {
   it('judge every route by the very expressions recorded for the dashboards, not the recorded series', () => {
@@ -226,5 +230,71 @@ describe('queries', () => {
   it('plot one route with a plain sum, and judge all of them by route', () => {
     expect(query.errorRatio(objectives, { route: '/search' })).not.toContain('by (http_route)');
     expect(query.errorRatio(objectives)).toContain('by (http_route)');
+  });
+});
+
+describe('the alerts to Martin', () => {
+  const rules = martinRules();
+
+  it('page for each kind of security event, on the first of a kind too', () => {
+    const security = rules.filter((rule) => rule.alert === 'SecurityEvent');
+    expect(security.map((rule) => rule.labels.kind)).toEqual([...SECURITY_KINDS]);
+    for (const rule of security) {
+      expect(rule.labels.level).toBe(LEVELS.page);
+      // A count that starts at 0, so the first is an increase; the highest of the replicas', which agree.
+      expect(rule.expr).toBe(
+        `max(increase(line_security_events_total{kind="${rule.labels.kind}", ${METRICS_FROM_THE_LINE}}[5m])) > 0`,
+      );
+      expect(rule.annotations.summary).toBeTruthy();
+    }
+  });
+
+  it('say only what happened: no label’s value but a cause from a closed list', () => {
+    for (const rule of rules) {
+      const words = `${rule.annotations.summary} ${rule.annotations.description}`;
+      expect(words.replaceAll('{{ $labels.cause }}', ''), rule.alert).not.toContain('{{');
+    }
+  });
+
+  it('read only the line’s own series, by what the collector stamps on them', () => {
+    let read = 0;
+    for (const rule of rules) {
+      for (const [selector] of rule.expr.matchAll(/\bline_\w+(\{[^}]*\})?/g)) {
+        expect(selector, rule.alert).toContain(METRICS_FROM_THE_LINE);
+        // Never what a sender says of itself.
+        expect(selector, rule.alert).not.toMatch(/\b(job|service_name|instance)=/);
+        read++;
+      }
+    }
+    expect(read).toBeGreaterThan(SECURITY_KINDS.length);
+  });
+
+  it('page when the count goes missing or stale, a silence is in place, and notify of each new hold', () => {
+    const by = (name: string) => rules.filter((rule) => rule.alert === name);
+    expect(by('SecurityEventsUncounted').map((rule) => rule.labels.level)).toEqual([LEVELS.page]);
+    expect(by('SecurityEventsUncounted')[0]?.expr).toContain('line_security_events_counting');
+    // The highest of every series by that name: another can page Martin more, never less.
+    expect(by('AlertmanagerSilenced').map((rule) => [rule.labels.level, rule.expr])).toEqual([
+      [LEVELS.page, 'max(alertmanager_silences{state=~"active|pending"}) > 0'],
+    ]);
+    expect(by('HoldStarted').map((rule) => rule.labels.level)).toEqual([LEVELS.notify]);
+    expect(by('HoldStarted')[0]?.expr).toMatch(/^max by \(cause\) \(increase\(line_holds_stored_total\{/);
+  });
+
+  it('set a level Alertmanager routes, or none: a mistyped one would reach no one', () => {
+    const generated = [...rulesFor(objectives), ...rules];
+    for (const rule of generated) {
+      expect([undefined, LEVELS.page, LEVELS.notify], rule.alert).toContain(rule.labels.level);
+    }
+  });
+
+  it('never carry an objective, so none reaches the intake', () => {
+    for (const rule of rules) expect(Object.keys(rule.labels), rule.alert).not.toContain('objective');
+    for (const rule of rulesFor(objectives)) expect(Object.keys(rule.labels)).not.toContain('level');
+  });
+
+  it('are in the rules file, in a group of their own', () => {
+    const text = readFileSync(RULES_FILE, 'utf8');
+    expect(text).toContain('      - name: martin\n        rules:\n          - alert: SecurityEvent\n');
   });
 });
