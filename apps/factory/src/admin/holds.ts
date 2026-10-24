@@ -29,7 +29,7 @@ import {
   VERSIONS,
   WORDS_LEAVE_HELD,
 } from '@software-factory/events';
-import { fromMartin } from '@software-factory/store';
+import { fromMartin, lockAppends } from '@software-factory/store';
 import type { TransactionSql } from 'postgres';
 import { z } from 'zod';
 import { ACCESS, GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
@@ -181,7 +181,7 @@ export async function answerHold(
   const { report } = await store.record(
     async (tx) => {
       // One answer at a time, and none between a hold the line or triage appends and the next.
-      await tx`select pg_advisory_xact_lock(hashtext('events'))`;
+      await lockAppends(tx);
       const open = await openHold(tx, workItem);
       if (!open || open.id !== given.hold) {
         throw new Refused(

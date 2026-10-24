@@ -462,7 +462,7 @@ export function releaseNeeds(o: Observed, recorded: Recorded, lastRelease?: stri
   return { ...(start ? { start } : {}), steps, failures, aborted };
 }
 
-/** The versions the Rollout names, by hash: a release in flight, and the stable version it would replace. */
+/** The releases the Rollout names, by name: a release in flight, and the stable version it would replace. */
 const releasesIn = (names: Named): string[] =>
   [...new Set([names.current, names.stable])].filter((name): name is string => name !== undefined);
 

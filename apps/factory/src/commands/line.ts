@@ -117,7 +117,7 @@ export async function run(args: string[]): Promise<number> {
     }) as NewEvent;
   try {
     if (command === 'stop') {
-      const reason = values.reason ?? 'Martin stopped the line';
+      const reason = values.reason?.trim() || 'Martin stopped the line';
       await writer.append(event('line.stopped', `The line stopped: ${reason}`, { reason }));
       console.log('The line is stopped. Workers finish what they hold and take nothing new.');
     } else {

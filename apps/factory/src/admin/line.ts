@@ -15,14 +15,18 @@
  *
  * `make stop-the-line` keeps its own path, which needs neither the console nor the admin service.
  */
-import { lineStopped } from '@software-factory/store';
+import { PAYLOADS } from '@software-factory/events/schemas';
+import { lineStopped, lockAppends } from '@software-factory/store';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import type { ReleaseControls } from './rollout.ts';
 import { type AdminStore, adminEvent, Refused, type Session, steppedUpNow } from './store.ts';
 
-/** Martin's reason, for the audit log: visitors see it, with anything shaped like a secret left out. */
-export const REASON = z.strictObject({ reason: z.string().trim().min(1).max(200) });
+/**
+ * Martin's reason, for the audit log: visitors see it, with anything shaped like a secret left out. Held to the
+ * events' own rule for it, so a reason the route takes is one the store takes.
+ */
+export const REASON = z.strictObject({ reason: PAYLOADS['line.stopped'].shape.reason });
 
 /** What stopping the line did: the line is stopped, and the canary in flight was aborted, or there was none, or not. */
 export interface Stopped {
@@ -30,6 +34,11 @@ export interface Stopped {
   canary: 'aborted' | 'none' | 'not-aborted';
   /** The release aborted. */
   release?: string;
+  /**
+   * Whether the abort's control was recorded: not for a release the line had not recorded yet, nor when the store did
+   * not take it. The line tells the abort by the stop just before, then.
+   */
+  recorded?: boolean;
   /** What Martin must know: the canary was not aborted, or his pause of it is still set. */
   warning?: string;
 }
@@ -44,10 +53,6 @@ export const NO_ROLLOUT =
   'The line is stopped. The admin service controls no Rollout, so it aborted no canary: if one is in flight, ' +
   '`make stop-the-line` will abort it.';
 
-/** Takes the lock every append takes, so the line's state read is the one the event follows. */
-const lock = (tx: Parameters<Parameters<AdminStore['record']>[0]>[0]) =>
-  tx`select pg_advisory_xact_lock(hashtext('events'))`;
-
 /** Stops the line with Martin's reason, then aborts the canary in flight; or refuses a line already stopped. */
 export async function stopLine(
   store: AdminStore,
@@ -57,7 +62,7 @@ export async function stopLine(
 ): Promise<Stopped> {
   await store.record(
     async (tx) => {
-      await lock(tx);
+      await lockAppends(tx);
       if (await lineStopped(tx)) throw new Refused('line', 409, 'The line is stopped already.');
     },
     () => [adminEvent('line.stopped', 'Martin stopped the line', { reason })],
@@ -70,6 +75,7 @@ export async function stopLine(
       stopped: true,
       canary: 'aborted',
       release: abort.release,
+      recorded: abort.recorded,
       ...(abort.warning && { warning: abort.warning }),
     };
   } catch (error) {
@@ -84,7 +90,7 @@ export async function stopLine(
 export async function startLine(store: AdminStore, session: Session, reason: string): Promise<{ started: true }> {
   await store.record(
     async (tx) => {
-      await lock(tx);
+      await lockAppends(tx);
       if (!(await lineStopped(tx))) throw new Refused('line', 409, 'The line is running already.');
       // Asked again as the start is taken, after the lock: the passkey given may have gone stale while it waited.
       if (!(await steppedUpNow(tx, session))) throw new Refused('step-up', 403, 'This needs your passkey again.');

@@ -185,6 +185,15 @@ export function planOf(action: ReleaseControl, canary: Canary): Plan | { refused
 /** How many times a control reads the Rollout again when it changed between the read and the patch. */
 const TRIES = 3;
 
+/** What a control is told while the Rollout's status has not caught up with its spec. */
+const BETWEEN = 'The Rollout is between releases: look again in a moment.';
+
+/**
+ * How long Stop the line waits for the Rollout's status to catch up with its spec, a second at a time: a release just
+ * starting has its canary named in a moment, and is aborted then.
+ */
+const STOP_WAITS = 5;
+
 export interface Controlled {
   action: ReleaseControl;
   release: string;
@@ -250,8 +259,15 @@ export class ReleaseControls {
    * recorded; nothing when none is in flight. Its control is recorded when the line has recorded the release, and a
    * failure to record it is logged and no more: the line tells the abort by time then, from the stop just before.
    */
-  stop(): Promise<StopAbort> {
-    return this.#tried(() => this.#stopOnce());
+  async stop(): Promise<StopAbort> {
+    for (let wait = 1; ; wait++) {
+      try {
+        return await this.#tried(() => this.#stopOnce());
+      } catch (error) {
+        if (!(error instanceof Refused && error.message === BETWEEN) || wait > STOP_WAITS) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+    }
   }
 
   /** Does it, reading the Rollout again and deciding again when it changed between the read and the patch. */
@@ -280,7 +296,7 @@ export class ReleaseControls {
     ]);
     const names = { recorded: recordedFrom(rows), lastRelease: last?.release };
     const canary = canaryOf(rollout, names.recorded, names.lastRelease);
-    if (!canary) throw new Refused('release', 409, 'The Rollout is between releases: look again in a moment.');
+    if (!canary) throw new Refused('release', 409, BETWEEN);
     const record = latestRecord([...(names.recorded.get(canary.release)?.values() ?? [])]);
     return { canary, record: record?.started.dryRun ? undefined : record, names };
   }

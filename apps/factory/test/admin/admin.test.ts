@@ -1223,7 +1223,7 @@ describe('the release controls', () => {
       const before = (await controls()).length;
       expect(await browser.post('/admin/line/stop', { reason: '  The coder keeps rewriting tests  ' })).toEqual({
         status: 200,
-        body: { stopped: true, canary: 'aborted', release: RELEASE },
+        body: { stopped: true, canary: 'aborted', release: RELEASE, recorded: true },
       });
       const stop = (await lineEvents()).at(-1);
       expect(stop).toMatchObject({
@@ -1334,10 +1334,30 @@ describe('the release controls', () => {
       const before = (await controls()).length;
       expect(await browser.post('/admin/line/stop', { reason: 'Something is wrong' })).toMatchObject({
         status: 200,
-        body: { stopped: true, canary: 'aborted', release: RELEASE },
+        body: { stopped: true, canary: 'aborted', release: RELEASE, recorded: false },
       });
       expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }]);
       expect(await controls()).toHaveLength(before);
+    });
+
+    it('waits for a Rollout between releases to name its canary, and aborts it then', async () => {
+      await running();
+      const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25, behind: true });
+      const { browser } = await signedIn();
+      // The status catches up a moment after the first read.
+      const read = kube.get.bind(kube);
+      let reads = 0;
+      kube.get = async (path, schema) => {
+        reads += 1;
+        if (reads === 2)
+          kube.object = merged(kube.object, { status: { observedGeneration: '5' } }) as Record<string, unknown>;
+        return read(path, schema);
+      };
+      expect(await browser.post('/admin/line/stop', { reason: 'Something is wrong' })).toMatchObject({
+        status: 200,
+        body: { stopped: true, canary: 'aborted', release: RELEASE },
+      });
+      expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }]);
     });
 
     it('stops the line and says so when the admin service has no Rollout', async () => {

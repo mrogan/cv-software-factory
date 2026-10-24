@@ -142,6 +142,20 @@ describe('a station’s state', () => {
     expect(view.header).toMatchObject({ running: false, stopped: 'Martin stopped the line' });
   });
 
+  it('keeps the autonomy level the line last started at when a start from the console names none', () => {
+    const line = (type: 'line.started' | 'line.stopped', payload: object): PublicEvent =>
+      ({ ...(work('1').open().events[0] as PublicEvent), work_item: null, type, payload }) as PublicEvent;
+    const view = project(
+      [
+        line('line.started', { autonomy: 'guarded' }),
+        line('line.stopped', { reason: 'Lunch' }),
+        line('line.started', { reason: 'Back' }),
+      ],
+      Date.now(),
+    );
+    expect(view.header).toMatchObject({ running: true, autonomy: 'guarded', stopped: undefined });
+  });
+
   it('says “sending back” while its return is drawn, unless it has failed or waits on a human', () => {
     for (const status of ['idle', 'working', 'passing', 'returning'] as const) {
       expect(whileSending(status, true)).toBe('returning');

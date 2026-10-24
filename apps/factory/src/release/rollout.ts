@@ -303,5 +303,6 @@ export function namedReleases(o: Observed, recorded: Recorded, lastRelease?: str
   return { current: asked && recorded.has(asked) ? asked : inFlight ? o.current : asked, stable };
 }
 
+/** The versions the Rollout names, by hash: a release in flight, and the stable version it would replace. */
 export const podHashes = (o: Observed): string[] =>
   [...new Set([o.current, o.stable])].filter((hash): hash is string => hash !== undefined);

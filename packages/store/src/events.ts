@@ -72,7 +72,7 @@ export class EventWriter {
 
   async #write(tx: TransactionSql, batch: readonly NewEvent[]): Promise<StoredEvent[]> {
     // The insert takes this lock too; taking it first means the checks below see what the insert will see.
-    await tx`select pg_advisory_xact_lock(hashtext('events'))`;
+    await lockAppends(tx);
     const { stored, retried } = await this.#checkRetries(tx, batch);
     if (retried.length) throw new AppendRefused(retried);
     const fresh = batch.filter((event) => !stored.has(event.id));
@@ -235,6 +235,12 @@ export async function nextWorkItem(sql: Sql): Promise<string> {
  * for one that never closed. `column` names the work item in the query around it, qualified by its table, such as
  * `t.work_item`: unqualified, it would name the subquery's own.
  */
+/**
+ * The lock every append takes, in its transaction: one taken by an action that reads the events before it appends
+ * (an answer, a save, a stop) lands wholly before or after any other append.
+ */
+export const lockAppends = (tx: TransactionSql) => tx`select pg_advisory_xact_lock(hashtext('events'))`;
+
 export const lastEnd = (sql: Sql | TransactionSql, column: string) =>
   sql`(select last_end.type from events last_end where last_end.work_item = ${sql(column)}
        and last_end.type in ('work-item.closed', 'work-item.reopened') order by last_end.seq desc limit 1)`;
