@@ -86,7 +86,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AdminConfig {
   };
 }
 
-/** A tool's address, as a link takes it: http or https, and nothing a page would run. Unset or empty, there is none. */
+/**
+ * A tool's address, as a link takes it: http or https, nothing a page would run, and no credentials. Unset or empty,
+ * there is none.
+ */
 function toolUrl(name: string, given: string | undefined): string | undefined {
   const value = given?.trim();
   if (!value) return undefined;
@@ -99,6 +102,8 @@ function toolUrl(name: string, given: string | undefined): string | undefined {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`${name} must be an http or https address: ${value}`);
   }
+  // A page shows the address, so it carries no name or password.
+  if (url.username || url.password) throw new Error(`${name} must not hold a user name or password`);
   return url.href;
 }
 

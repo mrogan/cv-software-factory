@@ -28,7 +28,8 @@ export interface Tools {
 }
 
 /**
- * A tool's address from the session, and its host, when it is one a link may take (an http or https URL); anything
+ * A tool's address from the session, and its host, when it is one a link may take (an http or https URL with no
+ * credentials in it); anything
  * else draws no link. A session is still Martin's without them.
  */
 export function toolLink(value: unknown): { href: string; host: string } | undefined {
@@ -40,6 +41,8 @@ export function toolLink(value: unknown): { href: string; host: string } | undef
     return undefined;
   }
   if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.host) return undefined;
+  // An address with credentials in it is never drawn.
+  if (url.username || url.password) return undefined;
   return { href: url.href, host: url.host };
 }
 

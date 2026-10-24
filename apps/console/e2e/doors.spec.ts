@@ -80,17 +80,23 @@ test('keeps the switches in a visitor’s header, and in Martin’s menu for him
   }
 });
 
-test('draws no link to a tool the session does not name, or names as anything but http or https', async ({ page }) => {
-  await page.route('**/admin/session', (route) =>
-    route.fulfill({ json: { ...SESSION, tools: { grafana: 'http://[::1', argocd: 'javascript:alert(1)' } } }),
-  );
-  await page.goto(consoleUrl());
-  await ready(page);
-  await page.getByRole('button', { name: 'Martin', exact: true }).click();
-  const menu = page.locator('#account-menu');
-  await expect(menu).toContainText('Settings');
-  await expect(menu.getByRole('link', { name: /^Grafana|^Argo CD/ })).toHaveCount(0);
-});
+for (const [grafana, argocd] of [
+  ['http://[::1', 'javascript:alert(1)'],
+  ['https://admin:secret@grafana.example', 'ftp://argocd.example'],
+]) {
+  test(`draws no link to a tool at ${grafana} or ${argocd}`, async ({ page }) => {
+    // An address that does not parse, one with credentials in it, or one that is not http or https.
+    await page.route('**/admin/session', (route) =>
+      route.fulfill({ json: { ...SESSION, tools: { grafana, argocd } } }),
+    );
+    await page.goto(consoleUrl());
+    await ready(page);
+    await page.getByRole('button', { name: 'Martin', exact: true }).click();
+    const menu = page.locator('#account-menu');
+    await expect(menu).toContainText('Settings');
+    await expect(menu.getByRole('link', { name: /^Grafana|^Argo CD/ })).toHaveCount(0);
+  });
+}
 
 test('takes anyone home from the brand, and names the footer’s icons', async ({ page }) => {
   await adminService(page, 'visitor');
