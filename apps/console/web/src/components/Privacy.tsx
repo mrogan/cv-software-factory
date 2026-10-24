@@ -87,7 +87,7 @@ export function Privacy() {
         <ul>
           <li>
             <strong>Your browser</strong> is recorded only as its family, its major version, its operating system and
-            whether it is a phone or a computer: Chrome 141 on macOS, a desktop. Never your address.
+            whether it is a phone or tablet or a computer: Chrome 141 on macOS, a computer. Never your address.
           </li>
           <li>
             <strong>Signing in</strong> counts the tries from each address for {TRIES_MINUTES} minutes, in memory, so
