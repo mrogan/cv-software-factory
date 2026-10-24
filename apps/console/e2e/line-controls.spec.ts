@@ -71,7 +71,8 @@ test.afterAll(async () => {
 
 const controls = (page: Page) => page.locator('article.controls');
 /** The settings' panel of the line's controls. */
-const linePanel = (page: Page) => page.locator('article', { has: page.getByRole('heading', { name: 'The line' }) });
+const linePanel = (page: Page) =>
+  page.locator('article', { has: page.getByRole('heading', { name: 'The line', exact: true }) });
 /** Where the line's controls are drawn, on a phone and on a desktop: Controls, and the settings' panel of them. */
 const PLACES = [
   ['Controls, on a phone', '/?motion=off', WIDTHS.phone, controls],
@@ -108,7 +109,12 @@ test('a visitor sees every control read-only, and no Stop or Start', async ({ pa
   const take = panel.getByRole('group', { name: 'What the line takes' });
   await expect(take.getByRole('button', { name: 'The next few' })).toHaveAttribute('aria-pressed', 'true');
   await expect(panel).toContainText('The next 5 work items from');
-  await expect(panel).toContainText('Recorded: until approval routing comes, every merge waits for Martin.');
+  // Every level's words are in the panel, the others invisible: the chosen one's are what show.
+  await expect(panel.locator('.means .chosen')).toHaveText(
+    'Low-risk changes ship on their own. Anything risky waits for Martin. Recorded: until approval routing comes, every merge waits for Martin.',
+  );
+  await expect(panel.locator('.means > span:not(.chosen)')).toHaveCount(2);
+  for (const words of await panel.locator('.means > span:not(.chosen)').all()) await expect(words).toBeHidden();
   await expect(panel.getByRole('textbox')).toHaveCount(0);
   await expect(panel.locator('.glyph.key')).toHaveCount(0);
 });
