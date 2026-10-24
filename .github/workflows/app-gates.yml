@@ -7,6 +7,8 @@
 #
 # - journeys: the probes and the crawler against the base's image and the change's; fails on a check that passes on
 #   the base and fails on the change twice. The app is broken on purpose, so failing on the base is no reason to fail.
+#   Each probe's `/device` check is among them: a change whose pages start to keep anything on a visitor's device, or
+#   to ask another origin, fails.
 # - test integrity: fails a change that deletes, skips or weakens an existing test.
 # - tests first: runs the change's new and changed tests against the base's source, and says which fail there. Not
 #   required: a fix whose tests all pass before it holds for Martin, and the line reads this to know.

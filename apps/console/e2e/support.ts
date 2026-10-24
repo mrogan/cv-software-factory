@@ -1,12 +1,13 @@
 /**
  * What every browser test shares: the widths and themes it runs at, the samples' last moment to pin the time to,
  * the milestone 4 test data's server and moments, and a guard that fails a test on any content security policy
- * violation or request to another origin.
+ * violation, any request to another origin, and anything left on the device but Martin's session cookie.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { test as base, expect, type Locator, type Page } from '@playwright/test';
+import { type BrowserContext, test as base, expect, type Locator, type Page } from '@playwright/test';
 import type { RawEvent } from '@software-factory/events';
+import { keptOnDevice as readDevice } from '../../factory/src/senses/device.ts';
 import { full } from './full.ts';
 
 export const PORT = 18_321;
@@ -284,35 +285,92 @@ async function fullStream(page: Page): Promise<void> {
   }, events);
 }
 
+/** The one thing the console may leave on a device: the admin service's session cookie, once Martin signs in. */
+export const SESSION_COOKIE = 'cookie __Host-session';
+
+/**
+ * Everything the browser keeps for the console, as `<kind> <name>`, read as the journeys gate reads the app's
+ * (`apps/factory/src/senses/device.ts`): its cookies, whoever set them and whether a script could read them, and local
+ * and session storage, IndexedDB, Cache Storage and service workers. The privacy page says the console keeps nothing on
+ * a visitor's device: this is what holds it to that. A page between documents is read once it has loaded.
+ */
+export async function keptOnDevice(page: Page): Promise<string[]> {
+  const read = () => readDevice(page.context(), page);
+  return read().catch(async () => {
+    await page.waitForLoadState('load');
+    return read();
+  });
+}
+
 interface Guard {
   violations: string[];
   foreign: string[];
+  /** Origins a test serves itself, by route, so no request to one leaves the machine: the replay site's stand-in. */
+  served: string[];
 }
 
-/** Every test fails on a policy violation or a request to another origin, whatever else it checks. */
+/** Everything kept on the device of each context still open, read through each of its pages, or its own when it has none. */
+export async function keptInEvery(contexts: Iterable<BrowserContext>): Promise<string[]> {
+  const kept = new Set<string>();
+  for (const context of contexts) {
+    const pages = context.pages();
+    const read = pages.length
+      ? (await Promise.all(pages.map((each) => keptOnDevice(each)))).flat()
+      : (await context.storageState()).cookies.map((cookie) => `cookie ${cookie.name}`);
+    for (const thing of read) kept.add(thing);
+  }
+  return [...kept];
+}
+
+/**
+ * Every test fails on a policy violation, a request to another origin, or anything left on the device but Martin's
+ * session cookie, whatever else it checks: in every context and page it opens, its own and popups alike, not only the
+ * default page. A context the test closed keeps nothing, so only those still open are read.
+ */
 export const test = base.extend<{ guard: Guard }>({
   guard: [
-    async ({ page, baseURL }, use) => {
-      const guard: Guard = { violations: [], foreign: [] };
+    async ({ page, browser, baseURL }, use) => {
+      const guard: Guard = { violations: [], foreign: [], served: [] };
       const origins = [new URL(baseURL ?? '').origin, FIXTURE_ORIGIN];
-      await page.addInitScript(() => {
-        document.addEventListener('securitypolicyviolation', (event) => {
-          console.error(`CSP violation: ${event.violatedDirective} ${event.blockedURI}`);
+      const open = new Set<BrowserContext>();
+      const watchPage = (watched: Page) => {
+        watched.on('console', (message) => {
+          if (message.text().startsWith('CSP violation') || message.text().includes('Content Security Policy')) {
+            guard.violations.push(message.text());
+          }
         });
-      });
-      page.on('console', (message) => {
-        if (message.text().startsWith('CSP violation') || message.text().includes('Content Security Policy')) {
-          guard.violations.push(message.text());
-        }
-      });
-      page.on('request', (request) => {
-        const url = new URL(request.url());
-        if (!['data:', 'blob:'].includes(url.protocol) && !origins.includes(url.origin))
-          guard.foreign.push(request.url());
-      });
-      await use(guard);
+        watched.on('request', (request) => {
+          const url = new URL(request.url());
+          if (!['data:', 'blob:'].includes(url.protocol) && ![...origins, ...guard.served].includes(url.origin))
+            guard.foreign.push(request.url());
+        });
+      };
+      const watchContext = async (watched: BrowserContext) => {
+        open.add(watched);
+        watched.on('close', () => open.delete(watched));
+        watched.on('page', watchPage);
+        for (const existing of watched.pages()) watchPage(existing);
+        await watched.addInitScript(() => {
+          document.addEventListener('securitypolicyviolation', (event) => {
+            console.error(`CSP violation: ${event.violatedDirective} ${event.blockedURI}`);
+          });
+        });
+      };
+      // The default page comes first, so it is still open when this reads what it keeps.
+      await watchContext(page.context());
+      const onContext = (opened: BrowserContext) => void watchContext(opened);
+      browser.on('context', onContext);
+      try {
+        await use(guard);
+      } finally {
+        browser.off('context', onContext);
+      }
       expect(guard.violations, 'content security policy violations').toEqual([]);
       expect(guard.foreign, 'requests to another origin').toEqual([]);
+      expect(
+        (await keptInEvery(open)).filter((thing) => thing !== SESSION_COOKIE),
+        'kept on the device',
+      ).toEqual([]);
     },
     { auto: true },
   ],

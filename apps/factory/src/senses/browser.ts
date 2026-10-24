@@ -9,13 +9,19 @@
  *
  * Each of those is a check in its own right, so passing resets its streak, as it should. A finding keeps a screenshot
  * of the page it was made on, with the boxes the check asked for, and a short text of what was expected and seen.
+ *
+ * Asked to (`device`), it also says, on each check's observation, what the pass's pages have left on the device by the
+ * end of the check (a cookie, local or session storage, IndexedDB, Cache Storage or a service worker) and which other
+ * origins the check's pages asked. The gates ask, to fail a change that starts to keep anything on a visitor's
+ * device or to send them elsewhere (`senses/observe.ts`); the senses that look after the live app do not.
  */
 import type { ArtifactRef, Evidence } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
 import { type Browser, type BrowserContext, chromium, type Page, type Request, type Response } from 'playwright';
 import { capture } from '../capture.ts';
+import { keptOnDevice } from './device.ts';
 import { evidenceOf, pathOf, type RequestHeaders } from './http.ts';
-import { type Finding, Found, type Observation, type Sense } from './types.ts';
+import { type Device, type Finding, Found, type Observation, type Sense } from './types.ts';
 
 /** What a check is given: the app, the page to use, and what the sense shares between checks in one pass. */
 export interface CheckContext<Shared> {
@@ -51,6 +57,8 @@ export interface BrowserSenseOptions<Shared> {
   timeout?: number;
   /** Sent with every request the pages make, besides the usual. */
   headers?: RequestHeaders | undefined;
+  /** Whether to say what each check's pages left on the device and which other origins they asked. */
+  device?: boolean;
 }
 
 export class BrowserSense<Shared> implements Sense {
@@ -130,7 +138,21 @@ export class BrowserSense<Shared> implements Sense {
       if (error instanceof Found) finding = error.finding;
       else trouble = (error instanceof Error ? error.message : String(error)).split('\n')[0];
     }
-    const { console, serverErrors, brokenImages } = await watch.finish();
+    const { console, serverErrors, brokenImages, asked } = await watch.finish();
+    // Everything the pass has left so far, not only what this check added: which check is first to see something
+    // depends on which ran, and a check is compared with itself on the base, run as far as it ran there. Bounded, as
+    // a page whose script never yields would hold an evaluation for ever.
+    let device: Device | undefined;
+    if (this.options.device) {
+      const onDevice = await within(10_000, keptOnDevice(context, page)).catch(
+        (error) =>
+          `could not read what the pages left on the device: ${error instanceof Error ? error.message : error}`,
+      );
+      device =
+        typeof onDevice === 'string'
+          ? { route: check.route, kept: [], asked, trouble: onDevice }
+          : { route: check.route, kept: onDevice, asked };
+    }
     const route = check.route;
     const [error] = serverErrors;
     const [image] = brokenImages;
@@ -192,6 +214,7 @@ export class BrowserSense<Shared> implements Sense {
         ...kept,
         // A check that ended in trouble cannot be said to have passed, whatever else it did not see.
         ...(trouble && !found && { trouble }),
+        ...(device && id === check.id && { device }),
       });
     }
     await page.close().catch(() => {});
@@ -301,6 +324,7 @@ export const aboutTheConnection = (text: string) =>
 
 /** Listens to a page for what a visitor would suffer without being asked about it. */
 function watching(page: Page, origin: string) {
+  const asked = new Set<string>();
   const consoleErrors: Array<{ level: 'error'; text: string; source?: string; page: string }> = [];
   const serverErrors: Array<{ path: string; status: number; evidence: Evidence; page: string }> = [];
   const brokenImages: Array<{ path: string; reason: string; evidence: Evidence; page: string }> = [];
@@ -319,6 +343,10 @@ function watching(page: Page, origin: string) {
   };
   const onPageError = (error: Error) =>
     consoleErrors.push({ level: 'error', text: `Uncaught ${error.message}`.slice(0, 300), page: page.url() });
+  const onRequest = (request: Request) => {
+    const url = new URL(request.url());
+    if (/^https?:$/.test(url.protocol) && url.origin !== origin) asked.add(url.origin);
+  };
   const onResponse = async (response: Response) => {
     // Remember the page now: by the time the headers are read the browser may have moved on.
     const on = page.url();
@@ -367,6 +395,7 @@ function watching(page: Page, origin: string) {
   };
   page.on('response', onResponseSoon);
   page.on('requestfailed', onFailed);
+  page.on('request', onRequest);
   return {
     /** Stops listening, once the responses already heard of have been read. */
     finish: async () => {
@@ -375,7 +404,8 @@ function watching(page: Page, origin: string) {
       page.off('pageerror', onPageError);
       page.off('response', onResponseSoon);
       page.off('requestfailed', onFailed);
-      return { console: consoleErrors, serverErrors, brokenImages };
+      page.off('request', onRequest);
+      return { console: consoleErrors, serverErrors, brokenImages, asked: [...asked] };
     },
   };
 }

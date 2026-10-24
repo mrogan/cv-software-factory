@@ -3,7 +3,7 @@ import { Mark } from './Mark.tsx';
 
 declare const __BUILD__: string;
 
-/** The foot of every page, with the way to the audit log for everyone. A visitor, where there is an admin service to sign in to, sees the way to Martin's sign-in. */
+/** The foot of every page, with the way to the audit log and the privacy page for everyone. A visitor, where there is an admin service to sign in to, sees the way to Martin's sign-in. */
 export function Footer({ signIn }: { signIn: boolean }) {
   const build = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
   return (
@@ -15,6 +15,7 @@ export function Footer({ signIn }: { signIn: boolean }) {
           <a href="https://github.com/mrogan/cv-software-factory">The source</a>
           <a href="https://github.com/mrogan/cv-software-factory/blob/main/docs/INTENT.md">Why it exists</a>
           <a href="?view=audit">Audit log</a>
+          <a href="?view=privacy">Privacy</a>
           {signIn && <a href={doorHref('sign-in')}>Martin’s sign-in</a>}
         </div>
         <a className="mono" href={`https://github.com/mrogan/cv-software-factory/commit/${build}`}>

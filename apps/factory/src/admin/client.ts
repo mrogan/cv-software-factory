@@ -83,9 +83,17 @@ export class RateLimit {
     return { ok: false, retryAfter: Math.max(1, Math.ceil((window.started + span - now) / 1000)) };
   }
 
-  /** Drops windows that have ended, and the oldest past the most it remembers. Maps keep their insertion order. */
+  /** The addresses it holds now, oldest first. */
+  remembered(): string[] {
+    return [...this.#windows.keys()];
+  }
+
+  /**
+   * Drops every window that has ended, so an address is not kept past its window once another starts, and the oldest
+   * past the most it remembers. A window is set again when it starts, and maps keep their insertion order, so the
+   * oldest come first and the first still open ends the walk.
+   */
   #forget(now: number, span: number) {
-    if (this.#windows.size <= REMEMBERED) return;
     for (const [address, window] of this.#windows) {
       if (this.#windows.size <= REMEMBERED && now - window.started < span) break;
       this.#windows.delete(address);
