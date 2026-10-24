@@ -15,7 +15,7 @@
  *   approving a hold whose cause is a guardrail, read from the hold it answers: the latest on its work item before it,
  *   which is the hold the line takes it to answer, so an approval counts as what it does),
  *   and `line-started`;
- * - `line-stopped`: every `line.stopped`, which tightens and needs no passkey again, but changes the line's controls;
+ * - `line-stopped`: every `line.stopped`, which tightens and so needs no passkey again, but which Martin is still told of;
  * - every change of the line's controls (`controls.changed`), as the access table's action it is, told from the
  *   stored change's before and after alone (`policy/line.ts`): `autonomy-loosened` and `autonomy-tightened`,
  *   `new-work-on` and `new-work-off`, `auto-merge-on` and `auto-merge-off`, `take-widened` and `take-narrowed`.
