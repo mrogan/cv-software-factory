@@ -74,6 +74,11 @@ spec:
             # match exactly: the local cluster's (deploy/overlays/local/console-ingress.yaml).
             - name: ADMIN_ORIGIN
               value: https://console.localhost:8443
+            # The local cluster's Grafana and Argo CD, which Martin's account menu links to. Only a signed-in session is told them.
+            - name: GRAFANA_URL
+              value: http://grafana.localhost:8080
+            - name: ARGOCD_URL
+              value: http://argocd.localhost:8080
             # Whose forwarded headers it believes, for the client's address its rate limits key on: k3s's pod network,
             # since its network policy lets only the ingress controller in. Locally every request reaches Traefik
             # through k3d's load balancer, so the limits key on that one address: they hold for the Mac as a whole.
