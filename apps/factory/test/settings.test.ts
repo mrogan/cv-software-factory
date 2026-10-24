@@ -15,11 +15,14 @@ import { lineSettings } from '../src/line/settings.ts';
 import { highestWorkItemCap, latestChosen, SettingsReader } from '../src/settings.ts';
 import { appendSettings, settingsPayload } from './settings-events.ts';
 
-/** What a price ranks a model by: what its calls cost, output first, as the gateway counts them. */
+/**
+ * What a price ranks a model by: what its calls cost, output first, as the gateway counts them, at its long prompt's
+ * rate where it has one, so a model cheap only for short prompts cannot pass for cheaper than it is.
+ */
 const cost = (model: string) => {
   const price = PRICES[model];
   if (!price) throw new Error(`${model} has no price`);
-  return price.outputPerMillion * 1_000_000 + price.inputPerMillion;
+  return (price.longPrompt?.times ?? 1) * (price.outputPerMillion * 1_000_000 + price.inputPerMillion);
 };
 
 describe('the bounds', () => {
@@ -27,7 +30,7 @@ describe('the bounds', () => {
     for (const profile of PROFILES) {
       const models = MODELS[profile].models.map((m) => m.model);
       expect(models.filter((m) => m.startsWith('claude-'))).toEqual([
-        'claude-haiku-4-5',
+        'claude-haiku-5-5',
         'claude-sonnet-5-5',
         'claude-opus-5-5',
       ]);
@@ -106,7 +109,7 @@ describe('the settings in force', () => {
         agents: {
           coder: { model: 'claude-opus-5-5', effort: 'high' },
           reviewer: { model: 'qwen/qwen3.8-27b' },
-          describer: { model: 'claude-haiku-4-5', effort: 'medium' },
+          describer: { model: 'claude-haiku-5-5', effort: 'medium' },
         },
         caps: { dayUsd: 25, monthUsd: 250, workItemUsd: 10 },
       }),
@@ -114,8 +117,19 @@ describe('the settings in force', () => {
     expect(settings.outside).toEqual([]);
     expect(settings.agents.coder).toEqual({ provider: 'anthropic', model: 'claude-opus-5-5', effort: 'high' });
     expect(settings.agents.reviewer).toEqual({ provider: 'local', model: 'qwen/qwen3.8-27b' });
-    expect(settings.agents.describer).toEqual({ provider: 'anthropic', model: 'claude-haiku-4-5', effort: 'medium' });
+    expect(settings.agents.describer).toEqual({ provider: 'anthropic', model: 'claude-haiku-5-5', effort: 'medium' });
     expect(settings.caps).toEqual({ dayUsd: 25, monthUsd: 250, workItemUsd: 10 });
+  });
+
+  it('give an agent left on a model no longer offered its default model, keep its effort, and say so', () => {
+    // Claude Haiku 4.5 was offered until Haiku 5.5 took its place, so a store may hold a setting that names it.
+    const settings = inForce(
+      'local',
+      settingsPayload({ agents: { coder: { model: 'claude-haiku-4-5', effort: 'low' } } }),
+    );
+    expect(settings.outside).toEqual(['coder.model']);
+    expect(settings.agents.coder).toEqual({ provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'low' });
+    expect(settings.agents.reviewer).toEqual(inForce('local').agents.reviewer);
   });
 
   it('take policy’s default for each field outside it, whatever shape it has', () => {
@@ -211,7 +225,7 @@ describe('a change of settings', () => {
         .actions,
     ).toEqual(['agent.raise']);
     expect(
-      changesBetween('local', before, with_({ agents: { coder: { model: 'claude-haiku-4-5', effort: 'low' } } }))
+      changesBetween('local', before, with_({ agents: { coder: { model: 'claude-haiku-5-5', effort: 'low' } } }))
         .actions,
     ).toEqual(['agent.lower']);
   });
@@ -226,7 +240,7 @@ describe('a change of settings', () => {
       actions: ['agent.lower'],
     });
     expect(
-      changesBetween('local', local, with_({ agents: { coder: { model: 'claude-haiku-4-5', effort: 'low' } } })),
+      changesBetween('local', local, with_({ agents: { coder: { model: 'claude-haiku-5-5', effort: 'low' } } })),
     ).toMatchObject({ actions: ['agent.raise'] });
   });
 
@@ -303,7 +317,7 @@ describe('the factory reading the settings', () => {
     try {
       await appendSettings(
         db.admin,
-        settingsPayload({ agents: { coder: { model: 'claude-haiku-4-5', effort: 'low' } } }),
+        settingsPayload({ agents: { coder: { model: 'claude-haiku-5-5', effort: 'low' } } }),
       );
       await issueJobToken(db.as.line, { job: 'coder-1001-1', workItem: '1001', agent: 'coder' });
       await appendSettings(
@@ -311,10 +325,10 @@ describe('the factory reading the settings', () => {
         settingsPayload({ agents: { coder: { model: 'claude-opus-5-5', effort: 'high' } } }),
       );
       const reader = new SettingsReader(db.as.gateway, 'local');
-      expect((await reader.forJob('coder-1001-1'))?.agents.coder.model).toBe('claude-haiku-4-5');
+      expect((await reader.forJob('coder-1001-1'))?.agents.coder.model).toBe('claude-haiku-5-5');
       // A reader started since reads the same: what was in force as the job began.
       expect((await new SettingsReader(db.as.line, 'local').forJob('coder-1001-1'))?.agents.coder.model).toBe(
-        'claude-haiku-4-5',
+        'claude-haiku-5-5',
       );
       expect((await reader.now()).agents.coder.model).toBe('claude-opus-5-5');
       expect(await reader.forJob('no-such-job')).toBeUndefined();
@@ -336,7 +350,7 @@ describe('the factory reading the settings', () => {
       await db.as.gateway`
         insert into model_calls (id, agent, work_item, provider, model, question_set, input_tokens, output_tokens,
                                  cost_usd, duration_ms, outcome, job)
-        values (${crypto.randomUUID()}, 'coder', '1001', 'anthropic', 'claude-haiku-4-5', 'messages', 10, 5, 0.001, 900,
+        values (${crypto.randomUUID()}, 'coder', '1001', 'anthropic', 'claude-haiku-5-5', 'messages', 10, 5, 0.001, 900,
                 'answered', 'coder-1001-1')`;
       expect((await stepCalls(db.as.line, 'coder-1001-1', 'coder', 50, 'low'))?.settings).toEqual({
         effort: 'low',
