@@ -121,11 +121,12 @@ config:
             - set(span.attributes["traffic"], "visitor") where span.cache["agent"] != nil
             - set(span.attributes["traffic"], "factory") where span.cache["agent"] == "software-factory-traffic"
             - delete_matching_keys(span.attributes, "^(user_agent\\.original|http\\.user_agent)$")
-            - delete_matching_keys(span.attributes, "^(client\\.(address|port)|network\\.peer\\.(address|port)|net\\.peer\\.(ip|port)|net\\.sock\\.peer\\.(addr|port)|http\\.client_ip|http\\.request\\.header\\..+)$")
+            - delete_matching_keys(span.attributes, "^(client\\.(address|port)|network\\.peer\\.(address|port)|net\\.peer\\.(ip|port|name)|net\\.sock\\.peer\\.(addr|port)|http\\.client_ip|http\\.request\\.header\\..+)$")
       log_statements:
         - statements:
+            - delete_matching_keys(log.attributes, "^(browser\\.(name|major)|os\\.name|device\\.type|traffic)$")
             - delete_matching_keys(log.attributes, "^(user_agent\\.original|http\\.user_agent)$")
-            - delete_matching_keys(log.attributes, "^(client\\.(address|port)|network\\.peer\\.(address|port)|net\\.peer\\.(ip|port)|net\\.sock\\.peer\\.(addr|port)|http\\.client_ip|http\\.request\\.header\\..+)$")
+            - delete_matching_keys(log.attributes, "^(client\\.(address|port)|network\\.peer\\.(address|port)|net\\.peer\\.(ip|port|name)|net\\.sock\\.peer\\.(addr|port)|http\\.client_ip|http\\.request\\.header\\..+)$")
     # The count below is a delta for each batch of spans, timed by its spans. Prometheus takes a running total, so each
     # is timed as it arrives, in order, and added to the total for its series, which the collector keeps in memory: a
     # restart starts every total again, as a restarted service's counters do.

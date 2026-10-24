@@ -41,6 +41,7 @@ const PERSONAL = [
   'network.peer.port',
   'net.peer.ip',
   'net.peer.port',
+  'net.peer.name',
   'net.sock.peer.addr',
   'net.sock.peer.port',
   'http.client_ip',
@@ -49,6 +50,12 @@ const PERSONAL = [
   'http.request.header.forwarded',
   'http.request.header.user-agent',
   'http.request.header.cookie',
+  // What only the collector sets, and only on spans: a log record keeps no browser.
+  'browser.name',
+  'browser.major',
+  'os.name',
+  'device.type',
+  'traffic',
   'user_agent.original',
   'http.user_agent',
 ];
