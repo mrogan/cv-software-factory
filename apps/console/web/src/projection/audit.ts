@@ -91,6 +91,8 @@ export interface AuditRow {
   martin: boolean;
   /** A mechanism refused something: drawn in `attn`. */
   refused: boolean;
+  /** Admission control refused an image: Kyverno's mark follows the kind. */
+  admission?: true;
 }
 
 /** What a visitor wrote, left out of every public view. */
@@ -222,6 +224,7 @@ export function auditRows(events: readonly PublicEvent[], t: number, profile: Pr
       ...(withheld && { withheld }),
       martin: event.actor === 'martin',
       refused: REFUSALS.has(event.type),
+      ...(event.type === 'action.refused' && event.payload.mechanism === 'admission-control' && { admission: true }),
     });
   }
   return rows.reverse();

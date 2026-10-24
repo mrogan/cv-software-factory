@@ -1,8 +1,15 @@
 /**
  * Logos for the packages and providers the console names, and the places the footer links to, from theSVG (MIT; the
  * marks belong to their owners). Bundled with the console and never fetched, and defined once, as symbols that each
- * use refers to. GitHub's and LinkedIn's are drawn in the text colour, so they follow the theme. The tools in Martin's
- * menu have theirs in `ToolLogos.tsx`, which only he loads.
+ * use refers to. GitHub's and LinkedIn's, and the tools' (OpenTelemetry, Trivy, Anthropic), are drawn in the text
+ * colour, so they follow the theme; a package's own logo keeps its colours. The tools in Martin's menu have theirs in
+ * `ToolLogos.tsx`, which only he loads.
+ *
+ * The tool marks beside the evidence (`ToolMark`) are images rather than code: one-colour drawings in `../marks/`, used
+ * as a CSS mask over the text colour, so the browser fetches each only when the page shows something its tool made.
+ * Kubernetes', Argo's (Argo CD's and Argo Rollouts' alike), Prometheus' and Playwright's are theSVG's one-colour
+ * versions, the last Simple Icons' (CC0); Loki's, Kyverno's (its symbol, without the name) and Sigstore's are theSVG's
+ * drawings in one colour. Tempo's is selfh.st's (`selfhst:grafana-tempo` on Iconify, CC BY 4.0), in one colour.
  */
 
 export type Logo = 'node' | 'otel' | 'trivy' | 'dependabot' | 'anthropic' | 'jev' | 'github' | 'linkedin';
@@ -26,6 +33,17 @@ const VIEWBOX: Record<Logo, string> = {
   github: '0 0 16 16',
   linkedin: '0 0 64 64',
 };
+
+/** The tools whose marks stand beside what they made, in `base.css` as `.toolmark-<name>`. */
+export type ToolName = 'kubernetes' | 'argo' | 'prometheus' | 'loki' | 'tempo' | 'playwright' | 'kyverno' | 'sigstore';
+
+/**
+ * A tool's mark, at text height in `text-muted`, hidden from a screen reader: the words beside it name the tool. It
+ * appears only beside something its tool produced or did, never as decoration.
+ */
+export function ToolMark({ name }: { name: ToolName }) {
+  return <span className={`toolmark toolmark-${name}`} aria-hidden="true" />;
+}
 
 /** The logo for a package, when the console has one. */
 export function logoFor(name: string): Logo | undefined {
@@ -90,7 +108,7 @@ export function LogoSymbols() {
       </symbol>
       <symbol id="logo-trivy" viewBox="0 0 24 24">
         <path
-          fill="#1904da"
+          fill="currentColor"
           d="M4.375 7.311L1.962 5.918a.1.1 0 0 1 0-.174L11.828.047a.34.34 0 0 1 .344 0l9.864 5.696a.1.1 0 0 1 0 .175L19.624 7.31a1 1 0 0 1-.052-.074c-.914-1.478-2.124-2.592-3.596-3.31c-4.088-1.994-9.164-.505-11.6 3.385Zm7.887 16.588v-3.14c5.693-2.087 9.01-7.766 7.588-12.985l2.436-1.42a.1.1 0 0 1 .151.088v11.645a.1.1 0 0 1-.05.087l-9.973 5.812a.1.1 0 0 1-.152-.087m-.559-3.141v3.14a.1.1 0 0 1-.151.086l-9.933-5.81a.11.11 0 0 1-.056-.099V6.436a.1.1 0 0 1 .15-.087l2.44 1.41c-1.455 5.307 1.846 10.993 7.55 13ZM7.013 8.834L4.807 7.561c2.306-3.665 7.094-5.066 10.95-3.186c1.385.676 2.526 1.727 3.39 3.124l.04.062l-2.195 1.268a5.57 5.57 0 0 0-2.429-2.307c-2.603-1.27-5.901-.253-7.552 2.311Zm9.337 5.2c.813-1.371 1.088-2.99.798-4.685l2.255-1.314c1.245 4.86-1.864 10.169-7.14 12.192v-3.072c1.86-.67 3.272-1.747 4.087-3.12ZM4.6 8.018l2.27 1.31c-.225 1.571.112 3.204.951 4.606c.919 1.536 2.225 2.629 3.881 3.25v3.045C6.327 18.25 3.297 13.042 4.601 8.017Zm5.303 2.486l-2.459-1.42c1.52-2.34 4.53-3.268 6.9-2.112A5.1 5.1 0 0 1 16.56 9.08l-2.471 1.427a2.31 2.31 0 0 0-2.03-1.195c-.825 0-1.645.43-2.156 1.192m4.338.522l2.443-1.408c.22 1.51-.043 2.945-.765 4.162c-.735 1.238-1.998 2.224-3.658 2.856v-2.631c1.25-.691 1.968-1.771 1.98-2.979m-5.991 2.65A6.58 6.58 0 0 1 7.34 9.6l2.446 1.412c-.016 1.271.73 2.437 1.917 2.997v2.624a6.98 6.98 0 0 1-3.453-2.956Zm3.853-.148l-.137.073l-.157-.075c-1.023-.504-1.524-1.606-1.557-2.417a2 2 0 0 1 .004-.23a2.15 2.15 0 0 1 1.163-.957c.508-.178 1.034-.153 1.444.071c.6.327.84.797.86.86c.008.156.004.253.004.256c-.038.981-.63 1.863-1.624 2.419"
         />
       </symbol>
