@@ -39,6 +39,9 @@
  * ARTIFACTS_DIR (`runners/logs.ts`); unset, it keeps none. Its step API serves a work item's, step by step, at
  * `GET /v1/work-items/<id>/logs`, through a person's port-forward (`runners/serve.ts`).
  *
+ * Whatever LINE_MODE is, `serve` counts Martin's security events and the holds started, from the store, for the alerts
+ * that reach his phone (`line/security.ts`).
+ *
  * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
  * HANDBACK_PORT (8081); ARTIFACTS_DIR; KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; LINE_TAKE;
@@ -263,6 +266,10 @@ async function serve(): Promise<number> {
       tempo: env.TEMPO_URL?.trim() ? telemetryFrom(env).tempo : null,
     },
   });
+  // Martin's security events and the holds waiting for him, from the store, whatever LINE_MODE is: the alerts that page
+  // him read them (line/security.ts).
+  const { observeSecurity } = await import('../line/security.ts');
+  const unobserveSecurity = observeSecurity(sql, log);
   const abort = new AbortController();
   const working = line.run(abort.signal);
   await new Promise<void>((resolve) => {
@@ -270,6 +277,7 @@ async function serve(): Promise<number> {
   });
   abort.abort();
   await working;
+  unobserveSecurity();
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
   await Promise.all([sql.end(), shutdownTelemetry()]);
   return 0;

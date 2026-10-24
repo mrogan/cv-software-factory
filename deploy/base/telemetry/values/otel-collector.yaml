@@ -35,19 +35,20 @@ config:
   processors:
     # Only the collector says which pod a record came from. k8s_attributes leaves alone an attribute a record already
     # carries, so without these the app's own code could name another pod, or claim the stable version's hash for the
-    # canary's telemetry and pass its analysis. Both run first in every pipeline that runs k8s_attributes: the first
+    # canary's telemetry and pass its analysis; and a worker could claim to be the line, whose counts page Martin
+    # (k8s_attributes/factory). Both run first in every pipeline that runs k8s_attributes: the first
     # on what a record says of its source, the second on a data point's, span's or log's own attributes, which
     # Prometheus puts before the source's when both give a series the same label. Prometheus turns every character but
     # an ASCII letter or digit into an underscore and keeps case, so the pattern takes any run of those between `k8s`
     # and `pod`, and no case-folding, which in Go would let a non-ASCII `ſ` or `K` through. Nothing else in the cluster
-    # sets these.
+    # sets these, or a namespace's.
     resource/drop-pod-claims:
       attributes:
-        - pattern: ^k8s[^a-zA-Z0-9]+pod[^a-zA-Z0-9]
+        - pattern: ^k8s[^a-zA-Z0-9]+(pod|namespace)[^a-zA-Z0-9]
           action: delete
     attributes/drop-pod-claims:
       actions:
-        - pattern: ^k8s[^a-zA-Z0-9]+pod[^a-zA-Z0-9]
+        - pattern: ^k8s[^a-zA-Z0-9]+(pod|namespace)[^a-zA-Z0-9]
           action: delete
     # Each record from the app gains its pod's name and its rollouts-pod-template-hash label, which Argo Rollouts gives
     # the stable version's pods and the canary's each their own: the canary's analysis tells the two apart by it. The
@@ -67,6 +68,23 @@ config:
           - tag_name: k8s.pod.label.rollouts-pod-template-hash
             key: rollouts-pod-template-hash
             from: pod
+    # Each metric from a factory worker's pod gains its namespace and its `app.kubernetes.io/name` label, found the same
+    # way, so the alerts to Martin read the line's counts of his security events and holds as the line's alone
+    # (apps/factory/src/provenance.ts): any worker may name itself `line`. Only `factory` is watched, and only it may be
+    # read (collector-reads-factory.yaml). Metrics only: the logs and traces have no reader that needs it, and Loki would
+    # make a stream label of the namespace. Not the pod's name, which marks the app's logs as the app's.
+    k8s_attributes/factory:
+      filter:
+        namespace: factory
+      pod_association:
+        - sources:
+            - from: connection
+      extract:
+        metadata: [k8s.namespace.name]
+        labels:
+          - tag_name: k8s.pod.label.app.kubernetes.io/name
+            key: app.kubernetes.io/name
+            from: pod
   exporters:
     otlp_http/tempo:
       endpoint: http://tempo:4318
@@ -82,7 +100,13 @@ config:
         exporters: [otlp_http/tempo]
       metrics:
         receivers: [otlp]
-        processors: [memory_limiter, resource/drop-pod-claims, attributes/drop-pod-claims, k8s_attributes, batch]
+        processors:
+          - memory_limiter
+          - resource/drop-pod-claims
+          - attributes/drop-pod-claims
+          - k8s_attributes
+          - k8s_attributes/factory
+          - batch
         exporters: [otlp_http/prometheus]
       logs:
         receivers: [otlp]

@@ -1,7 +1,7 @@
 /**
  * Prometheus's rules, generated from the policy: the alerting rules from the app's objectives
- * (policy/objectives.ts), and the recording rules the dashboards draw: each route against the objectives, the
- * objectives' error budget, and the line's stuck limits (policy/stuck.ts).
+ * (policy/objectives.ts), the alerts to Martin (`martinRules`), and the recording rules the dashboards draw: each route
+ * against the objectives, the objectives' error budget, and the line's stuck limits (policy/stuck.ts).
  *
  *     node apps/factory/src/alerts/rules.ts            # write the rules
  *     node apps/factory/src/alerts/rules.ts --check    # fail if they are out of date (make check, CI)
@@ -14,6 +14,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { type Objectives, objectives } from '../../../../policy/objectives.ts';
 import { STUCK, type StuckStage } from '../../../../policy/stuck.ts';
+import { SECURITY_KINDS, type SecurityKind } from '../line/security.ts';
+import { METRICS_FROM_THE_LINE } from '../provenance.ts';
 import * as query from './queries.ts';
 
 export const RULES_FILE = join(import.meta.dirname, '../../../../deploy/base/telemetry/values/prometheus-rules.yaml');
@@ -62,6 +64,106 @@ export function rulesFor(o: Objectives): Rule[] {
         summary: `${ROUTE}: ${query.percentileName(o.latency.percentile)} latency above ${o.latency.maxSeconds} s`,
         description: `Over ${window}, with at least ${o.minRequests} requests.`,
         threshold: String(o.latency.maxSeconds),
+      },
+    },
+  ];
+}
+
+/**
+ * How loudly an alert reaches Martin, as its `level` label: Alertmanager pages him for `page` and notifies him for
+ * `notify`, through Pushover, and sends an alert with neither to no one (deploy/base/telemetry/values/prometheus.yaml).
+ */
+export const LEVELS = { page: 'page', notify: 'notify' } as const;
+
+/** What a page says of each kind of security event: its title, and a line more. Never anything of the session. */
+const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: string }> = {
+  'sign-in': { summary: 'Signed in as Martin', description: 'A passkey signed in to the console.' },
+  'passkey-enrolled': { summary: 'A passkey was enrolled', description: 'A new passkey can sign in as Martin.' },
+  'passkey-revoked': { summary: 'A passkey was revoked', description: 'A passkey can no longer sign in as Martin.' },
+  'setting-changed': {
+    summary: 'A setting was changed',
+    description: "An agent's model or effort, or a spend cap, was changed in the console.",
+  },
+  'stepped-up': {
+    summary: 'The passkey was given again',
+    description: 'For five minutes, the session may do what needs the passkey again.',
+  },
+  'release-control': {
+    summary: 'A release was promoted or retried',
+    description: "The app's canary was promoted, or a stopped release retried, from the console.",
+  },
+  'guardrail-approved': {
+    summary: 'A guardrail was overridden',
+    description: 'A hold whose cause is a guardrail was approved.',
+  },
+  'line-started': { summary: 'The line was started', description: 'The line takes work again.' },
+};
+
+/** The line's count of Martin's security events, and of the holds started, as only the line's pods send them. */
+/** One of the line's series, with any matcher given first, as only the line's pods send it. */
+const fromTheLine = (name: string, matcher?: string) =>
+  `${name}{${matcher ? `${matcher}, ` : ''}${METRICS_FROM_THE_LINE}}`;
+export const SECURITY_EVENTS = fromTheLine('line_security_events_total');
+export const HOLDS_STORED = fromTheLine('line_holds_stored_total');
+/** Whether the line's last read of them from the store succeeded. */
+const COUNTING = fromTheLine('line_security_events_counting');
+
+/** How far back an alert to Martin looks for a new event: one or several in it are one message. */
+const RECENT = '5m';
+
+/**
+ * The alerts to Martin (docs/COMPONENTS/ALERTING.md):
+ * - a page for each kind of security event, the first of a kind included, from the line's count of them in the store,
+ *   which starts at 0; several of a kind within five minutes are one page;
+ * - a page when that count has gone missing for ten minutes, having been there in the six hours before, or the line
+ *   has not been able to read the store for five: no security event would page meanwhile;
+ * - a page while Alertmanager has a silence in place, active or pending, from its own figures: a silence keeps pages
+ *   from Martin, and nothing here makes one. A silence that matches this alert keeps it quiet too: the limit the dead
+ *   man's switch covers (milestone 10). The rule takes the highest of any series by that name, so another can only page
+ *   him more, never less;
+ * - a notification for each hold started, by its cause, whoever started it.
+ *
+ * Each reads the line's series alone (`METRICS_FROM_THE_LINE`), and takes the highest of its replicas', which report the
+ * same figure.
+ */
+export function martinRules(): Rule[] {
+  const security = SECURITY_KINDS.map((kind) => ({
+    alert: 'SecurityEvent',
+    expr: `max(increase(${fromTheLine('line_security_events_total', `kind="${kind}"`)}[${RECENT}])) > 0`,
+    for: '0s',
+    labels: { level: LEVELS.page, kind },
+    annotations: SECURITY_WORDS[kind],
+  }));
+  return [
+    ...security,
+    {
+      alert: 'SecurityEventsUncounted',
+      expr: `(count(last_over_time(${SECURITY_EVENTS}[6h])) unless count(${SECURITY_EVENTS})) or max(${COUNTING}) == 0`,
+      for: '5m',
+      labels: { level: LEVELS.page },
+      annotations: {
+        summary: 'Security events are not being counted',
+        description: 'The line has not counted sign-ins and the rest for some minutes, so none of them would page.',
+      },
+    },
+    {
+      alert: 'AlertmanagerSilenced',
+      expr: 'max(alertmanager_silences{state=~"active|pending"}) > 0',
+      for: '0s',
+      labels: { level: LEVELS.page },
+      annotations: {
+        summary: 'Alerts are silenced',
+        description: 'Alertmanager has a silence in place, which keeps the alerts it matches from your phone.',
+      },
+    },
+    {
+      alert: 'HoldStarted',
+      expr: `max by (cause) (increase(${HOLDS_STORED}[${RECENT}])) > 0`,
+      for: '0s',
+      labels: { level: LEVELS.notify },
+      annotations: {
+        summary: 'A hold waits for you',
+        description: 'A work item is held for your answer: {{ $labels.cause }}.',
       },
     },
   ];
@@ -223,17 +325,18 @@ export function render(o: Objectives, stuck = STUCK): string {
     Object.entries(values)
       .map(([key, value]) => `${indent}${key}: ${JSON.stringify(value)}`)
       .join('\n');
-  const rules = rulesFor(o)
-    .map(
-      (rule) => `          - alert: ${rule.alert}
+  const alerts = (group: Rule[]) =>
+    group
+      .map(
+        (rule) => `          - alert: ${rule.alert}
             expr: ${JSON.stringify(rule.expr)}
             for: ${rule.for}
             labels:
 ${map(rule.labels, '              ')}
             annotations:
 ${map(rule.annotations, '              ')}`,
-    )
-    .join('\n');
+      )
+      .join('\n');
   const recordings = (group: Recording[]) =>
     group
       .map(
@@ -248,7 +351,10 @@ serverFiles:
     groups:
       - name: objectives
         rules:
-${rules}
+${alerts(rulesFor(o))}
+      - name: martin
+        rules:
+${alerts(martinRules())}
   recording_rules.yml:
     groups:
       - name: routes
