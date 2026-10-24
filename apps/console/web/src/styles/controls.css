@@ -1,7 +1,7 @@
 /*
  * Martin's writes, and their read-only form: the dialog, the passkey again (its key and the header's pill), the label
  * an action becomes for a visitor, the header's Stop the line, the Canary panel's controls, and the bottom row's panels
- * (Controls: the autonomy level, the switches, what the line takes, and Spend).
+ * (Controls: the autonomy level, the switches, what the line takes, and Spend), which the settings page draws too.
  */
 
 /* A dialog: the browser's own modal, a raised card on the scrim, centred on a laptop and a bottom sheet on a phone. */
@@ -275,6 +275,19 @@
 }
 .recorded {
   display: block;
+}
+/*
+ * What the autonomy level means: every level's words in the same grid cell, the chosen one shown and the others kept
+ * invisible, so the box is as tall as the longest of them at any width and the groups under it never move.
+ */
+.means {
+  display: grid;
+}
+.means > span {
+  grid-area: 1 / 1;
+}
+.means > span:not(.chosen) {
+  visibility: hidden;
 }
 
 /* A switch: what it does, or what off means, beside its track. Read only, its track at 60%. */
