@@ -9,6 +9,7 @@ where expires_at > signed_in_at + interval '30 minutes';
 alter table sessions enable trigger sessions_once;
 
 alter table sessions alter column expires_at set default now() + interval '30 minutes';
+-- 0023's check had the name Postgres gave it; this one has its own.
 alter table sessions drop constraint sessions_check;
-alter table sessions add constraint sessions_check
+alter table sessions add constraint sessions_lasts
   check (expires_at > signed_in_at and expires_at <= signed_in_at + interval '30 minutes');

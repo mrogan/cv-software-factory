@@ -150,7 +150,7 @@ export function leave(href: string): void {
 
 /**
  * Asks again whether the session is live, and when it has ended sends the page to the sign-in door, saying why: its
- * hours ran out, or it ended early (signed out everywhere from another device, or its passkey revoked). Resolves
+ * 30 minutes ran out, or it ended early (signed out everywhere from another device, or its passkey revoked). Resolves
  * true while it is live, or while the service cannot be asked, which leaves the page as it is.
  */
 export async function stillSignedIn(expiresAt: string): Promise<boolean> {
