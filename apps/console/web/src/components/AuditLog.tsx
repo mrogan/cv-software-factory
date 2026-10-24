@@ -165,7 +165,7 @@ export function AuditLog({ events, t, profile, settled }: Props) {
         {view.days.map((day) => (
           <tbody key={day.rows[0]?.seq}>
             <tr className="day">
-              <th scope="colgroup" colSpan={5}>
+              <th scope="rowgroup" colSpan={5}>
                 {day.label}
               </th>
             </tr>

@@ -207,7 +207,7 @@ export function auditRows(events: readonly PublicEvent[], t: number, profile: Pr
       }
     }
     // When Martin last gave his passkey, if it was fresh for an action that asks for it.
-    if (asks && steppedUp !== undefined && at - steppedUp <= FRESH_MS)
+    if (asks && steppedUp !== undefined && at >= steppedUp && at - steppedUp <= FRESH_MS)
       parts.push(`passkey given at ${clock(steppedUp)}`);
 
     rows.push({
