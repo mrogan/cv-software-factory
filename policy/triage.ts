@@ -45,15 +45,23 @@ export const REPORTS = {
 /**
  * How long a visitor's report is kept: the words they typed, and the page they sent it from as they sent it. The
  * privacy pages, the console's and the app's, promise `promisedDays` from when it was received. Triage forgets each
- * `keepDays` after it reached the store, a day short, as it prunes the inbox (`forgetReports` in packages/store): the
- * hour between prunes, and the minutes before triage takes a report, then still fall inside the promise. The gateway
- * deletes a cassette that may carry one by then too (`apps/factory/src/gateway/pruning.ts`).
+ * `keepDays` after it reached the inbox, a day short, as it prunes the inbox (`forgetReports` in packages/store), so
+ * the hour between prunes still falls inside the promise.
+ *
+ * The gateway's cassette of Jev's judgement of a report holds it too, from when triage asked, which may be days after
+ * the report arrived, while the gateway's spend cap holds. So triage judges a report only within `judgeDays` of its
+ * arrival, and the gateway keeps a cassette of Jev's `cassetteDays` after its last call at most
+ * (`apps/factory/src/gateway/pruning.ts`): together, no more than `keepDays`.
  */
 export const REPORT_TEXT = {
   /** What the privacy pages say, in days. */
   promisedDays: 30,
-  /** When triage forgets a report, in days after it reached the store. Less than `promisedDays`. */
+  /** When triage forgets a report, in days after it reached the inbox. Less than `promisedDays`. */
   keepDays: 29,
+  /** The most days a report may wait in the inbox and still be judged; one older is forgotten unjudged. */
+  judgeDays: 22,
+  /** The most days the gateway keeps a cassette of Jev's after its last call. `judgeDays` and this, at most `keepDays`. */
+  cassetteDays: 7,
 } as const;
 
 /** How triage takes signals from the inbox. */

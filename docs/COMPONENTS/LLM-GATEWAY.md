@@ -85,7 +85,7 @@ In `record`, as on the cluster, nothing is replayed from the folder: a cassette 
 
 A file written in the last two weeks always stays. Rows in `model_calls` are never changed, so a call may name a cassette that has gone. A gateway that replays from its folder keeps every cassette; one in `record` with no TypeSafe key replays Jev's calls from it, so it keeps Jev's cassettes, and a file no call names, for longer.
 
-But a cassette of Jev's holds the visitor's report it judged, so none is kept past [a report's time](TRIAGE.md#how-long-a-report-is-kept): one goes 29 days after its last call and its writing (`REPORT_TEXT` in `policy/triage.ts`), whatever the work items its calls name and with or without a TypeSafe key. So does a file no call names, which could be one.
+But a cassette of Jev's holds the visitor's report it judged, so none is kept past [a report's time](TRIAGE.md#how-long-a-report-is-kept): one goes seven days after its last call and its writing (`REPORT_TEXT.cassetteDays` in `policy/triage.ts`), whatever the work items its calls name and with or without a TypeSafe key. So does a file no call names, which could be one. Triage judges a report only within 22 days of its arrival, so its cassette is gone within 29.
 
 ## Settings
 

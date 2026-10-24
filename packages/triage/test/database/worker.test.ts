@@ -1037,7 +1037,7 @@ describe('triage', () => {
       database.owner,
       found({ sense: 'report', symptom: undefined, report: { page: '/', text: 'Nothing loads at all' } }),
     );
-    await database.owner`update inbox set received_at = received_at - make_interval(days => ${REPORT_TEXT.keepDays - 1})
+    await database.owner`update inbox set received_at = received_at - make_interval(days => ${REPORT_TEXT.judgeDays})
                          where id = ${id}`;
     const worker = triage();
     for (let i = 0; i < 20 && (await worker.takeOne()) !== 'idle'; i++) {}

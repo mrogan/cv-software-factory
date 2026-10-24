@@ -2,17 +2,22 @@
 -- from the events, and its row from the inbox. `forgetReports` in packages/store/src/reports.ts says what goes.
 --
 -- The events stay append-only but for that one change. An update is refused unless all it does is take the text out
--- of a report: `report.text` from a `signal.received`, or `state.report.text` from a `judgement.made`. Every other
+-- of a visitor's report: `report.text` from its `signal.received`, or `state.report.text` from a `judgement.made`
+-- appended with it. A planner's finding keeps its words. Every other
 -- column stays as it was, the public view among them, which never had the text. The payload is still valid at its
 -- version, as a report read from a public record has no text either, so every projection reads it as before. A
 -- delete or a truncate is refused as ever.
 create function events_only_forget() returns trigger language plpgsql as $$
 begin
   if to_jsonb(new) - 'payload' = to_jsonb(old) - 'payload'
-     and ((old.type = 'signal.received' and old.payload -> 'report' ? 'text'
+     and ((old.type = 'signal.received' and old.payload ->> 'sense' = 'report' and old.payload -> 'report' ? 'text'
            and new.payload = old.payload #- '{report,text}')
        or (old.type = 'judgement.made' and old.payload -> 'state' -> 'report' ? 'text'
-           and new.payload = old.payload #- '{state,report,text}')) then
+           and new.payload = old.payload #- '{state,report,text}'
+           -- Jev's judgement of a visitor's report, appended with it, and not of a planner's finding.
+           and exists (select 1 from public.events sent
+                       where sent.type = 'signal.received' and sent.payload ->> 'sense' = 'report'
+                         and sent.work_item = old.work_item and sent.ts = old.ts))) then
     return new;
   end if;
   raise exception 'events are append-only, so % is refused', lower(tg_op)

@@ -20,8 +20,9 @@
  * names, which could be one of them, for longer.
  *
  * But never past a visitor's report's time (`REPORT_TEXT` in policy/triage.ts): a cassette of Jev's holds the report
- * it judged, so one goes once it has gone `REPORT_TEXT.keepDays` unwritten and uncalled, whatever the work items its
- * calls name and in either case; so does a file no call names, which could hold one.
+ * it judged, so one goes once it has gone `REPORT_TEXT.cassetteDays` unwritten and uncalled, whatever the work items
+ * its calls name and in either case; so does a file no call names, which could hold one. Triage judges a report only
+ * within `REPORT_TEXT.judgeDays` of its arrival, so the cassette goes within `REPORT_TEXT.keepDays` of it.
  */
 import { readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -63,7 +64,7 @@ export async function pruneCassettes({
   agentsOnly = false,
   now = new Date(),
   keepDays = CASSETTES.keepDays,
-  reportDays = REPORT_TEXT.keepDays,
+  reportDays = REPORT_TEXT.cassetteDays,
 }: PruneOptions): Promise<Pruned> {
   const before = new Date(now.getTime() - keepDays * DAY_MS);
   const reportsBefore = new Date(now.getTime() - reportDays * DAY_MS);

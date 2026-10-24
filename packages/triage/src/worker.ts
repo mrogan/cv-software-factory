@@ -411,9 +411,9 @@ export class Triage {
 
   /**
    * Holds the oldest waiting signal for a while, so another worker leaves it alone, and counts the attempt. While
-   * reports wait for the gateway, it takes only the senses' signals. A report that has waited a day short of
-   * `REPORT_TEXT.keepDays` is never taken: it is forgotten unjudged, so no event of it is appended so late that it
-   * would keep the visitor's words past their time.
+   * reports wait for the gateway, it takes only the senses' signals. A report that has waited `REPORT_TEXT.judgeDays`
+   * is never taken: it is forgotten unjudged, so neither its events nor Jev's cassette of it keep the visitor's words
+   * past their time.
    */
   async #claim(skipReports: boolean): Promise<Taken | undefined> {
     const [row] = await this.#o.sql<Taken[]>`
@@ -423,7 +423,7 @@ export class Triage {
                   where triaged_at is null and not_before <= clock_timestamp() and attempts < ${INBOX.attempts}
                     and (not ${skipReports} or sense not in ('report', 'planner'))
                     and (sense <> 'report'
-                         or received_at > clock_timestamp() - make_interval(days => ${REPORT_TEXT.keepDays - 1}))
+                         or received_at > clock_timestamp() - make_interval(days => ${REPORT_TEXT.judgeDays}))
                   order by received_at limit 1 for update skip locked)
       returning id, sense, signal, attempts, received_at`;
     return row;

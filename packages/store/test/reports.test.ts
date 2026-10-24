@@ -145,6 +145,9 @@ describe('forgetting reports', () => {
   it('takes the text out of each report older than 29 days, and of Jev’s judgements of it, however late the cut', async () => {
     // The migration holds the same 29 days: a caller cannot make it forget sooner.
     expect(REPORT_TEXT.keepDays).toBe(29);
+    // And Jev's cassette of a report, judged at the latest it may be and kept as long as it may be, goes by then too.
+    expect(REPORT_TEXT.judgeDays + REPORT_TEXT.cassetteDays).toBeLessThanOrEqual(REPORT_TEXT.keepDays);
+    expect(REPORT_TEXT.keepDays).toBeLessThan(REPORT_TEXT.promisedDays);
     expect(await forgetReports(triage, cut)).toEqual({ texts: 4, reports: 3 });
     const after = await stored(db.owner);
     expect(after.get('1000 signal.received')?.payload).toMatchObject({ report: { page: '/about' } });
@@ -192,7 +195,14 @@ describe('forgetting reports', () => {
     const [finding] = await db.owner<{ id: string }[]>`
       select id from events where work_item = '1001' and type = 'signal.received'`;
     const id = finding?.id ?? '';
-    // A planner's finding is not a report, but the store guards the shape, not the sense: forgetting checks the sense.
+    // A planner's finding: not even its text may be taken out, nor that of Jev's judgement of it.
+    await expect(db.owner`update events set payload = payload #- '{report,text}' where id = ${id}`).rejects.toThrow(
+      'append-only',
+    );
+    await expect(
+      db.owner`update events set payload = payload #- '{state,report,text}'
+               where work_item = '1001' and type = 'judgement.made'`,
+    ).rejects.toThrow('append-only');
     await expect(db.owner`update events set summary = 'changed' where id = ${id}`).rejects.toThrow('append-only');
     await expect(
       db.owner`update events set payload = payload #- '{report,text}', summary = 'changed' where id = ${id}`,

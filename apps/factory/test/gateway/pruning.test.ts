@@ -126,12 +126,12 @@ describe('pruning the cassettes', () => {
     const agents = cassette(30);
     await call(agents, 20, null);
     const judged = cassette(30);
-    await call(judged, 20, null, 'triage/v2');
-    const unnamed = cassette(20);
+    await call(judged, 5, null, 'triage/v2');
+    const unnamed = cassette(5);
     // A report's time is up: what Jev was asked, and a file that could be one of its, go however they are replayed.
     const judgedLongAgo = cassette(40);
-    await call(judgedLongAgo, 30, null, 'triage/v2');
-    cassette(30); // and a file no call names, as old
+    await call(judgedLongAgo, 10, null, 'triage/v2');
+    cassette(10); // and a file no call names, as old
     expect(await pruneCassettes({ sql: database.as.gateway, dir, now: NOW, agentsOnly: true })).toEqual({
       deleted: 3,
       failed: 0,
@@ -146,7 +146,7 @@ describe('pruning the cassettes', () => {
     const agents = cassette(40);
     await call(agents, 30, '1000');
     const judgedLately = cassette(40);
-    await call(judgedLately, 28, null, 'triage/v2');
+    await call(judgedLately, 5, null, 'triage/v2');
     cassette(30); // a file no call names
     const pruned = await pruneCassettes({ sql: database.as.gateway, dir, now: NOW, keepDays: 60 });
     expect(pruned).toEqual({ deleted: 2, failed: 0 });
