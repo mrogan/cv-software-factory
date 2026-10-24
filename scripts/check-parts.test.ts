@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -80,9 +80,10 @@ function required(
     ].join('\n'),
   );
   stub('sleep', 'exit 0');
-  // Five tries at main's run, not the script's 72: enough to outlast GH_FAILS and then give up, without the hundreds of
-  // processes 72 tries start, which made a test take seconds on a busy machine.
-  stub('seq', 'printf "%s\\n" 1 2 3 4 5');
+  // At most five tries at main's run, not the script's 72: enough to outlast GH_FAILS and then give up, without the
+  // hundreds of processes 72 tries start, which made a test take seconds on a busy machine. Fewer, if the script asks
+  // for fewer.
+  stub('seq', 'n=$(($1 < 5 ? $1 : 5)); i=1; while [ "$i" -le "$n" ]; do echo "$i"; i=$((i + 1)); done');
   const result = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
     env: {
       PATH: `${bin}:${process.env.PATH}`,
@@ -95,6 +96,7 @@ function required(
     },
     encoding: 'utf-8',
   });
+  rmSync(bin, { recursive: true });
   return result.status;
 }
 

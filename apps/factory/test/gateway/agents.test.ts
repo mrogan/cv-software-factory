@@ -359,7 +359,9 @@ describe('agents through the gateway', () => {
     expect(provider.requests).toHaveLength(1);
 
     await caps.probe();
-    expect((await call(token, agentRequest())).status).toBe(200);
+    const cleared = await call(token, agentRequest());
+    expect(cleared.status).toBe(200);
+    await cleared.text();
     const lines = await sql`select type, version, payload from events where type like 'spend.%' order by seq`;
     expect(lines).toEqual([
       {
@@ -479,7 +481,9 @@ describe('agents through the gateway', () => {
     expect((await call(token, more)).status).toBe(403);
     // Zero is never no cap, nor is a figure past the ceiling: policy's $1 is in force, which the call is well under.
     await appendSettings(database.operator, settingsPayload({ caps: { workItemUsd: 0 } }));
-    expect((await call(token, more)).status).toBe(200);
+    const allowed = await call(token, more);
+    expect(allowed.status).toBe(200);
+    await allowed.text();
     await appendSettings(database.operator, settingsPayload({ caps: { dayUsd: 0.000001, workItemUsd: 1e6 } }));
     const capped = await call(token, { ...more, messages: [{ role: 'user', content: 'Again.' }] });
     expect(capped.status).toBe(429);
