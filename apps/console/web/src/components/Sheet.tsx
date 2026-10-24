@@ -7,6 +7,7 @@ import type { Sense } from '@software-factory/events';
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   AGENT_NAME,
+  APP_REPO,
   capital,
   clock,
   duration,
@@ -38,9 +39,6 @@ import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { LogoMark } from './Logos.tsx';
 import { Picture, Shot } from './Pictures.tsx';
 import { ShippedSection } from './Shipped.tsx';
-
-/** The app's repository, where the factory's pull requests are. */
-const APP_REPO = 'https://github.com/mrogan/cv-worlds-worst-website';
 
 const SOURCE: Record<PictureData['type'], string> = {
   wipe: 'Playwright screenshots, taken when the signal fired and after rollout. The marks are drawn from the elements the probe checked.',

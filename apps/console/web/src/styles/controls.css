@@ -163,6 +163,8 @@
 .bottom {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  /* Each panel as tall as what it holds: Needs you grows with its cards, and Controls stays its own height. */
+  align-items: start;
   gap: 20px;
   margin-top: 56px;
 }
