@@ -16,13 +16,20 @@
  * Rows in `model_calls` stay: the ledger is never changed, and a call's cassette may name a file that has gone. Only
  * the folder the gateway records in is pruned, never the folders it reads besides, such as the committed evaluation
  * cassettes. A gateway that replays from its folder keeps everything: there a cassette is an answer to give again.
- * One recording with no TypeSafe key replays Jev's calls from it, so it prunes only the agents' cassettes.
+ * One recording with no TypeSafe key replays Jev's calls from it, so it keeps Jev's cassettes, and a file no call
+ * names, which could be one of them, for longer.
+ *
+ * But never past a visitor's report's time (`REPORT_TEXT` in policy/triage.ts): a cassette of Jev's holds the report
+ * it judged, so one goes once it has gone `REPORT_TEXT.cassetteDays` unwritten and uncalled, whatever the work items
+ * its calls name and in either case; so does a file no call names, which could hold one. Triage judges a report only
+ * within `REPORT_TEXT.judgeDays` of its arrival, so the cassette goes within `REPORT_TEXT.keepDays` of it.
  */
 import { readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { lastEnd } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { CASSETTES } from '../../../../policy/cassettes.ts';
+import { REPORT_TEXT } from '../../../../policy/triage.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CASSETTE = /^([0-9a-f]{64})\.json$/;
@@ -40,6 +47,8 @@ export interface PruneOptions {
   agentsOnly?: boolean;
   now?: Date;
   keepDays?: number;
+  /** How long a cassette that may hold a visitor's report is kept at most. */
+  reportDays?: number;
 }
 
 /** What a prune did: the files it deleted, and those it could not. */
@@ -55,11 +64,15 @@ export async function pruneCassettes({
   agentsOnly = false,
   now = new Date(),
   keepDays = CASSETTES.keepDays,
+  reportDays = REPORT_TEXT.cassetteDays,
 }: PruneOptions): Promise<Pruned> {
   const before = new Date(now.getTime() - keepDays * DAY_MS);
-  const unwritten = async (name: string) => {
+  const reportsBefore = new Date(now.getTime() - reportDays * DAY_MS);
+  // A file unwritten since the later of the two is due by one rule or the other, or by neither.
+  const either = new Date(Math.max(before.getTime(), reportsBefore.getTime()));
+  const unwritten = async (name: string, since: Date) => {
     const written = await stat(join(dir, name)).catch(() => undefined);
-    return written?.isFile() === true && written.mtime < before;
+    return written?.isFile() === true && written.mtime < since;
   };
   // Only a file unwritten for as long is considered, and it is looked at again just before it goes: one written since
   // its calls were read stays.
@@ -67,16 +80,21 @@ export async function pruneCassettes({
   for (const name of await readdir(dir).catch(notFound)) {
     const key = CASSETTE.exec(name)?.[1];
     if (!key && !PARTIAL.test(name)) continue;
-    if (await unwritten(name)) old.push({ name, key });
+    if (await unwritten(name, either)) old.push({ name, key });
   }
   const keys = old.flatMap(({ key }) => (key ? [key] : []));
-  const named = keys.length ? await dueOf(sql, keys, before, agentsOnly) : new Map<string, boolean>();
+  const named = keys.length ? await dueOf(sql, keys, before, reportsBefore, agentsOnly) : new Map<string, Due>();
   const pruned: Pruned = { deleted: 0, failed: 0 };
   for (const { name, key } of old) {
-    // A file no call names goes, unless it could be a judgement replayed from here.
-    const due = key && named.has(key) ? named.get(key) : !agentsOnly;
-    if (!due) continue;
-    if (!(await unwritten(name))) continue;
+    const calls = key ? named.get(key) : undefined;
+    // A file no call names goes, unless it could be a judgement replayed from here; but not past a report's time.
+    const since = calls
+      ? latest([...(calls.usual ? [before] : []), ...(calls.report ? [reportsBefore] : [])])
+      : agentsOnly
+        ? reportsBefore
+        : either;
+    if (!since) continue;
+    if (!(await unwritten(name, since))) continue;
     try {
       await rm(join(dir, name), { force: true });
       pruned.deleted++;
@@ -88,13 +106,30 @@ export async function pruneCassettes({
   return pruned;
 }
 
+/** Which rules a cassette some call names is due to go by: the usual one, the report rule, both or neither. */
+interface Due {
+  usual: boolean;
+  report: boolean;
+}
+
+/** The latest of these dates, or none. */
+const latest = (dates: Date[]): Date | undefined =>
+  dates.length ? new Date(Math.max(...dates.map((date) => date.getTime()))) : undefined;
+
 /**
  * Of these cassettes, each some call names, and whether it is due to go: not with a call since `before`, nor for a
  * work item not closed as long (its last end is not a close, as `lastEnd` has it, or its last close was appended
- * since). With `agentsOnly`, one any judgement names is not due.
+ * since). With `agentsOnly`, one any judgement names is not due by that rule. One any judgement names is due anyway
+ * with no call since `reportsBefore`, as it may hold a visitor's report.
  */
-async function dueOf(sql: Sql, keys: string[], before: Date, agentsOnly: boolean): Promise<Map<string, boolean>> {
-  const rows = await sql<{ cassette: string; due: boolean }[]>`
+async function dueOf(
+  sql: Sql,
+  keys: string[],
+  before: Date,
+  reportsBefore: Date,
+  agentsOnly: boolean,
+): Promise<Map<string, Due>> {
+  const rows = await sql<{ cassette: string; due: boolean; report: boolean }[]>`
     with calls as (
       select cassette, max(at) as last_call, bool_and(question_set = 'messages') as agents,
              array_agg(distinct work_item) filter (where work_item is not null) as items
@@ -109,9 +144,10 @@ async function dueOf(sql: Sql, keys: string[], before: Date, agentsOnly: boolean
     )
     select cassette,
            last_call < ${before} and (agents or not ${agentsOnly})
-             and not exists (select 1 from open where open.work_item = any(calls.items)) as due
+             and not exists (select 1 from open where open.work_item = any(calls.items)) as due,
+           not agents and last_call < ${reportsBefore} as report
     from calls`;
-  return new Map(rows.map((row) => [row.cassette, row.due]));
+  return new Map(rows.map((row) => [row.cassette, { usual: row.due, report: row.report }]));
 }
 
 const notFound = (error: NodeJS.ErrnoException): string[] => {

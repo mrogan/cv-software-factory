@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
+import { LEVELS } from '../src/alerts/rules.ts';
 import { DEPLOY, manifests } from './deploy.ts';
 
 /**
@@ -49,7 +50,8 @@ interface Values {
   };
 }
 
-// The notify receiver is the page receiver's settings merged with its own priority (`<<:`), as Helm reads it.
+// The notify and inform receivers are the page receiver's settings merged with their own priority (`<<:`), as Helm
+// reads it.
 const values = async () =>
   parse(await readFile(join(DEPLOY, 'base/telemetry/values/prometheus.yaml'), 'utf-8'), { merge: true }) as Values;
 
@@ -83,8 +85,9 @@ function receivers(route: Route, labels: Record<string, string>): string[] {
 
 describe('Alertmanager’s routes', () => {
   const cases: [string, Record<string, string>, string[]][] = [
-    ['a page', { alertname: 'SecurityEvent', level: 'page', kind: 'sign-in' }, ['page']],
-    ['a notification', { alertname: 'NewHold', level: 'notify', cause: 'scope' }, ['notify']],
+    ['a page', { alertname: 'SecurityEvent', level: 'page', kind: 'passkey-enrolled' }, ['page']],
+    ['a notification', { alertname: 'HoldStarted', level: 'notify', cause: 'scope' }, ['notify']],
+    ['a low-priority alert', { alertname: 'SecurityEvent', level: 'inform', kind: 'sign-in' }, ['inform']],
     [
       'an objective alert',
       { alertname: 'RouteLatencyAboveObjective', objective: 'latency', route: '/', symptom: 'slow-response' },
@@ -111,8 +114,8 @@ describe('Alertmanager’s routes', () => {
     expect(intake?.continue).toBeFalsy();
   });
 
-  it('send each page and notification on its own', async () => {
-    for (const receiver of ['page', 'notify']) {
+  it('send each alert to Martin on its own', async () => {
+    for (const receiver of ['page', 'notify', 'inform']) {
       const route = (await values()).alertmanager.config.route.routes?.find((r) => r.receiver === receiver);
       expect(route?.group_by, receiver).toEqual(['...']);
     }
@@ -123,14 +126,22 @@ describe('Alertmanager’s Pushover receivers', () => {
   const pushover = async (name: string) =>
     (await values()).alertmanager.config.receivers.find((r) => r.name === name)?.pushover_configs ?? [];
 
-  it('page at high priority and notify at normal', async () => {
+  it('page at high priority, notify at normal and inform at low', async () => {
     expect((await pushover('page')).map((p) => p.priority)).toEqual(['1']);
     expect((await pushover('notify')).map((p) => p.priority)).toEqual(['0']);
+    expect((await pushover('inform')).map((p) => p.priority)).toEqual(['-1']);
+  });
+
+  it('route every level the rules set to a receiver of its own name', async () => {
+    const routes = (await values()).alertmanager.config.route.routes ?? [];
+    for (const level of Object.values(LEVELS)) {
+      expect(routes.find((r) => r.receiver === level)?.matchers, level).toEqual([`level="${level}"`]);
+    }
   });
 
   it('read the keys from the mounted Secret’s files, never from the configuration', async () => {
     const { alertmanager } = await values();
-    for (const config of [...(await pushover('page')), ...(await pushover('notify'))]) {
+    for (const config of [...(await pushover('page')), ...(await pushover('notify')), ...(await pushover('inform'))]) {
       expect(config.token).toBeUndefined();
       expect(config.user_key).toBeUndefined();
       expect(config.token_file).toBe('/etc/pushover/app-token');
@@ -154,7 +165,7 @@ describe('Alertmanager’s Pushover receivers', () => {
 
   it('are the only receivers that leave the cluster, beside the intake', async () => {
     const { receivers: all } = (await values()).alertmanager.config;
-    expect(all.map((r) => r.name).sort()).toEqual(['dashboard', 'intake', 'notify', 'page']);
+    expect(all.map((r) => r.name).sort()).toEqual(['dashboard', 'inform', 'intake', 'notify', 'page']);
     for (const receiver of all) {
       const kinds = Object.keys(receiver).filter((key) => key.endsWith('_configs'));
       expect(kinds, receiver.name).toEqual(

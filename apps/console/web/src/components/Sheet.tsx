@@ -34,6 +34,7 @@ import type {
 } from '../projection/index.ts';
 import { scrubbed, TARGET } from '../projection/index.ts';
 import { backWords } from '../projection/release.ts';
+import { REPORT_KEPT_DAYS } from '../projection/report.ts';
 import { kindName, ONGOING, OutcomeWord, spendWords } from './Card.tsx';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { LogoMark } from './Logos.tsx';
@@ -765,7 +766,7 @@ function RoundRow({ attempt: a }: { attempt: Attempt }) {
 /**
  * A visitor's report, or the planner's finding: where it came from, and that its words are withheld. For Martin, what
  * each visitor (or the planner) wrote is quoted under it: only the full events carry it, made plain and short (`reportText`), and React
- * inserts it as text.
+ * inserts it as text. A report's text is kept for `REPORT_KEPT_DAYS` days, and none is quoted after.
  */
 function Report({ report }: { report: NonNullable<SheetData['report']> }) {
   const withheld =
@@ -777,13 +778,13 @@ function Report({ report }: { report: NonNullable<SheetData['report']> }) {
       </p>
     ) : report.quarantined ? (
       <p className="report withheld">
-        A visitor’s report from {report.page}. It gave orders to the system, so it is quarantined. Its text is kept, and
-        shown only to Martin and to the visitor who sent it.
+        A visitor’s report from {report.page}. It gave orders to the system, so it is quarantined. Its text is kept for{' '}
+        {REPORT_KEPT_DAYS} days, and shown only to Martin and to the visitor who sent it.
       </p>
     ) : (
       <p className="report withheld">
-        A visitor’s report from {report.page}. Its text is shown only to the visitor who sent it and to Martin; what
-        triage made of it is below.
+        A visitor’s report from {report.page}. Its text is kept for {REPORT_KEPT_DAYS} days, shown only to the visitor
+        who sent it and to Martin; what triage made of it is below.
       </p>
     );
   if (!report.texts.length) return withheld;

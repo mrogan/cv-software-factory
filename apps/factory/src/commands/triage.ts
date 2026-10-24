@@ -13,12 +13,13 @@
  * only at those it has an address for, and with none it looks at nothing and holds nothing for the environment.
  *
  * As it starts, and every `INBOX.pruneMinutes` after, it deletes the inbox's repeats older than
- * `INBOX.keepCountedDays` (`pruneInbox` in packages/store).
+ * `INBOX.keepCountedDays` (`pruneInbox` in packages/store), and forgets the visitors' reports older than
+ * `REPORT_TEXT.keepDays` (`forgetReports`).
  */
 import type { Counter } from '@opentelemetry/api';
 import { type Screenshot, SIGNAL_SOURCES } from '@software-factory/events';
 import { type Judge, type Outcome, type PageReader, Triage } from '@software-factory/triage';
-import { INBOX } from '../../../../policy/triage.ts';
+import { INBOX, REPORT_TEXT } from '../../../../policy/triage.ts';
 
 export const USAGE = '  factory triage';
 
@@ -51,7 +52,7 @@ export async function run(args: string[]): Promise<number> {
   const { shutdownTelemetry } = await import('../telemetry.ts');
   const { log } = await import('../log.ts');
   const { metrics } = await import('@opentelemetry/api');
-  const { connect, DiskArtifacts, EventWriter, pruneInbox } = await import('@software-factory/store');
+  const { connect, DiskArtifacts, EventWriter, forgetReports, pruneInbox } = await import('@software-factory/store');
   const { GatewayClient } = await import('../gateway/client.ts');
   const { waitingFor } = await import('../gateway/waiting.ts');
   const { sendCounts } = await import('../counts.ts');
@@ -149,15 +150,26 @@ export async function run(args: string[]): Promise<number> {
   // One prune at a time: a tick that finds one still running leaves it be.
   const prune = () => {
     if (pruning) return;
-    const before = new Date(Date.now() - INBOX.keepCountedDays * 24 * 60 * 60 * 1000);
-    pruning = pruneInbox(sql, before)
-      .then(
-        (deleted) => {
-          if (deleted) log.info({ deleted, before }, 'deleted the inbox’s old repeats');
-        },
-        // The next prune tries again; the inbox only grows meanwhile.
-        (error) => log.warn({ err: error }, 'could not delete the inbox’s old repeats'),
-      )
+    const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const before = daysAgo(INBOX.keepCountedDays);
+    const repeats = pruneInbox(sql, before).then(
+      (deleted) => {
+        if (deleted) log.info({ deleted, before }, 'deleted the inbox’s old repeats');
+      },
+      // The next prune tries again; the inbox only grows meanwhile.
+      (error) => log.warn({ err: error }, 'could not delete the inbox’s old repeats'),
+    );
+    // Only how many: never a report's words, its page or its work item.
+    const kept = daysAgo(REPORT_TEXT.keepDays);
+    const reports = forgetReports(sql, kept).then(
+      ({ texts, reports }) => {
+        if (texts || reports) log.info({ texts, reports, before: kept }, 'forgot the visitors’ old reports');
+      },
+      // The next prune tries again, an hour on: well within the day `keepDays` leaves before the promise.
+      (error) => log.warn({ err: error }, 'could not forget the visitors’ old reports'),
+    );
+    pruning = Promise.all([repeats, reports])
+      .then(() => undefined)
       .finally(() => {
         pruning = undefined;
       });

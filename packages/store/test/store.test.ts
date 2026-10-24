@@ -103,6 +103,7 @@ describe('migrations', () => {
       { version: 29, name: 'suggestion-holds' },
       { version: 30, name: 'line-controls' },
       { version: 31, name: 'session-30-minutes' },
+      { version: 32, name: 'forget-reports' },
     ]);
   });
 });

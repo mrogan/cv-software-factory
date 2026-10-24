@@ -188,7 +188,7 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
               ) : auditPage ? (
                 <AuditLog events={source.events} t={t} profile={factory.profile} settled={settled} />
               ) : (
-                <Settings view={settings} allLocal={factory.allLocal} admin={admin} />
+                <Settings view={settings} controls={view.controls} allLocal={factory.allLocal} admin={admin} />
               )}
             </Suspense>
           </div>

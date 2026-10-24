@@ -7,15 +7,17 @@
  * A visitor sees every control read-only, and no Stop or Start. Martin stops the line with a reason, which aborts the
  * canary in flight, and the header says why for everyone; starting it asks for his passkey in its own dialog. Then he
  * tightens autonomy at once, loosens it with the passkey again, turns agents' new work off and on, widens and narrows
- * what the line takes, and a take the service refuses says why under it. Snapshots are `visual.spec.ts`'s, and axe's
- * look is `quality.spec.ts`'s. Needs Postgres: TEST_DATABASE_URL, or Docker.
+ * what the line takes, and a take the service refuses says why under it. Nothing under Autonomy moves as the level
+ * changes, on a phone or a desktop, in Controls or in the settings, which draw the same controls: a change made in
+ * one shows in the other. Snapshots are `visual.spec.ts`'s, and axe's look is `quality.spec.ts`'s. Needs Postgres:
+ * TEST_DATABASE_URL, or Docker.
  */
 import { randomUUID } from 'node:crypto';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { VERSIONS } from '@software-factory/events';
 import { appendMartins } from '../../factory/src/admin/store.ts';
 import { enrolThroughTheDoor, type Harness, Rollout, startHarness, virtualPasskey } from './admin.ts';
-import { expect, test } from './support.ts';
+import { expect, test, WIDTHS } from './support.ts';
 
 const PORT = 18_336;
 const RELEASE = 'v8q7chmx72-913';
@@ -68,6 +70,22 @@ test.afterAll(async () => {
 });
 
 const controls = (page: Page) => page.locator('article.controls');
+/** The settings' panel of the line's controls. */
+const linePanel = (page: Page) =>
+  page.locator('article', { has: page.getByRole('heading', { name: 'The line', exact: true }) });
+/** Where the line's controls are drawn, on a phone and on a desktop: Controls, and the settings' panel of them. */
+const PLACES = [
+  ['Controls, on a phone', '/?motion=off', WIDTHS.phone, controls],
+  ['Controls, on a desktop', '/?motion=off', WIDTHS.desktop, controls],
+  ['the settings, on a phone', '/?view=settings&motion=off', WIDTHS.phone, linePanel],
+  ['the settings, on a desktop', '/?view=settings&motion=off', WIDTHS.desktop, linePanel],
+] as const;
+/** How far a group's label sits below Autonomy's, in CSS pixels: what the header does above the panel is not its. */
+const labelTop = async (panel: Locator, label: string) => {
+  const top = (name: string) =>
+    panel.locator('.ctl-group > .label', { hasText: name }).evaluate((element) => element.getBoundingClientRect().top);
+  return (await top(label)) - (await top('Autonomy'));
+};
 const status = (page: Page) => page.locator('header.top .status');
 /** What the tests have appended of a type, oldest first. A store of samples marks every event a sample. */
 const stored = <T>(type: string) =>
@@ -91,7 +109,12 @@ test('a visitor sees every control read-only, and no Stop or Start', async ({ pa
   const take = panel.getByRole('group', { name: 'What the line takes' });
   await expect(take.getByRole('button', { name: 'The next few' })).toHaveAttribute('aria-pressed', 'true');
   await expect(panel).toContainText('The next 5 work items from');
-  await expect(panel).toContainText('Recorded: until approval routing comes, every merge waits for Martin.');
+  // Every level's words are in the panel, the others invisible: the chosen one's are what show.
+  await expect(panel.locator('.means .chosen')).toHaveText(
+    'Low-risk changes ship on their own. Anything risky waits for Martin. Recorded: until approval routing comes, every merge waits for Martin.',
+  );
+  await expect(panel.locator('.means > span:not(.chosen)')).toHaveCount(2);
+  for (const words of await panel.locator('.means > span:not(.chosen)').all()) await expect(words).toBeHidden();
   await expect(panel.getByRole('textbox')).toHaveCount(0);
   await expect(panel.locator('.glyph.key')).toHaveCount(0);
 });
@@ -151,13 +174,39 @@ test('Martin stops the line with a reason, and starts it with his passkey', asyn
   });
 });
 
-test('Martin tightens and loosens autonomy, turns a switch, and widens and narrows the take', async ({ page }) => {
+test('Martin tightens and loosens autonomy, turns a switch, and widens and narrows the take, in Controls and in the settings', async ({
+  page,
+}) => {
   await virtualPasskey(page);
   await enrolThroughTheDoor(page, await harness.code());
-  await page.goto('/?motion=off');
   const panel = controls(page);
   const autonomy = panel.getByRole('group', { name: 'Autonomy' });
   const take = panel.getByRole('group', { name: 'What the line takes' });
+
+  // Where Switches and What the line takes sit under Autonomy in each place, at the first level seen there: the same
+  // at every level after, with the keys drawn or not. Then back to Controls, at the test's own width.
+  const under = new Map<string, number[]>();
+  const viewport = page.viewportSize() ?? WIDTHS.laptop;
+  const steady = (level: string) =>
+    test.step(`nothing under Autonomy moves at ${level}`, async () => {
+      for (const [where, url, size, find] of PLACES) {
+        await page.setViewportSize(size);
+        await page.goto(url);
+        await page.evaluate(() => document.fonts.ready);
+        const here = find(page);
+        await expect(
+          here.getByRole('group', { name: 'Autonomy' }).getByRole('button', { name: new RegExp(`^${level}`) }),
+        ).toHaveAttribute('aria-pressed', 'true');
+        const at = [await labelTop(here, 'Switches'), await labelTop(here, 'What the line takes')];
+        expect(at, `${where}, at ${level}`).toEqual(under.get(where) ?? at);
+        under.set(where, at);
+      }
+      await page.setViewportSize(viewport);
+      await page.goto('/?motion=off');
+    });
+
+  // Before the passkey is given: the keys are drawn.
+  await steady('Guarded');
 
   await test.step('the key is drawn only where a change loosens', async () => {
     await expect(panel.locator('.panel-head .label')).toHaveCount(0);
@@ -181,6 +230,7 @@ test('Martin tightens and loosens autonomy, turns a switch, and widens and narro
     expect(await changes()).toEqual([{ control: 'autonomy', before: 'guarded', after: 'supervised' }]);
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
+  await steady('Supervised');
 
   await test.step('loosening it asks for the passkey again', async () => {
     await autonomy.getByRole('button', { name: 'Guarded (asks for your passkey)' }).click();
@@ -230,5 +280,28 @@ test('Martin tightens and loosens autonomy, turns a switch, and widens and narro
     await expect(panel.getByRole('alert')).toHaveText('#1329 has no open ticket for the line to take.');
     await panel.getByRole('button', { name: 'Cancel' }).click();
     await expect(take.getByRole('button', { name: 'The next few' })).toHaveAttribute('aria-pressed', 'true');
+  });
+  await test.step('a looser level and a tighter one, the passkey fresh', async () => {
+    for (const level of ['Lights-out', 'Guarded']) {
+      await autonomy.getByRole('button', { name: level, exact: true }).click();
+      await expect(autonomy.getByRole('button', { name: level, exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await steady(level);
+    }
+  });
+
+  await test.step('a switch turned in the settings shows in Controls', async () => {
+    await page.goto('/?view=settings&motion=off');
+    const work = linePanel(page).getByRole('switch', { name: /Agents take new work/ });
+    await work.click();
+    await expect(work).not.toBeChecked();
+    await page.goto('/?motion=off');
+    const there = controls(page).getByRole('switch', { name: /Agents take new work/ });
+    await expect(there).not.toBeChecked();
+    await there.click();
+    await expect(there).toBeChecked();
+    expect((await changes()).slice(-2)).toEqual([
+      { control: 'new-work', before: true, after: false },
+      { control: 'new-work', before: false, after: true },
+    ]);
   });
 });

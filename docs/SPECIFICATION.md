@@ -110,7 +110,7 @@ A first-class factory capability, though not the centre of the visitor demo.
 - Same spec template as a fix. The planner may ask clarifying questions through "Needs you". Martin approves the spec before any code is written.
 - Then the same line: build, gates, review, canary, verify (acceptance criteria pass in production, canary shows no regression).
 - Small: one outcome per request, reviewable in minutes.
-- New behaviour ships behind a feature flag, which the change defines, switched off. Martin switches it from the console in stages: the factory's own requests first, so Verify can check the acceptance criteria in production with nobody else seeing the change; then browsers that opt in to preview it; then a share of browsers, where Verify compares the flag's two sides; then everyone. Off is a kill switch, with no rollback. A flag's state is never a visitor's to change.
+- New behaviour ships behind a feature flag, which the change defines, switched off. Martin switches it from the console in stages: the factory's own requests first, so Verify can check the acceptance criteria in production with nobody else seeing the change; then browsers that opt in to preview it; then a share of the traffic generator's requests, where Verify compares the flag's two sides; then everyone. Off is a kill switch, with no rollback. A flag keeps nothing on a visitor's device but the preview cookie of one who asks for it. A flag's state is never a visitor's to change.
 
 ### 4.3 Autonomy
 
@@ -163,7 +163,7 @@ One page, read from top to bottom: *is it running → what is happening → what
 
 ### 5.3 Visitor actions (live instance only)
 
-- **Report a problem:** free text via the widget on the site. Goes through triage like any signal; can only ever lead to a defect fix. The console shows a report's text only to Martin and to the visitor whose key sent it: at most 140 characters of plain ASCII letters, digits and basic punctuation, with links, email addresses and long numbers removed, inserted as text and never as markup. Everyone else sees that a report was made and what triage made of it.
+- **Report a problem:** free text via the widget on the site. Goes through triage like any signal; can only ever lead to a defect fix. The console shows a report's text only to Martin and to the visitor whose key sent it: at most 140 characters of plain ASCII letters, digits and basic punctuation, with links, email addresses and long numbers removed, inserted as text and never as markup. Everyone else sees that a report was made and what triage made of it. A report's text, and the page as it was sent, are kept for 30 days from when it was received, wherever the factory keeps them; then they are deleted, and the report's events stay without them.
 - **Inject a defect:** choose from a curated menu of visible breakages (for example "Prices go negative", "Search returns only cats"). No free text.
 - **Red team the factory:** choose a curated attack and watch a real mechanism stop it. The UI shows the mechanism's actual refusal, never an animation:
 
@@ -195,7 +195,7 @@ Built from the Paper & Ink design system; works on phone and laptop; first meani
 
 - Martin puts a key on each CV: lower-case `adjective-noun` (for example `amber-otter`), avoiding confusable or unprofessional words. Matching ignores case and spaces, and accepts a space for the hyphen.
 - One key per recipient, created with `factory keys add --label "Acme Ltd, Platform Lead"`; also list, disable and usage commands. Keys expire after 90 days *(default)*.
-- Entry via a landing page or `/?key=amber-otter`, remembered in a cookie.
+- Entry via a landing page or `/?key=amber-otter`, remembered in a cookie set only when the visitor enters a key. It is strictly necessary, so no banner asks for it; the console's privacy page names it, and the device gates allow it.
 - Per key, record first and last visit, visit count, pages viewed, time in the console and actions taken. Nothing else. The landing page says visits are logged against the key.
 - Martin's own access is a passkey (section 5.4), never a key.
 

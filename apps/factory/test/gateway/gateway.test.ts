@@ -30,11 +30,14 @@ interface Setup {
   policy?: SpendPolicy | ((fresh: boolean) => Promise<SpendPolicy>);
   clock?: Date;
   read?: string[];
+  /** Another harness whose database this one shares, for a test that needs a second gateway: a database each would
+   * spend the test's time migrating, one at a time behind every other test file's. */
+  on?: { database: Database };
 }
 
 /** A gateway on a database of its own, a stand-in provider and a clock the test moves. */
-async function harness({ mode = 'record', key = true, policy = POLICY, clock, read = [] }: Setup = {}) {
-  const database: Database = await freshDatabase('gateway');
+async function harness({ mode = 'record', key = true, policy = POLICY, clock, read = [], on }: Setup = {}) {
+  const database: Database = on?.database ?? (await freshDatabase('gateway'));
   const now = { value: clock ?? new Date('2026-10-03T12:00:00Z') };
   // Each reading is a millisecond later than the last, so rows have an order.
   let tick = 0;
@@ -160,10 +163,9 @@ describe('the gateway', () => {
   it('reads cassettes from more than one folder', async () => {
     const recorder = await harness({ mode: 'record' });
     const live = await recorder.gateway.judge(request());
-    const h = await harness({ mode: 'replay', read: [recorder.dir] });
+    const h = await harness({ mode: 'replay', read: [recorder.dir], on: recorder });
     expect((await h.gateway.judge(request())).cassette).toBe(live.cassette);
     await recorder.database.end();
-    await h.database.end();
   });
 
   it('falls through to record on a miss in replay-record, and replays the next time', async () => {
@@ -181,11 +183,11 @@ describe('the gateway', () => {
     await recording.gateway.judge(request());
     expect(fake.requests).toHaveLength(2);
 
-    const live = await harness({ mode: 'live' });
+    const live = await harness({ mode: 'live', on: recording });
     await live.gateway.judge(request());
+    expect(fake.requests).toHaveLength(3);
     expect(readdirSync(live.dir)).toEqual([]);
     await recording.database.end();
-    await live.database.end();
   });
 
   it('answers a paid call whose cassette cannot be written, and still reports the cap it reached', async () => {

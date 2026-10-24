@@ -70,12 +70,40 @@ export function rulesFor(o: Objectives): Rule[] {
 }
 
 /**
- * How loudly an alert reaches Martin, as its `level` label: Alertmanager pages him for `page` and notifies him for
- * `notify`, through Pushover, and sends an alert with neither to no one (deploy/base/telemetry/values/prometheus.yaml).
+ * How loudly an alert reaches Martin, as its `level` label, through Pushover: Alertmanager pages him for `page` (high
+ * priority, sounding through his quiet hours), notifies him for `notify` (normal priority) and informs him for `inform`
+ * (low priority, with no sound or vibration), and sends an alert with none of them to no one
+ * (deploy/base/telemetry/values/prometheus.yaml).
  */
-export const LEVELS = { page: 'page', notify: 'notify' } as const;
+export const LEVELS = { page: 'page', notify: 'notify', inform: 'inform' } as const;
+export type Level = (typeof LEVELS)[keyof typeof LEVELS];
 
-/** What a page says of each kind of security event: its title, and a line more. Never anything of the session. */
+/**
+ * How loudly each kind of security event reaches Martin. What loosens a guardrail, or changes who can sign in, pages
+ * him; what widens what the line does, or acts on a release, notifies him; what tightens, or only records his own use,
+ * informs him, but for tightening autonomy, which notifies him. Every kind still reaches his phone: only how loudly
+ * changes.
+ */
+export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
+  'autonomy-loosened': LEVELS.page,
+  'passkey-enrolled': LEVELS.page,
+  'passkey-revoked': LEVELS.page,
+  'guardrail-approved': LEVELS.page,
+  'autonomy-tightened': LEVELS.notify,
+  'auto-merge-on': LEVELS.notify,
+  'take-widened': LEVELS.notify,
+  'release-control': LEVELS.notify,
+  'setting-changed': LEVELS.notify,
+  'line-started': LEVELS.notify,
+  'new-work-on': LEVELS.notify,
+  'sign-in': LEVELS.inform,
+  'stepped-up': LEVELS.inform,
+  'new-work-off': LEVELS.inform,
+  'auto-merge-off': LEVELS.inform,
+  'take-narrowed': LEVELS.inform,
+};
+
+/** What an alert says of each kind of security event: its title, and a line more. Never anything of the session. */
 const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: string }> = {
   'sign-in': { summary: 'Signed in as Martin', description: 'A passkey signed in to the console.' },
   'passkey-enrolled': { summary: 'A passkey was enrolled', description: 'A new passkey can sign in as Martin.' },
@@ -131,7 +159,6 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
   },
 };
 
-/** The line's count of Martin's security events, and of the holds started, as only the line's pods send them. */
 /** One of the line's series, with any matcher given first, as only the line's pods send it. */
 const fromTheLine = (name: string, matcher?: string) =>
   `${name}{${matcher ? `${matcher}, ` : ''}${METRICS_FROM_THE_LINE}}`;
@@ -145,10 +172,10 @@ const RECENT = '5m';
 
 /**
  * The alerts to Martin (docs/COMPONENTS/ALERTING.md):
- * - a page for each kind of security event, the first of a kind included, from the line's count of them in the store,
- *   which starts at 0; several of a kind within five minutes are one page;
+ * - an alert for each kind of security event, at its kind's level (`SECURITY_LEVELS`), the first of a kind included,
+ *   from the line's count of them in the store, which starts at 0; several of a kind within five minutes are one alert;
  * - a page when that count has gone missing for ten minutes, having been there in the six hours before, or the line
- *   has not been able to read the store for five: no security event would page meanwhile;
+ *   has not been able to read the store for five: no security event would reach him meanwhile;
  * - a page while Alertmanager has a silence in place, active or pending, from its own figures: a silence keeps pages
  *   from Martin, and nothing here makes one. A silence that matches this alert keeps it quiet too: the limit the dead
  *   man's switch covers (milestone 10). The rule takes the highest of any series by that name, so another can only page
@@ -163,7 +190,7 @@ export function martinRules(): Rule[] {
     alert: 'SecurityEvent',
     expr: `max(increase(${fromTheLine('line_security_events_total', `kind="${kind}"`)}[${RECENT}])) > 0`,
     for: '0s',
-    labels: { level: LEVELS.page, kind },
+    labels: { level: SECURITY_LEVELS[kind], kind },
     annotations: SECURITY_WORDS[kind],
   }));
   return [
@@ -175,7 +202,8 @@ export function martinRules(): Rule[] {
       labels: { level: LEVELS.page },
       annotations: {
         summary: 'Security events are not being counted',
-        description: 'The line has not counted sign-ins and the rest for some minutes, so none of them would page.',
+        description:
+          'The line has not counted sign-ins and the rest for some minutes, so none of them would reach you.',
       },
     },
     {
