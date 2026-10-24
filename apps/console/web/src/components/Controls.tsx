@@ -68,6 +68,7 @@ export function Controls({ spend, martin }: { spend: SpendView; martin: boolean 
       </p>
       <div className="links">
         <a href="?view=settings">{martin ? 'Settings' : 'Models and spend caps'}</a>
+        <a href="?view=audit">Audit log</a>
       </div>
     </article>
   );

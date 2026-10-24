@@ -1,6 +1,6 @@
 /**
  * Martin's account button, at the right of the header while he is signed in, and its menu: who is signed in, since
- * when and until when, the settings, Preview as visitor, then signing out here or everywhere. Escape or a click
+ * when and until when, the settings, the audit log, Preview as visitor, then signing out here or everywhere. Escape or a click
  * outside closes it.
  */
 import { useEffect, useRef, useState } from 'react';
@@ -73,6 +73,7 @@ export function Account({ session, onPreview }: { session: Session; onPreview: (
           </small>
         </div>
         <a href="?view=settings">Settings</a>
+        <a href="?view=audit">Audit log</a>
         <button type="button" onClick={onPreview}>
           Preview as visitor
         </button>
