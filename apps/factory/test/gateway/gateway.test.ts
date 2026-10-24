@@ -160,10 +160,17 @@ describe('the gateway', () => {
   it('reads cassettes from more than one folder', async () => {
     const recorder = await harness({ mode: 'record' });
     const live = await recorder.gateway.judge(request());
-    const h = await harness({ mode: 'replay', read: [recorder.dir] });
-    expect((await h.gateway.judge(request())).cassette).toBe(live.cassette);
+    // A second gateway on the same database: a database each would spend the test's time migrating.
+    const replaying = new Gateway({
+      sql: recorder.database.as.gateway,
+      spend: recorder.ledger,
+      cassettes: new Cassettes({ record: mkdtempSync(join(tmpdir(), 'cassettes-')), read: [recorder.dir] }),
+      mode: 'replay',
+      typesafe: recorder.typesafe,
+      log: recorder.captured.log,
+    });
+    expect((await replaying.judge(request())).cassette).toBe(live.cassette);
     await recorder.database.end();
-    await h.database.end();
   });
 
   it('falls through to record on a miss in replay-record, and replays the next time', async () => {
@@ -181,11 +188,20 @@ describe('the gateway', () => {
     await recording.gateway.judge(request());
     expect(fake.requests).toHaveLength(2);
 
-    const live = await harness({ mode: 'live' });
-    await live.gateway.judge(request());
-    expect(readdirSync(live.dir)).toEqual([]);
+    // A second gateway on the same database: a database each would spend the test's time migrating.
+    const dir = mkdtempSync(join(tmpdir(), 'cassettes-'));
+    const live = new Gateway({
+      sql: recording.database.as.gateway,
+      spend: recording.ledger,
+      cassettes: new Cassettes({ record: dir }),
+      mode: 'live',
+      typesafe: recording.typesafe,
+      log: recording.captured.log,
+    });
+    await live.judge(request());
+    expect(fake.requests).toHaveLength(3);
+    expect(readdirSync(dir)).toEqual([]);
     await recording.database.end();
-    await live.database.end();
   });
 
   it('answers a paid call whose cassette cannot be written, and still reports the cap it reached', async () => {
