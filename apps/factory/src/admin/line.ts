@@ -31,7 +31,7 @@
  */
 import { AUTONOMY } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
-import { lastEnd, latestControls, lineStopped, lockAppends } from '@software-factory/store';
+import { lastEnd, latestControls, lineStopped, lockAppends, storeClock } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { TransactionSql } from 'postgres';
 import { z } from 'zod';
@@ -180,7 +180,7 @@ export function changeSummary(change: ControlChange): string {
  * The change asked for, against the controls in force: the next few keep when they started while they stay the next
  * few, and start now otherwise. Unchecked: a number outside policy stays as given, and is refused.
  */
-function changeOf(before: Controls, asked: Change, now: Date): ControlChange {
+function changeOf(before: Controls, asked: Change, now: string): ControlChange {
   if ('autonomy' in asked) return { control: 'autonomy', before: before.autonomy, after: asked.autonomy };
   if ('newWork' in asked) return { control: 'new-work', before: before.newWork, after: asked.newWork };
   if ('autoMerge' in asked) return { control: 'auto-merge', before: before.autoMerge, after: asked.autoMerge };
@@ -191,10 +191,7 @@ function changeOf(before: Controls, asked: Change, now: Date): ControlChange {
           kind: 'next-few',
           count: take.count,
           // A new number keeps when they started; the same number again starts them again.
-          since:
-            before.take?.kind === 'next-few' && before.take.count !== take.count
-              ? before.take.since
-              : now.toISOString(),
+          since: before.take?.kind === 'next-few' && before.take.count !== take.count ? before.take.since : now,
         }
       : take;
   return { control: 'take', before: before.take, after };
@@ -233,9 +230,8 @@ export async function changeControls(store: AdminStore, session: Session, asked:
     async (tx) => {
       await lockAppends(tx);
       const { outside: _, ...before } = controlsInForce(await latestControls(tx));
-      // The store's clock, as the line counts the next few by when each work item came onto it.
-      const [{ now } = { now: new Date() }] = await tx<{ now: Date }[]>`select clock_timestamp() as now`;
-      const change = changeOf(before, asked, now);
+      // The store's clock, to the microsecond, as the line counts the next few by when each work item came onto it.
+      const change = changeOf(before, asked, await storeClock(tx));
       if (same(change)) return { after: before, change: null };
       const after = withChange(before, change);
       // Only a take can be: the request's shape holds the rest to what policy allows.

@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type NewEvent, VERSIONS } from '@software-factory/events';
-import { DiskArtifacts, EventWriter, issueJobToken, nextWorkItem } from '@software-factory/store';
+import { DiskArtifacts, EventWriter, issueJobToken, nextWorkItem, storeClock } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import { type Pending, Queue } from '../../src/line/queue.ts';
@@ -145,13 +145,15 @@ describe('a queue with a limit', () => {
 describe('a queue set to take what Martin chose', () => {
   it('counts the next few from when he chose them, and takes from then on whatever was taken before', async () => {
     await database.as.line`insert into line (work_item, stage) values ('9001', 'ended'), ('9002', 'ended')`;
-    const [{ now } = { now: '' }] = await database.owner<{ now: string }[]>`select clock_timestamp()::text as now`;
+    // As the admin service stamps it, to the microsecond; the two ended came onto the line the microsecond before.
+    const since = await storeClock(database.owner);
+    await database.owner`update line set taken_at = ${since}::text::timestamptz - interval '1 microsecond'`;
     const broken = await ticket('broken', '/search');
     const degraded = await ticket('degraded', '/products');
     const queue = new Queue(database.as.line, 'test', { take: 2 });
     // LINE_TAKE's two are spent; the next one, counted from now, takes one more.
     expect(await queue.admit()).toBeUndefined();
-    queue.takes({ only: null, take: { most: 1, since: new Date(now).toISOString() } });
+    queue.takes({ only: null, take: { most: 1, since } });
     expect(await queue.admit()).toBe(broken);
     await end(broken);
     expect(await queue.admit()).toBeUndefined();
