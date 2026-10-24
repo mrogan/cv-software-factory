@@ -3,16 +3,18 @@
 Deterministic gates (spec 4.1). Part of the [GitHub plane](README.md#github-plane).
 
 - **v1:** GitHub Actions on GitHub-hosted runners, with a target under 3 minutes and the jobs in parallel.
-- **Later:** visual regression, performance budgets, an active DAST scan, load tests.
+- **Later:** visual regression and performance budgets for the app, an active DAST scan, load tests.
 
 ## The jobs
 
 - lint and format;
 - type-check;
+- the generated files checked against their sources, and the console's built browser code against its budget, in gzipped bytes (`apps/console/budget.json`);
 - unit and integration tests;
 - the manifests rendered;
 - the app's gates ([shared gates](SHARED-GATES.md)), the journeys among them;
-- the console's browser tests, and ZAP's baseline scan of the console signed in as Martin.
+- the console's browser tests, in the pinned Playwright image, its visual snapshots among them, and its first meaningful view timed, within two seconds on a throttled phone, on a runner of its own;
+- ZAP's baseline scan of the console signed in as Martin.
 
 ## ZAP's baseline scan
 

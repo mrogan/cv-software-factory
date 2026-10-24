@@ -15,9 +15,12 @@ pnpm dev                       # the console on :5173 with the samples, reloadin
 make e2e                       # the console in a browser, in the pinned Playwright image
 make zap                       # ZAP's baseline scan of the console signed in as Martin, as CI runs it
 make up / make samples / make status / make down
+make enrol                     # a one-time code to enrol a passkey on the console
 ```
 
 The cluster's console is at `https://console.localhost:8443`, and plain HTTP on its host redirects there: Safari drops a `Secure` cookie over HTTP, even on `localhost`, and passkeys need a secure context. The app's hosts (`website.localhost:8080` and the canary), Grafana and Argo CD stay on plain HTTP at :8080. `make up` makes a local certificate authority once, in `~/.config/software-factory/local-ca` (`scripts/local-ca.ts`), whose name constraints let it sign for `localhost` names only, has macOS trust it for TLS servers (it asks once), and gives Traefik the console's certificate, renewed in its last 30 days by any `make up`. Decline the prompt and the console still shows past a browser warning, but secure cookies and passkeys, which the admin sign-in needs, will not work there; the next `make up` asks again. `make untrust-ca` takes it out of the Keychain and deletes it; `make down` leaves it. A new cluster gets the :8443 port from `deploy/k3d/cluster.yaml`; to a cluster without it, `make up` adds it in place (`k3d cluster edit`, which makes only the load balancer again, so the store keeps its work items), and says so.
+
+Martin signs in to the console with a passkey; there is no password. `make enrol` prints a one-time code, good for ten minutes and five tries, which the console's enrolment page (`https://console.localhost:8443/?view=enrol`) takes to make a passkey on that device; two may be held at once, and `make enrol REVOKE_OTHERS=1` revokes every passkey and ends every session first. Alerts reach his phone through Pushover: `make up` gives Alertmanager the Keychain's `pushover-app-token` and `pushover-user-key` (`make pushover-key` alone, after a change), and without them nothing reaches his phone and everything else works.
 
 The inner loop runs on the host, not through GitOps. With the cluster up, forward its collector and Postgres; `pnpm dev` reads the event store instead of the samples when `PGHOST` is set:
 
@@ -48,7 +51,7 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   (store_role probes && APP_URL=http://website.localhost:8080 ARTIFACTS_DIR=/tmp/artifacts PORT=8090 node apps/factory/src/cli.ts probes run)
   ```
 
-  The admin service runs on the host too, against the forwarded Postgres, for working on it before its Deployment comes. Its password is in `postgres-admin`, which `make up` makes and the migrate Job sets: on a cluster made before it, run `make up` and let Argo CD sync again. It serves `/admin/` on its own port, so a browser reaches it only through the console's origin, which is the one a passkey and `Origin` are checked against. `make enrol` prints a code to enrol a passkey (`REVOKE_OTHERS=1` revokes every passkey and session first):
+  The admin service runs on the host too, against the forwarded Postgres, for working on it. Its password is in `postgres-admin`, which `make up` makes and the migrate Job sets: on a cluster made before it, run `make up` and let Argo CD sync again. It serves `/admin/` on its own port, so a browser reaches it only through the console's origin, which is the one a passkey and `Origin` are checked against. `make enrol`, as above, makes the code for the store it reads:
 
   ```sh
   (store_role admin && ADMIN_ORIGIN=https://console.localhost:8443 PORT=8093 node apps/factory/src/cli.ts admin)

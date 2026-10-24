@@ -3,7 +3,7 @@
 The app's objectives, and what Martin must hear about, watched by the standard tools. Part of the [runtime plane](README.md#runtime-plane).
 
 - **v1:** Prometheus's alerting rules, generated from policy, and Alertmanager, which sends the objectives' alerts to the intake and pages, notifies or informs Martin through Pushover.
-- **Later:** a dead man's switch and a check from outside, since alerts from inside a cluster stop with it (milestone 10).
+- **Later:** alerts on the factory's own health (a worker crash-looping, a lease stuck, the store down, Argo CD degraded), its releases and its spend (milestone 7, Part C), and its images' vulnerabilities (Part D); a dead man's switch and a check from outside, since alerts from inside a cluster stop with it (milestone 10).
 
 ```mermaid
 flowchart LR
@@ -32,8 +32,8 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 
 | Level | Label | Sent to | For |
 |---|---|---|---|
-| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the console or the app down, the line stuck, a spend cap reached, the security events that loosen a guardrail or change who can sign in, the security events' count missing or stale, a silence in place |
-| Notify | `level: notify` | Pushover, at normal priority | a release rolled back or errored, each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does or act on a release, a security release or fixable vulnerability in a factory image |
+| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the security events that loosen a guardrail or change who can sign in, the security events' count missing or stale, a silence in place |
+| Notify | `level: notify` | Pushover, at normal priority | each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does or act on a release |
 | Inform | `level: inform` | Pushover, at low priority, with no sound or vibration | the security events that tighten, but for autonomy, or only record Martin's own use |
 | Dashboard only | none | no one: a receiver that sends nothing | everything else |
 
@@ -42,7 +42,7 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 - **A message says what happened and when:** the rule's summary as its title, its description, as the rule writes it, and the time it began firing, in UTC. Of the labels, the receiver adds only the alert's name, when a rule gives no summary, and a hold's [links](#holds).
 - **A message is Pushover's HTML,** for those links. Alertmanager renders it with Go's `html/template` (`martin.message`, a template in the same values file), which escapes each value for where it lands: a description's text as text, a number in a link's address as its query or path. It sends no supplementary URL (`url`), which would otherwise be Alertmanager's own in-cluster address, which the phone cannot open.
 - **Pushover's keys are in a Secret,** `pushover` in `telemetry`, which `make up` makes from the Keychain's `pushover-app-token` and `pushover-user-key` (`make pushover-key` alone), piped through stdin. Alertmanager reads them from files each time it sends, so a key added later needs no restart. With no keys, Alertmanager still starts and still sends to the intake; each message to Martin fails to send, and its own metrics count the failures (`alertmanager_notifications_failed_total`).
-- **Emergency priority,** which repeats until acknowledged, is not used: every page so far is one of Martin's own actions, and it would repeat at each of them.
+- **Emergency priority,** which repeats until acknowledged, is not used: most pages are of Martin's own actions, and it would repeat at each of them.
 
 ## Who reaches Alertmanager
 
