@@ -253,10 +253,17 @@ const holdAge = meter.createObservableGauge('line.hold.age', {
  * Reports each hold that waits for Martin (`holds.ts`), as the store has it, each time the SDK collects, until the
  * function it gives back is called: one series per hold, by `work_item`, `cause` and, where there is one,
  * `pull_request`, whose value is how long it has waited. A hold that is answered, or that stops waiting for him (a
- * deploy pull request's checks running again), reads 0 from then: the SDK goes on sending a series' last value after
- * its callback stops observing it, so the process remembers which it has reported, only to say once that each has
- * ended. What waits is the store's alone. A line that starts again reports only what waits then. A read that fails
- * reports nothing that time.
+ * deploy pull request's checks running again), reads 0 from then. The process remembers each series it reported
+ * while its hold waits, only to say once that it has ended, and then forgets it: what waits is the store's alone.
+ *
+ * An ended series stays, at 0, until the line next starts: the SDK (`@opentelemetry/sdk-metrics` 2.12) keeps an
+ * attribute set it has seen once in the reader's cumulative storage, and sends it each collection whether or not the
+ * callback observed it again, and neither an observable nor a synchronous gauge can remove one. Only delta temporality
+ * drops a set not observed, and temporality is the reader's, chosen by instrument type, not by instrument or view:
+ * it would change every worker's observable gauges, and mean building the OTLP reader by hand. The series kept are
+ * one for each hold that waited for Martin while the line ran, and every deploy of the factory starts it again; the
+ * SDK's own limit of 2000 sets an instrument folds any beyond it into one overflow series. A line that starts again
+ * reports only what waits then. A read that fails reports nothing that time.
  */
 export function observeHolds(sql: Sql): () => void {
   const reported = new Map<string, Attributes>();

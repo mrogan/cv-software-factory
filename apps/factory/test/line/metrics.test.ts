@@ -499,6 +499,10 @@ describe('the line’s metrics', () => {
         [ready, true],
         [deploying, true],
       ]);
+      // The SDK, with the cumulative temporality the counters need, goes on sending the ended series at 0 though the
+      // line no longer observes it: an upgrade that drops it instead would show here, and the 0 could then go.
+      const again = (await points('line.hold.age')).map((p) => [p.attributes.work_item, p.value > 0]);
+      expect(again).toEqual(after);
     } finally {
       stop();
     }
