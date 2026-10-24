@@ -24,7 +24,7 @@ flowchart LR
 
 ## The rules
 
-`apps/factory/src/alerts/rules.ts` generates Prometheus's alerting rules from it, and the [alerts to Martin](#security-events), into `deploy/base/telemetry/values/prometheus-rules.yaml`, labelled with the route and the symptom class (`server-error`, `slow-response`). Each rule compares every route's error ratio or p95 over the window, once it has had enough requests, with the objective, by the same expression Prometheus records for dashboards ([recording rules](TELEMETRY.md#each-route-against-the-objectives)), and reads only the app's own series. `make check` fails when the file is out of date.
+`apps/factory/src/alerts/rules.ts` generates Prometheus's alerting rules from it, and the alerts to Martin ([security events](#security-events) and [the shop's pod](#the-shops-pod)), into `deploy/base/telemetry/values/prometheus-rules.yaml`, labelled with the route and the symptom class (`server-error`, `slow-response`). Each rule compares every route's error ratio or p95 over the window, once it has had enough requests, with the objective, by the same expression Prometheus records for dashboards ([recording rules](TELEMETRY.md#each-route-against-the-objectives)), and reads only the app's own series. `make check` fails when the file is out of date.
 
 ## Levels and routes
 
@@ -33,7 +33,7 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 | Level | Label | Sent to | For |
 |---|---|---|---|
 | Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the console or the app down, the line stuck, a spend cap reached, the security events that loosen a guardrail or change who can sign in, the security events' count missing or stale, a silence in place |
-| Notify | `level: notify` | Pushover, at normal priority | a release rolled back or errored, a new hold, the security events that widen what the line does or act on a release, a security release or fixable vulnerability in a factory image |
+| Notify | `level: notify` | Pushover, at normal priority | a release rolled back or errored, a new hold, the shop's pod 25 days old, the security events that widen what the line does or act on a release, a security release or fixable vulnerability in a factory image |
 | Inform | `level: inform` | Pushover, at low priority, with no sound or vibration | the security events that tighten, but for autonomy, or only record Martin's own use |
 | Dashboard only | none | no one: a receiver that sends nothing | everything else |
 
@@ -89,3 +89,14 @@ Every change of the line's controls alerts him, each told from the stored change
 - **A silence can hide its own page.** A silence that matches every alert keeps this one quiet too. The cover is milestone 10's dead man's switch and check from outside, which no silence in the cluster reaches.
 - **They count what is stored.** An action the admin service takes without appending its event is not counted: a sign-in, or a change it makes to the app's Rollout. The factory acts on Martin's other commands only once they are stored, so those are counted when they take effect.
 - **Alerts from inside the cluster stop with it.** Whether the factory is up is answered from outside it, in milestone 10.
+
+## The shop's pod
+
+The node's container logs may hold a visitor's report, and they go only with the pod ([how long a report is kept](TRIAGE.md#how-long-a-report-is-kept)). So Martin is notified when a running shop pod is 25 days old (`ShopPodOld`), five days (`SHOP_POD_RELEASE_DAYS`) before the 30 the privacy pages promise (`REPORT_TEXT.promisedDays` in `policy/triage.ts`), from which the 25 is worked out: time to merge a pending update, or its deploy pull request, so that a release replaces the pod, or, with none pending, to restart the Rollout.
+
+- **A restart takes the shop down for a moment.** Argo Rollouts restarts a Rollout by evicting its pods and letting the ReplicaSet replace them, without starting a new one first, so with the shop's one replica nothing answers until the new pod is ready. A release starts the new pod beside the old one, so it is the way to replace the pod when one is pending, and the alert offers the restart second and says so.
+- **It reads kube-state-metrics:** each pod's start, from `kube_pod_start_time`, for the pods in `website` that a ReplicaSet owns, which are the Rollout's, while they run. The canary analysis's journeys, which Jobs own, are not the shop's.
+- **It holds for an hour** before it fires: the age only grows, so the hour costs little of the five days. A gap in the series resolves it, and it is sent again an hour after the series returns.
+- **It is sent every four hours** while it fires, as every notification is, until a new pod replaces the old one.
+- **It takes the oldest start of any series** for a pod, so another series by that name can only tell Martin sooner, never later.
+- **It says nothing while kube-state-metrics is down,** as nothing else watches it.
