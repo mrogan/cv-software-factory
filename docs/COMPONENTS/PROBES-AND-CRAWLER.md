@@ -27,6 +27,8 @@ Each is made of generic checks, compared with the app's own API where it has one
 
 They look at the stable Service, `website`, so a canary is judged by its analysis, not by the senses ([progressive delivery](PROGRESSIVE-DELIVERY.md)).
 
+Run by the gates (the [journeys gate](CI-PIPELINE.md#journeys), a canary's journeys, and Verify), each probe also says what its pages left on the device and which other origins they asked, as `<probe>/device`; the sense runner's probes, which look after the live app, do not.
+
 ### Not counted
 
 Every request the probes, the crawler and the page reader make sends `x-unmeasured`, from the browser and without it. The app keeps no record of them in its metrics, request log or traces ([whose requests are judged](PROGRESSIVE-DELIVERY.md#whose-requests-are-judged)):

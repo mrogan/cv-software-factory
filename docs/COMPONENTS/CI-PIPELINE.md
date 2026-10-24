@@ -39,4 +39,5 @@ flowchart LR
 ```
 
 - **It fails** on a check that passes on the base and fails on the change twice.
+- **Nothing on the visitor's device, nothing from elsewhere.** Each probe also answers `<probe>/device`: whether its pages left a cookie, or anything a script stores (local or session storage, IndexedDB, Cache Storage, a service worker), that no probe before it in the pass had, or asked another origin (`senses/observe.ts`). The app keeps nothing on a visitor's device, so a change that starts to fails like any other check that regresses, for milliseconds a probe. The probes that look after the live app do not ask.
 - **A check the base could not tell about** (the crawler's trouble) is reported, not failed on.

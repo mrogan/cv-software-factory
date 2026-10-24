@@ -11,7 +11,7 @@
  * refused, Martin's account menu, a visitor's report quoted on his sheet, Preview as visitor, the settings for Martin
  * with a change unsaved and for a visitor, and the bottom row: Needs you (Waiting on Martin for a visitor, his words
  * being written for him, the passkey asked for on a guardrail's Approve, and nothing waiting) beside Controls; and the
- * audit log, whole and narrowed to a visitor's report.
+ * audit log, whole and narrowed to a visitor's report; and the privacy page.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -670,6 +670,36 @@ test.describe('the audit log in Ink', () => {
     await expect(page).toHaveScreenshot('m07-audit-ink.png');
   });
 });
+
+/** The privacy page, from the footer, as a visitor reads it. */
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, the privacy page`, () => {
+    test.use({ viewport });
+
+    test('the privacy page', async ({ page }) => {
+      await adminService(page, 'visitor');
+      await privacyPage(page);
+      await expect(page).toHaveScreenshot(`privacy-${width}.png`, { fullPage: true });
+    });
+  });
+}
+
+test.describe('the privacy page in Ink', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('the privacy page', async ({ page }) => {
+    await adminService(page, 'visitor');
+    await privacyPage(page, 'ink');
+    await expect(page).toHaveScreenshot('privacy-ink.png', { fullPage: true });
+  });
+});
+
+/** The privacy page drawn, with the fonts it is set in. */
+async function privacyPage(page: Page, theme: 'paper' | 'ink' = 'paper') {
+  await page.goto(`${consoleUrl({ theme })}&view=privacy`);
+  await page.locator('.privacy-page').waitFor();
+  await page.evaluate(() => document.fonts.ready);
+}
 
 /** The audit log drawn, with the fonts it is set in. */
 async function auditPage(page: Page, theme: 'paper' | 'ink' = 'paper', more = '') {

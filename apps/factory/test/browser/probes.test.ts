@@ -15,6 +15,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PROBES } from '../../src/probes/index.ts';
 import { Shop } from '../../src/probes/site.ts';
 import { BrowserSense } from '../../src/senses/browser.ts';
+import { observeApp } from '../../src/senses/observe.ts';
 import type { Observation } from '../../src/senses/types.ts';
 import { type Fault, startShop } from './shop.ts';
 
@@ -32,8 +33,11 @@ beforeEach(() => {
 });
 afterAll(() => browser?.close());
 
-/** Runs the probes whose names are given (all of them if none are) against a shop with these faults. */
-async function observe(faults: Fault[], only: string[] = []): Promise<Observation[]> {
+/**
+ * Runs the probes whose names are given (all of them if none are) against a shop with these faults, saying what each
+ * left on the device when asked to.
+ */
+async function observe(faults: Fault[], only: string[] = [], device = false): Promise<Observation[]> {
   const shop = await startShop(...faults);
   try {
     const checks = PROBES.filter((check) => !only.length || only.includes(check.id));
@@ -45,6 +49,7 @@ async function observe(faults: Fault[], only: string[] = []): Promise<Observatio
       log,
       shared: () => new Shop(shop.url),
       launch: async () => browser,
+      device,
     });
     return await sense.pass('a'.repeat(40));
   } finally {
@@ -189,4 +194,56 @@ describe('the contact probes', () => {
       await shop.close();
     }
   }, 60_000);
+});
+
+describe('what the pages leave on the device, for the gates', () => {
+  /** Each check that left something or asked another origin, with what it was, the shop's own origin as `<shop>`. */
+  const devices = (observations: Observation[]) =>
+    observations
+      .filter((o) => o.device && (o.device.kept.length || o.device.asked.length))
+      .map((o) => `${o.check}: ${[...(o.device?.kept ?? []), ...(o.device?.asked ?? [])].join(', ')}`)
+      .map((line) => line.replace(/http:\/\/127\.0\.0\.1:\d+/g, '<shop>'));
+
+  it('is nothing on a shop that is right, and is not asked of the senses that watch the live app', async () => {
+    const observations = await observe([], [], true);
+    const own = observations.filter((o) => PROBES.some((p) => p.id === o.check));
+    expect(own.every((o) => o.device !== undefined)).toBe(true);
+    expect(devices(observations)).toEqual([]);
+    // The watch's own checks carry nothing of it.
+    expect(observations.filter((o) => o.check.includes('/') && o.device)).toEqual([]);
+    expect((await observe([], ['home-leads-to-the-catalogue'])).some((o) => o.device)).toBe(false);
+  }, 120_000);
+
+  it('names the first check whose pages kept a cookie or stored anything, and the origins they asked', async () => {
+    const observations = await observe(['keeps-cookie', 'keeps-storage', 'asks-elsewhere'], [], true);
+    expect(devices(observations)).toEqual([
+      'home-leads-to-the-catalogue: cookie visit, http://elsewhere.invalid',
+      // Each check that opens the home page asks there again; the cookie is the first's alone.
+      'home-links-open: http://elsewhere.invalid',
+      'departments-list-their-products: http://elsewhere.invalid',
+      'product-page-agrees-with-the-api: localStorage seen on <shop>, sessionStorage viewed on <shop>',
+    ]);
+  }, 120_000);
+
+  it('fails the probe’s `/device` check when the gates observe the shop, and passes it on a shop that is right', async () => {
+    for (const [faults, failed] of [
+      [[], []],
+      [['keeps-cookie'], ['home-leads-to-the-catalogue/device']],
+    ] as const) {
+      const shop = await startShop(...faults);
+      try {
+        const { seen } = await observeApp(shop.url, [{ sense: 'probe', check: 'home-leads-to-the-catalogue' }], {
+          store,
+          log,
+          limit: 10,
+        });
+        const device = seen.filter((s) => s.check.endsWith('/device'));
+        expect(device.map((s) => s.check)).toEqual(['home-leads-to-the-catalogue/device']);
+        expect(device.filter((s) => s.failed).map((s) => s.check)).toEqual(failed);
+        if (failed.length) expect(device[0]?.message).toBe('The pages left cookie visit on the device.');
+      } finally {
+        await shop.close();
+      }
+    }
+  }, 120_000);
 });

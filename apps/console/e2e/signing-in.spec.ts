@@ -5,7 +5,7 @@
  * out everywhere, a device with no passkey, and a code with no tries left. Needs Postgres: TEST_DATABASE_URL, or Docker.
  */
 import { type Harness, startHarness, virtualPasskey } from './admin.ts';
-import { expect, test } from './support.ts';
+import { expect, keptOnDevice, SESSION_COOKIE, test } from './support.ts';
 
 const PORT = 18_326;
 
@@ -76,6 +76,8 @@ test('enrols a passkey with a one-time code, and is signed in; then signs out, i
     await expect(account).toBeFocused();
     // The cookie is the service's alone: HttpOnly, so this page's script cannot read it.
     expect(await page.evaluate(() => document.cookie)).toBe('');
+    // The one thing the console keeps on a device, and only Martin's: no other cookie, and no storage of any kind.
+    expect(await keptOnDevice(page)).toEqual([SESSION_COOKIE]);
     const [cookie] = await page.context().cookies();
     expect(cookie).toMatchObject({
       name: '__Host-session',
@@ -92,6 +94,7 @@ test('enrols a passkey with a one-time code, and is signed in; then signs out, i
     await expect(page).toHaveURL(/\?view=sign-in&ended=here$/);
     await expect(page.getByRole('status')).toHaveText('Signed out. This browser holds no session now.');
     expect(await page.context().cookies()).toEqual([]);
+    expect(await keptOnDevice(page)).toEqual([]);
   });
 
   await test.step('signs in again with the same passkey', async () => {

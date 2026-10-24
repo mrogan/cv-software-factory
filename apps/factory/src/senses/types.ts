@@ -43,6 +43,17 @@ export interface Observation {
   look?: { path: string; elements: Check[] };
   /** Set when the check could not tell, such as a timeout or an app that did not answer: neither a pass nor a failure. */
   trouble?: string;
+  /**
+   * What the check's pages left on the device that no check before it in the pass had, and the other origins they asked,
+   * from a browser sense asked to look (`device`): the gates', which judge a change, and never the senses'.
+   */
+  device?: Device;
+}
+
+/** What a check's pages left on the device, as `<kind> <name>`, and the other origins they asked. */
+export interface Device {
+  kept: string[];
+  asked: string[];
 }
 
 /** One sense: something that can run all its checks against the app, and says what each found. */

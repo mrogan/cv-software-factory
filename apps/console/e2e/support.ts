@@ -1,7 +1,7 @@
 /**
  * What every browser test shares: the widths and themes it runs at, the samples' last moment to pin the time to,
  * the milestone 4 test data's server and moments, and a guard that fails a test on any content security policy
- * violation or request to another origin.
+ * violation, any request to another origin, and anything left on the device but Martin's session cookie.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -284,12 +284,36 @@ async function fullStream(page: Page): Promise<void> {
   }, events);
 }
 
+/** The one thing the console may leave on a device: the admin service's session cookie, once Martin signs in. */
+export const SESSION_COOKIE = 'cookie __Host-session';
+
+/**
+ * Everything the browser keeps for the console, as `<kind> <name>`: its cookies, whoever set them and whether a script
+ * could read them, and, for the page's origin, local and session storage, IndexedDB, Cache Storage and service workers.
+ * The privacy page says the console keeps nothing on a visitor's device: this is what holds it to that.
+ */
+export async function keptOnDevice(page: Page): Promise<string[]> {
+  const cookies = (await page.context().cookies()).map((cookie) => `cookie ${cookie.name}`);
+  if (!/^https?:/.test(page.url())) return cookies;
+  const stored = await page.evaluate(async () => [
+    ...Object.keys(localStorage).map((key) => `localStorage ${key}`),
+    ...Object.keys(sessionStorage).map((key) => `sessionStorage ${key}`),
+    ...(await indexedDB.databases()).map((db) => `IndexedDB ${db.name}`),
+    ...(globalThis.caches ? await caches.keys() : []).map((name) => `Cache Storage ${name}`),
+    ...((await navigator.serviceWorker?.getRegistrations()) ?? []).map((worker) => `service worker ${worker.scope}`),
+  ]);
+  return [...cookies, ...stored];
+}
+
 interface Guard {
   violations: string[];
   foreign: string[];
 }
 
-/** Every test fails on a policy violation or a request to another origin, whatever else it checks. */
+/**
+ * Every test fails on a policy violation, a request to another origin, or anything left on the device but Martin's
+ * session cookie, whatever else it checks.
+ */
 export const test = base.extend<{ guard: Guard }>({
   guard: [
     async ({ page, baseURL }, use) => {
@@ -313,6 +337,14 @@ export const test = base.extend<{ guard: Guard }>({
       await use(guard);
       expect(guard.violations, 'content security policy violations').toEqual([]);
       expect(guard.foreign, 'requests to another origin').toEqual([]);
+      // A page that has closed, or is between documents, leaves its cookies to read.
+      const kept = await keptOnDevice(page).catch(async () =>
+        (await page.context().cookies()).map((cookie) => `cookie ${cookie.name}`),
+      );
+      expect(
+        kept.filter((thing) => thing !== SESSION_COOKIE),
+        'kept on the device',
+      ).toEqual([]);
     },
     { auto: true },
   ],

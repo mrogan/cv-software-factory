@@ -1,0 +1,94 @@
+/*
+ * The privacy page (`?view=privacy`): one column of prose at a reading width, a section to each question, and a table
+ * of what the server keeps and for how long, its head in `t-label` type as the audit log's is. The page's head is the
+ * settings page's (`settings.css`).
+ */
+.privacy-page {
+  padding: 40px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  max-width: 720px;
+}
+.privacy-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.privacy-section h2 {
+  margin: 0;
+  font: 400 28px / 1 var(--font-display);
+  letter-spacing: -0.2px;
+}
+.privacy-section p,
+.privacy-proof {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-2);
+}
+.privacy-section ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.privacy-section li {
+  padding-left: 14px;
+  border-left: var(--stroke-rule) solid var(--line-strong);
+  font-size: 15px;
+  color: var(--text-2);
+}
+.privacy-section strong {
+  font-weight: 500;
+  color: var(--text);
+}
+.privacy-page code {
+  font: 12.5px var(--font-mono);
+  padding: 1px 6px;
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  color: var(--text);
+}
+table.privacy-kept {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.privacy-kept thead th {
+  text-align: left;
+  font: 10.5px / 1.4 var(--font-mono);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 400;
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid var(--line-strong);
+}
+.privacy-kept tbody th,
+.privacy-kept td {
+  text-align: left;
+  padding: 10px 14px 10px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: baseline;
+  color: var(--text-2);
+}
+.privacy-kept tbody th {
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
+.privacy-kept td:last-child {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.privacy-proof {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.privacy-proof a {
+  color: inherit;
+}

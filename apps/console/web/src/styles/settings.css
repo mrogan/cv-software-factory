@@ -2,7 +2,7 @@
  * The settings page (`?view=settings`): the models and the caps on the left, the passkeys and this session on the
  * right; one column on a phone. A changed field takes a 2px `signal` rule inside its left edge until it is saved or
  * discarded, and so does the bar that lists the changes. The audit log's page (`audit.css`) shares its head and its
- * drop-downs.
+ * drop-downs, and the privacy page (`privacy.css`) its head.
  */
 .settings-page {
   padding: 40px 0 0;
@@ -11,20 +11,23 @@
   gap: 28px;
 }
 .settings-head h1,
-.audit-head h1 {
+.audit-head h1,
+.privacy-head h1 {
   margin: 0;
   font: 400 46px / 1 var(--font-display);
   letter-spacing: -0.6px;
 }
 .settings-head p,
-.audit-head p {
+.audit-head p,
+.privacy-head p {
   margin: 10px 0 0;
   max-width: 720px;
   font-size: 15px;
   color: var(--text-2);
 }
 .settings-head .crumb,
-.audit-head .crumb {
+.audit-head .crumb,
+.privacy-head .crumb {
   display: inline-flex;
   margin-bottom: 14px;
   font-size: 13px;
