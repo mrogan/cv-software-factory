@@ -43,7 +43,8 @@ test('Martin answers a card, which moves to Answered today, and gives his passke
   await enrolThroughTheDoor(page, await harness.code());
   await page.goto('/?motion=off');
   await expect(panel(page).getByRole('heading', { level: 2 })).toHaveText('Needs you');
-  await expect(panel(page).locator('.count-attn')).toHaveText('9 waiting');
+  // Nine holds, but #1321's deploy is not his yet, its checks running: its card stays, out of the count.
+  await expect(panel(page).locator('.count-attn')).toHaveText('8 waiting');
 
   await test.step('Approving the planner’s question asks for nothing', async () => {
     const question = card(page, '1300');
@@ -106,8 +107,8 @@ test('Martin answers a card, which moves to Answered today, and gives his passke
 test('a visitor sees what waits on Martin, read only, and not his words on a visitor’s report', async ({ page }) => {
   await page.goto('/?motion=off');
   await expect(panel(page).getByRole('heading', { level: 2 })).toHaveText('Waiting on Martin');
-  // Two of the samples' nine holds Martin answered above.
-  await expect(panel(page).locator('.count-attn')).toHaveText('7 waiting');
+  // Two of the samples' eight holds that wait on him Martin answered above.
+  await expect(panel(page).locator('.count-attn')).toHaveText('6 waiting');
   const review = card(page, '1323');
   await expect(review.locator('.kick b')).toHaveText('Held by review');
   await expect(review.locator('.ro')).toHaveText(['Approve', 'Answer in words', 'Reject']);
@@ -115,6 +116,8 @@ test('a visitor sees what waits on Martin, read only, and not his words on a vis
   await expect(panel(page).getByRole('button', { name: 'Approve' })).toHaveCount(0);
   // A deploy takes only his rejection: approving or words would leave it waiting just the same.
   await expect(card(page, '1321').locator('.ro')).toHaveText(['Reject']);
+  await expect(card(page, '1321').locator('.kick b')).toHaveText('Its deploy’s checks are running');
+  await expect(card(page, '1321').getByRole('link', { name: 'Deploy #1331 on GitHub' })).toBeVisible();
   // His words on the visitor's suggestion stay his; his approval of the planner's question is public.
   const today = panel(page).locator('.answered');
   await expect(today).toContainText(
