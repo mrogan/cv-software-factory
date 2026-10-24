@@ -61,6 +61,10 @@ export default defineConfig({
     // Every asset is a file of its own, never inlined as a data: URL, which the policy would refuse.
     assetsInlineLimit: 0,
     target: 'es2024',
+    // Everything the first view loads in one chunk, the entry's. Left to itself, Rolldown splits the modules the entry
+    // shares with the pages that load later into chunks of their own once there are more than a few such pages, and
+    // the first view then waits on five files where one would do.
+    rolldownOptions: { output: { codeSplitting: { groups: [{ name: 'index', tags: ['$initial'] }] } } },
   },
   server: {
     port: 5173,

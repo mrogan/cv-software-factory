@@ -27,6 +27,10 @@ const PATHS = {
   back: 'M13 11V8a4 4 0 0 0-4-4H3 M6 1 3 4l3 3',
   /** A key: an action that asks for Martin's passkey, and signing in with one. */
   key: 'M4.5 5.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 1 0 0-5.5 M7.25 8H14.25 M11.75 8v2.5 M14 8v2',
+  /** A person: an admin action, in the audit log. */
+  person: 'M8 2.5a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 1 0 0-5.5 M2.75 14c.7-2.9 2.8-4.5 5.25-4.5s4.55 1.6 5.25 4.5',
+  /** A chip: a model call, in the audit log. */
+  chip: 'M5.5 4h5A1.5 1.5 0 0 1 12 5.5v5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 10.5v-5A1.5 1.5 0 0 1 5.5 4 M6.5 1.75V4 M9.5 1.75V4 M6.5 12v2.25 M9.5 12v2.25 M1.75 6.5H4 M1.75 9.5H4 M12 6.5h2.25 M12 9.5h2.25',
   /** A laptop: a model run on Martin's own machine, where what matters is where it ran, not whose model it is. */
   local: 'M3 4h10v6.5H3z M1.5 12.5h13',
 } satisfies Record<Category | string, string>;
