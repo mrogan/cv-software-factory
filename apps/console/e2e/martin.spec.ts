@@ -112,6 +112,11 @@ test('Martin reads the full events, previews as a visitor, and comes back', asyn
     await expect(rows(visitor)).toHaveCount(his.length);
     expect(await rows(visitor).allInnerTexts()).toEqual(his);
     await visitor.close();
+
+    // Back on the console, his full events again, for the session's end below.
+    opened.length = 0;
+    await page.goto(SHEET);
+    await expect.poll(() => opened.includes('/admin/events/stream')).toBe(true);
   });
 
   await test.step('a session ended elsewhere closes the stream, and the page goes to the sign-in door', async () => {
