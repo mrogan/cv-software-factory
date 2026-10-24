@@ -349,7 +349,7 @@ serverFiles:
               level: "notify"
             annotations:
               summary: "A hold waits for you"
-              description: "A work item is held for your answer: {{ $labels.cause }}. The line takes no work, so cannot say which: Needs you lists it."
+              description: "A work item is held for your answer: {{ $labels.cause }}. The line takes no work, so it cannot say which: Needs you lists it."
           - alert: ShopPodOld
             expr: "max by (pod) (time() - kube_pod_start_time{namespace=\"website\"}) > 2160000 and on (pod) (max by (pod) (kube_pod_owner{namespace=\"website\", owner_kind=\"ReplicaSet\"}) and on (pod) max by (pod) (kube_pod_status_phase{namespace=\"website\", phase=\"Running\"} == 1))"
             for: 1h

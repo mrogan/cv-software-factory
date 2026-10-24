@@ -376,7 +376,7 @@ export function martinRules(): Rule[] {
       annotations: {
         summary: 'A hold waits for you',
         description:
-          'A work item is held for your answer: {{ $labels.cause }}. The line takes no work, so cannot say which: Needs you lists it.',
+          'A work item is held for your answer: {{ $labels.cause }}. The line takes no work, so it cannot say which: Needs you lists it.',
       },
     },
     {
