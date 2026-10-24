@@ -20,7 +20,8 @@ import {
 } from '@software-factory/events';
 import { GUARDRAIL_HOLDS } from '../access.ts';
 import { APP_REPO, clock, duration, money } from '../format.ts';
-import type { ItemState } from './items.ts';
+import { deployWords, failedWords } from './fixing.ts';
+import { deployWaitsForMartin, type ItemState } from './items.ts';
 import { startOfDay } from './line.ts';
 
 /** The one piece of evidence that explains a hold: a check's or the fence's own output, a question, or words. */
@@ -246,21 +247,47 @@ function evidenceOf(item: ItemState, cause: HoldCause): Evidence {
       text: `${spent}${spent ? 'of' : 'It reached'} its ${money(hold.limitUsd)} cap on models. Raising a work item’s cap past what it has spent carries it on.`,
     };
   }
-  if (cause === 'deploy') {
-    const merged = latest(item, 'pull-request.merged');
-    const at = merged ? ` at ${clock(Date.parse(merged.ts))}` : '';
-    return {
-      kind: 'words',
-      text: `Merged${at}. The next deploy pull request carries it; merging that is yours, on GitHub, and a release that carries it ends this wait by itself.`,
-    };
-  }
+  if (cause === 'deploy') return { kind: 'words', text: deployEvidence(item) };
   return { kind: 'words', text: reason };
 }
 
-/** The pull request a merge waits for, on GitHub; the settings for a spend cap. */
+/**
+ * What a fix held for a deploy waits for, from the deploy pull request that carries it as the line last recorded it:
+ * none yet, while its image is built and signed; its checks running or failed; passed, when merging it is Martin's;
+ * merged, until Argo CD syncs; or closed unmerged, for the next build's. After a release that carried it was stopped,
+ * the hold's own reason, which names his retry.
+ */
+function deployEvidence(item: ItemState): string {
+  const merged = latest(item, 'pull-request.merged');
+  const at = `Merged${merged ? ` at ${clock(Date.parse(merged.ts))}` : ''}.`;
+  const deploy = item.deploy;
+  if (!deploy) {
+    if (item.releaseStopped) return item.hold?.reason ?? at;
+    return `${at} The App opens the deploy pull request that carries it once its image is built and signed; merging that will be yours, on GitHub.`;
+  }
+  const n = `Deploy #${deploy.pullRequest}`;
+  switch (deploy.state) {
+    case 'checking':
+      return `${at} ${n} carries it, and its checks are running; once they pass, merging it is yours, on GitHub.`;
+    case 'passed':
+      return `${at} ${n} carries it, and its checks passed: merging it is yours, on GitHub, and a release that carries it ends this wait by itself.`;
+    case 'failed':
+      return `${at} ${n} carries it, and ${failedWords(deploy.failed)} failed on it. A newer build moves it on, and its checks run again.`;
+    case 'merged':
+      return `${at} ${n}, which carries it, merged; its release starts once Argo CD syncs, and ends this wait by itself.`;
+    case 'closed':
+      return `${at} ${n} was closed unmerged; the next build’s deploy pull request carries it.`;
+  }
+}
+
+/** The pull request a merge or a deploy waits for, on GitHub; the settings for a spend cap. */
 function linkOf(item: ItemState, cause: HoldCause): Need['link'] {
   if (cause === 'merge' && item.pullRequest !== undefined) {
     return { href: `${APP_REPO}/pull/${item.pullRequest}`, label: `Merge #${item.pullRequest} on GitHub` };
+  }
+  if (cause === 'deploy' && item.deploy) {
+    const n = item.deploy.pullRequest;
+    return { href: `${APP_REPO}/pull/${n}`, label: `Deploy #${n} on GitHub` };
   }
   if (cause === 'spend') return { href: '?view=settings', label: 'Raise the cap in the settings' };
   return undefined;
@@ -284,7 +311,10 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
           workItem: item.number,
           hold: hold.id,
           cause: hold.cause,
-          kicker: kickerOf(hold.cause, hold.stage, opener?.sense),
+          kicker:
+            hold.cause === 'deploy' && !deployWaitsForMartin(item)
+              ? deployWords(item.deploy).kicker
+              : kickerOf(hold.cause, hold.stage, opener?.sense),
           stage: hold.stage,
           waited: waited(t - hold.since),
           since: hold.since,

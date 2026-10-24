@@ -1363,11 +1363,11 @@ const ITEMS = [
 
   { id: '1314', cat: 'functional', kind: 'Ticket from the probes', end: 'deploy', title: 'The contact form loses your message',
     desc: 'The fix is merged. It waits for a deploy pull request to carry it, and merging that is Martin’s while the factory is Supervised.',
-    lead: 'The contact journey found that a message was cleared when sending it failed, so the visitor had to type it again. The fix passed every gate and review, and Martin merged it at 15:58. It now waits at Release for the next deploy pull request, which lists it with its ticket and issue; Martin merges that, and everything after it is unattended.',
+    lead: 'The contact journey found that a message was cleared when sending it failed, so the visitor had to type it again. The fix passed every gate and review, and Martin merged it at 15:58. It now waits at Release for deploy pull request #1330, which lists it with its ticket and issue and has passed its checks; Martin merges that, and everything after it is unattended.',
     ver: null, seen: 'v0.9.9', live: 'v0.9.12', appVersion: 'v0.9.11', pr: '1316', day: 'Sat 3 Oct', time: '15:21', dur: '1h\u00a025min so far', found: 'Probe · contact journey', prog: 'oooooow ',
     // The card shows what Martin is asked to decide; the sheet's Evidence still shows what was wrong.
     problem: { type: 'page', tag: ['SEEN · v0.9.9', 'attn'], page: () => PAGES.contact({ mark: ['', 'Your message is gone'], error: 'We could not send your letter. Please try again.' }) },
-    vis: { type: 'deploy' }, merged: ['1316', '15:58', '4be1a2c', 'fix: keep the contact form’s message when sending fails'],
+    vis: { type: 'deploy' }, merged: ['1316', '15:58', '4be1a2c', 'fix: keep the contact form’s message when sending fails'], deploy: '1330',
     ch: [['SIGNAL', 'T+00:00', 'probe', 'Contact journey: the message is gone after a failed send', 0, null], ['TICKET', 'T+00:35', 'triage', 'Ticket #1314: functional, severity broken', 14, null],
       ['PR', 'T+18:20', 'coder', 'Failing test first, then the fix · PR #1316', 40, null], ['GATES', 'T+24:00', 'actions', 'All 13 required checks passed', 55, null],
       ['REVIEW', 'T+27:30', 'reviewer', 'Approved', 66, null], ['MERGED', 'T+37:00', 'martin', 'Martin merged PR #1316', 82, null],
@@ -1539,10 +1539,11 @@ const VIS = {
     <div class="logs">${it.logs.sides.map(([label, lines]) => `<div class="term"><span class="dim">${label}</span>
 ${lines}</div>`).join('')}</div>
     <div class="unchanged"><span>${it.logs.foot}</span></div></div>`,
-  // Merged, waiting for the deploy pull request that carries it: the waiting-on-Martin pattern, with the attn rule.
+  // Merged, its deploy pull request open with its checks passed: the waiting-on-Martin pattern, with the attn rule.
+  // Before they pass, the caption says what it waits for, in text-muted, and the card is quiet.
   deploy: (it) => { const [pr, at, commit, title] = it.merged; return `<div class="pad"><div class="spec"><div class="cap" style="color: var(--attn)">Merged · waiting for Martin’s deploy</div>
     <div style="font: 2.2cqw/1.4 var(--font-mono)">PR #${pr} · ${title}</div>
-    <div class="waits"><span>${glyph('check')}Merged by Martin at ${at} · ${commit}</span><span class="muted">${glyph('ring')}The next deploy pull request carries it, with its ticket and issue</span><span class="muted">${glyph('ring')}Then a canary against the version before, and Verify</span></div>
+    <div class="waits"><span>${glyph('check')}Merged by Martin at ${at} · ${commit}</span><span>${glyph('check')}Deploy #${it.deploy} carries it, and its checks passed</span><span class="muted">${glyph('ring')}Then a canary against the version before, and Verify</span></div>
     <div class="ask" style="color: var(--text-2)">While the factory is Supervised, merging the deploy is Martin’s. Everything after it is unattended.</div></div></div>`; },
   page: (it) => `${it.vis.page()}<span class="wtag l"><span class="dot tone-${it.vis.tag[1]}"></span>${it.vis.tag[0]}</span>`,
   spec: (it) => `<div class="pad"><div class="spec"><div class="cap" style="color: var(--attn)">Spec · waiting for Martin</div>
@@ -2121,7 +2122,7 @@ function deployBlock(it) {
   return `<article class="rel needs"><div class="rel-head"><span class="label">Release · not yet</span><span class="word tone-attn"><span class="dot tone-attn ring alarm"></span>Needs you</span></div>
     <p style="margin: 0; font: 400 24px/1.15 var(--font-display)">Merged · waiting for Martin’s deploy</p>
     <ul class="wait-rows"><li>${glyph('check')}<span>PR #${pr} merged by Martin at ${at} · commit ${commit}</span></li>
-      <li class="muted">${glyph('ring')}<span>The next deploy pull request carries it, and lists it with its ticket and issue</span></li>
+      <li>${glyph('check')}<span>Deploy #${it.deploy} carries it, and its checks passed</span></li>
       <li class="muted">${glyph('ring')}<span>Then a canary against the version before, and Verify</span></li></ul>
     <p class="pages-note">While the factory is Supervised, merging the deploy is Martin’s. Everything after it is unattended.</p></article>`;
 }
@@ -2280,7 +2281,7 @@ const HOLDS = [
       ['answered', 'Answer in words', 'The planner reads your answer and writes the spec again.'],
       ['rejected', 'Reject', 'Closes #1300. Nothing is built.']] },
   { id: '1314', cause: 'deploy', kicker: 'Waiting for your deploy', stage: 'Release', age: '25min', title: 'The contact form loses your message',
-    ev: `<p class="ev">Merged at 15:58. The next deploy pull request carries it; merging that is yours, on GitHub, and a release that carries it ends this wait by itself.</p>`,
+    ev: `<p class="ev">Merged at 15:58. Deploy #1330 carries it, and its checks passed: merging it is yours, on GitHub, and a release that carries it ends this wait by itself.</p><p class="ev"><a href="#">Deploy #1330 on GitHub</a></p>`,
     answers: [['rejected', 'Reject', 'Closes #1314. Its change stays merged, and goes out with the next deploy anyway.']] },
   { id: '1315', cause: 'finding', kicker: 'The planner found', stage: 'Triage', age: '10min', title: 'The About page links to a page that isn’t there',
     ev: `<p class="ev">Seen while planning #1312, and on no ticket yet. A finding waits for you before triage opens one.</p>`,

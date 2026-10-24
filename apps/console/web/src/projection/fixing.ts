@@ -14,7 +14,7 @@
 import type { PayloadOf, PublicEvent, Stage } from '@software-factory/events';
 import { inScope, returnWords } from '@software-factory/events';
 import { RULES } from './app.ts';
-import type { Hold, ItemState } from './items.ts';
+import { deployWaitsForMartin, type Hold, type ItemState } from './items.ts';
 import type { Ended, Picture } from './reel.ts';
 
 type Review = PayloadOf<'review.submitted'>;
@@ -279,12 +279,16 @@ export function waitPicture(item: ItemState): Picture | undefined {
   }
 }
 
-/** A merged fix waiting for the deploy pull request that will carry it: the pull request it waits with. */
+/**
+ * A merged fix held for the deploy pull request that will carry it: the pull request it waits with, and the deploy
+ * pull request's state, once the App has opened one.
+ */
 export function deployPicture(item: ItemState): Extract<Picture, { type: 'deploy' }> | undefined {
   if (item.hold?.cause !== 'deploy') return undefined;
   const merged = ofType(item, 'pull-request.merged').at(-1);
   const pushed = ofType(item, 'pull-request.pushed').at(-1)?.payload;
   const ended = endedSinceMerge(item);
+  const deploy = item.deploy;
   return {
     type: 'deploy',
     pullRequest: pushed?.number ?? item.pullRequest,
@@ -295,7 +299,93 @@ export function deployPicture(item: ItemState): Extract<Picture, { type: 'deploy
       byMartin: merged.payload.by === 'martin',
     },
     ended,
+    deploy: deploy && {
+      pullRequest: deploy.pullRequest,
+      state: deploy.state,
+      ...(deploy.failed && { failed: deploy.failed }),
+    },
+    waitsForMartin: deployWaitsForMartin(item),
   };
+}
+
+/** A deploy pull request that carries a held fix, as the line recorded it: what the console says of it. */
+export type DeployRecord = Pick<PayloadOf<'deploy.changed'>, 'pullRequest' | 'state' | 'failed'>;
+
+/** A deploy pull request's state, in a few words, for the sheet's facts. */
+export const DEPLOY_STATE: Record<DeployRecord['state'], string> = {
+  checking: 'checks running',
+  passed: 'checks passed',
+  failed: 'checks failed',
+  merged: 'merged',
+  closed: 'closed unmerged',
+};
+
+/** The checks that failed, in a few words: "e2e", "e2e and lint", "e2e, lint and 2 more". */
+export function failedWords(failed: readonly string[] | undefined): string {
+  const [first, second, ...rest] = failed ?? [];
+  if (!first) return 'a check';
+  if (!second) return first;
+  return rest.length ? `${first}, ${second} and ${rest.length} more` : `${first} and ${second}`;
+}
+
+/**
+ * Where the deploy pull request that carries a held fix stands, in the console's words: `short` for a row or a
+ * caption after "Merged ·" ("deploy #412’s checks running"); `tick` for the line the waiting picture draws for it,
+ * and whether that line is done (a tick), still to come (a ring) or went wrong (a cross); and `kicker` for its card in
+ * Needs you. None recorded is the pull request still to come: the image that carries the fix is being built and signed.
+ */
+export function deployWords(deploy: DeployRecord | undefined): {
+  short: string;
+  tick: string;
+  ok: boolean | undefined;
+  kicker: string;
+} {
+  if (!deploy) {
+    return {
+      short: 'waiting for its deploy pull request',
+      tick: 'The next deploy pull request carries it, with its ticket and issue',
+      ok: undefined,
+      kicker: 'Its deploy is being built',
+    };
+  }
+  const n = deploy.pullRequest;
+  switch (deploy.state) {
+    case 'checking':
+      return {
+        short: `deploy #${n}’s checks running`,
+        tick: `Deploy #${n} carries it; its checks are running`,
+        ok: undefined,
+        kicker: 'Its deploy’s checks are running',
+      };
+    case 'passed':
+      return {
+        short: `deploy #${n} ready to merge`,
+        tick: `Deploy #${n} carries it, and its checks passed`,
+        ok: true,
+        kicker: 'Waiting for your deploy',
+      };
+    case 'failed':
+      return {
+        short: `deploy #${n}’s checks failed`,
+        tick: `Deploy #${n} carries it, and ${failedWords(deploy.failed)} failed on it`,
+        ok: false,
+        kicker: 'Its deploy’s checks failed',
+      };
+    case 'merged':
+      return {
+        short: `deploy #${n} merged, waiting for Argo CD`,
+        tick: `Deploy #${n} merged; its release starts once Argo CD syncs`,
+        ok: true,
+        kicker: 'Its deploy merged',
+      };
+    case 'closed':
+      return {
+        short: `deploy #${n} closed, waiting for the next`,
+        tick: `Deploy #${n} was closed unmerged; the next build’s carries it`,
+        ok: false,
+        kicker: 'Its deploy was closed',
+      };
+  }
 }
 
 /**

@@ -130,6 +130,10 @@ export default new Item('1306', '2026-10-05T09:05:00+01:00')
     cause: 'deploy',
     reason: 'The fix in pull request #1307 is merged, and waits for a deploy pull request to carry it to the shop',
   })
+  // The newer build moves #1304's deploy pull request on, to carry this fix too.
+  .deploy('1:19:00', 1313, 2, 'checking')
+  .deploy('1:23:00', 1313, 2, 'passed')
+  .deploy('1:25:00', 1313, 2, 'merged')
   .released('1:26:00', 'v0.9.8', 'v0.9.7', V098)
   // Thirty minutes after the promotion, the same error from the new version: a basket of gift cards has nothing to
   // deliver either, and the fix only looked for an empty one.
@@ -215,6 +219,9 @@ export default new Item('1306', '2026-10-05T09:05:00+01:00')
     cause: 'deploy',
     reason: 'The fix in pull request #1309 is merged, and waits for a deploy pull request to carry it to the shop',
   })
+  .deploy('3:09:00', 1328, 1, 'checking')
+  .deploy('3:12:30', 1328, 1, 'passed')
+  .deploy('3:14:30', 1328, 1, 'merged')
   .released('3:15:00', 'v0.9.10', 'v0.9.8', [
     {
       errorRate: { canary: 0.0019, baseline: 0.0021 },

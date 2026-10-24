@@ -20,7 +20,9 @@
  * - About as often, it tells the app's deploy pull request which work items it carries: those whose fixes merged
  *   between the commit the app runs and the one the pull request runs, as a release starting records them. It says
  *   so only when the list, or the pull request, has changed since it last did. Not with `only`: a soak of one work
- *   item says nothing of the others.
+ *   item says nothing of the others. And it records, on each work item held for a deploy that the pull request
+ *   carries, where that pull request stands: its checks running, passed or failed, merged, or closed (`deploy.ts`),
+ *   with `only` too, for that work item.
  * - About every thirty seconds, it reads the app's Rollout and its AnalysisRuns, and records each release on the work
  *   items it carries, or on the line when it carries none (`release.ts`). It changes nothing in Kubernetes. In a dry
  *   run, it answers for the releases of the dry run's merges, which never shipped.
@@ -93,7 +95,7 @@ import { type Controls, controlsInForce } from '../../../../policy/line.ts';
 import { release as RELEASE } from '../../../../policy/release.ts';
 import { sendCounts } from '../counts.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
-import { type Carry, DEPLOYS, MAX_CARRIES } from '../github/deploys.ts';
+import { type Carry, DEPLOYS, type DeployProposal, MAX_CARRIES } from '../github/deploys.ts';
 import type {
   ActingFor,
   ActionArgs,
@@ -122,6 +124,7 @@ import {
 import type { Signal } from './agents/evidence.ts';
 import { AGENTS, type Agents } from './agents/index.ts';
 import { capOn, capsInForce, lastSeq } from './caps.ts';
+import { type HeldForDeploy, latestDeploy, recordDeploys } from './deploy.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
 import {
   closesWhenCleared,
@@ -136,11 +139,11 @@ import {
   STAGE_OF,
   type WorkItemState,
 } from './machine.ts';
-import { countRecorded, countStep, observeStages, type StepEnding, zeroCounts } from './metrics.ts';
+import { countRecorded, countStep, observeHolds, observeStages, type StepEnding, zeroCounts } from './metrics.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Own, pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem, type Takes, takesOf } from './queue.ts';
-import { carried, Releases, type ReleaseWatchOptions } from './release.ts';
+import { type Carried, carried, Releases, type ReleaseWatchOptions } from './release.ts';
 import {
   closingComment,
   closingPullComment,
@@ -397,10 +400,10 @@ export class Line {
       this.#gatesReadAt = this.#o.now().getTime();
       await this.#readGates();
     }
-    if (this.#only === null && this.#o.now().getTime() - this.#deployReadAt >= this.#o.deployEveryMs) {
+    if (this.#o.now().getTime() - this.#deployReadAt >= this.#o.deployEveryMs) {
       this.#deployReadAt = this.#o.now().getTime();
-      await this.#describeDeploy().catch((error: unknown) =>
-        this.#o.log.warn({ err: error }, 'could not say what the deploy pull request carries'),
+      await this.#deploy().catch((error: unknown) =>
+        this.#o.log.warn({ err: error }, 'could not read the deploy pull request'),
       );
     }
     await this.#watchReleases(false);
@@ -590,8 +593,12 @@ export class Line {
       zeroCounts({ providerOf: this.#o.providerOf, dryRun: this.#o.dryRun });
       await sendCounts();
     }
-    // The stages as the store has them, while the line runs: with LINE_MODE off, nothing moves them.
-    const unobserve = this.#o.takesWork ? observeStages(this.#o.sql) : () => {};
+    // The stages as the store has them, while the line runs: with LINE_MODE off, nothing moves them. And each hold
+    // that waits for Martin, from the store too.
+    const unobserved = this.#o.takesWork ? [observeStages(this.#o.sql), observeHolds(this.#o.sql)] : [];
+    const unobserve = () => {
+      for (const stop of unobserved) stop();
+    };
     try {
       while (!abort.aborted) {
         await this.tick().catch((error: unknown) => this.#o.log.error({ err: error }, 'a pass of the line failed'));
@@ -1584,20 +1591,46 @@ export class Line {
   }
 
   /**
+   * The app's deploy pull request, once a minute: tells it what it carries, unless the line acts on one work item only,
+   * and records where it stands for each held work item it carries (`deploy.ts`), that one's included. What it carries
+   * is read once for both; a failure of one leaves the other to go on.
+   */
+  async #deploy(): Promise<void> {
+    const { github, repo, log } = this.#o;
+    const target = DEPLOYS.find((t) => t.repo === repo);
+    if (!target) return;
+    const proposal = await github.read('deployProposal', repo, { branch: target.branch });
+    // Without a commit to start from, or with one GitHub never had, there is no range to look in.
+    const carries = proposal ? await carried(this.#o, proposal.commit, proposal.pinned ?? undefined) : undefined;
+    if (this.#only === null && proposal && carries) {
+      await this.#describeDeploy(proposal, carries).catch((error: unknown) =>
+        log.warn({ err: error }, 'could not say what the deploy pull request carries'),
+      );
+    }
+    const held: HeldForDeploy[] = [];
+    for (const item of await this.#queue.free()) {
+      if (item.stage !== 'held' || this.#inFlight.has(item.workItem) || this.#dryRunLeft.has(item.workItem)) continue;
+      const { raw } = await this.#raw(item.workItem);
+      if (fold(raw as LineEvent[]).hold?.cause === 'deploy')
+        held.push({ workItem: item.workItem, recorded: latestDeploy(raw) });
+    }
+    if (!held.length) return;
+    await recordDeploys(
+      { github, repo, log, append: (workItem, drafts) => this.#append(workItem, drafts) },
+      proposal,
+      new Set((carries ?? []).map((c) => c.workItem)),
+      held,
+    );
+  }
+
+  /**
    * Tells the app's open deploy pull request which work items it carries (`carried`): each whose latest fix merged
    * after the commit the app runs (the last promoted release's, else the one pinned now), up to the one the pull
    * request runs. A dry run's merge commit, which GitHub never had, is in no range. The worker leaves a body that says
    * the same as it is; the line does not ask again until the list or the pull request changes.
    */
-  async #describeDeploy(): Promise<void> {
+  async #describeDeploy(proposal: DeployProposal, carries: Carried[]): Promise<void> {
     const { github, repo, log } = this.#o;
-    const target = DEPLOYS.find((t) => t.repo === repo);
-    if (!target) return;
-    const proposal = await github.read('deployProposal', repo, { branch: target.branch });
-    if (!proposal) return;
-    // Without a commit to start from, or with one GitHub never had, there is no range to look in.
-    const carries = await carried(this.#o, proposal.commit, proposal.pinned ?? undefined);
-    if (!carries) return;
     // The latest merges by name, and the rest counted.
     const named: Carry[] = carries
       .slice(-MAX_CARRIES)

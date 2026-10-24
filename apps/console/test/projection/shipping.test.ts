@@ -41,10 +41,20 @@ describe('Release and Verify on the sheet', () => {
     );
   });
 
-  it('shows the wait for Martin’s deploy as the merge, on the card and the sheet', () => {
+  it('shows the wait for a deploy as the merge and the deploy pull request, on the card and the sheet', () => {
     const view = project(SAMPLES, END);
     const picture = view.cards.find((c) => c.number === '1321')?.picture;
-    expect(picture).toMatchObject({ type: 'deploy', pullRequest: 1322, merged: { byMartin: true } });
+    expect(picture).toMatchObject({
+      type: 'deploy',
+      pullRequest: 1322,
+      merged: { byMartin: true },
+      deploy: { pullRequest: 1331, state: 'checking' },
+      waitsForMartin: false,
+    });
+    // Earlier, #1314's deploy pull request had passed its checks, and waited for Martin.
+    const before = project(SAMPLES, Date.parse('2026-10-06T09:30:00Z')).cards.find((c) => c.number === '1314');
+    expect(before?.picture).toMatchObject({ type: 'deploy', deploy: { pullRequest: 1330, state: 'passed' } });
+    expect(before).toMatchObject({ outcome: 'needs-you', picture: { waitsForMartin: true } });
     expect(sheet('1321')?.deploy).toEqual(picture);
     expect(sheet('1321')?.shipped).toEqual([]);
   });

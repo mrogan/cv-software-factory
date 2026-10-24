@@ -111,6 +111,13 @@ export default new Item('1304', '2026-10-04T21:40:00+01:00')
     cause: 'deploy',
     reason: 'The fix in pull request #1305 is merged, and waits for a deploy pull request to carry it to the shop',
   })
+  // The App opens deploy #1313 once the merge's image is built and signed. Its first head fails a flaky check; #1306's
+  // fix merges, and the newer build moves the pull request on, which carries both and passes.
+  .deploy('11:24:00', 1313, 1, 'checking')
+  .deploy('11:33:00', 1313, 1, 'failed', ['Integration tests'])
+  .deploy('12:44:00', 1313, 2, 'checking')
+  .deploy('12:48:00', 1313, 2, 'passed')
+  .deploy('12:50:00', 1313, 2, 'merged')
   .released('12:51:00', 'v0.9.8', 'v0.9.7', V098)
   .verify('13:01:00', 'Cleared on v0.9.8, by the probe', {
     actor: 'probe',

@@ -164,7 +164,7 @@ export interface Sheet {
   captures: Capture[];
   /** Each release that carried it, newest first, with its verification. */
   shipped: Shipped[];
-  /** While a merged fix waits for Martin's deploy: the pull request it waits with. */
+  /** While a merged fix is held for a deploy: the pull request it waits with, and the deploy pull request's state. */
   deploy: Extract<Picture, { type: 'deploy' }> | undefined;
   /** Who wrote the paragraph at the top: the describer, once it has. */
   storyBy: 'describer' | undefined;
@@ -593,7 +593,8 @@ function afterRounds(item: ItemState, hold: Hold | undefined, described: boolean
       text: `Merged by ${by} at ${clock(merged ? Date.parse(merged.ts) : item.lastAt)}; it ships with the next release`,
     };
   }
-  if (!hold || (item.outcome !== 'needs-you' && item.outcome !== 'held')) return undefined;
+  if (!hold || (item.outcome !== 'needs-you' && item.outcome !== 'held' && item.outcome !== 'deploying'))
+    return undefined;
   const cleared = clearanceWords(item);
   const and = (text: string) => (cleared ? `${text.replace(/\.$/, '')}. ${cleared}` : text);
   if (hold.cause === 'merge') {
@@ -906,7 +907,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
   });
   // Work still on the line ends at now, or, for a ticket queued for the planner, waiting at Plan. Work waiting on
   // Martin ends at its wait, and a merged fix at its merge, drawn as work queued for a release.
-  const waits = item.outcome === 'needs-you' || item.outcome === 'held';
+  const waits = item.outcome === 'needs-you' || item.outcome === 'held' || item.outcome === 'deploying';
   const merged = item.outcome === 'merged';
   if (item.closedAt === undefined && !waits && !merged) {
     marks.push(

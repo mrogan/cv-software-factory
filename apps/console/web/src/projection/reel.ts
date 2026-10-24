@@ -76,8 +76,8 @@ export type Picture =
   /** A spec: the decision Martin is asked to make while it holds for his answer, and otherwise what the work set out to do. */
   | { type: 'spec'; spec: PayloadOf<'spec.written'>; waiting: boolean; question: string | undefined }
   /**
-   * A merged fix waiting for Martin's deploy: the pull request it waits with, its merge, and the release that carried
-   * it and rolled back, when it waits for the next deploy.
+   * A merged fix held for a deploy: the pull request it waits with, its merge, the release that carried it and rolled
+   * back, when it waits for the next deploy, and the deploy pull request that carries it, as the line last recorded it.
    */
   | {
       type: 'deploy';
@@ -86,6 +86,10 @@ export type Picture =
       merged: { at: number; commit: string; byMartin: boolean } | undefined;
       /** The release that carried the merge, if it ended without shipping. */
       ended: Ended | undefined;
+      /** The deploy pull request that carries it, once the App has opened one. */
+      deploy: Pick<PayloadOf<'deploy.changed'>, 'pullRequest' | 'state' | 'failed'> | undefined;
+      /** Whether it waits for Martin: his deploy to merge, its checks passed, or his retry. */
+      waitsForMartin: boolean;
     }
   /** A fix waiting for Martin's merge: the pull request, and what says it is safe to merge. */
   | {
@@ -234,6 +238,7 @@ export function segments(item: ItemState): Segment[] {
       case 'waiting':
       case 'waits-on-work':
       case 'merged':
+      case 'deploying':
         return 'queued';
       case 'closed':
       case 'quarantined':

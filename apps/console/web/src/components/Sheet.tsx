@@ -32,7 +32,7 @@ import type {
   Sighting,
   ThreadReview,
 } from '../projection/index.ts';
-import { scrubbed, TARGET } from '../projection/index.ts';
+import { DEPLOY_STATE, scrubbed, TARGET } from '../projection/index.ts';
 import { backWords } from '../projection/release.ts';
 import { REPORT_KEPT_DAYS } from '../projection/report.ts';
 import { kindName, ONGOING, OutcomeWord, spendWords } from './Card.tsx';
@@ -407,6 +407,19 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                     ) : (
                       <a href={`${APP_REPO}/pull/${card.pullRequest}`}>#{card.pullRequest} on GitHub</a>
                     )}
+                  </Fact>
+                )}
+                {sheet.deploy?.deploy && (
+                  <Fact name="Deploy">
+                    {/* As the pull request's: a sample's deploy pull request never existed either. */}
+                    {card.sample ? (
+                      `#${sheet.deploy.deploy.pullRequest}`
+                    ) : (
+                      <a href={`${APP_REPO}/pull/${sheet.deploy.deploy.pullRequest}`}>
+                        #{sheet.deploy.deploy.pullRequest} on GitHub
+                      </a>
+                    )}{' '}
+                    · {DEPLOY_STATE[sheet.deploy.deploy.state]}
                   </Fact>
                 )}
                 {sheet.facts.reviews && (

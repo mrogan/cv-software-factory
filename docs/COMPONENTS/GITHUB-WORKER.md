@@ -100,7 +100,7 @@ flowchart TD
 - **Main moves on.** When main moves on with no newer build, the commit is made again on main's new head the same way, unless Martin has approved the pull request.
 - **One writer.** The deploy branch has this one writer.
 - **One head.** A pass reads everything at one head of main.
-- **In memory.** Which deploy pull request is open is kept in memory, so a restarted worker knows it after its first pass. The line reads the app's, to say what it carries.
+- **In memory.** Which deploy pull request is open is kept in memory, so a restarted worker knows it after its first pass. The line reads the app's, to say what it carries, and to record where it stands for each held work item it carries ([its state](RELEASE-AND-VERIFY.md#the-deploy-pull-requests-state)), from `pullRequest` and `checkRuns`: the worker keeps no state of it beyond the proposal.
 
 #### Signatures
 

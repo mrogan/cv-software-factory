@@ -583,6 +583,26 @@ export const PAYLOADS = {
   'pull-request.merged': z.strictObject({ number: pullRequest, commit, by: z.enum(['martin', 'factory']) }),
 
   /**
+   * The app's deploy pull request that carries a merged work item held for a deploy changed for it: it opened or
+   * moved to a new head, and its required checks run there; they all passed, or some failed; it merged; or it was
+   * closed unmerged. The line reads it from GitHub and records each change on every held work item it carries, so the
+   * console can link it and say whether it waits for Martin yet. A dry run's deploy pull request is never recorded.
+   */
+  'deploy.changed': z
+    .strictObject({
+      pullRequest,
+      /** The pull request's head: the commit its checks run on. */
+      commit,
+      state: z.enum(V.DEPLOY_STATES),
+      /** The required checks that failed there, on `failed` only. */
+      failed: z.array(text(80)).min(1).max(40).optional(),
+    })
+    .refine((d) => (d.state === 'failed') === (d.failed !== undefined), {
+      message: 'a deploy whose checks failed names them, and no other does',
+      path: ['failed'],
+    }),
+
+  /**
    * A release of the app began: Argo Rollouts started a canary of a new image, or, in a dry run, the dry run says one
    * would have. Each of a release's events names it, and is on every work item it carries, or on the line when it
    * carries none.

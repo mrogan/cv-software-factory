@@ -7,7 +7,7 @@ import { type KeyboardEvent, type PointerEvent, type ReactNode, useLayoutEffect,
 import { useArtifactUrl } from '../artifacts.ts';
 import { AGENT_NAME, axis, capital, clock, figure, inWords, money, plural, shortVersion, times } from '../format.ts';
 import type { Picture as PictureData, Source, Tag } from '../projection/index.ts';
-import { QUARANTINE_AT } from '../projection/index.ts';
+import { deployWords, QUARANTINE_AT } from '../projection/index.ts';
 import { stopWait, stopWords } from '../projection/release.ts';
 import { Glyph } from './Glyph.tsx';
 import { LogoMark, logoFor } from './Logos.tsx';
@@ -1112,23 +1112,33 @@ function MergePicture(picture: Extract<PictureData, { type: 'merge' }>) {
 }
 
 /**
- * A merged fix waiting for the deploy pull request that will carry it, in the waiting-on-Martin panel: the merge done,
- * the release that carried it crossed when it rolled back or was stopped, and hollow rings for what comes after. The
- * events name no deploy pull request, so none is drawn.
+ * A merged fix held for the deploy pull request that will carry it, in the waiting-on-Martin panel: the merge done,
+ * the release that carried it crossed when it rolled back or was stopped, the deploy pull request as the line last
+ * recorded it, and hollow rings for what comes after. Its caption takes the `attn` rule only once the deploy waits for
+ * Martin, its checks passed (or his retry, after a stop); before that it says what it waits for.
  */
-function DeployPicture({ pullRequest, title, merged, ended }: Extract<PictureData, { type: 'deploy' }>) {
+function DeployPicture({
+  pullRequest,
+  title,
+  merged,
+  ended,
+  deploy,
+  waitsForMartin,
+}: Extract<PictureData, { type: 'deploy' }>) {
   const by = ended?.stopped;
   const stopped = by && stopWords(by);
+  const words = deployWords(deploy);
+  const caption = stopped
+    ? `${capital(stopped)} · ${stopWait(by)}`
+    : waitsForMartin
+      ? ended
+        ? 'Rolled back · waiting for Martin’s next deploy'
+        : 'Merged · waiting for Martin’s deploy'
+      : `${ended ? 'Rolled back' : 'Merged'} · ${words.short}`;
   return (
     <div className="pad">
       <div className="waits">
-        <div className="cap attn">
-          {!ended
-            ? 'Merged · waiting for Martin’s deploy'
-            : stopped
-              ? `${capital(stopped)} · ${stopWait(by)}`
-              : 'Rolled back · waiting for Martin’s next deploy'}
-        </div>
+        <div className={waitsForMartin ? 'cap attn' : 'cap'}>{caption}</div>
         {pullRequest && (
           <div className="head mono">
             PR #{pullRequest}
@@ -1146,11 +1156,15 @@ function DeployPicture({ pullRequest, title, merged, ended }: Extract<PictureDat
               The release that carried it {stopped ? `was ${stopped}` : 'rolled back'} at {clock(ended.at)}
             </Tick>
           )}
-          <Tick ok={undefined}>
-            {stopped
-              ? 'Martin’s retry carries it on, or the next deploy pull request, with its ticket and issue'
-              : 'The next deploy pull request carries it, with its ticket and issue'}
-          </Tick>
+          {deploy ? (
+            <Tick ok={words.ok}>{words.tick}</Tick>
+          ) : (
+            <Tick ok={undefined}>
+              {stopped
+                ? 'Martin’s retry carries it on, or the next deploy pull request, with its ticket and issue'
+                : words.tick}
+            </Tick>
+          )}
           <Tick ok={undefined}>Then a canary against the version before, and Verify</Tick>
         </div>
         <div className="foot">

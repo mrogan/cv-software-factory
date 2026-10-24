@@ -197,6 +197,14 @@ export const HOLD_CAUSES = [
 ] as const;
 export type HoldCause = (typeof HOLD_CAUSES)[number];
 
+/**
+ * Where the deploy pull request that carries a work item held for a deploy stands, as the line reads it from GitHub:
+ * open with the required checks on its head running, all passed, or one failed; merged; or closed unmerged. Only once
+ * its checks have passed does it wait for Martin.
+ */
+export const DEPLOY_STATES = ['checking', 'passed', 'failed', 'merged', 'closed'] as const;
+export type DeployState = (typeof DEPLOY_STATES)[number];
+
 /** Martin's answers to a hold: approve it, reject it, or answer it in words. */
 export const HOLD_ANSWERS = ['approved', 'rejected', 'answered'] as const;
 export type HoldAnswer = (typeof HOLD_ANSWERS)[number];

@@ -402,6 +402,23 @@ describe('validation', () => {
     expect(validate({ ...waits, work_item: null, payload }).ok).toBe(false);
   });
 
+  it('takes a deploy pull request’s change on a work item, naming the failed checks on a failure only', () => {
+    const changed = { ...opened, type: 'deploy.changed', version: 1, actor: 'factory' };
+    const payload = { pullRequest: 412, commit: 'b'.repeat(40), state: 'checking' };
+    expect(validate({ ...changed, payload })).toEqual({ ok: true });
+    for (const state of ['passed', 'merged', 'closed']) {
+      expect(validate({ ...changed, payload: { ...payload, state } })).toEqual({ ok: true });
+    }
+    const failed = { ...payload, state: 'failed', failed: ['e2e'] };
+    expect(validate({ ...changed, payload: failed })).toEqual({ ok: true });
+    expect(validate({ ...changed, payload: { ...failed, failed: [] } }).ok).toBe(false);
+    expect(validate({ ...changed, payload: { ...payload, state: 'failed' } }).ok).toBe(false);
+    expect(validate({ ...changed, payload: { ...payload, failed: ['e2e'] } }).ok).toBe(false);
+    expect(validate({ ...changed, payload: { ...payload, state: 'ready' } }).ok).toBe(false);
+    expect(validate({ ...changed, payload: { ...payload, commit: 'b0b' } }).ok).toBe(false);
+    expect(validate({ ...changed, work_item: null, payload }).ok).toBe(false);
+  });
+
   it('takes a look again that says why only when it could not tell, and names the version when it could', () => {
     const looked = { ...opened, type: 'signal.rechecked', version: 1, actor: 'probe' };
     const payload = {
