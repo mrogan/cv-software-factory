@@ -35,7 +35,10 @@ export type Fault =
   | 'contact-500'
   | 'contact-thanks-with-form'
   | 'console-error'
-  | 'broken-image';
+  | 'broken-image'
+  | 'keeps-cookie'
+  | 'keeps-storage'
+  | 'asks-elsewhere';
 
 interface Item {
   slug: string;
@@ -180,7 +183,8 @@ export async function startShop(...faults: Fault[]): Promise<Shop> {
       const extra = `${has('link-404') ? '<li><a href="/missing">Lost property</a></li>' : ''}${has('link-loop') ? '<li><a href="/loop">Offers</a></li>' : ''}${has('featured-loop') ? '<li><a href="/featured/oak-stool">Featured</a></li><li><a href="/about">About</a></li>' : ''}`;
       const departments = DEPARTMENTS.map((d) => `<li><a href="/departments/${d}">${d}</a></li>`).join('');
       const script = has('console-error') ? '<script>throw new Error("boom")</script>' : '';
-      return send(res, 200, page('Welcome', `<ul>${departments}${extra}</ul><p>${script}Good day.</p>`));
+      const device = `${has('keeps-cookie') ? '<script>document.cookie = "visit=1; path=/"</script>' : ''}${has('asks-elsewhere') ? '<img src="http://elsewhere.invalid/pixel.png" alt="" width="1" height="1">' : ''}`;
+      return send(res, 200, page('Welcome', `<ul>${departments}${extra}</ul><p>${script}${device}Good day.</p>`));
     }
     if (path === '/products') {
       if (has('catalogue-404')) return send(res, 404, page('Not found', '<p>No such page.</p>'));
@@ -219,7 +223,7 @@ export async function startShop(...faults: Fault[]): Promise<Shop> {
         200,
         page(
           heading,
-          `<img src="/assets/${has('broken-image') ? 'missing' : 'item'}.svg" alt="${escapeHtml(item.name)}" width="40" height="40"><p>${shown(pence)}</p><p>A fine thing.</p>`,
+          `<img src="/assets/${has('broken-image') ? 'missing' : 'item'}.svg" alt="${escapeHtml(item.name)}" width="40" height="40"><p>${shown(pence)}</p><p>A fine thing.</p>${has('keeps-storage') ? '<script>localStorage.setItem("seen", "1"); sessionStorage.setItem("viewed", "1")</script>' : ''}`,
         ),
       );
     }

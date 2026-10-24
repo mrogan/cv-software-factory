@@ -23,9 +23,11 @@ export interface ProbeOptions {
   app: string;
   store: ArtifactStore;
   log: { warn(fields: object, message: string): void };
+  /** Whether to say what each probe's pages left on the device and which other origins they asked: the gates'. */
+  device?: boolean;
 }
 
-export const probes = ({ app, store, log }: ProbeOptions): BrowserSense<Shop> =>
+export const probes = ({ app, store, log, device = false }: ProbeOptions): BrowserSense<Shop> =>
   new BrowserSense({
     name: 'probe',
     app,
@@ -34,4 +36,5 @@ export const probes = ({ app, store, log }: ProbeOptions): BrowserSense<Shop> =>
     log,
     shared: () => new Shop(app, UNMEASURED),
     headers: UNMEASURED,
+    device,
   });

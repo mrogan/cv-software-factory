@@ -11,7 +11,8 @@
  * writes the checks that regressed there as JSON, with how many passed of how many ran on each app
  * (`comparisonMessage`): the canary's analysis sets it to the Job's termination message, which the line reads at each
  * step for the counts, and when the journeys fail a release for the checks. Its requests carry `UNMEASURED`, so
- * that in a canary's analysis they do not count in the errors and latency it judges.
+ * that in a canary's analysis they do not count in the errors and latency it judges. Each probe also answers
+ * `<probe>/device`: anything on the device by its end, or another origin its pages asked (`senses/observe.ts`).
  */
 import { appendFile, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -38,7 +39,7 @@ export async function run(args: string[]): Promise<number> {
   const store = new DiskArtifacts(await mkdtemp(join(tmpdir(), 'gate-')));
   const limit = Number(process.env.CRAWL_LIMIT ?? 150);
 
-  const observe: Observe = async (url, only) => (await observeApp(url, only, { store, log, limit })).seen;
+  const observe: Observe = async (url, only) => (await observeApp(url, only, { store, log, limit, device: true })).seen;
 
   const comparison = await compareJourneys(observe, values.base, values.change);
   const markdown = summary(comparison);

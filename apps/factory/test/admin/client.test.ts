@@ -45,6 +45,17 @@ describe('a rate limit', () => {
     now = 60_000;
     expect(limit.take('a')).toEqual({ ok: true });
   });
+
+  it('forgets an address once its window has ended and another starts', () => {
+    let now = 0;
+    const limit = new RateLimit({ requests: 1, minutes: 1 }, () => now);
+    expect(limit.take('a')).toEqual({ ok: true });
+    now = 30_000;
+    expect(limit.take('b')).toEqual({ ok: true });
+    now = 60_000;
+    expect(limit.take('c')).toEqual({ ok: true });
+    expect(limit.remembered()).toEqual(['b', 'c']);
+  });
 });
 
 describe('the settings', () => {

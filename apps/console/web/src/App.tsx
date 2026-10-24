@@ -2,8 +2,9 @@
  * The console: events in, the page out. Everything below is drawn from `project(events, t)`, of the full events for
  * Martin signed in and of the public ones for everyone else, Martin previewing as a visitor among them. The doors,
  * signing in and enrolling a passkey, are pages of their own on the same address (`?view=sign-in`, `?view=enrol`),
- * and so are the settings (`?view=settings`) and the audit log (`?view=audit`), under the console's own header. The
- * audit log reads the public events for everyone, Martin included, so it is the same log whoever reads it.
+ * and so are the settings (`?view=settings`), the audit log (`?view=audit`) and the privacy page (`?view=privacy`),
+ * under the console's own header. The audit log reads the public events for everyone, Martin included, so it is the
+ * same log whoever reads it.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Admin, type Door, stillSignedIn, useAdmin } from './admin.ts';
@@ -38,10 +39,14 @@ const Settings = lazy(() => import('./components/Settings.tsx').then((module) =>
 /** The audit log's code arrives only on its page. */
 const AuditLog = lazy(() => import('./components/AuditLog.tsx').then((module) => ({ default: module.AuditLog })));
 
+/** The privacy page's too. */
+const Privacy = lazy(() => import('./components/Privacy.tsx').then((module) => ({ default: module.Privacy })));
+
 const asked = params.get('view');
 const door: Door | undefined = asked === 'sign-in' || asked === 'enrol' ? asked : undefined;
 const settingsPage = asked === 'settings';
 const auditPage = asked === 'audit';
+const privacyPage = asked === 'privacy';
 /** The profile whose policy bounds the settings, and whether every agent goes to the local model, as the server says. */
 const factory = factoryOf();
 
@@ -159,7 +164,7 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
   const sheet = useMemo(() => (open ? projectSheet(source.events, open, t) : undefined), [open, source.events, t]);
   const sheetIndex = sheet ? view.cards.findIndex((card) => card.number === sheet.card.number) : -1;
 
-  if (settingsPage || auditPage) {
+  if (settingsPage || auditPage || privacyPage) {
     return (
       <OriginContext.Provider value={from}>
         <LogoSymbols />
@@ -178,7 +183,9 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
         <main id="top">
           <div className="wrap">
             <Suspense fallback={null}>
-              {auditPage ? (
+              {privacyPage ? (
+                <Privacy />
+              ) : auditPage ? (
                 <AuditLog events={source.events} t={t} profile={factory.profile} settled={settled} />
               ) : (
                 <Settings view={settings} controls={view.controls} allLocal={factory.allLocal} admin={admin} />

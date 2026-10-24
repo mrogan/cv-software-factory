@@ -53,10 +53,12 @@ async function drawn(page: Page) {
 test.use({ viewport: { width: 1440, height: 2200 } });
 
 for (const item of [undefined, '1271', '1302', '1311']) {
-  test(`draws the same page from a file as live${item ? `, at #${item}` : ''}`, async ({ page, context }) => {
+  test(`draws the same page from a file as live${item ? `, at #${item}` : ''}`, async ({ page, context, guard }) => {
     await page.goto(consoleUrl({ item }));
     const live = await drawn(page);
 
+    // The stand-in for GitHub Pages is served here, by route: nothing asked of it leaves the machine.
+    guard.served.push('http://replay.test');
     const replay = await context.newPage();
     await servePlainFiles(replay, 'http://replay.test');
     await replay.goto(`http://replay.test${consoleUrl({ item })}`);
