@@ -168,6 +168,8 @@ export const HOLDS_STORED = fromTheLine('line_holds_stored_total');
 /** Whether the line's last read of them from the store succeeded. */
 const COUNTING = fromTheLine('line_security_events_counting');
 
+const DAY_SECONDS = 24 * 60 * 60;
+
 /**
  * The days Martin has, once told, to release the shop before a report in its pod's logs is older than the privacy pages
  * promise (`REPORT_TEXT.promisedDays`): time to merge a pending update or its deploy pull request.
@@ -201,8 +203,8 @@ const RECENT = '5m';
  *   text, go only with the pod (docs/COMPONENTS/TRIAGE.md#how-long-a-report-is-kept), and a release replaces it. The oldest
  *   start of any series by that name for a pod is taken, so another can only alert him sooner, never later.
  *
- * Each reads the line's series alone (`METRICS_FROM_THE_LINE`), and takes the highest of its replicas', which report the
- * same figure.
+ * Each that reads the line's series reads them alone (`METRICS_FROM_THE_LINE`), and takes the highest of its replicas',
+ * which report the same figure.
  */
 export function martinRules(): Rule[] {
   const security = SECURITY_KINDS.map((kind) => ({
@@ -248,18 +250,17 @@ export function martinRules(): Rule[] {
     {
       alert: 'ShopPodOld',
       expr: `max by (pod) (time() - kube_pod_start_time{namespace="website"}) > ${SHOP_POD_DAYS * DAY_SECONDS} and on (pod) (${SHOP_PODS_RUNNING})`,
-      // The age only grows: the hour keeps a series missed for a scrape or two from telling Martin again.
+      // The age only grows, so the hour costs little of the five days. A series missed for longer than Prometheus looks
+      // back resolves the alert, and it is told again an hour after the series returns, not at once.
       for: '1h',
       labels: { level: LEVELS.notify },
       annotations: {
         summary: `The shop's pod is ${SHOP_POD_DAYS} days old`,
-        description: `Its container logs on the node may hold a visitor's report, and they go only with the pod. Release the shop (merge a pending update, or its deploy pull request) so a new pod replaces it before a report in its logs is ${REPORT_TEXT.promisedDays} days old.`,
+        description: `Its container logs on the node may hold a visitor's report, and they go only with the pod. Release the shop (merge a pending update, or its deploy pull request), or with none pending restart its Rollout, so a new pod replaces it before a report in its logs is ${REPORT_TEXT.promisedDays} days old.`,
       },
     },
   ];
 }
-
-const DAY_SECONDS = 24 * 60 * 60;
 
 const percent = (share: number) => `${Number((share * 100).toFixed(2))}%`;
 
