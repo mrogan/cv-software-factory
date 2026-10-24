@@ -53,7 +53,21 @@ alertmanager:
       memory: 32Mi
     limits:
       memory: 128Mi
+  # The message to Martin, which each Pushover receiver below sends. For a hold, two links: its work item's sheet in the
+  # console, at the profile's origin (`console.origin`, which each overlay defines, as the console's address is the
+  # profile's), and its pull request in the app's repository, if it has one. The rules let a hold alert only with
+  # numbers in those labels (apps/factory/src/alerts/rules.ts), and html/template escapes them as a link's query or
+  # path whatever they hold. Newlines may read as spaces in Pushover's HTML: each line ends a sentence, so it reads
+  # either way.
+  templates:
+    martin.tmpl: |-
+      {{ define "martin.message" }}{{ range .Alerts.Firing }}{{ or .Annotations.description .Annotations.summary .Labels.alertname }}
+      Firing since {{ .StartsAt.UTC.Format "15:04 UTC, 2 January" }}.{{ with .Labels.work_item }}
+      <a href="{{ template "console.origin" }}/?item={{ . }}&sheet">#{{ . }} in the console</a>{{ end }}{{ with .Labels.pull_request }} · <a href="https://github.com/mrogan/cv-worlds-worst-website/pull/{{ . }}">Pull request #{{ . }}</a>{{ end }}{{ end }}{{ end }}
   config:
+    # The chart's ConfigMap holds the templates beside the configuration, in the folder it is mounted at.
+    templates:
+      - /etc/alertmanager/*.tmpl
     route:
       # Dashboard only: an alert that no route below takes.
       receiver: dashboard
@@ -93,11 +107,16 @@ alertmanager:
             # Sounds through Martin's quiet hours. Emergency (2), which repeats until acknowledged, would repeat at
             # each of his own sign-ins.
             priority: "1"
-            # What happened and when, from the rule's summary: never the labels' or annotations' other values.
+            # What happened and when, from the rule's summary and description, and for a hold the links to answer it
+            # by (`martin.message`, below). Of the labels, only the alert's name and a hold's two numbers.
             title: '{{ or .CommonAnnotations.summary .CommonLabels.alertname }}'
-            message: >-
-              {{ range .Alerts.Firing }}{{ or .Annotations.description .Annotations.summary .Labels.alertname }}
-              Firing since {{ .StartsAt.UTC.Format "15:04 UTC, 2 January" }}.{{ end }}
+            message: '{{ template "martin.message" . }}'
+            # Pushover's HTML, for links in the message: Alertmanager renders the message with Go's html/template, which
+            # escapes each value for where it lands, a description's text or a link's address.
+            html: true
+            # No link below the message: Alertmanager's default is its own address, which the phone cannot reach. A
+            # hold's links are in the message, both of them, where its words are.
+            url: ""
             # A resolved alert would be a second message about the same thing.
             send_resolved: false
       - name: notify

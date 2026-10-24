@@ -1,8 +1,9 @@
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { LEVELS } from '../src/alerts/rules.ts';
+import { HOLD_ALERT_MINUTES, LEVELS } from '../src/alerts/rules.ts';
+import { APP_REPOSITORY } from '../src/line/worker.ts';
 import { DEPLOY, manifests } from './deploy.ts';
 
 /**
@@ -27,6 +28,9 @@ interface Pushover {
   priority?: string;
   title?: string;
   message?: string;
+  html?: boolean;
+  url?: string;
+  url_title?: string;
   send_resolved?: boolean;
 }
 interface Receiver {
@@ -46,14 +50,18 @@ interface Values {
       readOnly: boolean;
       optional: boolean;
     }[];
-    config: { route: Route; receivers: Receiver[] };
+    templates?: Record<string, string>;
+    config: { route: Route; receivers: Receiver[]; templates?: string[] };
   };
 }
 
 // The notify and inform receivers are the page receiver's settings merged with their own priority (`<<:`), as Helm
 // reads it.
-const values = async () =>
-  parse(await readFile(join(DEPLOY, 'base/telemetry/values/prometheus.yaml'), 'utf-8'), { merge: true }) as Values;
+const values = async (file = 'base/telemetry/values/prometheus.yaml') =>
+  parse(await readFile(join(DEPLOY, file), 'utf-8'), { merge: true }) as Values;
+
+/** The profiles, each an overlay with its own values for Prometheus's chart. */
+const PROFILES = ['local'];
 
 /** One of Alertmanager's matchers, `name="value"`, `name!="value"`, `name=~"regex"` or `name!~"regex"`. */
 function matches(matcher: string, labels: Record<string, string>): boolean {
@@ -86,7 +94,11 @@ function receivers(route: Route, labels: Record<string, string>): string[] {
 describe('Alertmanager’s routes', () => {
   const cases: [string, Record<string, string>, string[]][] = [
     ['a page', { alertname: 'SecurityEvent', level: 'page', kind: 'passkey-enrolled' }, ['page']],
-    ['a notification', { alertname: 'HoldStarted', level: 'notify', cause: 'scope' }, ['notify']],
+    [
+      'a notification',
+      { alertname: 'HoldWaits', level: 'notify', cause: 'merge', work_item: '1304', pull_request: '57' },
+      ['notify'],
+    ],
     ['a low-priority alert', { alertname: 'SecurityEvent', level: 'inform', kind: 'sign-in' }, ['inform']],
     [
       'an objective alert',
@@ -146,8 +158,13 @@ describe('Alertmanager’s Pushover receivers', () => {
       expect(config.user_key).toBeUndefined();
       expect(config.token_file).toBe('/etc/pushover/app-token');
       expect(config.user_key_file).toBe('/etc/pushover/user-key');
-      // Only what the rule's summary or description says, and when: no label's value, which could be anything.
-      expect(`${config.title} ${config.message}`).not.toMatch(/\.(Common)?Labels\.(?!alertname\b)/);
+      // The rule's summary or alert's name for a title, and the one message, in HTML for its links.
+      expect(config.title).toBe('{{ or .CommonAnnotations.summary .CommonLabels.alertname }}');
+      expect(config.message).toBe('{{ template "martin.message" . }}');
+      expect(config.html).toBe(true);
+      // Not Alertmanager's own address, which the phone cannot reach: no link below the message at all.
+      expect(config.url).toBe('');
+      expect(config.url_title).toBeUndefined();
       expect(config.send_resolved).toBe(false);
     }
     // Optional, so a cluster with no Pushover account still comes up, and still routes to the intake.
@@ -177,8 +194,68 @@ describe('Alertmanager’s Pushover receivers', () => {
     ]);
   });
 
+  it('send a hold once: its alert fires for less time than a message is repeated after', async () => {
+    const { route } = (await values()).alertmanager.config;
+    const notify = route.routes?.find((r) => r.receiver === 'notify');
+    const hours = (notify?.repeat_interval ?? route.repeat_interval ?? '').match(/^(\d+)h$/)?.[1];
+    expect(Number(hours) * 60).toBeGreaterThan(HOLD_ALERT_MINUTES);
+  });
+
   it('listens on no gossip port, as one replica has no peers', async () => {
     expect((await values()).alertmanager.extraArgs).toEqual({ 'cluster.listen-address': '' });
+  });
+});
+
+describe('the message to Martin', () => {
+  const template = async () => (await values()).alertmanager.templates?.['martin.tmpl'] ?? '';
+
+  it('is a template the chart mounts beside the configuration, where Alertmanager reads its templates', async () => {
+    const { alertmanager } = await values();
+    expect(Object.keys(alertmanager.templates ?? {})).toEqual(['martin.tmpl']);
+    expect(alertmanager.config.templates).toEqual(['/etc/alertmanager/*.tmpl']);
+    expect(await template()).toMatch(/^\{\{ define "martin\.message" \}\}.*\{\{ end \}\}$/s);
+  });
+
+  it('says what each alert’s rule says and when it began, and of the labels only its name and a hold’s numbers', async () => {
+    const text = await template();
+    expect(text).toContain(
+      '{{ range .Alerts.Firing }}{{ or .Annotations.description .Annotations.summary .Labels.alertname }}',
+    );
+    expect(text).toContain('Firing since {{ .StartsAt.UTC.Format "15:04 UTC, 2 January" }}.');
+    const labels = [...text.matchAll(/\.(?:Common)?Labels\.(\w+)/g)].map((m) => m[1]);
+    expect(labels.sort()).toEqual(['alertname', 'pull_request', 'work_item']);
+  });
+
+  it('links a hold’s sheet at the profile’s console, and its pull request in the app’s repository, by number alone', async () => {
+    const text = await template();
+    expect(text).toContain(
+      '{{ with .Labels.work_item }}\n<a href="{{ template "console.origin" }}/?item={{ . }}&sheet">#{{ . }} in the console</a>{{ end }}',
+    );
+    expect(text).toContain(
+      `{{ with .Labels.pull_request }} · <a href="https://github.com/${APP_REPOSITORY}/pull/{{ . }}">Pull request #{{ . }}</a>{{ end }}`,
+    );
+    // Every value lands after a fixed scheme and host, so html/template escapes it as a query or a path: none can
+    // make a link of its own, or leave the attribute.
+    for (const [, before] of text.matchAll(/href="([^"]*?)\{\{ \. \}\}/g)) {
+      expect(before).toMatch(/^(\{\{ template "console\.origin" \}\}|https:\/\/github\.com\/)/);
+    }
+  });
+
+  it.each(PROFILES)('has the %s profile’s console origin, the one its passkeys are bound to', async (profile) => {
+    const overlay = await values(`overlays/${profile}/values/prometheus.yaml`);
+    const defined = overlay.alertmanager.templates?.['profile.tmpl'];
+    const origin = defined?.match(
+      /^\{\{ define "console\.origin" \}\}(https:\/\/[a-z0-9.-]+(?::\d+)?)\{\{ end \}\}$/,
+    )?.[1];
+    expect(origin, profile).toBeDefined();
+    const admin = (await manifests<{ kind?: string; metadata?: { name?: string }; spec?: unknown }>()).find(
+      ({ manifest }) => manifest.kind === 'Deployment' && manifest.metadata?.name === 'admin',
+    );
+    expect(JSON.stringify(admin?.manifest.spec)).toContain(`{"name":"ADMIN_ORIGIN","value":"${origin}"}`);
+  });
+
+  it('is defined for every profile, without which no message to Martin would render', async () => {
+    expect(await readdir(join(DEPLOY, 'overlays'))).toEqual(PROFILES);
   });
 });
 

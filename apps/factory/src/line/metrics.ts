@@ -6,8 +6,8 @@
  * But one: `line.hold.age` has a series for each hold that waits for Martin, named by its work item and, where he
  * answers it on GitHub, its pull request, so the alert for a new hold can say which and link it. Those series are as
  * many as the holds that waited for him since the line started, a handful, and each ends with its hold, reading 0, and goes when the line next
- * starts; both labels are numbers the store assigned, never a title, a reason or anything a visitor wrote. The alert
- * rule that reads it, one alert per hold, comes with the image that exports it (`alerts/rules.ts`, issue #562).
+ * starts; both labels are numbers the store assigned, never a title, a reason or anything a visitor wrote. Each hold's
+ * alert reads it, and makes links of those numbers (`alerts/rules.ts`, `holdRule`).
  *
  * - What happened is counted where the line records it, and only once the store has taken the event, so a series and
  *   the events cannot disagree: holds and verifications in the line's append, releases in the release watch's.
