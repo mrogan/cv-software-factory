@@ -332,7 +332,9 @@ describe('agents through the gateway', () => {
     } finally {
       await database.owner`alter table events enable row level security`;
     }
-    expect((await call(token, agentRequest())).status).toBe(200);
+    const response = await call(token, agentRequest());
+    expect(response.status).toBe(200);
+    await response.text();
     expect(captured.text()).toMatch(/ignored line\.stopped: factory_gateway appended it/);
   });
 
@@ -357,7 +359,9 @@ describe('agents through the gateway', () => {
     expect(provider.requests).toHaveLength(1);
 
     await caps.probe();
-    expect((await call(token, agentRequest())).status).toBe(200);
+    const cleared = await call(token, agentRequest());
+    expect(cleared.status).toBe(200);
+    await cleared.text();
     const lines = await sql`select type, version, payload from events where type like 'spend.%' order by seq`;
     expect(lines).toEqual([
       {
@@ -477,7 +481,9 @@ describe('agents through the gateway', () => {
     expect((await call(token, more)).status).toBe(403);
     // Zero is never no cap, nor is a figure past the ceiling: policy's $1 is in force, which the call is well under.
     await appendSettings(database.operator, settingsPayload({ caps: { workItemUsd: 0 } }));
-    expect((await call(token, more)).status).toBe(200);
+    const allowed = await call(token, more);
+    expect(allowed.status).toBe(200);
+    await allowed.text();
     await appendSettings(database.operator, settingsPayload({ caps: { dayUsd: 0.000001, workItemUsd: 1e6 } }));
     const capped = await call(token, { ...more, messages: [{ role: 'user', content: 'Again.' }] });
     expect(capped.status).toBe(429);
@@ -676,9 +682,9 @@ describe('what the gateway lets through', () => {
     const search = await send({ ...agentRequest(), tools: [{ type: 'web_search_20260209', name: 'web_search' }] });
     expect(search.status).toBe(400);
     expect((await send({ ...agentRequest(), service_tier: 'priority' })).status).toBe(400);
-    expect(
-      (await send({ ...agentRequest(), tools: [{ name: 'Bash', input_schema: { type: 'object' } }] })).status,
-    ).toBe(200);
+    const bash = await send({ ...agentRequest(), tools: [{ name: 'Bash', input_schema: { type: 'object' } }] });
+    expect(bash.status).toBe(200);
+    await bash.text();
     expect(provider.requests).toHaveLength(1);
   });
 
