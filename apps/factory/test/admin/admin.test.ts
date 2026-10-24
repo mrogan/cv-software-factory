@@ -33,6 +33,7 @@ import type { AdminConfig } from '../../src/admin/config.ts';
 import { proxies } from '../../src/admin/config.ts';
 import { described, enrol } from '../../src/admin/enrol.ts';
 import { refuseWrite } from '../../src/admin/guard.ts';
+import { NO_ROLLOUT, NOT_ABORTED } from '../../src/admin/line.ts';
 import { STILL_PAUSED } from '../../src/admin/rollout.ts';
 import { sha256, tokenOf } from '../../src/admin/secrets.ts';
 import { type AdminService, startAdmin } from '../../src/admin/service.ts';
@@ -498,6 +499,8 @@ const WRITES: [string, Body][] = [
   ['/admin/release/resume', { release: 'whichever-1' }],
   ['/admin/release/abort', { release: 'whichever-1' }],
   ['/admin/release/retry', { release: 'whichever-1' }],
+  ['/admin/line/stop', { reason: 'Something is wrong' }],
+  ['/admin/line/start', { reason: 'Fixed' }],
   ['/admin/settings', { caps: { dayUsd: 10 } }],
   ['/admin/holds/1/approve', { hold: crypto.randomUUID() }],
   ['/admin/holds/1/reject', { hold: crypto.randomUUID() }],
@@ -1171,6 +1174,180 @@ describe('the release controls', () => {
     expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
       status: 503,
       body: { refused: 'rollout' },
+    });
+  });
+
+  it('controls a release the line recorded under another name, by the name the line gave it', async () => {
+    // Recorded before releases were named by revision: under its pod hash alone, and still in flight.
+    const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { recorded: false });
+    await append(db.as.line, [{ ...started(), payload: { ...started().payload, release: CANARY } }]);
+    const { browser } = await signedIn();
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
+      status: 409,
+      body: { refused: 'release' },
+    });
+    expect(await browser.post('/admin/release/pause', { release: CANARY })).toMatchObject({
+      status: 200,
+      body: { action: 'pause', release: CANARY },
+    });
+    expect(kube.patches.map((p) => p.body)).toEqual([{ spec: { paused: true } }]);
+    expect((await controls()).at(-1)?.payload).toMatchObject({ action: 'pause', release: CANARY });
+    // Ended, so it names no later test's release.
+    await append(db.as.line, [
+      {
+        type: 'release.aborted',
+        payload: {
+          release: CANARY,
+          version: commitOf(CANARY),
+          restored: commitOf(STABLE),
+          abortedAt: at(1),
+          by: 'martin',
+        },
+      },
+    ]);
+  });
+
+  describe('stopping and starting the line', () => {
+    const lineEvents = () =>
+      db.owner<{ type: string; actor: string; appended_by: string; summary: string; payload: Body; public: Body }[]>`
+        select type, actor, appended_by, summary, payload, public from events
+        where type in ('line.started', 'line.stopped') order by seq`;
+    /** The line running, as `make start-the-line` would leave it. */
+    const running = () => append(db.operator, [{ type: 'line.started', payload: {}, actor: 'martin' }]);
+    const stopped = async () => (await lineEvents()).at(-1)?.type === 'line.stopped';
+
+    it('stops with Martin’s reason, as the command line does, and aborts the canary in flight, recorded as the stop’s', async () => {
+      await running();
+      const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }, { paused: true });
+      const { browser } = await signedIn();
+      const before = (await controls()).length;
+      expect(await browser.post('/admin/line/stop', { reason: '  The coder keeps rewriting tests  ' })).toEqual({
+        status: 200,
+        body: { stopped: true, canary: 'aborted', release: RELEASE },
+      });
+      const stop = (await lineEvents()).at(-1);
+      expect(stop).toMatchObject({
+        type: 'line.stopped',
+        actor: 'martin',
+        appended_by: 'factory_admin',
+        summary: 'Martin stopped the line',
+        payload: { reason: 'The coder keeps rewriting tests' },
+      });
+      expect(stop?.public).toMatchObject({ summary: stop?.summary, payload: stop?.payload });
+      // The abort, and the pause Martin had set cleared with it, as the panel's abort does.
+      expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }, { spec: { paused: false } }]);
+      const [control, ...more] = (await controls()).slice(before);
+      expect(more).toEqual([]);
+      expect(control).toMatchObject({
+        appended_by: 'factory_admin',
+        summary: `Martin stopped the line, which aborted the canary of ${commitOf(CANARY).slice(0, 7)} at 25%`,
+        payload: { action: 'abort', release: RELEASE, version: commitOf(CANARY), weight: 25, stop: true },
+      });
+    });
+
+    it('refuses to stop a stopped line, and to start a running one, having appended nothing', async () => {
+      await running();
+      await withRollout({ current: STABLE, stable: STABLE });
+      const { browser, passkey } = await signedIn();
+      expect((await stepUp(browser, passkey)).status).toBe(200);
+      const count = (await lineEvents()).length;
+      expect(await browser.post('/admin/line/start', { reason: 'Again' })).toMatchObject({
+        status: 409,
+        body: { refused: 'line', message: 'The line is running already.' },
+      });
+      expect(await browser.post('/admin/line/stop', { reason: 'Lunch' })).toMatchObject({
+        status: 200,
+        body: { stopped: true, canary: 'none' },
+      });
+      expect(await browser.post('/admin/line/stop', { reason: 'Lunch' })).toMatchObject({
+        status: 409,
+        body: { refused: 'line', message: 'The line is stopped already.' },
+      });
+      expect(await lineEvents()).toHaveLength(count + 1);
+    });
+
+    it('starts only with the passkey again, decided from the stored line, with Martin’s reason', async () => {
+      await withRollout({ current: STABLE, stable: STABLE });
+      const { browser, passkey } = await signedIn();
+      if (!(await stopped())) expect((await browser.post('/admin/line/stop', { reason: 'Night' })).status).toBe(200);
+      expect(await browser.post('/admin/line/start', { reason: 'Morning' })).toMatchObject({
+        status: 403,
+        body: { refused: 'step-up' },
+      });
+      expect(await stopped()).toBe(true);
+      expect((await stepUp(browser, passkey)).status).toBe(200);
+      expect(await browser.post('/admin/line/start', { reason: 'Morning' })).toEqual({
+        status: 200,
+        body: { started: true },
+      });
+      expect((await lineEvents()).at(-1)).toMatchObject({
+        type: 'line.started',
+        actor: 'martin',
+        appended_by: 'factory_admin',
+        summary: 'Martin started the line',
+        payload: { reason: 'Morning' },
+      });
+      // A passkey gone stale is asked for again.
+      expect((await browser.post('/admin/line/stop', { reason: 'Night' })).status).toBe(200);
+      await db.owner`
+        update sessions set stepped_up_at = now() - make_interval(mins => ${STEP_UP.minutes + 1})
+        where id_sha256 = ${sessionOf(browser)}`;
+      expect((await browser.post('/admin/line/start', { reason: 'Morning' })).body.refused).toBe('step-up');
+      expect(await stopped()).toBe(true);
+    });
+
+    it('takes a reason, for the audit log, and nothing else', async () => {
+      await running();
+      const { browser } = await signedIn();
+      const count = (await lineEvents()).length;
+      for (const body of [{}, { reason: '   ' }, { reason: 'x'.repeat(201) }, { reason: 'Why', release: RELEASE }]) {
+        expect(await browser.post('/admin/line/stop', body), JSON.stringify(body)).toMatchObject({
+          status: 400,
+          body: { refused: 'body', message: 'Give a reason, for the audit log.' },
+        });
+      }
+      expect(await lineEvents()).toHaveLength(count);
+    });
+
+    it('stays stopped when the abort fails, and says the canary was not aborted and what will abort it', async () => {
+      await running();
+      const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+      const { browser } = await signedIn();
+      const before = (await controls()).length;
+      kube.failing.push(403);
+      expect(await browser.post('/admin/line/stop', { reason: 'Something is wrong' })).toEqual({
+        status: 200,
+        body: { stopped: true, canary: 'not-aborted', warning: NOT_ABORTED },
+      });
+      expect(await stopped()).toBe(true);
+      expect(kube.patches).toEqual([]);
+      expect(await controls()).toHaveLength(before);
+    });
+
+    it('aborts a canary the line has not recorded yet, recording no control: the line tells it by time', async () => {
+      await running();
+      const kube = await withRollout(
+        { current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 },
+        { recorded: false },
+      );
+      const { browser } = await signedIn();
+      const before = (await controls()).length;
+      expect(await browser.post('/admin/line/stop', { reason: 'Something is wrong' })).toMatchObject({
+        status: 200,
+        body: { stopped: true, canary: 'aborted', release: RELEASE },
+      });
+      expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }]);
+      expect(await controls()).toHaveLength(before);
+    });
+
+    it('stops the line and says so when the admin service has no Rollout', async () => {
+      await running();
+      const { browser } = await signedIn();
+      expect(await browser.post('/admin/line/stop', { reason: 'Something is wrong' })).toEqual({
+        status: 200,
+        body: { stopped: true, canary: 'not-aborted', warning: NO_ROLLOUT },
+      });
+      expect(await stopped()).toBe(true);
     });
   });
 });

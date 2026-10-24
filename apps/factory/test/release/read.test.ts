@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
-import { type AnalysisRun, journeysCounted } from '../../src/release/read.ts';
+import { journeysCounted } from '../../src/release/read.ts';
+import type { AnalysisRun } from '../../src/release/rollout.ts';
 import type { Kube } from '../../src/runners/kube.ts';
 import { run } from './fixtures.ts';
 

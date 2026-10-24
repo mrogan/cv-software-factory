@@ -50,6 +50,11 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   },
   // Version 2 names the hold it answers, and says when its words stay Martin's; a version 1 answer said neither.
   'hold.answered': { 1: (payload) => payload },
+  // Version 2 adds Martin's reason, and the console's start names no autonomy level; a version 1 start named one, and
+  // gave no reason.
+  'line.started': { 1: (payload) => payload },
+  // Version 2 marks the abort that came with Stop the line; a version 1 control was always the Canary panel's.
+  'release.controlled': { 1: (payload) => payload },
   // Version 2 of a release's events names the release, says whether the line watched it and whether the dry run
   // answers for it, and records the analysis's own measures. A version 1 release was told apart by its version, was
   // watched, and shipped.

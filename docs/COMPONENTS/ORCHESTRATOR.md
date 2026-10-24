@@ -188,11 +188,11 @@ A step's `model.called` records the settings it ran under: its turns, and the ef
 
 ## Stopping the line
 
-Every worker checks for `line.stopped` before it takes work, and heeds a stop or a start only from one of [Martin's roles](EVENT-STORE.md#martins-commands). `make stop-the-line` appends it, as his command line's role, and then the line:
+Every worker checks for `line.stopped` before it takes work, and heeds a stop or a start only from one of [Martin's roles](EVENT-STORE.md#martins-commands). Martin stops the line from the console's header, through the [admin service](ADMIN-SERVICE.md#stopping-and-starting-the-line), or with `make stop-the-line`, as his command line's role, which works when the console and the admin service do not; each records his reason. Then:
 
-- deletes the Jobs of every step in hand at once, starts none still preparing, and records nothing of them;
-- runs them afresh when the line starts;
-- aborts a release of the app in flight ([progressive delivery](PROGRESSIVE-DELIVERY.md)), which the release watch records as `release.aborted` by `stop` ([release and verify](RELEASE-AND-VERIFY.md#its-events)).
+- the line deletes the Jobs of every step in hand at once, starts none still preparing, and records nothing of them;
+- it runs them afresh when the line starts, which from the console needs his passkey again;
+- a release of the app in flight is aborted ([progressive delivery](PROGRESSIVE-DELIVERY.md)), which the release watch records as `release.aborted` by `stop` ([release and verify](RELEASE-AND-VERIFY.md#its-events)): from the console, by the admin service, after the stop is recorded, with a control that says it came with the stop; from the command line, by `scripts/abort-canaries.sh`, which records nothing, so the line tells its abort by time.
 
 A stopped line still watches the app's releases: it records whatever they do (a start, a step, a promotion, a rollback, an analysis error, an abort) and sends a rollback's signals to the inbox, where they wait. It moves no work item, and a dry run's releases wait for it to start.
 

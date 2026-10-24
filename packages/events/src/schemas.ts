@@ -841,7 +841,12 @@ export const PAYLOADS = {
     calls: z.number().int().positive(),
   }),
 
-  'line.started': z.strictObject({ autonomy: z.enum(V.AUTONOMY) }),
+  /**
+   * The line started: from the console's Start the line, with Martin's reason, or from `make start-the-line`, with his
+   * reason if he gave one, and the autonomy level if he named one.
+   */
+  'line.started': z.strictObject({ autonomy: z.enum(V.AUTONOMY).optional(), reason: text(200).optional() }),
+  /** The line stopped, from the console's Stop the line or `make stop-the-line`, with Martin's reason. */
   'line.stopped': z.strictObject({ reason: text(200) }),
   /**
    * Model calls wait (guardrail 7). Either the factory's own day or month cap is reached, and the gateway refuses
@@ -912,8 +917,9 @@ export const PAYLOADS = {
   /**
    * Martin controlled the canary from the console, and the admin service made the change to the app's Rollout: promoted
    * it to the next step's weight or fully, paused it, gave it back to its analysis, aborted it, or retried a release
-   * that was stopped. Appended once the change is made, never for one that failed. The line goes on recording what the
-   * Rollout then does: after his abort, `release.aborted` with `by: martin`.
+   * that was stopped; or he stopped the line from the console, and the admin service aborted the canary in flight with
+   * it (`stop`). Appended once the change is made, never for one that failed. The line goes on recording what the
+   * Rollout then does: after his abort, `release.aborted` with `by: martin`, and after Stop the line's, `by: stop`.
    */
   'release.controlled': z
     .strictObject({
@@ -926,6 +932,8 @@ export const PAYLOADS = {
       weight: z.number().int().min(0).max(100),
       /** For a promotion, the weight it goes to: the next step's, or 100 for all of the traffic. */
       to: z.number().int().min(1).max(100).optional(),
+      /** An abort that came with Stop the line, not from the Canary panel. */
+      stop: z.literal(true).optional(),
     })
     .refine((c) => (c.to !== undefined) === (c.action === 'promote' || c.action === 'promote-fully'), {
       message: 'a promotion says the weight it goes to, and nothing else does',
@@ -934,6 +942,10 @@ export const PAYLOADS = {
     .refine((c) => c.action !== 'promote-fully' || c.to === 100, {
       message: 'promoting fully sends the canary all of the traffic',
       path: ['to'],
+    })
+    .refine((c) => !c.stop || c.action === 'abort', {
+      message: 'Stop the line only aborts the canary',
+      path: ['stop'],
     }),
   /**
    * Martin saved his settings in the console, within policy (`policy/settings.ts`): every agent's model and effort and

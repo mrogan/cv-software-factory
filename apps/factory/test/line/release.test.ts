@@ -11,7 +11,7 @@ import { Prometheus } from '../../src/clients/prometheus.ts';
 import { GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { Line, type LineOptions } from '../../src/line/worker.ts';
 import { IndexedArtifacts, type Picture, PictureIndex, type Shot } from '../../src/pictures/index.ts';
-import type { AnalysisRun, Rollout } from '../../src/release/read.ts';
+import type { AnalysisRun, Rollout } from '../../src/release/rollout.ts';
 import { JOURNEY_FALLBACK } from '../../src/release/signals.ts';
 import type { Kube } from '../../src/runners/kube.ts';
 import { quiet } from '../github/fake.ts';
@@ -854,6 +854,36 @@ describe('a rollback, as signals to triage', () => {
     kube.runs = terminated();
     await it.tick();
     expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'martin' }]);
+  });
+
+  it('takes the console’s Stop the line abort from its control, at once, however long ago the line stopped', async () => {
+    const { line: it, kube, carried } = await underWay();
+    // The stop recorded long before the abort (Kubernetes was slow to take it), which time alone would call his own.
+    await martin.append([
+      {
+        ...event(null, 'line.stopped', { reason: 'Something is wrong' }, 'martin'),
+        ts: new Date(now - 10 * 60_000).toISOString(),
+      },
+      {
+        ...event(
+          null,
+          'release.controlled',
+          { action: 'abort', release: releaseOf(CANARY), version: commitOf(CANARY), weight: 25, stop: true },
+          'martin',
+        ),
+        ts: new Date(now - 2_000).toISOString(),
+      },
+    ]);
+    kube.rollout = rollout({
+      current: CANARY,
+      stable: STABLE,
+      stepIndex: 0,
+      abort: true,
+      abortedAt: new Date(now - 2_000).toISOString(),
+    });
+    kube.runs = terminated();
+    await it.tick();
+    expect(await payloads(carried, 'release.aborted')).toMatchObject([{ by: 'stop' }]);
   });
 
   it('takes no record of this abort, on another of the release’s targets, for the attempt before it', async () => {

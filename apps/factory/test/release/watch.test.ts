@@ -3,20 +3,17 @@ import { validate } from '@software-factory/events/schemas';
 import { describe, expect, it } from 'vitest';
 import type { Draft } from '../../src/line/gates.ts';
 import { asEvent } from '../../src/line/gates.ts';
-import { type AnalysisRun, hashesOf, type Rollout } from '../../src/release/read.ts';
+import { hashesOf } from '../../src/release/read.ts';
 import { recordedFrom, type Target } from '../../src/release/recorded.ts';
+import { type AnalysisRun, observe, planOf, podHashes, type Rollout, secondsOf } from '../../src/release/rollout.ts';
 import {
   dryRunEvents,
   dryRunRelease,
   type Facts,
-  observe,
-  planOf,
-  podHashes,
   releaseEvents,
   releaseNeeds,
   type Series,
   type Start,
-  secondsOf,
 } from '../../src/release/watch.ts';
 import { ABORTED_AT, CANARY, commitOf, digestOf, releaseOf, rollout, run, STABLE } from './fixtures.ts';
 
