@@ -1723,6 +1723,8 @@ describe('the line’s controls', () => {
     });
     const since = ((await changes()).at(-1)?.payload.take as { since: string } | undefined)?.since ?? '';
     expect(Date.now() - Date.parse(since)).toBeLessThan(60_000);
+    // To the microsecond, as the line stamps each work item it takes.
+    expect(since).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/);
     expect((await changes()).at(-1)?.summary).toBe('Martin widened what the line takes to the next 3');
     // Without the passkey again: fewer is narrower, and keeps when the next few started; more is wider.
     const other = (await signedIn()).browser;

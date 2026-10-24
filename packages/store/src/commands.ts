@@ -41,6 +41,18 @@ export async function latestControls(sql: Sql | TransactionSql): Promise<unknown
   return row?.payload;
 }
 
+/**
+ * The store's clock now, to the microsecond, as an ISO timestamp: the moment the next few are counted from, by the
+ * clock and to the precision the line stamps each work item it takes with (`line.taken_at`). A `Date` keeps only
+ * milliseconds, which would put the moment up to one earlier, and count a work item taken just before it as one of them.
+ */
+export async function storeClock(sql: Sql | TransactionSql): Promise<string> {
+  const [row] = await sql<{ now: string }[]>`
+    select to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as now`;
+  if (!row) throw new Error('The store did not say what time it is.');
+  return row.now;
+}
+
 interface Log {
   warn(details: object, message: string): void;
 }
