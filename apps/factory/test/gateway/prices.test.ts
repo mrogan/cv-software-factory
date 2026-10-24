@@ -21,8 +21,12 @@ describe('a call’s cost', () => {
   });
 
   it('prices Claude Haiku 5.5 at its rate up to a 100K-token prompt, and the whole call at five times it beyond', () => {
-    const cost = (prompt: { inputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number }) =>
-      costOf('claude-haiku-5-5', { outputTokens: 1_000, ...prompt });
+    const cost = (prompt: {
+      inputTokens: number;
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+      cacheWriteHourTokens?: number;
+    }) => costOf('claude-haiku-5-5', { outputTokens: 1_000, ...prompt });
     // $0.10 in and $0.50 out a million up to 100K tokens of prompt.
     expect(cost({ inputTokens: 100_000 })).toBeCloseTo((100_000 * 0.1 + 1_000 * 0.5) / 1e6, 12);
     // Over it, $0.50 and $2.50, output included.
@@ -34,6 +38,11 @@ describe('a call’s cost', () => {
     );
     expect(cost({ inputTokens: 1_000, cacheReadTokens: 90_000, cacheWriteTokens: 10_000 })).toBeCloseTo(
       (1_000 * 0.5 + 90_000 * 0.05 + 10_000 * 0.625 + 1_000 * 2.5) / 1e6,
+      12,
+    );
+    // An hour's cache write counts too: here it alone takes the prompt over.
+    expect(cost({ inputTokens: 100_000, cacheWriteHourTokens: 1 })).toBeCloseTo(
+      (100_000 * 0.5 + 1 * 1 + 1_000 * 2.5) / 1e6,
       12,
     );
   });
