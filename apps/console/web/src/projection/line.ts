@@ -291,7 +291,7 @@ export function station(
   if (held.length) {
     const words = `${held.length} ${held.every((item) => item.hold?.kind === 'held') ? 'held' : 'waiting'}`;
     figure = share ? `${share} · ${words}` : words;
-  } else if (share) figure = share;
+  } else if (share) figure = queued.length ? `${share} · ${queued.length} waiting` : share;
   else if (here.length) figure = count(here.length, NOUNS[stage]);
   else if (queued.length) figure = `${queued.length} waiting`;
   else figure = today ? `${today} today` : 'none';

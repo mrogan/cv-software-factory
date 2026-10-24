@@ -46,7 +46,7 @@ describe('the Canary panel, from the samples', () => {
     expect(canary.release.steps.map((s) => s.weight)).toEqual([25, 50, 100]);
     expect(canary.release.until).toBe(at('2026-10-06T14:24:00Z'));
     // The station works on the canary while a merge waits for its deploy, whose checks run: not Martin's yet.
-    expect(station).toMatchObject({ status: 'working', beacon: undefined, figure: '50%', queued: 1 });
+    expect(station).toMatchObject({ status: 'working', beacon: undefined, figure: '50% · 1 waiting', queued: 1 });
     expect(shown(END).view.panels.release.rows).toContainEqual(
       expect.objectContaining({
         item: '1321',
