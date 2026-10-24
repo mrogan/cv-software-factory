@@ -345,7 +345,7 @@ function watching(page: Page, origin: string) {
     consoleErrors.push({ level: 'error', text: `Uncaught ${error.message}`.slice(0, 300), page: page.url() });
   const onRequest = (request: Request) => {
     const url = new URL(request.url());
-    if (/^(https?|wss?):$/.test(url.protocol) && url.origin !== origin) asked.add(url.origin);
+    if (/^https?:$/.test(url.protocol) && url.origin !== origin) asked.add(url.origin);
   };
   const onResponse = async (response: Response) => {
     // Remember the page now: by the time the headers are read the browser may have moved on.

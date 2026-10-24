@@ -4,7 +4,7 @@
  * origin, which every test's guard holds (`support.ts`). Martin's one cookie, after he signs in, is
  * `signing-in.spec.ts`'s. And the privacy page, from the footer, which says so.
  */
-import { adminService, consoleUrl, expect, keptOnDevice, ready, test } from './support.ts';
+import { adminService, consoleUrl, expect, keptInEvery, keptOnDevice, ready, test } from './support.ts';
 
 test.beforeEach(({ page }) => adminService(page, 'visitor'));
 
@@ -59,4 +59,40 @@ test('the footer leads to the privacy page, which says what is kept and for how 
   await expect(page.getByRole('link', { name: 'Martin’s sign-in' })).toBeVisible();
   await page.getByRole('link', { name: '← The console' }).click();
   await ready(page);
+});
+
+test.describe('the guard', () => {
+  test('reads what a page keeps in another context, and in a popup', async ({ page, browser, baseURL }) => {
+    await page.goto('/?view=privacy');
+    const [popup] = await Promise.all([page.waitForEvent('popup'), page.evaluate(() => window.open('/?view=privacy'))]);
+    await popup.waitForLoadState();
+    await popup.evaluate(() => sessionStorage.setItem('left', 'by a popup'));
+    const other = await browser.newContext({ baseURL: baseURL ?? '' });
+    const elsewhere = await other.newPage();
+    await elsewhere.goto('/?view=privacy');
+    await elsewhere.evaluate(() => localStorage.setItem('left', 'in another context'));
+
+    const kept = await keptInEvery([page.context(), other]);
+    expect(kept).toContain(`sessionStorage left on ${new URL(popup.url()).origin}`);
+    expect(kept).toContain(`localStorage left on ${new URL(elsewhere.url()).origin}`);
+
+    await popup.evaluate(() => sessionStorage.clear());
+    await other.close();
+  });
+
+  // Each of these keeps something where the default page cannot see it, so its guard must fail it.
+  test('fails a test that leaves something in a context of its own', async ({ browser, baseURL }) => {
+    test.fail();
+    const other = await browser.newPage({ baseURL: baseURL ?? '' });
+    await other.goto('/?view=privacy');
+    await other.evaluate(() => localStorage.setItem('left', 'in another context'));
+  });
+
+  test('fails a test that leaves something in a popup', async ({ page }) => {
+    test.fail();
+    await page.goto('/?view=privacy');
+    const [popup] = await Promise.all([page.waitForEvent('popup'), page.evaluate(() => window.open('/?view=privacy'))]);
+    await popup.waitForLoadState();
+    await popup.evaluate(() => sessionStorage.setItem('left', 'by a popup'));
+  });
 });
