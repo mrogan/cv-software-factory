@@ -70,6 +70,7 @@ Martin is alerted to each of his security events, at its kind's level, counted f
 | `release-control` | `release.controlled` that promotes a canary or retries a release | Notify |
 | `guardrail-approved` | `hold.answered` approving a hold whose cause is a guardrail (`GUARDRAIL_HOLDS` in `policy/access.ts`), the cause read from the hold it answers | Page |
 | `line-started` | `line.started` | Notify |
+| `line-stopped` | every `line.stopped`, from the console or `make stop-the-line` | Inform |
 | `autonomy-loosened`, `autonomy-tightened` | `controls.changed` that makes the autonomy level looser or stricter | Page, Notify |
 | `new-work-on`, `new-work-off` | `controls.changed` that lets agents take new work, or stops them | Notify, Inform |
 | `auto-merge-on`, `auto-merge-off` | `controls.changed` that turns auto-merge of low-risk changes on or off | Notify, Inform |

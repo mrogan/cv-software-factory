@@ -103,6 +103,15 @@ serverFiles:
               summary: "The line was started"
               description: "The line takes work again."
           - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"line-stopped\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "inform"
+              kind: "line-stopped"
+            annotations:
+              summary: "The line was stopped"
+              description: "The line takes no work until it is started again."
+          - alert: SecurityEvent
             expr: "max(increase(line_security_events_total{kind=\"autonomy-loosened\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
             for: 0s
             labels:

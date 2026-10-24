@@ -93,6 +93,7 @@ describe('the count of Martin’s security events', () => {
     await append(admin, 'settings.changed', {});
     await append(operator, 'line.started', { autonomy: 'supervised' });
     await append(operator, 'line.stopped', { reason: 'night' });
+    await append(admin, 'line.stopped', { reason: 'from the console' });
     for (const action of RELEASE_CONTROLS) await append(admin, 'release.controlled', { action });
     await append(admin, 'controls.changed', {
       change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
@@ -111,6 +112,7 @@ describe('the count of Martin’s security events', () => {
       'release-control': STEPPED_UP_CONTROLS.length,
       'guardrail-approved': 0,
       'line-started': 1,
+      'line-stopped': 2,
       'autonomy-loosened': 1,
       'autonomy-tightened': 0,
       'new-work-on': 0,

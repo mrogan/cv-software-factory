@@ -265,7 +265,14 @@ describe('the alerts to Martin', () => {
       'setting-changed',
       'take-widened',
     ]);
-    expect(at(LEVELS.inform)).toEqual(['auto-merge-off', 'new-work-off', 'sign-in', 'stepped-up', 'take-narrowed']);
+    expect(at(LEVELS.inform)).toEqual([
+      'auto-merge-off',
+      'line-stopped',
+      'new-work-off',
+      'sign-in',
+      'stepped-up',
+      'take-narrowed',
+    ]);
   });
 
   it('say only what happened: no label’s value but a cause from a closed list', () => {

@@ -15,6 +15,7 @@
  *   approving a hold whose cause is a guardrail, read from the hold it answers: the latest on its work item before it,
  *   which is the hold the line takes it to answer, so an approval counts as what it does),
  *   and `line-started`;
+ * - `line-stopped`: every `line.stopped`, which tightens and needs no passkey again, but changes the line's controls;
  * - every change of the line's controls (`controls.changed`), as the access table's action it is, told from the
  *   stored change's before and after alone (`policy/line.ts`): `autonomy-loosened` and `autonomy-tightened`,
  *   `new-work-on` and `new-work-off`, `auto-merge-on` and `auto-merge-off`, `take-widened` and `take-narrowed`.
@@ -48,6 +49,7 @@ export const SECURITY_KINDS = [
   'release-control',
   'guardrail-approved',
   'line-started',
+  'line-stopped',
   'autonomy-loosened',
   'autonomy-tightened',
   'new-work-on',
@@ -75,6 +77,7 @@ const TYPES = [
   'release.controlled',
   'hold.answered',
   'line.started',
+  'line.stopped',
   'controls.changed',
   'hold.started',
 ] as const;
@@ -135,6 +138,8 @@ export function countAs(event: Stored): { kind: SecurityKind } | { hold: HoldCau
       return { kind: 'stepped-up' };
     case 'line.started':
       return { kind: 'line-started' };
+    case 'line.stopped':
+      return { kind: 'line-stopped' };
     case 'controls.changed': {
       const change = changeOf(event.change);
       return change ? { kind: CONTROL_KINDS[controlAction(change)] } : null;

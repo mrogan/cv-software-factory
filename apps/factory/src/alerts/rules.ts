@@ -99,6 +99,7 @@ export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   'new-work-on': LEVELS.notify,
   'sign-in': LEVELS.inform,
   'stepped-up': LEVELS.inform,
+  'line-stopped': LEVELS.inform,
   'new-work-off': LEVELS.inform,
   'auto-merge-off': LEVELS.inform,
   'take-narrowed': LEVELS.inform,
@@ -126,6 +127,7 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
     description: 'A hold whose cause is a guardrail was approved.',
   },
   'line-started': { summary: 'The line was started', description: 'The line takes work again.' },
+  'line-stopped': { summary: 'The line was stopped', description: 'The line takes no work until it is started again.' },
   'autonomy-loosened': {
     summary: 'Autonomy was loosened',
     description: "The line's autonomy level was made looser in the console.",
