@@ -6,8 +6,8 @@
  * But one: `line.hold.age` has a series for each hold that waits for Martin, named by its work item and, where he
  * answers it on GitHub, its pull request, so the alert for a new hold can say which and link it. Those series are as
  * many as the holds that waited for him since the line started, a handful, and each ends with its hold, reading 0, and goes when the line next
- * starts; both labels are numbers the store assigned, never a title, a reason or anything a visitor wrote. The alert
- * rule that reads it, one alert per hold, comes with the image that exports it (`alerts/rules.ts`, issue #562).
+ * starts; both labels are numbers the store assigned, never a title, a reason or anything a visitor wrote. Each hold's
+ * alert reads it, and makes links of those numbers (`alerts/rules.ts`, `holdRule`).
  *
  * - What happened is counted where the line records it, and only once the store has taken the event, so a series and
  *   the events cannot disagree: holds and verifications in the line's append, releases in the release watch's.
@@ -240,8 +240,12 @@ export function observeStages(sql: Sql): () => void {
   return () => meter.removeBatchObservableCallback(callback, [workItems, oldest]);
 }
 
-/** A work item's or a pull request's number, as the store and GitHub give them. */
-const NUMBER = /^[1-9][0-9]*$/;
+/**
+ * A work item's or a pull request's number, as the store and GitHub give them: all a hold's series may carry, and all
+ * its alert's rule admits (`alerts/rules.ts`), from this one pattern.
+ */
+export const NUMBER_PATTERN = '[1-9][0-9]*';
+const NUMBER = new RegExp(`^${NUMBER_PATTERN}$`);
 
 const holdAge = meter.createObservableGauge('line.hold.age', {
   description:
