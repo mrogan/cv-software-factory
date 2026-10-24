@@ -2514,9 +2514,9 @@ function enrolPage() {
 const AGENTS = [['planner', 'Writes the spec from the ticket', 'claude-sonnet-5-5', 'medium', 'high', '9 steps · $0.71'],
   ['coder', 'Writes the test, then the fix', 'claude-sonnet-5-5', 'high', 'high', '14 steps · $1.62'],
   ['reviewer', 'Reviews what passed the gates', 'claude-sonnet-5-5', 'medium', 'high', '11 steps · $0.88'],
-  ['describer', 'Writes the pull request’s story', 'claude-haiku-4-5', 'low', 'medium', '6 steps · $0.07']];
+  ['describer', 'Writes the pull request’s story', 'claude-haiku-5-5', 'low', 'medium', '6 steps · $0.07']];
 // The models policy/models.ts gives the profile, by the names the sheet uses: a local one only where the profile has it.
-const MODEL_NAMES = [['claude-haiku-4-5', 'Claude Haiku 4.5'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5'], ['claude-opus-5-5', 'Claude Opus 5.5'],
+const MODEL_NAMES = [['claude-haiku-5-5', 'Claude Haiku 5.5'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5'], ['claude-opus-5-5', 'Claude Opus 5.5'],
   ...(q.get('profile') === 'cloud' ? [] : [['qwen/qwen3.8-27b', 'Qwen3.8 27B · local']])];
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 

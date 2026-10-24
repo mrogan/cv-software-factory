@@ -61,7 +61,7 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
   const probe = async (name: ProviderName) => {
     const provider = providers[name];
     if (!provider) return false;
-    const model = name === 'local' && local ? local.model : 'claude-haiku-4-5';
+    const model = name === 'local' && local ? local.model : 'claude-haiku-5-5';
     const response = await provider.send(
       '/v1/messages',
       JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'Reply with one word.' }] }),

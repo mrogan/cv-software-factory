@@ -94,7 +94,7 @@ describe('the counts', () => {
     // Every model an agent may be given on the profile, the local one among them.
     const models = [
       'local qwen/qwen3.8-27b',
-      'anthropic claude-haiku-4-5',
+      'anthropic claude-haiku-5-5',
       'anthropic claude-sonnet-5-5',
       'anthropic claude-opus-5-5',
     ];
