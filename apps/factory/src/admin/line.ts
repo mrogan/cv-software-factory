@@ -25,7 +25,8 @@
  *   that loosens, asked again after the lock.
  * - A change outside policy is refused (422), having changed nothing: the next few beyond its most, or just one work
  *   item that has no open ticket. The line checks what it reads again, whatever is written here.
- * - The next few count from when Martin chose them, so changing only their number keeps when they started.
+ * - The next few count from when Martin chose them, so changing only their number keeps when they started; the same
+ *   number chosen again starts them again.
  * - A change to what is already so records nothing.
  */
 import { AUTONOMY } from '@software-factory/events';
@@ -189,7 +190,11 @@ function changeOf(before: Controls, asked: Change, now: Date): ControlChange {
       ? {
           kind: 'next-few',
           count: take.count,
-          since: before.take?.kind === 'next-few' ? before.take.since : now.toISOString(),
+          // A new number keeps when they started; the same number again starts them again.
+          since:
+            before.take?.kind === 'next-few' && before.take.count !== take.count
+              ? before.take.since
+              : now.toISOString(),
         }
       : take;
   return { control: 'take', before: before.take, after };
@@ -212,11 +217,11 @@ function withChange(controls: Controls, change: ControlChange): Controls {
   }
 }
 
-/** Whether a work item has a ticket, and has not closed since: one the line can take. */
+/** Whether a work item has a real ticket, and has not closed since: one the line can take, as `Queue.admit` reads it. */
 async function openTicket(tx: TransactionSql, workItem: string): Promise<boolean> {
   const [row] = await tx`
     select 1 from events t
-    where t.type = 'ticket.opened' and t.work_item = ${workItem}
+    where t.type = 'ticket.opened' and t.work_item = ${workItem} and not t.sample
       and ${lastEnd(tx, 't.work_item')} is distinct from 'work-item.closed'
     limit 1`;
   return row !== undefined;

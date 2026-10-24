@@ -1731,6 +1731,10 @@ describe('the line’s controls', () => {
       body: { controls: { take: { kind: 'next-few', count: 2, since } } },
     });
     expect((await changes()).at(-1)?.summary).toBe('Martin narrowed what the line takes to the next 2');
+    // The same number again starts them again, from now: that many more, so it asks.
+    expect((await other.post('/admin/line/controls', { take: { kind: 'next-few', count: 2 } })).body.refused).toBe(
+      'step-up',
+    );
     for (const take of [{ kind: 'next-few', count: 5 }, { kind: 'every' }]) {
       expect((await other.post('/admin/line/controls', { take })).body.refused, JSON.stringify(take)).toBe('step-up');
     }

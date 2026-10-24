@@ -97,6 +97,10 @@ describe('each change', () => {
     expect(change('take', every, next(20))).toBe('take.narrow');
     expect(change('take', next(3), one('1290'))).toBe('take.narrow');
     expect(change('take', next(4), next(3))).toBe('take.narrow');
+    // The same number again, counted from later, lets the line take that many more.
+    expect(change('take', next(3), { kind: 'next-few', count: 3, since: '2026-10-24T10:00:00.000Z' })).toBe(
+      'take.widen',
+    );
     // Just one, moved to another work item, is still one.
     expect(change('take', one('1290'), one('1291'))).toBe('take.narrow');
   });

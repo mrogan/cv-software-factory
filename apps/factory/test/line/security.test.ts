@@ -267,6 +267,9 @@ describe('what counts as a security event', () => {
     expect(changed({ control: 'take', before: null, after: one })).toEqual({ kind: 'take-widened' });
     expect(changed({ control: 'auto-rollback', before: true, after: false })).toBeNull();
     expect(countAs({ type: 'controls.changed' })).toBeNull();
+    // A malformed change is counted as nothing, and stops no count.
+    expect(changed({ control: 'take', before: one, after: null })).toBeNull();
+    expect(changed({ control: 'autonomy', before: 'supervised', after: 'yolo' })).toBeNull();
   });
 
   it('tells a guardrail by the access table’s list', () => {

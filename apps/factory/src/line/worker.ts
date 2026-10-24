@@ -139,7 +139,7 @@ import {
 import { countRecorded, countStep, observeStages, type StepEnding, zeroCounts } from './metrics.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Own, pagesFor } from './pictures.ts';
-import { type Pending, Queue, type QueueItem, takesOf } from './queue.ts';
+import { type Pending, Queue, type QueueItem, type Takes, takesOf } from './queue.ts';
 import { carried, Releases, type ReleaseWatchOptions } from './release.ts';
 import {
   closingComment,
@@ -307,6 +307,8 @@ export class Line {
   readonly #ignored: IgnoredCommands;
   /** The one work item the line acts on, as this pass read Martin's take; until the first pass, the options'. */
   #only: string | null;
+  /** What the line takes, as this pass read it. */
+  #takes: Takes | undefined;
   /** Whether agents take new work, as this pass read Martin's switch. */
   #newWork = true;
   /** The settings in force, as this pass read them; until the first pass, the options'. */
@@ -419,10 +421,11 @@ export class Line {
    */
   #control({ take, newWork }: Pick<Controls, 'take' | 'newWork'>): void {
     const takes = takesOf(take, { only: this.#o.only, take: this.#o.take });
-    if (takes.only !== this.#only || newWork !== this.#newWork) {
+    if (JSON.stringify(takes) !== JSON.stringify(this.#takes) || newWork !== this.#newWork) {
       this.#o.log.info({ ...takes, newWork }, 'the line acts on what Martin set it to take');
     }
     this.#only = takes.only;
+    this.#takes = takes;
     this.#newWork = newWork;
     this.#queue.takes(takes);
     this.#releases.actOn(takes.only);

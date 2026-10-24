@@ -1,15 +1,16 @@
 /**
  * Martin's controls of the line, within policy: the autonomy level, whether agents take new work, whether low-risk
  * changes merge by themselves, and what the line takes, as he chose them in the console (`controls.changed`). This is
- * the one check: the line, the admin service and the console each turn the latest controls event into the controls in
- * force with `controlsInForce`, so all three agree on what is in force.
+ * the one check: the line and the admin service each turn the latest controls event into the controls in force with
+ * `controlsInForce`, and the console's Controls is to as well, so all agree on what is in force.
  *
  * Controls are checked where they are read, not only where they are written: whatever an event says, anything outside
  * policy is not in force, and policy's default is, control by control. A take that is not in force is none: the line's
  * own default (`LINE_TAKE`, `LINE_ONLY`) is in force then, as it is before Martin sets one.
  *
  * And which of the access table's actions a change is (`policy/access.ts`), so the admin service asks for the passkey
- * again for one that loosens, and the line counts each as a security event, from the change alone.
+ * again for one that loosens, and the line counts each as a security event, from the change alone. The next few,
+ * chosen again with the same number, start again from then: that lets the line take more, and is wider.
  *
  * Human-owned: see `README.md`.
  */
@@ -138,9 +139,12 @@ export function controlAction(change: ControlChange): ControlAction {
       const { before, after } = change;
       if (before === null) return 'take.widen';
       if (breadth(after) !== breadth(before)) return breadth(after) > breadth(before) ? 'take.widen' : 'take.narrow';
-      return after.kind === 'next-few' && before.kind === 'next-few' && after.count > before.count
-        ? 'take.widen'
-        : 'take.narrow';
+      // The next few: more of them, or the same number counted again from later, is wider.
+      if (after.kind === 'next-few' && before.kind === 'next-few') {
+        const again = after.count === before.count && Date.parse(after.since) > Date.parse(before.since);
+        return after.count > before.count || again ? 'take.widen' : 'take.narrow';
+      }
+      return 'take.narrow';
     }
   }
 }

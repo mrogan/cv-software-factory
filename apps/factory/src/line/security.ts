@@ -29,7 +29,8 @@
  * and the log: the alert on the count going stale or missing pages instead.
  */
 import { type BatchObservableResult, metrics } from '@opentelemetry/api';
-import { HOLD_CAUSES, type HoldCause, LINE_CONTROLS, type ReleaseControl, upcast } from '@software-factory/events';
+import { HOLD_CAUSES, type HoldCause, type ReleaseControl, upcast } from '@software-factory/events';
+import { PAYLOADS } from '@software-factory/events/schemas';
 import type { Sql } from 'postgres';
 import { GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
 import { type ControlAction, type ControlChange, controlAction } from '../../../../policy/line.ts';
@@ -103,13 +104,10 @@ const CONTROL_KINDS: Record<ControlAction, SecurityKind> = {
   'take.narrow': 'take-narrowed',
 };
 
-/** A stored change, if it has the shape of one: a control the line has, and a value before and after. */
+/** A stored change, if it is one as the event's schema has it, so a malformed row is counted as nothing. */
 function changeOf(value: unknown): ControlChange | undefined {
-  if (typeof value !== 'object' || value === null) return undefined;
-  const { control } = value as { control?: unknown };
-  return (LINE_CONTROLS as readonly unknown[]).includes(control) && 'before' in value && 'after' in value
-    ? (value as ControlChange)
-    : undefined;
+  const read = PAYLOADS['controls.changed'].shape.change.safeParse(value);
+  return read.success ? (read.data as ControlChange) : undefined;
 }
 
 /**
