@@ -3,6 +3,12 @@
  * starts an SDK these are no-ops, so tests need none. Every attribute is from a closed list (a stage, an agent, a
  * provider, an outcome, a cause, a sense): never a work item, a job or a release, which would make a series of each.
  *
+ * But one: `line.hold.age` has a series for each hold that waits for Martin, named by its work item and, where he
+ * answers it on GitHub, its pull request, so the alert for a new hold can say which and link it. Those series are as
+ * many as the holds that waited for him since the line started, a handful, and each ends with its hold, reading 0, and goes when the line next
+ * starts; both labels are numbers the store assigned, never a title, a reason or anything a visitor wrote. The alert
+ * rule that reads it, one alert per hold, comes with the image that exports it (`alerts/rules.ts`, issue #562).
+ *
  * - What happened is counted where the line records it, and only once the store has taken the event, so a series and
  *   the events cannot disagree: holds and verifications in the line's append, releases in the release watch's.
  * - How many work items are at each stage, and how long the oldest has been there, are read from the store's `line`
@@ -13,9 +19,10 @@
  *   `increase` and `changes` read nothing into a series' first sample, so a series that started at 1 would lose the
  *   first step, hold, release or verification of each kind after every restart.
  */
-import { type BatchObservableResult, metrics } from '@opentelemetry/api';
+import { type Attributes, type BatchObservableResult, metrics } from '@opentelemetry/api';
 import { HOLD_CAUSES, type HoldCause, type PayloadOf, SENSES, STAGES } from '@software-factory/events';
 import type { Sql } from 'postgres';
+import { openHolds } from './holds.ts';
 import { type LineAgent, type QueueStage, STAGE_OF } from './machine.ts';
 
 const meter = metrics.getMeter('factory-line');
@@ -231,4 +238,63 @@ export function observeStages(sql: Sql): () => void {
   };
   meter.addBatchObservableCallback(callback, [workItems, oldest]);
   return () => meter.removeBatchObservableCallback(callback, [workItems, oldest]);
+}
+
+/** A work item's or a pull request's number, as the store and GitHub give them. */
+const NUMBER = /^[1-9][0-9]*$/;
+
+const holdAge = meter.createObservableGauge('line.hold.age', {
+  description:
+    'How long each hold that waits for Martin has waited, by work item, cause and the pull request he answers it on, if any; 0 once it no longer waits',
+  unit: 's',
+});
+
+/**
+ * Reports each hold that waits for Martin (`holds.ts`), as the store has it, each time the SDK collects, until the
+ * function it gives back is called: one series per hold, by `work_item`, `cause` and, where there is one,
+ * `pull_request`, whose value is how long it has waited. A hold that is answered, or that stops waiting for him (a
+ * deploy pull request's checks running again), reads 0 from then. The process remembers each series it reported
+ * while its hold waits, only to say once that it has ended, and then forgets it: what waits is the store's alone.
+ *
+ * An ended series stays, at 0, until the line next starts: the SDK (`@opentelemetry/sdk-metrics` 2.12) keeps an
+ * attribute set it has seen once in the reader's cumulative storage, and sends it each collection whether or not the
+ * callback observed it again, and neither an observable nor a synchronous gauge can remove one. Only delta temporality
+ * drops a set not observed, and temporality is the reader's, chosen by instrument type, not by instrument or view:
+ * it would change every worker's observable gauges, and mean building the OTLP reader by hand. The series kept are
+ * one for each hold that waited for Martin while the line ran, and every deploy of the factory starts it again; the
+ * SDK's own limit of 2000 sets an instrument folds any beyond it into one overflow series. A line that starts again
+ * reports only what waits then. A read that fails observes nothing that time: the SDK sends the last values again.
+ */
+export function observeHolds(sql: Sql): () => void {
+  const reported = new Map<string, Attributes>();
+  const callback = async (result: BatchObservableResult) => {
+    const now = Date.now();
+    const open = new Map<string, Attributes>();
+    const ages = new Map<string, number>();
+    for (const hold of await openHolds(sql)) {
+      // Only numbers become labels, which an alert makes links of: the store's checks say so, and this again.
+      if (!NUMBER.test(hold.workItem) || (hold.pullRequest !== undefined && !NUMBER.test(String(hold.pullRequest)))) {
+        continue;
+      }
+      const attributes = {
+        work_item: hold.workItem,
+        cause: hold.cause,
+        ...(hold.pullRequest !== undefined && { pull_request: String(hold.pullRequest) }),
+      };
+      const key = JSON.stringify(attributes);
+      open.set(key, attributes);
+      ages.set(key, Math.max(1, (now - hold.since.getTime()) / 1000));
+    }
+    for (const [key, attributes] of reported) {
+      if (open.has(key)) continue;
+      result.observe(holdAge, 0, attributes);
+      reported.delete(key);
+    }
+    for (const [key, attributes] of open) {
+      result.observe(holdAge, ages.get(key) ?? 1, attributes);
+      reported.set(key, attributes);
+    }
+  };
+  meter.addBatchObservableCallback(callback, [holdAge]);
+  return () => meter.removeBatchObservableCallback(callback, [holdAge]);
 }

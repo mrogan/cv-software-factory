@@ -59,7 +59,7 @@ What it takes is Martin's to set in the console's Controls ([admin service](ADMI
 - **`LINE_ONLY`**, set to a work item, makes the line act on that one alone, as Just one does.
   - It takes that ticket onto the line whatever else is in Plan or Build.
   - It starts no step for any other work item, reads nothing for it and appends nothing.
-  - It says nothing of the deploy pull request.
+  - It says nothing of what the deploy pull request carries, but still records where that pull request stands for this work item ([its state](RELEASE-AND-VERIFY.md#the-deploy-pull-requests-state)).
   - It still watches the app's releases, and records one that carries that work item or none (those go on the line). A release that also carries another work item is left for the whole line. The work item stays held at Release (cause `deploy`, so Needs you lists it) until the line records that release, or finds it live.
 - **`LINE_TAKE`**, set to a number, has the line take tickets by its own rule until it has taken that many work items in all, as The next few do from when Martin chose them. The count comes from the `line` table, by when each work item came onto it, so a restart takes none more. It then takes no more, and carries those it has to their end.
 
@@ -165,7 +165,7 @@ Each hold names its cause, and Martin's answer does what `ANSWERS` says for that
 | `review` | Still blocking after two reviews, or after the round for an approval's suggestions, an escalation whose findings do not cite the ticket, or the coder changed nothing after a review | Stands in for the reviewer's approval | Sends the work back to the coder, with his words |
 | `beyond-ticket` | The reviewer escalates a spec that goes beyond its ticket | Stands in for the reviewer's approval | Sends the spec back to the planner |
 | `merge` | The fix has passed its gates and review | Waits for his merge | Sends the work back to the coder |
-| `deploy` | The merged fix waits for a release ([Release](RELEASE-AND-VERIFY.md#release)) | Waits: he settles it by merging the deploy pull request | Waits |
+| `deploy` | The merged fix waits for a release ([Release](RELEASE-AND-VERIFY.md#release)) | Waits: he settles it by merging the deploy pull request, his once its checks have passed | Waits |
 | `verify` | The signal persisted a second time, Verify could not tell for 24 hours, or nothing can judge the fix ([Verify](RELEASE-AND-VERIFY.md#verify)) | Closes the work item as verified, with his words | Sends it back to Plan |
 | `spend` | The work item has spent its cap on models | Carries on, and holds again until the cap is raised; raising it answers the hold | Carries on |
 

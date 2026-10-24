@@ -79,6 +79,9 @@ export default new Item('1314', '2026-10-06T09:00:00+01:00')
     cause: 'deploy',
     reason: 'The fix in pull request #1316 is merged, and waits for a deploy pull request to carry it to the shop',
   })
+  .deploy('1:20:00', 1330, 1, 'checking')
+  .deploy('1:24:30', 1330, 1, 'passed')
+  .deploy('6:16:00', 1330, 1, 'merged')
   .at(
     '6:18:00',
     'release.started',

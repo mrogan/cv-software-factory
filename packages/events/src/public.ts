@@ -97,6 +97,7 @@ export const PUBLIC_VIEWS = {
   'gates.finished': redacted,
   'review.submitted': redacted,
   'pull-request.merged': redacted,
+  'deploy.changed': redacted,
   'release.started': redacted,
   'canary.stepped': redacted,
   'release.promoted': redacted,

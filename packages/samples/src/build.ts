@@ -420,6 +420,34 @@ export class Item {
   }
 
   /**
+   * Where the app's deploy pull request that carries this held fix stands, as the line records it once a minute: on
+   * its `build`th head (a newer build moves the same pull request to a new one), its checks running, passed, or
+   * failed (naming which), merged, or closed unmerged. The summary is the line's own.
+   */
+  deploy(
+    offset: string,
+    pullRequest: number,
+    build: number,
+    state: PayloadOf<'deploy.changed'>['state'],
+    failed?: string[],
+  ): this {
+    const pr = `Deploy pull request #${pullRequest}`;
+    const summary = {
+      checking: `${pr} carries it; its checks are running`,
+      passed: `${pr} carries it, and its checks passed: it waits for Martin to merge it`,
+      failed: `${pr} carries it, and ${failed?.[0] ?? 'a check'} failed on it`,
+      merged: `${pr}, which carries it, merged: its release starts once Argo CD syncs`,
+      closed: `${pr} was closed unmerged: the next build’s carries it`,
+    }[state];
+    return this.at(offset, 'deploy.changed', 'factory', summary, {
+      pullRequest,
+      commit: commitFor(`deploy/${pullRequest}/${build}`),
+      state,
+      ...(failed && { failed }),
+    });
+  }
+
+  /**
    * Martin's abort of a release, by Stop the line or by hand: Argo Rollouts acts on it at `acted`, and the line records
    * it a pass later, at `offset`.
    */

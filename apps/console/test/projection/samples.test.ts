@@ -22,6 +22,7 @@ describe('the samples, projected', () => {
         'needs-you',
         'waiting',
         'waits-on-work',
+        'deploying',
         'in-progress',
       ]),
     );

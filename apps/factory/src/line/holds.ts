@@ -1,0 +1,85 @@
+/**
+ * The holds that wait for Martin now, one each, as the line folds each work item's events (`machine.ts`): what the
+ * alert for each new hold is made from (`line.hold.age`, `metrics.ts`). Read from the store, never from what a worker
+ * remembers, so a line that restarts, or a second replica, reports the same holds, each from the same moment.
+ *
+ * Each names its work item, its cause and, where Martin answers it on GitHub, the pull request: a merge hold's latest
+ * pushed pull request, a deploy hold's deploy pull request. A deploy hold waits for Martin only once that pull
+ * request's checks have passed (`deploy.ts`), and from then; until then it waits for the build, the checks or Argo CD,
+ * and is not his yet. One whose release was aborted or erred waits for his retry, from the hold's start.
+ */
+import { type HoldCause, type RawEvent, upcast } from '@software-factory/events';
+import { fromMartin, lastEnd } from '@software-factory/store';
+import type { Sql } from 'postgres';
+import { latestDeploy } from './deploy.ts';
+import { fold, type LineEvent } from './machine.ts';
+
+/** A hold that waits for Martin. */
+export interface OpenHold {
+  workItem: string;
+  cause: HoldCause;
+  /** The pull request he answers it on, on GitHub, if there is one. */
+  pullRequest: number | undefined;
+  /** Since when it has waited for him. */
+  since: Date;
+}
+
+/** One stored event, upcast, with when it was appended. */
+export interface Dated {
+  type: string;
+  payload: unknown;
+  ts: Date;
+}
+
+/** The hold of a work item that waits for Martin, from its events in order, if one does. */
+export function waitingHold(workItem: string, events: readonly Dated[]): OpenHold | undefined {
+  const s = fold(events as unknown as LineEvent[]);
+  const { hold } = s;
+  if (!hold || s.closed) return undefined;
+  // The hold in force is the payload of the `hold.started` the fold took.
+  const started = events.findLast((event) => event.payload === hold);
+  if (!started) return undefined;
+  if (hold.cause === 'merge') {
+    return { workItem, cause: hold.cause, pullRequest: s.pullRequest?.number, since: started.ts };
+  }
+  if (hold.cause === 'deploy') {
+    const how = s.release?.ended?.how;
+    if (how === 'aborted' || how === 'errored') {
+      return { workItem, cause: hold.cause, pullRequest: undefined, since: started.ts };
+    }
+    const deploy = latestDeploy(events, hold);
+    if (deploy?.state !== 'passed') return undefined;
+    const passed = events.findLast((event) => event.type === 'deploy.changed');
+    return { workItem, cause: hold.cause, pullRequest: deploy.pullRequest, since: passed?.ts ?? started.ts };
+  }
+  return { workItem, cause: hold.cause, pullRequest: undefined, since: started.ts };
+}
+
+/**
+ * Every hold that waits for Martin now, oldest first: each work item's that has a hold, has not closed since, and is
+ * not a sample's, folded from its events, Martin's commands only from his roles, as the line reads them.
+ */
+export async function openHolds(sql: Sql): Promise<OpenHold[]> {
+  const rows = await sql<(RawEvent & { ts: Date; work_item: string })[]>`
+    with ever as (
+      select distinct h.work_item from events h where h.type = 'hold.started' and not h.sample
+    ),
+    held as (
+      select ever.work_item from ever where ${lastEnd(sql, 'ever.work_item')} is distinct from 'work-item.closed'
+    )
+    select e.seq, e.work_item, e.ts, e.type, e.version, e.payload from events e
+    join held on held.work_item = e.work_item
+    where ${fromMartin(sql, 'e')}
+    order by e.work_item, e.seq`;
+  const by = new Map<string, Dated[]>();
+  for (const row of rows) {
+    const read = upcast({ ...row, seq: Number(row.seq) });
+    if (!read.ok) continue;
+    const list = by.get(row.work_item) ?? [];
+    list.push({ type: read.event.type, payload: read.event.payload, ts: new Date(row.ts) });
+    by.set(row.work_item, list);
+  }
+  return [...by]
+    .flatMap(([workItem, events]) => waitingHold(workItem, events) ?? [])
+    .sort((a, b) => a.since.getTime() - b.since.getTime());
+}

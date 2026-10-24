@@ -89,13 +89,13 @@ test.describe('the Canary panel', () => {
     );
   });
 
-  test('leaves Release’s panel saying a merge waits for Martin’s deploy', async ({ page }) => {
+  test('leaves Release’s panel saying what a merge’s deploy waits for: its checks, before it is Martin’s', async ({
+    page,
+  }) => {
     await page.goto(consoleUrl());
     await shown(page);
     await page.getByRole('button', { name: /^Release: .*, 50% · 1 waiting[.,] / }).click();
-    await expect(page.getByRole('dialog', { name: 'Release' })).toContainText(
-      'Needs you · waiting for Martin’s deploy',
-    );
+    await expect(page.getByRole('dialog', { name: 'Release' })).toContainText('Merged · deploy #1331’s checks running');
   });
 
   test('draws each abort and an analysis error, marks a dry run, and folds to one line when nothing is in flight', async ({
@@ -225,9 +225,15 @@ test.describe('a sheet’s releases', () => {
   });
 
   test('says a wait for Martin’s deploy, and a return from Verify, in the design’s words', async ({ page }) => {
-    await page.goto(consoleUrl({ item: '1321', sheet: true }));
+    // #1314's deploy pull request passed its checks, and waited for Martin, before he merged it.
+    await page.goto(consoleUrl({ item: '1314', sheet: true, at: Date.parse('2026-10-06T09:30:00Z') }));
     await expect(page.getByRole('dialog').locator('.deploy-wait')).toContainText(
       'Merged · waiting for Martin’s deploy',
+    );
+    await expect(page.getByRole('dialog').getByRole('link', { name: '#1330 on GitHub' })).toHaveCount(0);
+    await page.goto(consoleUrl({ item: '1321', sheet: true }));
+    await expect(page.getByRole('dialog').locator('.deploy-wait')).toContainText(
+      'Merged · deploy #1331’s checks running',
     );
     await page.goto(consoleUrl({ at: RETURNED }));
     await shown(page);

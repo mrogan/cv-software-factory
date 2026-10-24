@@ -136,9 +136,7 @@ function gateRun(
   merged = false,
 ): Draft[] {
   const commit = pr.head.sha;
-  // The latest run of each check, by name: a check run again replaces the run before.
-  const latest = new Map<string, CheckRun>();
-  for (const run of [...runs].sort((a, b) => a.id - b.id)) if (run.app !== APP_SLUG) latest.set(run.name, run);
+  const latest = latestRuns(runs);
   if (latest.size === 0) return [];
   const drafts: Draft[] = [];
   const pullRequest = pr.number;
@@ -172,19 +170,8 @@ function gateRun(
     });
   }
 
-  const all = [...latest.values()];
-  const finished = all.filter((run) => run.status === 'completed');
-  // At a merge nothing waits: no read comes after it, so a round left open then would stay open for good.
-  const waiting =
-    !merged && (required.some((name) => latest.get(name)?.status !== 'completed') || finished.length < all.length);
+  const { waiting, judged, unfinished, failed, passed } = judge(latest, required, merged);
   if (!waiting && !record.done.has(commit)) {
-    const judged = (required.length ? all.filter((run) => required.includes(run.name)) : all).filter((run) =>
-      finished.includes(run),
-    );
-    const relevant = required.length ? required : all.map((run) => run.name);
-    const unfinished = relevant.filter((name) => !judged.some((run) => run.name === name));
-    const failed = judged.filter((run) => outcome(run.conclusion) === 'failure').map((run) => run.name.slice(0, 80));
-    const passed = finished.filter((run) => outcome(run.conclusion) === 'success').length;
     drafts.push({
       type: 'gates.finished',
       actor: 'actions',
@@ -203,6 +190,35 @@ function gateRun(
     });
   }
   return drafts;
+}
+
+/** The latest run of each check on a commit, by name: a check run again replaces the run before. The factory's own are left out. */
+export function latestRuns(runs: readonly CheckRun[]): Map<string, CheckRun> {
+  const latest = new Map<string, CheckRun>();
+  for (const run of [...runs].sort((a, b) => a.id - b.id)) if (run.app !== APP_SLUG) latest.set(run.name, run);
+  return latest;
+}
+
+/**
+ * How the checks on a commit stand, by their latest runs: still running while a required check, or any that started,
+ * has not finished; then judged on the required ones that finished (every one, when none is required), where each that
+ * failed fails the round, and one skipped does not. `passed` counts every finished check that succeeded. At a merge
+ * nothing waits (`merged`), and a required check that never finished is `unfinished`.
+ */
+export function judge(latest: ReadonlyMap<string, CheckRun>, required: readonly string[], merged = false) {
+  const all = [...latest.values()];
+  const finished = all.filter((run) => run.status === 'completed');
+  // At a merge nothing waits: no read comes after it, so a round left open then would stay open for good.
+  const waiting =
+    !merged && (required.some((name) => latest.get(name)?.status !== 'completed') || finished.length < all.length);
+  const judged = (required.length ? all.filter((run) => required.includes(run.name)) : all).filter((run) =>
+    finished.includes(run),
+  );
+  const relevant = required.length ? required : all.map((run) => run.name);
+  const unfinished = relevant.filter((name) => !judged.some((run) => run.name === name));
+  const failed = judged.filter((run) => outcome(run.conclusion) === 'failure').map((run) => run.name.slice(0, 80));
+  const passed = finished.filter((run) => outcome(run.conclusion) === 'success').length;
+  return { waiting, judged, unfinished, failed, passed };
 }
 
 /** A draft as an event of the work item, or of the line (null), at its type's current version. */

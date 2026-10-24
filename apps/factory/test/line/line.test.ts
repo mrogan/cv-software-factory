@@ -2259,6 +2259,201 @@ describe('the deploy pull request', () => {
   });
 });
 
+describe('the deploy pull request that carries a held work item', () => {
+  const sha = (c: string) => c.repeat(40);
+  const DEPLOY = 30;
+  const deployHold = { stage: 'release', kind: 'approval', cause: 'deploy', reason: 'Waits for a deploy' } as const;
+
+  /** A work item merged at `commit` and held for a deploy, on the line. */
+  async function heldForDeploy(commit: string, route = '/search'): Promise<string> {
+    const workItem = await ticket('broken', route);
+    await events.append([
+      event(workItem, 'pull-request.merged', { number: 15, commit, by: 'martin' }, 'martin'),
+      event(workItem, 'hold.started', deployHold),
+    ]);
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'held', 14)`;
+    return workItem;
+  }
+
+  /** The deploy pull request, open on `head`, as the deploy watch proposes it: it runs `commit`, over `pinned`. */
+  function propose(github: FakeGitHub, head: string, number = DEPLOY) {
+    github.deploy = { number, commit: sha('3'), pinned: sha('1'), digests: [] };
+    github.deployCommits = [sha('2'), sha('3')];
+    github.pulls.set(number, {
+      number,
+      state: 'open',
+      merged: false,
+      mergeCommit: null,
+      mergedBy: null,
+      head: { ref: 'deploy/local', sha: head },
+      base: { ref: 'main', sha: MAIN },
+      draft: false,
+      nodeId: `PR_${number}`,
+    });
+  }
+
+  const run = (name: string, conclusion: string | null, id = 1) => ({
+    id,
+    name,
+    status: conclusion ? 'completed' : 'in_progress',
+    conclusion,
+    app: 'github-actions',
+    startedAt: '2026-10-06T09:00:00Z',
+    completedAt: conclusion ? '2026-10-06T09:05:00Z' : null,
+    title: null,
+  });
+
+  const changes = async (workItem: string) =>
+    (await payloads(workItem, 'deploy.changed')).map(({ pullRequest, commit, state, failed }) => ({
+      pullRequest,
+      head: commit.slice(0, 1),
+      state,
+      ...(failed && { failed }),
+    }));
+
+  it('records nothing while no deploy pull request is open', async () => {
+    const workItem = await heldForDeploy(sha('2'));
+    const { pass } = line(AGENTS, events, { deployEveryMs: 0 });
+    await pass();
+    expect(await changes(workItem)).toEqual([]);
+  });
+
+  it('records its checks running, failing, running again on a newer build, passing, and its merge, each once', async () => {
+    const workItem = await heldForDeploy(sha('2'));
+    const elsewhere = await heldForDeploy(sha('9'), '/cart');
+    const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
+    github.required = ['test', 'e2e'];
+    propose(github, sha('d'));
+    await pass();
+    await pass();
+    expect(await changes(workItem)).toEqual([{ pullRequest: DEPLOY, head: 'd', state: 'checking' }]);
+    // One that merged outside the range is carried by none.
+    expect(await changes(elsewhere)).toEqual([]);
+
+    github.checks.set(sha('d'), [run('test', 'success', 1), run('e2e', null, 2)]);
+    await pass();
+    expect((await changes(workItem)).length).toBe(1);
+    github.checks.set(sha('d'), [run('test', 'success', 1), run('e2e', 'failure', 2)]);
+    await pass();
+    await pass();
+
+    // A newer build moves the same pull request to a new head, whose checks start afresh.
+    propose(github, sha('e'));
+    await pass();
+    // The browser tests skip on a deploy pull request: skipped is no failure.
+    github.checks.set(sha('e'), [run('test', 'success', 3), run('e2e', 'skipped', 4)]);
+    await pass();
+    await pass();
+    github.merge(DEPLOY);
+    await pass();
+    // Merged, the watch proposes nothing; the record has ended, and nothing more is read.
+    github.deploy = null;
+    await pass();
+    expect(await changes(workItem)).toEqual([
+      { pullRequest: DEPLOY, head: 'd', state: 'checking' },
+      { pullRequest: DEPLOY, head: 'd', state: 'failed', failed: ['e2e'] },
+      { pullRequest: DEPLOY, head: 'e', state: 'checking' },
+      { pullRequest: DEPLOY, head: 'e', state: 'passed' },
+      { pullRequest: DEPLOY, head: 'e', state: 'merged' },
+    ]);
+    expect(await summaries(workItem, 'deploy.changed')).toEqual([
+      'Deploy pull request #30 carries it; its checks are running',
+      'Deploy pull request #30 carries it, and e2e failed on it',
+      'Deploy pull request #30 carries it; its checks are running',
+      'Deploy pull request #30 carries it, and its checks passed: it waits for Martin to merge it',
+      'Deploy pull request #30, which carries it, merged: its release starts once Argo CD syncs',
+    ]);
+    expect(await stage(workItem)).toBe('held');
+  });
+
+  it('reads a recorded pull request by its number once the watch knows none, and takes no empty proposal for a close', async () => {
+    const workItem = await heldForDeploy(sha('2'));
+    const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
+    propose(github, sha('d'));
+    await pass();
+    // The GitHub worker restarted, and its watch has not looked yet: the pull request is still open, its checks done.
+    github.deploy = null;
+    github.checks.set(sha('d'), [run('test', 'success')]);
+    await pass();
+    // Martin closed it unmerged; the watch still knows none.
+    const pr = github.pulls.get(DEPLOY);
+    if (pr) pr.state = 'closed';
+    await pass();
+    await pass();
+    expect(await changes(workItem)).toEqual([
+      { pullRequest: DEPLOY, head: 'd', state: 'checking' },
+      { pullRequest: DEPLOY, head: 'd', state: 'passed' },
+      { pullRequest: DEPLOY, head: 'd', state: 'closed' },
+    ]);
+
+    // The next build's pull request carries it.
+    propose(github, sha('f'), 31);
+    await pass();
+    expect((await changes(workItem)).at(-1)).toEqual({ pullRequest: 31, head: 'f', state: 'checking' });
+  });
+
+  it('follows no newer build’s pull request once the one that carries it merged, until the release', async () => {
+    const workItem = await heldForDeploy(sha('2'));
+    const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
+    propose(github, sha('d'));
+    await pass();
+    github.merge(DEPLOY);
+    await pass();
+    // Before Argo CD syncs, main has a newer build: its pull request still counts the fix from the version the app runs.
+    propose(github, sha('f'), 31);
+    github.checks.set(sha('f'), [run('test', 'success')]);
+    await pass();
+    expect((await changes(workItem)).map((c) => `${c.pullRequest} ${c.state}`)).toEqual(['30 checking', '30 merged']);
+  });
+
+  it('appends nothing twice when the line starts again, and records afresh once a release that rolled back holds it again', async () => {
+    const workItem = await heldForDeploy(sha('2'));
+    const first = line(AGENTS, events, { deployEveryMs: 0 });
+    propose(first.github, sha('d'));
+    first.github.checks.set(sha('d'), [run('test', 'success')]);
+    await first.pass();
+    const again = line(AGENTS, events, { deployEveryMs: 0 });
+    propose(again.github, sha('d'));
+    again.github.checks.set(sha('d'), [run('test', 'success')]);
+    await again.pass();
+    expect(await changes(workItem)).toEqual([{ pullRequest: DEPLOY, head: 'd', state: 'passed' }]);
+
+    // A hold that starts again waits for a deploy pull request of its own: the same one, read again, is recorded again.
+    await events.append([event(workItem, 'hold.started', deployHold)]);
+    await again.pass();
+    expect((await changes(workItem)).length).toBe(2);
+  });
+
+  it('never records a dry run’s deploy pull request, and records one for the work item the line acts on alone', async () => {
+    const workItem = await heldForDeploy(sha('2'));
+    const other = await heldForDeploy(sha('3'), '/cart');
+    const dry = line(AGENTS, events, { deployEveryMs: 0 });
+    propose(dry.github, sha('d'), 1_000_000_001);
+    await dry.pass();
+    expect(await changes(workItem)).toEqual([]);
+
+    const only = line(AGENTS, events, { deployEveryMs: 0, only: workItem });
+    propose(only.github, sha('d'));
+    await only.pass();
+    expect(await changes(workItem)).toEqual([{ pullRequest: DEPLOY, head: 'd', state: 'checking' }]);
+    expect(await changes(other)).toEqual([]);
+    // It still says nothing of what the pull request carries.
+    expect(only.github.acts.filter((a) => a.action === 'describeDeploy')).toEqual([]);
+  });
+
+  it('leaves a work item whose read fails to the next pass, and the others go on', async () => {
+    const workItem = await heldForDeploy(sha('2'));
+    const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
+    propose(github, sha('d'));
+    github.pulls.delete(DEPLOY);
+    await pass();
+    expect(await changes(workItem)).toEqual([]);
+    propose(github, sha('d'));
+    await pass();
+    expect(await changes(workItem)).toEqual([{ pullRequest: DEPLOY, head: 'd', state: 'checking' }]);
+  });
+});
+
 async function failures(workItem: string) {
   const [row] = await database.as.line<{ failures: number; failure: string | null }[]>`
     select failures, failure from line where work_item = ${workItem}`;

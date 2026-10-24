@@ -45,14 +45,14 @@ describe('the Canary panel, from the samples', () => {
     expect(canary.release.items.map((i) => i.number)).toEqual(['1314']);
     expect(canary.release.steps.map((s) => s.weight)).toEqual([25, 50, 100]);
     expect(canary.release.until).toBe(at('2026-10-06T14:24:00Z'));
-    // The station works on the canary while a merge waits for Martin's deploy.
-    expect(station).toMatchObject({ status: 'working', beacon: 'needs-you', figure: '50% · 1 waiting' });
+    // The station works on the canary while a merge waits for its deploy, whose checks run: not Martin's yet.
+    expect(station).toMatchObject({ status: 'working', beacon: undefined, figure: '50% · 1 waiting', queued: 1 });
     expect(shown(END).view.panels.release.rows).toContainEqual(
       expect.objectContaining({
         item: '1321',
-        note: 'Needs you · waiting for Martin’s deploy',
-        tone: 'attn',
-        state: 'held',
+        note: 'Merged · deploy #1331’s checks running',
+        tone: 'faint',
+        state: 'waiting',
       }),
     );
   });
@@ -332,13 +332,16 @@ describe('a release’s steps', () => {
     { weight: 50, pauseSeconds: 180, analysis: true },
   ];
 
-  it('lists a merge waiting for a deploy as Martin’s, and after a rollback as waiting for his next', () => {
+  it('lists a merge waiting for a deploy as Martin’s once its checks pass, and after a rollback as waiting for his next', () => {
     const deploy = { stage: 'release', kind: 'approval', cause: 'deploy', reason: 'Waits for a deploy' } as const;
+    const changed = (state: 'checking' | 'passed') => ({ pullRequest: 40, commit: 'd'.repeat(40), state });
     const one = work('1')
       .open()
       .add(1, 'pull-request.merged', 'martin', { number: 2, commit: 'b'.repeat(40), by: 'martin' })
-      .add(1, 'hold.started', 'factory', deploy);
+      .add(1, 'hold.started', 'factory', deploy)
+      .add(2, 'deploy.changed', 'factory', changed('passed'));
     const note = (t: number) => project(one.events, t).panels.release.rows.find((r) => r.item === '1')?.note;
+    expect(note(one.at(1))).toBe('Merged · waiting for its deploy pull request');
     expect(note(one.at(2))).toBe('Needs you · waiting for Martin’s deploy');
     one
       .add(3, 'release.started', 'rollouts', started(twoSteps))
@@ -346,6 +349,11 @@ describe('a release’s steps', () => {
       .add(6, 'hold.started', 'factory', deploy);
     // The release that carries it ends the wait.
     expect(note(one.at(4))).not.toMatch(/^Needs you/);
+    // Held again, it waits for a deploy pull request of its own.
+    expect(note(one.at(6))).toBe('Rolled back · waiting for its deploy pull request');
+    one.add(7, 'deploy.changed', 'factory', changed('checking'));
+    expect(note(one.at(7))).toBe('Rolled back · deploy #40’s checks running');
+    one.add(7, 'deploy.changed', 'factory', changed('passed'));
     expect(note(one.at(7))).toBe('Needs you · rolled back, waiting for Martin’s next deploy');
     // The card and the sheet say so too, with the release that rolled back.
     const picture = (t: number) => project(one.events, t).cards.find((c) => c.number === '1')?.picture;
@@ -354,7 +362,8 @@ describe('a release’s steps', () => {
     // A new fix, merged after the rollback, waits for a deploy as the first did.
     one
       .add(8, 'pull-request.merged', 'martin', { number: 3, commit: 'c'.repeat(40), by: 'martin' })
-      .add(8, 'hold.started', 'factory', deploy);
+      .add(8, 'hold.started', 'factory', deploy)
+      .add(9, 'deploy.changed', 'factory', changed('passed'));
     expect(note(one.at(9))).toBe('Needs you · waiting for Martin’s deploy');
     expect(picture(one.at(9))).toMatchObject({ type: 'deploy', ended: undefined });
   });

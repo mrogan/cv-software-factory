@@ -193,6 +193,67 @@ describe('Needs you', () => {
     expect(needsView(foldItems(deploy.events), START + 3_600_000).holds).toEqual([]);
   });
 
+  it('says what a deploy waits for in each state, links its pull request, and says it waits for Martin once its checks pass', () => {
+    const merged = work('2042', START)
+      .open()
+      .add(1, 'pull-request.merged', 'martin', { number: 9, commit: 'b'.repeat(40), by: 'martin' })
+      .add(1, 'hold.started', 'factory', hold('deploy', { stage: 'release', kind: 'approval' }));
+    const at = (t: number) => {
+      const items = foldItems(merged.events.filter((e) => Date.parse(e.ts) <= merged.at(t)));
+      const [need] = needsView(items, merged.at(t)).holds;
+      return { need, outcome: items[0]?.outcome };
+    };
+    const head = (n: number) => String(n).repeat(40);
+    const steps: [PayloadOf<'deploy.changed'>, string, string][] = [
+      [
+        { pullRequest: 41, commit: head(1), state: 'checking' },
+        'Its deploy’s checks are running',
+        'Deploy #41 carries it, and its checks are running; once they pass, merging it is yours, on GitHub.',
+      ],
+      [
+        { pullRequest: 41, commit: head(1), state: 'failed', failed: ['Integration tests', 'Secret scan'] },
+        'Its deploy’s checks failed',
+        'Deploy #41 carries it, and Integration tests and Secret scan failed on it. A newer build moves it on, and its checks run again.',
+      ],
+      [
+        { pullRequest: 41, commit: head(2), state: 'passed' },
+        'Waiting for your deploy',
+        'Deploy #41 carries it, and its checks passed: merging it is yours, on GitHub, and a release that carries it ends this wait by itself.',
+      ],
+      [
+        { pullRequest: 41, commit: head(2), state: 'closed' },
+        'Its deploy was closed',
+        'Deploy #41 was closed unmerged; the next build’s deploy pull request carries it.',
+      ],
+      [
+        { pullRequest: 42, commit: head(3), state: 'merged' },
+        'Its deploy merged',
+        'Deploy #42, which carries it, merged; its release starts once Argo CD syncs, and ends this wait by itself.',
+      ],
+    ];
+    // None yet: its image is being built and signed, and there is nothing to link.
+    expect(at(2).need).toMatchObject({ kicker: 'Its deploy is being built', link: undefined });
+    expect(String((at(2).need?.evidence as { text?: string } | undefined)?.text)).toMatch(
+      /^Merged at \d\d:\d\d\. The App opens the deploy pull request that carries it once its image is built and signed; merging that will be yours, on GitHub\.$/,
+    );
+    expect(at(2).outcome).toBe('deploying');
+    steps.forEach(([change, kicker, text], i) => {
+      merged.add(10 + i, 'deploy.changed', 'factory', change);
+      const { need, outcome } = at(10 + i);
+      expect(need?.kicker).toBe(kicker);
+      expect(
+        String((need?.evidence as { text?: string } | undefined)?.text).replace(/^Merged at \d\d:\d\d\. /, ''),
+      ).toBe(text);
+      expect(need?.link).toEqual({
+        href: `https://github.com/mrogan/cv-worlds-worst-website/pull/${change.pullRequest}`,
+        label: `Deploy #${change.pullRequest} on GitHub`,
+      });
+      // Only once its checks pass is it Martin's: then its card says Needs you, flashing, and Needs you counts it.
+      expect(outcome).toBe(change.state === 'passed' ? 'needs-you' : 'deploying');
+      expect(need?.forMartin).toBe(change.state === 'passed');
+    });
+  });
+
   it('says when his words stay his, on a work item a visitor’s report opened', () => {
     const report = work('2050', START)
       .open('visitor-report')

@@ -27,7 +27,7 @@ flowchart LR
 
 ## Release
 
-- **The hold.** Martin's merge clears any hold the change had, and the work item holds at Release (cause `deploy`, for his approval, so Needs you lists it) until a release that carries it starts. He settles it by merging the app's deploy pull request, not by answering, and `release.started` ends the hold by itself.
+- **The hold.** Martin's merge clears any hold the change had, and the work item holds at Release (cause `deploy`, for his approval, so Needs you lists it) until a release that carries it starts. He settles it by merging the app's deploy pull request, not by answering, and `release.started` ends the hold by itself. That pull request is his to merge only once it is open and its checks have passed ([the deploy pull request's state](#the-deploy-pull-requests-state)); until then the console says what the hold waits for.
 - **A rollback.** A release that rolls back holds it again, for the next release that carries it.
 - **An analysis error.** A release whose analysis could not judge it holds it again too, as an abort does: Martin's retry starts the same release again, or the next release that carries it ends the hold.
 - **An abort.** A release Martin aborts holds it again too, with the hold's reason saying whether Stop the line aborted it or he did. His retry starts the same release again, which ends the hold as any start does; otherwise the next release that carries it does.
@@ -45,6 +45,25 @@ Once a minute the line tells the [GitHub worker](GITHUB-WORKER.md#carries) what 
 For a reopened work item, only a merge after its reopening counts.
 
 The same function decides what a release carries, so while a release is in its canary the deploy pull request lists its work items too, until it is promoted.
+
+### The deploy pull request's state
+
+The App opens the deploy pull request once main has a newer signed build ([deploys](GITHUB-WORKER.md#deploys)), so it lags a merge by the build and its signing, and a newer build moves the same pull request to a new head. In the same pass, `line/deploy.ts` records, on each work item held for a deploy that it carries, where that pull request stands for it (`deploy.changed`):
+
+| `state` | When |
+| --- | --- |
+| `checking` | It is open, and a required check on its head has not finished, or none has started: on a new head, they start again |
+| `passed` | Every required check on its head finished, and none failed: a skipped check, such as the browser tests a deploy pull request skips, is no failure. It now waits for Martin |
+| `failed` | A required check on its head failed, named in `failed` |
+| `merged` | It merged: the release starts once Argo CD syncs, and ends the hold |
+| `closed` | It was closed unmerged: the next build's carries the work item |
+
+- The checks are judged as the gates are (`judge` in `line/gates.ts`), against what main's rulesets require, through the GitHub worker's `pullRequest`, `checkRuns` and `requiredChecks`.
+- A work item's record is the latest `deploy.changed` since its hold started, so a hold that starts again (after a rollback) waits for a deploy pull request of its own. A state that differs from it is appended, so the decision is the store's, and a line that starts again appends nothing twice.
+- A pull request recorded for a work item that is no longer the open proposal is read by its number: merged or closed is recorded only as GitHub says, never because the GitHub worker, just restarted, knows no proposal yet.
+- Once the pull request that carries it has merged, a newer build's is not followed: until Argo CD syncs, `carried` still counts the fix from the version the app runs, and the newer one is not its deploy.
+- A dry run's deploy pull request, which GitHub never had (`DRY_RUN_NUMBERS_FROM` up), is never recorded.
+- A read that fails leaves that work item to the next pass.
 
 ## The release watch
 
@@ -165,4 +184,4 @@ A dry run's release never shipped, so it sets off no look again at a held or wai
 
 ## With just one work item
 
-With Martin's take of Just one, or `LINE_ONLY` with no take set ([orchestrator](ORCHESTRATOR.md#taking-work)), the watch records only a release that carries that work item or none. One that also carries another is left for the whole line, and that work item stays held at Release. The line says nothing of the deploy pull request. Its spec waits for no other work item, and the stable version a look again reads may lag the app's, since a release that carries others goes unrecorded.
+With Martin's take of Just one, or `LINE_ONLY` with no take set ([orchestrator](ORCHESTRATOR.md#taking-work)), the watch records only a release that carries that work item or none. One that also carries another is left for the whole line, and that work item stays held at Release. The line says nothing of what the deploy pull request carries, but still records where it stands for that work item. Its spec waits for no other work item, and the stable version a look again reads may lag the app's, since a release that carries others goes unrecorded.

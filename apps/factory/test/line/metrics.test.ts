@@ -25,7 +25,9 @@ const meterProvider = new metrics.MeterProvider({ readers: [reader] });
 api.setGlobalMeterProvider(meterProvider);
 // Only now: each module takes its meter as it loads.
 const { Line } = await import('../../src/line/worker.ts');
-const { endingsIn, observeStages, OPEN_STAGES } = await import('../../src/line/metrics.ts');
+const { endingsIn, observeHolds, observeStages, OPEN_STAGES } = await import('../../src/line/metrics.ts');
+const { openHolds } = await import('../../src/line/holds.ts');
+const { fold } = await import('../../src/line/machine.ts');
 
 afterAll(async () => {
   await meterProvider.shutdown();
@@ -212,9 +214,9 @@ const age = (seconds: number) =>
 async function labels(): Promise<string[]> {
   const { resourceMetrics } = await reader.collect();
   const line = resourceMetrics.scopeMetrics.filter((scope) => scope.scope.name === 'factory-line');
-  return [
-    ...new Set(line.flatMap((s) => s.metrics.flatMap((m) => m.dataPoints.flatMap((p) => Object.keys(p.attributes))))),
-  ].sort();
+  // But the holds that wait for Martin, a series each: the one stated exception, tested on its own.
+  const metrics = line.flatMap((s) => s.metrics).filter((m) => m.descriptor.name !== 'line.hold.age');
+  return [...new Set(metrics.flatMap((m) => m.dataPoints.flatMap((p) => Object.keys(p.attributes))))].sort();
 }
 
 describe('the line’s metrics', () => {
@@ -407,6 +409,103 @@ describe('the line’s metrics', () => {
     await database.as.line`update line set stage = 'verify'`;
     const after = await points('line.work_items');
     expect([at(after, { stage: 'review' }), at(after, { stage: 'verify' })]).toEqual([1, 0]);
+  });
+
+  it('report each hold that waits for Martin, by work item, cause and pull request, as the line folds it', async () => {
+    const hour = 60 * 60_000;
+    const started = Date.now() - 3 * hour;
+    const at = (ms: number) => {
+      now = started + ms;
+    };
+    const hold = (cause: PayloadOf<'hold.started'>['cause'], stage: PayloadOf<'hold.started'>['stage']) =>
+      ({ stage, kind: cause === 'merge' || cause === 'deploy' ? 'approval' : 'held', cause, reason: 'Waits' }) as const;
+    const pushed = (number: number) => ({
+      number,
+      title: 'fix(search): escape the query',
+      branch: 'factory/search',
+      attempt: 1,
+      testsFirst: true,
+      files: [{ path: 'src/search.ts', added: 1, removed: 1 }],
+      whole: [{ path: 'src/search.ts', added: 1, removed: 1 }],
+    });
+    const deploy = (state: 'checking' | 'passed') => ({ pullRequest: 30, commit: 'd'.repeat(40), state });
+    const [merge, deploying, ready, gates, answered, closed] = [
+      await ticket(),
+      await ticket(),
+      await ticket(),
+      await ticket(),
+      await ticket(),
+      await ticket(),
+    ];
+    at(0);
+    await events.append([
+      event(merge, 'pull-request.pushed', pushed(12), 'coder'),
+      event(merge, 'hold.started', hold('merge', 'review')),
+      event(gates, 'hold.started', hold('gates', 'gates')),
+      event(answered, 'hold.started', hold('gates', 'gates')),
+      event(closed, 'hold.started', hold('gates', 'gates')),
+    ]);
+    for (const item of [deploying, ready]) {
+      await events.append([
+        event(item, 'pull-request.merged', { number: 14, commit: 'c'.repeat(40), by: 'martin' }, 'martin'),
+        event(item, 'hold.started', hold('deploy', 'release')),
+        event(item, 'deploy.changed', deploy('checking')),
+      ]);
+    }
+    at(hour);
+    await events.append([
+      event(ready, 'deploy.changed', deploy('passed')),
+      event(closed, 'work-item.closed', { outcome: 'no-change', reason: 'Closed' }, 'martin'),
+    ]);
+    await new EventWriter(database.admin, {
+      kind: 'real',
+      artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
+    }).append([event(answered, 'hold.answered', { decision: 'approved' }, 'martin')]);
+
+    const stop = observeHolds(database.as.line);
+    try {
+      const series = (await points('line.hold.age')).map((p) => ({
+        ...p.attributes,
+        hours: Math.round(p.value / 3600),
+      }));
+      expect(series).toEqual([
+        { work_item: merge, cause: 'merge', pull_request: '12', hours: 3 },
+        { work_item: gates, cause: 'gates', hours: 3 },
+        // A deploy hold waits for Martin from when its deploy pull request's checks passed; one whose run is not his.
+        { work_item: ready, cause: 'deploy', pull_request: '30', hours: 2 },
+      ]);
+      // The same holds the line's own fold has in force, but the deploy whose checks still run.
+      const folded: string[] = [];
+      for (const item of [merge, deploying, ready, gates, answered, closed]) {
+        const rows = await database.as.line<{ type: string; payload: unknown }[]>`
+          select type, payload from events where work_item = ${item} order by seq`;
+        const s = fold(rows as never);
+        if (s.hold && !s.closed) folded.push(item);
+      }
+      expect(folded).toEqual([merge, deploying, ready, gates]);
+      expect((await openHolds(database.as.line)).map((h) => h.workItem).sort()).toEqual(
+        folded.filter((item) => item !== deploying).sort(),
+      );
+
+      // Merged, the merge hold is over, and its series ends; the deploy whose checks were running now waits too.
+      await events.append([
+        event(merge, 'pull-request.merged', { number: 12, commit: 'e'.repeat(40), by: 'martin' }, 'martin'),
+        event(deploying, 'deploy.changed', deploy('passed')),
+      ]);
+      const after = (await points('line.hold.age')).map((p) => [p.attributes.work_item, p.value > 0]);
+      expect(after).toEqual([
+        [merge, false],
+        [gates, true],
+        [ready, true],
+        [deploying, true],
+      ]);
+      // The SDK, with the cumulative temporality the counters need, goes on sending the ended series at 0 though the
+      // line no longer observes it: an upgrade that drops it instead would show here, and the 0 could then go.
+      const again = (await points('line.hold.age')).map((p) => [p.attributes.work_item, p.value > 0]);
+      expect(again).toEqual(after);
+    } finally {
+      stop();
+    }
   });
 
   it('label every series with a closed set, never a work item, a job or a release', async () => {

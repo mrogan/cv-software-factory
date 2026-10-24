@@ -1,6 +1,7 @@
 /**
- * The wait for Martin's deploy, as the samples end: he merged Dependabot's update minutes after his deploy of #1314
- * started its canary, so it waits at Release for the next deploy pull request to carry it.
+ * A fix held for its deploy, as the samples end: he merged Dependabot's update minutes after his deploy of #1314
+ * started its canary, so it waits at Release for the next deploy pull request, which the App has just opened and whose
+ * checks are running. It is Martin's to merge only once they pass.
  */
 import { commitFor, Item } from '../build.ts';
 
@@ -47,4 +48,5 @@ export default new Item('1321', '2026-10-06T12:30:00+01:00')
     kind: 'approval',
     cause: 'deploy',
     reason: 'The fix in pull request #1322 is merged, and waits for a deploy pull request to carry it to the shop',
-  });
+  })
+  .deploy('2:53:30', 1331, 1, 'checking');

@@ -20,7 +20,8 @@ import {
 } from '@software-factory/events';
 import { GUARDRAIL_HOLDS } from '../access.ts';
 import { APP_REPO, clock, duration, money } from '../format.ts';
-import type { ItemState } from './items.ts';
+import { deployWords } from './fixing.ts';
+import { deployWaitsForMartin, type ItemState } from './items.ts';
 import { startOfDay } from './line.ts';
 
 /** The one piece of evidence that explains a hold: a check's or the fence's own output, a question, or words. */
@@ -56,6 +57,8 @@ export interface Need {
   answers: AnswerRow[];
   /** A visitor's report opened the work item, so Martin's words on it stay his: no visitor and no agent reads them. */
   aboutReport: boolean;
+  /** Whether it waits for Martin now: every hold but a deploy that is not his to merge yet, which the count leaves out. */
+  forMartin: boolean;
 }
 
 export interface Answered {
@@ -246,21 +249,31 @@ function evidenceOf(item: ItemState, cause: HoldCause): Evidence {
       text: `${spent}${spent ? 'of' : 'It reached'} its ${money(hold.limitUsd)} cap on models. Raising a work item’s cap past what it has spent carries it on.`,
     };
   }
-  if (cause === 'deploy') {
-    const merged = latest(item, 'pull-request.merged');
-    const at = merged ? ` at ${clock(Date.parse(merged.ts))}` : '';
-    return {
-      kind: 'words',
-      text: `Merged${at}. The next deploy pull request carries it; merging that is yours, on GitHub, and a release that carries it ends this wait by itself.`,
-    };
-  }
+  if (cause === 'deploy') return { kind: 'words', text: deployEvidence(item) };
   return { kind: 'words', text: reason };
 }
 
-/** The pull request a merge waits for, on GitHub; the settings for a spend cap. */
+/**
+ * What a fix held for a deploy waits for, from the deploy pull request that carries it as the line last recorded it:
+ * none yet, while its image is built and signed; its checks running or failed; passed, when merging it is Martin's;
+ * merged, until Argo CD syncs; or closed unmerged, for the next build's. After a release that carried it was stopped,
+ * the hold's own reason, which names his retry.
+ */
+function deployEvidence(item: ItemState): string {
+  const merged = latest(item, 'pull-request.merged');
+  const at = `Merged${merged ? ` at ${clock(Date.parse(merged.ts))}` : ''}.`;
+  if (!item.deploy && item.releaseStopped) return item.hold?.reason ?? at;
+  return `${at} ${deployWords(item.deploy).evidence}`;
+}
+
+/** The pull request a merge or a deploy waits for, on GitHub; the settings for a spend cap. */
 function linkOf(item: ItemState, cause: HoldCause): Need['link'] {
   if (cause === 'merge' && item.pullRequest !== undefined) {
     return { href: `${APP_REPO}/pull/${item.pullRequest}`, label: `Merge #${item.pullRequest} on GitHub` };
+  }
+  if (cause === 'deploy' && item.deploy) {
+    const n = item.deploy.pullRequest;
+    return { href: `${APP_REPO}/pull/${n}`, label: `Deploy #${n} on GitHub` };
   }
   if (cause === 'spend') return { href: '?view=settings', label: 'Raise the cap in the settings' };
   return undefined;
@@ -279,15 +292,20 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
         | PayloadOf<'signal.received'>
         | undefined;
       const guardrail = (GUARDRAIL_HOLDS as readonly HoldCause[]).includes(hold.cause);
+      // A deploy waits for Martin from when its pull request's checks passed, as the line's gauge counts it.
+      const since = hold.cause === 'deploy' && item.deploy?.state === 'passed' ? item.deploy.at : hold.since;
       return [
         {
           workItem: item.number,
           hold: hold.id,
           cause: hold.cause,
-          kicker: kickerOf(hold.cause, hold.stage, opener?.sense),
+          kicker:
+            hold.cause === 'deploy' && !deployWaitsForMartin(item)
+              ? deployWords(item.deploy).kicker
+              : kickerOf(hold.cause, hold.stage, opener?.sense),
           stage: hold.stage,
-          waited: waited(t - hold.since),
-          since: hold.since,
+          waited: waited(t - since),
+          since,
           title: item.title,
           evidence: evidenceOf(item, hold.cause),
           link: linkOf(item, hold.cause),
@@ -298,6 +316,7 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
             stepUp: answer === 'approved' && guardrail,
           })),
           aboutReport: opener?.sense === 'report',
+          forMartin: hold.cause !== 'deploy' || deployWaitsForMartin(item),
         },
       ];
     })

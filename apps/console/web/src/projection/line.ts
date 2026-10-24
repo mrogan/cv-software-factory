@@ -5,7 +5,7 @@
 import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-factory/events';
 import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
 import { DEFAULT_CONTROLS } from '../../../../../policy/line.ts';
-import { endedSinceMerge } from './fixing.ts';
+import { deployWords, endedSinceMerge } from './fixing.ts';
 import { clearanceWords, type ItemState } from './items.ts';
 import { endedWords, inFlight, type Release, SIGNALLED, stopWait, stopWords } from './release.ts';
 
@@ -256,9 +256,9 @@ export function station(
 ): Station {
   const present = inStage(items, stage);
   // A ticket waiting for the planner is in the stage, but nothing is being done to it: it queues, and the station
-  // stays idle rather than look busy with nobody at work.
-  const queued = present.filter((item) => item.queued);
-  const here = present.filter((item) => !item.queued);
+  // stays idle rather than look busy with nobody at work. So does a fix held for a deploy that is not Martin's yet.
+  const queued = present.filter(waitsHere);
+  const here = present.filter((item) => !waitsHere(item));
   const held = here.filter((item) => item.hold);
   const failed = here.filter((item) => item.failure?.stage === stage && !item.hold);
   // At Release, the canary in flight, whether it carries work or not.
@@ -291,8 +291,11 @@ export function station(
   if (held.length) {
     const words = `${held.length} ${held.every((item) => item.hold?.kind === 'held') ? 'held' : 'waiting'}`;
     figure = share ? `${share} · ${words}` : words;
-  } else if (share) figure = share;
-  else if (here.length) figure = count(here.length, NOUNS[stage]);
+  } else if (share) {
+    // A deploy not Martin's yet waits here as a held one would: counted, as a held one is, beside the canary's share.
+    const deploys = queued.filter(deploying).length;
+    figure = deploys ? `${share} · ${deploys} waiting` : share;
+  } else if (here.length) figure = count(here.length, NOUNS[stage]);
   else if (queued.length) figure = `${queued.length} waiting`;
   else figure = today ? `${today} today` : 'none';
   return { stage, status, beacon, figure, queued: queued.length, cappedUntil: capped?.resets };
@@ -339,6 +342,14 @@ function returnOf(item: string, returned: PayloadOf<'work.returned'>, summary: s
   return { item, from, to, text: `#${item} · ${detail}`, detail, at };
 }
 
+/**
+ * Work queued at a stage, which nobody there is at: a ticket waiting for the planner, a merged fix waiting for a
+ * release, or one held for a deploy that is not Martin's to merge yet, which waits for the build, its checks or Argo
+ * CD as a merged fix waits for a release.
+ */
+const waitsHere = (item: ItemState) => item.queued || deploying(item);
+const deploying = (item: ItemState) => item.outcome === 'deploying';
+
 /** A row's note for an item in a stage now: what it waits for, or the last thing that happened to it there. */
 function noteOf(item: ItemState, stage: Stage): string {
   const note = holdNote(item, stage);
@@ -348,6 +359,10 @@ function noteOf(item: ItemState, stage: Stage): string {
 
 function holdNote(item: ItemState, stage: Stage): string {
   if (item.waitingOn) return item.waitingOn.reason;
+  // Held for a deploy that is not Martin's yet: what it waits for, and the deploy pull request by number.
+  if (item.outcome === 'deploying') {
+    return `${endedSinceMerge(item) ? 'Rolled back' : 'Merged'} · ${deployWords(item.deploy).short}`;
+  }
   if (item.queued) return item.stage === 'release' ? 'Merged · waiting for release' : 'Waiting for the planner';
   if (item.hold?.cause === 'merge') return 'Needs you · waiting for Martin’s merge';
   // A merged fix waits for a deploy pull request, again when the release that carried it rolled back; after an
@@ -417,8 +432,8 @@ export function panel(
       title: item.title,
       note: noteOf(item, stage),
       earlier: [],
-      tone: item.hold || item.failure ? 'attn' : item.queued ? 'faint' : 'signal',
-      state: item.hold || item.failure ? 'held' : item.queued ? 'waiting' : 'in-hand',
+      tone: deploying(item) ? 'faint' : item.hold || item.failure ? 'attn' : item.queued ? 'faint' : 'signal',
+      state: deploying(item) ? 'waiting' : item.hold || item.failure ? 'held' : item.queued ? 'waiting' : 'in-hand',
       at: item.lastAt,
     }),
   );
@@ -485,7 +500,7 @@ export function panel(
     ].map(mark),
     senses: triage ? senseCounts(items, events) : undefined,
     caps: triage ? line.caps.filter((spell) => spell.cleared === undefined || spell.cleared >= startOfDay(t)) : [],
-    queued: present.filter((item) => item.queued).length,
+    queued: present.filter(waitsHere).length,
   };
 }
 

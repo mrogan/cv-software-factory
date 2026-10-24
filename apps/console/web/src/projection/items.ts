@@ -19,8 +19,10 @@ import type { StoppedBy } from './release.ts';
 /**
  * How a work item stands. Besides the line's own: `waiting`, a ticket queued for the planner, with nothing being
  * done to it yet; `waits-on-work`, a spec queued before Build while work in flight whose spec shares its files is
- * verified or closed; `merged`, a fix Martin merged, queued at Release for a release to take it; `quarantined`, a
- * report that gave orders to the system; `no-ticket`, a report that described nothing wrong.
+ * verified or closed; `merged`, a fix Martin merged, queued at Release for a release to take it; `deploying`, a fix
+ * Martin merged, held for a deploy whose pull request is not his to merge yet (not open, its checks running or
+ * failed, or already merged); `quarantined`, a report that gave orders to the system; `no-ticket`, a report that
+ * described nothing wrong.
  */
 export type Outcome =
   | 'verified'
@@ -33,6 +35,7 @@ export type Outcome =
   | 'waiting'
   | 'waits-on-work'
   | 'merged'
+  | 'deploying'
   | 'in-progress';
 
 export interface Hold {
@@ -139,6 +142,13 @@ export interface ItemState {
    * since says the defect is back.
    */
   cleared: PayloadOf<'signal.rechecked'> | undefined;
+  /**
+   * While it is held for a deploy: the deploy pull request that carries it, as the line last recorded it under that
+   * hold, and when. None before the App opens one.
+   */
+  deploy: (PayloadOf<'deploy.changed'> & { at: number }) | undefined;
+  /** The release that carried its latest merge was stopped, aborted or by an error, and none has started since. */
+  releaseStopped: boolean;
 }
 
 /** The stage an event moves its item to, if any. */
@@ -283,6 +293,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     reopened: undefined,
     waitingOn: undefined,
     cleared: undefined,
+    deploy: undefined,
+    releaseStopped: false,
   };
   /** Moves the item into a stage: leaving the one it was in, if this is further along the line. */
   const enter = (stage: Stage, time: number) => {
@@ -396,11 +408,13 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
           merged = false;
           release = undefined;
           state.canary = undefined;
+          state.releaseStopped = false;
         }
         break;
       case 'pull-request.merged':
         merged = true;
         release = undefined;
+        state.releaseStopped = false;
         // The merge is Martin's answer to a wait for it: the line writes no other.
         state.hold = undefined;
         // And it leaves Review, even when a round recorded with it, which failed after the gates had passed, took the
@@ -438,6 +452,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         }
         state.sentBack = undefined;
         state.cleared = undefined;
+        // A hold that starts again waits for a deploy pull request of its own.
+        state.deploy = undefined;
         state.hold = {
           id: event.id,
           stage: event.payload.stage,
@@ -450,6 +466,9 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
           since: time,
         };
         break;
+      case 'deploy.changed':
+        state.deploy = { ...event.payload, at: time };
+        break;
       case 'hold.answered':
         // Words settle nothing for a hold of triage's, as the line reads them: it still waits for Martin.
         if (event.payload.decision === 'answered' && state.hold && WORDS_LEAVE_HELD.includes(state.hold.cause)) break;
@@ -459,6 +478,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       case 'release.started':
         // A release that carries the fix is the answer to its wait for a deploy, as the line reads it.
         if (state.hold?.cause === 'deploy') state.hold = undefined;
+        state.deploy = undefined;
+        state.releaseStopped = false;
         release = event.payload.release;
         state.versions.from ??= event.payload.previous;
         state.versions.to = event.payload.version;
@@ -480,10 +501,12 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       case 'release.errored':
         state.canary = undefined;
         state.versions.stopped = 'error';
+        state.releaseStopped = merged;
         break;
       case 'release.aborted':
         state.canary = undefined;
         state.versions.stopped = event.payload.by;
+        state.releaseStopped = merged;
         break;
       case 'verification.finished':
         state.evidence.verified = event.payload.evidence;
@@ -511,6 +534,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         merged = false;
         release = undefined;
         state.canary = undefined;
+        state.releaseStopped = false;
         state.versions = { from: undefined, to: undefined, rolledBack: false, stopped: undefined, live: false };
         state.evidence.verified = undefined;
         state.reopened = { ...event.payload, at: time };
@@ -528,7 +552,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
   }
 
   if (!state.closedAt) {
-    if (state.hold) state.outcome = state.hold.kind === 'held' ? 'held' : 'needs-you';
+    if (state.hold?.cause === 'deploy' && !deployWaitsForMartin(state)) state.outcome = 'deploying';
+    else if (state.hold) state.outcome = state.hold.kind === 'held' ? 'held' : 'needs-you';
     else if (state.queued)
       state.outcome = state.waitingOn ? 'waits-on-work' : state.stage === 'release' ? 'merged' : 'waiting';
     else state.outcome = 'in-progress';
@@ -586,6 +611,17 @@ export function clearanceWords(item: ItemState): string | undefined {
     item.pullRequest !== undefined &&
     !item.events.some((e) => e.type === 'pull-request.merged' && e.payload.number === item.pullRequest);
   return open ? `${on} Closing its pull request closes it as verified.` : on;
+}
+
+/**
+ * Whether a work item held for a deploy waits for Martin: once the deploy pull request that carries it is open and its
+ * required checks have passed, so that it is his to merge; or when the release that carried it was stopped, which his
+ * retry carries on. Before that, it waits for the image to be built and signed, for the checks, for Argo CD after
+ * that pull request merged, or for the next build's after one was closed unmerged.
+ */
+export function deployWaitsForMartin(item: Pick<ItemState, 'hold' | 'deploy' | 'releaseStopped'>): boolean {
+  if (item.hold?.cause !== 'deploy') return false;
+  return item.deploy?.state === 'passed' || item.releaseStopped;
 }
 
 /** The words for a hold at Release or Verify that its summary may lack, by cause. */

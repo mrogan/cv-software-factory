@@ -31,7 +31,8 @@ export function kindName({ kind, byVisitor }: Pick<CardData, 'kind' | 'byVisitor
 /**
  * An outcome's word and tone, and whether it waits on a human. Work nobody needs to act on is in the quiet tone:
  * closed work, a quarantined report (a guardrail that worked), a ticket waiting for the planner, and a fix Martin
- * merged, waiting for a release: not green, because nothing has verified it.
+ * merged, waiting for a release, or for a deploy pull request that is not his to merge yet: not green, because nothing
+ * has verified it.
  */
 export const OUTCOME: Record<Outcome, [word: string, tone: 'ok' | 'attn' | 'faint' | 'signal', waits: boolean]> = {
   verified: ['Verified', 'ok', false],
@@ -44,6 +45,7 @@ export const OUTCOME: Record<Outcome, [word: string, tone: 'ok' | 'attn' | 'fain
   waiting: ['Waiting for the planner', 'faint', false],
   'waits-on-work': ['Waiting on overlapping work', 'faint', false],
   merged: ['Merged · waiting for release', 'faint', false],
+  deploying: ['Merged · waiting for its deploy', 'faint', false],
   'in-progress': ['In progress', 'signal', false],
 };
 
@@ -53,7 +55,7 @@ export function OutcomeWord({ outcome }: { outcome: Outcome }) {
   const dot =
     outcome === 'in-progress'
       ? 'blink'
-      : outcome === 'waiting' || outcome === 'waits-on-work' || outcome === 'merged'
+      : outcome === 'waiting' || outcome === 'waits-on-work' || outcome === 'merged' || outcome === 'deploying'
         ? 'hollow'
         : waits
           ? 'ring alarm'
@@ -110,7 +112,15 @@ export function VersionPill({
 }
 
 /** Outcomes still under way, whose duration is so far. */
-export const ONGOING = new Set<Outcome>(['in-progress', 'needs-you', 'held', 'waiting', 'waits-on-work', 'merged']);
+export const ONGOING = new Set<Outcome>([
+  'in-progress',
+  'needs-you',
+  'held',
+  'waiting',
+  'waits-on-work',
+  'merged',
+  'deploying',
+]);
 
 /** What the work spent on models: "no model" when nothing was called, and "$0 · local" when the local model did it all. */
 export const spendWords = ({ calls, local, spend }: Pick<CardData, 'calls' | 'local' | 'spend'>) =>

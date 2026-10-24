@@ -48,7 +48,8 @@ test('the stations take their states as the events arrive, and keep still when m
     ['build', 'working', 'needs-you'],
     ['gates', 'blocked', null],
     ['review', 'blocked', null],
-    ['release', 'working', 'needs-you'],
+    // The canary runs; #1321's deploy is not Martin's yet, its checks running.
+    ['release', 'working', null],
     ['verify', 'idle', null],
   ];
   await expect.poll(stations).toEqual(drawn.map((station) => [...station, null]));

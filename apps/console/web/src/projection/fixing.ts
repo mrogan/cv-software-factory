@@ -14,7 +14,7 @@
 import type { PayloadOf, PublicEvent, Stage } from '@software-factory/events';
 import { inScope, returnWords } from '@software-factory/events';
 import { RULES } from './app.ts';
-import type { Hold, ItemState } from './items.ts';
+import { deployWaitsForMartin, type Hold, type ItemState } from './items.ts';
 import type { Ended, Picture } from './reel.ts';
 
 type Review = PayloadOf<'review.submitted'>;
@@ -279,12 +279,16 @@ export function waitPicture(item: ItemState): Picture | undefined {
   }
 }
 
-/** A merged fix waiting for the deploy pull request that will carry it: the pull request it waits with. */
+/**
+ * A merged fix held for the deploy pull request that will carry it: the pull request it waits with, and the deploy
+ * pull request's state, once the App has opened one.
+ */
 export function deployPicture(item: ItemState): Extract<Picture, { type: 'deploy' }> | undefined {
   if (item.hold?.cause !== 'deploy') return undefined;
   const merged = ofType(item, 'pull-request.merged').at(-1);
   const pushed = ofType(item, 'pull-request.pushed').at(-1)?.payload;
   const ended = endedSinceMerge(item);
+  const deploy = item.deploy;
   return {
     type: 'deploy',
     pullRequest: pushed?.number ?? item.pullRequest,
@@ -295,6 +299,121 @@ export function deployPicture(item: ItemState): Extract<Picture, { type: 'deploy
       byMartin: merged.payload.by === 'martin',
     },
     ended,
+    deploy: deploy && {
+      pullRequest: deploy.pullRequest,
+      state: deploy.state,
+      ...(deploy.failed && { failed: deploy.failed }),
+    },
+    waitsForMartin: deployWaitsForMartin(item),
+  };
+}
+
+/** A deploy pull request that carries a held fix, as the line recorded it: what the console says of it. */
+export type DeployRecord = Pick<PayloadOf<'deploy.changed'>, 'pullRequest' | 'state' | 'failed'>;
+
+/** The checks that failed, in a few words: "e2e", "e2e and lint", "e2e, lint and 2 more". */
+export function failedWords(failed: readonly string[] | undefined): string {
+  const [first, second, ...rest] = failed ?? [];
+  if (!first) return 'a check';
+  if (!second) return first;
+  return rest.length ? `${first}, ${second} and ${rest.length} more` : `${first} and ${second}`;
+}
+
+/** What the console says of a deploy pull request in one state: each place's words, from its number and failed checks. */
+interface DeployWording {
+  /** For a row or a caption, after "Merged ·": "deploy #412’s checks running". */
+  short: (n: number) => string;
+  /** The line the waiting picture draws for it, and whether that line is done (a tick), to come (a ring) or not (a cross). */
+  tick: (n: number, failed: string) => string;
+  ok: boolean | undefined;
+  /** Its card's kicker in Needs you. */
+  kicker: string;
+  /** The sheet's facts, after its link: "checks running". */
+  fact: string;
+  /** Its card's evidence in Needs you, after "Merged at 15:58.". */
+  evidence: (n: number, failed: string) => string;
+}
+
+/**
+ * The deploy pull request that carries a held fix, in the console's words, by its state; `none` is the pull request
+ * still to come, while the image that carries the fix is built and signed. One table, so the row, the picture, Needs
+ * you and the sheet cannot drift apart.
+ */
+const DEPLOY_WORDS: Record<DeployRecord['state'] | 'none', DeployWording> = {
+  none: {
+    short: () => 'waiting for its deploy pull request',
+    tick: () => 'The next deploy pull request carries it, with its ticket and issue',
+    ok: undefined,
+    kicker: 'Its deploy is being built',
+    fact: 'not open yet',
+    evidence: () =>
+      'The App opens the deploy pull request that carries it once its image is built and signed; merging that will be yours, on GitHub.',
+  },
+  checking: {
+    short: (n) => `deploy #${n}’s checks running`,
+    tick: (n) => `Deploy #${n} carries it; its checks are running`,
+    ok: undefined,
+    kicker: 'Its deploy’s checks are running',
+    fact: 'checks running',
+    evidence: (n) =>
+      `Deploy #${n} carries it, and its checks are running; once they pass, merging it is yours, on GitHub.`,
+  },
+  passed: {
+    short: (n) => `deploy #${n} ready to merge`,
+    tick: (n) => `Deploy #${n} carries it, and its checks passed`,
+    ok: true,
+    kicker: 'Waiting for your deploy',
+    fact: 'checks passed',
+    evidence: (n) =>
+      `Deploy #${n} carries it, and its checks passed: merging it is yours, on GitHub, and a release that carries it ends this wait by itself.`,
+  },
+  failed: {
+    short: (n) => `deploy #${n}’s checks failed`,
+    tick: (n, failed) => `Deploy #${n} carries it, and ${failed} failed on it`,
+    ok: false,
+    kicker: 'Its deploy’s checks failed',
+    fact: 'checks failed',
+    evidence: (n, failed) =>
+      `Deploy #${n} carries it, and ${failed} failed on it. A newer build moves it on, and its checks run again.`,
+  },
+  merged: {
+    short: (n) => `deploy #${n} merged, waiting for Argo CD`,
+    tick: (n) => `Deploy #${n} merged; its release starts once Argo CD syncs`,
+    ok: true,
+    kicker: 'Its deploy merged',
+    fact: 'merged',
+    evidence: (n) =>
+      `Deploy #${n}, which carries it, merged; its release starts once Argo CD syncs, and ends this wait by itself.`,
+  },
+  closed: {
+    short: (n) => `deploy #${n} closed, waiting for the next`,
+    tick: (n) => `Deploy #${n} was closed unmerged; the next build’s carries it`,
+    ok: false,
+    kicker: 'Its deploy was closed',
+    fact: 'closed unmerged',
+    evidence: (n) => `Deploy #${n} was closed unmerged; the next build’s deploy pull request carries it.`,
+  },
+};
+
+/** Where the deploy pull request that carries a held fix stands, in each place's words (`DEPLOY_WORDS`). */
+export function deployWords(deploy: DeployRecord | undefined): {
+  short: string;
+  tick: string;
+  ok: boolean | undefined;
+  kicker: string;
+  fact: string;
+  evidence: string;
+} {
+  const words = DEPLOY_WORDS[deploy?.state ?? 'none'];
+  const n = deploy?.pullRequest ?? 0;
+  const failed = failedWords(deploy?.failed);
+  return {
+    short: words.short(n),
+    tick: words.tick(n, failed),
+    ok: words.ok,
+    kicker: words.kicker,
+    fact: words.fact,
+    evidence: words.evidence(n, failed),
   };
 }
 
