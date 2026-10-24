@@ -1,11 +1,13 @@
 /**
  * The privacy page (`?view=privacy`), from the footer: what the console keeps on a visitor's device, which is nothing,
  * and what its servers record. Every claim here is held by something that fails when it stops being true: the browser
- * tests' guard, the collector's settings and their test, and the backends' retention (docs/COMPONENTS/CONSOLE.md).
+ * tests' guard, the collector's settings and their test, the backends' retention, and the days a report's text is kept,
+ * held to triage's policy (docs/COMPONENTS/CONSOLE.md).
  */
 import { useEffect } from 'react';
 import { SESSION_MINUTES } from '../access.ts';
 import { KEPT_DAYS, TRIES_MINUTES } from '../privacy.ts';
+import { REPORT_KEPT_DAYS } from '../projection/report.ts';
 import '../styles/settings.css';
 import '../styles/privacy.css';
 
@@ -88,6 +90,10 @@ export function Privacy() {
           <li>
             <strong>Your browser</strong> is recorded only as its family, its major version, its operating system and
             whether it is a phone or tablet or a computer: Chrome 141 on macOS, a computer. Never your address.
+          </li>
+          <li>
+            <strong>A report you send</strong> is shown on the console only to Martin and to you, and its words are
+            deleted {REPORT_KEPT_DAYS} days after they arrive.
           </li>
           <li>
             <strong>Signing in</strong> counts the tries from each address for {TRIES_MINUTES} minutes, in memory, so
