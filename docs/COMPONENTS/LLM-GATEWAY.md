@@ -57,7 +57,7 @@ A provider refusing because the account's credit is spent or the workspace's lim
 
 1. no retry;
 2. it appends `spend.capped`, naming the provider;
-3. it answers agent calls 429 until a probe, a few minutes apart, is answered (one word, from Claude Haiku 5.5 or the local model);
+3. it answers agent calls 429 until a probe, a few minutes apart, is answered (one token, with no thinking, from the cheapest model the profile offers there: Claude Haiku 5.5, or the local model);
 4. it appends `spend.cleared`.
 
 ## Modes and cassettes

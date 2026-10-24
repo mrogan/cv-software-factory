@@ -18,10 +18,10 @@ export interface Price {
   /** A cache write that lives an hour. */
   cacheWriteHourPerMillion?: number;
   /**
-   * The rate for a call whose prompt (its input: fresh, read from the cache and written to it) is over `overTokens`,
-   * in place of this one.
+   * For a call whose prompt (its input: fresh, read from the cache and written to it) is over `overTokens`: every rate
+   * above, `times` as much.
    */
-  longPrompt?: { overTokens: number; price: Price };
+  longPrompt?: { overTokens: number; times: number };
 }
 
 const claude = (input: number, output: number, cacheRead: number): Price => ({
@@ -40,7 +40,7 @@ export const PRICES: Readonly<Record<string, Price>> = {
   'claude-opus-5-5': claude(4, 20, 0.2),
   'claude-sonnet-5-5': claude(2, 10, 0.2),
   // Up to 100K tokens of prompt; over that, five times as much.
-  'claude-haiku-5-5': { ...claude(0.1, 0.5, 0.01), longPrompt: { overTokens: 100_000, price: claude(0.5, 2.5, 0.05) } },
+  'claude-haiku-5-5': { ...claude(0.1, 0.5, 0.01), longPrompt: { overTokens: 100_000, times: 5 } },
   // LM Studio on Martin's Mac.
   'qwen/qwen3.8-27b': FREE,
 };
@@ -64,20 +64,21 @@ export interface Usage {
 
 /** What a call cost, at the long prompt's rate if its prompt is over that size. */
 export function costOf(model: string, usage: Usage): number {
-  const base = priceOf(model);
+  const price = priceOf(model);
   const prompt =
     usage.inputTokens +
     (usage.cacheReadTokens ?? 0) +
     (usage.cacheWriteTokens ?? 0) +
     (usage.cacheWriteHourTokens ?? 0);
-  const price = base.longPrompt && prompt > base.longPrompt.overTokens ? base.longPrompt.price : base;
+  const times = price.longPrompt && prompt > price.longPrompt.overTokens ? price.longPrompt.times : 1;
   const part = (tokens = 0, perMillion = price.inputPerMillion) => tokens * perMillion;
   return (
-    (part(usage.inputTokens) +
-      part(usage.outputTokens, price.outputPerMillion) +
-      part(usage.cacheReadTokens, price.cacheReadPerMillion) +
-      part(usage.cacheWriteTokens, price.cacheWritePerMillion) +
-      part(usage.cacheWriteHourTokens, price.cacheWriteHourPerMillion)) /
+    (times *
+      (part(usage.inputTokens) +
+        part(usage.outputTokens, price.outputPerMillion) +
+        part(usage.cacheReadTokens, price.cacheReadPerMillion) +
+        part(usage.cacheWriteTokens, price.cacheWritePerMillion) +
+        part(usage.cacheWriteHourTokens, price.cacheWriteHourPerMillion))) /
     1_000_000
   );
 }

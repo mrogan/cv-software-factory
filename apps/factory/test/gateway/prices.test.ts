@@ -1,9 +1,11 @@
 /**
  * What the gateway counts a call as costing (`src/gateway/prices.ts`): fresh input, output and the cache at their own
- * rates, and a long prompt at its model's dearer rate where it has one.
+ * rates, and a long prompt at its model's dearer rate where it has one; and the probe of a capped provider, priced by
+ * the same table.
  */
 import { describe, expect, it } from 'vitest';
 import { costOf, PRICES, priceOf } from '../../src/gateway/prices.ts';
+import { probeOf } from '../../src/gateway/service.ts';
 
 describe('a call’s cost', () => {
   it('counts fresh input, output, cache reads and both cache writes, each at its rate', () => {
@@ -39,5 +41,24 @@ describe('a call’s cost', () => {
   it('has no price for Claude Haiku 4.5, which no profile offers, so a call to it is refused', () => {
     expect(Object.hasOwn(PRICES, 'claude-haiku-4-5')).toBe(false);
     expect(() => priceOf('claude-haiku-4-5')).toThrow(/no price/);
+  });
+});
+
+describe('the probe of a capped provider', () => {
+  it('asks the cheapest model the profile offers there for one token, with no thinking to spend it on', () => {
+    expect(probeOf('local', 'anthropic')).toEqual({
+      model: 'claude-haiku-5-5',
+      max_tokens: 1,
+      thinking: { type: 'disabled' },
+      messages: [{ role: 'user', content: 'Reply with one word.' }],
+    });
+    expect(probeOf('do', 'anthropic')?.model).toBe('claude-haiku-5-5');
+    expect(probeOf('local', 'local')?.model).toBe('qwen/qwen3.8-27b');
+    // A profile with no local model has nothing to ask there.
+    expect(probeOf('do', 'local')).toBeUndefined();
+    for (const name of ['anthropic', 'local'] as const) {
+      const model = probeOf('local', name)?.model;
+      if (model) expect(() => priceOf(model)).not.toThrow();
+    }
   });
 });

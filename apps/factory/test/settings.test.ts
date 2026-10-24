@@ -15,11 +15,14 @@ import { lineSettings } from '../src/line/settings.ts';
 import { highestWorkItemCap, latestChosen, SettingsReader } from '../src/settings.ts';
 import { appendSettings, settingsPayload } from './settings-events.ts';
 
-/** What a price ranks a model by: what its calls cost, output first, as the gateway counts them. */
+/**
+ * What a price ranks a model by: what its calls cost, output first, as the gateway counts them, at its long prompt's
+ * rate where it has one, so a model cheap only for short prompts cannot pass for cheaper than it is.
+ */
 const cost = (model: string) => {
   const price = PRICES[model];
   if (!price) throw new Error(`${model} has no price`);
-  return price.outputPerMillion * 1_000_000 + price.inputPerMillion;
+  return (price.longPrompt?.times ?? 1) * (price.outputPerMillion * 1_000_000 + price.inputPerMillion);
 };
 
 describe('the bounds', () => {

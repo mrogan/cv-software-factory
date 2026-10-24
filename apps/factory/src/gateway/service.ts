@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { connect, DiskArtifacts, EventWriter } from '@software-factory/store';
 import { MODEL as TRIAGE_MODEL } from '@software-factory/triage';
 import { MODELS } from '../../../../policy/models.ts';
+import type { Profile } from '../../../../policy/spend.ts';
 import { sendCounts } from '../counts.ts';
 import { log } from '../log.ts';
 import { SettingsReader } from '../settings.ts';
@@ -22,6 +23,21 @@ import { startPruning } from './pruning.ts';
 import { createGatewayServer } from './server.ts';
 import { Spend } from './spend.ts';
 import { PROVIDER as TYPESAFE, TypeSafe } from './typesafe.ts';
+
+/**
+ * What the gateway asks a capped provider to learn whether it answers again: one token from the cheapest model the
+ * profile offers there, with no thinking, so the token is the answer's. None where the profile offers it no model.
+ */
+export function probeOf(profile: Profile, name: ProviderName) {
+  const model = MODELS[profile].models.find((offered) => offered.provider === name)?.model;
+  if (!model) return undefined;
+  return {
+    model,
+    max_tokens: 1,
+    thinking: { type: 'disabled' },
+    messages: [{ role: 'user', content: 'Reply with one word.' }],
+  } as const;
+}
 
 export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv = process.env) {
   const sql = connect(env.DATABASE_URL, { max: 4 });
@@ -60,14 +76,10 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
   // A capped provider is asked one small question, a few minutes apart, until it answers.
   const probe = async (name: ProviderName) => {
     const provider = providers[name];
-    if (!provider) return false;
-    const model = name === 'local' && local ? local.model : 'claude-haiku-5-5';
-    const response = await provider.send(
-      '/v1/messages',
-      JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'Reply with one word.' }] }),
-      {},
-      AbortSignal.timeout(30_000),
-    );
+    const asked = probeOf(config.profile, name);
+    if (!provider || !asked) return false;
+    const { model } = asked;
+    const response = await provider.send('/v1/messages', JSON.stringify(asked), {}, AbortSignal.timeout(30_000));
     const usage = (response.ok ? usageOf(await response.text(), false) : undefined) ?? {
       inputTokens: 0,
       outputTokens: 0,
