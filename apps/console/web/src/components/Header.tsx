@@ -1,14 +1,15 @@
-import type { Autonomy } from '@software-factory/events';
-import type { Admin } from '../admin.ts';
-import { duration } from '../format.ts';
+import { useEffect, useId, useRef, useState } from 'react';
+import { LINE_STEP_UP } from '../access.ts';
+import { type Admin, said, write } from '../admin.ts';
+import { AUTONOMY, duration } from '../format.ts';
 import type { Header as LineState, Score } from '../projection/index.ts';
 import type { Theme } from '../settings.ts';
 import type { Connection } from '../source.ts';
 import { Account } from './Account.tsx';
+import { Dialog } from './Dialog.tsx';
+import { Glyph } from './Glyph.tsx';
 import { Mark } from './Mark.tsx';
-import { StepUpPill } from './StepUp.tsx';
-
-const AUTONOMY: Record<Autonomy, string> = { supervised: 'Supervised', guarded: 'Guarded', 'lights-out': 'Lights-out' };
+import { Key, StepUpPill, useStepUp } from './StepUp.tsx';
 
 /** Whether the line runs, in words and a dot that never carries the meaning alone. */
 export function LineStatus({ line, connection }: { line: LineState; connection: Connection }) {
@@ -29,10 +30,17 @@ export function LineStatus({ line, connection }: { line: LineState; connection: 
     );
   }
   if (line.stopped !== undefined) {
+    // Martin's reason, as everyone reads it: in full on a hover, and cut short where the header has no room.
     return (
       <>
         <span className="dot tone-attn ring" aria-hidden="true" />
-        Line stopped
+        <span>
+          Line stopped · “
+          <span className="why" title={line.stopped}>
+            {line.stopped}
+          </span>
+          ”
+        </span>
       </>
     );
   }
@@ -64,7 +72,7 @@ export function LineStatus({ line, connection }: { line: LineState; connection: 
   return (
     <>
       <span className="dot tone-ok blink" aria-hidden="true" />
-      Line running{line.autonomy && ` · ${AUTONOMY[line.autonomy]}`}
+      Line running · {AUTONOMY[line.autonomy]}
     </>
   );
 }
@@ -108,6 +116,181 @@ export function Scoreboard({ score, sample }: { score: Score | undefined; sample
         </div>
       </div>
     </div>
+  );
+}
+
+/** The most a reason may be, as `line.stopped` and `line.started` take it. */
+const REASON = 200;
+
+/**
+ * Stop the line, in `attn`, always one press away; while it is stopped, Start the line in its place, in `signal`, with
+ * the key while the passkey is not fresh. Each opens its dialog, which asks for a reason, for the audit log.
+ */
+function LineButton({ line, token }: { line: LineState; token: string }) {
+  const stopped = line.stopped !== undefined;
+  const stepUp = useStepUp();
+  const [open, setOpen] = useState<'stop' | 'start' | undefined>(undefined);
+  return (
+    <>
+      <button
+        type="button"
+        className={`btn line-btn ${stopped ? 'primary' : 'attn'}`}
+        onClick={() => setOpen(stopped ? 'start' : 'stop')}
+      >
+        {stopped ? (
+          <>
+            Start<span className="line-word"> the line</span>
+            {LINE_STEP_UP['line.start'] && !stepUp.fresh && <Key />}
+          </>
+        ) : (
+          <>
+            <Glyph name="cord" />
+            Stop<span className="line-word"> the line</span>
+          </>
+        )}
+      </button>
+      {open && <LineDialog kind={open} stopped={stopped} token={token} onClose={() => setOpen(undefined)} />}
+    </>
+  );
+}
+
+/**
+ * Stopping or starting the line, with Martin's reason. Stopping never asks for the passkey; starting does, and its
+ * button runs the passkey sheet itself ("Use your passkey and start") when the service asks for it. What the service
+ * says shows here, where he pressed: a refusal, or, once the line has stopped, that a canary in flight was not aborted.
+ */
+function LineDialog({
+  kind,
+  stopped,
+  token,
+  onClose,
+}: {
+  kind: 'stop' | 'start';
+  /** Whether the line is stopped now, as the events say. */
+  stopped: boolean;
+  token: string;
+  onClose: () => void;
+}) {
+  const stepUp = useStepUp();
+  const id = useId();
+  const field = useRef<HTMLTextAreaElement>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [answer, setAnswer] = useState<{ text: string; done: boolean } | undefined>(undefined);
+  const live = useRef(true);
+  useEffect(
+    () => () => {
+      live.current = false;
+    },
+    [],
+  );
+  const stop = kind === 'stop';
+  const asks = LINE_STEP_UP[`line.${kind}`];
+  // Stopped or started from elsewhere while it was open (`make stop-the-line`, another tab): it would do nothing now.
+  // Not while it acts, or once it has something to say, which the line's own change brings.
+  const moot = stop === stopped && !busy && answer === undefined;
+  useEffect(() => {
+    if (moot) onClose();
+  }, [moot, onClose]);
+
+  const act = async () => {
+    const why = reason.trim();
+    if (!why) return field.current?.focus();
+    if (busy) return;
+    setBusy(true);
+    setAnswer(undefined);
+    let refused: string | undefined;
+    const prove = async () => {
+      refused = await stepUp.prove(() => live.current);
+      return refused === undefined && live.current;
+    };
+    const got = await write(
+      `/admin/line/${kind}`,
+      { reason: why },
+      token,
+      LINE_STEP_UP[`line.${kind}`] ? prove : undefined,
+    );
+    // Closed while it asked: nothing more is sent, and nothing to say.
+    if (!live.current) return;
+    setBusy(false);
+    if (got.status !== 200) return setAnswer({ text: refused ?? said(got), done: false });
+    // Stopped, with a canary in flight it could not abort: Martin must know, and that `make stop-the-line` will.
+    if (typeof got.body?.warning === 'string') return setAnswer({ text: got.body.warning, done: true });
+    onClose();
+  };
+
+  const done = answer?.done === true;
+  const label = stop ? 'Stop the line' : asks && !stepUp.fresh ? 'Use your passkey and start' : 'Start the line';
+  return (
+    <Dialog
+      title={stop ? 'Stop the line' : 'Start the line'}
+      onClose={onClose}
+      actions={
+        done ? (
+          <button type="button" className="btn" onClick={onClose}>
+            Close
+          </button>
+        ) : (
+          <>
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={`btn ${stop ? 'attn' : 'primary'}`}
+              disabled={!reason.trim()}
+              aria-disabled={busy || undefined}
+              onClick={() => void act()}
+            >
+              {label}
+              {asks && !stepUp.fresh && <Glyph name="key" className="glyph key" />}
+            </button>
+          </>
+        )
+      }
+    >
+      {stop ? (
+        <p>
+          Every agent stops at the end of its step, nothing new is taken, and a canary in flight is aborted: the version
+          before takes all the traffic. <code>make stop-the-line</code> does the same when the console can’t.
+        </p>
+      ) : (
+        <p>
+          Agents take work again, as What the line takes says. A release stopped with the line stays stopped until you
+          retry it.
+        </p>
+      )}
+      {!done && (
+        <div className="reason">
+          <label className="label" htmlFor={`${id}-reason`}>
+            Reason
+          </label>
+          <textarea
+            ref={field}
+            id={`${id}-reason`}
+            className="field"
+            maxLength={REASON}
+            rows={2}
+            required
+            value={reason}
+            placeholder="Why, for the audit log"
+            onChange={(event) => setReason(event.currentTarget.value)}
+          />
+          <span className="help">
+            Visitors see your reason, with anything shaped like a secret left out.{' '}
+            <span className="chars">
+              {reason.length} / {REASON}
+            </span>
+          </span>
+        </div>
+      )}
+      {asks && !stepUp.fresh && !done && <p className="help">Starting the line asks for your passkey again.</p>}
+      {answer && (
+        <p className="dialog-refusal" role="alert">
+          {answer.text}
+        </p>
+      )}
+    </Dialog>
   );
 }
 
@@ -174,6 +357,7 @@ export function Header({
               <button type="button" className="btn preview-btn" onClick={onPreview}>
                 Preview as visitor
               </button>
+              <LineButton line={line} token={admin.session.token} />
               <Account session={admin.session} onPreview={onPreview} />
             </>
           )}

@@ -2,7 +2,15 @@
  * Words and figures as the console writes them: British English, times where the viewer is, money in dollars
  * because that is what the models are billed in.
  */
+import type { Autonomy } from '@software-factory/events';
 import type { Change } from '../../../../policy/settings.ts';
+
+/** The autonomy levels by name, as the header and Controls say them. */
+export const AUTONOMY: Record<Autonomy, string> = {
+  supervised: 'Supervised',
+  guarded: 'Guarded',
+  'lights-out': 'Lights-out',
+};
 
 const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' });
 const precise = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });

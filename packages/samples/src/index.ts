@@ -6,7 +6,7 @@
  * rest of the last week ships as milestone 6's line does: waits for Martin's deploy, releases step by step (one
  * carrying two work items, some carrying none), a rollback with no series and the ticket it opened, a fix that
  * persisted and went round again, a reopened ticket, a dry run, the line stopped with a canary in flight, and a
- * canary in flight at the end, a spec waiting for work in flight on the same page, and a visitor's suggestion Martin answered in words, which keep it held. The scoreboard counts them against an invented key. Nothing in them happened: the
+ * canary in flight at the end, the line at Guarded and taking the next five, a spec waiting for work in flight on the same page, and a visitor's suggestion Martin answered in words, which keep it held. The scoreboard counts them against an invented key. Nothing in them happened: the
  * console labels each as a sample.
  */
 import type { NewEvent } from '@software-factory/events';
@@ -69,7 +69,7 @@ export const ITEMS = [
   searchByColour,
 ];
 
-/** The line, running at Guarded autonomy from before the first sample. */
+/** The line, running from before the first sample. */
 const LINE_STARTED: NewEvent<'line.started'> = {
   id: uuidFor('line/started'),
   ts: '2026-09-29T07:00:00.000Z',
@@ -77,14 +77,49 @@ const LINE_STARTED: NewEvent<'line.started'> = {
   type: 'line.started',
   version: 2,
   actor: 'martin',
-  summary: 'Martin started the line at Guarded autonomy',
-  payload: { autonomy: 'guarded' },
+  summary: 'Martin started the line',
+  payload: {},
   artifacts: [],
 };
 
+/** A change of the line's controls by Martin, as the admin service appends it. */
+const controlsChanged = (
+  ts: string,
+  summary: string,
+  payload: NewEvent<'controls.changed'>['payload'],
+): NewEvent<'controls.changed'> => ({
+  id: uuidFor(`line/controls/${ts}`),
+  ts,
+  work_item: null,
+  type: 'controls.changed',
+  version: 1,
+  actor: 'martin',
+  summary,
+  payload,
+  artifacts: [],
+});
+
+/** At Guarded from the start, as the controls record it, and, on the last day, taking the next five. */
+const CONTROLS: NewEvent<'controls.changed'>[] = [
+  controlsChanged('2026-09-29T07:00:30.000Z', 'Martin loosened autonomy from Supervised to Guarded', {
+    autonomy: 'guarded',
+    newWork: true,
+    autoMerge: false,
+    take: null,
+    change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
+  }),
+  controlsChanged('2026-10-06T12:00:00.000Z', 'Martin widened what the line takes to the next 5', {
+    autonomy: 'guarded',
+    newWork: true,
+    autoMerge: false,
+    take: { kind: 'next-few', count: 5, since: '2026-10-06T12:00:00.000Z' },
+    change: { control: 'take', before: null, after: { kind: 'next-few', count: 5, since: '2026-10-06T12:00:00.000Z' } },
+  }),
+];
+
 /** Every sample event in the order it happened. Events at the same moment keep the order they were written in. */
 export function sampleEvents(): NewEvent[] {
-  const events = inOrder([LINE_STARTED, ...releases.events, ...ITEMS.flatMap((item) => item.events)]);
+  const events = inOrder([LINE_STARTED, ...CONTROLS, ...releases.events, ...ITEMS.flatMap((item) => item.events)]);
   return inOrder([...events, ...scoreEvents(events)]);
 }
 

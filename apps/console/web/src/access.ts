@@ -5,6 +5,7 @@
  * the table.
  */
 import type { HoldCause, ReleaseControl } from '@software-factory/events';
+import type { ControlAction } from '../../../../policy/line.ts';
 
 /** How long a session lasts from sign-in, however busy: `SESSION.minutes`. */
 export const SESSION_MINUTES = 30;
@@ -49,3 +50,22 @@ export const GUARDRAIL_HOLDS: readonly HoldCause[] = [
   'spend',
   'merge',
 ];
+
+/** Starting the line asks for the passkey again (`line.start`); stopping it never does (`line.stop`). */
+export const LINE_STEP_UP = { 'line.start': true, 'line.stop': false } as const;
+
+/**
+ * Which changes of the line's controls ask for the passkey again: a looser autonomy level (`autonomy.loosen`),
+ * auto-merge turned on (`auto-merge.on`) and a wider take (`take.widen`). Which action a change is, is
+ * `controlAction`'s in `policy/line.ts`, which the admin service decides by too.
+ */
+export const CONTROL_STEP_UP: Record<ControlAction, boolean> = {
+  'autonomy.loosen': true,
+  'autonomy.tighten': false,
+  'new-work.on': false,
+  'new-work.off': false,
+  'auto-merge.on': true,
+  'auto-merge.off': false,
+  'take.widen': true,
+  'take.narrow': false,
+};

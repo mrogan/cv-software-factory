@@ -249,7 +249,7 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
               aria-label={admin.kind === 'martin' ? 'Needs you and controls' : 'Waiting on Martin, and controls'}
             >
               <NeedsYou needs={view.needs} admin={admin} onOpen={setOpen} />
-              <Controls spend={settings.spend} martin={admin.kind === 'martin'} />
+              <Controls spend={settings.spend} controls={view.controls} admin={admin} />
             </section>
           )}
         </div>

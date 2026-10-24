@@ -1,13 +1,26 @@
 /**
- * Controls, the right of the bottom row, beside Needs you (`NeedsYou.tsx`), for everyone: holding for now its Spend
- * group. The line's own controls join Spend (milestone 7, task 8).
+ * Controls, the right of the bottom row, beside Needs you (`NeedsYou.tsx`), for everyone: the line's controls
+ * (Autonomy, Switches, What the line takes), then Spend, a key to the key, and links to the settings and the audit log.
+ *
+ * The line's controls are Martin's, in force as the latest `controls.changed` and policy's check say
+ * (`projection/controls.ts`). Each change is one write to the admin service (`POST /admin/line/controls`), which
+ * decides from what is in force whether it loosens, and so asks for the passkey again; the key is drawn where it will.
+ * What a change did shows as its event arrives: the control moves. A visitor, or Martin previewing as one, sees every
+ * control in its read-only form: the choice filled, a switch's track faded, nothing to press.
  *
  * Spend is three meters in ink, since spend is no fault: the models today against the day's cap, this month against
  * the month's, and the dearest work item today against a work item's cap, with when the day resets, in UTC. A meter at
- * its cap turns `attn`. A visitor sees the same, read only, with who changes the caps.
+ * its cap turns `attn`.
  */
-import { money } from '../format.ts';
-import type { Meter, SpendView } from '../projection/index.ts';
+import { type Autonomy, AUTONOMY as LEVELS, TAKES, type TakeKind } from '@software-factory/events';
+import { type ReactNode, useId, useState } from 'react';
+import { type ControlChange, controlAction, TAKE, type Take } from '../../../../../policy/line.ts';
+import { CONTROL_STEP_UP } from '../access.ts';
+import { type Admin, said, write } from '../admin.ts';
+import { AUTONOMY, money, shortWhen } from '../format.ts';
+import type { ControlsView, Meter, SpendView } from '../projection/index.ts';
+import { Glyph } from './Glyph.tsx';
+import { type Asked, Key, useStepUp } from './StepUp.tsx';
 
 function SpendMeter({ label, meter, note }: { label: string; meter: Meter; note?: string }) {
   const share = meter.capUsd ? Math.min(100, (meter.spentUsd / meter.capUsd) * 100) : 0;
@@ -53,14 +66,468 @@ export function SpendGroup({ spend }: { spend: SpendView }) {
   );
 }
 
-export function Controls({ spend, martin }: { spend: SpendView; martin: boolean }) {
+/** Who a line is said to: Martin, signed in, or anyone else, who reads of him. */
+type Viewer = 'martin' | 'visitor';
+
+/** What each autonomy level means, to Martin and to anyone else. */
+const MEANS: Record<Autonomy, Record<Viewer, string>> = {
+  supervised: {
+    martin: 'You approve every merge and every release.',
+    visitor: 'Martin approves every merge and every release.',
+  },
+  guarded: {
+    martin: 'Low-risk changes ship on their own. Anything risky waits for you.',
+    visitor: 'Low-risk changes ship on their own. Anything risky waits for Martin.',
+  },
+  'lights-out': {
+    martin: 'Only the gates and the canary decide. You are told afterwards.',
+    visitor: 'Only the gates and the canary decide. Martin is told afterwards.',
+  },
+};
+
+/** Until approval routing comes (Part C), the autonomy level and auto-merge are recorded, and route nothing. */
+const RECORDED: Record<Viewer, string> = {
+  martin: 'Recorded: until approval routing comes, every merge waits for you.',
+  visitor: 'Recorded: until approval routing comes, every merge waits for Martin.',
+};
+
+const TAKE_LABEL: Record<TakeKind, string> = {
+  every: 'Every ticket',
+  'next-few': 'The next few',
+  'just-one': 'Just one',
+};
+
+/** What the line will do with a take, in a sentence. */
+function takeWords(take: Take | null, nextFew: ControlsView['nextFew'], viewer: Viewer): string {
+  if (!take) {
+    return viewer === 'martin'
+      ? 'Not set here: the line takes what its Deployment says (LINE_TAKE, LINE_ONLY). Choosing one asks for your passkey.'
+      : 'Not set from the console: the line takes what its Deployment says.';
+  }
+  switch (take.kind) {
+    case 'every':
+      return 'The oldest open ticket of the highest severity, one after another, for as long as the line runs.';
+    case 'next-few': {
+      const many = take.count === 1 ? 'The next work item' : `The next ${take.count} work items`;
+      const since = nextFew?.since ?? Date.parse(take.since);
+      return `${many} from ${shortWhen(since)}, then nothing new: ${nextFew?.taken ?? 0} taken so far, each carried to its end.`;
+    }
+    case 'just-one':
+      return `Only #${take.workItem} moves, one step at a time. Every other work item stays where it is.`;
+  }
+}
+
+/** A take as Martin sends it: the admin service stamps when the next few start. */
+type TakeBody = { kind: 'every' } | { kind: 'next-few'; count: number } | { kind: 'just-one'; workItem: string };
+
+/** What Martin may send: one change, as `POST /admin/line/controls` takes it. */
+type Change = { autonomy: Autonomy } | { newWork: boolean } | { autoMerge: boolean } | { take: TakeBody };
+
+/** A wider take, as the passkey's dialog says it. */
+const takeAsked = (take: Take) =>
+  take.kind === 'every'
+    ? 'The line takes every ticket.'
+    : take.kind === 'next-few'
+      ? `The line takes the next ${take.count === 1 ? 'work item' : `${take.count} work items`}.`
+      : `The line takes only #${take.workItem}.`;
+
+/** A group's place in the panel, so a refusal shows under the control that was pressed. */
+type Where = 'autonomy' | 'switches' | 'take';
+
+/** Martin's writes from Controls: each change, its passkey asked for when the service asks, and a refusal kept. */
+function useChange(admin: Admin) {
+  const stepUp = useStepUp();
+  const [busy, setBusy] = useState(false);
+  const [refusal, setRefusal] = useState<{ where: Where; text: string } | undefined>(undefined);
+  const change = async (where: Where, body: Change, asked: Asked): Promise<boolean> => {
+    if (admin.kind !== 'martin' || busy) return false;
+    setBusy(true);
+    setRefusal(undefined);
+    let cancelled = false;
+    const ask = async () => {
+      cancelled = !(await stepUp.ask(asked));
+      return !cancelled;
+    };
+    const got = await write('/admin/line/controls', body, admin.session.token, ask);
+    setBusy(false);
+    // Cancelled at the passkey: nothing changed, and nothing to say.
+    if (cancelled) return false;
+    if (got.status === 200) return true;
+    setRefusal({ where, text: said(got) });
+    return false;
+  };
+  return { busy, refusal, change, fresh: stepUp.fresh };
+}
+
+type Changer = ReturnType<typeof useChange>;
+
+/** Whether a change asks for the passkey again, as the access table says of the action it is. */
+const asks = (change: ControlChange) => CONTROL_STEP_UP[controlAction(change)];
+
+function Refusal({ changer, where }: { changer: Changer; where: Where }) {
+  if (changer.refusal?.where !== where) return null;
   return (
-    <article className="panel" aria-labelledby="controls-title">
+    <p className="controls-refusal" role="alert">
+      {changer.refusal.text}
+    </p>
+  );
+}
+
+function AutonomyGroup({ controls, viewer, changer }: { controls: ControlsView; viewer: Viewer; changer: Changer }) {
+  const id = useId();
+  const { autonomy } = controls;
+  const martin = viewer === 'martin';
+  return (
+    <div className="ctl-group">
+      <span className="label" id={`${id}-autonomy`}>
+        <span>Autonomy</span>
+      </span>
+      {/* biome-ignore lint/a11y/useSemanticElements: a fieldset needs a legend, and the group's label is above it */}
+      <div className={`seg ${martin ? '' : 'ro-seg'}`} role="group" aria-labelledby={`${id}-autonomy`}>
+        {LEVELS.map((level) => {
+          const change: ControlChange = { control: 'autonomy', before: autonomy, after: level };
+          return (
+            <button
+              key={level}
+              type="button"
+              aria-pressed={level === autonomy}
+              disabled={!martin}
+              aria-disabled={(martin && changer.busy) || undefined}
+              onClick={() => {
+                if (level === autonomy) return;
+                void changer.change(
+                  'autonomy',
+                  { autonomy: level },
+                  {
+                    title: asks(change) ? 'Loosen autonomy' : 'Tighten autonomy',
+                    what: (
+                      <>
+                        <b>The line runs at {AUTONOMY[level]}.</b> {MEANS[level].martin} {RECORDED.martin}
+                      </>
+                    ),
+                    why: 'Loosening autonomy lets more ship without you',
+                  },
+                );
+              }}
+            >
+              {AUTONOMY[level]}
+              {martin && !changer.fresh && level !== autonomy && asks(change) && <Key />}
+            </button>
+          );
+        })}
+      </div>
+      <p className="help">
+        {MEANS[autonomy][viewer]}
+        {autonomy !== 'supervised' && <span className="recorded"> {RECORDED[viewer]}</span>}
+      </p>
+      <Refusal changer={changer} where="autonomy" />
+    </div>
+  );
+}
+
+function Switch({
+  label,
+  note,
+  on,
+  live,
+  keyed,
+  busy,
+  onToggle,
+}: {
+  label: string;
+  note: ReactNode;
+  on: boolean;
+  /** Martin may press it; otherwise it is drawn read-only. */
+  live: boolean;
+  /** Pressing it asks for the passkey again. */
+  keyed: boolean;
+  busy: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="switch"
+      role="switch"
+      aria-checked={on}
+      disabled={!live}
+      aria-disabled={(live && busy) || undefined}
+      onClick={() => {
+        if (!busy) onToggle();
+      }}
+    >
+      <span>
+        <span className="what">
+          {label}
+          {keyed && <Key />}
+        </span>
+        <small>{note}</small>
+      </span>
+      <span className="track" aria-hidden="true" />
+    </button>
+  );
+}
+
+function SwitchesGroup({ controls, viewer, changer }: { controls: ControlsView; viewer: Viewer; changer: Changer }) {
+  const martin = viewer === 'martin';
+  const { newWork, autoMerge } = controls;
+  const autoMergeOn: ControlChange = { control: 'auto-merge', before: autoMerge, after: !autoMerge };
+  return (
+    <div className="ctl-group">
+      <span className="label">
+        <span>Switches</span>
+      </span>
+      <div className="switches">
+        <Switch
+          label="Agents take new work"
+          note="Off: each agent finishes its step, and nothing new is started."
+          on={newWork}
+          live={martin}
+          keyed={false}
+          busy={changer.busy}
+          onToggle={() =>
+            void changer.change(
+              'switches',
+              { newWork: !newWork },
+              {
+                title: newWork ? 'Stop agents taking new work' : 'Let agents take new work',
+                what: <b>Agents take new work: {newWork ? 'off' : 'on'}.</b>,
+                why: 'The admin service asks for it',
+              },
+            )
+          }
+        />
+        <Switch
+          label="Auto-merge low-risk changes"
+          note={
+            <>
+              A low-risk change merges once its gates and review pass.{' '}
+              <span className="recorded">{RECORDED[viewer]}</span>
+            </>
+          }
+          on={autoMerge}
+          live={martin}
+          keyed={martin && !changer.fresh && asks(autoMergeOn)}
+          busy={changer.busy}
+          onToggle={() =>
+            void changer.change(
+              'switches',
+              { autoMerge: !autoMerge },
+              autoMerge
+                ? {
+                    title: 'Turn off auto-merge',
+                    what: <b>Auto-merge low-risk changes: off.</b>,
+                    why: 'The admin service asks for it',
+                  }
+                : {
+                    title: 'Turn on auto-merge',
+                    what: (
+                      <>
+                        <b>Auto-merge low-risk changes: on.</b> {RECORDED.martin}
+                      </>
+                    ),
+                    why: 'Auto-merge lets changes merge without you',
+                  },
+            )
+          }
+        />
+        {/* Approval routing gives it a switch (Part C). Until then it is always on, for everyone. */}
+        <Switch
+          label="Auto-rollback"
+          note="A failing canary is always rolled back: this gets its switch with approval routing."
+          on
+          live={false}
+          keyed={false}
+          busy={false}
+          onToggle={() => {}}
+        />
+      </div>
+      <Refusal changer={changer} where="switches" />
+    </div>
+  );
+}
+
+/** How many the next few's field offers first. */
+const FIRST_FEW = 3;
+
+/** What Martin is choosing under What the line takes, before he sets it: how many, or which work item. */
+type Draft = { kind: 'next-few'; count: string } | { kind: 'just-one'; workItem: string };
+
+/** The take a draft would set, as the admin service would make it, or none while it is not one policy allows. */
+function draftTake(draft: Draft, before: Take | null, now: number): Take | undefined {
+  if (draft.kind === 'next-few') {
+    const count = Number(draft.count);
+    if (!Number.isInteger(count) || count < 1 || count > TAKE.most) return undefined;
+    // A new number keeps when they started; the same number again starts them again.
+    const since = before?.kind === 'next-few' && before.count !== count ? before.since : new Date(now).toISOString();
+    return { kind: 'next-few', count, since };
+  }
+  const workItem = draft.workItem.trim().replace(/^#/, '');
+  return /^[1-9]\d{0,8}$/.test(workItem) ? { kind: 'just-one', workItem } : undefined;
+}
+
+/** The take a button offers, as it would first set it: the next few at the field's first number. */
+const offered = (kind: TakeKind): Take =>
+  kind === 'every'
+    ? { kind }
+    : kind === 'next-few'
+      ? { kind, count: FIRST_FEW, since: new Date().toISOString() }
+      : { kind, workItem: '1' };
+
+function TakeGroup({ controls, viewer, changer }: { controls: ControlsView; viewer: Viewer; changer: Changer }) {
+  const martin = viewer === 'martin';
+  const { take, nextFew } = controls;
+  const id = useId();
+  const [draft, setDraft] = useState<Draft | undefined>(undefined);
+  // The field shows what is in force until Martin types: the next few's number, or the work item.
+  const shown: Draft | undefined =
+    draft ??
+    (take?.kind === 'next-few'
+      ? { kind: 'next-few', count: String(take.count) }
+      : take?.kind === 'just-one'
+        ? { kind: 'just-one', workItem: take.workItem }
+        : undefined);
+  const pressed = shown?.kind ?? take?.kind;
+  const after = shown && draftTake(shown, take, Date.now());
+
+  const set = async (next: Take) => {
+    const body: TakeBody =
+      next.kind === 'next-few'
+        ? { kind: 'next-few', count: next.count }
+        : next.kind === 'just-one'
+          ? { kind: 'just-one', workItem: next.workItem }
+          : { kind: 'every' };
+    const done = await changer.change(
+      'take',
+      { take: body },
+      {
+        title: 'Take more work',
+        what: <b>{takeAsked(next)}</b>,
+        why: 'Taking more work raises spend',
+      },
+    );
+    if (done) setDraft(undefined);
+  };
+
+  return (
+    <div className="ctl-group">
+      <span className="label" id={`${id}-label`}>
+        <span>What the line takes</span>
+      </span>
+      {/* biome-ignore lint/a11y/useSemanticElements: a fieldset needs a legend, and the group's label is above it */}
+      <div className={`seg ${martin ? '' : 'ro-seg'}`} role="group" aria-labelledby={`${id}-label`}>
+        {TAKES.map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            aria-pressed={kind === pressed}
+            disabled={!martin}
+            aria-disabled={(martin && changer.busy) || undefined}
+            onClick={() => {
+              if (changer.busy) return;
+              if (kind === 'every') {
+                setDraft(undefined);
+                if (take?.kind !== 'every') void set({ kind: 'every' });
+                return;
+              }
+              if (kind === take?.kind) return setDraft(undefined);
+              setDraft(
+                kind === 'next-few'
+                  ? { kind, count: String(FIRST_FEW) }
+                  : { kind, workItem: take?.kind === 'just-one' ? take.workItem : '' },
+              );
+            }}
+          >
+            {TAKE_LABEL[kind]}
+            {martin &&
+              !changer.fresh &&
+              kind !== take?.kind &&
+              asks({ control: 'take', before: take, after: offered(kind) }) && <Key />}
+          </button>
+        ))}
+      </div>
+      {martin && shown && (
+        <form
+          className="take-field"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (after) void set(after);
+          }}
+        >
+          <span className="take-input">
+            <label htmlFor={`${id}-take`}>{shown.kind === 'next-few' ? 'How many' : 'Work item #'}</label>
+            {shown.kind === 'next-few' ? (
+              <input
+                id={`${id}-take`}
+                className="field mono"
+                type="number"
+                min={1}
+                max={TAKE.most}
+                step={1}
+                value={shown.count}
+                onChange={(event) => setDraft({ kind: 'next-few', count: event.currentTarget.value })}
+              />
+            ) : (
+              <input
+                id={`${id}-take`}
+                className="field mono"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={10}
+                value={shown.workItem}
+                onChange={(event) => setDraft({ kind: 'just-one', workItem: event.currentTarget.value })}
+              />
+            )}
+          </span>
+          {/* Set once he has typed: the number or the work item in force is what the line takes already. */}
+          {draft && (
+            <>
+              <button type="submit" className="btn small" disabled={!after} aria-disabled={changer.busy || undefined}>
+                Set
+                {after && !changer.fresh && asks({ control: 'take', before: take, after }) && <Key />}
+              </button>
+              <button type="button" className="btn small" onClick={() => setDraft(undefined)}>
+                Cancel
+              </button>
+              {!after && (
+                <span className="help">
+                  {draft.kind === 'next-few' ? `From 1 to ${TAKE.most}.` : 'A work item’s number.'}
+                </span>
+              )}
+            </>
+          )}
+        </form>
+      )}
+      <p className="help">{takeWords(take, nextFew, viewer)}</p>
+      <Refusal changer={changer} where="take" />
+    </div>
+  );
+}
+
+export function Controls({ spend, controls, admin }: { spend: SpendView; controls: ControlsView; admin: Admin }) {
+  const martin = admin.kind === 'martin';
+  const viewer: Viewer = martin ? 'martin' : 'visitor';
+  const changer = useChange(admin);
+  return (
+    <article className="panel controls" aria-labelledby="controls-title">
       <div className="panel-head">
         <h2 id="controls-title">Controls</h2>
         {!martin && <span className="label">Read only</span>}
       </div>
+      <AutonomyGroup controls={controls} viewer={viewer} changer={changer} />
+      <SwitchesGroup controls={controls} viewer={viewer} changer={changer} />
+      <TakeGroup controls={controls} viewer={viewer} changer={changer} />
       <SpendGroup spend={spend} />
+      <p className="help">
+        Gates, image signing and the egress fence are always on: they have no switch.
+        {martin && (
+          <span className="legend">
+            {' '}
+            <Glyph name="key" className="glyph key" /> asks for your passkey again, unless you gave it in the last five
+            minutes.
+          </span>
+        )}
+      </p>
       <p className="help">
         {martin
           ? 'Each cap is yours to set within its ceiling in the settings. Raising one asks for your passkey again.'

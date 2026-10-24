@@ -130,11 +130,11 @@ export default new Item(null, '2026-10-05T00:00:00+01:00', 'line/releases')
       journeys: { canary: [24, 24], baseline: [24, 24] },
     }),
   )
-  .at('31:35:10', 'line.stopped', 'martin', 'The line stopped: Martin stopped the line', {
-    reason: 'Martin stopped the line',
+  .at('31:35:10', 'line.stopped', 'martin', 'Martin stopped the line', {
+    reason: 'Holding releases while I look at the deploy',
   })
   .aborted('31:35:40', '31:35:11', 'v0.9.11', 'v0.9.10', 'stop')
-  .at('31:50:00', 'line.started', 'martin', 'The line started, guarded', { autonomy: 'guarded' })
+  .at('31:50:00', 'line.started', 'martin', 'Martin started the line', { reason: 'The deploy is fine' })
   // He starts the line again and retries the canary, then aborts it himself, at 25%, for the next deploy.
   .at('31:51:00', 'release.started', 'rollouts', 'v0.9.11 started again after its abort', started('v0.9.11', 'v0.9.10'))
   .aborted('31:53:30', '31:53:02', 'v0.9.11', 'v0.9.10', 'martin')

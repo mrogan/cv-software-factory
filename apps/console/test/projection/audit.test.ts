@@ -15,6 +15,7 @@ import {
 } from '@software-factory/events';
 import { publicView } from '@software-factory/events/public';
 import { describe, expect, it } from 'vitest';
+import { ACCESS } from '../../../../policy/access.ts';
 import { full, MARTINS_WORDS, REPORT_TEXT } from '../../e2e/full.ts';
 import { dayLabel } from '../../web/src/format.ts';
 import { type AuditFilter, type AuditRow, auditRows, auditView, NO_FILTER } from '../../web/src/projection/audit.ts';
@@ -270,6 +271,84 @@ describe('the detail under a row', () => {
       const held = hold(cause);
       const approved = event(2, 'hold.answered', 'martin', { decision: 'approved', hold: held.id }, 'Approved', '7');
       expect(Boolean(only([held, steppedUp, approved]).detail?.includes('passkey given'))).toBe(asks);
+    }
+  });
+
+  it('says when the passkey was given for a change of the line’s controls that loosens, and not for one that tightens', () => {
+    const steppedUp = event(0, 'admin.stepped-up', 'martin', {});
+    const controls = { autonomy: 'guarded', newWork: true, autoMerge: false, take: null } as const;
+    const changed = (change: PayloadOf<'controls.changed'>['change']) =>
+      event(2, 'controls.changed', 'martin', { ...controls, change }, 'Martin changed a control');
+    const marked = (change: PayloadOf<'controls.changed'>['change']) =>
+      Boolean(only([steppedUp, changed(change)]).detail?.includes('passkey given'));
+    expect(marked({ control: 'autonomy', before: 'supervised', after: 'guarded' })).toBe(true);
+    expect(marked({ control: 'autonomy', before: 'lights-out', after: 'guarded' })).toBe(false);
+    expect(marked({ control: 'auto-merge', before: false, after: true })).toBe(true);
+    expect(marked({ control: 'auto-merge', before: true, after: false })).toBe(false);
+    expect(marked({ control: 'new-work', before: false, after: true })).toBe(false);
+    expect(marked({ control: 'take', before: { kind: 'just-one', workItem: '7' }, after: { kind: 'every' } })).toBe(
+      true,
+    );
+    expect(marked({ control: 'take', before: { kind: 'every' }, after: { kind: 'just-one', workItem: '7' } })).toBe(
+      false,
+    );
+  });
+
+  it('marks every action the access table asks the passkey for, or names the event it waits for', () => {
+    // Each marked action, and events that record it. Auto-rollback has no switch, and so no event, until Part C gives
+    // it one: this test fails until the audit log marks it then.
+    const controls = { autonomy: 'guarded', newWork: true, autoMerge: false, take: null } as const;
+    const control = (change: PayloadOf<'controls.changed'>['change']) => [
+      event(2, 'controls.changed', 'martin', { ...controls, change }),
+    ];
+    const release = (action: 'promote-fully' | 'retry') => [
+      event(2, 'release.controlled', 'martin', {
+        action,
+        release: 'n4bvkfjhnd-911',
+        version: 'v0.9.11',
+        weight: 50,
+        ...(action === 'promote-fully' && { to: 100 }),
+      } as PayloadOf<'release.controlled'>),
+    ];
+    const saved = (changes: PayloadOf<'settings.changed'>['changes']) => [
+      event(2, 'settings.changed', 'martin', {
+        agents: {
+          planner: { model: 'claude-sonnet-5-5', effort: 'medium' },
+          coder: { model: 'claude-sonnet-5-5', effort: 'high' },
+          reviewer: { model: 'claude-sonnet-5-5', effort: 'medium' },
+          describer: { model: 'claude-sonnet-5-5', effort: 'low' },
+        },
+        caps: { dayUsd: 10, monthUsd: null, workItemUsd: 1 },
+        changes,
+      }),
+    ];
+    const held = event(1, 'hold.started', 'factory', {
+      stage: 'gates',
+      kind: 'approval',
+      cause: 'gates',
+      reason: 'Held',
+    } as PayloadOf<'hold.started'>);
+    const recorded: Record<string, PublicEvent[] | 'no event yet'> = {
+      'line.start': [event(2, 'line.started', 'martin', { reason: 'Back' })],
+      'autonomy.loosen': control({ control: 'autonomy', before: 'supervised', after: 'guarded' }),
+      'auto-merge.on': control({ control: 'auto-merge', before: false, after: true }),
+      'auto-rollback.off': 'no event yet',
+      'take.widen': control({ control: 'take', before: null, after: { kind: 'every' } }),
+      'release.promote': release('promote-fully'),
+      'release.retry': release('retry'),
+      'agent.raise': saved([{ field: 'effort', agent: 'coder', before: 'medium', after: 'high' }]),
+      'caps.raise': saved([{ field: 'cap', cap: 'day', beforeUsd: 5, afterUsd: 10 }]),
+      'hold.approve-guardrail': [held, event(2, 'hold.answered', 'martin', { decision: 'approved', hold: held.id })],
+      'passkey.revoke': [event(2, 'passkey.revoked', 'martin', { from: 'console' })],
+    };
+    const marked = Object.entries(ACCESS as Record<string, { stepUp: boolean }>)
+      .filter(([name, access]) => access.stepUp && name !== 'step-up')
+      .map(([name]) => name);
+    expect(Object.keys(recorded).sort()).toEqual(marked.sort());
+    const steppedUp = event(0, 'admin.stepped-up', 'martin', {});
+    for (const [action, events] of Object.entries(recorded)) {
+      if (events === 'no event yet') continue;
+      expect(only([steppedUp, ...events]).detail, action).toMatch(/passkey given at/);
     }
   });
 

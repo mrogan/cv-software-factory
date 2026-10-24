@@ -69,6 +69,42 @@ for (const width of ['phone', 'desktop'] as const) {
   }
 }
 
+// The line's controls: the header and Controls, Martin's and a visitor's, and Stop the line's and Start the line's
+// dialogs, at all three widths, in both themes.
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  for (const theme of THEMES) {
+    test.describe(`${width}, ${theme}, the line's controls`, () => {
+      test.use({ viewport });
+
+      for (const as of ['martin', 'visitor'] as const) {
+        test(`the header and Controls, ${as === 'martin' ? 'Martin’s' : 'a visitor’s'}, have nothing for axe to find`, async ({
+          page,
+        }) => {
+          await adminService(page, as);
+          await page.goto(consoleUrl({ theme }));
+          await ready(page);
+          await page.locator('article.controls').waitFor();
+          expect((await axe(page).include('header.top').include('article.controls').analyze()).violations).toEqual([]);
+        });
+      }
+
+      test('Stop the line’s and Start the line’s dialogs have nothing for axe to find', async ({ page }) => {
+        await adminService(page, 'martin');
+        await page.goto(consoleUrl({ theme }));
+        await ready(page);
+        await page.getByRole('button', { name: 'Stop the line' }).click();
+        await page.getByRole('dialog', { name: 'Stop the line' }).waitFor();
+        expect((await axe(page).include('dialog').analyze()).violations).toEqual([]);
+        await page.goto(consoleUrl({ theme, at: Date.parse('2026-10-06T06:40:00Z') }));
+        await ready(page);
+        await page.getByRole('button', { name: 'Start the line (asks for your passkey)' }).click();
+        await page.getByRole('dialog', { name: 'Start the line' }).waitFor();
+        expect((await axe(page).include('dialog').analyze()).violations).toEqual([]);
+      });
+    });
+  }
+}
+
 test('makes no request to another origin, and breaks no policy, as it plays and opens everything', async ({ page }) => {
   // The guard fixture fails the test on either; this walks through everything that loads something.
   await page.goto(consoleUrl({ motion: true }));

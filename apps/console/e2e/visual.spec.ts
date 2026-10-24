@@ -36,6 +36,8 @@ import {
 
 /** A time in the samples when nothing waits on Martin: the first work item is open, and its hold has not started. */
 const NOTHING_WAITS = Date.parse('2026-09-29T08:32:00Z');
+/** A moment the samples have the line stopped, with Martin's reason: after his stop, before he starts it again. */
+const STOPPED = Date.parse('2026-10-06T06:40:00Z');
 
 test.beforeEach(({ page }) => picturesDecodeAsDrawn(page));
 
@@ -574,6 +576,69 @@ test.describe('the settings in Ink', () => {
     await ready(page);
     await page.locator('article.needs h2', { hasText: 'Needs you' }).waitFor();
     await expect(page.locator('.bottom')).toHaveScreenshot('m07-bottom-martin-ink.png');
+  });
+});
+
+/** Milestone 7: Stop the line and Start the line in the header, and choosing what the line takes in Controls. */
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, the line's controls`, () => {
+    test.use({ viewport });
+
+    test('Stop the line, with a reason', async ({ page }) => {
+      await adminService(page, 'martin');
+      await page.goto(consoleUrl());
+      await ready(page);
+      await page.getByRole('button', { name: 'Stop the line' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Stop the line' });
+      await dialog.getByLabel('Reason').fill('Holding releases while I look at the deploy');
+      await dialog.getByLabel('Reason').blur();
+      await expect(page).toHaveScreenshot(`m07-stop-${width}.png`);
+    });
+
+    test('the header while the line is stopped, for a visitor', async ({ page }) => {
+      await adminService(page, 'visitor');
+      await page.goto(consoleUrl({ at: STOPPED }));
+      await ready(page);
+      await expect(page).toHaveScreenshot(`m07-stopped-${width}.png`, {
+        clip: { x: 0, y: 0, width: viewport.width, height: 240 },
+      });
+    });
+
+    test('Start the line, with a reason and the passkey', async ({ page }) => {
+      await adminService(page, 'martin');
+      await page.goto(consoleUrl({ at: STOPPED }));
+      await ready(page);
+      await page.getByRole('button', { name: 'Start the line (asks for your passkey)' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Start the line' });
+      await dialog.getByLabel('Reason').fill('The deploy is fine');
+      await dialog.getByLabel('Reason').blur();
+      await expect(page).toHaveScreenshot(`m07-start-${width}.png`);
+    });
+
+    test('Controls, choosing Just one', async ({ page }) => {
+      await adminService(page, 'martin');
+      await page.goto(consoleUrl());
+      await ready(page);
+      const controls = page.locator('article.controls');
+      await controls.getByRole('button', { name: 'Just one' }).click();
+      await controls.getByLabel('Work item #').fill('1329');
+      await controls.getByLabel('Work item #').blur();
+      await expect(controls).toHaveScreenshot(`m07-controls-just-one-${width}.png`);
+    });
+  });
+}
+
+test.describe("the line's controls in Ink", () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('Stop the line, with a reason', async ({ page }) => {
+    await adminService(page, 'martin');
+    await page.goto(consoleUrl({ theme: 'ink' }));
+    await ready(page);
+    await page.getByRole('button', { name: 'Stop the line' }).click();
+    await page.getByRole('dialog', { name: 'Stop the line' }).getByLabel('Reason').fill('Holding releases');
+    await page.getByRole('dialog', { name: 'Stop the line' }).getByLabel('Reason').blur();
+    await expect(page).toHaveScreenshot('m07-stop-ink.png');
   });
 });
 

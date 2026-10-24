@@ -19,7 +19,7 @@ import { DiskArtifacts, EventWriter } from '@software-factory/store';
 import { createDatabase, type Database, PASSWORDS, startPostgres } from '../../../packages/store/test/postgres.ts';
 import type { AdminService } from '../../factory/src/admin/service.ts';
 import type { RolloutRef } from '../../factory/src/release/rollout-ref.ts';
-import type { KubeWriter } from '../../factory/src/runners/kube.ts';
+import { KubeError, type KubeWriter } from '../../factory/src/runners/kube.ts';
 import { full } from './full.ts';
 
 const HERE = fileURLToPath(new URL('..', import.meta.url));
@@ -188,4 +188,77 @@ export async function enrolThroughTheDoor(page: Page, code: string, name = 'Lapt
   await page.getByLabel('Name this passkey').fill(name);
   await page.getByRole('button', { name: 'Make a passkey' }).click();
   await page.getByText('Passkey made, and you are signed in on this device.').waitFor();
+}
+
+/**
+ * A stand-in for the app's Rollout as the admin service reads it, merge-patched as Kubernetes would, keeping each patch:
+ * at the samples' release in flight (v0.9.13 at 50%).
+ */
+export class Rollout implements KubeWriter {
+  version = 1;
+  readonly patches: unknown[] = [];
+  /** How many of the next patches to the spec find the Rollout changed, as the controller's writes to it would. */
+  specConflicts = 0;
+  object: Record<string, unknown> = {
+    metadata: { name: 'website', generation: 1, annotations: { 'rollout.argoproj.io/revision': '913' } },
+    spec: {
+      template: {
+        spec: {
+          containers: [{ name: 'website', image: `ghcr.io/mrogan/cv-worlds-worst-website@sha256:${'9'.repeat(64)}` }],
+        },
+      },
+      strategy: {
+        canary: {
+          steps: [
+            { setWeight: 25 },
+            { pause: {} },
+            { analysis: {} },
+            { setWeight: 50 },
+            { pause: {} },
+            { analysis: {} },
+          ],
+        },
+      },
+    },
+    status: {
+      observedGeneration: '1',
+      currentPodHash: 'v8q7chmx72',
+      stableRS: 'p8hwwllxzk',
+      currentStepIndex: 4,
+      canary: { weights: { canary: { weight: 50 } } },
+    },
+  };
+
+  async get<T>(_path: string, schema: { parse(v: unknown): T }): Promise<T> {
+    const { metadata, ...rest } = this.object as { metadata: object };
+    return schema.parse({ ...rest, metadata: { ...metadata, resourceVersion: String(this.version) } });
+  }
+
+  async patch(_path: string, body: unknown): Promise<void> {
+    const { metadata, ...rest } = body as { metadata?: { resourceVersion?: string } };
+    const conflicts = 'spec' in rest && this.specConflicts > 0;
+    if (conflicts) this.specConflicts -= 1;
+    if (conflicts || (metadata?.resourceVersion && metadata.resourceVersion !== String(this.version))) {
+      throw new KubeError(409, 'the object has been modified');
+    }
+    this.patches.push(rest);
+    this.object = merged(this.object, rest) as Record<string, unknown>;
+    this.version += 1;
+  }
+
+  text = async () => undefined;
+  create = async () => {};
+  remove = async () => {};
+}
+
+/** A JSON merge patch (RFC 7386). */
+function merged(target: unknown, patch: unknown): unknown {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return patch;
+  const out: Record<string, unknown> =
+    target && typeof target === 'object' && !Array.isArray(target) ? { ...(target as object) } : {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) delete out[key];
+    else out[key] = merged(out[key], value);
+  }
+  return out;
 }
