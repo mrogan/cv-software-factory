@@ -211,11 +211,13 @@ function MartinsCard({ need, token, onOpen }: { need: Need; token: string; onOpe
 export function NeedsYou({ needs, admin, onOpen }: { needs: NeedsView; admin: Admin; onOpen: (item: string) => void }) {
   const martin = admin.kind === 'martin';
   const { holds, answered } = needs;
+  // A deploy that is not his to merge yet keeps its card, but does not wait on him.
+  const waiting = holds.filter((need) => need.forMartin).length;
   return (
     <article className="panel needs" aria-labelledby="needs-title">
       <div className="panel-head">
         <h2 id="needs-title">{martin ? 'Needs you' : 'Waiting on Martin'}</h2>
-        {holds.length > 0 && <span className="count-attn">{holds.length} waiting</span>}
+        {waiting > 0 && <span className="count-attn">{waiting} waiting</span>}
       </div>
       {holds.length ? (
         <div className="needs-list">

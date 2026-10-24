@@ -2392,19 +2392,18 @@ describe('the deploy pull request that carries a held work item', () => {
     expect((await changes(workItem)).at(-1)).toEqual({ pullRequest: 31, head: 'f', state: 'checking' });
   });
 
-  it('records the merge of one no longer proposed before the one that is', async () => {
+  it('follows no newer build’s pull request once the one that carries it merged, until the release', async () => {
     const workItem = await heldForDeploy(sha('2'));
     const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
     propose(github, sha('d'));
     await pass();
     github.merge(DEPLOY);
-    propose(github, sha('f'), 31);
     await pass();
-    expect(await changes(workItem)).toEqual([
-      { pullRequest: DEPLOY, head: 'd', state: 'checking' },
-      { pullRequest: DEPLOY, head: 'd', state: 'merged' },
-      { pullRequest: 31, head: 'f', state: 'checking' },
-    ]);
+    // Before Argo CD syncs, main has a newer build: its pull request still counts the fix from the version the app runs.
+    propose(github, sha('f'), 31);
+    github.checks.set(sha('f'), [run('test', 'success')]);
+    await pass();
+    expect((await changes(workItem)).map((c) => `${c.pullRequest} ${c.state}`)).toEqual(['30 checking', '30 merged']);
   });
 
   it('appends nothing twice when the line starts again, and records afresh once a release that rolled back holds it again', async () => {

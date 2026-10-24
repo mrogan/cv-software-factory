@@ -248,8 +248,9 @@ describe('Needs you', () => {
         href: `https://github.com/mrogan/cv-worlds-worst-website/pull/${change.pullRequest}`,
         label: `Deploy #${change.pullRequest} on GitHub`,
       });
-      // Only once its checks pass is it Martin's: then its card says Needs you, flashing.
+      // Only once its checks pass is it Martin's: then its card says Needs you, flashing, and Needs you counts it.
       expect(outcome).toBe(change.state === 'passed' ? 'needs-you' : 'deploying');
+      expect(need?.forMartin).toBe(change.state === 'passed');
     });
   });
 

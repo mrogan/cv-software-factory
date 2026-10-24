@@ -32,7 +32,7 @@ import type {
   Sighting,
   ThreadReview,
 } from '../projection/index.ts';
-import { DEPLOY_STATE, scrubbed, TARGET } from '../projection/index.ts';
+import { deployWords, scrubbed, TARGET } from '../projection/index.ts';
 import { backWords } from '../projection/release.ts';
 import { REPORT_KEPT_DAYS } from '../projection/report.ts';
 import { kindName, ONGOING, OutcomeWord, spendWords } from './Card.tsx';
@@ -419,7 +419,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                         #{sheet.deploy.deploy.pullRequest} on GitHub
                       </a>
                     )}{' '}
-                    · {DEPLOY_STATE[sheet.deploy.deploy.state]}
+                    · {deployWords(sheet.deploy.deploy).fact}
                   </Fact>
                 )}
                 {sheet.facts.reviews && (

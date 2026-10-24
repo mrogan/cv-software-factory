@@ -61,6 +61,7 @@ The App opens the deploy pull request once main has a newer signed build ([deplo
 - The checks are judged as the gates are (`judge` in `line/gates.ts`), against what main's rulesets require, through the GitHub worker's `pullRequest`, `checkRuns` and `requiredChecks`.
 - A work item's record is the latest `deploy.changed` since its hold started, so a hold that starts again (after a rollback) waits for a deploy pull request of its own. A state that differs from it is appended, so the decision is the store's, and a line that starts again appends nothing twice.
 - A pull request recorded for a work item that is no longer the open proposal is read by its number: merged or closed is recorded only as GitHub says, never because the GitHub worker, just restarted, knows no proposal yet.
+- Once the pull request that carries it has merged, a newer build's is not followed: until Argo CD syncs, `carried` still counts the fix from the version the app runs, and the newer one is not its deploy.
 - A dry run's deploy pull request, which GitHub never had (`DRY_RUN_NUMBERS_FROM` up), is never recorded.
 - A read that fails leaves that work item to the next pass.
 

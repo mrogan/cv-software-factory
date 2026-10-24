@@ -6,7 +6,8 @@
  * But one: `line.hold.age` has a series for each hold that waits for Martin, named by its work item and, where he
  * answers it on GitHub, its pull request, so the alert for a new hold can say which and link it. Those series are as
  * many as the holds waiting for him, a handful, and each ends with its hold, reading 0, and goes when the line next
- * starts; both labels are numbers the store assigned, never a title, a reason or anything a visitor wrote.
+ * starts; both labels are numbers the store assigned, never a title, a reason or anything a visitor wrote. The alert
+ * rule that reads it, one alert per hold, comes with the image that exports it (`alerts/rules.ts`, issue #562).
  *
  * - What happened is counted where the line records it, and only once the store has taken the event, so a series and
  *   the events cannot disagree: holds and verifications in the line's append, releases in the release watch's.
@@ -239,6 +240,9 @@ export function observeStages(sql: Sql): () => void {
   return () => meter.removeBatchObservableCallback(callback, [workItems, oldest]);
 }
 
+/** A work item's or a pull request's number, as the store and GitHub give them. */
+const NUMBER = /^[1-9][0-9]*$/;
+
 const holdAge = meter.createObservableGauge('line.hold.age', {
   description:
     'How long each hold that waits for Martin has waited, by work item, cause and the pull request he answers it on, if any; 0 once it no longer waits',
@@ -261,6 +265,10 @@ export function observeHolds(sql: Sql): () => void {
     const open = new Map<string, Attributes>();
     const ages = new Map<string, number>();
     for (const hold of await openHolds(sql)) {
+      // Only numbers become labels, which an alert makes links of: the store's checks say so, and this again.
+      if (!NUMBER.test(hold.workItem) || (hold.pullRequest !== undefined && !NUMBER.test(String(hold.pullRequest)))) {
+        continue;
+      }
       const attributes = {
         work_item: hold.workItem,
         cause: hold.cause,

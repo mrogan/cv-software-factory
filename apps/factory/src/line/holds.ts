@@ -47,7 +47,7 @@ export function waitingHold(workItem: string, events: readonly Dated[]): OpenHol
     if (how === 'aborted' || how === 'errored') {
       return { workItem, cause: hold.cause, pullRequest: undefined, since: started.ts };
     }
-    const deploy = latestDeploy(events);
+    const deploy = latestDeploy(events, hold);
     if (deploy?.state !== 'passed') return undefined;
     const passed = events.findLast((event) => event.type === 'deploy.changed');
     return { workItem, cause: hold.cause, pullRequest: deploy.pullRequest, since: passed?.ts ?? started.ts };
@@ -61,9 +61,11 @@ export function waitingHold(workItem: string, events: readonly Dated[]): OpenHol
  */
 export async function openHolds(sql: Sql): Promise<OpenHold[]> {
   const rows = await sql<(RawEvent & { ts: Date; work_item: string })[]>`
-    with held as (
-      select distinct h.work_item from events h
-      where h.type = 'hold.started' and not h.sample and ${lastEnd(sql, 'h.work_item')} is distinct from 'work-item.closed'
+    with ever as (
+      select distinct h.work_item from events h where h.type = 'hold.started' and not h.sample
+    ),
+    held as (
+      select ever.work_item from ever where ${lastEnd(sql, 'ever.work_item')} is distinct from 'work-item.closed'
     )
     select e.seq, e.work_item, e.ts, e.type, e.version, e.payload from events e
     join held on held.work_item = e.work_item

@@ -43,13 +43,18 @@ export function deployState(
 }
 
 /**
- * The latest record of a work item's deploy pull request under the hold in force: the last `deploy.changed` since its
- * last `hold.started`. A hold that starts again (after a rollback, say) waits for a deploy of its own.
+ * The latest record of a work item's deploy pull request under the hold in force (`hold`, the payload the line's
+ * `fold` took): the last `deploy.changed` since that hold's `hold.started`. A hold that starts again (after a rollback,
+ * say) waits for a deploy of its own; a `hold.started` the fold passed over (one a release in flight already answered)
+ * starts nothing.
  */
-export function latestDeploy(events: readonly { type: string; payload: unknown }[]): DeployChange | undefined {
+export function latestDeploy(
+  events: readonly { type: string; payload: unknown }[],
+  hold: unknown,
+): DeployChange | undefined {
   let latest: DeployChange | undefined;
   for (const { type, payload } of events) {
-    if (type === 'hold.started') latest = undefined;
+    if (type === 'hold.started' && payload === hold) latest = undefined;
     if (type === 'deploy.changed') latest = payload as DeployChange;
   }
   return latest;
@@ -115,8 +120,14 @@ export async function recordDeploys(
     if (!change) {
       change = (async () => {
         const pr = await github.read('pullRequest', repo, { number });
-        const runs = pr.state === 'open' ? await github.read('checkRuns', repo, { sha: pr.head.sha }) : [];
-        required ??= github.read('requiredChecks', repo, { branch: 'main' });
+        // Only an open one's checks say anything: merged or closed, it has ended.
+        if (pr.state !== 'open') return { pullRequest: number, commit: pr.head.sha, ...deployState(pr, [], []) };
+        const runs = await github.read('checkRuns', repo, { sha: pr.head.sha });
+        required ??= github.read('requiredChecks', repo, { branch: 'main' }).catch((error: unknown) => {
+          // Read again by the next work item that needs it, not kept failed for the pass.
+          required = undefined;
+          throw error;
+        });
         return { pullRequest: number, commit: pr.head.sha, ...deployState(pr, runs, await required) };
       })();
       // A read that failed is read again on the next pass, not kept.
@@ -138,7 +149,9 @@ export async function recordDeploys(
       if (recorded && !settled(recorded) && recorded.pullRequest !== (carried.has(workItem) ? open : undefined)) {
         record(await read(recorded.pullRequest));
       }
-      if (open !== undefined && carried.has(workItem)) record(await read(open));
+      // Once the one that carries it merged, it waits for Argo CD: a newer build's, which still counts it from the
+      // version the app runs, is not its deploy.
+      if (open !== undefined && carried.has(workItem) && last?.state !== 'merged') record(await read(open));
       if (drafts.length) {
         await o.append(workItem, drafts);
         log.info(

@@ -28,7 +28,7 @@ import { type Sheet, sheet } from './sheet.ts';
 
 export type { ControlsView } from './controls.ts';
 export type { Attempt, DeployRecord, Finding, ThreadReview } from './fixing.ts';
-export { DEPLOY_STATE, deployWords } from './fixing.ts';
+export { deployWords } from './fixing.ts';
 export type { Capture, ItemState, Outcome } from './items.ts';
 export type {
   CapSpell,

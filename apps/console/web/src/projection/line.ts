@@ -291,8 +291,11 @@ export function station(
   if (held.length) {
     const words = `${held.length} ${held.every((item) => item.hold?.kind === 'held') ? 'held' : 'waiting'}`;
     figure = share ? `${share} · ${words}` : words;
-  } else if (share) figure = queued.length ? `${share} · ${queued.length} waiting` : share;
-  else if (here.length) figure = count(here.length, NOUNS[stage]);
+  } else if (share) {
+    // A deploy not Martin's yet waits here as a held one would: counted, as a held one is, beside the canary's share.
+    const deploys = queued.filter(deploying).length;
+    figure = deploys ? `${share} · ${deploys} waiting` : share;
+  } else if (here.length) figure = count(here.length, NOUNS[stage]);
   else if (queued.length) figure = `${queued.length} waiting`;
   else figure = today ? `${today} today` : 'none';
   return { stage, status, beacon, figure, queued: queued.length, cappedUntil: capped?.resets };

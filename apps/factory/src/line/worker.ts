@@ -1601,7 +1601,13 @@ export class Line {
     if (!target) return;
     const proposal = await github.read('deployProposal', repo, { branch: target.branch });
     // Without a commit to start from, or with one GitHub never had, there is no range to look in.
-    const carries = proposal ? await carried(this.#o, proposal.commit, proposal.pinned ?? undefined) : undefined;
+    // A failure to work out what it carries leaves the records of pull requests already known to be read.
+    const carries = proposal
+      ? await carried(this.#o, proposal.commit, proposal.pinned ?? undefined).catch((error: unknown) => {
+          log.warn({ err: error }, 'could not work out what the deploy pull request carries');
+          return undefined;
+        })
+      : undefined;
     if (this.#only === null && proposal && carries) {
       await this.#describeDeploy(proposal, carries).catch((error: unknown) =>
         log.warn({ err: error }, 'could not say what the deploy pull request carries'),
@@ -1611,8 +1617,8 @@ export class Line {
     for (const item of await this.#queue.free()) {
       if (item.stage !== 'held' || this.#inFlight.has(item.workItem) || this.#dryRunLeft.has(item.workItem)) continue;
       const { raw } = await this.#raw(item.workItem);
-      if (fold(raw as LineEvent[]).hold?.cause === 'deploy')
-        held.push({ workItem: item.workItem, recorded: latestDeploy(raw) });
+      const { hold } = fold(raw as LineEvent[]);
+      if (hold?.cause === 'deploy') held.push({ workItem: item.workItem, recorded: latestDeploy(raw, hold) });
     }
     if (!held.length) return;
     await recordDeploys(
